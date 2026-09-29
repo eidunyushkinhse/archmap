@@ -1,62 +1,122 @@
-/* Поведение и микро-анимации индикатора незавершённости схемы (SchemaAlerts).
-   Раскладка/цвета живут в inline-стилях компонента; здесь — только hover,
-   пульсация знака и тост «Схема завершена». Всё уважает prefers-reduced-motion. */
+/* Кнопка и панель «Рекомендации» (SchemaAlerts, спека alerts.md AL10–AL15).
+   Стили живут классами, а не инлайном: инлайновый фон перебил бы :hover и
+   состояние «открыто». Все рекомендации равнозначны — ни янтаря, ни цветовых
+   акцентов, ни пульса: подача спокойная, смотрят по желанию. */
 
-/* ---- строка-пункт: hover-подсветка + «прицел» перехода ---- */
+/* ---- кнопка-иконка того же вида, что «три точки» (SchemaActions) ---- */
+.sa-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 0;
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.sa-btn:hover { background: #f8fafc; }
+.sa-btn[aria-expanded="true"] { background: #f1f5f9; }
+.sa-btn:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+/* На холсте кнопка висит над схемой — лёгкая тень отделяет её от фона. */
+.sa-btn--canvas { box-shadow: 0 1px 3px rgba(15, 23, 42, .1); }
+
+/* Точка «рекомендации есть»: серая, без числа. Белое кольцо отделяет её от иконки. */
+.sa-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #64748b;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+
+/* ---- панель ---- */
+/* z-index 50: у соседей он задан явно (меню ⋯ и выпадающие списки страницы
+   объекта — 20/15/14), а холст React Flow расставляет свои значения элементам
+   схемы; без него панель уходила под них (находка ручной проверки 2026-08-08).
+   Ниже тостов (60); модалки живут в top-layer <dialog> и вне этой шкалы. */
+.sa-panel {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 320px;
+  max-height: 440px;
+  overflow-y: auto;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, .14);
+  text-align: left;
+  transform-origin: top right;
+  animation: saPanelIn .14s ease-out;
+}
+@keyframes saPanelIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Шапка панели липнет к верху при скролле длинного списка. */
+.sa-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
+  padding: 12px 14px 4px;
+}
+.sa-title { margin: 0; font-size: 14px; font-weight: 700; color: #1e293b; }
+.sa-sub { margin: 3px 0 0; font-size: 12px; color: #64748b; }
+
+/* Разделы: заголовок — мелкая серая подпись с числом, между разделами тонкая линия. */
+.sa-sec { padding: 8px 8px 2px; }
+.sa-sec + .sa-sec { border-top: 1px solid #eef0f2; }
+.sa-sec-head {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+.sa-sec-count { margin-left: 6px; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+/* Пункт — обычный текст; стрелка перехода только у пункта под курсором. */
 .sa-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 5px 6px;
   border-radius: 7px;
-  font-size: 13px;
-  color: #374151;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: #334155;
 }
-.sa-item + .sa-item { border-top: 1px solid #f6f7f8; border-radius: 0; }
 .sa-item--clickable { cursor: pointer; transition: background .12s; }
 .sa-item--clickable:hover,
-.sa-item--clickable:focus-visible { background: #fffbeb; outline: none; }
-.sa-item .sa-loc { flex-shrink: 0; display: flex; color: #d97706; opacity: 0; transition: opacity .12s; }
-.sa-item--clickable:hover .sa-loc,
-.sa-item--clickable:focus-visible .sa-loc { opacity: 1; }
+.sa-item--clickable:focus-visible { background: #f1f5f9; outline: none; }
+.sa-go { flex: none; font-size: 13px; color: #94a3b8; opacity: 0; transition: opacity .12s; }
+.sa-item--clickable:hover .sa-go,
+.sa-item--clickable:focus-visible .sa-go { opacity: 1; }
+.sa-text { flex: 1; min-width: 0; }
+.sa-line { display: block; }
+.sa-row { display: inline-flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+/* Служебные части строки: префикс «где», вторая строка-пояснение и связки — серым. */
+.sa-where { color: #64748b; font-weight: 600; }
+.sa-hint { display: block; font-size: 11.5px; color: #94a3b8; }
+.sa-muted { color: #94a3b8; }
+/* Конец-нарушитель в строке связи: полужирным, без цвета — выделять цветом нельзя. */
+.sa-strong { color: #1e293b; font-weight: 600; }
 
-/* ---- появление панели ---- */
-.sa-panel { transform-origin: top right; animation: saPanelIn .15s ease; }
-@keyframes saPanelIn {
-  from { opacity: 0; transform: translateY(-6px) scale(.98); }
-  to   { opacity: 1; transform: none; }
-}
-
-/* ---- пульс знака: расширяющееся янтарное кольцо, 3 цикла ----
-   span.sa-ring абсолютно перекрывает круглый знак; React пере-монтирует его по
-   key=pulseKey, поэтому конечная анимация перезапускается при каждом росте total. */
-.sa-ring {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  pointer-events: none;
-  animation: saRing 1.4s ease-out 3;
-}
-@keyframes saRing {
-  0%   { box-shadow: 0 0 0 0 rgba(245, 158, 11, .5); }
-  70%  { box-shadow: 0 0 0 13px rgba(245, 158, 11, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-}
-
-/* ---- тост «Схема завершена»: въезд справа, затем уезд вправо за край ----
-   Родитель индикатора (область схемы) обрезает overflow — тост уходит за экран. */
-.sa-toast { animation: saToastIn .26s cubic-bezier(.22,.7,.3,1); }
-.sa-toast--leave { animation: saToastOut .26s cubic-bezier(.55,0,.7,.3) forwards; }
-@keyframes saToastIn {
-  from { opacity: 0; transform: translateX(120%); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes saToastOut {
-  from { opacity: 1; transform: none; }
-  to   { opacity: 0; transform: translateX(120%); }
-}
+.sa-empty { padding: 26px 16px; text-align: center; font-size: 13px; color: #64748b; }
 
 @media (prefers-reduced-motion: reduce) {
-  .sa-panel, .sa-ring, .sa-toast, .sa-toast--leave { animation: none; }
-  /* тост просто появляется/исчезает без сдвига; уезд заменяется мгновенным скрытием */
+  .sa-panel { animation: none; }
+  .sa-item--clickable, .sa-go { transition: none; }
 }

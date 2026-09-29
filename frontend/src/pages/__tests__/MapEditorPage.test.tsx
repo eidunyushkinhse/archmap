@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
+import { getUserRole } from "../../api/auth";
 import type { Node } from "../../types";
 
 vi.mock("../../api/auth", () => ({ getUserRole: vi.fn(() => "architect") }));
@@ -92,13 +93,17 @@ vi.mock("../../components/NodeModal", () => ({ default: () => null }));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
-// Знак алертов: кнопка дёргает onOpenProcess — как строка процессного класса
-// (AL26/AL27) в настоящей панели.
+// Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
+// onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
 vi.mock("../../components/SchemaAlerts", () => ({
-  default: ({ onOpenProcess }: { onOpenProcess?: (id: string) => void }) =>
-    onOpenProcess ? (
-      <button data-testid="alert-proc" onClick={() => onOpenProcess("proc-7")}>алерт-процесс</button>
-    ) : null,
+  default: ({ onOpenProcess }: { onOpenProcess?: (id: string) => void }) => (
+    <>
+      <span data-testid="recs-button" />
+      {onOpenProcess && (
+        <button data-testid="alert-proc" onClick={() => onOpenProcess("proc-7")}>алерт-процесс</button>
+      )}
+    </>
+  ),
 }));
 vi.mock("../../components/SchemaViewFilter", () => ({ SchemaViewFilter: () => null }));
 
@@ -147,6 +152,7 @@ const props = {
 describe("MapEditorPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getUserRole).mockReturnValue("architect");
     levelGraphProps.current = null;
     sessionStorage.clear();
     historyMock.canUndo.mockReturnValue(false);
@@ -244,6 +250,24 @@ describe("MapEditorPage", () => {
 
     expect(sessionStorage.getItem("archmap.pendingProcess")).toBe("proc-7");
     expect(props.onDone).toHaveBeenCalledOnce();
+  });
+
+  // Рекомендации — только архитектору (AL10): у читателя кнопки на холсте нет.
+  it("кнопка «Рекомендации» на холсте есть у архитектора и нет у читателя", async () => {
+    const { unmount } = render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    expect(screen.getByTestId("recs-button")).toBeInTheDocument();
+    unmount();
+
+    // Роль возвращаем в finally: у соседних describe свои beforeEach без сброса роли.
+    vi.mocked(getUserRole).mockReturnValue("viewer");
+    try {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      expect(screen.queryByTestId("recs-button")).not.toBeInTheDocument();
+    } finally {
+      vi.mocked(getUserRole).mockReturnValue("architect");
+    }
   });
 
   it("undo с командой чужого уровня: сначала навигирует на уровень, потом отменяет", async () => {

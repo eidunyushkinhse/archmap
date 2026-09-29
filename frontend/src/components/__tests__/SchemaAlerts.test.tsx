@@ -1,10 +1,11 @@
-// Панель «Незавершённость схемы»: секция повисших сообщений процессов.
+// Панель «Рекомендации» (алерты схемы, спека alerts.md AL10–AL15): кнопка-лампочка
+// с точкой вместо числа, панель «чистым списком» и разделы классов алертов.
 //
-// Она отличается от остальных классов: чинить повисшее сообщение на холсте
-// нечего — связь удалена, а само сообщение живёт в процессе. Поэтому строка
-// кликабельна ТОЛЬКО там, где переход в процесс существует (оболочка страниц),
-// и молчит там, где его нет (редактор-карта — отдельный роут).
-import { render, screen } from "@testing-library/react";
+// Процессные разделы отличаются от остальных классов: чинить повисшее сообщение
+// на холсте нечего — связь удалена, а само сообщение живёт в процессе. Поэтому
+// строка кликабельна ТОЛЬКО там, где переход в процесс передан (onOpenProcess),
+// и молчит там, где его нет.
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
 import SchemaAlerts from "../SchemaAlerts";
@@ -37,8 +38,147 @@ const DANGLING = {
 };
 
 async function openPanel() {
-  await userEvent.click(screen.getByRole("button", { name: /Незавершённость схемы/i }));
+  await userEvent.click(screen.getByRole("button", { name: "Рекомендации" }));
 }
+
+// Точка на кнопке — единственный след общего числа: класс, попавший в сумму,
+// её зажигает. Числа на кнопке нет.
+function dot(): Element | null {
+  return document.querySelector(".sa-btn .sa-dot");
+}
+
+// ── Кнопка и панель (подача «А1. Чистый список», 2026-09-29) ─────────────────
+// Рекомендации смотрят по желанию, а не под давлением: кнопка видна всегда,
+// число заменено точкой, панель без иконок и цвета, у пустой схемы — пустое
+// состояние вместо исчезающей кнопки и тоста.
+const DISCONNECTED = { node_id: "n-7", node_name: "Уведомления" };
+
+describe("SchemaAlerts: кнопка «Рекомендации»", () => {
+  it("при нуле рекомендаций кнопка есть, точки нет", () => {
+    render(<SchemaAlerts alerts={EMPTY} />);
+
+    const btn = screen.getByRole("button", { name: "Рекомендации" });
+    expect(btn.getAttribute("title")).toBe("Рекомендации");
+    expect(dot()).toBeNull();
+  });
+
+  it("при total > 0 горит точка, числа на кнопке нет", () => {
+    render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED, { ...DISCONNECTED, node_id: "n-8" }] }} />);
+
+    expect(dot()).not.toBeNull();
+    // Имя кнопки не несёт числа, в её тексте цифр нет: точка — не счётчик долга.
+    const btn = screen.getByRole("button", { name: "Рекомендации" });
+    expect(btn.textContent ?? "").not.toMatch(/\d/);
+  });
+
+  it("рост и обнуление: ни числа, ни пульса, ни тоста — только точка гаснет", () => {
+    const { rerender } = render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} />);
+    rerender(
+      <SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED, { ...DISCONNECTED, node_id: "n-8" }] }} />,
+    );
+    expect(document.querySelector(".sa-ring")).toBeNull();
+
+    rerender(<SchemaAlerts alerts={EMPTY} />);
+
+    // Кнопка на месте, точка погасла, «Схема завершена» больше не всплывает.
+    expect(screen.getByRole("button", { name: "Рекомендации" })).toBeTruthy();
+    expect(dot()).toBeNull();
+    expect(screen.queryByText(/Схема завершена/)).toBeNull();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("на холсте кнопка той же формы, но с тенью; размер задаёт место", () => {
+    const { unmount } = render(<SchemaAlerts alerts={EMPTY} placement="canvas" />);
+    const onCanvas = screen.getByRole("button", { name: "Рекомендации" });
+    expect(onCanvas.className).toContain("sa-btn--canvas");
+    expect(onCanvas.style.width).toBe("32px");
+    unmount();
+
+    render(<SchemaAlerts alerts={EMPTY} size={34} />);
+    const inHeader = screen.getByRole("button", { name: "Рекомендации" });
+    expect(inHeader.className).not.toContain("sa-btn--canvas");
+    expect(inHeader.style.width).toBe("34px");
+  });
+});
+
+describe("SchemaAlerts: панель «Рекомендации»", () => {
+  it("пустое состояние: «Рекомендаций нет. Схема описана полностью.»", async () => {
+    render(<SchemaAlerts alerts={EMPTY} />);
+    await openPanel();
+
+    expect(screen.getByRole("dialog", { name: "Рекомендации" })).toBeTruthy();
+    expect(screen.getByText("Рекомендаций нет. Схема описана полностью.")).toBeTruthy();
+    // Подзаголовок про «что ещё дополнить» при пустой панели не нужен.
+    expect(screen.queryByText("Что ещё можно дополнить в схеме.")).toBeNull();
+  });
+
+  it("заголовок, подзаголовок и разделы подписью с числом; слова «алерт» нет", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED, { ...DISCONNECTED, node_id: "n-8", node_name: "Поиск" }] }}
+      />,
+    );
+    await openPanel();
+
+    const panel = screen.getByRole("dialog", { name: "Рекомендации" });
+    expect(screen.getByRole("heading", { name: "Рекомендации" })).toBeTruthy();
+    expect(screen.getByText("Что ещё можно дополнить в схеме.")).toBeTruthy();
+    const head = screen.getByText("Объекты без связей").closest(".sa-sec-head");
+    expect(head?.textContent).toBe("Объекты без связей2");
+    expect(screen.queryByText(/Рекомендаций нет/)).toBeNull();
+    expect(panel.textContent ?? "").not.toMatch(/алерт|незавершённ/i);
+  });
+
+  it("пункт — текст со стрелкой «→» и подсказкой «Показать на схеме»; без перехода их нет", async () => {
+    const { unmount } = render(
+      <SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} onLocate={vi.fn()} />,
+    );
+    await openPanel();
+    const row = screen.getByText("Уведомления").closest(".sa-item");
+    expect(row?.getAttribute("role")).toBe("button");
+    expect(row?.getAttribute("title")).toBe("Показать на схеме");
+    expect(row?.querySelector(".sa-go")?.textContent).toBe("→");
+    // Стрелка — украшение: в имя кнопки-пункта она не входит.
+    expect(screen.getByRole("button", { name: "Уведомления" })).toBeTruthy();
+    unmount();
+
+    render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} />);
+    await openPanel();
+    const still = screen.getByText("Уведомления").closest(".sa-item");
+    expect(still?.getAttribute("title")).toBeNull();
+    expect(still?.querySelector(".sa-go")).toBeNull();
+  });
+
+  it("клавиатура: Enter и пробел ведут к цели и закрывают панель", async () => {
+    const onLocate = vi.fn();
+    render(<SchemaAlerts alerts={{ ...EMPTY, disconnected_nodes: [DISCONNECTED] }} onLocate={onLocate} />);
+    await openPanel();
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Уведомления" }), { key: "Enter" });
+    expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n-7" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await openPanel();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Уведомления" }), { key: " " });
+    expect(onLocate).toHaveBeenCalledTimes(2);
+  });
+
+  it("закрывается повторным кликом, кликом вне и Escape", async () => {
+    render(<SchemaAlerts alerts={EMPTY} />);
+
+    await openPanel();
+    await openPanel();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await openPanel();
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    await openPanel();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
 
 describe("SchemaAlerts: шаги без схемы логики (AL34)", () => {
   // Алерт ПОЛНОТЫ (решение Р4): любой шаг с doc_id = NULL, включая самосообщения.
@@ -52,13 +192,13 @@ describe("SchemaAlerts: шаги без схемы логики (AL34)", () => {
     to_name: "Покупатель",
   };
 
-  it("считается в общем счётчике и ведёт в процесс", async () => {
+  it("зажигает точку и ведёт в процесс", async () => {
     const onOpenProcess = vi.fn();
     render(
       <SchemaAlerts alerts={{ ...EMPTY, unlinked_messages: [UNLINKED] }} onOpenProcess={onOpenProcess} />,
     );
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
     expect(screen.getByText("Шаги без схемы логики")).toBeTruthy();
     expect(screen.getByText("Сервис заказов → Покупатель")).toBeTruthy();
@@ -74,11 +214,11 @@ describe("SchemaAlerts: объекты с неописанными схемам�
   // сотни, и панель из двухсот строк — стена. Построчный бэклог — на странице объекта.
   const UNDESCRIBED = { node_id: "n-1", node_name: "Сервис заказов", count: 13 };
 
-  it("объект с заглушками — одна проблема в счётчике, строка ведёт к объекту", async () => {
+  it("объект с заглушками — одна строка, строка ведёт к объекту", async () => {
     const onLocate = vi.fn();
     render(<SchemaAlerts alerts={{ ...EMPTY, undescribed_docs: [UNDESCRIBED] }} onLocate={onLocate} />);
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
     expect(screen.getByText("Объекты с неописанными схемами логики")).toBeTruthy();
     expect(screen.getByText("13 схем")).toBeTruthy();
@@ -90,11 +230,11 @@ describe("SchemaAlerts: объекты с неописанными схемам�
 });
 
 describe("SchemaAlerts: сообщения без связи", () => {
-  it("зажигает знак и считается в общем счётчике", async () => {
+  it("зажигает точку на кнопке", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, dangling_messages: [DANGLING] }} />);
 
-    // Знак есть только при ненулевом total — значит новый класс в сумму входит.
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    // Точка горит только при ненулевом total — значит новый класс в сумму входит.
+    expect(dot()).not.toBeNull();
     await openPanel();
     expect(screen.getByText("Незадокументированные сообщения")).toBeTruthy();
     expect(screen.getByText(/Оформление заказа/)).toBeTruthy();
@@ -141,10 +281,10 @@ const UNBOUND = {
 };
 
 describe("SchemaAlerts: участники без узла схемы", () => {
-  it("зажигает знак и считается в общем счётчике", async () => {
+  it("зажигает точку на кнопке", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, unbound_participants: [UNBOUND] }} />);
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
     expect(screen.getByText("Незадокументированные участники")).toBeTruthy();
     expect(screen.getByText("Биллинг")).toBeTruthy();
@@ -197,11 +337,10 @@ describe("SchemaAlerts: ответ на асинхронном канале", ()
     expect(screen.getByText(/канал «оформить заказ»/)).toBeTruthy();
   });
 
-  it("считается в общей незавершённости", async () => {
+  it("входит в общее число: зажигает точку на кнопке", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, orphan_legs: [ORPHAN_LEG] }} />);
 
-    expect(screen.getByRole("button", { name: /Незавершённость схемы/i }).textContent)
-      .toContain("1");
+    expect(dot()).not.toBeNull();
   });
 
   it("строка ведёт В ПРОЦЕСС — чинить на холсте нечего", async () => {
@@ -234,8 +373,8 @@ describe("SchemaAlerts: обращения к неописанным данны�
   it("строка называет объект, док, пометку и причину", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} />);
 
-    // Знак есть только при ненулевом total — значит класс входит в общий счётчик.
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    // Точка горит только при ненулевом total — значит класс входит в общее число.
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
@@ -294,8 +433,8 @@ describe("SchemaAlerts: обращения к неописанным канал�
   it("строка называет объект, док, пометку и причину", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_channel_refs: [BROKEN_CHANNEL] }} />);
 
-    // Знак есть только при ненулевом total — значит класс входит в общий счётчик.
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    // Точка горит только при ненулевом total — значит класс входит в общее число.
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
@@ -326,8 +465,8 @@ describe("SchemaAlerts: обращения к неописанным канал�
         alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF], unresolved_channel_refs: [BROKEN_CHANNEL] }}
       />,
     );
-    // Оба класса считаются в общем счётчике незавершённости.
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 2" })).toBeTruthy();
+    // Оба класса входят в общее число рекомендаций.
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
@@ -371,10 +510,10 @@ const BROKER_EDGE = {
 };
 
 describe("SchemaAlerts: связи с брокером без канала", () => {
-  it("связь без канала названа концами и считается в общем счётчике", async () => {
+  it("связь без канала названа концами и зажигает точку", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, broker_edge_channels: [BROKER_EDGE] }} />);
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Связи с брокером без канала")).toBeTruthy();
@@ -436,10 +575,10 @@ const SELF_NEST = {
 };
 
 describe("SchemaAlerts: связи в собственный компонент", () => {
-  it("названа концами, объясняет вложенность и считается в общем счётчике", async () => {
+  it("названа концами, объясняет вложенность и зажигает точку", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, descendant_edges: [SELF_NEST] }} />);
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Связи в собственный компонент")).toBeTruthy();
@@ -502,7 +641,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
   it("строка называет объект, док, пометку и оба выхода починки", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [BROKEN_PARAM] }} />);
 
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 1" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
@@ -525,7 +664,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
         }}
       />,
     );
-    expect(screen.getByRole("button", { name: "Незавершённость схемы: 3" })).toBeTruthy();
+    expect(dot()).not.toBeNull();
     await openPanel();
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();

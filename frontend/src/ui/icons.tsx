@@ -107,6 +107,13 @@ export const QuestionCircleIcon = ({ size = 15 }: IcoProps) => (
     <path d="M9.4 9.2a2.7 2.7 0 1 1 3.4 3.2c-.6.2-.9.7-.9 1.3v.5" />
     <path d="M12 17.2v.2" strokeWidth={2.4} /></svg>);
 
+// Лампочка — кнопка «Рекомендации» (SchemaAlerts) в шапке и на холсте редактора.
+// Нейтральный знак «подсказка», а не «тревога»: рекомендации смотрят по желанию.
+export const BulbIcon = ({ size = 16 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <path d="M9 18h6M10 21h4" />
+    <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3Z" /></svg>);
+
 // Логомарк: синяя плитка с мини-графом (узел + объект-контейнер + ребро).
 export function LogoMark({ size = 30 }: IcoProps) {
   return (

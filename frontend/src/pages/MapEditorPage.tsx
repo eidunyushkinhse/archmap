@@ -256,7 +256,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Счётчик токенов locate: пульс пере-триггерится на каждый новый запрос.
   const locateSeq = useRef(1);
 
-  // Алерты незавершённости схемы (индикатор «!» в рейле холста, архитектор).
+  // Алерты схемы — в интерфейсе «Рекомендации» (кнопка в рейле холста, архитектор).
   const { alerts, loaded: alertsLoaded, reload: reloadAlerts } = useSchemaAlerts(isArchitect);
 
   // Переход к проблемному объекту/связи/группе из алертов: общий предок → уровень,
@@ -728,13 +728,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
         {/* Холст */}
         <div style={graphArea}>
-          {/* Рейл тостов холста (правый верхний угол, спека AL10): индикатор
-              незавершённости схемы + тост чужой сессии. Прозрачен для мыши,
-              интерактивны только знак и панель (pointerEvents у них auto). */}
+          {/* Рейл тостов холста (правый верхний угол, спека AL10): кнопка
+              «Рекомендации» + тост чужой сессии. Прозрачен для мыши,
+              интерактивны только кнопка и панель (pointerEvents у них auto). */}
           <div style={toastRail}>
             {isArchitect && (
               <SchemaAlerts
                 alerts={alerts}
+                placement="canvas"
                 onLocate={handleLocate}
                 // Процессные классы (AL26/AL27) на холсте чинить нечем: у повисшего
                 // сообщения связь удалена, у непривязанного участника узла нет —
@@ -885,7 +886,7 @@ const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "cente
 const crumbSep: CSSProperties = { color: "#cbd5e1", display: "inline-flex", alignItems: "center", margin: "0 1px" };
 const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, flex: "none", background: "#fff", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, cursor: "pointer" };
 // Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
-// интерактивны только вложенные знак/панель алертов и тост (у них pointerEvents auto).
+// интерактивны только вложенные кнопка/панель рекомендаций и тост (у них pointerEvents auto).
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

@@ -36,8 +36,8 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
-// Знак алертов: кнопки, дёргающие onLocate разными типами целей (как клик по
-// пунктам в реальном меню): узел / связь / группа.
+// Кнопка «Рекомендации» (алерты): кнопки, дёргающие onLocate разными типами целей
+// (как клик по пунктам в реальной панели): узел / связь / группа.
 vi.mock("../../components/SchemaAlerts", () => ({
   default: ({ onLocate }: { onLocate: (t: { kind: string; id?: string; ids?: string[] }) => void }) => (
     <>
@@ -273,10 +273,15 @@ describe("ProjectShell", () => {
     expect(screen.queryByText("Открыть в редакторе?")).not.toBeInTheDocument();
   });
 
-  it("наблюдателю не виден знак алертов в шапке", async () => {
+  it("наблюдателю кнопки «Рекомендации» в шапке нет", async () => {
     vi.mocked(getUserRole).mockReturnValue("viewer");
     setup(null);
     await waitFor(() => expect(screen.getByTestId("tree-panel")).toBeInTheDocument());
     expect(screen.queryByTestId("alert-node")).not.toBeInTheDocument();
+  });
+
+  it("архитектору кнопка «Рекомендации» в шапке есть", () => {
+    setup(null);
+    expect(screen.getByTestId("alert-node")).toBeInTheDocument();
   });
 });
