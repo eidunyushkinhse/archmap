@@ -269,7 +269,8 @@ def test_каждый_вид_находится(db, query, kind, title):
 
     res = search(db, project.id, query)
 
-    assert res.total == 1
+    # Имя таблицы (канала) есть и в адресе её колонки (поля) — вторая находка ниже.
+    assert res.total == (2 if kind in ("table", "channel") else 1)
     hit = res.hits[0]
     assert (hit.kind, hit.title) == (kind, title)
     if query == "quotacheck":
@@ -283,6 +284,19 @@ def test_каждый_вид_находится(db, query, kind, title):
     if kind == "step":
         # Шаг, привязанный к схеме, ведёт и к ней.
         assert hit.message_id == scene["msg"].id and hit.doc_id == scene["doc"].id
+
+
+def test_колонка_и_поле_ищутся_по_адресу(db):
+    """«таблица.колонка» и «канал.поле» — так их называют пометки схем и логи."""
+    project = ensure_project(db)
+    _все_виды(db, project)
+
+    column = search(db, project.id, "ledger.amount_cents").hits[0]
+    field = search(db, project.id, "invoice_events payer_ref").hits[0]
+
+    assert (column.kind, column.title) == ("column", "ledger.amount_cents")
+    assert column.snippet == "ledger.amount_cents bigint · Сумма в копейках"
+    assert (field.kind, field.title) == ("field", "invoice_events.payer_ref")
 
 
 def test_заголовок_схемы_без_номера_строки(db):

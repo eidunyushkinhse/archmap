@@ -95,10 +95,12 @@ SNIPPET_LEN = 200
 SNIPPET_LEAD = 60
 
 # Порядок видов при равном счёте: конкретное знание (строка схемы) раньше общего.
+# Таблица раньше своих колонок, канал — раньше полей: колонка несёт в тексте имя
+# таблицы, и на запрос из одного имени таблицы ответ — сама таблица.
 KIND_ORDER: dict[str, int] = {
     kind: i
     for i, kind in enumerate(
-        ["doc", "spec", "param", "column", "field", "table", "channel", "step", "process", "node"]
+        ["doc", "spec", "param", "table", "column", "channel", "field", "step", "process", "node"]
     )
 }
 
@@ -258,12 +260,15 @@ def collect_units(db: Session, project_id: uuid.UUID) -> tuple[list[Unit], dict[
         .filter(Node.project_id == project_id)
         .all()
     )
+    # Колонку ищем по полному адресу «таблица.колонка», а не по одному имени: так
+    # её называют и пометки схем («читает: alerts.status»), и люди, и логи. Полевой
+    # прогон: «alerts retries» по одному имени колонки находил лишь строку схемы.
     for c in columns:
+        title = f"{table_title[c.table_id]}.{c.name}"
         units.append(
             Unit(
-                kind="column", title=f"{table_title[c.table_id]}.{c.name}",
-                node_id=table_node[c.table_id],
-                text=_joined(f"{c.name} {c.type}".strip(), c.description),
+                kind="column", title=title, node_id=table_node[c.table_id],
+                text=_joined(f"{title} {c.type}".strip(), c.description),
             )
         )
 
@@ -291,12 +296,12 @@ def collect_units(db: Session, project_id: uuid.UUID) -> tuple[list[Unit], dict[
         .filter(Node.project_id == project_id)
         .all()
     )
-    for f in fields:
+    for f in fields:  # поле — по адресу «канал.поле», как колонка
+        title = f"{channel_title[f.channel_id]}.{f.name}"
         units.append(
             Unit(
-                kind="field", title=f"{channel_title[f.channel_id]}.{f.name}",
-                node_id=channel_node[f.channel_id],
-                text=_joined(f"{f.name} {f.type}".strip(), f.description),
+                kind="field", title=title, node_id=channel_node[f.channel_id],
+                text=_joined(f"{title} {f.type}".strip(), f.description),
             )
         )
 
