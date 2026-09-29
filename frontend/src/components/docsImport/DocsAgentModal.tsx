@@ -5,33 +5,20 @@
 // «Пакетом» — все схемы объекта за заход (микросервисы); «По одной схеме» — один
 // воркер/эндпоинт (крупные монолиты), слева поле «Что описать» (target — блок
 // фокуса в промпте).
-// Пакет — самодостаточные .mmd: имя схемы, вид и привязка к операции лежат в
-// ШАПКЕ файла, файла-описи нет (docs/plan-docs-mmd.md). Имя и вид правятся прямо
-// в строке превью; правка уезжает полем overrides, а не переписыванием текста,
-// как было с манифестом.
-// Mermaid-тексты схем валидируются здесь фронтом (бэкового валидатора нет) —
-// советующе, ✗ не блокирует применение. Применение НЕ кладётся в undo (см.
-// примечание к версионированию в tasks.md) — страховка: превью + дефолт
-// «не перезаписывать». Закрытие после успешного применения — отсюда (onClose);
-// родитель через onApplied только освежает мету узла.
-import { useEffect, useMemo, useRef, useState } from "react";
+// Здесь только оболочка и левая колонка (параметры промпта). Файлы пакета, превью
+// и применение — DocsAgentPanel: то же тело живёт в окне одной схемы (DocOverlay).
+// Закрытие после успешного применения — отсюда (onClose); родитель через onApplied
+// только освежает мету узла.
+import { useState } from "react";
 import type { CSSProperties } from "react";
-import type { DocsImportReport, NodeDocKind, PromptVariant } from "../../types";
-import { docsImportApi, type DocsFile, type DocsOverride, type DocsPromptParams } from "../../api/docsImport";
-import { validateMermaid } from "../mermaidLoader";
-import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
-import { useFileDrop } from "./useFileDrop";
-import {
-  ACTION_LABEL, countAction, checkMermaid, type MermaidCheck,
-  inputFingerprint, useRepeatedInput,
-  head, sub, cols, leftCol, rightCol, radioRow, hintsArea,
-  chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
-} from "./agentModalShared";
-import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
+import type { PromptVariant } from "../../types";
+import { docsImportApi, type DocsPromptParams } from "../../api/docsImport";
+import { head, sub, cols, leftCol, radioRow, hintsArea } from "./agentModalShared";
+import DocsAgentPanel from "./DocsAgentPanel";
 import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
-import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { labelStyle } from "../../ui/styles";
 
 type Mode = "batch" | "single";
 
@@ -49,142 +36,12 @@ interface Props {
   onApplied: () => void;
 }
 
-// Память попыток агента: сколько пометок каждой семьи несло ПРЕДЫДУЩЕЕ зелёное
-// превью. Текстовый запрет «не удаляй пометки» в замечаниях нужен, но тексты
-// дисперсны — число не врёт: упало между попытками, значит агент, скорее всего,
-// вырезал пометки вместо починки (находка №2 docs/qa-sentry-brokers.md).
-// from — отчёт, которому соответствует cur (сравнение по ссылке: каждый ответ
-// превью — новый объект). prev = null — попытка первая, сравнивать не с чем.
-interface RefCounts {
-  data: number;
-  channel: number;
-}
-interface Attempts {
-  from: DocsImportReport | null;
-  prev: RefCounts | null;
-  cur: RefCounts;
-}
-const NO_REFS: RefCounts = { data: 0, channel: 0 };
-const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: NO_REFS };
-
-const KIND_LABEL: Record<NodeDocKind, string> = {
-  operation: "Операция",
-  worker: "Воркер",
-};
-const KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
-
 export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", initialTarget = "", onClose, onApplied }: Props) {
   const [mode, setMode] = useState<Mode>(initialMode);
   // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
   const [target, setTarget] = useState(initialTarget); // «По одной»: воркер/эндпоинт
-  // ── файлы пакета и превью (общие для обоих режимов) ──
-  const pkg = useDocsFiles();
-  const [overwrite, setOverwrite] = useState(false);
-  // Отчёт последнего превью/применения. Пустые файлы прячут его ПРОИЗВОДНО
-  // (pkg.hasContent ниже) — эффекты не зеркалят состояние синхронными setState.
-  const [rawReport, setRawReport] = useState<DocsImportReport | null>(null);
-  const [checking, setChecking] = useState(false);
-  // Результаты mermaid-валидации привязаны к породившему их отчёту (сравнение
-  // по ссылке — паттерн importSummary.forDocs): чужому отчёту не показываются.
-  const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; check: MermaidCheck } | null>(null);
-  const [applying, setApplying] = useState(false);
-  const [remarksCopied, setRemarksCopied] = useState(false);
-  // Правки строк превью: ключ — ФАЙЛ-источник (одна схема = один файл .mmd).
-  // Уезжают на бэк отдельным полем overrides: манифеста, текст которого раньше
-  // переписывался ради правки вида, больше нет (docs/plan-docs-mmd.md).
-  const [overrides, setOverrides] = useState<DocsOverride[]>([]);
-  const fileRef = useRef<HTMLInputElement>(null); // скрытый input «Загрузить файлы…»
-  const seqRef = useRef(0);
-  // Перетаскивание в ту же зону, что и кнопка загрузки. Расширения не сужаем:
-  // в пакете archmap-docs лежит манифест и файлы схем, состав задаёт агент.
-  const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
-
-  const report = pkg.hasContent ? rawReport : null;
-  // Проверка схем — производное от отчёта: пока её нет (парс ещё идёт), окно не
-  // делает вид, что схемы здоровы, а прямо говорит «проверяю».
-  const mmdCheck = report !== null && mmdRes?.forReport === report ? mmdRes.check : null;
-  const mmdErrs = mmdCheck?.errs ?? null;
-  const mmdBroken = mmdErrs === null ? 0 : mmdErrs.filter((e) => e !== null).length;
-  const mmdPending = report !== null && report.logic.length > 0 && mmdCheck === null;
-
-  // Дифф числа пометок между попытками. Переставляем ПРИ РЕНДЕРЕ по смене ссылки
-  // отчёта (React-паттерн «adjusting state when props change», как в ImportPane), а
-  // не зеркалящим эффектом: setState в useEffect запрещён линтом и дал бы лишний
-  // кадр со старыми числами. Считаем только ЗЕЛЁНЫЕ превью: у отчёта с ошибками
-  // плана нет вовсе, и его нули не попытка агента, а отсутствие разбора.
-  const [seen, setSeen] = useState<Attempts>(NO_ATTEMPTS);
-  const counted = report !== null && !report.applied && report.errors.length === 0;
-  if (counted && seen.from !== report) {
-    setSeen({
-      from: report,
-      prev: seen.cur,
-      cur: { data: report.data_refs_total, channel: report.channel_refs_total },
-    });
-  }
-  // Гвард «вход не изменился»: тот же байт-в-байт пакет, что в прошлый заход, —
-  // повод посмотреть на файлы агента, а не на замечание (находка полевой приёмки).
-  const fingerprint = useMemo(() => inputFingerprint(pkg.files), [pkg.files]);
-  const repeatedInput = useRepeatedInput(pkg.files, fingerprint);
-  // Пакет, к которому задан вопрос об устаревании (после копирования замечаний).
-  // Сравнение по ссылке: тронули файлы — вопрос снят сам, без эффекта.
-  const [askedFor, setAskedFor] = useState<DocsFile[] | null>(null);
-  // Что уменьшилось между попытками. Рост и равенство — норма, о них молчим.
-  const shrank = useMemo(() => {
-    const was = seen.prev;
-    if (was === null) return [];
-    const out: string[] = [];
-    if (was.data > seen.cur.data) {
-      out.push(`Пометок данных было ${was.data} → стало ${seen.cur.data}.`);
-    }
-    if (was.channel > seen.cur.channel) {
-      out.push(`Пометок каналов было ${was.channel} → стало ${seen.cur.channel}.`);
-    }
-    return out;
-  }, [seen]);
-
-  // Дебаунс-превью по файлам и тумблеру; план фильтруется по схемам логики
-  // (only="logic"). Все setState — в таймере/ответе (асинхронно); seq отбрасывает
-  // устаревшие ответы при быстрой правке.
-  useEffect(() => {
-    const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
-    if (nonEmpty.length === 0) return; // отчёт скрыт производно (hasContent)
-    const seq = ++seqRef.current;
-    const t = window.setTimeout(() => {
-      setChecking(true);
-      docsImportApi.preview({ files: nonEmpty, overwrite, only: "logic", nodeId, overrides })
-        .then((r) => {
-          if (seqRef.current !== seq) return;
-          setRawReport(r);
-          setChecking(false);
-        })
-        .catch(() => {
-          if (seqRef.current !== seq) return;
-          setRawReport(null);
-          setChecking(false);
-        });
-    }, 600);
-    return () => window.clearTimeout(t);
-    // overrides в зависимостях намеренно: правка имени/вида в превью меняет
-    // ПЛАН (создание вместо перезаписи), и пользователь должен видеть это сразу.
-  }, [pkg.files, overwrite, nodeId, overrides]);
-
-  // Mermaid-валидация текстов схем из превью НАСТОЯЩИМ парсером (ленивый чанк
-  // mermaid грузится только когда пакет уже разобран). Асинхронна по природе,
-  // поэтому эффект — с отменой по смене отчёта: результат чужого пакета показывать
-  // нельзя. Полевая находка (Zulip v2): 9 из 30 схем приехали с рассогласованными
-  // скобками вершины — парсер такой класс ловит, но замечание должно назвать ФАЙЛ и
-  // быть видно ДО применения, иначе схемы применяются мёртвыми для рендера.
-  useEffect(() => {
-    if (report === null || report.logic.length === 0) return;
-    let alive = true;
-    void checkMermaid(report.logic, validateMermaid).then((check) => {
-      if (alive) setMmdRes({ forReport: report, check });
-    });
-    return () => { alive = false; };
-  }, [report]);
-
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (промежуточных await между
   // кликом и writeText не добавляем). «Скопировано» показывает PromptCopyButton по
   // разрешению этого обещания — своё у каждого из трёх вариантов.
@@ -196,116 +53,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
     return docsImportApi.prompt(params).then(({ prompt }) => navigator.clipboard.writeText(prompt));
   }
 
-  // ── правка строки превью (имя и вид схемы) ──
-  function kindOf(file: string, reportKind: NodeDocKind): NodeDocKind {
-    return overrides.find((o) => o.file === file)?.kind ?? reportKind;
+  // Пакет применён: «Добавить ещё» оставляет окно под следующую точку входа
+  // (адрес очищаем здесь, пакет панель очистила сама), остальное закрывает окно.
+  function applied(more: boolean) {
+    onApplied();
+    if (more) setTarget("");
+    else onClose();
   }
-  function nameOf(file: string, reportName: string): string {
-    return overrides.find((o) => o.file === file)?.name ?? reportName;
-  }
-  function edit(file: string, patch: Partial<DocsOverride>) {
-    setOverrides((prev) => {
-      const cur = prev.find((o) => o.file === file) ?? { file };
-      const next = { ...cur, ...patch };
-      const rest = prev.filter((o) => o.file !== file);
-      // Пустая правка (вернули как было) — не храним
-      return next.name === undefined && next.kind === undefined ? rest : [...rest, next];
-    });
-  }
-
-  // Замечания для агента: ошибки/конфликты/предупреждения бэка + mermaid-замечания
-  // фронта (собраны и закапированы в checkMermaid — там же формат «файл: …»).
-  const remarks =
-    report === null
-      ? []
-      : [...report.errors, ...report.conflicts, ...report.warnings, ...(mmdCheck?.remarks ?? [])];
-
-  // Вступление к замечаниям несёт ЗАПРЕТ УДАЛЯТЬ пометки, и это не косметика:
-  // полевой QA (docs/qa-sentry-brokers.md, находка №2) показал ампутацию Х3 в новой
-  // одежде — по списку из семи битых пометок слабая модель «починила» их удалением
-  // ВСЕХ восьмидесяти трёх, и обратный индекс базы опустел при «идеальном» превью.
-  // Второй урок (docs/qa-zulip-brokers.md, находка №1): чинить «именем ИЛИ
-  // квалификатором» — это ВЫБОР ИЗ ДВУХ МЕХАНИК, и слабая модель оба круга берёт
-  // дешёвую — добавляет квалификатор, потом снимает его обратно, а имя так и не
-  // сверяет. Поэтому цель одна: ДОСЛОВНОЕ имя, и сказано, где его взять
-  // (подсказка «похоже на …» из замечания); квалификатор — только про омонимы.
-  function copyRemarks() {
-    const text =
-      "Валидатор дозаливки доков ArchMap нашёл замечания к пакету archmap-docs. " +
-      "Исправь пакет и сообщи, какие файлы изменились. Битую пометку чини " +
-      "ДОСЛОВНЫМ именем: бери его из подсказки «похоже на …» в замечании, а нет " +
-      "подсказки — найди настоящее имя в структуре проекта или DDL. Квалификатор " +
-      "«Узел / имя» добавляй ТОЛЬКО когда одинаковое имя есть у разных узлов. " +
-      "НЕ удаляй пометки: удаление прячет факт, а не исправляет его:\n" +
-      remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
-      setRemarksCopied(true);
-      setTimeout(() => setRemarksCopied(false), 2000);
-      // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
-      // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
-      setAskedFor(pkg.files);
-    });
-  }
-
-  // Убрать пакет из панели: файлы, отчёт, правки строк и история попыток —
-  // сравнивать после очистки не с чем (зеркало снятия последнего файла крестиком).
-  function clearPackage() {
-    setAskedFor(null);
-    pkg.reset();
-    setRawReport(null);
-    setMmdRes(null);
-    setOverrides([]);
-    setSeen(NO_ATTEMPTS);
-  }
-
-  // «Добавить ещё» (режим «по одной»): применить, затем очистить поля для
-  // следующего воркера/эндпоинта (модалка остаётся открытой в режиме single).
-  function resetSingleForNext() {
-    setTarget("");
-    clearPackage(); // следующий воркер — новый пакет, сравнивать не с чем
-  }
-
-  // Убрали последний файл — пакета больше нет: история попыток начинается заново
-  // (зеркало ImportPane), и вместе с ней уходит отчёт. Без этого отчёт прошлого
-  // пакета вернулся бы при первой же вставке (он лишь СКРЫТ производно) и стал бы
-  // «первой попыткой» нового — с ложной ампутацией на следующем превью.
-  function removeFile(i: number) {
-    if (pkg.files.length === 1) {
-      setSeen(NO_ATTEMPTS);
-      setRawReport(null);
-      setMmdRes(null);
-    }
-    pkg.removeFile(i);
-  }
-
-  function apply(closeAfter: boolean) {
-    setApplying(true);
-    // Окно логики: применяются только схемы логики (only="logic")
-    docsImportApi.apply({ files: pkg.nonEmpty, overwrite, only: "logic", nodeId, overrides })
-      .then((r) => {
-        setRawReport(r);
-        if (!r.applied) return;
-        onApplied();
-        if (closeAfter) onClose();
-        else resetSingleForNext();
-      })
-      .finally(() => setApplying(false));
-  }
-
-  // Правка в превью делает схему «перезаписью» даже при unchanged в отчёте
-  // (бэк сверяет имя и вид) — учитываем её в доступности кнопок применения.
-  const kindEdited = overrides.length > 0 && report !== null && report.logic.length > 0;
-  // «fill» — заполнение заглушки разведки: тоже запись, и без него кнопка «Применить»
-  // осталась бы серой на пакете, который весь состоит из заполнения заглушек (то есть
-  // на главном сценарии разведки).
-  const willWrite =
-    report !== null &&
-    report.errors.length === 0 &&
-    (kindEdited ||
-      countAction(report.logic, "create") +
-        countAction(report.logic, "fill") +
-        countAction(report.logic, "overwrite") >
-        0);
 
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
@@ -380,213 +134,13 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
         </div>
 
         {/* ── Справа: файлы пакета + превью + применение ── */}
-        <div style={rightCol}>
-          <div style={chipsRow}>
-            {pkg.files.map((f, i) => (
-              <span key={f.name} style={i === pkg.active ? chipOn : chip}>
-                <button type="button" style={chipBtn} title={f.name} onClick={() => pkg.setActive(i)}>
-                  {f.name}
-                </button>
-                <button type="button" style={chipX} title="Убрать файл" onClick={() => removeFile(i)}>×</button>
-              </span>
-            ))}
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              style={{ display: "none" }}
-              onChange={(e) => { pkg.pickFiles(e.target.files); e.target.value = ""; }}
-            />
-            <button
-              type="button"
-              className="btn-soft"
-              disabled={pkg.files.length >= MAX_FILES}
-              onClick={() => fileRef.current?.click()}
-            >
-              Загрузить файлы…
-            </button>
-            <button
-              type="button"
-              className="btn-soft"
-              disabled={pkg.files.length >= MAX_FILES}
-              title="Добавить схему вставкой текста"
-              onClick={pkg.addPaste}
-            >
-              + вставить из буфера
-            </button>
-          </div>
-
-          <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
-            {pkg.files.length > 0 ? (
-              <textarea
-                style={fileArea}
-                value={pkg.files[pkg.active]?.content ?? ""}
-                onChange={(e) => pkg.setText(pkg.active, e.target.value)}
-                placeholder="вставьте содержимое файла"
-                spellCheck={false}
-              />
-            ) : (
-              <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы схем, которые создал агент, или нажмите, чтобы выбрать
-                их на диске. Схему можно и вставить текстом.
-              </button>
-            )}
-          </div>
-          {drop.error && (
-            <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>
-          )}
-
-          {/* Отчёт превью / применения */}
-          <div style={{ marginTop: 10, minHeight: 20 }}>
-            {checking && <div style={grayLine}>Проверяю пакет…</div>}
-            {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
-                повторится, и чинить надо не его, а разговор с агентом. */}
-            {repeatedInput && <UnchangedInputNote />}
-            {/* Ампутация пометок не должна быть молчаливой: пропавшие между
-                попытками — НАД сводкой, до зелёного «Схем: N». */}
-            {!checking && shrank.map((line) => (
-              <div key={line} style={shrankLine}>
-                {line} Проверьте: агент мог удалить их вместо починки
-              </div>
-            ))}
-            {/* Непарсящиеся схемы — строкой НАД сводкой, а не только значком ✗ в
-                строке файла: в пакете на три десятка схем значок в списке теряется,
-                и пакет применяют целиком (полевая находка Zulip v2). Применение не
-                блокируем: схема с битым mermaid — всё ещё текст, который правят. */}
-            {!checking && mmdPending && <div style={grayLine}>Проверяю схемы mermaid…</div>}
-            {!checking && report !== null && mmdBroken > 0 && (
-              <div style={shrankLine}>
-                Не парсятся mermaid: {mmdBroken} из {report.logic.length} схем — применение
-                их не оживит, почините пакет и загрузите снова
-              </div>
-            )}
-            {!checking && report !== null && report.applied && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: схем создано {report.created_docs}, заполнено заглушек{" "}
-                {report.filled_docs}, перезаписано {report.updated_docs}.
-              </div>
-            )}
-            {!checking && report !== null && !report.applied && report.errors.length === 0 && (
-              <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-                Схем: {report.logic.length} (новых {countAction(report.logic, "create")},
-                заглушек {countAction(report.logic, "fill")},
-                перезапись {countAction(report.logic, "overwrite")}, пропуск {countAction(report.logic, "skip")},
-                без изменений {countAction(report.logic, "unchanged")})
-              </div>
-            )}
-            {!checking && report !== null && report.errors.length > 0 && (
-              <div style={{ fontSize: 12.5, color: "#dc2626" }}>
-                <div style={{ fontWeight: 600, marginBottom: 3 }}>Пакет не применить:</div>
-                {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
-                {report.errors.length > 6 && <div>…ещё {report.errors.length - 6}</div>}
-              </div>
-            )}
-
-            {!checking && report !== null && report.logic.length > 0 && (
-              <ItemList
-                title="Схемы логики:"
-                rows={report.logic.map((l, i) => {
-                  // Фиксируем в const: TS не сужает индексацию через ?. в тернарнике
-                  const err = mmdErrs?.[i] ?? null;
-                  const key = `${l.node_path}#${l.name}`;
-                  return {
-                    key,
-                    text: `«${l.node_path}»${l.operation ? ` · ${l.operation}` : ""}`,
-                    badge: ACTION_LABEL[l.action] ?? l.action,
-                    bad: err !== null ? `mermaid: ${err.split("\n")[0]}` : null,
-                    ok: mmdErrs?.[i] === null,
-                    // Имя и вид приехали из шапки файла (или подставлены по
-                    // умолчанию) — и то и другое правится до применения.
-                    extra: (
-                      <>
-                        <input
-                          style={nameInput}
-                          value={nameOf(l.source, l.name)}
-                          onChange={(e) => edit(l.source, { name: e.target.value || undefined })}
-                          title="Имя схемы — под ним она будет видна в ArchMap"
-                          aria-label={`Имя схемы из файла ${l.source}`}
-                        />
-                        <select
-                          style={kindSelect}
-                          value={kindOf(l.source, l.kind)}
-                          onChange={(e) => edit(l.source, { kind: e.target.value as NodeDocKind })}
-                          title="Вид схемы — можно поменять до применения"
-                          aria-label={`Вид схемы из файла ${l.source}`}
-                        >
-                          {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-                        </select>
-                      </>
-                    ),
-                  };
-                })}
-              />
-            )}
-            {!checking && report !== null && report.conflicts.length > 0 && (
-              <NoteList title="Конфликты файлов (оставлен первый источник):" items={report.conflicts} />
-            )}
-            {!checking && report !== null && report.warnings.length > 0 && (
-              <NoteList title="Проверьте:" items={report.warnings} />
-            )}
-            {!checking && remarks.length > 0 && (
-              <button
-                type="button"
-                style={{ ...secondaryBtn, marginTop: 8, padding: "4px 10px", fontSize: 12.5 }}
-                onClick={copyRemarks}
-              >
-                {remarksCopied ? "Скопировано ✓" : "Скопировать замечания для агента"}
-              </button>
-            )}
-            {askedFor === pkg.files && (
-              <StaleFilesConfirm onKeep={() => setAskedFor(null)} onClear={clearPackage} />
-            )}
-          </div>
-
-          <div style={footRow}>
-            <label
-              style={{ ...radioRow, marginRight: "auto" }}
-              title="Если имя схемы от агента совпадёт с именем схемы, задокументированной в ArchMap, сервис по умолчанию пропустит её. Поставьте галочку, чтобы новые схемы автоматически перезаписывали старые"
-            >
-              <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-              Обновлять готовые диаграммы
-            </label>
-            {mode === "batch" ? (
-              <button
-                type="button"
-                style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
-                disabled={!willWrite || applying}
-                onClick={() => apply(true)}
-              >
-                {applying ? "Применяю…" : "Применить"}
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  style={{ ...secondaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
-                  disabled={!willWrite || applying}
-                  title="Применить и подготовить поля к следующему воркеру/эндпоинту"
-                  onClick={() => apply(false)}
-                >
-                  Добавить ещё
-                </button>
-                <button
-                  type="button"
-                  style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
-                  disabled={!willWrite || applying}
-                  onClick={() => apply(true)}
-                >
-                  {applying ? "Применяю…" : "Добавить"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
+        <DocsAgentPanel nodeId={nodeId} mode={{ kind: mode }} onApplied={applied} />
       </div>
     </Modal>
   );
 }
 
-// ── inline-стили только для режимов/правки вида (остальные — agentModalShared) ──
+// ── inline-стили переключателя режимов и поля адреса (остальные — agentModalShared) ──
 
 const segWrap: CSSProperties = { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", margin: "0 0 14px" };
 const seg: CSSProperties = {
@@ -603,20 +157,8 @@ const segBtnOn: CSSProperties = {
   boxShadow: "0 1px 3px rgba(15,23,42,.14)",
 };
 const segNote: CSSProperties = { fontSize: 12, color: "#94a3b8", lineHeight: 1.4 };
-// Тот же amber, что у «Исчезли:» в панели импорта и у заголовков отчёта.
-const shrankLine: CSSProperties = {
-  fontSize: 12.5, fontWeight: 600, color: "#b45309", marginBottom: 6,
-};
 const targetInput: CSSProperties = {
   width: "100%", boxSizing: "border-box", marginBottom: 10, padding: "8px 10px",
   border: "1px solid #e2e8f0", borderRadius: 8, fontSize: 13, color: "#0f172a",
   fontFamily: "inherit", resize: "vertical", lineHeight: 1.45,
-};
-const nameInput: CSSProperties = {
-  flex: "none", width: 190, font: "inherit", fontSize: 11.5, color: "#0f172a",
-  border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", padding: "1px 5px",
-};
-const kindSelect: CSSProperties = {
-  flex: "none", font: "inherit", fontSize: 11.5, color: "#334155", cursor: "pointer",
-  border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff", padding: "1px 4px",
 };
