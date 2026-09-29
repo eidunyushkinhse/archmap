@@ -114,8 +114,10 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
 }) {
   const [open, setOpen] = useState(startOpen);
   const toggle = useCallback(() => setOpen((o) => !o), []);
+  // Рамка .np-group охватывает и заголовок, и раскрытое содержимое: по ней видно,
+  // что строки принадлежат группе (решение пользователя 2026-09-29).
   return (
-    <>
+    <div className="np-group">
       <button type="button" className="np-doc-group-toggle" onClick={toggle} aria-expanded={open}>
         <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
           <ChevronDownIcon />
@@ -137,7 +139,7 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
           ))}
         </div>
       )}
-    </>
+    </div>
   );
 }
 

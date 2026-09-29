@@ -201,7 +201,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
         // Разделы показываем ТОЛЬКО когда они реально заданы: у баз без такого уровня
         // (Redis, Elasticsearch) лишняя вложенность была бы шумом.
         grouped.map(([schema, list]) => (
-          <div key={schema} className="dbs-group">
+          <div key={schema} className="dbs-group np-group">
             {/* Те же классы, что у групп доков на странице объекта: раскрывашка
                 должна выглядеть как соседние, а не как своя выдумка. */}
             <button

@@ -670,13 +670,10 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)");
   });
 
-  it("«Описать все» открывает окно доков пакетом", async () => {
+  it("кнопки «Описать все» у блока «Не описано» нет", async () => {
     setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "Описать все" }));
-    expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-mode", "batch");
-    // Кнопка — сосед заголовка, а не его часть: список от неё не раскрывается.
-    expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("button", { name: "Описать все" })).toBeNull();
   });
 
   // ── Масштаб списка: группы по видам ───────────────────────────────────────

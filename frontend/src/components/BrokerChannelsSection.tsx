@@ -179,7 +179,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
         // уровня (Kafka) лишняя вложенность была бы шумом — то же правило, что у
         // разделов базы.
         grouped.map(([group, list]) => (
-          <div key={group} className="bch-group">
+          <div key={group} className="bch-group np-group">
             {/* Те же классы, что у групп доков на странице объекта: раскрывашка должна
                 выглядеть как соседние, а не как своя выдумка. */}
             <button

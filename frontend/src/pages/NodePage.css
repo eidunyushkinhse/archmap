@@ -650,37 +650,54 @@
   padding-left: 18px;
 }
 
+/* Группа-раскрывашка целиком: рамка охватывает и заголовок, и раскрытое
+   содержимое, чтобы строки читались как часть группы (решение 2026-09-29).
+   Своя рамка заголовка внутри группы снимается. */
+.np-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #fff;
+}
+.np-group > .np-doc-group-toggle {
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+}
+.np-group > .np-doc-group-toggle:hover {
+  background: #f8fafc;
+}
+.np-group > .np-doc-group-body {
+  padding: 2px 10px 10px 10px;
+}
+
 /* ── «Не описано»: бэклог документирования под чертой внутри «Логики» ──── */
 .np-undescribed {
   margin-top: 14px;
   padding-top: 12px;
   border-top: 1px solid #eef0f2;
 }
-.np-undescribed-head {
-  display: flex;
+/* Заголовок «Не описано» — кликабельный текст с шевроном (как макрос Expand в
+   Confluence), без рамки: это бэклог под чертой, а не ещё одна группа схем. */
+.np-expand {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-.np-undescribed-head .np-doc-group-toggle {
-  flex: 1;
-  min-width: 0;
-}
-/* «Описать все» — сосед кнопки-заголовка (вложенные <button> невалидны) */
-.np-undescribed-all {
-  flex: none;
-  padding: 8px 12px;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  background: #fff;
-  color: #334155;
-  font-family: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
+  gap: 6px;
+  margin-left: -6px;
+  padding: 4px 6px;
+  border: none;
+  border-radius: 6px;
+  background: none;
   cursor: pointer;
-  white-space: nowrap;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  text-align: left;
+  transition: background 0.12s, color 0.12s;
 }
-.np-undescribed-all:hover {
-  background: #f8fafc;
+.np-expand:hover {
+  background: #f1f5f9;
+  color: #1e293b;
 }
 .np-undescribed-body {
   margin-top: 8px;

@@ -352,9 +352,6 @@ function NodePageInner({
   const describeDoc = useCallback((d: NodeDocMeta) => {
     setDocsAgent({ mode: "single", target: d.operation ?? d.name });
   }, []);
-  // «Описать все» в шапке блока «Не описано»: окно доков «пакетом» — промпт сам
-  // знает два перечня (что описано — не трогай, что разведано — бери отсюда).
-  const describeAll = useCallback(() => setDocsAgent({ mode: "batch" }), []);
 
   // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
   // Контейнеру спеку создавать нельзя (правила контейнеров).
@@ -761,7 +758,7 @@ function NodePageInner({
                             ))}
                             {/* Схемы глубоких потомков — кнопка-группа с шевроном */}
                             {group.deep.length > 0 && (
-                              <>
+                              <div className="np-group">
                                 <button
                                   type="button"
                                   className="np-doc-group-toggle"
@@ -781,7 +778,7 @@ function NodePageInner({
                                     ))}
                                   </div>
                                 )}
-                              </>
+                              </div>
                             )}
                           </Fragment>
                         );
@@ -825,13 +822,12 @@ function NodePageInner({
                 {addLogicMenu}
                 {/* Бэклог документирования — заглушки разведки — под чертой, в той же
                     карточке и свёрнутым: у строки «Описать» (окно доков с адресом)
-                    и «открыть →», в шапке «Описать все». Нет заглушек — нет блока. */}
+                    и «открыть →». Нет заглушек — нет блока. */}
                 {stubDocs.length > 0 && (
                   <UndescribedDocs
                     docs={stubDocs}
                     onOpen={openDoc}
                     onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
-                    onDescribeAll={isArchitect && allow.logic ? describeAll : undefined}
                     usage={docUsage}
                     onOpenProcess={onNavigateProcesses}
                   />
@@ -884,7 +880,7 @@ function NodePageInner({
                             )}
                             {/* Спеки глубоких потомков — кнопка-группа с шевроном */}
                             {group.deep.length > 0 && (
-                              <>
+                              <div className="np-group">
                                 <button
                                   type="button"
                                   className="np-doc-group-toggle"
@@ -904,7 +900,7 @@ function NodePageInner({
                                     ))}
                                   </div>
                                 )}
-                              </>
+                              </div>
                             )}
                           </Fragment>
                         );

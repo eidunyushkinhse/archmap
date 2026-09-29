@@ -244,3 +244,8 @@
 .anim-box {
   display: flow-root;
 }
+
+/* Внутри рамки группы (.np-group) — отступы от рамки со всех сторон. */
+.np-group .dbs-groupbody {
+  margin: 2px 10px 10px 14px;
+}
