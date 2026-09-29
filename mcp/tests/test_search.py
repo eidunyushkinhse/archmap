@@ -111,6 +111,8 @@ async def test_поиск_без_находок(client: ArchMapClient, api: Fake
     out = await tools.call("archmap_search", {"project": "Ярмарка", "query": "quantum flux"}, client)
 
     assert "Ничего не нашлось (искали по: quantum, flux)" in out
+    # Пустая выдача не тупик: агенту сказано, как переспросить.
+    assert "Попробуйте одно характерное слово из строки" in out
     # limit и kinds не переданы — и в запрос не уходят.
     assert set(api.calls[-1].url.params.keys()) == {"q"}
 
@@ -210,6 +212,7 @@ def test_каталог_31_инструмент_и_описание_поиска
     assert {"archmap_search", "archmap_doc"} <= set(names)
     desc = tools.BY_NAME["archmap_search"]["description"]
     assert "ЦЕЛИКОМ" in desc and "ПЕРЕД тем, как открывать карточки" in desc
+    assert "по словам, а не по смыслу" in desc
     # Перечень видов в схеме аргумента — ровно Literal бэкенда.
     kinds = tools.BY_NAME["archmap_search"]["schema"]["properties"]["kinds"]["items"]["enum"]
     from typing import get_args
