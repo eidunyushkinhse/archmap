@@ -1472,5 +1472,7 @@ def doc_card(detail: dict[str, Any]) -> str:
         out.append("В процессах шаги этой схемой не задокументированы.")
     if detail.get("described") is not False:
         out.append("")
-        out.append("```mermaid\n" + str(detail.get("content", "")) + "\n```")
+        # Хвостовые переводы строк тела — не содержание: без обрезки перед
+        # закрывающей оградой висела пустая строка (живой прогон 2026-09-29).
+        out.append("```mermaid\n" + str(detail.get("content", "")).rstrip() + "\n```")
     return "\n".join(out)

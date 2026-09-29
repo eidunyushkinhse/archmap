@@ -150,7 +150,7 @@ def doc_meta(doc_id: str, name: str, described: bool = True) -> dict[str, Any]:
 def detail(**over: Any) -> dict[str, Any]:
     base: dict[str, Any] = {
         "id": DOC, "node_id": ALERTER, "name": "SMS: отправка", "kind": "worker",
-        "operation": None, "content": "flowchart TD\n  B -->|нет| E[Ошибка]", "version": 3,
+        "operation": None, "content": "flowchart TD\n  B -->|нет| E[Ошибка]\n\n", "version": 3,
         "created_at": "2026-09-29T10:00:00Z", "updated_at": "2026-09-29T11:00:00Z",
         "node_path": "Zabbix server / Alerter", "described": True,
         "processes": [{"doc_id": DOC, "process_id": PROC, "process_name": "Отправка оповещения",
