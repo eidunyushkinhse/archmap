@@ -37,7 +37,6 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
   const [description, setDescription] = useState("");
   const [role, setRole] = useState("");
   const [technology, setTechnology] = useState("");
-  const [openapi, setOpenapi] = useState("");
   const [isExternal, setIsExternal] = useState(false);
   const [status, setStatus] = useState<NodeStatus>("existing");
   const [saving, setSaving] = useState(false);
@@ -64,9 +63,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
         role: role || null,
         technology: technology || null,
         parent_id: parentId,
-        // Логика (mermaid) в создание не входит: доки узла — коллекция node_docs,
-        // добавляются после создания через оверлей «Логика» в инспекторе.
-        openapi_spec: openapi || null,
+        // Доки и спека в создание не входят: они добавляются на странице объекта.
         is_external: isExternal,
         shape,
         status,
@@ -139,19 +136,6 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
           );
         })}
       </div>
-
-      {shape !== "person" && (
-        <>
-          <label style={labelStyle}>OpenAPI YAML</label>
-          <textarea
-            value={openapi}
-            onChange={(e) => setOpenapi(e.target.value)}
-            style={{ ...textarea, fontFamily: "monospace", fontSize: 12 }}
-            rows={6}
-            placeholder={"openapi: 3.0.0\ninfo:\n  title: My API\n  version: 1.0.0"}
-          />
-        </>
-      )}
 
       <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
       <div className={footerClass}>
