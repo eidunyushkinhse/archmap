@@ -7,9 +7,10 @@
 //     без фильтра — стена, а не витрина;
 //   • шапка называет участников (барьер У6): без них автоподстановку исполнителя
 //     нечем проверить глазами;
-//   • провал в схему открывается НА ЧТЕНИЕ с явной кнопкой правки (барьер У7), его
-//     колбэки настоящие: правка в оверлее перечитывает процесс и каталог (барьер У8),
-//     а Escape закрывает оверлей, не роняя карточку (оверлей выше в стеке).
+//   • провал в схему открывает окно схемы, которое само стартует ПРОСМОТРОМ, правка —
+//     его «Изменить» (барьер У7, вьюер v2); колбэки настоящие: правка и пакет агента в
+//     окне перечитывают процесс и каталог (барьер У8), а Escape закрывает оверлей,
+//     не роняя карточку (оверлей выше в стеке).
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach } from "vitest";
@@ -51,18 +52,16 @@ vi.mock("../inspector/DocOverlay", () => ({
     nodeName: string;
     isArchitect: boolean;
     initialDocId?: string;
-    onRequestEdit?: () => void;
-    onRequestView?: () => void;
     onDocEvent: (evt: unknown) => void;
+    onApplied?: () => void;
     onClose: () => void;
   }) => (
     <div data-testid="doc-overlay">
       <span data-testid="ov-node">{props.nodeName}</span>
       <span data-testid="ov-doc">{props.initialDocId ?? "none"}</span>
       <span data-testid="ov-edit">{String(props.isArchitect)}</span>
-      {props.onRequestEdit && <button onClick={props.onRequestEdit}>ov-править</button>}
-      {props.onRequestView && <button onClick={props.onRequestView}>ov-готово</button>}
       <button onClick={() => props.onDocEvent({ type: "edit" })}>ov-мутация</button>
+      {props.onApplied && <button onClick={props.onApplied}>ov-агент</button>}
     </div>
   ),
 }));
@@ -191,35 +190,31 @@ describe("карточка шага: привязка к схеме логики
       expect(processesApi.updateMessage).toHaveBeenCalledWith("p1", "m1", { doc_id: null }));
   });
 
-  it("имя привязанной схемы проваливается в оверлей НА ЧТЕНИЕ", async () => {
+  it("имя привязанной схемы открывает окно этой схемы", async () => {
     // Барьер У7: провал не должен приводить архитектора в редактор чужой схемы.
+    // Вьюер v2: окно само стартует просмотром (docOverlayContract), правка — его
+    // кнопкой «Изменить», поэтому роль уезжает в окно как есть, без своего тумблера.
     await открыть(ПРИВЯЗАН);
 
     await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     expect(screen.getByTestId("ov-doc").textContent).toBe("d1");
-    expect(screen.getByTestId("ov-edit").textContent).toBe("false");
+    expect(screen.getByTestId("ov-edit").textContent).toBe("true");
     // Имя узла в шапке оверлея — последний сегмент пути из каталога.
     expect(screen.getByTestId("ov-node").textContent).toBe("Заказы");
   });
 
-  it("явная кнопка правки включает редактор, «Готово» возвращает в чтение", async () => {
-    // Переключатель двусторонний: в чтении есть только «Править», в правке —
-    // только «Готово»; закрывать оверлей ради возврата в чтение не нужно.
+  it("пакет агента, применённый в окне схемы, перечитывает процесс и каталог", async () => {
+    // Применение пакета идёт мимо onDocEvent (в историю не кладётся) — без своего
+    // колбэка строка привязки показала бы старое имя схемы.
     await открыть(ПРИВЯЗАН);
     await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
-    expect(screen.queryByText("ov-готово")).toBeNull();
+    expect(processesApi.get).toHaveBeenCalledTimes(1);
 
-    await userEvent.click(screen.getByText("ov-править"));
+    await userEvent.click(screen.getByText("ov-агент"));
 
-    expect(screen.getByTestId("ov-edit").textContent).toBe("true");
-    expect(screen.queryByText("ov-править")).toBeNull();
-
-    await userEvent.click(screen.getByText("ov-готово"));
-
-    expect(screen.getByTestId("ov-edit").textContent).toBe("false");
-    expect(screen.getByTestId("doc-overlay")).toBeTruthy();
-    expect(screen.getByText("ov-править")).toBeTruthy();
+    await waitFor(() => expect(processesApi.get).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(processesApi.messageDocs).toHaveBeenCalledTimes(2));
   });
 
   it("правка схемы в оверлее перечитывает процесс и каталог", async () => {

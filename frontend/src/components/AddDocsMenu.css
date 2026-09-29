@@ -27,6 +27,24 @@
   border-color: #93c5fd;
 }
 
+/* Залитый триггер действия (шапка окна схемы/спеки, «Описать» у заглушки) —
+   тон кнопки .btn.primary прототипа вьюера. */
+.adm-wrap--inline {
+  margin-top: 0;
+}
+.adm-btn--primary {
+  padding: 7px 13px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.adm-btn--primary:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+
 .adm-chev {
   display: inline-flex;
   transition: transform 0.12s;
@@ -56,6 +74,10 @@
 .adm-menu--right {
   left: auto;
   right: 0;
+}
+.adm-menu--center {
+  left: 50%;
+  transform: translateX(-50%);
 }
 /* Раскрытие вверх (когда под кнопкой не хватает места — кнопка у низа экрана) */
 .adm-menu--up {

@@ -105,9 +105,10 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [msgCaption, setMsgCaption] = useState("");
   // Провал из карточки шага в привязанную схему логики (У7): состояние здесь, а не в
   // карточке — оверлей должен стоять В СТЕКЕ Escape выше карточки, иначе Escape в
-  // нативном <dialog> закрыл бы заодно и её. editing=false: открываем НА ЧТЕНИЕ.
+  // нативном <dialog> закрыл бы заодно и её. Окно открывается просмотром; правка —
+  // его же кнопкой «Изменить» (вьюер v2), своего переключателя здесь больше нет.
   const [docView, setDocView] = useState<
-    { docId: string; nodeId: string; nodeName: string; editing: boolean } | null
+    { docId: string; nodeId: string; nodeName: string } | null
   >(null);
   // Ревизия каталога схем карточки: правка в оверлее меняет имена/состав схем.
   const [docCatalogRev, setDocCatalogRev] = useState(0);
@@ -1083,7 +1084,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   onSaveCaption={() => void saveCaption(msgEdit)}
                   onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
                   onLinkDoc={(docId) => void linkDoc(msgEdit, docId)}
-                  onOpenDoc={(d) => setDocView({ ...d, editing: false })}
+                  onOpenDoc={setDocView}
                   catalogRev={docCatalogRev}
                   onRemove={() => void removeMessage(msgEdit)}
                   onClose={() => setMsgEdit(null)}
@@ -1093,28 +1094,23 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           );
         })()}
 
-        {/* Провал из карточки шага в схему логики (У7/У8): НА ЧТЕНИЕ, редактор — явной
-            кнопкой «Править», обратно в чтение — «Готово» на том же месте (режим
-            живёт здесь, в docView.editing). Колбэки настоящие, не заглушки (ловушка У8):
-            onDocEvent перечитывает процесс (имя схемы в шаге, SET NULL при удалении)
-            и каталог карточки; onCommitOpenapi недостижим — режим flowchart
-            OpenApiDoc не рендерит, спекой этот оверлей не занимается. */}
+        {/* Провал из карточки шага в схему логики (У7/У8): окно открывается
+            просмотром, правка — его же «Изменить» (Вручную | Через ИИ-агента).
+            Колбэки настоящие, не заглушки (ловушка У8): onDocEvent и onApplied
+            перечитывают процесс (имя схемы в шаге, SET NULL при удалении) и каталог
+            карточки; onCommitOpenapi недостижим — режим flowchart OpenApiDoc не
+            рендерит, спекой этот оверлей не занимается. */}
         {docView && (
           <DocOverlay
             mode="flowchart"
             nodeId={docView.nodeId}
             nodeName={docView.nodeName}
             openapi=""
-            isArchitect={isArchitect && docView.editing}
+            isArchitect={isArchitect}
             initialDocId={docView.docId}
-            onRequestEdit={isArchitect && !docView.editing
-              ? () => setDocView((v) => v && { ...v, editing: true })
-              : undefined}
-            onRequestView={isArchitect && docView.editing
-              ? () => setDocView((v) => v && { ...v, editing: false })
-              : undefined}
             onCommitOpenapi={() => undefined}
             onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
+            onApplied={() => { setDocCatalogRev((r) => r + 1); reload(); }}
             onClose={() => setDocView(null)}
           />
         )}

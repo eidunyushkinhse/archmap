@@ -185,7 +185,7 @@ export function DocEditorColumn({
 
 // ── статус-строки (Часть D) ──────────────────────────────────────────────────
 
-export function StatusOk({ savedAt }: { savedAt: string | null }) {
+export function StatusOk({ savedAt = null }: { savedAt?: string | null }) {
   return (
     <div className="doc-edstat doc-edstat--ok">
       <span className="doc-stico">

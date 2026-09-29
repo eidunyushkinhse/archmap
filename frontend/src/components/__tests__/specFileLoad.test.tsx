@@ -161,17 +161,17 @@ describe("OpenAPI: загрузка спеки из файла", () => {
 const CHART = "graph TD\n  A[Старт] --> B[Конец]";
 
 function renderChart(over: { initial?: string; isArchitect?: boolean } = {}) {
-  const onCommit = vi.fn();
+  const onDraft = vi.fn();
   const view = render(
     <FlowchartDoc
       initial={over.initial ?? ""}
       nodeId="node-1"
       isArchitect={over.isArchitect ?? true}
       showCode
-      onCommit={onCommit}
+      onDraft={onDraft}
     />,
   );
-  return { ...view, onCommit };
+  return { ...view, onDraft };
 }
 
 describe("Логика: загрузка mermaid-схемы из файла", () => {
@@ -208,14 +208,16 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
     await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
   });
 
-  it("загруженная схема сохраняется обычным «Сохранить»", async () => {
-    const { container, onCommit } = renderChart();
+  it("загруженная схема уходит окну черновиком — пишет её «Сохранить» окна", async () => {
+    // Отдельного канала записи нет: файл — обычная правка. Сохраняет окно явной
+    // кнопкой в шапке (вьюер v2), своего «Сохранить» у колонки кода больше нет.
+    const { container, onDraft } = renderChart();
 
     await userEvent.upload(fileInput(container), mkFile(CHART, "logic.mmd"));
     await waitFor(() => expect(field().value).toBe(CHART), ЖДАТЬ);
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
-    expect(onCommit).toHaveBeenCalledWith(CHART);
+    expect(onDraft).toHaveBeenLastCalledWith(CHART);
+    expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
   });
 
   it("перетаскивание файла на поле работает так же, как кнопка", async () => {

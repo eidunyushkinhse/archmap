@@ -31,7 +31,6 @@ function renderDoc(initial: string, isArchitect = true) {
       nodeId="node-1"
       isArchitect={isArchitect}
       showCode
-      onCommit={vi.fn()}
     />,
   );
 }

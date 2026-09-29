@@ -1,8 +1,9 @@
-// Рендер-тесты DocOverlay: тонкий shell вокруг FlowchartDocs (Логика) и
-// OpenApiDoc (OpenAPI). Проверяем выбор режима, тег формата в шапке (включая
-// версию OAS из колбэка onVersion), баннер notice, переключение «Показать код»
-// для наблюдателя, футер-подсказку по роли/режиму и закрытие. Тяжёлые редакторы
-// (FlowchartDocs/OpenApiDoc) замоканы — тестируем оркестрацию оболочки.
+// Рендер-тесты DocOverlay: тонкий shell вокруг FlowchartDocs (Логика — окно одной
+// схемы со своей шапкой) и OpenApiDoc (OpenAPI). Проверяем выбор режима, проброс
+// пропсов окна схемы, тег формата в шапке спеки (включая версию OAS из колбэка
+// onVersion), баннер notice, переключение «Показать код» для наблюдателя,
+// футер-подсказку по роли и закрытие. Тяжёлые редакторы замоканы — тестируем
+// оркестрацию оболочки. Стадии окна схемы — FlowchartDocs.test.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -16,21 +17,25 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 
-// Редактор схем логики: отражает полученные пропы (showCode/autoCreate/initialDocId).
+// Окно схемы логики: отражает полученные пропы и умеет закрыть окно своей шапкой.
 vi.mock("../inspector/FlowchartDocs", () => ({
-  default: ({
-    showCode,
-    autoCreate,
-    initialDocId,
-  }: {
-    showCode: boolean;
-    autoCreate?: boolean;
+  default: (p: {
+    nodeName: string;
+    isArchitect: boolean;
+    createNew?: boolean;
     initialDocId?: string;
+    onApplied?: () => void;
+    onOpenProcess?: (id: string) => void;
+    onClose: () => void;
   }) => (
     <div data-testid="flowchart-docs">
-      <span data-testid="flow-showcode">{String(showCode)}</span>
-      <span data-testid="flow-autocreate">{String(Boolean(autoCreate))}</span>
-      <span data-testid="flow-initial">{initialDocId ?? "none"}</span>
+      <span data-testid="flow-node">{p.nodeName}</span>
+      <span data-testid="flow-architect">{String(p.isArchitect)}</span>
+      <span data-testid="flow-create">{String(Boolean(p.createNew))}</span>
+      <span data-testid="flow-initial">{p.initialDocId ?? "none"}</span>
+      {p.onApplied && <button onClick={p.onApplied}>flow-applied</button>}
+      {p.onOpenProcess && <button onClick={() => p.onOpenProcess?.("pr1")}>flow-process</button>}
+      <button onClick={p.onClose}>flow-close</button>
     </div>
   ),
 }));
@@ -65,21 +70,34 @@ const base = {
 describe("DocOverlay", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("режим «Логика»: заголовок, тег mermaid, редактор схем, футер про «Сохранить»", () => {
+  it("режим «Логика»: всё окно — FlowchartDocs со своей шапкой", () => {
     render(<DocOverlay {...base} mode="flowchart" isArchitect />);
-    expect(screen.getByText("Сервис оплаты")).toBeInTheDocument();
-    expect(screen.getByText(/Логика/)).toBeInTheDocument();
-    expect(screen.getByText("mermaid · flowchart")).toBeInTheDocument();
     expect(screen.getByTestId("flowchart-docs")).toBeInTheDocument();
-    expect(screen.getByText(/Сохраняет кнопка/)).toBeInTheDocument();
+    expect(screen.getByTestId("flow-node")).toHaveTextContent("Сервис оплаты");
+    // Шапки и подвала оболочки в этом режиме нет — их рисует окно схемы.
+    expect(screen.queryByRole("button", { name: "Закрыть" })).toBeNull();
   });
 
-  it("прокидывает autoCreate и initialDocId в FlowchartDocs", () => {
+  it("прокидывает createNew, initialDocId, onApplied и переход в процесс", async () => {
+    const onApplied = vi.fn();
+    const onOpenProcess = vi.fn();
     render(
-      <DocOverlay {...base} mode="flowchart" isArchitect autoCreate initialDocId="d7" />,
+      <DocOverlay {...base} mode="flowchart" isArchitect createNew initialDocId="d7"
+        onApplied={onApplied} onOpenProcess={onOpenProcess} />,
     );
-    expect(screen.getByTestId("flow-autocreate")).toHaveTextContent("true");
+    expect(screen.getByTestId("flow-create")).toHaveTextContent("true");
     expect(screen.getByTestId("flow-initial")).toHaveTextContent("d7");
+    await userEvent.click(screen.getByText("flow-applied"));
+    expect(onApplied).toHaveBeenCalledOnce();
+    await userEvent.click(screen.getByText("flow-process"));
+    expect(onOpenProcess).toHaveBeenCalledWith("pr1");
+  });
+
+  it("окно схемы закрывает оверлей своей шапкой (onClose)", async () => {
+    render(<DocOverlay {...base} mode="flowchart" isArchitect={false} />);
+    expect(screen.getByTestId("flow-architect")).toHaveTextContent("false");
+    await userEvent.click(screen.getByText("flow-close"));
+    expect(base.onClose).toHaveBeenCalledOnce();
   });
 
   it("режим OpenAPI: тег без версии, редактор получает исходную спеку, футер про черновик", () => {
@@ -103,57 +121,23 @@ describe("DocOverlay", () => {
     expect(screen.getByText("Конфликт версий")).toBeInTheDocument();
   });
 
-  it("наблюдателю: кнопка «Показать код» переключает showCode редактора, футер про недоступность", async () => {
-    render(<DocOverlay {...base} mode="flowchart" isArchitect={false} />);
+  it("наблюдателю спеки: «Показать код» переключает showCode редактора, футер про недоступность", async () => {
+    render(<DocOverlay {...base} mode="openapi" isArchitect={false} />);
     expect(screen.getByText("Наблюдателю редактирование недоступно")).toBeInTheDocument();
-    expect(screen.getByTestId("flow-showcode")).toHaveTextContent("false");
+    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("false");
     await userEvent.click(screen.getByRole("button", { name: "Показать код" }));
-    expect(screen.getByTestId("flow-showcode")).toHaveTextContent("true");
+    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("true");
     await userEvent.click(screen.getByRole("button", { name: "Скрыть код" }));
-    expect(screen.getByTestId("flow-showcode")).toHaveTextContent("false");
+    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("false");
   });
 
-  it("архитектору кнопка «Показать код» недоступна (код всегда виден)", () => {
-    render(<DocOverlay {...base} mode="flowchart" isArchitect />);
+  it("архитектору спеки кнопка «Показать код» недоступна (код всегда виден)", () => {
+    render(<DocOverlay {...base} mode="openapi" isArchitect />);
     expect(screen.queryByRole("button", { name: "Показать код" })).not.toBeInTheDocument();
   });
 
-  it("провал на чтение: кнопка «Править» зовёт onRequestEdit, футера-подсказки нет", async () => {
-    // Барьер У7 (процессы → доки шага): архитектор пришёл ЧИТАТЬ чужую схему —
-    // редактор включается явной кнопкой, а не самим фактом провала. Подсказка
-    // «открыто на чтение» в футере признана лишней (UI-проход 2026-09-03) —
-    // футер в этом режиме не рендерится вовсе, а не остаётся пустой полосой.
-    const onRequestEdit = vi.fn();
-    const { container } = render(
-      <DocOverlay {...base} mode="flowchart" isArchitect={false} onRequestEdit={onRequestEdit} />,
-    );
-    expect(screen.queryByText(/Открыто на чтение/)).not.toBeInTheDocument();
-    expect(container.querySelector(".doc-foot")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Готово" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Править" }));
-    expect(onRequestEdit).toHaveBeenCalledOnce();
-  });
-
-  it("в режиме редактора на месте «Править» стоит «Готово» и зовёт onRequestView", async () => {
-    // Обратная дорога переключателя: без неё из правки в чтение попадали только
-    // через закрытие оверлея и повторный провал.
-    const onRequestView = vi.fn();
-    render(
-      <DocOverlay {...base} mode="flowchart" isArchitect onRequestEdit={vi.fn()} onRequestView={onRequestView} />,
-    );
-    expect(screen.queryByRole("button", { name: "Править" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Готово" }));
-    expect(onRequestView).toHaveBeenCalledOnce();
-  });
-
-  it("со страницы объекта (без onRequestView) кнопки «Готово» у архитектора нет", () => {
-    render(<DocOverlay {...base} mode="flowchart" isArchitect />);
-    expect(screen.queryByRole("button", { name: "Готово" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Править" })).not.toBeInTheDocument();
-  });
-
-  it("крестик закрывает оверлей (onClose)", async () => {
-    render(<DocOverlay {...base} mode="flowchart" isArchitect />);
+  it("крестик спеки закрывает оверлей (onClose)", async () => {
+    render(<DocOverlay {...base} mode="openapi" isArchitect />);
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(base.onClose).toHaveBeenCalledOnce();
   });

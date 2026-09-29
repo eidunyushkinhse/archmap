@@ -52,12 +52,14 @@ const base = {
   onClose: vi.fn(),
 };
 
-// ── драйверы текущего интерфейса ───────────────────────────────────────────────
+// ── драйверы интерфейса (вьюер v2: просмотр → «Изменить» → «Вручную») ─────────
 
 const codeField = () => document.querySelector("textarea.doc-edta") as HTMLTextAreaElement | null;
 
-// Архитектору редактор открыт сразу — дойти до него значит дождаться поля кода.
+// Окно открывается просмотром; до редактора — «Изменить → Вручную».
 async function openEditor() {
+  await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
   await waitFor(() => expect(codeField()).not.toBeNull());
 }
 
@@ -65,26 +67,29 @@ function setCode(text: string) {
   fireEvent.change(codeField()!, { target: { value: text } });
 }
 
+// Сохранение явное — кнопкой в шапке окна.
 async function save() {
   await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 }
 
 async function deleteDoc() {
-  await userEvent.click(await screen.findByRole("button", { name: "Удалить" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Удалить схему" }));
   await userEvent.click(screen.getByRole("button", { name: "Точно удалить?" }));
 }
 
-// Новая схема со страницы: «+ Добавить → Вручную».
+// Новая схема со страницы: «+ Добавить → Вручную» — окно сразу в редакторе, схема
+// появляется в БД только по «Сохранить».
 async function createNew(onDocEvent: (evt: NodeDocEvent) => void) {
-  render(<DocOverlay {...base} isArchitect autoCreate onDocEvent={onDocEvent} />);
+  render(<DocOverlay {...base} isArchitect createNew onDocEvent={onDocEvent} />);
+  await waitFor(() => expect(codeField()).not.toBeNull());
+  setCode("graph TD\n  новая");
+  await save();
 }
 
-// Окно из шага процесса: как его открывает ProcessCanvas.
+// Окно из шага процесса: как его открывает ProcessCanvas (роль архитектора, окно
+// само стартует просмотром).
 function renderFromStep(docId: string) {
-  render(
-    <DocOverlay {...base} isArchitect={false} initialDocId={docId}
-      onRequestEdit={vi.fn()} onDocEvent={vi.fn()} />,
-  );
+  render(<DocOverlay {...base} isArchitect initialDocId={docId} onDocEvent={vi.fn()} />);
 }
 
 // ── контракты ─────────────────────────────────────────────────────────────────

@@ -249,6 +249,11 @@ function NodePageInner({
       .catch(() => { /* узел могли удалить — догонит навигация */ });
   }, [node.id, patch, showMetaToast]);
 
+  // Свежий узел целиком (после записи мимо onDocEvent: пакет агента, перенос).
+  const refreshNode = useCallback(() => {
+    void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+  }, [node.id, patch]);
+
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
     patch.applyDocEvent(evt);
@@ -961,7 +966,7 @@ function NodePageInner({
           nodeName={doc.child ? doc.child.name : node.name}
           openapi={doc.child ? (doc.child.openapi_spec ?? "") : (node.openapi_spec ?? "")}
           isArchitect={isArchitect}
-          autoCreate={doc.create}
+          createNew={doc.create}
           initialDocId={doc.docId}
           onCommitOpenapi={doc.child
             ? commitChildOpenapi
@@ -969,6 +974,10 @@ function NodePageInner({
           onDocEvent={doc.child ? handleChildDocEvent : handleDocEvent}
           onClose={() => setDoc(null)}
           notice={doc.child ? childSpecConflict : patch.conflict}
+          // Пакет агента записан мимо истории: освежаем мету узла (или детей
+          // контейнера, если окно открыто на схеме ребёнка).
+          onApplied={doc.child ? container.reload : refreshNode}
+          onOpenProcess={onNavigateProcesses}
         />
       )}
 

@@ -1,7 +1,11 @@
-// Режим «Логика» DocOverlay: mermaid-код + живое превью (Части B2/B3/D/E ТЗ).
+// Схема логики в окне DocOverlay: mermaid-код + живое превью (Части B2/B3/D/E ТЗ).
+// Две роли: просмотр (isArchitect=false — только рендер, код по «Показать код»
+// наблюдателя) и ручная правка (isArchitect=true — код и превью рядом). Пишет в БД
+// не он: правка уходит наверх черновиком (onDraft), сохраняет окно кнопкой
+// «Сохранить» в шапке.
 // Превью перерисовывается по вводу с дебаунсом; при ошибке держит последний
-// удачный svg (у архитектора) или показывает заглушку с текстом ошибки (у
-// наблюдателя — его код не меняется, держать нечего). Пан/зум — usePanZoom.
+// удачный svg (при правке) или показывает заглушку с текстом ошибки (в просмотре
+// код не меняется, держать нечего). Пан/зум — usePanZoom.
 import { useCallback, useEffect, useRef, useState } from "react";
 import MermaidRenderer from "../MermaidRenderer";
 import type { MmdStatus } from "../MermaidRenderer";
@@ -9,14 +13,17 @@ import { dataRefsApi } from "../../api/dataRefs";
 import type { DataRefPreviewItem } from "../../types";
 import { pinSvgSize, usePanZoom } from "../usePanZoom";
 import { DocEditorColumn, StatusError, StatusNote, StatusOk, StatusReadOnly } from "./docShared";
-import { nowHHMM, unfenceMermaid } from "./docValidate";
+import { unfenceMermaid } from "./docValidate";
+import { MODE_LABEL, REF_MARKER, reasonOf } from "./docRefs";
 
 interface Props {
-  initial: string; // сохранённый flowchart
+  initial: string; // текст схемы на момент открытия (черновик живёт внутри)
   nodeId: string; // владелец схемы: по нему ищется конфигурация («зависит от:»)
+  // true — ручная правка (код редактируемый, плашка «Обращения»); false — просмотр.
   isArchitect: boolean;
   showCode: boolean; // наблюдатель нажал «Показать код»
-  onCommit: (value: string) => void;
+  // Каждая правка текста (ввод, файл) — окну: оно держит черновик до «Сохранить».
+  onDraft?: (value: string) => void;
 }
 
 // ── плашка «Обращения» ───────────────────────────────────────────────────────
@@ -28,50 +35,6 @@ interface Props {
 // События («публикует:/потребляет:» → канал брокера) и конфигурация («зависит от:»
 // → параметр самого узла) плашка понимает тем же механизмом: резолвер на бэке един,
 // здесь дописаны только слова.
-
-// Дешёвый локальный гейт: грамматику маркера держит бэк (app/data_refs.py), тут
-// достаточно понять, есть ли в тексте хоть один — на доках без данных (их
-// большинство) сеть не дёргается вовсе. \b не ставим: в JS он ASCII-ный и перед
-// кириллическим «ч» не сработал бы. Пробел внутри двусловного маркера — \s+, как и
-// на бэке: «зависит  от:» с двойным пробелом это тот же маркер.
-const REF_MARKER =
-  /(читает|пишет|reads|writes|публикует|потребляет|publishes|consumes|зависит\s+от|depends\s+on)\s*:/i;
-
-// Почему пометка не срослась — ТЕ ЖЕ слова, что в панели алертов (SchemaAlerts):
-// один факт, увиденный из двух мест, не должен читаться как две разные проблемы.
-// «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму
-// пометки (см. reasonOf): «БД / таблица» у данных, «Брокер / канал» у событий.
-const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = {
-  unknown_table: "таблица не найдена",
-  ambiguous: "имя неоднозначно — укажите „БД / таблица“",
-  unknown_column: "колонки нет в таблице",
-  unknown_channel: "канал не найден у брокеров проекта",
-  unknown_field: "поля нет в канале",
-  // Искать негде, кроме самого объекта, — так и говорим: у конфигурации нет ни
-  // квалификатора, ни неоднозначности.
-  unknown_param: "параметра нет в конфигурации этого объекта",
-};
-const AMBIGUOUS_CHANNEL = "имя неоднозначно — укажите „Брокер / канал“";
-
-const isChannelMode = (mode: DataRefPreviewItem["mode"]): boolean =>
-  mode === "publish" || mode === "consume";
-
-function reasonOf(
-  status: Exclude<DataRefPreviewItem["status"], "ok">,
-  mode: DataRefPreviewItem["mode"],
-): string {
-  return status === "ambiguous" && isChannelMode(mode) ? AMBIGUOUS_CHANNEL : REF_REASON[status];
-}
-
-// Подпись действия. Слова каналов свои: «публикует» — не «пишет», и путать их
-// нельзя (разные вопросы к карте, разные каталоги резолва).
-const MODE_LABEL: Record<DataRefPreviewItem["mode"], string> = {
-  read: "читает",
-  write: "пишет",
-  publish: "публикует",
-  consume: "потребляет",
-  config: "зависит от",
-};
 
 function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
   return (
@@ -101,10 +64,9 @@ function DataRefsPlate({ refs }: { refs: DataRefPreviewItem[] }) {
   );
 }
 
-export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, onCommit }: Props) {
+export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, onDraft }: Props) {
   const [code, setCode] = useState(initial);
   const [status, setStatus] = useState<MmdStatus>({ kind: "loading" });
-  const [savedAt, setSavedAt] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -166,20 +128,13 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
     return () => cancelAnimationFrame(raf);
   }, [showCode, fit]);
 
-  const commit = useCallback(
-    (v: string) => {
-      onCommit(v);
-      setSavedAt(nowHHMM());
-    },
-    [onCommit],
-  );
-
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор схемы.
   const handleChange = useCallback((v: string) => {
     setCode(v);
     setFileError(null);
-  }, []);
+    onDraft?.(v);
+  }, [onDraft]);
 
   const hasChart = code.trim().length > 0;
   // Пустой код — не ошибка: статус от последнего рендера уже неактуален
@@ -204,7 +159,7 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
   ) : shown.kind === "loading" ? (
     <StatusNote text="Загрузка рендерера…" />
   ) : (
-    <StatusOk savedAt={savedAt} />
+    <StatusOk />
   );
 
   return (
@@ -217,7 +172,6 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
           value={code}
           readOnly={!isArchitect}
           onChange={isArchitect ? handleChange : undefined}
-          onCommitValue={isArchitect ? commit : undefined}
           // Плашка едет ФРАГМЕНТОМ в слот статуса: DocEditorColumn кладёт status
           // последним ребёнком своей flex-колонки, так что второй элемент встаёт
           // ровно под статус-строкой — новый проп общего компонента ничего бы не

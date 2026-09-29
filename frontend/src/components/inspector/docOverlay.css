@@ -82,7 +82,7 @@
   min-height: 0;
 }
 
-/* ── режим «Логика»: колонка «панель схем + сплит» (FlowchartDocs) ─────────── */
+/* ── режим «Логика»: колонка «поля / сплит / строка под рендером» ─────────── */
 
 .doc-flowwrap {
   flex: 1;
@@ -97,49 +97,203 @@
   min-height: 0;
 }
 
-/* Панель управления схемами: переключатель, имя, вид, операция, кнопки */
-.doc-sub {
+/* Плашка конфликта в шапке (409 при записи спеки со страницы) */
+.doc-tag--notice { color: #92400e; background: #fef3c7; }
+
+/* Кнопки шапки «Вручную»: «Отмена» — тихая, «Сохранить» — основная */
+.doc-btn {
   flex: none;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #eef0f2;
-  background: #fbfcfd;
-}
-.doc-subsel,
-.doc-subfield {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
-  color: #0f172a;
-  font-size: 12.5px;
-  font-family: inherit;
-  padding: 6px 9px;
-  min-width: 0;
-}
-.doc-subsel { max-width: 300px; cursor: pointer; }
-.doc-subfield--name { flex: 1; max-width: 260px; font-weight: 600; }
-.doc-subgap { flex: 1; }
-.doc-subbtn {
-  flex: none;
+  gap: 7px;
   border: 1px solid #cbd5e1;
   border-radius: 8px;
   background: #fff;
   color: #334155;
+  font: inherit;
   font-size: 12.5px;
   font-weight: 600;
-  font-family: inherit;
-  padding: 6px 11px;
+  padding: 7px 13px;
   cursor: pointer;
   white-space: nowrap;
 }
-.doc-subbtn:hover { background: #f1f5f9; }
-.doc-subbtn--danger {
-  border-color: #fca5a5;
-  background: #fef2f2;
-  color: #b91c1c;
+.doc-btn:hover { background: #f8fafc; }
+.doc-btn--primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.doc-btn--primary:hover { background: #1d4ed8; }
+.doc-btn--primary:disabled { opacity: 0.55; cursor: default; }
+.doc-btn--ghost { border-color: transparent; background: none; color: #64748b; }
+.doc-btn--ghost:hover { color: #1e293b; background: #f1f5f9; }
+
+/* «← К схеме» в режиме агента */
+.doc-back {
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: #64748b;
+  background: none;
+  border: none;
+  padding: 0 4px;
+  cursor: pointer;
+  white-space: nowrap;
 }
+.doc-back:hover { color: #1e293b; }
+
+/* Поля схемы в «Вручную»: имя, вид, эндпоинт */
+.doc-fields {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #eef0f2;
+  background: #fbfcfd;
+}
+.doc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+.doc-field input,
+.doc-field select {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  padding: 5px 8px;
+  background: #fff;
+  min-width: 0;
+}
+.doc-field--grow { flex: 1; min-width: 180px; }
+
+/* Строка под рендером: «Используется в процессах», «Обращения» */
+.doc-meta {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  padding: 10px 16px;
+  border-top: 1px solid #eef0f2;
+  font-size: 12.5px;
+  color: #64748b;
+}
+.doc-meta b { color: #334155; font-weight: 600; }
+.doc-metalink {
+  font: inherit;
+  color: #2563eb;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.doc-metalink:hover { text-decoration: underline; }
+
+/* Неописанная схема: карточка посреди точечного поля */
+.doc-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 30px 16px;
+  background-color: #fbfcfd;
+  background-image: radial-gradient(#e3e8ee 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+.doc-emptycard {
+  max-width: 420px;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+}
+.doc-emptycard h3 { margin: 0 0 6px; font-size: 15px; }
+.doc-emptycard p { margin: 0 0 14px; color: #64748b; }
+
+/* «Через ИИ-агента»: шаги слева, панель пакета справа */
+.doc-agent {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.doc-agentleft {
+  flex: none;
+  width: 320px;
+  padding: 18px;
+  border-right: 1px solid #eef0f2;
+  overflow-y: auto;
+}
+.doc-agentright {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px;
+  overflow-y: auto;
+}
+.doc-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  counter-reset: doc-step;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #334155;
+}
+.doc-steps li {
+  counter-increment: doc-step;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 8px;
+}
+.doc-steps li::before {
+  content: counter(doc-step);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #eff6ff;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
+}
+.doc-target {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: #f3efff;
+  color: #7c5cd6;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* Подвал «Вручную»: «Удалить схему» слева, подсказка рядом */
+.doc-foot--bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.doc-delbtn {
+  flex: none;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #b91c1c;
+  background: #fff;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.doc-delbtn:hover,
+.doc-delbtn--armed { background: #fef2f2; border-color: #fca5a5; }
 
 .doc-foot {
   flex: none;
