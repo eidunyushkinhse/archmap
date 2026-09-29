@@ -70,7 +70,7 @@ export function DocAgentSteps({ target, service, copy }: {
   return (
     <ol className="doc-steps">
       <li>
-        <span>
+        <div>
           Скопируйте промпт.
           {target && <> Он уже нацелен на схему <span className="doc-target">{target}</span>.</>}
           <PromptCopyButton
@@ -80,10 +80,10 @@ export function DocAgentSteps({ target, service, copy }: {
             buttonStyle={copyBtn}
             copy={copy}
           />
-        </span>
+        </div>
       </li>
-      <li><span>Запустите агента с этим промптом в репозитории сервиса «{service}».</span></li>
-      <li><span>Перетащите файл, который вернёт агент, в поле справа.</span></li>
+      <li><div>Запустите агента с этим промптом в репозитории сервиса «{service}».</div></li>
+      <li><div>Перетащите файл, который вернёт агент, в поле справа.</div></li>
     </ol>
   );
 }
