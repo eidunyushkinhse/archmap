@@ -17,11 +17,12 @@
 // Компоненты объявлены НА ВЕРХНЕМ УРОВНЕ МОДУЛЯ: объявленный внутри другого
 // ремаунтится каждый рендер (ловушка проекта — так ломался drag палитры).
 import { useCallback, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, MouseEvent } from "react";
 import type { NodeDocKind, NodeDocMeta, NodeDocUsage } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
 import { plural } from "../ui/plural";
 import { KIND_LABEL, OPEN_LIMIT } from "./docsList";
+import { useShrinkAnchor } from "./useShrinkAnchor";
 
 // Порядок групп — тот же, что у вида схемы во всём проекте: операция → воркер.
 // Внутри группы порядок приходит с бэка (по имени) и фильтром сохраняется —
@@ -109,7 +110,12 @@ function DocKindGroup({ title, items, startOpen, onOpen, usageByDoc, onOpenProce
   onOpenProcess?: (processId: string) => void;
 }) {
   const [open, setOpen] = useState(startOpen);
-  const toggle = useCallback(() => setOpen((o) => !o), []);
+  // Сворачивание у низа страницы не должно ронять верх страницы вниз: якорь скролла.
+  const holdScroll = useShrinkAnchor();
+  const toggle = useCallback((e: MouseEvent<HTMLButtonElement>) => {
+    if (open) holdScroll(e.currentTarget);
+    setOpen((o) => !o);
+  }, [open, holdScroll]);
   // Рамка .np-group охватывает и заголовок, и раскрытое содержимое: по ней видно,
   // что строки принадлежат группе (решение пользователя 2026-09-29).
   return (

@@ -15,6 +15,7 @@ import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
+import { useShrinkAnchor } from "../components/useShrinkAnchor";
 import ConfigParamsSection from "../components/ConfigParamsSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
@@ -214,14 +215,17 @@ function NodePageInner({
   // Раскрытые группы схем/спек глубоких потомков (ключ «doc:<id ребёнка>» /
   // «spec:<id ребёнка>»). Сбрасывается перемонтированием при смене узла.
   const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
-  const toggleGroup = useCallback((key: string) => {
+  // Сворачивание группы у низа страницы держит скролл (useShrinkAnchor).
+  const holdScroll = useShrinkAnchor();
+  const toggleGroup = useCallback((key: string, el: HTMLElement) => {
+    if (openGroups.has(key)) holdScroll(el);
     setOpenGroups((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
       return next;
     });
-  }, []);
+  }, [openGroups, holdScroll]);
   // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
   // (после успешного коммита заменяется на сохранённый — со свежей версией,
   // чтобы повторная правка не словила ложный 409).
@@ -772,7 +776,7 @@ function NodePageInner({
                                 <button
                                   type="button"
                                   className="np-doc-group-toggle"
-                                  onClick={() => toggleGroup(groupKey)}
+                                  onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
                                   aria-expanded={open}
                                 >
                                   <GroupChevron open={open} />
@@ -893,7 +897,7 @@ function NodePageInner({
                                 <button
                                   type="button"
                                   className="np-doc-group-toggle"
-                                  onClick={() => toggleGroup(groupKey)}
+                                  onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
                                   aria-expanded={open}
                                 >
                                   <GroupChevron open={open} />

@@ -17,6 +17,7 @@ import type { CSSProperties } from "react";
 import type { NodeDocMeta, NodeDocUsage } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
 import NodeDocsList from "./NodeDocsList";
+import { useShrinkAnchor } from "./useShrinkAnchor";
 
 interface Props {
   // Только заглушки (described=false) — делит владелец, здесь не фильтруем.
@@ -29,12 +30,13 @@ interface Props {
 export default function UndescribedDocs({ docs, onOpen, usage, onOpenProcess }: Props) {
   // Поза на время просмотра, никуда не сохраняется — как у групп видов.
   const [open, setOpen] = useState(false);
+  const holdScroll = useShrinkAnchor();
   return (
     <div className="np-undescribed">
       <button
         type="button"
         className="np-expand"
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => { if (open) holdScroll(e.currentTarget); setOpen((o) => !o); }}
         aria-expanded={open}
       >
         <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
