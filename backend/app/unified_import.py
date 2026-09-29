@@ -146,8 +146,9 @@ class FamilyCandidate:
 class FamilyConflict:
     """Спор о теле одного ключа у одного merged-узла.
 
-    id стабилен между превью и применением: мердж детерминирован, поэтому путь
-    merged-узла и ключ не зависят от того, сколько раз посчитали план."""
+    id стабилен между превью и применением: мердж детерминирован, поэтому адрес
+    merged-узла и ключ не зависят от того, сколько раз посчитали план. Адрес, а не
+    путь: у тёзок путь один на двоих, адрес — с уточнителем (app/node_ref.py)."""
 
     id: str
     family: Family
@@ -196,6 +197,11 @@ class UnifiedPlan:
     report: MergeReport
     merged: ParsedImport | None = None
     node_paths: list[str] = field(default_factory=list)  # пути узлов СЛИТОГО дерева
+    # Те же узлы АДРЕСАМИ (app/node_ref.py): у тёзок и их потомков — с уточнителем на
+    # сегменте тёзки. По ним строятся id споров и вопросов остатка: по голому пути
+    # два тёзки делили бы один id, и выбор по одному применялся бы к спору другого.
+    # Человеку по-прежнему показывается голый путь (node_paths).
+    node_addresses: list[str] = field(default_factory=list)
     # Пути узлов КАЖДОГО входа в его СОБСТВЕННОЙ системе координат (порядок входов).
     # Нужны применению (Ф2а): адрес «%% archmap-doc: путь / имя» в тексте процесса
     # входа K написан путями архива K, а в новом проекте узел может лежать иначе.
@@ -657,6 +663,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
     warn_content(merged, report)
 
     node_paths = _paths(merged)
+    node_addresses = _addresses(merged)
     contribs = {
         (fi, ni): m for m, cs in enumerate(report.node_contribs) for fi, ni in cs
     }
@@ -674,7 +681,9 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
     _warn_process_namesakes(processes, warnings)
 
     dup_echoes: dict[tuple[int, int], set[int]] = {}
-    items, conflicts, counts = _resolve_families(raws, node_paths, remarks, dup_echoes)
+    items, conflicts, counts = _resolve_families(
+        raws, node_paths, node_addresses, remarks, dup_echoes
+    )
     counts.processes = len(processes)
 
     name_source: Literal["manifest", "fields"] = (
@@ -692,6 +701,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         report=report,
         merged=merged,
         node_paths=node_paths,
+        node_addresses=node_addresses,
         origin_paths=[_paths(p) for p in parts],
         origin_addresses=[_addresses(p) for p in parts],
         items=items,
@@ -749,10 +759,12 @@ def _warn_process_namesakes(processes: list[ProcessItem], warnings: list[str]) -
 def _resolve_families(
     raws: list[_Raw],
     node_paths: list[str],
+    node_addresses: list[str],
     remarks: list[list[str]],
     dup_echoes: dict[tuple[int, int], set[int]],
 ) -> tuple[list[FamilyItem], list[FamilyConflict], FamilyCounts]:
     """Дедуп равных тел и конфликт-объекты по ключу (семья, merged-узел, ключ).
+    id спора — по АДРЕСУ узла (у тёзок с уточнителем), путь для человека — голый.
     dup_echoes заполняется для внутриархивных дублей (см. UnifiedPlan.dup_echoes)."""
     groups: dict[tuple[Family, int, tuple[str, ...]], list[_Raw]] = {}
     for r in raws:
@@ -788,7 +800,7 @@ def _resolve_families(
             _bump(counts, family, 1)
             continue
         conflicts.append(FamilyConflict(
-            id=f"{family}|{node_paths[node_idx]}|{first.key_str}",
+            id=f"{family}|{node_addresses[node_idx]}|{first.key_str}",
             family=family,
             node_idx=node_idx,
             node_path=node_paths[node_idx],
@@ -1192,6 +1204,9 @@ def remainder_with_index(
     report = plan.report
     tree = _Tree(plan)
     paths = plan.node_paths
+    # id вопроса — по адресу узла: у тёзок путь один на двоих, и вопрос второго
+    # тёзки иначе терялся бы как «столкнувшийся». Человеку — голый путь (paths).
+    addr = plan.node_addresses or paths
     index = RemainderIndex()
     for i, p in enumerate(paths):
         index.nodes.setdefault(p, i)
@@ -1215,8 +1230,9 @@ def remainder_with_index(
     seen: set[str] = set()
 
     def свежий(eid: str) -> bool:
-        """Id адресует ОДИН элемент: столкнувшиеся (узлы-тёзки, разведённые якорем)
-        вопросом не становятся — применить ответ было бы некуда."""
+        """Id адресует ОДИН элемент: столкнувшиеся вопросом не становятся —
+        применить ответ было бы некуда. Тёзки не сталкиваются: их id строится по
+        адресу с уточнителем (node_addresses)."""
         if eid in seen:
             return False
         seen.add(eid)
@@ -1227,7 +1243,7 @@ def remainder_with_index(
     for d in report.field_disputes:
         if all(fi == current for fi, _v in d.contributions):
             continue  # Р3 (по построению недостижимо: спор — это всегда два входа)
-        eid = f"field|{paths[d.node_idx]}|{d.field}"
+        eid = f"field|{addr[d.node_idx]}|{d.field}"
         if not свежий(eid):
             continue
         cands = [кандидат(fi, v) for fi, v in d.contributions]
@@ -1252,7 +1268,7 @@ def remainder_with_index(
             continue
         e = merged.edges[rec.edge_idx]
         eid = (
-            f"edge|{paths[e.source_idx]}|{paths[e.target_idx]}|{e.label or ''}|{rec.end}"
+            f"edge|{addr[e.source_idx]}|{addr[e.target_idx]}|{e.label or ''}|{rec.end}"
         )
         if not свежий(eid):
             continue
@@ -1278,7 +1294,7 @@ def remainder_with_index(
     for g in report.isolated_groups:
         if all(свой(i) for i in g.node_idxs):
             continue  # Р3: группа целиком живая — не дело догрузки
-        eid = f"group|{paths[g.node_idxs[0]]}"
+        eid = f"group|{addr[g.node_idxs[0]]}"
         if not свежий(eid):
             continue
         groups.append(IsolatedGroupOut(id=eid, node_paths=[paths[i] for i in g.node_idxs]))
@@ -1292,7 +1308,7 @@ def remainder_with_index(
     for f in report.fuzzy_pairs:
         if свой(f.a_idx) and свой(f.b_idx):
             continue
-        eid = f"pair|{paths[f.a_idx]}|{paths[f.b_idx]}"
+        eid = f"pair|{addr[f.a_idx]}|{addr[f.b_idx]}"
         if not свежий(eid):
             continue
         pairs.append(FuzzyPairOut(

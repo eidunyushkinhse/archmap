@@ -511,6 +511,82 @@ def test_адрес_с_уточнителем_находит_своего_тёз
     }
 
 
+ШОП_ДБ = "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db"
+СТОК_ДБ = "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog"
+
+
+def test_выбор_в_споре_одного_тёзки_не_трогает_спор_другого(db):
+    """Два архива с одной парой якорных тёзок, у каждого тёзки своя таблица, и в A и
+    B она разная: два спора с одинаковыми путём и ключом. id спора строится по
+    адресу с уточнителем — выбор по одному тёзке к спору другого не применяется.
+    Путь спора, который видит человек, прежний — голый."""
+
+    def архив(name: str, тип: str) -> bytes:
+        return _архив(name=name, c4=C4_ЯКОРНЫЕ_ТЁЗКИ, db=(
+            ("db/001-x.yaml", _таблица(ШОП_ДБ, тип)), ("db/002-x.yaml", _таблица(СТОК_ДБ, тип)),
+        ))
+
+    план = build_unified_plan([("a.zip", архив("A", "uuid")), ("b.zip", архив("B", "bigint"))])
+    assert план.ok
+    assert sorted(c.id for c in план.conflicts) == [
+        f"table|{ШОП_ДБ}|public.orders", f"table|{СТОК_ДБ}|public.orders",
+    ]
+    assert {c.node_path for c in план.conflicts} == {"Ярмарка / Каталог-БД"}
+
+    проект, _ = apply_unified_plan(
+        db, план, {f"table|{ШОП_ДБ}|public.orders": "cand:1"}, "Тёзки", None,
+        ensure_architect(db).id,
+    )
+    db.commit()
+
+    типы = {
+        n.source_ref: [c.type for t in n.db_tables for c in t.columns]
+        for n in db.query(Node).filter(Node.project_id == проект.id, Node.name == "Каталог-БД")
+    }
+    assert типы == {
+        "git:github.com/org/shop-db#db": ["bigint"],
+        "git:github.com/org/warehouse-catalog": ["uuid"],
+    }
+
+
+def test_споры_полей_тёзок_два_вопроса_и_ответ_только_своему(db):
+    """Спор поля у каждого из тёзок — свой вопрос (раньше второй терялся: id по
+    голому пути совпадал), и ответ применяется только к своему тёзке."""
+
+    def c4(суффикс: str) -> bytes:
+        return (
+            "nodes:\n  - name: Ярмарка\n    children:\n"
+            "      - name: Каталог-БД\n        shape: database\n"
+            f"        description: Витрина {суффикс}\n"
+            "        source: {repo: github.com/org/shop-db, path: db}\n"
+            "      - name: Каталог-БД\n        shape: database\n"
+            f"        description: Остатки {суффикс}\n"
+            "        source: {repo: github.com/org/warehouse-catalog}\n"
+        ).encode()
+
+    план = build_unified_plan([("a.yaml", c4("A")), ("b.yaml", c4("B"))])
+    споры = preview_from_plan(план).remainder.field_conflicts
+    assert sorted(с.id for с in споры) == [
+        f"field|{ШОП_ДБ}|description", f"field|{СТОК_ДБ}|description",
+    ]
+    assert {с.node_path for с in споры} == {"Ярмарка / Каталог-БД"}
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Тёзки", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {f"field|{СТОК_ДБ}|description": 1}})),
+    )
+    db.commit()
+
+    описания = {
+        n.source_ref: n.description
+        for n in db.query(Node).filter(Node.project_id == проект.id, Node.name == "Каталог-БД")
+    }
+    assert описания == {
+        "git:github.com/org/shop-db#db": "Витрина A",
+        "git:github.com/org/warehouse-catalog": "Остатки B",
+    }
+
+
 def test_тёзки_без_якорей_одного_документа_при_создании_не_склеиваются(db):
     """Разведка задания twins-refs: гипотеза «тёзки без противоречия якорей мердж
     всё равно склеит» НЕ подтвердилась для создания проекта из ОДНОГО документа —
