@@ -143,24 +143,74 @@ def test_duplicate_name_uses_qualified_path_in_edges(db):
 
 def test_тёзкам_с_якорем_путь_дописывается_уточнителем(db):
     """Путь не различает тёзок одного родителя — к нему дописывается ключ якоря
-    (« @ git:…»). Тёзка без якоря и все прочие узлы пишутся по-прежнему."""
+    (« @ git:…»), когда якоря есть у всей группы и различны. Прочие узлы пишутся
+    по-прежнему."""
     корень = _node(db, "Ярмарка")
     orders = _node(db, "orders", корень)
     шоп = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/shop-db#db")
     сток = _node(db, "Каталог-БД", корень, source_ref="host:warehouse-db")
+    _edge(db, orders, шоп, label="a")
+    _edge(db, orders, сток, label="b")
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+
+    assert [(e["from"], e["to"]) for e in doc["edges"]] == [
+        ("orders", "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db"),
+        ("orders", "Ярмарка / Каталог-БД @ host:warehouse-db"),
+    ]
+
+
+def test_группе_тёзок_без_якоря_у_всех_пишется_порядковый_уточнитель(db):
+    """Якорь есть не у всех (или совпадает) — якорем группу не развести, и ВСЕЙ
+    группе пишется «@ #N»: позиция в порядке документа (тёзки — по содержательному
+    ключу, в нём и якорь: голый раньше git, git раньше host)."""
+    корень = _node(db, "Ярмарка")
+    orders = _node(db, "orders", корень)
+    сток = _node(db, "Каталог-БД", корень, source_ref="host:warehouse-db")
+    шоп = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/shop-db#db")
     голый = _node(db, "Каталог-БД", корень)
     _edge(db, orders, шоп, label="a")
     _edge(db, orders, сток, label="b")
     _edge(db, orders, голый, label="c")
     db.commit()
 
-    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    текст = export_all(db=db, project=ensure_project(db)).content
+    doc = yaml.safe_load(текст)
 
-    assert [(e["from"], e["to"]) for e in doc["edges"]] == [
-        ("orders", "Ярмарка / Каталог-БД"),
-        ("orders", "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#db"),
-        ("orders", "Ярмарка / Каталог-БД @ host:warehouse-db"),
+    assert [(e["from"], e["to"], e["label"]) for e in doc["edges"]] == [
+        ("orders", "Ярмарка / Каталог-БД @ #1", "c"),
+        ("orders", "Ярмарка / Каталог-БД @ #2", "a"),
+        ("orders", "Ярмарка / Каталог-БД @ #3", "b"),
     ]
+    # Дерево — в том же порядке документа, по нему резолвер и считает N.
+    дети = doc["nodes"][0]["children"]
+    assert [c.get("source") for c in дети if c["name"] == "Каталог-БД"] == [
+        None, {"repo": "github.com/org/shop-db", "path": "db"}, {"host": "warehouse-db"},
+    ]
+    parsed, errors = parse_import(текст)
+    assert errors == [] and parsed is not None
+    assert [(parsed.nodes[e.target_idx].source_keys, e.label) for e in parsed.edges] == [
+        ([], "c"), (["git:github.com/org/shop-db#db"], "a"), (["host:warehouse-db"], "b"),
+    ]
+
+
+def test_порядок_тёзок_не_зависит_от_выдачи_бд(db):
+    """Порядок документа — по имени, тёзки по содержательному ключу: проект, где те
+    же узлы созданы в обратном порядке, экспортируется теми же байтами."""
+    from app.export import build_export
+
+    def проект(обратный: bool) -> list[Node]:
+        корень = Node(id=uuid.uuid4(), name="Ярмарка", project_id=ensure_project(db).id)
+        тёзки = [
+            Node(id=uuid.uuid4(), name="api", technology=t, parent_id=корень.id,
+                 project_id=ensure_project(db).id)
+            for t in ("Go", "Python", "Rust")
+        ]
+        return [корень, *(reversed(тёзки) if обратный else тёзки)]
+
+    прямой, обратный = проект(False), проект(True)
+    assert build_export(прямой, []) == build_export(обратный, [])
 
 
 def test_уточнитель_считает_уникальность_в_пределах_набора(db):

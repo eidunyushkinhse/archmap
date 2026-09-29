@@ -4,9 +4,9 @@
 children>, edges: <список по именам>}. Гарантия roundtrip: любой вывод
 build_export импортируется без ошибок с той же семантикой (имя, форма, статус,
 роль, технология, external, описание, якорь source, вложенность, связи с
-каналом и типом sync). Законных тёзок (одно имя в одном родителе, якоря
-противоречат) экспорт адресует путём с уточнителем-якорем «путь @ ключ» — резолвер
-связей его понимает (app/node_ref.py). Раскладки в формате
+каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
+уточнителем — якорным «путь @ ключ» или порядковым «путь @ #N», — резолвер связей
+его понимает (app/node_ref.py). Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import qualify, split_ref
+from app.node_ref import pick, qualify, split_ref
 
 # Лимиты щедрые (реальный экспорт не упрётся) — защита от «бомбы» в textarea.
 MAX_NODES = 2000
@@ -431,16 +431,22 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         к «не найден» добавляется did-you-mean, когда кандидат уверенный
         (_closest_node), — без него слабая модель гадает имя заново.
 
-        Уточнитель-якорь законных тёзок («Ярмарка / Каталог-БД @ git:…», пишет
-        экспорт): только когда точного пути нет, и ДО слэш-фолбэка — в ключе
+        Уточнитель тёзок («Ярмарка / Каталог-БД @ git:…» или «Ярмарка / api @ #2»,
+        пишет экспорт): только когда точного пути нет, и ДО слэш-фолбэка — в ключе
         законны слэши, и нормализация пути разрезала бы его. Голова ищется всем
-        порядком обычной ссылки, кандидаты фильтруются по якорю."""
+        порядком обычной ссылки, потом якорь фильтрует кандидатов, а «#N» берёт
+        N-го из узлов одного пути в порядке документа."""
         hits = exact(ref)
         if not hits:
             split = split_ref(ref)
             if split is not None:
-                head, key = split
-                hits = [i for i in exact(head) or slashed(head) if key in nodes[i].source_keys]
+                head, qualifier = split
+                hits = pick(
+                    exact(head) or slashed(head),
+                    qualifier,
+                    lambda i: nodes[i].source_keys,
+                    lambda i: fulls[i],
+                )
             if not hits:
                 hits = slashed(ref)
         if not hits:

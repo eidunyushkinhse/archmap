@@ -11,9 +11,11 @@
 Связи ссылаются на узлы ПО ИМЕНИ. Имя по построению дерева уникальным быть не
 обязано — если в экспортируемом наборе оно встречается дважды, в edges
 подставляется квалифицированный путь «Предок / Имя» (в самом дереве имя
-оставляем голым: позиция во вложенности и так однозначна). Законных тёзок (путь
-в наборе повторяется, якоря разводят узлы) путь не различает — к нему дописан
-уточнитель-якорь «Предок / Имя @ git:…» (грамматика — app/node_ref.py).
+оставляем голым: позиция во вложенности и так однозначна). Тёзок (путь в наборе
+повторяется) путь не различает — к нему дописан уточнитель: якорный «Предок / Имя
+@ git:…», когда якоря разводят всю группу, иначе порядковый «Предок / Имя @ #N»
+(грамматика — app/node_ref.py). Порядок сиблингов детерминирован и без выдачи БД:
+по имени, тёзки — по содержательному ключу (node_ref.document_order).
 """
 
 import uuid
@@ -24,7 +26,7 @@ import yaml
 from app.identity import source_ref_dict
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import anchor_key, qualified_paths
+from app.node_ref import anchor_key, qualified_paths, sibling_sorter
 
 
 class _Dumper(yaml.SafeDumper):
@@ -77,6 +79,18 @@ def build_export_ordered(
 
     # Сколько раз имя встречается в наборе — чтобы решить, нужен ли путь в edges.
     name_counts = Counter(n.name for n in nodes)
+    # Порядок сиблингов — порядок документа (app/node_ref.py): по имени, тёзки — по
+    # содержательному ключу. От него зависят и дерево, и порядковые уточнители.
+    sort = sibling_sorter(nodes)
+    ordered: list[Node] = []
+
+    def visit(node: Node) -> None:
+        ordered.append(node)
+        for k in sort(children_by_parent.get(node.id, [])):
+            visit(k)
+
+    for r in sort(roots):
+        visit(r)
 
     def set_path(node: Node) -> str:
         """Путь узла от корня НАБОРА (у поддерева — от его корня)."""
@@ -88,10 +102,10 @@ def build_export_ordered(
         path.reverse()
         return " / ".join(path)
 
-    # Адреса узлов с повторяющимся именем: путь, а законным тёзкам (путь в наборе
-    # не уникален) — путь с уточнителем-якорем (app/node_ref.py). Уникальность
-    # считается в пределах набора, как и у имени.
-    dup = [n for n in nodes if name_counts[n.name] > 1]
+    # Адреса узлов с повторяющимся именем: путь, а тёзкам (путь в наборе не
+    # уникален) — путь с уточнителем (app/node_ref.py). Уникальность считается в
+    # пределах набора, как и у имени; порядковый номер — по порядку документа.
+    dup = [n for n in ordered if name_counts[n.name] > 1]
     qualified = dict(zip(
         (n.id for n in dup),
         qualified_paths([set_path(n) for n in dup], [anchor_key(n.source_ref) for n in dup]),
@@ -100,7 +114,7 @@ def build_export_ordered(
 
     def ref_name(node: Node) -> str:
         """Имя узла для ссылки в edges: голое, если уникально, иначе путь от корня
-        набора, а у тёзок с якорем — путь с уточнителем «@ ключ»."""
+        набора, а у тёзок — путь с уточнителем («@ ключ» или «@ #N»)."""
         if name_counts[node.name] == 1:
             return node.name
         return qualified[node.id]
@@ -127,7 +141,7 @@ def build_export_ordered(
             src = source_ref_dict(node.source_ref)
             if src:
                 d["source"] = src
-        kids = sorted(children_by_parent.get(node.id, []), key=lambda n: n.name)
+        kids = sort(children_by_parent.get(node.id, []))
         if kids:
             d["children"] = [node_dict(k) for k in kids]
         return d
@@ -156,7 +170,7 @@ def build_export_ordered(
     edge_dicts.sort(key=lambda d: (d["from"], d["to"], d.get("label") or ""))
 
     structure = {
-        "nodes": [node_dict(r) for r in sorted(roots, key=lambda n: n.name)],
+        "nodes": [node_dict(r) for r in sort(roots)],
         "edges": edge_dicts,
     }
     text = yaml.dump(

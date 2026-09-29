@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.node_ref import sibling_sorter
 
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
@@ -202,14 +203,20 @@ class DocsPlan:
 
 def _node_paths(nodes: list[Node]) -> tuple[list[Node], list[str], dict[str, list[int]], dict[str, list[int]]]:
     """Полные пути живых узлов (родители раньше детей, сиблинги по имени) +
-    карты резолва — зеркало ref_name экспорта / resolve импорта."""
+    карты резолва — зеркало ref_name экспорта / resolve импорта.
+
+    Порядок сиблингов — ПОРЯДОК ДОКУМЕНТА экспорта (node_ref.sibling_sorter): тёзки
+    идут по содержательному ключу, и порядковый уточнитель «путь @ #N», который
+    пишут архив и синтетические файлы единого импорта (node_ref.node_addresses),
+    здесь находит того же N-го тёзку."""
     by_id = {n.id: n for n in nodes}
     kids: dict[uuid.UUID | None, list[Node]] = {}
     for n in nodes:
         parent = n.parent_id if n.parent_id in by_id else None
         kids.setdefault(parent, []).append(n)
-    for group in kids.values():
-        group.sort(key=lambda n: n.name)
+    sort = sibling_sorter(nodes)
+    for parent, group in kids.items():
+        kids[parent] = sort(group)
 
     flat: list[Node] = []
     fulls: list[str] = []

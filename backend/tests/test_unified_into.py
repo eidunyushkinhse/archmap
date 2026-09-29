@@ -983,6 +983,166 @@ def test_новый_тёзка_из_архива_оставляет_пункт_�
     assert РАЗНЫЕ_МЕТАДАННЫЕ in [u.text for u in превью.remainder.unfixable]
 
 
+# ── 8б. Тёзки без различающего якоря: порядковый уточнитель «путь @ #N» ──────
+#
+# Якорь различает не всех тёзок: два «api», созданные руками, или группа, где якорь
+# есть не у всех. Экспорт адресует такую группу порядковым уточнителем — N-й из
+# узлов одного пути в порядке документа (app/node_ref.py). До него проект с такой
+# парой и связями не догружал даже собственный архив и не создавался из него.
+
+
+def _безъякорные(db, имя: str = "Живой"):
+    """Живой проект с тёзками без якорей: две «Реплика-БД» в «Ярмарка» различаются
+    только технологией; у каждой своя связь, свой док и своя таблица (имена дока и
+    таблицы СОВПАДАЮТ). Postgres создаётся раньше MySQL — порядок вставки не должен
+    решать порядок документа."""
+    проект = _проект(db, имя)
+    корень = _узел(db, проект, "Ярмарка", role="система")
+    orders = _узел(db, проект, "orders", корень)
+    склад = _узел(db, проект, "Склад", корень)
+    pg = _узел(db, проект, "Реплика-БД", корень, shape="database", technology="Postgres")
+    my = _узел(db, проект, "Реплика-БД", корень, shape="database", technology="MySQL")
+    _ребро(db, проект, orders, pg, label="пишет")
+    _ребро(db, проект, склад, my, label="читает")
+    _док(db, pg, "Хранение", "graph TD\n  Постгрес\n", kind="worker")
+    _док(db, my, "Хранение", "graph TD\n  Майскуль\n", kind="worker")
+    _таблица(db, pg, "items", [("sku", "text")])
+    _таблица(db, my, "items", [("qty", "int")])
+    db.commit()
+    return проект, {"orders": orders, "склад": склад, "pg": pg, "my": my}
+
+
+def _по_технологии(db, project_id) -> dict[str | None, Node]:
+    return {
+        n.technology: n
+        for n in db.query(Node).filter(
+            Node.project_id == project_id, Node.name == "Реплика-БД"
+        ).all()
+    }
+
+
+def test_экспорт_безъякорных_тёзок_пишет_порядковый_уточнитель(db):
+    """Тёзки без якорей адресуются «путь @ #N» (по порядку документа: MySQL раньше
+    Postgres по содержательному ключу, хоть и создана позже), и такой экспорт снова
+    разбирается со связями к правильным узлам."""
+    проект, _ = _безъякорные(db)
+    текст = build_export(
+        db.query(Node).filter(Node.project_id == проект.id).all(),
+        db.query(Edge).filter(Edge.project_id == проект.id).all(),
+    )
+    doc = yaml.safe_load(текст)
+    assert [(e["from"], e["to"]) for e in doc["edges"]] == [
+        ("orders", "Ярмарка / Реплика-БД @ #2"),
+        ("Склад", "Ярмарка / Реплика-БД @ #1"),
+    ]
+
+    разобрано, ошибки = parse_import(текст)
+
+    assert ошибки == [] and разобрано is not None
+    связи = {
+        (разобрано.nodes[e.source_idx].name, разобрано.nodes[e.target_idx].technology, e.label)
+        for e in разобрано.edges
+    }
+    assert связи == {("orders", "Postgres", "пишет"), ("Склад", "MySQL", "читает")}
+
+
+def test_безъякорные_тёзки_переезжают_архивом_в_новый_проект(db):
+    """Новый проект из архива: обе «Реплика-БД» на месте, а связи, схемы и таблицы —
+    каждая у СВОЕЙ (путь их не различает, порядковый уточнитель — да)."""
+    проект, _ = _безъякорные(db, "Исходный")
+    план = build_unified_plan([("свой.zip", build_archive(db, проект))])
+    assert план.ok, план.errors
+    assert план.input_remarks == [[]]
+
+    новый, отчёт = apply_unified_plan(db, план, {}, "Копия", None, ensure_architect(db).id)
+    db.commit()
+
+    реплики = _по_технологии(db, новый.id)
+    pg, my = реплики["Postgres"], реплики["MySQL"]
+    имя = {n.id: n.name for n in db.query(Node).filter(Node.project_id == новый.id).all()}
+    связи = {
+        (имя[e.source_id], e.target_id, e.label)
+        for e in db.query(Edge).filter(Edge.project_id == новый.id).all()
+    }
+    assert связи == {("orders", pg.id, "пишет"), ("Склад", my.id, "читает")}
+    assert {(d.node_id, d.content) for d in db.query(NodeDoc).filter(
+        NodeDoc.node_id.in_([pg.id, my.id])).all()} == {
+        (pg.id, "graph TD\n  Постгрес\n"), (my.id, "graph TD\n  Майскуль\n")
+    }
+    assert {
+        (t.node_id, tuple(c.name for c in t.columns))
+        for t in db.query(DbTable).filter(DbTable.node_id.in_([pg.id, my.id])).all()
+    } == {(pg.id, ("sku",)), (my.id, ("qty",))}
+    assert отчёт.db is not None and отчёт.db.errors == []
+
+
+def test_безъякорные_тёзки_догружают_свой_архив(db):
+    """Свой архив проекта с живыми тёзками без якорей: разбор не спотыкается о путь,
+    ни одна живая запись не тронута, нового нет. Мердж второго входа склеивает
+    одноимённых по имени — об этом, как и прежде, пункт «несколько объектов»."""
+    проект, у = _безъякорные(db)
+    было = _снимок(db, проект.id)
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.ok and превью.errors == []
+    assert (превью.nodes_new, превью.edges_new) == (0, 0)
+    assert превью.family_conflicts == []
+    assert превью.families.model_dump() == {
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+    }
+    assert _снимок(db, проект.id) == было
+    assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
+    # Внутриархивные дубли склеенной пары повторяют живые записи — нового знания
+    # они не теряют, и пунктами свёртки их нет (Р3); честный пункт — один.
+    assert [u.text for u in превью.remainder.unfixable] == [
+        "В проекте несколько объектов «Ярмарка / Реплика-БД», и знание из архива "
+        "приедет только к первому из них. Остальные останутся как были."
+    ]
+    assert db.get(Node, у["pg"].id).technology == "Postgres"
+    assert db.get(Node, у["my"].id).technology == "MySQL"
+
+
+def test_тёзки_обоих_видов_неподвижны_при_переносе(db):
+    """Критерий порядка документа: экспорт → новый проект → экспорт дают те же байты
+    и у YAML, и у архива — для проекта с якорными тёзками, тёзками без якоря,
+    смешанной группой (якорь не у всех) и полными двойниками с разным знанием."""
+    проект, у = _безъякорные(db, "Исходный")
+    корень = db.get(Node, у["orders"].parent_id)
+    шоп = _узел(db, проект, "Каталог-БД", корень, shape="database", source_ref=ШОП)
+    _узел(db, проект, "Каталог-БД", корень, shape="database", source_ref=СКЛАДСКОЙ)
+    _ребро(db, проект, у["orders"], шоп, label="пишет")
+    смесь = [
+        _узел(db, проект, "cache", корень, source_ref="host:redis-a"),
+        _узел(db, проект, "cache", корень),
+        _узел(db, проект, "cache", корень, source_ref="host:redis-b"),
+    ]
+    for i, узел in enumerate(смесь):
+        _ребро(db, проект, у["склад"], узел, label=f"кэш {i}")
+    for тело in ("graph TD\n  Первый\n", "graph TD\n  Второй\n"):
+        двойник = _узел(db, проект, "worker", корень)
+        _док(db, двойник, "Цикл", тело, kind="worker")
+    db.commit()
+
+    def тексты(project_id) -> str:
+        return build_export(
+            db.query(Node).filter(Node.project_id == project_id).all(),
+            db.query(Edge).filter(Edge.project_id == project_id).all(),
+        )
+
+    архив = build_archive(db, проект)
+    план = build_unified_plan([("свой.zip", архив)])
+    assert план.ok and план.input_remarks == [[]], (план.errors, план.input_remarks)
+    новый, _ = apply_unified_plan(db, план, {}, "Исходный", None, ensure_architect(db).id)
+    db.commit()
+
+    assert тексты(новый.id) == тексты(проект.id)
+    assert build_archive(db, новый) == архив
+    # Смешанная группа — порядковые уточнители всей группе, якорь пережил перенос.
+    assert {n.source_ref for n in db.query(Node).filter(
+        Node.project_id == новый.id, Node.name == "cache")} == {"host:redis-a", "host:redis-b", None}
+
+
 # ── 9. Эндпоинты ─────────────────────────────────────────────────────────────
 
 

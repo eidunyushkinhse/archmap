@@ -53,7 +53,7 @@ from app.import_merge import (
 )
 from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
-from app.node_ref import split_ref
+from app.node_ref import pick, split_ref
 from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
     ComponentOut,
@@ -205,6 +205,12 @@ class UnifiedPlan:
     processes: list[ProcessItem] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)  # верхнеуровневые (не адресуемы входу)
     input_remarks: list[list[str]] = field(default_factory=list)  # по записи на вход
+    # Внутриархивный дубль (вход, номер замечания) → входы, у которых в том же ключе
+    # того же узла лежит РАВНОЕ тело. Догрузке это Р3: дубль, повторяющий запись
+    # живого проекта, нового знания не теряет (тёзки без якоря, склеенные мерджем
+    # второго входа, дают такой дубль на собственном архиве), и пунктом свёртки он
+    # быть не должен. Само замечание остаётся в сырых строках входа (MCP).
+    dup_echoes: dict[tuple[int, int], set[int]] = field(default_factory=dict)
     counts: FamilyCounts = field(default_factory=FamilyCounts)
     name_source: Literal["manifest", "fields"] = "fields"
     manifest_name: str | None = None
@@ -266,11 +272,12 @@ def _paths(parsed: ParsedImport) -> list[str]:
 class _Resolver:
     """Адрес файла семьи → узел СЛИТОГО дерева, через C4 своего входа.
 
-    Адрес — точный полный путь; законного тёзку (путь один на двоих) архив
-    адресует путём с уточнителем-якорем «путь @ git:…» (app/node_ref.py), и тогда
-    кандидаты пути фильтруются по якорю разобранного узла. Промах и тёзки без
-    уточнителя — замечание входу, файл пропускается: та же норма, что у всех
-    приёмников, деградация видимая."""
+    Адрес — точный полный путь; тёзку (путь один на двоих) архив адресует путём с
+    уточнителем (app/node_ref.py): якорным «путь @ git:…» — тогда кандидаты пути
+    фильтруются по якорю разобранного узла, — или порядковым «путь @ #N» — тогда
+    берётся N-й из них в порядке документа. Промах и тёзки без уточнителя —
+    замечание входу, файл пропускается: та же норма, что у всех приёмников,
+    деградация видимая."""
 
     def __init__(
         self,
@@ -293,8 +300,10 @@ class _Resolver:
         if not hits:
             split = split_ref(path)
             if split is not None:
-                head, key = split
-                hits = [i for i in self.by_path.get(head, []) if key in self.keys[i]]
+                head, qualifier = split
+                hits = pick(
+                    self.by_path.get(head, []), qualifier, lambda i: self.keys[i], lambda i: head
+                )
         return hits
 
     def resolve(self, path: str | None, fname: str) -> int | None:
@@ -648,7 +657,8 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         processes.extend(_processes_of(inp, i, remarks[i]))
     _warn_process_namesakes(processes, warnings)
 
-    items, conflicts, counts = _resolve_families(raws, node_paths, remarks)
+    dup_echoes: dict[tuple[int, int], set[int]] = {}
+    items, conflicts, counts = _resolve_families(raws, node_paths, remarks, dup_echoes)
     counts.processes = len(processes)
 
     name_source: Literal["manifest", "fields"] = (
@@ -672,6 +682,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         processes=processes,
         warnings=warnings,
         input_remarks=remarks,
+        dup_echoes=dup_echoes,
         counts=counts,
         name_source=name_source,
         manifest_name=_text_or_none(manifest_project.get("name")),
@@ -719,9 +730,13 @@ def _warn_process_namesakes(processes: list[ProcessItem], warnings: list[str]) -
 
 
 def _resolve_families(
-    raws: list[_Raw], node_paths: list[str], remarks: list[list[str]]
+    raws: list[_Raw],
+    node_paths: list[str],
+    remarks: list[list[str]],
+    dup_echoes: dict[tuple[int, int], set[int]],
 ) -> tuple[list[FamilyItem], list[FamilyConflict], FamilyCounts]:
-    """Дедуп равных тел и конфликт-объекты по ключу (семья, merged-узел, ключ)."""
+    """Дедуп равных тел и конфликт-объекты по ключу (семья, merged-узел, ключ).
+    dup_echoes заполняется для внутриархивных дублей (см. UnifiedPlan.dup_echoes)."""
     groups: dict[tuple[Family, int, tuple[str, ...]], list[_Raw]] = {}
     for r in raws:
         groups.setdefault((r.family, r.node_idx, r.key), []).append(r)
@@ -737,6 +752,9 @@ def _resolve_families(
         kept: list[_Raw] = []
         for r in group:
             if r.origin in seen_origins:
+                dup_echoes[(r.origin, len(remarks[r.origin]))] = {
+                    o.origin for o in group if o.origin != r.origin and _same_body(o, r)
+                }
                 remarks[r.origin].append(_dup_remark(r))
                 continue
             seen_origins.add(r.origin)
@@ -1394,6 +1412,8 @@ def _unfixable(
         out.extend(
             UnfixableOut(id=f"input|{k}|{j}", text=f"{label}: {r}", file=k)
             for j, r in enumerate(remarks)
+            # Р3: дубль, равный записи живого проекта, знания не теряет.
+            if current is None or current not in plan.dup_echoes.get((k, j), ())
         )
     return out
 
