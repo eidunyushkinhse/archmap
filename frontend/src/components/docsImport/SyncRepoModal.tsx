@@ -273,7 +273,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
             {pkg.files.length === 0 ? (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда YAML-ответы агента — по файлу на репозиторий — или нажмите,
+                Перетащите сюда YAML-ответы агента (по файлу на репозиторий) или нажмите,
                 чтобы выбрать их на диске. Можно и вставить текстом: план обновления
                 посчитается сам.
               </button>

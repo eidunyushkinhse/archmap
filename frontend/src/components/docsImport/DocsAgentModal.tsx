@@ -427,7 +427,7 @@ export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch"
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы схем, которые создал агент, — или нажмите, чтобы выбрать
+                Перетащите сюда файлы схем, которые создал агент, или нажмите, чтобы выбрать
                 их на диске. Схему можно и вставить текстом.
               </button>
             )}

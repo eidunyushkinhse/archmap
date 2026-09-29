@@ -275,8 +275,8 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
           {files.length === 0 && (
             <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-              Перетащите сюда архивы .zip — те, что скачиваются пунктом «Экспорт проекта
-              (zip)», — или нажмите, чтобы выбрать их на диске.
+              Перетащите сюда архивы .zip, которые скачиваются пунктом «Экспорт проекта
+              (zip)», или нажмите, чтобы выбрать их на диске.
             </button>
           )}
           </div>

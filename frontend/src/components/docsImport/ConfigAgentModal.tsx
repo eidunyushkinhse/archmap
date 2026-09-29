@@ -190,7 +190,7 @@ export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) 
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы, которые подготовил агент, — или нажмите, чтобы
+                Перетащите сюда файлы, которые подготовил агент, или нажмите, чтобы
                 выбрать их на диске. Содержимое можно и вставить текстом.
               </button>
             )}

@@ -227,7 +227,7 @@ export default function SpecAgentModal({ nodeId, nodeName, onClose, onApplied }:
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файл спеки, который подготовил агент, — или нажмите, чтобы
+                Перетащите сюда файл спеки, который подготовил агент, или нажмите, чтобы
                 выбрать его на диске. Спеку можно и вставить текстом.
               </button>
             )}

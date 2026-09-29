@@ -197,7 +197,7 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда файлы, которые подготовил агент, — или нажмите, чтобы
+                Перетащите сюда файлы, которые подготовил агент, или нажмите, чтобы
                 выбрать их на диске. Содержимое можно и вставить текстом.
               </button>
             )}
