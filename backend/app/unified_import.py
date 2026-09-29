@@ -53,7 +53,7 @@ from app.import_merge import (
 )
 from app.import_yaml import ParsedImport, parse_import
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
-from app.node_ref import pick, split_ref
+from app.node_ref import RefIndex
 from app.schemas.project import FileRemarksOut, ImportPreviewOut, MergedNodeOut
 from app.schemas.unified_import import (
     ComponentOut,
@@ -272,12 +272,12 @@ def _paths(parsed: ParsedImport) -> list[str]:
 class _Resolver:
     """Адрес файла семьи → узел СЛИТОГО дерева, через C4 своего входа.
 
-    Адрес — точный полный путь; тёзку (путь один на двоих) архив адресует путём с
-    уточнителем (app/node_ref.py): якорным «путь @ git:…» — тогда кандидаты пути
-    фильтруются по якорю разобранного узла, — или порядковым «путь @ #N» — тогда
-    берётся N-й из них в порядке документа. Промах и тёзки без уточнителя —
-    замечание входу, файл пропускается: та же норма, что у всех приёмников,
-    деградация видимая."""
+    Адрес — точный полный путь; тёзку (путь один на двоих) и его потомков архив
+    адресует путём с уточнителем на сегменте тёзки (app/node_ref.py): якорным
+    «@ git:…» — тогда тёзки фильтруются по якорю разобранного узла, — или
+    порядковым «@ #N» — тогда берётся N-й из них в порядке документа. Промах и
+    тёзки без уточнителя — замечание входу, файл пропускается: та же норма, что у
+    всех приёмников, деградация видимая."""
 
     def __init__(
         self,
@@ -292,18 +292,18 @@ class _Resolver:
         self.by_path: dict[str, list[int]] = {}
         for i, p in enumerate(_paths(parsed)):
             self.by_path.setdefault(p, []).append(i)
-        self.keys = [n.source_keys for n in parsed.nodes]
+        self.index = RefIndex(
+            [n.name for n in parsed.nodes],
+            [n.parent_idx for n in parsed.nodes],
+            [n.source_keys for n in parsed.nodes],
+        )
 
     def _hits(self, path: str) -> list[int]:
-        """Точный путь первым (имя с законным « @ » работает), иначе уточнитель."""
+        """Точный путь первым (имя с законным « @ » работает), иначе уточнители.
+        Адрес архива — полный путь: хвост и голое имя тут не угадываются."""
         hits = self.by_path.get(path, [])
         if not hits:
-            split = split_ref(path)
-            if split is not None:
-                head, qualifier = split
-                hits = pick(
-                    self.by_path.get(head, []), qualifier, lambda i: self.keys[i], lambda i: head
-                )
+            hits = self.index.resolve_full(path) or []
         return hits
 
     def resolve(self, path: str | None, fname: str) -> int | None:

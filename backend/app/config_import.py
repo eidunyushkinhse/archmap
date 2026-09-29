@@ -31,7 +31,7 @@ from app.data_import import NODE_HEADER
 from app.docs_import import _node_paths
 from app.models.config_param import ConfigParam
 from app.models.node import Node
-from app.node_ref import anchored_node_hits
+from app.node_ref import qualified_node_hits
 from app.schemas.config_import import ConfigImportReport, ConfigParamItem
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -195,10 +195,10 @@ def _resolve_node(
         # хвосту — по границе « / », чтобы «…/ payments» не цеплялось к «…/ my payments».
         hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
     if not hits:
-        # Законный тёзка (одно имя в одном родителе, якоря разные) адресуется
-        # путём с уточнителем-якорем «путь @ git:…» — так пишет архив
-        # (app/node_ref.py). Голова ищется тем же порядком, фильтр — по якорю.
-        hits = anchored_node_hits(ref, flat, fulls, by_bare, by_path)
+        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
+        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»;
+        # так пишут архив и синтетические файлы единого импорта (app/node_ref.py).
+        hits = qualified_node_hits(ref, flat)
     if not hits:
         plan.report.errors.append(
             f"{fname}: объект «{ref}» не найден; узлы-сервисы проекта: {hint}"

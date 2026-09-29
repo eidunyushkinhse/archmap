@@ -1143,6 +1143,112 @@ def test_тёзки_обоих_видов_неподвижны_при_перен
         Node.project_id == новый.id, Node.name == "cache")} == {"host:redis-a", "host:redis-b", None}
 
 
+# ── 8в. Дети тёзок-контейнеров: уточнитель на сегменте предка ────────────────
+#
+# «Ярмарка / Каталог-БД @ git:… / reader»: ребёнок уникален среди своих сиблингов,
+# но путь его не различает — различает уточнитель на сегменте тёзки-предка. Путь
+# режется по « / » с пробелами: слэши и решётка ключа («git:…#a/b») разрез не ломают.
+
+ШОП_AB = "git:github.com/org/shop-db#a/b"
+
+
+def _дети_тёзок(db, имя: str = "Живой"):
+    """Тёзки-контейнеры обоих видов, у каждого свой «reader» (база) со связью,
+    схемой и таблицей — имена у детей и их знания СОВПАДАЮТ."""
+    проект = _проект(db, имя)
+    корень = _узел(db, проект, "Ярмарка", role="система")
+    orders = _узел(db, проект, "orders", корень)
+    контейнеры = {
+        "шоп": _узел(db, проект, "Каталог-БД", корень, source_ref=ШОП_AB),
+        "сток": _узел(db, проект, "Каталог-БД", корень, source_ref=СКЛАДСКОЙ),
+        "pg": _узел(db, проект, "Реплика", корень, technology="Postgres"),
+        "my": _узел(db, проект, "Реплика", корень, technology="MySQL"),
+    }
+    читатели = {}
+    for метка, контейнер in контейнеры.items():
+        reader = _узел(db, проект, "reader", контейнер, shape="database")
+        _ребро(db, проект, orders, reader, label=метка)
+        _док(db, reader, "Чтение", f"graph TD\n  {метка}\n", kind="worker")
+        _таблица(db, reader, "items", [(f"col_{метка}", "text")])
+        читатели[метка] = reader
+    db.commit()
+    return проект, читатели
+
+
+def _читатели(db, project_id) -> dict[str, Node]:
+    """Дети-«reader» по метке своей связи (метка = какой контейнер)."""
+    узлы = {n.id: n for n in db.query(Node).filter(Node.project_id == project_id).all()}
+    return {
+        e.label: узлы[e.target_id]
+        for e in db.query(Edge).filter(Edge.project_id == project_id).all()
+        if узлы[e.target_id].name == "reader"
+    }
+
+
+def test_адреса_семей_детей_тёзок_несут_уточнитель_предка(db):
+    """В архиве: связи c4.yaml, «%% archmap-node:» схем и «# archmap-node:» таблиц
+    детей тёзок несут уточнитель на сегменте тёзки-предка, и шапка .mmd с
+    «#a/b» внутри ключа не режется."""
+    from app.data_import import parse_data_file
+    from app.mmd_header import parse_mmd_header
+
+    проект, _ = _дети_тёзок(db)
+    zf = zipfile.ZipFile(io.BytesIO(build_archive(db, проект)))
+    состав = yaml.safe_load(zf.read("manifest.yaml"))["contents"]
+    ожидаемые = {
+        "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#a/b / reader",
+        "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader",
+        "Ярмарка / Реплика @ #1 / reader",
+        "Ярмарка / Реплика @ #2 / reader",
+    }
+    assert {parse_mmd_header(zf.read(f).decode()).node for f in состав["docs"]} == ожидаемые
+    таблицы = [parse_data_file(zf.read(f).decode()) for f in состав["db"]]
+    assert {t.node_ref for t in таблицы if t is not None} == ожидаемые
+    assert {e["to"] for e in yaml.safe_load(zf.read("c4.yaml"))["edges"]} == ожидаемые
+
+
+def test_дети_тёзок_переезжают_архивом_в_новый_проект(db):
+    """Новый проект из архива: связь, схема и таблица каждого «reader» — у ребёнка
+    СВОЕГО тёзки-контейнера; экспорт нового проекта — те же байты."""
+    проект, _ = _дети_тёзок(db, "Исходный")
+    архив = build_archive(db, проект)
+    план = build_unified_plan([("свой.zip", архив)])
+    assert план.ok, план.errors
+    assert план.input_remarks == [[]]
+
+    новый, отчёт = apply_unified_plan(db, план, {}, "Исходный", None, ensure_architect(db).id)
+    db.commit()
+
+    читатели = _читатели(db, новый.id)
+    узлы = {n.id: n for n in db.query(Node).filter(Node.project_id == новый.id).all()}
+    родитель = {метка: узлы[r.parent_id] for метка, r in читатели.items() if r.parent_id}
+    assert родитель["шоп"].source_ref == ШОП_AB
+    assert родитель["сток"].source_ref == СКЛАДСКОЙ
+    assert (родитель["pg"].technology, родитель["my"].technology) == ("Postgres", "MySQL")
+    for метка, reader in читатели.items():
+        assert [d.content for d in reader.docs] == [f"graph TD\n  {метка}\n"]
+        assert [[c.name for c in t.columns] for t in reader.db_tables] == [[f"col_{метка}"]]
+    assert отчёт.db is not None and отчёт.db.errors == []
+    assert build_archive(db, новый) == архив
+
+
+def test_дети_тёзок_догружают_свой_архив(db):
+    """Свой архив проекта с детьми тёзок: ноль изменений, нового нет."""
+    проект, _ = _дети_тёзок(db)
+    было = _снимок(db, проект.id)
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.ok and превью.errors == []
+    assert (превью.nodes_new, превью.edges_new) == (0, 0)
+    assert превью.family_conflicts == []
+    assert превью.families.model_dump() == {
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+    }
+    assert _снимок(db, проект.id) == было
+    assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
+
+
 # ── 9. Эндпоинты ─────────────────────────────────────────────────────────────
 
 

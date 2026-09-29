@@ -195,6 +195,38 @@ def test_группе_тёзок_без_якоря_у_всех_пишется_п
     ]
 
 
+def test_дети_тёзок_адресуются_уточнителем_на_сегменте_предка(db):
+    """Уточнитель ставится на ТОТ сегмент пути, где стоит тёзка: ребёнок тёзки
+    уникален среди своих сиблингов, но путь его не различает — различает
+    уточнитель предка (якорный или порядковый)."""
+    корень = _node(db, "Ярмарка")
+    orders = _node(db, "orders", корень)
+    шоп = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/shop-db#a/b")
+    сток = _node(db, "Каталог-БД", корень, source_ref="git:github.com/org/warehouse-catalog")
+    go = _node(db, "api", корень, technology="Go")
+    py = _node(db, "api", корень, technology="Python")
+    for родитель, метка in ((шоп, "a"), (сток, "b"), (go, "c"), (py, "d")):
+        _edge(db, orders, _node(db, "reader", родитель), label=метка)
+    db.commit()
+
+    текст = export_all(db=db, project=ensure_project(db)).content
+    doc = yaml.safe_load(текст)
+
+    assert [(e["to"], e["label"]) for e in doc["edges"]] == [
+        ("Ярмарка / api @ #1 / reader", "c"),
+        ("Ярмарка / api @ #2 / reader", "d"),
+        ("Ярмарка / Каталог-БД @ git:github.com/org/shop-db#a/b / reader", "a"),
+        ("Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader", "b"),
+    ]
+    parsed, errors = parse_import(текст)
+    assert errors == [] and parsed is not None
+    родитель = {e.label: parsed.nodes[parsed.nodes[e.target_idx].parent_idx or 0]
+                for e in parsed.edges}
+    assert родитель["a"].source_keys == ["git:github.com/org/shop-db#a/b"]
+    assert родитель["b"].source_keys == ["git:github.com/org/warehouse-catalog"]
+    assert (родитель["c"].technology, родитель["d"].technology) == ("Go", "Python")
+
+
 def test_порядок_тёзок_не_зависит_от_выдачи_бд(db):
     """Порядок документа — по имени, тёзки по содержательному ключу: проект, где те
     же узлы созданы в обратном порядке, экспортируется теми же байтами."""

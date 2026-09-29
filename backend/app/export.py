@@ -11,11 +11,12 @@
 Связи ссылаются на узлы ПО ИМЕНИ. Имя по построению дерева уникальным быть не
 обязано — если в экспортируемом наборе оно встречается дважды, в edges
 подставляется квалифицированный путь «Предок / Имя» (в самом дереве имя
-оставляем голым: позиция во вложенности и так однозначна). Тёзок (путь в наборе
-повторяется) путь не различает — к нему дописан уточнитель: якорный «Предок / Имя
-@ git:…», когда якоря разводят всю группу, иначе порядковый «Предок / Имя @ #N»
-(грамматика — app/node_ref.py). Порядок сиблингов детерминирован и без выдачи БД:
-по имени, тёзки — по содержательному ключу (node_ref.document_order).
+оставляем голым: позиция во вложенности и так однозначна). Тёзок (одно имя в
+одном родителе) и их потомков путь не различает — сегмент тёзки несёт уточнитель:
+якорный «Предок / Имя @ git:…», когда якоря разводят всю группу, иначе порядковый
+«Предок / Имя @ #N» (грамматика — app/node_ref.py). Порядок сиблингов
+детерминирован и без выдачи БД: по имени, тёзки — по содержательному ключу
+(node_ref.document_order).
 """
 
 import uuid
@@ -26,7 +27,7 @@ import yaml
 from app.identity import source_ref_dict
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import anchor_key, qualified_paths, sibling_sorter
+from app.node_ref import RefIndex, sibling_sorter
 
 
 class _Dumper(yaml.SafeDumper):
@@ -92,32 +93,19 @@ def build_export_ordered(
     for r in sort(roots):
         visit(r)
 
-    def set_path(node: Node) -> str:
-        """Путь узла от корня НАБОРА (у поддерева — от его корня)."""
-        path: list[str] = []
-        cur: Node | None = node
-        while cur is not None and cur.id in included:
-            path.append(cur.name)
-            cur = by_id.get(cur.parent_id) if cur.parent_id else None
-        path.reverse()
-        return " / ".join(path)
-
-    # Адреса узлов с повторяющимся именем: путь, а тёзкам (путь в наборе не
-    # уникален) — путь с уточнителем (app/node_ref.py). Уникальность считается в
-    # пределах набора, как и у имени; порядковый номер — по порядку документа.
-    dup = [n for n in ordered if name_counts[n.name] > 1]
-    qualified = dict(zip(
-        (n.id for n in dup),
-        qualified_paths([set_path(n) for n in dup], [anchor_key(n.source_ref) for n in dup]),
-        strict=True,
+    # Адреса узлов от корня НАБОРА (у поддерева — от его корня): путь, а у тёзок и
+    # их потомков — с уточнителем на сегменте тёзки (app/node_ref.py). Тёзки
+    # считаются в пределах набора; порядковый номер — по порядку документа.
+    addresses = dict(zip(
+        (n.id for n in ordered), RefIndex.of_flat(ordered).addresses(), strict=True
     ))
 
     def ref_name(node: Node) -> str:
         """Имя узла для ссылки в edges: голое, если уникально, иначе путь от корня
-        набора, а у тёзок — путь с уточнителем («@ ключ» или «@ #N»)."""
+        набора, а у тёзок и их потомков — с уточнителем («@ ключ» или «@ #N»)."""
         if name_counts[node.name] == 1:
             return node.name
-        return qualified[node.id]
+        return addresses[node.id] or node.name
 
     def node_dict(node: Node) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность

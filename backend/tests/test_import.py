@@ -459,6 +459,78 @@ def test_порядковый_номер_вне_группы_или_кривой
     ]
 
 
+def _дети_тёзок_doc(*refs: str, anchors: bool = True) -> str:
+    """Два «Каталог-БД» в «Ярмарка», у каждого свой «reader». Якоря контейнеров —
+    с решёткой и слэшами внутри ключа (git:repo#a/b) либо их нет вовсе (тогда
+    контейнеры различает только технология: MySQL раньше Postgres)."""
+    шоп = "        source: {repo: github.com/org/shop-db, path: a/b}\n" if anchors else ""
+    сток = "        source: {repo: github.com/org/warehouse-catalog}\n" if anchors else ""
+    return (
+        "nodes:\n"
+        "  - name: Ярмарка\n"
+        "    children:\n"
+        "      - name: orders\n"
+        "      - name: Каталог-БД\n"
+        "        technology: MySQL\n"
+        + шоп
+        + "        children:\n"
+        "          - name: reader\n"
+        "            technology: Go\n"
+        "      - name: Каталог-БД\n"
+        "        technology: Postgres\n"
+        + сток
+        + "        children:\n"
+        "          - name: reader\n"
+        "            technology: Python\n"
+        "edges:\n"
+        + "".join(f"  - from: orders\n    to: '{r}'\n" for r in refs)
+    )
+
+
+def test_уточнитель_на_сегменте_предка_различает_детей_тёзок():
+    """Уточнитель стоит на ТОМ сегменте, где тёзка; путь режется по « / » с
+    пробелами, и слэши с решёткой ключа («git:…#a/b») разрез не ломают. Голова
+    понимает и однозначный хвост пути."""
+    parsed, errors = parse_import(_дети_тёзок_doc(
+        "Ярмарка / Каталог-БД @ git:github.com/org/shop-db#a/b / reader",
+        "Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader",
+        "Каталог-БД @ git:github.com/org/shop-db#a/b / reader",
+    ))
+    assert errors == [] and parsed is not None
+    assert [parsed.nodes[e.target_idx].technology for e in parsed.edges] == [
+        "Go", "Python", "Go",
+    ]
+
+
+def test_порядковый_уточнитель_на_сегменте_предка():
+    parsed, errors = parse_import(_дети_тёзок_doc(
+        "Ярмарка / Каталог-БД @ #2 / reader", "Ярмарка / Каталог-БД @ #1 / reader",
+        anchors=False,
+    ))
+    assert errors == [] and parsed is not None
+    assert [parsed.nodes[e.target_idx].technology for e in parsed.edges] == ["Python", "Go"]
+
+
+def test_неоднозначность_детей_тёзок_называет_ссылки_с_уточнителем_предка():
+    """Путь детей тёзок один на двоих — перечень готовых ссылок несёт уточнитель на
+    сегменте предка. Без якорей называть кандидатов агенту нечем (порядковый
+    номер ему не объявляется) — текст прежний."""
+    parsed, errors = parse_import(_дети_тёзок_doc("Ярмарка / Каталог-БД / reader"))
+    assert parsed is None
+    assert errors == [
+        'edges[0]: имя "Ярмарка / Каталог-БД / reader" неоднозначно (есть '
+        '"Ярмарка / Каталог-БД @ git:github.com/org/shop-db#a/b / reader", '
+        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader")'
+        " — укажите один из них"
+    ]
+    parsed, errors = parse_import(
+        _дети_тёзок_doc("Ярмарка / Каталог-БД / reader", anchors=False)
+    )
+    assert errors == [
+        'edges[0]: имя "Ярмарка / Каталог-БД / reader" неоднозначно, укажите путь через " / "'
+    ]
+
+
 def test_перечень_кандидатов_обрезан_с_честным_хвостом():
     """Кап — как у соседних перечней слияния: на проекте с полусотней одноимённых
     узлов список вытеснил бы остальные замечания. Хвост считаем, а не молчим о нём."""

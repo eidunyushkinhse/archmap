@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import pick, qualify, split_ref
+from app.node_ref import RefIndex
 
 # Лимиты щедрые (реальный экспорт не упрётся) — защита от «бомбы» в textarea.
 MAX_NODES = 2000
@@ -407,21 +407,31 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         return hits
 
+    # Карта для ссылок с уточнителями (app/node_ref.py) — строится один раз и лениво:
+    # без тёзок она не нужна вовсе.
+    ref_index: list[RefIndex] = []
+
+    def index() -> RefIndex:
+        if not ref_index:
+            ref_index.append(RefIndex(
+                [n.name for n in nodes], [n.parent_idx for n in nodes],
+                [n.source_keys for n in nodes],
+            ))
+        return ref_index[0]
+
     def ready_refs(hits: list[int]) -> list[str] | None:
         """Готовые ссылки на кандидатов, каждая из которых резолвится ровно в своего:
-        уникальный путь — как есть, путь законных тёзок — с уточнителем-якорем
-        (app/node_ref.py). Хоть одного кандидата так не назвать (тёзка без якоря,
-        одинаковые якоря) — None: неполный перечень толкнул бы агента к чужому узлу."""
+        уникальный путь — как есть, путь тёзок и их потомков — с якорным уточнителем
+        на сегменте тёзки (app/node_ref.py). Хоть одного кандидата так не назвать
+        (тёзка без якоря, одинаковые якоря) — None: порядковый номер агентам не
+        объявляется, а неполный перечень толкнул бы агента к чужому узлу."""
+        ready = index().addresses(anchors_only=True)
         out: set[str] = set()
         for i in hits:
-            same_path = by_path[fulls[i]]
-            if len(same_path) == 1:
-                out.add(fulls[i])
-                continue
-            keys = nodes[i].source_keys
-            if not keys or sum(1 for j in same_path if keys[0] in nodes[j].source_keys) != 1:
+            ref = ready[i]
+            if ref is None:
                 return None
-            out.add(qualify(fulls[i], keys[0]))
+            out.add(ref)
         return sorted(out)
 
     def resolve(ref: str, path: str) -> int | None:
@@ -431,22 +441,15 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         к «не найден» добавляется did-you-mean, когда кандидат уверенный
         (_closest_node), — без него слабая модель гадает имя заново.
 
-        Уточнитель тёзок («Ярмарка / Каталог-БД @ git:…» или «Ярмарка / api @ #2»,
-        пишет экспорт): только когда точного пути нет, и ДО слэш-фолбэка — в ключе
-        законны слэши, и нормализация пути разрезала бы его. Голова ищется всем
-        порядком обычной ссылки, потом якорь фильтрует кандидатов, а «#N» берёт
-        N-го из узлов одного пути в порядке документа."""
+        Уточнители тёзок («Ярмарка / Каталог-БД @ git:… / reader», «Ярмарка / api
+        @ #2», пишет экспорт): только когда точного пути нет, и ДО слэш-фолбэка — в
+        ключе законны слэши, и нормализация пути разрезала бы его. Путь проходится
+        посегментно (RefIndex): полный от корня, иначе голое имя или хвост пути;
+        якорь фильтрует тёзок, «#N» берёт N-го по порядку документа."""
         hits = exact(ref)
         if not hits:
-            split = split_ref(ref)
-            if split is not None:
-                head, qualifier = split
-                hits = pick(
-                    exact(head) or slashed(head),
-                    qualifier,
-                    lambda i: nodes[i].source_keys,
-                    lambda i: fulls[i],
-                )
+            if " @ " in ref:
+                hits = index().resolve(ref) or []
             if not hits:
                 hits = slashed(ref)
         if not hits:
