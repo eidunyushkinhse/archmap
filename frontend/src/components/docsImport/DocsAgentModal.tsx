@@ -1,10 +1,11 @@
 // Модалка «Описать логику с помощью агента» (BYOA-дозаливка) — ТОЛЬКО СХЕМЫ
-// ЛОГИКИ (node_docs, mermaid). OpenAPI-спека узла — отдельное окно
-// SpecAgentModal: сущности не смешиваются (include промпта и фильтр
+// ЛОГИКИ (node_docs, mermaid). OpenAPI-спека узла — отдельное окно спеки
+// (DocOverlay → SpecAgentPanel): сущности не смешиваются (include промпта и фильтр
 // превью/применения зафиксированы на «logic»). Скоуп — ТЕКУЩИЙ УЗЕЛ, два режима:
 // «Пакетом» — все схемы объекта за заход (микросервисы); «По одной схеме» — один
 // воркер/эндпоинт (крупные монолиты), слева поле «Что описать» (target — блок
-// фокуса в промпте).
+// фокуса в промпте). Одну схему со страницы правят не здесь, а в её окне
+// («Изменить → Через ИИ-агента»): туда же ведёт и неописанная строка.
 // Здесь только оболочка и левая колонка (параметры промпта). Файлы пакета, превью
 // и применение — DocsAgentPanel: то же тело живёт в окне одной схемы (DocOverlay).
 // Закрытие после успешного применения — отсюда (onClose); родитель через onApplied
@@ -26,27 +27,22 @@ interface Props {
   // Узел, для которого агент готовит документы (скоуп промпта и применения).
   nodeId: string;
   nodeName: string;
-  // Режим открытия модалки (пункты меню «+ Добавить» в секции «Логика»).
-  initialMode?: Mode;
-  // Начальное «Что описать» — адрес точки входа из списка схем объекта (кнопка
-  // «Описать» у неописанной строки открывает окно уже заполненным).
-  initialTarget?: string;
   onClose: () => void;
   // Дозаливка применена — родитель освежает мету узла (docs/спека).
   onApplied: () => void;
 }
 
-export default function DocsAgentModal({ nodeId, nodeName, initialMode = "batch", initialTarget = "", onClose, onApplied }: Props) {
-  const [mode, setMode] = useState<Mode>(initialMode);
+export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }: Props) {
+  const [mode, setMode] = useState<Mode>("batch");
   // ── параметры промпта (include зафиксирован на схемах логики) ──
   const [lang, setLang] = useState<"ru" | "en">("ru");
   const [hints, setHints] = useState("");
-  const [target, setTarget] = useState(initialTarget); // «По одной»: воркер/эндпоинт
+  const [target, setTarget] = useState(""); // «По одной»: воркер/эндпоинт
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (промежуточных await между
   // кликом и writeText не добавляем). «Скопировано» показывает PromptCopyButton по
   // разрешению этого обещания — своё у каждого из трёх вариантов.
   function copyPrompt(variant: PromptVariant): Promise<void> {
-    // include зафиксирован на схемах логики (OpenAPI-спека — окно SpecAgentModal);
+    // include зафиксирован на схемах логики (OpenAPI-спека — окно спеки);
     // в режиме «по одной» target фокусирует агента на одном воркере/эндпоинте
     // (пустой target в «пакетом» клиент не передаёт).
     const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target, variant };

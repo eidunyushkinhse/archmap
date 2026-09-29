@@ -33,11 +33,9 @@ const GROUPS: { kind: NodeDocKind; title: string }[] = [
 
 interface Props {
   docs: NodeDocMeta[];
-  // Клик по строке открывает схему в оверлее документации.
+  // Клик по строке открывает схему в оверлее документации. У неописанной строки
+  // своей кнопки «Описать» нет (вьюер v2): «Описать» стоит в самом окне схемы.
   onOpen: (docId: string) => void;
-  // Кнопка «Описать» у НЕописанной точки входа: адрес уезжает в окно доков режимом
-  // «по одной». Не передан (читатель, чужая форма объекта) — кнопки нет вовсе.
-  onDescribe?: (doc: NodeDocMeta) => void;
   // Обратный индекс «используется в процессах» (Ф8, У10): строки для ВСЕХ схем узла
   // разом, фильтруются по doc_id здесь. Отвечает про КОНКРЕТНУЮ схему — узловой
   // вопрос закрывает секция «Участвует в процессах», и дублировать её нельзя,
@@ -47,7 +45,7 @@ interface Props {
   onOpenProcess?: (processId: string) => void;
 }
 
-export default function NodeDocsList({ docs, onOpen, onDescribe, usage, onOpenProcess }: Props) {
+export default function NodeDocsList({ docs, onOpen, usage, onOpenProcess }: Props) {
   // Группы — ПРОИЗВОДНОЕ в рендере (эффект с setState тут запрещён линтом и
   // рассинхронился бы с метой). Пустая группа не рисуется вовсе.
   //
@@ -91,7 +89,6 @@ export default function NodeDocsList({ docs, onOpen, onDescribe, usage, onOpenPr
           items={g.items}
           startOpen={g.startOpen}
           onOpen={onOpen}
-          onDescribe={onDescribe}
           usageByDoc={usageByDoc}
           onOpenProcess={onOpenProcess}
         />
@@ -103,12 +100,11 @@ export default function NodeDocsList({ docs, onOpen, onDescribe, usage, onOpenPr
 // Группа одного вида: заголовок с числом строк, тело — строки.
 // Состояние «свёрнуто/развёрнуто» живёт здесь и никуда не сохраняется: это поза
 // списка на время просмотра, а не настройка.
-function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc, onOpenProcess }: {
+function DocKindGroup({ title, items, startOpen, onOpen, usageByDoc, onOpenProcess }: {
   title: string;
   items: NodeDocMeta[];
   startOpen: boolean;
   onOpen: (docId: string) => void;
-  onDescribe?: (doc: NodeDocMeta) => void;
   usageByDoc: Map<string, NodeDocUsage[]>;
   onOpenProcess?: (processId: string) => void;
 }) {
@@ -132,7 +128,6 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
               key={d.id}
               doc={d}
               onOpen={onOpen}
-              onDescribe={onDescribe}
               usage={usageByDoc.get(d.id)}
               onOpenProcess={onOpenProcess}
             />
@@ -143,18 +138,15 @@ function DocKindGroup({ title, items, startOpen, onOpen, onDescribe, usageByDoc,
   );
 }
 
-// Строка схемы. Кнопка «Описать» — СОСЕД строки, а не вложенная кнопка: <button>
-// внутри <button> невалиден, и клик по вложенной открывал бы заодно схему. Форма та
-// же, что у split-строк объединения контейнера.
-function DocRow({ doc, onOpen, onDescribe, usage, onOpenProcess }: {
+// Строка схемы. Счётчик «в N процессах» — СОСЕД строки, а не вложенная кнопка:
+// <button> внутри <button> невалиден, и клик по вложенной открывал бы заодно схему.
+// Форма та же, что у split-строк объединения контейнера.
+function DocRow({ doc, onOpen, usage, onOpenProcess }: {
   doc: NodeDocMeta;
   onOpen: (docId: string) => void;
-  onDescribe?: (doc: NodeDocMeta) => void;
   usage?: NodeDocUsage[];
   onOpenProcess?: (processId: string) => void;
 }) {
-  // Кнопка положена только неописанной строке: у описанной путь прежний — «открыть →».
-  const describe = onDescribe && !doc.described ? onDescribe : null;
   // Подсписок «используется в процессах» раскрыт/свёрнут — поза на время просмотра,
   // как у групп видов: на экране по умолчанию нет второго списка процессов рядом с
   // узловой секцией «Участвует в процессах» (барьер У10).
@@ -184,17 +176,6 @@ function DocRow({ doc, onOpen, onDescribe, usage, onOpenProcess }: {
             title="Шаги каких процессов задокументированы этой схемой"
           >
             в {used.length} {plural(used.length, ["процессе", "процессах", "процессах"])}
-          </button>
-        )}
-        {describe && (
-          <button
-            type="button"
-            className="np-doc-split-child"
-            style={describeBtn}
-            onClick={() => describe(doc)}
-            title={`Описать «${doc.name}» с помощью ИИ-агента`}
-          >
-            Описать
           </button>
         )}
       </div>
@@ -235,16 +216,13 @@ const groupCount: CSSProperties = { fontSize: 12, fontWeight: 400, color: "#94a3
 const rowName: CSSProperties = { fontWeight: 600, fontSize: 13 };
 const rowOperation: CSSProperties = { fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" };
 const rowOpen: CSSProperties = { marginLeft: "auto", fontSize: 12, color: "#94a3b8" };
-// «Описать» — действие, а не пояснение: тот же синий, что у «+ Добавить», иначе
-// кнопка теряется в сером хвосте строки.
-const describeBtn: CSSProperties = { color: "#2563eb", fontWeight: 600 };
 const stubMark: CSSProperties = {
   flex: "none", fontSize: 11, fontWeight: 600, color: "#64748b",
   background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 5, padding: "1px 6px",
   whiteSpace: "nowrap",
 };
-// Счётчик «в N процессах» — знание, а не действие: спокойный серый, не синий
-// «Описать»; раскрытие подсписка — его единственная работа.
+// Счётчик «в N процессах» — знание, а не действие: спокойный серый; раскрытие
+// подсписка — его единственная работа.
 const usageBtn: CSSProperties = { color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" };
 const usageList: CSSProperties = {
   display: "flex", flexDirection: "column", gap: 2,

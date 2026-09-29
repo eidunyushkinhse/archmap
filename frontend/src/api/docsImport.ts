@@ -33,7 +33,7 @@ export interface DocsPromptParams {
 
 // Фильтр плана превью/применения: «logic» — только схемы логики (node_docs),
 // «api» — только OpenAPI-спеки. Раздельные окна дозаливки (DocsAgentModal /
-// SpecAgentModal) не смешивают сущности. Без only бэк строит полный план.
+// SpecAgentPanel) не смешивают сущности. Без only бэк строит полный план.
 export type DocsOnly = "logic" | "api";
 
 /** Правка строки превью: пользователь исправил имя или вид схемы перед записью.

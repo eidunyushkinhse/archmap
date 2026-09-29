@@ -13,7 +13,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import DocsAgentModal from "../docsImport/DocsAgentModal";
-import SpecAgentModal from "../docsImport/SpecAgentModal";
+import OpenApiPane from "../inspector/OpenApiPane";
 import DataAgentModal from "../docsImport/DataAgentModal";
 import ChannelsAgentModal from "../docsImport/ChannelsAgentModal";
 import SyncRepoModal from "../docsImport/SyncRepoModal";
@@ -68,11 +68,15 @@ const кейсы: Кейс[] = [
     вариант: () => vi.mocked(docsImportApi.prompt).mock.calls.at(-1)?.[0]?.variant,
   },
   {
-    окно: "спека (SpecAgentModal)",
+    // Отдельной модалки спеки больше нет: агент живёт в окне спеки (вьюер v2).
+    окно: "спека (окно спеки, «Через ИИ-агента»)",
     подпись: "Скопировать промпт",
     скопировано: "Скопировано ✓",
     открыть: async () => {
-      render(<SpecAgentModal nodeId="n1" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()} />);
+      render(
+        <OpenApiPane nodeId="n1" nodeName="orders" openapi="" isArchitect initialStage="agent"
+          onCommitOpenapi={vi.fn()} onClose={vi.fn()} />,
+      );
       await Promise.resolve();
     },
     вариант: () => vi.mocked(docsImportApi.prompt).mock.calls.at(-1)?.[0]?.variant,

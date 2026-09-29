@@ -4,8 +4,8 @@
 // «OpenAPI» (решение пользователя 2026-09-03), и стартует свёрнутым: витрина
 // объекта — описанные схемы, а перечень «за что браться» человек раскрывает сам.
 // Внутри — тот же список групп по видам, что и в «Логике» (двести строк после
-// разведки монолита сворачиваются по своему порогу); у строки — «Описать» (окно
-// доков «по одной» с адресом) и «открыть →» (оверлей, писать руками).
+// разведки монолита сворачиваются по своему порогу); строка открывает окно схемы,
+// а «Описать» (вручную или через ИИ-агента) — уже в нём (вьюер v2).
 // Заголовок — кликабельный текст с шевроном (как макрос Expand в Confluence), а не
 // рамка раздела: блок — бэклог, а не ещё одна группа схем (решение 2026-09-29;
 // кнопка «Описать все» убрана тем же решением).
@@ -22,12 +22,11 @@ interface Props {
   // Только заглушки (described=false) — делит владелец, здесь не фильтруем.
   docs: NodeDocMeta[];
   onOpen: (docId: string) => void;
-  onDescribe?: (doc: NodeDocMeta) => void;
   usage?: NodeDocUsage[];
   onOpenProcess?: (processId: string) => void;
 }
 
-export default function UndescribedDocs({ docs, onOpen, onDescribe, usage, onOpenProcess }: Props) {
+export default function UndescribedDocs({ docs, onOpen, usage, onOpenProcess }: Props) {
   // Поза на время просмотра, никуда не сохраняется — как у групп видов.
   const [open, setOpen] = useState(false);
   return (
@@ -51,7 +50,6 @@ export default function UndescribedDocs({ docs, onOpen, onDescribe, usage, onOpe
           <NodeDocsList
             docs={docs}
             onOpen={onOpen}
-            onDescribe={onDescribe}
             usage={usage}
             onOpenProcess={onOpenProcess}
           />

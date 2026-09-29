@@ -70,20 +70,27 @@ vi.mock("../../components/docsImport/ReconAgentModal", () => ({
   ),
 }));
 
-// Окно «Доки от агента»: маркер с режимом и адресом — здесь проверяется, что кнопка
-// «Описать» у строки открывает его «по одной» и с заполненным «Что описать»; само
-// окно покрыто своим тестом (DocsAgentModal.test).
+// Окно «Доки от агента» (пакетом): маркер — здесь проверяется только вход в него из
+// меню «+ Добавить»; само окно покрыто своим тестом (DocsAgentModal.test).
 vi.mock("../../components/docsImport/DocsAgentModal", () => ({
-  default: ({ initialMode, initialTarget }: { initialMode?: string; initialTarget?: string }) => (
-    <div data-testid="docs-modal" data-mode={initialMode ?? ""} data-target={initialTarget ?? ""} />
-  ),
+  default: () => <div data-testid="docs-modal" />,
 }));
 
-// Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode) — проверить,
-// что split-кнопка открывает доку в контексте РЕБЁНКА, не рендеря тяжёлый FlowchartDocs.
+// Оверлей документации: маркер с контекстом (nodeId/initialDocId/mode/стадия) —
+// проверить, что split-кнопка открывает доку в контексте РЕБЁНКА, а меню «+ Добавить»
+// — окно в нужной стадии, не рендеря тяжёлые FlowchartDocs/OpenApiPane.
 vi.mock("../../components/inspector/DocOverlay", () => ({
-  default: ({ nodeId, initialDocId, mode }: { nodeId: string; initialDocId?: string; mode: string }) => (
-    <div data-testid="doc-overlay" data-node-id={nodeId} data-doc-id={initialDocId ?? ""} data-mode={mode} />
+  default: ({ nodeId, initialDocId, mode, createNew, initialStage }: {
+    nodeId: string; initialDocId?: string; mode: string; createNew?: boolean; initialStage?: string;
+  }) => (
+    <div
+      data-testid="doc-overlay"
+      data-node-id={nodeId}
+      data-doc-id={initialDocId ?? ""}
+      data-mode={mode}
+      data-create={String(Boolean(createNew))}
+      data-stage={initialStage ?? ""}
+    />
   ),
 }));
 
@@ -587,6 +594,42 @@ describe("NodePage: документация по форме узла", () => {
     // Заводить новое всё равно нельзя — только унести существующее.
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
+
+  // ── OpenAPI: окно спеки вместо отдельной модалки (вьюер v2) ───────────────
+  async function меню_OpenAPI(пункт: string) {
+    const карточка = screen.getByText("OpenAPI").closest(".np-card") as HTMLElement;
+    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    await userEvent.click(screen.getByRole("menuitem", { name: пункт }));
+  }
+
+  it("спеки нет: «+ Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
+    setupShape({ shape: "service" });
+    await waitFor(() => expect(screen.getByText("Спецификация не задана")).toBeInTheDocument());
+    await меню_OpenAPI("Вручную");
+    const окно = screen.getByTestId("doc-overlay");
+    expect(окно).toHaveAttribute("data-mode", "openapi");
+    expect(окно).toHaveAttribute("data-stage", "manual");
+  });
+
+  it("спеки нет: «+ Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
+    setupShape({ shape: "service" });
+    await waitFor(() => expect(screen.getByText("Спецификация не задана")).toBeInTheDocument());
+    await меню_OpenAPI("Через ИИ-агента");
+    const окно = screen.getByTestId("doc-overlay");
+    expect(окно).toHaveAttribute("data-mode", "openapi");
+    expect(окно).toHaveAttribute("data-stage", "agent");
+  });
+
+  it("спека есть: строка открывает просмотр, кнопки «Обновить с помощью ИИ-агента» нет", async () => {
+    // Обновление через агента теперь — «Изменить» в самом окне спеки.
+    setupShape({ shape: "service", openapi_spec: "openapi: 3.0.0" });
+    await waitFor(() => expect(screen.getByText("Спецификация")).toBeInTheDocument());
+    expect(screen.queryByText("Обновить с помощью ИИ-агента")).toBeNull();
+    await userEvent.click(screen.getByText("Спецификация"));
+    const окно = screen.getByTestId("doc-overlay");
+    expect(окно).toHaveAttribute("data-mode", "openapi");
+    expect(окно).toHaveAttribute("data-stage", "");
+  });
 });
 
 // ── Витрина разведки: остаток работы виден числом ───────────────────────────
@@ -753,35 +796,32 @@ describe("NodePage: «Логика» — описанные схемы, загл
     expect(screen.queryByRole("button", { name: /^Воркеры/ })).toBeNull();
   });
 
-  // ── Прямой путь «описать вот эту строку» (внутри блока «Не описано») ──────
-  it("«Описать» открывает окно доков «по одной» с адресом строки, а схему не открывает", async () => {
-    // У схемы, написанной до разведки, имя человеческое, а точка входа — в поле
-    // operation: адресом агенту идёт именно она.
+  // ── Неописанная строка открывает своё окно (внутри блока «Не описано») ─────
+  // Вьюер v2 (решение пользователя 2026-09-29): кнопки «Описать» у строк больше нет —
+  // строка открывает окно схемы, а «Описать» (вручную или через ИИ-агента) стоит там.
+  // Адрес промпта (эндпоинт, у воркера — имя схемы) проверяет FlowchartDocs.test.
+  it("у строк «Не описано» нет своей кнопки «Описать»: строка открывает окно схемы", async () => {
     setupDocs([
       док({ id: "d1", name: "Оформление заказа", operation: "POST /orders", described: false }),
       док({ id: "d2", name: "email_senders", kind: "worker", described: false }),
     ]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
     await раскрытьНеОписано();
-    const кнопки = screen.getAllByRole("button", { name: "Описать" });
-    expect(кнопки).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
 
-    await userEvent.click(кнопки[0]);
-    const окно = screen.getByTestId("docs-modal");
-    expect(окно).toHaveAttribute("data-mode", "single");
-    expect(окно).toHaveAttribute("data-target", "POST /orders");
-    // Кнопка не проваливается в строку: оверлей схемы заодно не открылся.
-    expect(screen.queryByTestId("doc-overlay")).toBeNull();
+    await userEvent.click(screen.getByText("Оформление заказа"));
+    const окно = screen.getByTestId("doc-overlay");
+    expect(окно).toHaveAttribute("data-mode", "flowchart");
+    expect(окно).toHaveAttribute("data-doc-id", "d1");
+    expect(screen.queryByTestId("docs-modal")).toBeNull();
   });
 
-  it("адрес воркера — имя очереди: поля operation у него нет", async () => {
-    // Имена классов-обработчиков недоверенные (замер 4/14), адрес воркера — очередь,
-    // а она и есть имя схемы-заглушки.
+  it("воркер-заглушка открывается тем же окном, что и операция", async () => {
     setupDocs([док({ id: "d2", name: "email_senders", kind: "worker", described: false })]);
     await waitFor(() => expect(screen.getByRole("button", { name: /^Не описано/ })).toBeInTheDocument());
     await раскрытьНеОписано();
-    await userEvent.click(screen.getByRole("button", { name: "Описать" }));
-    expect(screen.getByTestId("docs-modal")).toHaveAttribute("data-target", "email_senders");
+    await userEvent.click(screen.getByText("email_senders"));
+    expect(screen.getByTestId("doc-overlay")).toHaveAttribute("data-doc-id", "d2");
   });
 
   it("клик по строке заглушки открывает схему (писать руками), а не окно агента", async () => {
@@ -800,6 +840,27 @@ describe("NodePage: «Логика» — описанные схемы, загл
     ]);
     await waitFor(() => expect(screen.getByText("POST /orders")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Описать" })).toBeNull();
+  });
+
+  it("«+ Добавить → Вручную»: окно новой схемы, а не созданная заранее схема", async () => {
+    setupDocs([]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
+    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Вручную" }));
+    const окно = screen.getByTestId("doc-overlay");
+    expect(окно).toHaveAttribute("data-mode", "flowchart");
+    expect(окно).toHaveAttribute("data-create", "true");
+  });
+
+  it("«+ Добавить → Через ИИ-агента» в «Логике» — пакетная модалка", async () => {
+    setupDocs([]);
+    await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
+    const карточка = screen.getByText("Логика").closest(".np-card") as HTMLElement;
+    await userEvent.click(within(карточка).getByText("+ Добавить"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
+    expect(screen.getByTestId("docs-modal")).toBeInTheDocument();
+    expect(screen.queryByTestId("doc-overlay")).toBeNull();
   });
 
   it("меню «+ Добавить» ведёт в составление списка операций", async () => {

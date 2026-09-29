@@ -27,10 +27,10 @@ import UndescribedDocs from "../components/UndescribedDocs";
 import { KIND_LABEL } from "../components/docsList";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
-import SpecAgentModal from "../components/docsImport/SpecAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
+import type { DocStage } from "../components/inspector/OpenApiPane";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
@@ -193,14 +193,15 @@ function NodePageInner({
   const [shapeOpen, setShapeOpen] = useState(false);
   // Оверлей документации. `child` задан, когда открываем доку/спеку РЕБЁНКА прямо
   // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
-  // контексте ребёнка (его id/имя/спека), а не контейнера.
-  const [doc, setDoc] = useState<{ mode: "flowchart" | "openapi"; docId?: string; create?: boolean; child?: Node } | null>(null);
-  // Модалка «Доки от агента» (BYOA, логика): скоуп = текущий объект, режим открытия и
-  // (для «по одной») адрес точки входа — кнопка «Описать» у строки списка открывает
-  // окно уже заполненным.
-  const [docsAgent, setDocsAgent] = useState<{ mode: "batch" | "single"; target?: string } | null>(null);
-  // Модалка «Спека от агента» (BYOA, OpenAPI): скоуп = текущий объект
-  const [specAgent, setSpecAgent] = useState(false);
+  // контексте ребёнка (его id/имя/спека), а не контейнера. create — новая схема
+  // («+ Добавить → Вручную» в «Логике»), stage — с чего открыть окно спеки
+  // («+ Добавить → Вручную / Через ИИ-агента» в «OpenAPI»).
+  const [doc, setDoc] = useState<{
+    mode: "flowchart" | "openapi"; docId?: string; create?: boolean; stage?: DocStage; child?: Node;
+  } | null>(null);
+  // Модалка «Доки от агента» (BYOA, логика, пакетом): скоуп = текущий объект.
+  // Одну схему через агента правят в её окне («Изменить → Через ИИ-агента»).
+  const [docsAgent, setDocsAgent] = useState(false);
   // Модалка «Список операций от агента» (BYOA, перечень операций и воркеров одним файлом)
   const [reconAgent, setReconAgent] = useState(false);
   // Модалка-редактор связи (архитектор): id связи из строки таблицы «Связи»
@@ -324,18 +325,18 @@ function NodePageInner({
     container.reload();
   }, [container]);
 
-  // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
-  // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
-  // пользователь переключится в модалке сам, если нужно) / «Составить список
-  // операций» — нулевой шаг: агент приносит не документацию, а ПЕРЕЧЕНЬ, и он
-  // ложится заглушками (docs/plan-recon.md). Оба агентских пути — в одной группе.
-  // Правила контейнеров: контейнеру новую логику создавать нельзя (!isContainer).
+  // Меню «+ Добавить» секции «Логика»: вручную (окно схемы сразу в «Вручную»,
+  // схема создаётся только по «Сохранить») / через ИИ-агента (модалка режимом
+  // «Пакетом» по умолчанию; на «По одной» пользователь переключится в модалке сам) /
+  // «Составить список операций» — нулевой шаг: агент приносит не документацию, а
+  // ПЕРЕЧЕНЬ, и он ложится заглушками (docs/plan-recon.md). Оба агентских пути — в
+  // одной группе. Правила контейнеров: контейнеру новую логику создавать нельзя.
   const addLogicMenu = !isContainer && allow.logic && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
         [
-          { label: "Через ИИ-агента", onSelect: () => setDocsAgent({ mode: "batch" }) },
+          { label: "Через ИИ-агента", onSelect: () => setDocsAgent(true) },
           { label: "Составить список операций", onSelect: () => setReconAgent(true) },
         ],
       ]}
@@ -368,31 +369,17 @@ function NodePageInner({
     return () => { alive = false; };
   }, [node.id]);
 
-  // «Описать» у неописанной строки: то же окно доков режимом «по одной», но с уже
-  // заполненным «Что описать». Адресом идёт operation («POST /orders») — он и есть
-  // точка входа в коде; у воркера его нет, там адрес — имя очереди, то есть имя
-  // схемы (имена классов-обработчиков недоверенные, docs/plan-recon.md).
-  const describeDoc = useCallback((d: NodeDocMeta) => {
-    setDocsAgent({ mode: "single", target: d.operation ?? d.name });
-  }, []);
-
-  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): вручную / через ИИ-агента.
-  // Контейнеру спеку создавать нельзя (правила контейнеров).
+  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): окно спеки сразу в нужном
+  // режиме — «Вручную» (редактор) или «Через ИИ-агента» (панель агента). Когда спека
+  // есть, её обновляют в самом окне («Изменить»). Контейнеру спеку создавать нельзя
+  // (правила контейнеров).
   const addSpecMenu = !isContainer && allow.spec && isArchitect ? (
     <AddDocsMenu
       groups={[
-        [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi" }) }],
-        [{ label: "Через ИИ-агента", onSelect: () => setSpecAgent(true) }],
+        [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi", stage: "manual" }) }],
+        [{ label: "Через ИИ-агента", onSelect: () => setDoc({ mode: "openapi", stage: "agent" }) }],
       ]}
     />
-  ) : null;
-
-  // Когда спека уже есть — вместо «+ Добавить» кнопка обновления через ИИ-агента
-  // (контейнеру недоступна — спека контейнера подлежит распределению, не обновлению).
-  const updateSpecBtn = !isContainer && allow.spec && isArchitect ? (
-    <button type="button" className="np-addbtn" onClick={() => setSpecAgent(true)}>
-      Обновить с помощью ИИ-агента
-    </button>
   ) : null;
 
   return (
@@ -844,13 +831,12 @@ function NodePageInner({
                 )}
                 {addLogicMenu}
                 {/* Бэклог документирования — заглушки разведки — под чертой, в той же
-                    карточке и свёрнутым: у строки «Описать» (окно доков с адресом)
-                    и «открыть →». Нет заглушек — нет блока. */}
+                    карточке и свёрнутым: строка открывает окно схемы, «Описать» —
+                    уже там. Нет заглушек — нет блока. */}
                 {stubDocs.length > 0 && (
                   <UndescribedDocs
                     docs={stubDocs}
                     onOpen={openDoc}
-                    onDescribe={isArchitect && allow.logic ? describeDoc : undefined}
                     usage={docUsage}
                     onOpenProcess={onNavigateProcesses}
                   />
@@ -951,7 +937,6 @@ function NodePageInner({
                   <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
                   <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
                 </button>
-                {updateSpecBtn}
               </>
             ) : (
               <>
@@ -985,6 +970,7 @@ function NodePageInner({
           openapi={doc.child ? (doc.child.openapi_spec ?? "") : (node.openapi_spec ?? "")}
           isArchitect={isArchitect}
           createNew={doc.create}
+          initialStage={doc.stage}
           initialDocId={doc.docId}
           onCommitOpenapi={doc.child
             ? commitChildOpenapi
@@ -1015,9 +1001,7 @@ function NodePageInner({
         <DocsAgentModal
           nodeId={node.id}
           nodeName={node.name}
-          initialMode={docsAgent.mode}
-          initialTarget={docsAgent.target}
-          onClose={() => setDocsAgent(null)}
+          onClose={() => setDocsAgent(false)}
           onApplied={() => {
             // Дозаливка изменила мету доков узла — тянем свежий узел и
             // применяем целиком (обновит секцию «Логика»).
@@ -1037,21 +1021,6 @@ function NodePageInner({
           onApplied={() => {
             // Заглушки — те же схемы логики: тянем свежий узел целиком, и секция
             // «Логика» показывает их сразу, вместе со счётчиком «описано N из M».
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
-          }}
-        />
-      )}
-
-      {/* Спека от агента (BYOA, секция «OpenAPI»): скоуп = текущий объект.
-          Закрытие после успешного применения — за самой модалкой. */}
-      {specAgent && (
-        <SpecAgentModal
-          nodeId={node.id}
-          nodeName={node.name}
-          onClose={() => setSpecAgent(false)}
-          onApplied={() => {
-            // Дозаливка изменила спеку узла — тянем свежий узел и применяем
-            // целиком (обновит секцию «OpenAPI»).
             void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
           }}
         />
