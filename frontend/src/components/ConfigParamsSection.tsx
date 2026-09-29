@@ -22,9 +22,6 @@ import "./configParams.css";
 
 interface Props {
   nodeId: string;
-  // Имя объекта: окно дозаливки называет его в подзаголовке — к нему уезжают
-  // параметры из файла без адреса «# archmap-node:».
-  nodeName: string;
   isArchitect: boolean;
   // Положена ли конфигурация этой форме (shapeDocs.config). Не положена, а записи
   // есть — показываем их с предупреждением: спрятать применённое хуже, чем показать
@@ -50,7 +47,7 @@ const DEFAULT_TITLE =
   "хранятся — ArchMap не хранилище секретов";
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
-export default function ConfigParamsSection({ nodeId, nodeName, isArchitect, allowed }: Props) {
+export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Props) {
   const [params, setParams] = useState<ConfigParam[] | null>(null);
   const [usage, setUsage] = useState<ConfigParamUsage[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +175,6 @@ export default function ConfigParamsSection({ nodeId, nodeName, isArchitect, all
       {agentOpen && (
         <ConfigAgentModal
           nodeId={nodeId}
-          nodeName={nodeName}
           onClose={() => setAgentOpen(false)}
           onApplied={() => setSeq((n) => n + 1)}
         />

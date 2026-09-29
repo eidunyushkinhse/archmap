@@ -49,7 +49,7 @@ function renderSection(
   vi.mocked(configParamsApi.list).mockResolvedValue(params);
   vi.mocked(configParamsApi.usage).mockResolvedValue(use);
   return render(
-    <ConfigParamsSection nodeId="n1" nodeName="Платежи" isArchitect={isArchitect} allowed={allowed} />,
+    <ConfigParamsSection nodeId="n1" isArchitect={isArchitect} allowed={allowed} />,
   );
 }
 
@@ -171,6 +171,6 @@ describe("ConfigParamsSection", () => {
     expect(await screen.findByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
     // И честно предупреждает, что значения в ArchMap не едут, — ДО запуска агента на
     // репозиторий с .env, а не после.
-    expect(screen.getByText(/значения сред и секреты не хранятся/)).toBeInTheDocument();
+    expect(screen.getByText(/вернет список параметров конфигурации по коду/)).toBeInTheDocument();
   });
 });

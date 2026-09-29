@@ -700,7 +700,6 @@ function NodePageInner({
             бы хуже, чем показать с предупреждением). */}
         <ConfigParamsSection
           nodeId={node.id}
-          nodeName={node.name}
           isArchitect={isArchitect}
           allowed={allow.config}
         />

@@ -31,13 +31,12 @@ import { primaryBtn, secondaryBtn } from "../../ui/styles";
 interface Props {
   // Объект, из окна которого открыта дозаливка: к нему уедут параметры без адреса.
   nodeId: string;
-  nodeName: string;
   onClose: () => void;
   // Дозаливка применена — родитель перечитывает конфигурацию.
   onApplied: () => void;
 }
 
-export default function ConfigAgentModal({ nodeId, nodeName, onClose, onApplied }: Props) {
+export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) {
   const pkg = useDocsFiles();
   const [rawReport, setRawReport] = useState<ConfigImportReport | null>(null);
   const [overwrite, setOverwrite] = useState(false);
@@ -129,10 +128,8 @@ export default function ConfigAgentModal({ nodeId, nodeName, onClose, onApplied 
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Запускайте агента с этим промптом в репозитории сервиса: параметр описывается
-        там, где его читает код. В ArchMap приедет ПЕРЕЧЕНЬ РУЧЕК — имена, типы,
-        назначение и дефолты из кода; значения сред и секреты не хранятся. Параметры
-        из файла без адреса «# archmap-node:» приедут к объекту «{nodeName}».
+        Запустите агента с этим промптом в репозитории сервиса. Агент вернет список
+        параметров конфигурации по коду: имена, типы, назначения и дефолты.
       </p>
 
       <div style={cols}>
