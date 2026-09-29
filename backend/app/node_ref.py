@@ -350,5 +350,9 @@ def node_addresses(nodes: Sequence[Node]) -> dict[uuid.UUID, str]:
 def qualified_node_hits(ref: str, flat: Sequence[Node]) -> list[int]:
     """Кандидаты ссылки с уточнителем в карте узлов проекта (docs_import._node_paths:
     flat — в порядке документа) — для родных приёмников. Ссылка без уточнителя —
-    пусто: её уже искали обычным порядком."""
+    пусто: её уже искали обычным порядком. Карта строится, только если в ссылке
+    вообще есть « @ »: приёмники зовут помощника на каждом промахе адреса, и
+    опечатке без уточнителя обход всего проекта ни к чему."""
+    if QUALIFIER_SEP not in ref:
+        return []
     return RefIndex.of_flat(flat).resolve(ref) or []
