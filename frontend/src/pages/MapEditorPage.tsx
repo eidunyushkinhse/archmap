@@ -40,7 +40,7 @@ import { SchemaViewFilter } from "../components/SchemaViewFilter";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import TransitionConfirm from "../components/TransitionConfirm";
-import { LogoMark, RelayoutIcon, ChevronIcon, EdgeLabelsIcon } from "../ui/icons";
+import { LogoMark, RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } from "../ui/icons";
 import "../ui/chrome.css";
 
 interface Props {
@@ -69,6 +69,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
     open: boolean; node: Node | null; shape?: NodeShape;
     pos?: { x: number; y: number } | null;
@@ -770,15 +771,34 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           )}
         </div>
 
-        {/* Инспектор */}
-        <aside style={rightPanel}>
-          <ObjectInspector
-            selected={selectedObject} isArchitect={isArchitect}
-            onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
-            onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
-            onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
-            onNavigateNode={onNavigateNode}
-          />
+        {/* Инспектор. Сворачивается зеркально дереву слева (NodeTreePanel): узкий
+            рейл с кнопкой панели и футер «Свернуть панель» внизу. */}
+        <aside style={{ ...rightPanel, width: inspectorCollapsed ? RIGHT_PANEL_COLLAPSED_W : RIGHT_PANEL_W }}>
+          {inspectorCollapsed ? (
+            <div style={rightRail}>
+              <button className="nt-railbtn" title="Свойства объекта" onClick={() => setInspectorCollapsed(false)}>
+                <PropsIcon />
+              </button>
+            </div>
+          ) : (
+            <div style={rightContent}>
+              <ObjectInspector
+                selected={selectedObject} isArchitect={isArchitect}
+                onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
+                onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
+                onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
+                onNavigateNode={onNavigateNode}
+              />
+            </div>
+          )}
+          <button
+            className="nt-collapse"
+            onClick={() => setInspectorCollapsed((c) => !c)}
+            title={inspectorCollapsed ? "Развернуть панель" : "Свернуть панель"}
+          >
+            {!inspectorCollapsed && <span>Свернуть панель</span>}
+            <CollapseIcon dir={inspectorCollapsed ? "left" : "right"} />
+          </button>
         </aside>
       </div>
 
@@ -855,7 +875,12 @@ const topLeft: CSSProperties = { display: "flex", alignItems: "center", gap: 4, 
 const divider: CSSProperties = { width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" };
 const bodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", padding: 12, display: "flex", flexDirection: "column", position: "relative" };
-const rightPanel: CSSProperties = { width: 272, flexShrink: 0, borderLeft: "1px solid #e2e8f0", background: "#fbfcfd", overflowY: "auto", padding: "14px 14px", scrollbarGutter: "stable" };
+const RIGHT_PANEL_W = 272;
+const RIGHT_PANEL_COLLAPSED_W = 48; // как у свёрнутого дерева слева
+const rightPanel: CSSProperties = { flexShrink: 0, borderLeft: "1px solid #e2e8f0", background: "#fbfcfd", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.22s ease" };
+// Фиксированная ширина содержимого — без переноса текста при анимации ширины.
+const rightContent: CSSProperties = { width: RIGHT_PANEL_W, boxSizing: "border-box", flex: 1, minHeight: 0, overflowY: "auto", padding: "14px 14px", scrollbarGutter: "stable" };
+const rightRail: CSSProperties = { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, paddingTop: 12, flex: 1 };
 const doneBtn: CSSProperties = { padding: "7px 20px", fontSize: 13.5, fontWeight: 600, color: "#fff", background: "#2563eb", border: "none", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" };
 const crumbLink: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", borderRadius: 7, fontSize: 13.5, color: "#64748b", cursor: "pointer", background: "none", border: "none" };
 const crumbCurrent: CSSProperties = { display: "inline-flex", alignItems: "center", padding: "3px 7px", fontSize: 13.5, color: "#1e293b", fontWeight: 600, background: "none", border: "none", cursor: "default" };
