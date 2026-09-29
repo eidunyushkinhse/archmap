@@ -19,6 +19,7 @@ from app.routers import (
     processes,
     projects,
     recon,
+    search,
     views,
 )
 
@@ -59,6 +60,7 @@ app.include_router(edges.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(processes.router, prefix="/api/v1")
+app.include_router(search.router, prefix="/api/v1")
 
 
 @app.get("/health")

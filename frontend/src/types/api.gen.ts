@@ -2056,6 +2056,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Search Project */
+        get: operations["search_project_api_v1_search_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -5451,6 +5468,53 @@ export interface components {
         ReorderPayload: {
             /** Ids */
             ids: string[];
+        };
+        /**
+         * SearchHit
+         * @description Одна находка: адрес, id для перехода, совпавшая строка и её счёт.
+         */
+        SearchHit: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "node" | "doc" | "spec" | "table" | "column" | "channel" | "field" | "param" | "process" | "step";
+            /** Node Id */
+            node_id: string | null;
+            /** Node Path */
+            node_path: string | null;
+            /** Title */
+            title: string;
+            /** Doc Id */
+            doc_id: string | null;
+            /** Process Id */
+            process_id: string | null;
+            /** Message Id */
+            message_id: string | null;
+            /** Line No */
+            line_no: number | null;
+            /** Snippet */
+            snippet: string;
+            /** Score */
+            score: number;
+            /** Matched */
+            matched: string[];
+            /**
+             * More In Group
+             * @default 0
+             */
+            more_in_group: number;
+        };
+        /** SearchResponse */
+        SearchResponse: {
+            /** Query */
+            query: string;
+            /** Tokens */
+            tokens: string[];
+            /** Total */
+            total: number;
+            /** Hits */
+            hits: components["schemas"]["SearchHit"][];
         };
         /**
          * SyncApplyIn
@@ -10318,6 +10382,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChannelOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_project_api_v1_search_get: {
+        parameters: {
+            query?: {
+                /** @description Строка лога, текст ошибки или слова. Переменные части (пути, id) не мешают. */
+                q?: string;
+                limit?: number;
+                /** @description Фильтр по видам единиц; повторяемый параметр. */
+                kinds?: ("node" | "doc" | "spec" | "table" | "column" | "channel" | "field" | "param" | "process" | "step")[] | null;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
             /** @description Validation Error */
