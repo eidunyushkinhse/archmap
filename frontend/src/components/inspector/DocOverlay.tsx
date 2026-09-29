@@ -4,6 +4,7 @@
 //   • «Логика» — FlowchartDocs: окно ОДНОЙ схемы, свой фетч, CRUD и CAS, мутации
 //     репортятся onDocEvent для меты;
 //   • OpenAPI — OpenApiPane: спеку пишет страница (onCommitOpenapi → PATCH узла).
+import { useCallback, useRef, useState } from "react";
 import Modal from "../../ui/Modal";
 import FlowchartDocs from "./FlowchartDocs";
 import type { NodeDocEvent } from "./FlowchartDocs";
@@ -46,9 +47,37 @@ export default function DocOverlay({
   mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose,
   createNew, initialStage, initialDocId, notice, onApplied, onOpenProcess,
 }: Props) {
+  // Несохранённая правка «Вручную» (пишут панели). Крестик и Escape при ней не
+  // закрывают окно молча, а спрашивают (решение пользователя 2026-09-29).
+  const dirtyRef = useRef(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const requestClose = useCallback(() => {
+    // Escape при открытом вопросе — «Вернуться к правке».
+    if (confirmClose) setConfirmClose(false);
+    else if (dirtyRef.current) setConfirmClose(true);
+    else onClose();
+  }, [confirmClose, onClose]);
+
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ padding: 0, borderRadius: 14 }}>
+    <Modal onClose={requestClose} closeButton={false} boxStyle={{ padding: 0, borderRadius: 14 }}>
       <div className="doc-root">
+        {/* Вопрос — слоем внутри окна, а не вложенным <dialog> (ловушка Modal). */}
+        {confirmClose && (
+          <div className="doc-confirm-layer">
+            <div className="doc-confirm" role="alertdialog" aria-label="Закрыть без сохранения?">
+              <div className="doc-confirm-title">Закрыть без сохранения?</div>
+              <p>Несохранённые правки пропадут.</p>
+              <div className="doc-confirm-actions">
+                <button type="button" className="doc-codebtn" onClick={() => setConfirmClose(false)} data-autofocus>
+                  Вернуться к правке
+                </button>
+                <button type="button" className="doc-codebtn doc-codebtn--danger" onClick={onClose}>
+                  Закрыть
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {mode === "flowchart" ? (
           <FlowchartDocs
             nodeId={nodeId}
@@ -56,6 +85,8 @@ export default function DocOverlay({
             isArchitect={isArchitect}
             onDocEvent={onDocEvent}
             onClose={onClose}
+            onRequestClose={requestClose}
+            dirtyRef={dirtyRef}
             createNew={createNew}
             initialDocId={initialDocId}
             onApplied={onApplied}
@@ -70,6 +101,8 @@ export default function DocOverlay({
             onCommitOpenapi={onCommitOpenapi ?? noCommit}
             notice={notice}
             onClose={onClose}
+            onRequestClose={requestClose}
+            dirtyRef={dirtyRef}
             initialStage={initialStage}
             onApplied={onApplied}
           />

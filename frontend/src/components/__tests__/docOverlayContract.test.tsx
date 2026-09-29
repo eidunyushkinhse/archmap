@@ -10,7 +10,7 @@
 //   • окно из шага процесса открывается на чтение.
 // Как добраться до редактора и что нажать для сохранения — в драйверах ниже: их
 // переписывают вместе с интерфейсом, утверждения остаются прежними.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -181,5 +181,42 @@ describe("окно схемы логики: контракты, пережива
     renderFromStep("d2");
     await waitFor(() => expect(screen.getByTestId("mmd")).toHaveTextContent("шаг"));
     expect(codeField()).toBeNull();
+  });
+});
+
+describe("окно схемы логики: закрытие с несохранённой правкой", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodeDocsApi.usage).mockResolvedValue([]);
+    vi.mocked(nodeDocsApi.list).mockResolvedValue([doc("d1")]);
+  });
+
+  it("крестик при правке спрашивает; «Вернуться к правке» оставляет окно, «Закрыть» закрывает", async () => {
+    const onClose = vi.fn();
+    render(<DocOverlay {...base} onClose={onClose} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
+    await openEditor();
+    setCode("graph TD\n  правка");
+
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(screen.getByText("Закрыть без сохранения?")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Вернуться к правке" }));
+    expect(screen.queryByText("Закрыть без сохранения?")).toBeNull();
+    expect(codeField()!.value).toContain("правка");
+
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    const layer = document.querySelector(".doc-confirm") as HTMLElement;
+    await userEvent.click(within(layer).getByRole("button", { name: "Закрыть" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("без правки крестик закрывает сразу", async () => {
+    const onClose = vi.fn();
+    render(<DocOverlay {...base} onClose={onClose} isArchitect initialDocId="d1" onDocEvent={vi.fn()} />);
+    await openEditor();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(screen.queryByText("Закрыть без сохранения?")).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

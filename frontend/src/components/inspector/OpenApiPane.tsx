@@ -9,7 +9,7 @@
 //     (SpecAgentPanel); после «Применить» окно перечитывает спеку.
 // Пишет спеку страница (onCommitOpenapi → PATCH узла под CAS): окно только ждёт
 // ответа, чтобы показать в просмотре то, что действительно сохранено.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { PromptVariant } from "../../types";
 import { nodesApi } from "../../api/nodes";
@@ -31,6 +31,10 @@ interface Props {
   // Конфликт конкурентных сессий от страницы — плашкой в шапке.
   notice?: string | null;
   onClose: () => void;
+  // Крестик шапки: окно само решит, спросить ли «Закрыть без сохранения?».
+  onRequestClose?: () => void;
+  // Есть ли несохранённая правка «Вручную» — окно читает при закрытии.
+  dirtyRef?: { current: boolean };
   // С чего открыть: «+ Добавить → Вручную / Через ИИ-агента» на странице.
   initialStage?: DocStage;
   // Пакет агента записан — страница освежает мету узла.
@@ -43,7 +47,7 @@ function shortVersion(v: string): string {
 }
 
 export default function OpenApiPane({
-  nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, notice, onClose, initialStage, onApplied,
+  nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, notice, onClose, onRequestClose, dirtyRef, initialStage, onApplied,
 }: Props) {
   const [stage, setStage] = useState<DocStage>(isArchitect ? initialStage ?? "view" : "view");
   // Спека, которую показывает окно. Страница присылает сохранённую (openapi), но
@@ -69,6 +73,9 @@ export default function OpenApiPane({
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
 
   const hasSpec = spec.trim() !== "";
+  // Несохранённая правка «Вручную» — окну нужна только при закрытии (реф).
+  const dirty = stage === "manual" && draft !== null && draft !== spec;
+  useEffect(() => { if (dirtyRef) dirtyRef.current = dirty; }, [dirty, dirtyRef]);
 
   function show(text: string) {
     setSpec(text);
@@ -195,7 +202,7 @@ export default function OpenApiPane({
         tagOas
         notice={notice}
         actions={actions}
-        onClose={onClose}
+        onClose={onRequestClose ?? onClose}
       />
       <div className="doc-body">{body}</div>
       {foot && <div className="doc-foot">{foot}</div>}

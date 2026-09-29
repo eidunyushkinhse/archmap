@@ -37,6 +37,10 @@ interface Props {
   isArchitect: boolean;
   onDocEvent: (evt: NodeDocEvent) => void;
   onClose: () => void;
+  // Крестик шапки: окно само решит, спросить ли «Закрыть без сохранения?».
+  onRequestClose?: () => void;
+  // Есть ли несохранённая правка «Вручную» — окно читает при закрытии.
+  dirtyRef?: { current: boolean };
   // «+ Добавить → Вручную» со страницы: окно сразу в «Вручную» для новой схемы.
   createNew?: boolean;
   // Схема, по которой кликнули на странице (или в шаге процесса).
@@ -78,7 +82,7 @@ const fromDoc = (d: NodeDoc): Draft => ({
 const errorText = (e: unknown, fallback: string): string => (e instanceof Error ? e.message : fallback);
 
 export default function FlowchartDocs({
-  nodeId, nodeName, isArchitect, onDocEvent, onClose, createNew, initialDocId, onApplied, onOpenProcess,
+  nodeId, nodeName, isArchitect, onDocEvent, onClose, onRequestClose, dirtyRef, createNew, initialDocId, onApplied, onOpenProcess,
 }: Props) {
   const [docs, setDocs] = useState<NodeDoc[] | null>(null); // null — загрузка
   const [activeId, setActiveId] = useState<string | null>(initialDocId ?? null);
@@ -99,6 +103,16 @@ export default function FlowchartDocs({
   const form: Draft | null =
     draft ??
     (active ? fromDoc(active) : creating && docs ? { name: freshName(docs), kind: "operation", operation: "", content: "" } : null);
+
+  // Несохранённая правка: черновик «Вручную» отличается от схемы (у новой — любая
+  // правка). Окну нужно знать это только в момент закрытия — отдаём через реф.
+  const base = active ? fromDoc(active) : null;
+  const dirty = stage === "manual" && draft !== null && (
+    base === null
+    || draft.name !== base.name || draft.kind !== base.kind
+    || draft.operation !== base.operation || draft.content !== base.content
+  );
+  useEffect(() => { if (dirtyRef) dirtyRef.current = dirty; }, [dirty, dirtyRef]);
 
   useEffect(() => {
     let alive = true;
@@ -363,7 +377,7 @@ export default function FlowchartDocs({
         title={title}
         tag={shownKind ? KIND_LABEL[shownKind] : "mermaid · flowchart"}
         actions={actions}
-        onClose={onClose}
+        onClose={onRequestClose ?? onClose}
       />
       {notice && <div className="doc-banner">{notice}</div>}
       <div className="doc-body">{body}</div>

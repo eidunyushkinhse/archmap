@@ -6,6 +6,7 @@
 /* Размер задан на корне контента: <dialog> (fit-content) и обёртка Modal
    обнимают его — сам Modal не трогаем, боксу хватает padding:0 из boxStyle. */
 .doc-root {
+  position: relative; /* слой вопроса «Закрыть без сохранения?» */
   width: min(1120px, calc(100vw - 64px));
   height: min(700px, 92vh);
   display: flex;
@@ -612,3 +613,27 @@
    работает (проверено — буфер не меняется), фидбэка у неё нет и в оригинале,
    а полный YAML копируется из соседней панели кода. Прячем. */
 .doc-oas .swagger-ui .opblock-summary .copy-to-clipboard { display: none; }
+
+/* ── вопрос «Закрыть без сохранения?» — слой поверх окна ─────────────────── */
+.doc-confirm-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, 0.28);
+  border-radius: 14px;
+}
+.doc-confirm {
+  width: min(380px, calc(100% - 32px));
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  padding: 18px 18px 16px;
+}
+.doc-confirm-title { font-size: 15px; font-weight: 700; color: #1e293b; }
+.doc-confirm p { margin: 6px 0 16px; font-size: 13px; color: #64748b; }
+.doc-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.doc-codebtn--danger { color: #b91c1c; border-color: #fecaca; }
+.doc-codebtn--danger:hover { background: #fef2f2; }
