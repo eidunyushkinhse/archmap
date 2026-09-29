@@ -217,11 +217,11 @@ export default function ProcessWorkspace({
             <IcoFlow s={26} />
           </span>
           <div style={{ fontSize: 15, fontWeight: 600, color: BPT.head }}>Пока ни одного процесса</div>
-          <div style={{ fontSize: 13, color: BPT.mut, maxWidth: 360, textAlign: "center" }}>
-            {isArchitect
-              ? "Создайте процесс кнопкой «Новый процесс» в рейле слева — участники берутся из узлов схемы, сообщения из задокументированных связей."
-              : "Архитектор ещё не создал ни одного бизнес-процесса."}
-          </div>
+          {!isArchitect && (
+            <div style={{ fontSize: 13, color: BPT.mut, maxWidth: 360, textAlign: "center" }}>
+              Архитектор ещё не создал ни одного бизнес-процесса.
+            </div>
+          )}
         </div>
       ) : selectedId ? (
         <ProcessCanvas
