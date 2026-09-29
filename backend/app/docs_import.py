@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
-from app.node_ref import sibling_sorter
+from app.node_ref import qualified_node_hits, sibling_sorter
 
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
@@ -647,6 +647,12 @@ def build_docs_plan(
         if not hits and " / " in ref:
             tail = f" / {ref}"
             hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
+        if not hits and " @ " in ref:
+            # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
+            # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым
+            # «@ #N» (так пишет архив, app/node_ref.py). ДО слэш-фолбэка: в ключе
+            # законны слэши, и нормализация пути разрезала бы его.
+            hits = qualified_node_hits(ref, flat)
         if not hits and "/" in ref:
             # Слабые модели пишут путь слэшем без пробелов («microblog/api»,
             # стресс-тест) — нормализуем в канонический разделитель « / » и

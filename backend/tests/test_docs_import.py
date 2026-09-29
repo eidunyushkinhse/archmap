@@ -124,6 +124,30 @@ def test_plan_resolve_slash_without_spaces(db):
     ]
 
 
+def test_plan_адрес_тёзки_с_уточнителем(db):
+    """Схема для тёзки адресуется путём с уточнителем — якорным, порядковым и на
+    сегменте тёзки-предка (так пишет архив, app/node_ref.py): каждая уезжает к
+    СВОЕМУ узлу, а не падает на «неоднозначно»."""
+    root = _node(db, "Ярмарка")
+    шоп, сток = _node(db, "Каталог-БД", root), _node(db, "Каталог-БД", root)
+    шоп.source_ref, сток.source_ref = (
+        "git:github.com/org/shop-db", "git:github.com/org/warehouse-catalog#a/b"
+    )
+    go, py = _node(db, "api", root), _node(db, "api", root)
+    go.technology, py.technology = "Go", "Python"
+    reader = _node(db, "reader", сток)
+    db.commit()
+
+    plan = _plan(db, [
+        ("a.mmd", _mmd("А", node="Ярмарка / Каталог-БД @ git:github.com/org/shop-db")),
+        ("b.mmd", _mmd("Б", node="Ярмарка / api @ #2")),
+        ("c.mmd", _mmd("В", node="Каталог-БД @ git:github.com/org/warehouse-catalog#a/b / reader")),
+    ])
+
+    assert plan.errors == []
+    assert {a.name: a.node_id for a in plan.logic} == {"А": шоп.id, "Б": py.id, "В": reader.id}
+
+
 def test_plan_overwrite_policy(db):
     _root, orders, *_ = _tree(db)
     db.add(NodeDoc(node_id=orders.id, name="Приём", kind="operation", content="graph TD; OLD"))

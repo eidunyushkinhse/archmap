@@ -386,6 +386,24 @@ def test_пустой_перечень_объясняется(db):
 
 
 # ── Адресация (Р9, Р10) ───────────────────────────────────────────────────────
+def test_адрес_тёзки_с_уточнителем(db):
+    """Перечень для тёзки: путь с уточнителем — якорным или порядковым (в YAML его
+    «#» берётся в кавычки) — находит СВОЙ объект, а не «неоднозначно»."""
+    корень = _node(db, "Ярмарка")
+    шоп, сток = _node(db, "api", корень), _node(db, "api", корень)
+    шоп.source_ref, сток.source_ref = "git:github.com/org/shop", "git:github.com/org/stock"
+    go, py = _node(db, "worker", корень), _node(db, "worker", корень)
+    go.technology, py.technology = "Go", "Python"
+    db.flush()
+    for адрес, объект in (
+        ("Ярмарка / api @ git:github.com/org/stock", сток),
+        ('"Ярмарка / worker @ #2"', py),
+    ):
+        plan = _план(db, ПЕРЕЧЕНЬ_BACKEND.replace("node: backend", f"node: {адрес}"))
+        assert plan.report.errors == [], адрес
+        assert plan.node is объект, адрес
+
+
 def test_адрес_частичным_путём(db):
     корень = _node(db, "Zulip")
     _node(db, "backend", корень)

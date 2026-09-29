@@ -27,6 +27,7 @@ from app.docs_import import _node_paths, spec_check
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.node_ref import qualified_node_hits
 from app.recon_prompt import RECON_FILE
 from app.schemas.node_doc import NodeDocKind
 from app.schemas.recon import ReconImportReport, ReconItem
@@ -357,6 +358,11 @@ def _resolve_node(
         # не знает. Совпадение по хвосту — по границе « / », чтобы «…/ Заказы» не
         # цеплялось к «…/ Мои Заказы».
         hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
+    if not hits:
+        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
+        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»
+        # (грамматика адресов архива, app/node_ref.py).
+        hits = qualified_node_hits(ref, flat)
     if not hits:
         hint = _closest_node(ref, fulls, by_bare, by_path)
         tail = f" — похоже на «{hint}»" if hint else ""
