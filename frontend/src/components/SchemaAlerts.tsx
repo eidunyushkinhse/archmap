@@ -82,7 +82,7 @@ interface Props {
 // лечится квалификатором, поэтому строка прямо его называет.
 const REF_REASON: Record<UnresolvedDataRefAlert["reason"], string> = {
   unknown_table: "таблица не найдена",
-  ambiguous: "имя неоднозначно — укажите „БД / таблица“",
+  ambiguous: "имя неоднозначно, укажите „БД / таблица“",
   unknown_column: "колонки нет в таблице",
 };
 
@@ -90,7 +90,7 @@ const REF_REASON: Record<UnresolvedDataRefAlert["reason"], string> = {
 // подсказка ведёт чинить не туда.
 const CHANNEL_REASON: Record<UnresolvedChannelRefAlert["reason"], string> = {
   unknown_channel: "канал не найден у брокеров проекта",
-  ambiguous: "имя неоднозначно — укажите „Брокер / канал“",
+  ambiguous: "имя неоднозначно, укажите „Брокер / канал“",
   unknown_field: "поля нет в канале",
 };
 
@@ -227,10 +227,10 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
                 <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
                   <span className="sa-line">
                     <span className="sa-where">{e.source_name} → {e.target_name}:</span>{" "}
-                    <span className="sa-strong">«{part}»</span> — часть «{whole}»
+                    <span className="sa-strong">«{part}»</span> входит в «{whole}»
                   </span>
                   <span className="sa-hint">
-                    иерархия уже выражает вложенность — удалите связь или перевесьте её
+                    иерархия уже выражает вложенность, удалите связь или перевесьте её
                   </span>
                 </Item>
               );
@@ -266,7 +266,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
               >
                 <span className="sa-line">
                   <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span> — {REF_REASON[r.reason]}
+                  <span className="sa-strong">„{r.ref}“</span>: {REF_REASON[r.reason]}
                 </span>
               </Item>
             ))}
@@ -282,7 +282,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
               >
                 <span className="sa-line">
                   <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span> — {CHANNEL_REASON[r.reason]}
+                  <span className="sa-strong">„{r.ref}“</span>: {CHANNEL_REASON[r.reason]}
                 </span>
               </Item>
             ))}
@@ -301,7 +301,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
               >
                 <span className="sa-line">
                   <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span> — параметра нет в конфигурации
+                  <span className="sa-strong">„{r.ref}“</span>: параметра нет в конфигурации
                   объекта: опишите его или, если это обычная фраза, уберите двоеточие
                 </span>
               </Item>
@@ -332,6 +332,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
             {dangling.map((m) => (
               <Item
                 key={m.message_id}
+                hint="Открыть процесс"
                 onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
               >
                 <span className="sa-line">
@@ -349,6 +350,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
             {orphanLegs.map((m) => (
               <Item
                 key={m.message_id}
+                hint="Открыть процесс"
                 onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
               >
                 <span className="sa-line">
@@ -367,6 +369,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
             {unbound.map((p) => (
               <Item
                 key={p.participant_id}
+                hint="Открыть процесс"
                 onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(p.process_id); })}
               >
                 <span className="sa-row">
@@ -381,6 +384,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
             {unlinkedMessages.map((m) => (
               <Item
                 key={m.message_id}
+                hint="Открыть процесс"
                 onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
               >
                 <span className="sa-line">
@@ -439,14 +443,17 @@ function Section({ title, count, children }: { title: string; count: number; chi
 }
 
 /* строка-пункт: обычный текст, стрелка перехода — у пункта под курсором. Кликабельна, если есть onClick */
-function Item({ children, onClick }: { children: ReactNode; onClick?: (() => void) | false | undefined }) {
+// hint — подсказка перехода: к объекту на схеме или (у пунктов процессов) в процесс.
+function Item({ children, onClick, hint = "Показать на схеме" }: {
+  children: ReactNode; onClick?: (() => void) | false | undefined; hint?: string;
+}) {
   return (
     <div
       className={"sa-item" + (onClick ? " sa-item--clickable" : "")}
       onClick={onClick || undefined}
       role={onClick ? "button" : undefined}
       tabIndex={onClick ? 0 : undefined}
-      title={onClick ? "Показать на схеме" : undefined}
+      title={onClick ? hint : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(); } } : undefined}
     >
       <span className="sa-text">{children}</span>

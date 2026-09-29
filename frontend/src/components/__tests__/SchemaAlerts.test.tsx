@@ -202,6 +202,8 @@ describe("SchemaAlerts: шаги без схемы логики (AL34)", () => {
     await openPanel();
     expect(screen.getByText("Шаги без схемы логики")).toBeTruthy();
     expect(screen.getByText("Сервис заказов → Покупатель")).toBeTruthy();
+    // Пункт процесса подсказывает свой переход, а не «Показать на схеме».
+    expect(screen.getByText(/Оформление заказа/).closest(".sa-item")?.getAttribute("title")).toBe("Открыть процесс");
 
     await userEvent.click(screen.getByText(/Оформление заказа/));
 
@@ -390,7 +392,7 @@ describe("SchemaAlerts: обращения к неописанным данны�
     );
     await openPanel();
     // Неоднозначность лечится квалификатором — текст обязан его назвать.
-    expect(screen.getByText(/имя неоднозначно — укажите „БД \/ таблица“/)).toBeTruthy();
+    expect(screen.getByText(/имя неоднозначно, укажите „БД \/ таблица“/)).toBeTruthy();
     unmount();
 
     render(
@@ -449,7 +451,7 @@ describe("SchemaAlerts: обращения к неописанным канал�
     );
     await openPanel();
     // «БД / таблица» здесь послало бы чинить не туда — слова свои.
-    expect(screen.getByText(/имя неоднозначно — укажите „Брокер \/ канал“/)).toBeTruthy();
+    expect(screen.getByText(/имя неоднозначно, укажите „Брокер \/ канал“/)).toBeTruthy();
     unmount();
 
     render(
@@ -585,7 +587,7 @@ describe("SchemaAlerts: связи в собственный компонент"
     expect(screen.getByText(/background-workers → email-senders/)).toBeTruthy();
     // Часть подсвечена как конец-нарушитель, целое названо рядом.
     expect(screen.getByText("«email-senders»")).toBeTruthy();
-    expect(screen.getByText(/часть «background-workers»/)).toBeTruthy();
+    expect(screen.getByText(/входит в «background-workers»/)).toBeTruthy();
     expect(screen.getByText(/удалите связь или перевесьте её/)).toBeTruthy();
   });
 
@@ -606,7 +608,7 @@ describe("SchemaAlerts: связи в собственный компонент"
     await openPanel();
 
     expect(screen.getByText("«email-senders»")).toBeTruthy();
-    expect(screen.getByText(/часть «background-workers»/)).toBeTruthy();
+    expect(screen.getByText(/входит в «background-workers»/)).toBeTruthy();
   });
 
   it("ведёт к СВЯЗИ на схеме: чинится сама связь", async () => {

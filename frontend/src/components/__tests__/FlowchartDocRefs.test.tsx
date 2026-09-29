@@ -83,7 +83,7 @@ describe("FlowchartDoc: плашка обращений", () => {
     await waitFor(() =>
       expect(screen.getByText(/колонки нет в таблице \(Хранилище · orders\)/)).toBeInTheDocument(),
     );
-    expect(screen.getByText(/имя неоднозначно — укажите „БД \/ таблица“/)).toBeInTheDocument();
+    expect(screen.getByText(/имя неоднозначно, укажите „БД \/ таблица“/)).toBeInTheDocument();
     expect(screen.getByText("пишет")).toBeInTheDocument();
   });
 
@@ -139,7 +139,7 @@ describe("FlowchartDoc: плашка каналов", () => {
       expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeInTheDocument(),
     );
     // Квалификатор в подсказке — БРОКЕРА: «БД / таблица» послало бы чинить не туда.
-    expect(screen.getByText(/имя неоднозначно — укажите „Брокер \/ канал“/)).toBeInTheDocument();
+    expect(screen.getByText(/имя неоднозначно, укажите „Брокер \/ канал“/)).toBeInTheDocument();
     // У «нет поля» канал известен — его называем, иначе не с чем сверяться.
     expect(screen.getByText(/поля нет в канале \(Kafka · созданные\)/)).toBeInTheDocument();
     // Оба потребления получили свой чип — режим показан у каждой строки.

@@ -18,7 +18,7 @@ export const REF_MARKER =
 // пометки (см. reasonOf): «БД / таблица» у данных, «Брокер / канал» у событий.
 const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = {
   unknown_table: "таблица не найдена",
-  ambiguous: "имя неоднозначно — укажите „БД / таблица“",
+  ambiguous: "имя неоднозначно, укажите „БД / таблица“",
   unknown_column: "колонки нет в таблице",
   unknown_channel: "канал не найден у брокеров проекта",
   unknown_field: "поля нет в канале",
@@ -26,7 +26,7 @@ const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = 
   // квалификатора, ни неоднозначности.
   unknown_param: "параметра нет в конфигурации этого объекта",
 };
-const AMBIGUOUS_CHANNEL = "имя неоднозначно — укажите „Брокер / канал“";
+const AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите „Брокер / канал“";
 
 const isChannelMode = (mode: DataRefPreviewItem["mode"]): boolean =>
   mode === "publish" || mode === "consume";
