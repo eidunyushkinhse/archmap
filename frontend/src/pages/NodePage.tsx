@@ -791,7 +791,11 @@ function NodePageInner({
                 )}
                 {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
                 {!container.loading && node.docs.length === 0 && container.docGroups.length === 0 && (
-                  <p className="np-empty">Схемы логики не заданы</p>
+                  <p className="np-empty">
+                    Это контейнер, то есть абстракция. У него нет своей логики, она может быть у
+                    дочерних сервисов. Задокументируйте логику дочерних сервисов, и она будет
+                    отображаться здесь.
+                  </p>
                 )}
               </>
             ) : (
@@ -910,7 +914,11 @@ function NodePageInner({
                 )}
                 {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
                 {!container.loading && !node.openapi_spec && container.specGroups.length === 0 && (
-                  <p className="np-empty">Спецификация не задана</p>
+                  <p className="np-empty">
+                    Это контейнер, то есть абстракция. У него нет своих эндпоинтов, они могут быть
+                    у дочерних сервисов. Задокументируйте контракты дочерних сервисов, и они будут
+                    отображаться здесь.
+                  </p>
                 )}
               </>
             ) : node.openapi_spec ? (
