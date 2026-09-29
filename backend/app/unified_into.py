@@ -80,7 +80,9 @@ from app.unified_apply import (
     _addresses_of,
     _choice_index,
     _free_name,
+    _node_address_map,
     _rewrite_doc_addresses,
+    _rewrite_node_addresses,
     _synthetic_files,
     _Winner,
     _winners,
@@ -744,7 +746,7 @@ def apply_into_plan(
                                 db, nodes, winners, lost, addr_of, policies=(False,))
 
     process_results = _apply_processes(
-        db, project, plan, into.new_processes, renamed, shared, path_of, warnings
+        db, project, plan, into.new_processes, renamed, shared, addr_of, warnings
     )
 
     # Курсоры поллинга: чужие сессии подтянут и схему (узлы/связи), и мету (доки,
@@ -1031,19 +1033,21 @@ def _apply_processes(
     kept: list[int],
     renamed: dict[tuple[int, int, str], str],
     shared: dict[tuple[int, str], str],
-    path_of: list[str],
+    addr_of: list[str],
     warnings: list[str],
 ) -> list[ProcessImportResult]:
     """Процессы привозных архивов (kept — те, что план решил ввозить). Свои (вход
     №0) и их точные копии пропускаются: они уже живут, ввоз задвоил бы их.
 
     Процессы не сливаются никогда (решение груминга): тёзка живого получает
-    свободное имя. Привязки шагов переписываются в координаты ЭТОГО проекта."""
+    свободное имя. Привязки шагов и адреса узлов участников переписываются в
+    координаты ЭТОГО проекта (addr_of — адреса узлов плана с уточнителями тёзок)."""
     taken = {
         p.name
         for p in db.query(BusinessProcess).filter(BusinessProcess.project_id == project.id).all()
     }
-    addresses = _address_map(plan, renamed, shared, path_of)
+    addresses = _address_map(plan, renamed, shared, addr_of)
+    participants = _node_address_map(plan, addr_of)
     results: list[ProcessImportResult] = []
     for i in kept:
         item = plan.processes[i]
@@ -1055,6 +1059,7 @@ def _apply_processes(
                 f"«{name}»: процессы не сливаются"
             )
         text = _rewrite_doc_addresses(item.text, addresses.get(item.origin, {}))
+        text = _rewrite_node_addresses(text, participants.get(item.origin, {}))
         preview = build_process_preview(db, project.id, text, name)
         mapping = {p.alias: p.node_id for p in preview.participants}
         _, result = apply_process_import(db, project.id, text, name, mapping)

@@ -9,6 +9,12 @@
 Не поддерживаем: autonumber, activate/deactivate, note, box, ссылки. Непонятые
 строки НЕ выпадают молча — они уходят в отчёт (unsupported), иначе пользователь
 считал бы импорт полным.
+
+Две директивы кругового прогона архива (строки-комментарии mermaid): «%% archmap-doc:
+адрес схемы» перед шагом — привязка шага к схеме логики, и «%% archmap-node: адрес
+узла» перед участником — узел участника, чьё имя в проекте не уникально (тёзки).
+Адрес узла — путь с уточнителями тёзок (app/node_ref.py); разрешился однозначно —
+участник привязывается к этому узлу, иначе сопоставление по имени, как всегда.
 """
 
 import re
@@ -17,6 +23,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.docs_import import _node_paths
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -24,6 +31,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.node_ref import node_addresses, qualified_node_hits
 from app.processes import legs_for_edge, node_path, resolve_to_participant
 from app.schemas.process_import import (
     ImportNodeCandidate,
@@ -52,6 +60,8 @@ _IGNORED_RE = re.compile(
 # Привязка шага к схеме логики в круговом прогоне (Ф7): строка-комментарий ПЕРЕД
 # шагом. Ключ — archmap-doc, в семье префикса archmap- из mmd_header.
 _DOC_RE = re.compile(r"^%%\s*archmap-doc:\s*(.+)$", re.IGNORECASE)
+# Узел СЛЕДУЮЩЕГО участника (архив пишет его участникам с неуникальным именем).
+_NODE_RE = re.compile(r"^%%\s*archmap-node:\s*(.+)$", re.IGNORECASE)
 
 
 @dataclass
@@ -84,6 +94,8 @@ class ParsedFragment:
 class ParsedDiagram:
     # Порядок объявления участников = порядок колонок. Алиас → отображаемое имя.
     participants: list[tuple[str, str]] = field(default_factory=list)
+    # Алиас → адрес узла из «%% archmap-node: …» перед объявлением участника.
+    node_addresses: dict[str, str] = field(default_factory=dict)
     messages: list[ParsedMessage] = field(default_factory=list)
     fragments: list[ParsedFragment] = field(default_factory=list)
     unsupported: list[str] = field(default_factory=list)
@@ -108,6 +120,15 @@ def parse_sequence(text: str) -> ParsedDiagram:
     stack: list[ParsedFragment] = []
     # Отложенный адрес схемы: «%% archmap-doc: …» привязывается к СЛЕДУЮЩЕМУ шагу.
     pending_doc: str | None = None
+    # Отложенный адрес узла: «%% archmap-node: …» — к СЛЕДУЮЩЕМУ объявлению участника.
+    pending_node: str | None = None
+
+    def drop_pending_node() -> None:
+        """Адрес узла, за которым не пришло объявление участника, — в отчёт."""
+        nonlocal pending_node
+        if pending_node is not None:
+            out.unsupported.append(f"%% archmap-node: {pending_node}")
+            pending_node = None
 
     for raw in text.splitlines():
         line = raw.strip()
@@ -121,11 +142,15 @@ def parse_sequence(text: str) -> ParsedDiagram:
             # тишина (тест «комментарии и пустые строки не шумят»): комментарий —
             # это понятая строка без содержимого для импорта, а не непонятая.
             m = _DOC_RE.match(line)
+            n = _NODE_RE.match(line)
             if m:
                 if pending_doc is not None:
                     # Две привязки подряд: первая осталась бы без шага — в отчёт.
                     out.unsupported.append(f"%% archmap-doc: {pending_doc}")
                 pending_doc = m.group(1).strip() or None
+            elif n:
+                drop_pending_node()  # два адреса подряд: первый остался бы без участника
+                pending_node = n.group(1).strip() or None
             elif re.match(r"^%%\s*archmap-", line, re.IGNORECASE):
                 out.unsupported.append(line)
             continue
@@ -139,7 +164,13 @@ def parse_sequence(text: str) -> ParsedDiagram:
             if alias not in seen:
                 seen[alias] = name
                 out.participants.append((alias, name))
+                if pending_node is not None:
+                    out.node_addresses[alias] = pending_node
+                    pending_node = None
+            drop_pending_node()
             continue
+
+        drop_pending_node()  # адрес узла относится только к объявлению участника
 
         m = _FRAGMENT_RE.match(line)
         if m:
@@ -200,6 +231,7 @@ def parse_sequence(text: str) -> ParsedDiagram:
     # Привязка, за которой не пришло ни одного шага, — в отчёт, а не в тишину.
     if pending_doc is not None:
         out.unsupported.append(f"%% archmap-doc: {pending_doc}")
+    drop_pending_node()
 
     # Незакрытые фрагменты: закрываем последним сообщением — терять блок хуже, чем
     # додумать его конец (пользователь увидит охват в превью).
@@ -286,12 +318,37 @@ def _doc_address_map(
         .filter(Node.project_id == project_id)
         .all()
     )
+    # Узел схемы адресуется и голым путём (как всегда), и путём с уточнителями
+    # тёзок (так пишет архив, app/node_ref.py): голый путь тёзок накрывает обе их
+    # одноимённые схемы и честно не резолвится, уточнённый — ровно одну.
+    addresses = node_addresses(list(all_nodes.values()))
     out: dict[str, list[NodeDoc]] = {}
     for d in docs:
         if d.node_id not in all_nodes:
             continue
-        addr = _norm_address(f"{node_path(all_nodes, d.node_id)} / {d.name}")
-        out.setdefault(addr, []).append(d)
+        keys = {
+            _norm_address(f"{node_path(all_nodes, d.node_id)} / {d.name}"),
+            _norm_address(f"{addresses.get(d.node_id, '')} / {d.name}"),
+        }
+        for addr in keys:
+            out.setdefault(addr, []).append(d)
+    return out
+
+
+def _nodes_by_address(
+    nodes: list[Node], parsed: "ParsedDiagram"
+) -> dict[str, Node]:
+    """Алиас → узел по «%% archmap-node: адрес» — только однозначный: точный путь,
+    иначе путь с уточнителями тёзок. Не разрешилось — участник сопоставляется по
+    имени, как всегда (выбирать за пользователя из тёзок нельзя)."""
+    if not parsed.node_addresses:
+        return {}
+    flat, _fulls, _by_bare, by_path = _node_paths(nodes)
+    out: dict[str, Node] = {}
+    for alias, address in parsed.node_addresses.items():
+        hits = by_path.get(address) or qualified_node_hits(address, flat)
+        if len(hits) == 1:
+            out[alias] = flat[hits[0]]
     return out
 
 
@@ -314,16 +371,24 @@ def build_preview(
     names = [n for _, n in parsed.participants]
     matches = match_nodes_by_name(db, project_id, names)
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project_id).all()}
+    by_address = _nodes_by_address(list(all_nodes.values()), parsed)
     participants = []
     for alias, disp in parsed.participants:
         cands = matches.get(disp, [])
+        addressed = by_address.get(alias)
+        if addressed is not None and addressed not in cands:
+            cands = [*cands, addressed]  # переименованный узел: выбор должен его знать
         participants.append(
             ImportParticipantPreview(
                 alias=alias,
                 name=disp,
-                # Авто-сопоставление ТОЛЬКО при единственном кандидате: имена узлов не
+                # Авто-сопоставление ТОЛЬКО однозначное: по адресу узла (архив пишет
+                # его тёзкам) либо по единственному кандидату имени — имена узлов не
                 # уникальны, и выбирать за пользователя из тёзок нельзя.
-                node_id=cands[0].id if len(cands) == 1 else None,
+                node_id=(
+                    addressed.id if addressed is not None
+                    else cands[0].id if len(cands) == 1 else None
+                ),
                 candidates=[
                     ImportNodeCandidate(
                         id=c.id,

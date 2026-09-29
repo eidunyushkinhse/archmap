@@ -27,6 +27,7 @@ C4 (узлы и связи) → схемы логики → семьи факт�
 """
 
 import json
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -51,10 +52,9 @@ from app.node_ref import node_addresses
 # Приватное из соседей — осознанно: регулярка привязки и норма адреса должны быть
 # ОДНИМИ И ТЕМИ ЖЕ, что у разбора процессов, иначе переписанный адрес не совпадёт
 # с тем, который импорт потом ищет. Тот же приём, что у unified_import с _read_zip.
-from app.process_import import _DOC_RE, _norm_address
+from app.process_import import _DOC_RE, _NODE_RE, _norm_address
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
-from app.processes import node_path
 from app.schemas.archive import ArchiveImportResult
 from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
@@ -443,11 +443,23 @@ def _rewrite_doc_addresses(text: str, addresses: dict[str, str]) -> str:
     Трогаем ТОЛЬКО строки «%% archmap-doc: …» (регистронезависимо, как разбор):
     процесс — авторский документ пользователя, и любое другое изменение его текста
     было бы самоуправством."""
+    return _rewrite_lines(text, _DOC_RE, "archmap-doc", addresses)
+
+
+def _rewrite_node_addresses(text: str, addresses: dict[str, str]) -> str:
+    """Переписать адреса узлов участников («%% archmap-node: …», их архив пишет
+    участникам с неуникальным именем) из координат архива в координаты проекта."""
+    return _rewrite_lines(text, _NODE_RE, "archmap-node", addresses)
+
+
+def _rewrite_lines(
+    text: str, pattern: re.Pattern[str], directive: str, addresses: dict[str, str]
+) -> str:
     if not addresses:
         return text
     out: list[str] = []
     for line in text.splitlines(keepends=True):
-        m = _DOC_RE.match(line.strip())
+        m = pattern.match(line.strip())
         new = addresses.get(_norm_address(m.group(1))) if m else None
         if new is None:
             out.append(line)
@@ -455,7 +467,7 @@ def _rewrite_doc_addresses(text: str, addresses: dict[str, str]) -> str:
         body = line.rstrip("\r\n")
         eol = line[len(body):]
         indent = body[: len(body) - len(body.lstrip())]
-        out.append(f"{indent}%% archmap-doc: {new}{eol}")
+        out.append(f"{indent}%% {directive}: {new}{eol}")
     return "".join(out)
 
 
@@ -529,9 +541,9 @@ def apply_unified_plan(
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     node_of = [by_id[i] for i in ids]  # индекс плана → узел проекта
-    path_of = [node_path(by_id, n.id) for n in node_of]
-    # Адреса файлов семей для родных приёмников: у законных тёзок путь один на
-    # двоих, и файл адресуется путём с уточнителем-якорем (app/node_ref.py).
+    # Адреса узлов плана в проекте — для файлов семей родных приёмников и привязок
+    # процессов: у тёзок путь один на двоих, и адрес несёт уточнитель на сегменте
+    # тёзки (app/node_ref.py).
     addr_of = _addresses_of(nodes, node_of)
 
     warnings: list[str] = list(plan.warnings)
@@ -550,7 +562,6 @@ def apply_unified_plan(
     if склеено:
         склеены_дубли = dedup_edges(db, project.id, перевешены)
         nodes = db.query(Node).filter(Node.project_id == project.id).all()
-        path_of = [node_path({n.id: n for n in nodes}, n.id) for n in node_of]
         addr_of = _addresses_of(nodes, node_of)
 
     # ── Схемы логики: напрямую, тело БЕЗ шапки (заглушка остаётся заглушкой, Д4).
@@ -611,8 +622,10 @@ def apply_unified_plan(
             specs_applied += 1
     db.flush()
 
-    # ── Процессы: не сливаются никогда, тёзкам — суффикс; привязки переписываются.
-    addresses = _address_map(plan, renamed, shared, path_of)
+    # ── Процессы: не сливаются никогда, тёзкам — суффикс; привязки шагов и адреса
+    #    узлов участников переписываются в координаты нового проекта.
+    addresses = _address_map(plan, renamed, shared, addr_of)
+    participants = _node_address_map(plan, addr_of)
     used_names: dict[str, int] = {}
     process_results = []
     for item in plan.processes:
@@ -625,6 +638,7 @@ def apply_unified_plan(
                 f"«{proc_name}»: процессы не сливаются"
             )
         text = _rewrite_doc_addresses(item.text, addresses.get(item.origin, {}))
+        text = _rewrite_node_addresses(text, participants.get(item.origin, {}))
         preview = build_process_preview(db, project.id, text, proc_name)
         mapping = {p.alias: p.node_id for p in preview.participants}
         _, result = apply_process_import(db, project.id, text, proc_name, mapping)
@@ -788,6 +802,31 @@ def _synthetic_files(
     return out
 
 
+def _origin_addresses(plan: UnifiedPlan, addr_of: list[str]) -> dict[tuple[int, int], list[str]]:
+    """(вход, merged-узел) → адреса этого узла в системе координат входа (путь с
+    уточнителями тёзок — так их пишет архив). Переводит происхождение вкладов
+    (report.node_contribs, Ф0): один merged-узел мог собраться из нескольких узлов
+    одного входа, поэтому адресов бывает несколько, и все ведут в одну точку."""
+    out: dict[tuple[int, int], list[str]] = {}
+    for merged_idx, contribs in enumerate(plan.report.node_contribs):
+        for file_idx, node_idx in contribs:
+            addrs = plan.origin_addresses[file_idx] if file_idx < len(plan.origin_addresses) else []
+            if node_idx < len(addrs) and merged_idx < len(addr_of):
+                out.setdefault((file_idx, merged_idx), []).append(addrs[node_idx])
+    return out
+
+
+def _node_address_map(plan: UnifiedPlan, addr_of: list[str]) -> dict[int, dict[str, str]]:
+    """Карта «вход → (адрес узла в архиве → адрес узла в проекте)» для строк
+    «%% archmap-node:» участников. Узел, в который мердж склеил тёзок одного входа,
+    — один на всех: адрес любого из них ведёт к нему."""
+    out: dict[int, dict[str, str]] = {}
+    for (origin, merged_idx), addrs in _origin_addresses(plan, addr_of).items():
+        for a in addrs:
+            out.setdefault(origin, {}).setdefault(_norm_address(a), addr_of[merged_idx])
+    return out
+
+
 def _address_map(
     plan: UnifiedPlan,
     renamed: dict[tuple[int, int, str], str],
@@ -796,19 +835,12 @@ def _address_map(
 ) -> dict[int, dict[str, str]]:
     """Карта «вход → (старый адрес привязки → новый)».
 
-    Старый адрес — «путь узла в архиве этого входа / имя схемы»; новый — «путь узла
-    в новом проекте / фактическое имя». Пути входа берём из плана (origin_paths) и
-    переводим происхождением вкладов (report.node_contribs, Ф0): один merged-узел
-    мог собраться из нескольких узлов одного входа, поэтому адресов-ключей бывает
-    несколько, и все они ведут в одну точку.
+    Старый адрес — «адрес узла в архиве этого входа / имя схемы»; новый — «адрес
+    узла в новом проекте / фактическое имя». path_of — АДРЕСА узлов плана в проекте
+    (_addresses_of): у тёзок путь один на двоих, и привязка к схеме тёзки пишется
+    путём с уточнителем (app/node_ref.py) — голый путь не разрешился бы.
     """
-    # (вход, merged-узел) → пути этого узла в системе координат входа.
-    origin_paths: dict[tuple[int, int], list[str]] = {}
-    for merged_idx, contribs in enumerate(plan.report.node_contribs):
-        for file_idx, node_idx in contribs:
-            paths = plan.origin_paths[file_idx] if file_idx < len(plan.origin_paths) else []
-            if node_idx < len(paths) and merged_idx < len(path_of):
-                origin_paths.setdefault((file_idx, merged_idx), []).append(paths[node_idx])
+    origin_paths = _origin_addresses(plan, path_of)
 
     out: dict[int, dict[str, str]] = {}
 

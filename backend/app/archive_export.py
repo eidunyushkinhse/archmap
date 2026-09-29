@@ -21,6 +21,7 @@ import io
 import re
 import uuid
 import zipfile
+from collections import Counter
 
 import yaml
 from sqlalchemy.orm import Session, undefer
@@ -188,6 +189,12 @@ ARCHIVE_FORMAT = 1
 _UNSAFE = re.compile(r"[^\w\-. ]")
 
 
+def _participant_key(name: str) -> str:
+    """Имя узла так, как его сравнивает сопоставление участника при импорте
+    процесса (process_import.match_nodes_by_name): без регистра и краевых пробелов."""
+    return name.strip().casefold()
+
+
 def _fname(index: int, name: str, ext: str) -> str:
     """Имя файла в архиве: индекс + очищенное имя. СМЫСЛА имя не несёт (адрес —
     внутри файла или в манифесте), индекс решает коллизии; читаемый хвост — для
@@ -297,17 +304,31 @@ def build_archive_ordered(db: Session, project: Project) -> tuple[bytes, list[uu
     if spec_files:
         contents["specs"] = spec_files
 
-    # Процессы: mermaid не несёт имени процесса — имя едет в манифесте.
+    # Процессы: mermaid не несёт имени процесса — имя едет в манифесте. Участник,
+    # чьё имя в проекте не уникально (тёзки, одноимённые узлы разных контейнеров),
+    # едет с адресом узла: по голому имени создание из архива его не привяжет.
+    # Привязки шагов адресуют схему путём узла с уточнителем тёзки.
     procs = sorted(
         db.query(BusinessProcess).filter(BusinessProcess.project_id == project.id).all(),
         key=lambda p: p.name,
     )
+    same_name = Counter(_participant_key(n.name) for n in nodes)
+    doc_node_addresses = {d.id: path_of(d.node_id) for d in docs}
     proc_entries = []
     for i, proc in enumerate(procs, 1):
         fname = f"processes/{_fname(i, proc.name, '.mmd')}"
         detail = build_process_detail(db, proc, all_nodes)
+        participant_addresses = {
+            p.id: path_of(p.node_id)
+            for p in detail.participants
+            if p.node_id is not None
+            and p.node_id in all_nodes
+            and same_name[_participant_key(all_nodes[p.node_id].name)] > 1
+        }
         proc_entries.append({"file": fname, "name": proc.name})
-        files.append((fname, detail_to_mermaid(detail)))
+        files.append(
+            (fname, detail_to_mermaid(detail, participant_addresses, doc_node_addresses))
+        )
     if proc_entries:
         contents["processes"] = proc_entries
 

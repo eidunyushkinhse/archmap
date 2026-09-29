@@ -764,30 +764,38 @@ def test_якорные_тёзки_переезжают_архивом_в_нов
     assert отчёт.db is not None and отчёт.db.errors == []
 
 
-def test_процесс_с_тёзками_не_задваивается_при_догрузке_своего_архива(db):
-    """Участники процесса — тёзки, шаги привязаны к одноимённым схемам тёзок.
-    Свой архив приносит байт-в-байт копию процесса — она не ввозится, и ни
-    участник, ни привязка шага не меняются (разведка шага 5 twins-refs:
-    создание НОВОГО проекта из такого архива оставляет тёзок-участников
-    непривязанными — выбор по имени, уточнитель тут не помогает; см. отчёт)."""
-    проект, у = _тёзки(db)
-    доки = {k: db.query(NodeDoc).filter(NodeDoc.node_id == у[k].id).one() for k in ("шоп", "сток")}
+def _сверка(db, проект, у: dict[str, Node], шаги) -> BusinessProcess:
+    """Процесс «Сверка» напрямую моделями: шаги (из, в, связь) по ключам у, каждый
+    на своей связи и привязан к схеме логики узла-получателя (она у него одна)."""
     рёбра = {e.label: e for e in db.query(Edge).filter(Edge.project_id == проект.id).all()}
     процесс = BusinessProcess(id=uuid.uuid4(), name="Сверка", project_id=проект.id)
     db.add(процесс)
     db.flush()
     участники = {}
-    for i, k in enumerate(("orders", "шоп", "склад", "сток")):
+    for i, k in enumerate(dict.fromkeys(k for из, в, _ in шаги for k in (из, в))):
         участники[k] = ProcessParticipant(id=uuid.uuid4(), process_id=процесс.id,
                                           node_id=у[k].id, name=у[k].name, order=i)
         db.add(участники[k])
     db.flush()
-    for order, (из, в, связь, док) in enumerate((("orders", "шоп", "пишет", "шоп"),
-                                                 ("склад", "сток", "читает", "сток"))):
+    for order, (из, в, связь) in enumerate(шаги):
+        док = db.query(NodeDoc).filter(NodeDoc.node_id == у[в].id).one()
         db.add(ProcessMessage(id=uuid.uuid4(), process_id=процесс.id, order=order,
                               edge_id=рёбра[связь].id, leg="forward", caption=связь,
                               from_participant_id=участники[из].id,
-                              to_participant_id=участники[в].id, doc_id=доки[док].id))
+                              to_participant_id=участники[в].id, doc_id=док.id))
+    db.flush()
+    return процесс
+
+
+ШАГИ_ЯКОРНЫХ = (("orders", "шоп", "пишет"), ("склад", "сток", "читает"))
+
+
+def test_процесс_с_тёзками_не_задваивается_при_догрузке_своего_архива(db):
+    """Участники процесса — тёзки, шаги привязаны к одноимённым схемам тёзок.
+    Свой архив приносит байт-в-байт копию процесса — она не ввозится, и ни
+    участник, ни привязка шага не меняются."""
+    проект, у = _тёзки(db)
+    _сверка(db, проект, у, ШАГИ_ЯКОРНЫХ)
     db.commit()
     было = _снимок(db, проект.id)
 
@@ -1247,6 +1255,162 @@ def test_дети_тёзок_догружают_свой_архив(db):
     }
     assert _снимок(db, проект.id) == было
     assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
+
+
+# ── 8г. Процессы между тёзками ──────────────────────────────────────────────
+#
+# Имя участника, которое видит человек, — голое имя узла. Чтобы создание из архива
+# привязало участника-тёзку к ПРАВИЛЬНОМУ узлу, архив пишет перед ним адресную
+# строку «%% archmap-node: путь @ уточнитель», а привязку шага — адресом схемы с
+# уточнителем на сегменте тёзки.
+
+
+def _процесс_из_архива(zf: zipfile.ZipFile) -> str:
+    [запись] = yaml.safe_load(zf.read("manifest.yaml"))["contents"]["processes"]
+    return zf.read(запись["file"]).decode()
+
+
+def test_архив_адресует_участников_тёзок_и_привязки_шагов(db):
+    проект, у = _тёзки(db)
+    _сверка(db, проект, у, ШАГИ_ЯКОРНЫХ)
+    db.commit()
+
+    текст = _процесс_из_архива(zipfile.ZipFile(io.BytesIO(build_archive(db, проект))))
+
+    assert текст == (
+        "sequenceDiagram\n"
+        "    participant P1 as orders\n"
+        "    %% archmap-node: Ярмарка / Каталог-БД @ git:github.com/org/shop-db\n"
+        "    participant P2 as Каталог-БД\n"
+        "    participant P3 as Склад\n"
+        "    %% archmap-node: Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog\n"
+        "    participant P4 as Каталог-БД\n"
+        "    %% archmap-doc: Ярмарка / Каталог-БД @ git:github.com/org/shop-db / Хранение\n"
+        "    P1->>P2: пишет\n"
+        "    %% archmap-doc: Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / "
+        "Хранение\n"
+        "    P3->>P4: читает"
+    )
+
+
+def _проверить_сверку(db, project_id, признак) -> None:
+    """Каждый шаг «Сверки» на связи СВОЕГО тёзки и привязан к ЕГО схеме; признак
+    получателя (якорь или технология) — тот, что у связи в исходном проекте."""
+    процесс = db.query(BusinessProcess).filter(BusinessProcess.project_id == project_id).one()
+    участник = {p.id: p for p in процесс.participants}
+    assert all(p.node_id is not None for p in процесс.participants)
+    for шаг in процесс.messages:
+        получатель = db.get(Node, участник[шаг.to_participant_id].node_id)
+        assert шаг.edge_id is not None and шаг.doc_id is not None
+        связь, схема = db.get(Edge, шаг.edge_id), db.get(NodeDoc, шаг.doc_id)
+        assert связь.label == шаг.caption and связь.target_id == получатель.id
+        assert схема.node_id == получатель.id
+        assert признак(получатель) == {"пишет": 0, "читает": 1}[шаг.caption]
+
+
+@pytest.mark.parametrize("вид", ["якорные", "порядковые"])
+def test_процесс_между_тёзками_переезжает_архивом_в_новый_проект(db, вид):
+    """Критерий: новый проект из архива — участники-тёзки привязаны, шаги «со
+    связью», привязки шагов к схемам на месте."""
+    if вид == "якорные":
+        проект, у = _тёзки(db, "Исходный")
+        шаги, признак = ШАГИ_ЯКОРНЫХ, lambda n: [ШОП, СКЛАДСКОЙ].index(n.source_ref)
+    else:
+        проект, у = _безъякорные(db, "Исходный")
+        шаги = (("orders", "pg", "пишет"), ("склад", "my", "читает"))
+        признак = lambda n: ["Postgres", "MySQL"].index(n.technology)  # noqa: E731
+    _сверка(db, проект, у, шаги)
+    db.commit()
+    план = build_unified_plan([("свой.zip", build_archive(db, проект))])
+    assert план.ok and план.input_remarks == [[]]
+
+    новый, отчёт = apply_unified_plan(db, план, {}, "Копия", None, ensure_architect(db).id)
+    db.commit()
+
+    [итог] = отчёт.processes
+    assert (итог.unbound, итог.attached, итог.dangling) == (0, 2, 0)
+    assert (итог.doc_linked, итог.doc_unresolved, итог.unsupported) == (2, 0, [])
+    _проверить_сверку(db, новый.id, признак)
+
+
+def test_процесс_между_тёзками_из_чужого_архива_встаёт_на_живых(db):
+    """Догрузка чужого архива: процесс между тёзками приезжает, и его участники,
+    связи и привязки шагов — на ЖИВЫХ тёзках, которых мердж нашёл по якорям."""
+    проект, у = _тёзки(db)
+    донор, ду = _тёзки(db, "Донор")
+    _сверка(db, донор, ду, ШАГИ_ЯКОРНЫХ)
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert превью.ok and превью.families.processes == 1
+    [итог] = отчёт.processes
+    assert (итог.unbound, итог.attached, итог.doc_linked) == (0, 2, 2)
+    _проверить_сверку(db, проект.id, lambda n: [ШОП, СКЛАДСКОЙ].index(n.source_ref))
+    процесс = db.query(BusinessProcess).filter(BusinessProcess.project_id == проект.id).one()
+    assert {p.node_id for p in процесс.participants} == {у[k].id for k in у}
+
+
+def test_одноимённые_участники_разных_контейнеров_тоже_едут_с_адресом(db):
+    """Не тёзки, а одноимённые узлы РАЗНЫХ контейнеров: путь их различает, но
+    сопоставление участника идёт по имени — и без адреса создание из архива их не
+    привязало бы. Адрес — голый путь (уточнять нечего); уникальные имена — без
+    адресной строки, как прежде."""
+    проект = _проект(db, "Исходный")
+    корень = _узел(db, проект, "Ярмарка")
+    заказы, склад = _узел(db, проект, "Заказы", корень), _узел(db, проект, "Склад", корень)
+    у = {"зapi": _узел(db, проект, "api", заказы), "сapi": _узел(db, проект, "api", склад)}
+    _ребро(db, проект, у["зapi"], у["сapi"], label="резервирует")
+    _док(db, у["сapi"], "Резерв", "graph TD\n  Резерв\n", kind="operation")
+    _сверка(db, проект, у, (("зapi", "сapi", "резервирует"),))
+    db.commit()
+    архив = build_archive(db, проект)
+    assert _процесс_из_архива(zipfile.ZipFile(io.BytesIO(архив))).splitlines()[1:5] == [
+        "    %% archmap-node: Ярмарка / Заказы / api",
+        "    participant P1 as api",
+        "    %% archmap-node: Ярмарка / Склад / api",
+        "    participant P2 as api",
+    ]
+
+    новый, отчёт = apply_unified_plan(
+        db, build_unified_plan([("свой.zip", архив)]), {}, "Копия", None,
+        ensure_architect(db).id,
+    )
+    db.commit()
+
+    [итог] = отчёт.processes
+    assert (итог.unbound, итог.attached, итог.doc_linked) == (0, 1, 1)
+    процесс = db.query(BusinessProcess).filter(BusinessProcess.project_id == новый.id).one()
+    узлы = {n.id: n for n in db.query(Node).filter(Node.project_id == новый.id).all()}
+    assert [node_path(узлы, p.node_id) for p in sorted(процесс.participants, key=lambda p: p.order)
+            if p.node_id] == ["Ярмарка / Заказы / api", "Ярмарка / Склад / api"]
+
+
+def test_ручной_процесс_с_тёзкой_по_имени_даёт_выбор_кандидатов(db):
+    """Окно импорта процесса: текст без адресных строк — как прежде, неоднозначное
+    имя даёт выбор кандидатов. Адресная строка (скопирована из архива) привязывает
+    участника сама, а кандидаты для смены остаются."""
+    проект, у = _тёзки(db)
+    голый = (
+        "sequenceDiagram\n    participant orders\n    participant Каталог-БД\n"
+        "    orders->>Каталог-БД: пишет\n"
+    )
+    превью = build_process_preview(db, проект.id, голый, "Ручной")
+    [каталог] = [p for p in превью.participants if p.name == "Каталог-БД"]
+    assert каталог.node_id is None
+    assert {c.id for c in каталог.candidates} == {у["шоп"].id, у["сток"].id}
+    assert превью.unsupported == []
+
+    с_адресом = голый.replace(
+        "    participant Каталог-БД\n",
+        "    %% archmap-node: Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog\n"
+        "    participant Каталог-БД\n",
+    )
+    превью = build_process_preview(db, проект.id, с_адресом, "Ручной")
+    [каталог] = [p for p in превью.participants if p.name == "Каталог-БД"]
+    assert каталог.node_id == у["сток"].id
+    assert {c.id for c in каталог.candidates} == {у["шоп"].id, у["сток"].id}
+    assert превью.unsupported == []
 
 
 # ── 9. Эндпоинты ─────────────────────────────────────────────────────────────

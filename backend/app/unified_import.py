@@ -200,6 +200,10 @@ class UnifiedPlan:
     # Нужны применению (Ф2а): адрес «%% archmap-doc: путь / имя» в тексте процесса
     # входа K написан путями архива K, а в новом проекте узел может лежать иначе.
     origin_paths: list[list[str]] = field(default_factory=list)
+    # Те же узлы АДРЕСАМИ входа (app/node_ref.py): у тёзок и их потомков — с
+    # уточнителями, как их пишет архив в «%% archmap-doc:» и «%% archmap-node:»
+    # процессов. По ним привязки шагов и участники переписываются в новый проект.
+    origin_addresses: list[list[str]] = field(default_factory=list)
     items: list[FamilyItem] = field(default_factory=list)
     conflicts: list[FamilyConflict] = field(default_factory=list)
     processes: list[ProcessItem] = field(default_factory=list)
@@ -269,6 +273,22 @@ def _paths(parsed: ParsedImport) -> list[str]:
     return out
 
 
+def _index(parsed: ParsedImport) -> RefIndex:
+    """Карта ссылок с уточнителями по разобранному импорту (порядок разбора — это
+    порядок документа)."""
+    return RefIndex(
+        [n.name for n in parsed.nodes],
+        [n.parent_idx for n in parsed.nodes],
+        [n.source_keys for n in parsed.nodes],
+    )
+
+
+def _addresses(parsed: ParsedImport) -> list[str]:
+    """Адреса узлов разобранного импорта: полный путь, у тёзок и их потомков — с
+    уточнителями по тем же правилам, по каким их пишет экспорт."""
+    return [a or "" for a in _index(parsed).addresses()]
+
+
 class _Resolver:
     """Адрес файла семьи → узел СЛИТОГО дерева, через C4 своего входа.
 
@@ -292,11 +312,7 @@ class _Resolver:
         self.by_path: dict[str, list[int]] = {}
         for i, p in enumerate(_paths(parsed)):
             self.by_path.setdefault(p, []).append(i)
-        self.index = RefIndex(
-            [n.name for n in parsed.nodes],
-            [n.parent_idx for n in parsed.nodes],
-            [n.source_keys for n in parsed.nodes],
-        )
+        self.index = _index(parsed)
 
     def _hits(self, path: str) -> list[int]:
         """Точный путь первым (имя с законным « @ » работает), иначе уточнители.
@@ -677,6 +693,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
         merged=merged,
         node_paths=node_paths,
         origin_paths=[_paths(p) for p in parts],
+        origin_addresses=[_addresses(p) for p in parts],
         items=items,
         conflicts=conflicts,
         processes=processes,

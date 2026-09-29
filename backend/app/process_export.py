@@ -12,9 +12,17 @@
 Привязка шага к схеме логики едет строкой «%% archmap-doc: путь узла / имя»
 ПЕРЕД шагом (Ф7 эпика «процессы → доки шага»): в строку шага её не вписать —
 всё после первого двоеточия mermaid читает как подпись.
+
+Архив (и только он) передаёт ещё АДРЕСА узлов (app/node_ref.py): участник, чьё
+имя в проекте не уникально, получает перед собой строку «%% archmap-node: адрес»
+— по ней создание из архива привяжет его к ПРАВИЛЬНОМУ узлу, а имя, которое
+видит человек, остаётся голым; привязка шага к схеме тёзки пишется адресом узла
+с уточнителем. Без тёзок и одноимённых узлов вывод прежний байт-в-байт.
 """
 
 import re
+import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.schemas.process import MessageOut, ProcessDetail
@@ -59,7 +67,14 @@ class _Frag:
     branches: list[_Branch]
 
 
-def detail_to_mermaid(detail: ProcessDetail) -> str:
+def detail_to_mermaid(
+    detail: ProcessDetail,
+    participant_addresses: Mapping[uuid.UUID, str] | None = None,
+    doc_node_addresses: Mapping[uuid.UUID, str] | None = None,
+) -> str:
+    """participant_addresses — id участника → адрес его узла (строка «%% archmap-node:»
+    перед участником); doc_node_addresses — id схемы → адрес её узла в привязке шага
+    (вместо голого пути). Оба нужны только архиву; без них — прежний вывод."""
     lines: list[str] = ["sequenceDiagram"]
 
     # Участники в порядке order → алиасы P1, P2…
@@ -69,6 +84,9 @@ def detail_to_mermaid(detail: ProcessDetail) -> str:
     for i, p in enumerate(parts):
         pid = f"P{i + 1}"
         alias[p.id] = pid
+        address = (participant_addresses or {}).get(p.id)
+        if address:
+            lines.append(f"{_indent(1)}%% archmap-node: {_clean(address)}")
         lines.append(f"{_indent(1)}participant {pid} as {_clean(p.name) or pid}")
 
     # Сообщения по order → строки 0..N-1.
@@ -121,7 +139,8 @@ def detail_to_mermaid(detail: ProcessDetail) -> str:
         to = alias.get(m.to_participant_id)
         if frm and to:
             if m.doc_id and m.doc_node_path and m.doc_name:
-                addr = _clean(f"{m.doc_node_path} / {m.doc_name}")
+                node_addr = (doc_node_addresses or {}).get(m.doc_id, m.doc_node_path)
+                addr = _clean(f"{node_addr} / {m.doc_name}")
                 lines.append(f"{_indent(depth)}%% archmap-doc: {addr}")
             lines.append(f"{_indent(depth)}{frm}{_arrow(m.kind)}{to}: {_clean(m.caption) or '—'}")
 
