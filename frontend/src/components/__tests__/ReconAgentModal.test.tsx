@@ -66,10 +66,10 @@ describe("ReconAgentModal", () => {
       .toBeInTheDocument();
   });
 
-  it("слова «разведка» в текстах окна нет — пользователь выбирал название без него", async () => {
-    // Термин пользователю не нравится (название выбрано как «без слова „разведка“ и
-    // без „точек входа“»), и в прозе окна он не должен возвращаться. В коде и планах
-    // термин остаётся — там он точный.
+  it("слова «разведка» нет в названии окна и в отчёте превью", async () => {
+    // Название выбрано пользователем «без слова „разведка“ и без „точек входа“».
+    // В подзаголовке «проведет разведку» — дословный текст пользователя (2026-09-29),
+    // поэтому сторож проверяет всё, кроме подзаголовка.
     await превью(report({
       items: [
         item({ name: "POST /messages", action: "described", doc_name: "Отправка" }),
@@ -77,7 +77,9 @@ describe("ReconAgentModal", () => {
       ],
     }));
     await waitFor(() => expect(screen.getByText(/Повторный сбор списка не затирает работу/)).toBeInTheDocument());
-    expect(document.body.textContent).not.toMatch(/разведк/i);
+    const sub = screen.getByText(/проведет разведку/);
+    const rest = (document.body.textContent ?? "").replace(sub.textContent ?? "", "");
+    expect(rest).not.toMatch(/разведк/i);
   });
 
   it("превью группируется по действию, числа — в заголовках групп", async () => {
@@ -159,7 +161,6 @@ describe("ReconAgentModal", () => {
     expect(screen.queryByLabelText(/Перезаписывать/)).toBeNull();
     const запрос = vi.mocked(reconApi.preview).mock.calls[0][0];
     expect(запрос).not.toHaveProperty("overwrite");
-    expect(screen.getByText(/Перезаписывать нечего/)).toBeInTheDocument();
   });
 
   it("замечания уносят агенту «чини, а не удаляй»", async () => {

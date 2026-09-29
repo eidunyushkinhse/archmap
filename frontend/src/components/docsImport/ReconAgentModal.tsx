@@ -21,7 +21,7 @@ import { useFileDrop } from "./useFileDrop";
 import { KIND_LABEL, OPEN_LIMIT } from "../docsList";
 import {
   inputFingerprint, useRepeatedInput,
-  head, sub, cols, leftCol, rightCol, leftNote,
+  head, sub, cols, leftCol, rightCol,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow, badge,
 } from "./agentModalShared";
 import { NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
@@ -210,10 +210,11 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        Агент обойдёт репозиторий и вернёт ПЕРЕЧЕНЬ точек входа — операций API и
-        фоновых воркеров, — а не их описание. Строки перечня станут заглушками в
-        разделе «Логика»: их видно, они посчитаны, и дальше вы описываете их по списку.
-        Перечень без строки «node:» приедет к объекту «{nodeName}».
+        ArchMap различает два типа логических схем: воркеры (работают регулярно) и операции
+        (работают по запросу). Чтобы ваш ИИ-агент мог задокументировать каждую схему
+        сервиса, сначала нужно собрать их список. Запустите агента с этим промптом в
+        репозитории сервиса «{nodeName}», он проведет разведку и вернет перечень всех
+        воркеров и операций.
       </p>
 
       <div style={cols}>
@@ -224,11 +225,6 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
             kind="primary"
             copy={copyPrompt}
           />
-          <p style={leftNote}>
-            Перезаписывать нечего: применение только создаёт недостающие заглушки.
-            Уже описанные схемы не трогаем, удалений здесь нет вовсе — поэтому
-            перечень можно приносить повторно после релиза, он даст дифф, а не дубли.
-          </p>
         </div>
 
         <div style={rightCol}>
@@ -269,7 +265,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда перечень, который подготовил агент, — или нажмите, чтобы
+                Перетащите сюда перечень, который подготовил агент, или нажмите, чтобы
                 выбрать его на диске. Содержимое можно и вставить текстом.
               </button>
             )}
