@@ -25,6 +25,7 @@ from app.models.user import User
 from app.schemas.node import DistributeDocsIn, DistributeDocsOut
 from app.schemas.node_doc import (
     NodeDocCreate,
+    NodeDocDetail,
     NodeDocResponse,
     NodeDocUpdate,
     NodeDocUsage,
@@ -119,6 +120,49 @@ def list_docs(
         .filter(NodeDoc.node_id == node.id)
         .order_by(NodeDoc.name)
         .all()
+    )
+
+
+@router.get("/{doc_id}", response_model=NodeDocDetail)
+def get_doc(
+    node_id: uuid.UUID,
+    doc_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(get_current_user),
+) -> NodeDocDetail:
+    """Одна схема целиком плюс мета: путь объекта, заглушка ли, процессы.
+
+    Вход поиска для агента (archmap_doc): находка несёт doc_id, и читать ради неё
+    все схемы объекта незачем. Объявлен ПОСЛЕ /usage: иначе «usage» попал бы сюда
+    как doc_id и получил 422. Чужой узел и чужая схема — 404, как у PATCH."""
+    node = _get_node(db, node_id, project)
+    doc = _scoped_doc(db, node, doc_id, body=True)
+    chain = [node.name]
+    parent_id, seen = node.parent_id, {node.id}
+    while parent_id is not None and parent_id not in seen:
+        parent = db.get(Node, parent_id)
+        if parent is None:
+            break
+        seen.add(parent.id)
+        chain.append(parent.name)
+        parent_id = parent.parent_id
+    rows = (
+        db.query(BusinessProcess.id, BusinessProcess.name, func.count(ProcessMessage.id))
+        .join(ProcessMessage, ProcessMessage.process_id == BusinessProcess.id)
+        .filter(ProcessMessage.doc_id == doc.id, BusinessProcess.project_id == project.id)
+        .group_by(BusinessProcess.id, BusinessProcess.name)
+        .order_by(BusinessProcess.name)
+        .all()
+    )
+    return NodeDocDetail(
+        **NodeDocResponse.model_validate(doc).model_dump(),
+        node_path=" / ".join(reversed(chain)),
+        described=doc.described,
+        processes=[
+            NodeDocUsage(doc_id=doc.id, process_id=pid, process_name=pname, steps=steps)
+            for pid, pname, steps in rows
+        ],
     )
 
 

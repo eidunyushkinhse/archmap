@@ -838,7 +838,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Get Doc
+         * @description Одна схема целиком плюс мета: путь объекта, заглушка ли, процессы.
+         *
+         *     Вход поиска для агента (archmap_doc): находка несёт doc_id, и читать ради неё
+         *     все схемы объекта незачем. Объявлен ПОСЛЕ /usage: иначе «usage» попал бы сюда
+         *     как doc_id и получил 422. Чужой узел и чужая схема — 404, как у PATCH.
+         */
+        get: operations["get_doc_api_v1_nodes__node_id__docs__doc_id__get"];
         put?: never;
         post?: never;
         /** Delete Doc */
@@ -4659,6 +4667,60 @@ export interface components {
             content: string;
         };
         /**
+         * NodeDocDetail
+         * @description Одна схема целиком плюс мета — ответ GET /nodes/{node_id}/docs/{doc_id}.
+         *
+         *     Появилась ради поиска для агента: находка поиска несёт doc_id, и открыть по
+         *     нему ОДНУ схему нужно без списка всех схем объекта (у монолита их сотни).
+         *     Мета — то, что агенту иначе пришлось бы собирать тремя запросами: адрес
+         *     объекта, заглушка ли это и в каких процессах схема документирует шаги.
+         *     Отдельной схемой, а не полями NodeDocResponse: контракт списка не меняется.
+         */
+        NodeDocDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+            /** Content */
+            content: string;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Node Path */
+            node_path: string;
+            /** Described */
+            described: boolean;
+            /** Processes */
+            processes: components["schemas"]["NodeDocUsage"][];
+        };
+        /**
          * NodeDocMeta
          * @description Лёгкая мета дока для NodeResponse (без content — контент лениво GET-ом).
          *     version — для сигнатуры меты поллинга страницы: правка КОНТЕНТА доков
@@ -7746,6 +7808,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeDocResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_doc_api_v1_nodes__node_id__docs__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NodeDocDetail"];
                 };
             };
             /** @description Validation Error */

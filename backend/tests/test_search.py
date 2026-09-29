@@ -449,3 +449,74 @@ def test_http_limit_и_kinds(db, viewer_client):
 
 def test_http_без_проекта_400(viewer_client):
     assert viewer_client.get("/api/v1/search", params={"q": "retry"}).status_code == 400
+
+
+# ── Одна схема: GET /nodes/{node_id}/docs/{doc_id} ───────────────────────────
+
+
+def _doc_url(node, doc) -> str:
+    return f"/api/v1/nodes/{node.id}/docs/{doc.id}"
+
+
+def test_одна_схема_целиком_с_метой(db, viewer_client):
+    project = ensure_project(db)
+    scene = _все_виды(db, project)
+    headers = {"X-Project-Id": str(project.id)}
+
+    resp = viewer_client.get(_doc_url(scene["pay"], scene["doc"]), headers=headers)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["id"] == str(scene["doc"].id) and body["name"] == "Приём платежа"
+    assert body["content"] == "flowchart TD\n  A[Проверить quotacheck]"
+    assert body["operation"] == "POST /payments/intake" and body["kind"] == "operation"
+    assert body["node_path"] == "Шлюз / Платежи"
+    assert body["described"] is True
+    assert body["processes"] == [{
+        "doc_id": str(scene["doc"].id), "process_id": str(scene["proc"].id),
+        "process_name": "Оформление подписки", "steps": 1,
+    }]
+    # Обратный индекс узла по-прежнему отвечает: /usage объявлен раньше /{doc_id}.
+    usage = viewer_client.get(f"/api/v1/nodes/{scene['pay'].id}/docs/usage", headers=headers)
+    assert usage.status_code == 200 and len(usage.json()) == 1
+
+
+def test_одна_схема_заглушка_не_описана(db, viewer_client):
+    project = ensure_project(db)
+    svc = _node(db, project, "Alerter")
+    stub = _doc(db, svc, "POST /alerts", "")
+    db.commit()
+
+    body = viewer_client.get(
+        _doc_url(svc, stub), headers={"X-Project-Id": str(project.id)}
+    ).json()
+
+    assert body["described"] is False and body["content"] == ""
+    assert body["processes"] == [] and body["node_path"] == "Alerter"
+
+
+def test_одна_схема_404_на_чужой_узел_и_чужую_схему(db, viewer_client):
+    project = ensure_project(db)
+    a = _node(db, project, "A")
+    b = _node(db, project, "B")
+    doc_b = _doc(db, b, "Схема B", "flowchart TD")
+    other = Project(id=uuid.uuid4(), name="Чужой")
+    db.add(other)
+    db.flush()
+    foreign = _node(db, other, "Чужой узел")
+    foreign_doc = _doc(db, foreign, "Чужая схема", "flowchart TD")
+    db.commit()
+    headers = {"X-Project-Id": str(project.id)}
+
+    # Схема чужого узла того же проекта.
+    resp = viewer_client.get(_doc_url(a, doc_b), headers=headers)
+    assert resp.status_code == 404 and resp.json()["detail"] == "Схема не найдена"
+    # Узел и схема чужого проекта.
+    resp = viewer_client.get(_doc_url(foreign, foreign_doc), headers=headers)
+    assert resp.status_code == 404 and resp.json()["detail"] == "Узел не найден"
+    # Схема чужого проекта под своим узлом.
+    resp = viewer_client.get(_doc_url(a, foreign_doc), headers=headers)
+    assert resp.status_code == 404
+    # Несуществующая.
+    resp = viewer_client.get(f"/api/v1/nodes/{a.id}/docs/{uuid.uuid4()}", headers=headers)
+    assert resp.status_code == 404
