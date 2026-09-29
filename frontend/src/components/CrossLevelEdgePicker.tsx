@@ -8,7 +8,7 @@ import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 
 interface Props {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   // Узел, от которого протянули стрелку (ближний конец связи). Хэндл жеста связь
   // больше не несёт (R3): геометрию пучка display-пары сохраняет MapEditorPage после
   // onCreated (направление выводит из created.source_id).
@@ -247,8 +247,8 @@ export default function CrossLevelEdgePicker({
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 440 }}>
-      <h2 style={{ margin: "0 0 6px", fontSize: 18, color: "#1e293b" }}>{title}</h2>
-      <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>{subtitle}</p>
+      <h2 style={{ margin: subtitle ? "0 0 6px" : "0 0 16px", fontSize: 18, color: "#1e293b" }}>{title}</h2>
+      {subtitle && <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>{subtitle}</p>}
 
       {/* Маршрут: чип источника ——стрелка——> слот цели. Позиции фиксированы
           (источник всегда слева); направление показывает только сторона стрелки. */}

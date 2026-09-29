@@ -835,7 +835,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       )}
       {outPicker && (
         <CrossLevelEdgePicker title="Связь с объектом вне уровня"
-          subtitle="Выберите объект из любой части схемы — связь станет сквозной."
           sourceId={outPicker.sourceId} sourceLabel={outPicker.sourceName ?? findNodeLabel(outPicker.sourceId)}
           loadNodes={() => nodesApi.getAll()} scopeKey="all" rootParentId={null} slotPlaceholder="Объект вне уровня…"
           excludeIds={new Set<string>([outPicker.sourceId, ...nodes.map((n) => n.id), ...levelGhosts.map((g) => g.id)])}
