@@ -30,7 +30,9 @@ interface NodePatch {
   commitDesc: () => void;
   commitRole: () => void;
   commitTech: () => void;
-  commitOpenapi: (value: string) => void;
+  // Спека: возвращает ТЕКСТ ОТКАЗА или null, если сохранилось (или менять нечего) —
+  // окно спеки ждёт ответа, чтобы показать в просмотре то, что действительно в БД.
+  commitOpenapi: (value: string) => Promise<string | null>;
   toggleExternal: () => void;
   pickStatus: (st: Node["status"]) => void;
   // Смена типа узла (форма C4): структурная правка со своими запретами на сервере
@@ -160,9 +162,9 @@ export function useNodePatch(
     void save({ technology: technology || null });
   }, [technology, save]);
 
-  const commitOpenapi = useCallback((value: string) => {
-    if (value === (beforeRef.current.openapi_spec ?? "")) return;
-    void save({ openapi_spec: value || null });
+  const commitOpenapi = useCallback((value: string): Promise<string | null> => {
+    if (value === (beforeRef.current.openapi_spec ?? "")) return Promise.resolve(null);
+    return save({ openapi_spec: value || null });
   }, [save]);
 
   const toggleExternal = useCallback(() => {

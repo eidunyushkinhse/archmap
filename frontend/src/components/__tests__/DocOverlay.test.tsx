@@ -1,9 +1,7 @@
-// Рендер-тесты DocOverlay: тонкий shell вокруг FlowchartDocs (Логика — окно одной
-// схемы со своей шапкой) и OpenApiDoc (OpenAPI). Проверяем выбор режима, проброс
-// пропсов окна схемы, тег формата в шапке спеки (включая версию OAS из колбэка
-// onVersion), баннер notice, переключение «Показать код» для наблюдателя,
-// футер-подсказку по роли и закрытие. Тяжёлые редакторы замоканы — тестируем
-// оркестрацию оболочки. Стадии окна схемы — FlowchartDocs.test.
+// Рендер-тесты DocOverlay: тонкий shell вокруг FlowchartDocs (Логика) и
+// OpenApiPane (OpenAPI) — у каждого окна своя шапка и стадии. Проверяем выбор
+// режима и проброс пропсов; сами окна замоканы. Стадии окна схемы —
+// FlowchartDocs.test, окна спеки — openApiPane.test.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -39,21 +37,23 @@ vi.mock("../inspector/FlowchartDocs", () => ({
     </div>
   ),
 }));
-// Редактор OpenAPI: показывает initial/showCode и умеет сообщить версию OAS.
-vi.mock("../inspector/OpenApiDoc", () => ({
-  default: ({
-    initial,
-    showCode,
-    onVersion,
-  }: {
-    initial: string;
-    showCode: boolean;
-    onVersion: (v: string) => void;
+// Окно спеки: отражает пропы и умеет записать спеку и закрыть окно.
+vi.mock("../inspector/OpenApiPane", () => ({
+  default: (p: {
+    openapi: string;
+    isArchitect: boolean;
+    initialStage?: string;
+    notice?: string | null;
+    onCommitOpenapi: (v: string) => Promise<boolean>;
+    onApplied?: () => void;
+    onClose: () => void;
   }) => (
-    <div data-testid="openapi-doc">
-      <span data-testid="oas-showcode">{String(showCode)}</span>
-      <span data-testid="oas-initial">{initial}</span>
-      <button onClick={() => onVersion("3.0.3")}>set-version</button>
+    <div data-testid="openapi-pane">
+      <span data-testid="oas-spec">{p.openapi}</span>
+      <span data-testid="oas-stage">{p.initialStage ?? "none"}</span>
+      <span data-testid="oas-notice">{p.notice ?? ""}</span>
+      <button onClick={() => void p.onCommitOpenapi("новая спека").then((ok) => { if (!ok) p.onClose(); })}>oas-save</button>
+      {p.onApplied && <button onClick={p.onApplied}>oas-applied</button>}
     </div>
   ),
 }));
@@ -62,7 +62,7 @@ const base = {
   nodeId: "n1",
   nodeName: "Сервис оплаты",
   openapi: "openapi: 3.0.3",
-  onCommitOpenapi: vi.fn(),
+  onCommitOpenapi: vi.fn(() => Promise.resolve(true)),
   onDocEvent: vi.fn(),
   onClose: vi.fn(),
 };
@@ -100,45 +100,26 @@ describe("DocOverlay", () => {
     expect(base.onClose).toHaveBeenCalledOnce();
   });
 
-  it("режим OpenAPI: тег без версии, редактор получает исходную спеку, футер про черновик", () => {
-    render(<DocOverlay {...base} mode="openapi" isArchitect />);
-    expect(screen.getByText("· OpenAPI")).toBeInTheDocument();
-    expect(screen.getByText("OpenAPI · YAML")).toBeInTheDocument();
-    expect(screen.getByTestId("oas-initial")).toHaveTextContent("openapi: 3.0.3");
-    expect(screen.getByText(/черновик/)).toBeInTheDocument();
+  it("режим OpenAPI: всё окно — OpenApiPane, спека и стадия открытия доезжают", () => {
+    render(<DocOverlay {...base} mode="openapi" isArchitect initialStage="agent" notice="Конфликт версий" />);
+    expect(screen.getByTestId("openapi-pane")).toBeInTheDocument();
+    expect(screen.getByTestId("oas-spec")).toHaveTextContent("openapi: 3.0.3");
+    expect(screen.getByTestId("oas-stage")).toHaveTextContent("agent");
+    expect(screen.getByTestId("oas-notice")).toHaveTextContent("Конфликт версий");
   });
 
-  it("версия OAS из onVersion попадает в тег (3.0.3 → «OAS 3.0 · YAML»)", async () => {
-    render(<DocOverlay {...base} mode="openapi" isArchitect />);
-    await userEvent.click(screen.getByRole("button", { name: "set-version" }));
-    expect(screen.getByText("OAS 3.0 · YAML")).toBeInTheDocument();
+  it("запись спеки идёт через onCommitOpenapi страницы", async () => {
+    const onCommitOpenapi = vi.fn(() => Promise.resolve(true));
+    render(<DocOverlay {...base} mode="openapi" isArchitect onCommitOpenapi={onCommitOpenapi} />);
+    await userEvent.click(screen.getByText("oas-save"));
+    expect(onCommitOpenapi).toHaveBeenCalledWith("новая спека");
+    expect(base.onClose).not.toHaveBeenCalled();
   });
 
-  it("баннер notice показывается в шапке", () => {
-    render(
-      <DocOverlay {...base} mode="openapi" isArchitect notice="Конфликт версий" />,
-    );
-    expect(screen.getByText("Конфликт версий")).toBeInTheDocument();
-  });
-
-  it("наблюдателю спеки: «Показать код» переключает showCode редактора, футер про недоступность", async () => {
-    render(<DocOverlay {...base} mode="openapi" isArchitect={false} />);
-    expect(screen.getByText("Наблюдателю редактирование недоступно")).toBeInTheDocument();
-    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("false");
-    await userEvent.click(screen.getByRole("button", { name: "Показать код" }));
-    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("true");
-    await userEvent.click(screen.getByRole("button", { name: "Скрыть код" }));
-    expect(screen.getByTestId("oas-showcode")).toHaveTextContent("false");
-  });
-
-  it("архитектору спеки кнопка «Показать код» недоступна (код всегда виден)", () => {
-    render(<DocOverlay {...base} mode="openapi" isArchitect />);
-    expect(screen.queryByRole("button", { name: "Показать код" })).not.toBeInTheDocument();
-  });
-
-  it("крестик спеки закрывает оверлей (onClose)", async () => {
-    render(<DocOverlay {...base} mode="openapi" isArchitect />);
-    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
-    expect(base.onClose).toHaveBeenCalledOnce();
+  it("без колбэка записи (окно из процесса) спека не пишется", async () => {
+    render(<DocOverlay {...base} mode="openapi" isArchitect onCommitOpenapi={undefined} />);
+    await userEvent.click(screen.getByText("oas-save"));
+    // Заглушка отвечает «не сохранено» — мок окна закрывается на отказе.
+    await vi.waitFor(() => expect(base.onClose).toHaveBeenCalledOnce());
   });
 });

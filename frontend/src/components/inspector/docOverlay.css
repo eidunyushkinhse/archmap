@@ -419,7 +419,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.doc-edstat-r { margin-left: auto; color: #b6bfca; font-weight: 400; white-space: nowrap; }
 
 /* ── плашка «Обращения» (пометки «читает:/пишет:» в тексте схемы) ─────────── */
 /* Подсказка под статус-строкой, а не отчёт: мелко, серо, без рамок. Список длинных

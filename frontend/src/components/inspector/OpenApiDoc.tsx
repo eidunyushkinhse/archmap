@@ -1,5 +1,8 @@
-// Режим «OpenAPI» DocOverlay: YAML/JSON-редактор + рендер Swagger UI (Части C3/D/E
-// ТЗ). Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
+// Спека в окне DocOverlay: YAML/JSON-редактор + рендер Swagger UI (Части C3/D/E
+// ТЗ). Две роли: просмотр (isArchitect=false — только рендер, код по «Показать
+// код» наблюдателя) и ручная правка (isArchitect=true). Пишет в БД не он: правка
+// уходит наверх черновиком (onDraft), сохраняет окно кнопкой «Сохранить».
+// Ввод валидируется с дебаунсом 500ms (swagger-ui тяжёлый — на каждый символ
 // не перерисовываем); при ошибке превью держит последнюю корректную версию с
 // amber-баннером, статус-строка ведёт кареткой на строку ошибки.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -9,10 +12,12 @@ import type { SpecStatus } from "./docValidate";
 import { DocEditorColumn, StatusError, StatusOk, StatusReadOnly } from "./docShared";
 
 interface Props {
-  initial: string; // сохранённая спека (сырой текст)
+  initial: string; // спека на момент открытия (сырой текст; черновик живёт внутри)
+  // true — ручная правка (код редактируемый); false — просмотр.
   isArchitect: boolean;
   showCode: boolean; // наблюдатель нажал «Показать код»
-  onCommit: (value: string) => void;
+  // Каждая правка текста (ввод, файл) — окну: оно держит черновик до «Сохранить».
+  onDraft?: (value: string) => void;
   // Версия из последнего валидного парса — для тега формата в шапке оверлея
   onVersion?: (version: string | undefined) => void;
 }
@@ -23,14 +28,13 @@ interface OasState {
   lastGood: { spec: object; time: string | null } | null;
 }
 
-export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, onVersion }: Props) {
+export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, onVersion }: Props) {
   const [code, setCode] = useState(initial);
   // Первое открытие: сохранённое значение парсится сразу, без дебаунса
   const [st, setSt] = useState<OasState>(() => {
     const s = parseOpenApiText(initial);
     return { status: s, lastGood: s.kind === "ok" ? { spec: s.spec, time: null } : null };
   });
-  const [savedAt, setSavedAt] = useState<string | null>(null);
   // Отказ принять файл (велик / двоичный / не прочитался). Живёт до следующей
   // правки: как только в поле что-то меняется, статус снова про разбор спеки.
   const [fileError, setFileError] = useState<string | null>(null);
@@ -64,20 +68,13 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
     (v: string) => {
       setCode(v);
       setFileError(null);
+      onDraft?.(v);
       window.clearTimeout(timerRef.current);
       timerRef.current = window.setTimeout(() => applyText(v), 500);
     },
-    [applyText],
+    [applyText, onDraft],
   );
   useEffect(() => () => window.clearTimeout(timerRef.current), []);
-
-  const commit = useCallback(
-    (v: string) => {
-      onCommit(v);
-      setSavedAt(nowHHMM());
-    },
-    [onCommit],
-  );
 
   const { status, lastGood } = st;
 
@@ -96,7 +93,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
   ) : status.kind === "not-openapi" ? (
     <StatusError text={NOT_OPENAPI_MESSAGE} />
   ) : (
-    <StatusOk savedAt={savedAt} />
+    <StatusOk />
   );
 
   // Превью: валидная спека — карточка Swagger UI; ошибка — lastGood с баннером
@@ -119,7 +116,6 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onCommit, o
           value={code}
           readOnly={!isArchitect}
           onChange={isArchitect ? handleChange : undefined}
-          onCommitValue={isArchitect ? commit : undefined}
           status={statusRow}
           taRef={taRef}
           // Спеку обычно не пишут руками, а берут готовым файлом. JSON тоже

@@ -1098,17 +1098,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             просмотром, правка — его же «Изменить» (Вручную | Через ИИ-агента).
             Колбэки настоящие, не заглушки (ловушка У8): onDocEvent и onApplied
             перечитывают процесс (имя схемы в шаге, SET NULL при удалении) и каталог
-            карточки; onCommitOpenapi недостижим — режим flowchart OpenApiDoc не
-            рендерит, спекой этот оверлей не занимается. */}
+            карточки. Спекой этот оверлей не занимается — колбэка записи спеки нет. */}
         {docView && (
           <DocOverlay
             mode="flowchart"
             nodeId={docView.nodeId}
             nodeName={docView.nodeName}
-            openapi=""
             isArchitect={isArchitect}
             initialDocId={docView.docId}
-            onCommitOpenapi={() => undefined}
             onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
             onApplied={() => { setDocCatalogRev((r) => r + 1); reload(); }}
             onClose={() => setDocView(null)}

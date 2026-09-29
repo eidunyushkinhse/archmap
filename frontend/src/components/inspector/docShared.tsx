@@ -1,7 +1,9 @@
 // Общие компоненты DocOverlay для обоих режимов (Логика / OpenAPI): колонка
-// редактора с blur-коммитом и страховкой при размонтировании, варианты
-// статус-строки. Разметка и токены — по ТЗ «Визуализация Mermaid и OpenAPI».
-import { useEffect, useRef, useState } from "react";
+// редактора кода и варианты статус-строки. Колонка сама ничего не пишет: правка
+// уходит наверх через onChange, сохраняет окно явной кнопкой (вьюер v2 — прежний
+// коммит по уходу фокуса и страховка при закрытии сняты). Разметка и токены — по
+// ТЗ «Визуализация Mermaid и OpenAPI».
+import { useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 
 interface EditorProps {
@@ -11,10 +13,6 @@ interface EditorProps {
   value: string;
   readOnly: boolean;
   onChange?: (v: string) => void;
-  // Коммит значения: по blur и страховкой при размонтировании (если blur не успел —
-  // Esc/крестик при фокусе в textarea). Вызывается только при реальном изменении
-  // с момента последнего коммита; двойной вызов безопасен (commitDoc сверяет).
-  onCommitValue?: (v: string) => void;
   status: ReactNode; // готовая статус-строка (Часть D)
   taRef?: RefObject<HTMLTextAreaElement | null>; // для каретки по клику на ошибку
   // Приём файла — маска для диалога выбора. Передан (и колонка редактируемая) →
@@ -50,7 +48,6 @@ export function DocEditorColumn({
   value,
   readOnly,
   onChange,
-  onCommitValue,
   status,
   taRef,
   fileAccept,
@@ -58,32 +55,11 @@ export function DocEditorColumn({
   prepareFile,
   fileTitle,
 }: EditorProps) {
-  // На маунте value == сохранённому значению из БД
-  const committedRef = useRef(value);
-  // Зеркала для cleanup-страховки — писать в ref в рендере нельзя (react-hooks/refs)
-  const valueRef = useRef(value);
-  const commitCbRef = useRef(onCommitValue);
-  useEffect(() => {
-    valueRef.current = value;
-    commitCbRef.current = onCommitValue;
-  });
-
-  const commitBlur = () => {
-    if (!onCommitValue || value === committedRef.current) return;
-    committedRef.current = value;
-    setDirty(false);
-    onCommitValue(value);
-  };
-
-  // Есть несохранённые правки (для доступности кнопки «Сохранить»). Взводится в
-  // onChange, гасится в коммите; ремаунт по key (смена дока/409) сбрасывает сам.
-  const [dirty, setDirty] = useState(false);
-
   // ── Загрузка из файла ──────────────────────────────────────────────────────
   // Содержимое кладётся в редактор ОБЫЧНОЙ правкой (тот же onChange, что у
   // печати), поэтому дальше работает всё привычное: разбор с превью, статус-строка,
-  // «Сохранить»/blur-коммит, страховка при закрытии. Отдельного канала записи нет
-  // намеренно — иначе файл затирал бы спеку молча, до того как её увидели.
+  // «Сохранить» окна. Отдельного канала записи нет намеренно — иначе файл затирал
+  // бы спеку молча, до того как её увидели.
   const fileRef = useRef<HTMLInputElement>(null);
   const [overDrop, setOverDrop] = useState(false);
   const canLoadFile = !!fileAccept && !readOnly && !!onChange;
@@ -108,20 +84,7 @@ export function DocEditorColumn({
       return;
     }
     onChange(prepareFile ? prepareFile(text) : text);
-    setDirty(true);
   };
-
-  // Страховка A3: dirty-значение коммитится из cleanup, если blur не успел
-  useEffect(
-    () => () => {
-      const cb = commitCbRef.current;
-      if (cb && valueRef.current !== committedRef.current) {
-        committedRef.current = valueRef.current;
-        cb(valueRef.current);
-      }
-    },
-    [],
-  );
 
   return (
     <div className="doc-edcol" style={{ width }}>
@@ -150,13 +113,6 @@ export function DocEditorColumn({
               </button>
             </>
           )}
-          {/* Явное сохранение (архитектор): дублирует blur-коммит — финализирует
-              новую схему/версию/спеку без ухода фокусом. Неактивна без правок. */}
-          {!readOnly && onCommitValue && (
-            <button type="button" className="doc-savebtn" onClick={commitBlur} disabled={!dirty}>
-              Сохранить
-            </button>
-          )}
         </div>
       </div>
       <textarea
@@ -165,8 +121,7 @@ export function DocEditorColumn({
         value={value}
         placeholder={placeholder}
         readOnly={readOnly}
-        onChange={onChange ? (e) => { onChange(e.target.value); setDirty(true); } : undefined}
-        onBlur={readOnly ? undefined : commitBlur}
+        onChange={onChange ? (e) => onChange(e.target.value) : undefined}
         onDragOver={canLoadFile ? (e) => { e.preventDefault(); setOverDrop(true); } : undefined}
         onDragLeave={canLoadFile ? () => setOverDrop(false) : undefined}
         onDrop={canLoadFile ? (e) => {
@@ -185,7 +140,7 @@ export function DocEditorColumn({
 
 // ── статус-строки (Часть D) ──────────────────────────────────────────────────
 
-export function StatusOk({ savedAt = null }: { savedAt?: string | null }) {
+export function StatusOk() {
   return (
     <div className="doc-edstat doc-edstat--ok">
       <span className="doc-stico">
@@ -194,7 +149,6 @@ export function StatusOk({ savedAt = null }: { savedAt?: string | null }) {
         </svg>
       </span>
       Синтаксис корректен
-      {savedAt && <span className="doc-edstat-r">сохранено · {savedAt}</span>}
     </div>
   );
 }

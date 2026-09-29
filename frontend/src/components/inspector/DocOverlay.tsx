@@ -1,33 +1,37 @@
 // Оверлей тяжёлой документации узла (Логика / OpenAPI) — тонкий shell: модалка и
-// выбор режима. Режим «Логика» целиком — FlowchartDocs: окно ОДНОЙ схемы
-// (просмотр → «Изменить» → «Вручную» / «Через ИИ-агента», свой фетч, CRUD и CAS,
-// мутации репортятся onDocEvent для меты). Режим OpenAPI — прежний OpenApiDoc
-// (blur → onCommitOpenapi → nodesApi.update); наблюдателю — сразу рендер, код по кнопке.
-import { useCallback, useState } from "react";
+// выбор режима. Оба режима устроены одинаково (вьюер v2): просмотр → «Изменить»
+// → «Вручную» / «Через ИИ-агента», всё в одном окне.
+//   • «Логика» — FlowchartDocs: окно ОДНОЙ схемы, свой фетч, CRUD и CAS, мутации
+//     репортятся onDocEvent для меты;
+//   • OpenAPI — OpenApiPane: спеку пишет страница (onCommitOpenapi → PATCH узла).
 import Modal from "../../ui/Modal";
 import FlowchartDocs from "./FlowchartDocs";
 import type { NodeDocEvent } from "./FlowchartDocs";
-import OpenApiDoc from "./OpenApiDoc";
-import { ApiGlyph, DocHead } from "./docChrome";
+import OpenApiPane from "./OpenApiPane";
+import type { DocStage } from "./OpenApiPane";
 import "./docOverlay.css";
 
 interface Props {
   mode: "flowchart" | "openapi";
   nodeId: string;
   nodeName: string;
-  openapi: string;
+  // Сохранённая спека узла (режим OpenAPI; в «Логике» не нужна).
+  openapi?: string;
   isArchitect: boolean;
-  onCommitOpenapi: (value: string) => void;
+  // Записать спеку (режим OpenAPI): true — сохранено, false — конфликт версий.
+  onCommitOpenapi?: (value: string) => Promise<boolean>;
   onDocEvent: (evt: NodeDocEvent) => void;
   onClose: () => void;
   // «+ Добавить → Вручную» со страницы: окно сразу в «Вручную» для новой схемы,
   // схема создаётся только по «Сохранить» (режим «Логика»)
   createNew?: boolean;
+  // С чего открыть окно спеки: «+ Добавить → Вручную / Через ИИ-агента».
+  initialStage?: DocStage;
   // Открыть окно на конкретной схеме (клик по строке в секции «Логика», шаг процесса)
   initialDocId?: string;
-  // Уведомление о конфликте конкурентных сессий (409 CAS от NodeInspector.save,
-  // режим OpenAPI): сохранение не применилось — показываем прямо в шапке, панель
-  // за модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
+  // Уведомление о конфликте конкурентных сессий (409 CAS при записи спеки со
+  // страницы): сохранение не применилось — показываем прямо в шапке, панель за
+  // модалкой пользователь не видит. У схем логики свой баннер в FlowchartDocs.
   notice?: string | null;
   // Пакет агента применён (в историю не кладётся) — страница освежает мету узла.
   onApplied?: () => void;
@@ -35,25 +39,13 @@ interface Props {
   onOpenProcess?: (processId: string) => void;
 }
 
-// «3.0.3» → «3.0» для тега «OAS 3.0 · YAML»
-function shortVersion(v: string): string {
-  return v.split(".").slice(0, 2).join(".");
-}
+// Режим «Логика» спеку не пишет — заглушка вместо колбэка, которого нет.
+const noCommit = (): Promise<boolean> => Promise.resolve(false);
 
 export default function DocOverlay({
   mode, nodeId, nodeName, openapi, isArchitect, onCommitOpenapi, onDocEvent, onClose,
-  createNew, initialDocId, notice, onApplied, onOpenProcess,
+  createNew, initialStage, initialDocId, notice, onApplied, onOpenProcess,
 }: Props) {
-  const [showCode, setShowCode] = useState(false);
-  // Версия OAS из последнего валидного парса спеки (шлёт OpenApiDoc)
-  const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
-
-  const commitApi = useCallback((v: string) => onCommitOpenapi(v), [onCommitOpenapi]);
-
-  const foot: string = !isArchitect
-    ? "Наблюдателю редактирование недоступно"
-    : "Невалидная спека сохраняется как черновик — рендер не обновляется до исправления";
-
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ padding: 0, borderRadius: 14 }}>
       <div className="doc-root">
@@ -70,34 +62,17 @@ export default function DocOverlay({
             onOpenProcess={onOpenProcess}
           />
         ) : (
-          <>
-            <DocHead
-              glyph={<ApiGlyph />}
-              title={<>{nodeName} <span>· OpenAPI</span></>}
-              tag={oasVersion ? `OAS ${shortVersion(oasVersion)} · YAML` : "OpenAPI · YAML"}
-              tagOas
-              notice={notice}
-              actions={!isArchitect && (
-                <button type="button" className="doc-codebtn" onClick={() => setShowCode((s) => !s)}>
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                    <path d="M5.5 5 2.5 8l3 3M10.5 5l3 3-3 3" />
-                  </svg>
-                  {showCode ? "Скрыть код" : "Показать код"}
-                </button>
-              )}
-              onClose={onClose}
-            />
-            <div className="doc-body">
-              <OpenApiDoc
-                initial={openapi}
-                isArchitect={isArchitect}
-                showCode={showCode}
-                onCommit={commitApi}
-                onVersion={setOasVersion}
-              />
-            </div>
-            <div className="doc-foot">{foot}</div>
-          </>
+          <OpenApiPane
+            nodeId={nodeId}
+            nodeName={nodeName}
+            openapi={openapi ?? ""}
+            isArchitect={isArchitect}
+            onCommitOpenapi={onCommitOpenapi ?? noCommit}
+            notice={notice}
+            onClose={onClose}
+            initialStage={initialStage}
+            onApplied={onApplied}
+          />
         )}
       </div>
     </Modal>

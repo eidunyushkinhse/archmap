@@ -275,10 +275,13 @@ function NodePageInner({
     setChildSpecConflict(null);
     setDoc({ mode: "openapi", child });
   }, []);
-  const commitChildOpenapi = useCallback((value: string) => {
+  // Возвращает true, если спека записана (окно спеки показывает её в просмотре).
+  // Снимок ребёнка в стейте окна освежается вместе с CAS-базой: окно читает спеку
+  // из него.
+  const commitChildOpenapi = useCallback(async (value: string): Promise<boolean> => {
     const base = childSpecBaseRef.current;
-    if (!base) return;
-    if (value === (base.openapi_spec ?? "")) return;
+    if (!base) return false;
+    if (value === (base.openapi_spec ?? "")) return true;
     const payload: NodeUpdate = {
       name: base.name,
       description: base.description,
@@ -290,21 +293,36 @@ function NodePageInner({
       status: base.status,
       base_version: base.version,
     };
-    nodesApi.update(base.id, payload)
-      .then((saved) => {
-        childSpecBaseRef.current = saved;
-        setChildSpecConflict(null);
-        container.reload();
-        syncCursors();
-      })
-      .catch((e: unknown) => {
-        if (!isConflict(e)) return;
-        nodesApi.get(base.id)
-          .then((fresh) => { childSpecBaseRef.current = fresh; container.reload(); })
-          .catch(() => { /* ребёнка могли удалить */ });
-        setChildSpecConflict("Спека изменена в другой сессии — данные обновлены, повторите правку");
-      });
+    const applyChild = (fresh: Node) => {
+      childSpecBaseRef.current = fresh;
+      setDoc((d) => (d?.child?.id === fresh.id ? { ...d, child: fresh } : d));
+      container.reload();
+    };
+    try {
+      applyChild(await nodesApi.update(base.id, payload));
+      setChildSpecConflict(null);
+      syncCursors();
+      return true;
+    } catch (e: unknown) {
+      if (!isConflict(e)) return false;
+      nodesApi.get(base.id)
+        .then(applyChild)
+        .catch(() => { /* ребёнка могли удалить */ });
+      setChildSpecConflict("Спека изменена в другой сессии — данные обновлены, повторите правку");
+      return false;
+    }
   }, [container, syncCursors]);
+
+  // Пакет агента в окне, открытом на ребёнке: освежаем объединение детей и CAS-базу
+  // его спеки (иначе следующая ручная правка словила бы ложный 409).
+  const refreshChild = useCallback((child: Node) => {
+    nodesApi.get(child.id)
+      .then((fresh) => {
+        if (childSpecBaseRef.current?.id === fresh.id) childSpecBaseRef.current = fresh;
+      })
+      .catch(() => { /* ребёнка могли удалить */ });
+    container.reload();
+  }, [container]);
 
   // Меню «+ Добавить» секции «Логика»: вручную / через ИИ-агента («Через
   // ИИ-агента» открывает модалку режимом «Пакетом» по умолчанию; на «По одной»
@@ -970,13 +988,13 @@ function NodePageInner({
           initialDocId={doc.docId}
           onCommitOpenapi={doc.child
             ? commitChildOpenapi
-            : (value) => { void patch.commitOpenapi(value); }}
+            : (value) => patch.commitOpenapi(value).then((err) => err === null)}
           onDocEvent={doc.child ? handleChildDocEvent : handleDocEvent}
           onClose={() => setDoc(null)}
           notice={doc.child ? childSpecConflict : patch.conflict}
           // Пакет агента записан мимо истории: освежаем мету узла (или детей
           // контейнера, если окно открыто на схеме ребёнка).
-          onApplied={doc.child ? container.reload : refreshNode}
+          onApplied={() => (doc.child ? refreshChild(doc.child) : refreshNode())}
           onOpenProcess={onNavigateProcesses}
         />
       )}

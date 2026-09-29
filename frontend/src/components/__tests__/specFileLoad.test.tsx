@@ -18,16 +18,16 @@ const SPEC = "openapi: 3.0.0\ninfo:\n  title: Из файла\n  version: 1.0.0\
 const mkFile = (text: string, name: string) => new File([text], name, { type: "text/plain" });
 
 function renderDoc(over: { initial?: string; isArchitect?: boolean } = {}) {
-  const onCommit = vi.fn();
+  const onDraft = vi.fn();
   const view = render(
     <OpenApiDoc
       initial={over.initial ?? ""}
       isArchitect={over.isArchitect ?? true}
       showCode
-      onCommit={onCommit}
+      onDraft={onDraft}
     />,
   );
-  return { ...view, onCommit };
+  return { ...view, onDraft };
 }
 
 const field = () => screen.getByRole("textbox") as HTMLTextAreaElement;
@@ -69,21 +69,23 @@ describe("OpenAPI: загрузка спеки из файла", () => {
     await waitFor(() => expect(field().value).toBe(SPEC));
   });
 
-  it("загруженная спека сохраняется обычным «Сохранить»", async () => {
+  it("загруженная спека уходит окну черновиком — пишет её «Сохранить» окна", async () => {
     // Отдельного канала записи нет: файл — это правка, которую пользователь видит
-    // в поле и превью до того, как она уедет в БД.
-    const { container, onCommit } = renderDoc();
+    // в поле и превью до того, как она уедет в БД (вьюер v2: сохраняет окно).
+    const { container, onDraft } = renderDoc();
 
     await userEvent.upload(fileInput(container), mkFile(SPEC, "api.yaml"));
     await waitFor(() => expect(field().value).toBe(SPEC));
-    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
 
-    expect(onCommit).toHaveBeenCalledWith(SPEC);
+    expect(onDraft).toHaveBeenLastCalledWith(SPEC);
   });
 
-  it("до загрузки сохранять нечего — кнопка неактивна", () => {
-    renderDoc();
-    expect(screen.getByRole("button", { name: "Сохранить" })).toBeDisabled();
+  it("колонка кода сама не пишет: ни своей кнопки «Сохранить», ни записи по уходу фокуса", async () => {
+    const { onDraft } = renderDoc({ initial: "openapi: 3.0.0\npaths: {}\n" });
+    expect(screen.queryByRole("button", { name: "Сохранить" })).toBeNull();
+    await userEvent.click(field());
+    await userEvent.tab();
+    expect(onDraft).not.toHaveBeenCalled();
   });
 
   it("файл заменяет прежнюю спеку целиком, а не дописывается", async () => {
