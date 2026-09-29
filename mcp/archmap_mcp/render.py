@@ -1327,3 +1327,148 @@ def _processes_report(items: list[dict[str, Any]]) -> list[str]:
             bits.append(f"не поддержано: {len(p['unsupported'])}")
         out.append(f"  • {p.get('process_id')}: " + ", ".join(bits))
     return out
+
+
+# ── Поиск и одна схема ───────────────────────────────────────────────────────
+# Вид находки словами — в единственном числе, как подпись строки.
+SEARCH_KIND_WORD = {
+    "node": "объект",
+    "doc": "схема",
+    "spec": "спека",
+    "table": "таблица",
+    "column": "колонка",
+    "channel": "канал",
+    "field": "поле",
+    "param": "параметр",
+    "process": "процесс",
+    "step": "шаг",
+}
+SEARCH_NEXT = (
+    "Открыть найденное: схему целиком — archmap_doc(doc_id), объект — "
+    "archmap_node(node_id), процесс с шагами — archmap_processes(process_id)."
+)
+
+
+def _hit_tail(h: dict[str, Any]) -> str:
+    """Хвост находки: что совпало. Счёт — для сравнения находок между собой."""
+    matched = ", ".join(str(t) for t in h.get("matched") or [])
+    return f"  [{h.get('score', 0):g}; совпало: {matched}]"
+
+
+def _hit_line(h: dict[str, Any]) -> str:
+    """Строка находки внутри группы схемы/спеки: номер строки и сниппет."""
+    where = f"стр. {h['line_no']}" if h.get("line_no") else "заголовок"
+    return f"      {where}: {h.get('snippet', '')}{_hit_tail(h)}"
+
+
+def search_results(data: dict[str, Any]) -> str:
+    """Выдача поиска (SearchResponse), сгруппированная по объектам.
+
+    Порядок групп — по лучшей находке (бэкенд отдаёт по убыванию счёта). Внутри
+    объекта строки одной схемы (или спеки) собраны под её заголовком с doc_id —
+    именно его агент понесёт в archmap_doc. Процессы и шаги объекту не
+    принадлежат: у каждого процесса своя группа с process_id.
+    """
+    tokens = ", ".join(str(t) for t in data.get("tokens") or [])
+    hits: list[dict[str, Any]] = data.get("hits") or []
+    total = int(data.get("total", 0) or 0)
+    if not hits:
+        return (
+            f"Ничего не нашлось (искали по: {tokens}). Находкой считается строка, где "
+            "совпали хотя бы два слова запроса: попробуйте другую строку лога или "
+            "ключевые слова."
+        )
+    head = f"Найдено {total}"
+    if total > len(hits):
+        head += f", показаны лучшие {len(hits)}"
+    out = [f"{head} (искали по: {tokens})"]
+
+    # Группа → подгруппы в порядке первой находки. Ключ подгруппы: схема (doc_id),
+    # спека объекта или одиночная находка.
+    groups: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    group_head: dict[str, str] = {}
+    for h in hits:
+        if h.get("node_id"):
+            g = f"node:{h['node_id']}"
+            group_head[g] = f"▸ {h.get('node_path') or '?'}  node_id={h['node_id']}"
+        else:
+            g = f"process:{h.get('process_id')}"
+            group_head[g] = f"▸ процесс «{h.get('title', '?')}»  process_id={h.get('process_id')}"
+        kind = h.get("kind")
+        if kind == "doc":
+            sub = f"doc:{h.get('doc_id')}"
+        elif kind == "spec":
+            sub = "spec"
+        else:
+            sub = f"one:{len(groups.get(g, {}))}"
+        groups.setdefault(g, {}).setdefault(sub, []).append(h)
+
+    for g, subs in groups.items():
+        out.append("")
+        out.append(group_head[g])
+        for sub, items in subs.items():
+            first = items[0]
+            if sub.startswith("doc:"):
+                out.append(f"  • схема «{first.get('title', '?')}»  doc_id={first.get('doc_id')}")
+                out.extend(_hit_line(h) for h in items)
+            elif sub == "spec":
+                out.append("  • OpenAPI-спека объекта (archmap_node с include_spec)")
+                out.extend(_hit_line(h) for h in items)
+            else:
+                out.append(_single_hit(first))
+                continue
+            more = int(first.get("more_in_group", 0) or 0)
+            if more:
+                where = "в спеке" if sub == "spec" else "в этой схеме"
+                lines = _plural(more, ("строка", "строки", "строк"))
+                out.append(f"      … ещё {more} {lines} {where}")
+    out.append("")
+    out.append(SEARCH_NEXT)
+    return "\n".join(out)
+
+
+def _single_hit(h: dict[str, Any]) -> str:
+    """Непострочная находка: объект, таблица, колонка, канал, поле, параметр,
+    процесс, шаг."""
+    kind = str(h.get("kind", "?"))
+    word = SEARCH_KIND_WORD.get(kind, kind)
+    if kind in ("node", "process"):
+        line = f"  • {word}: {h.get('snippet', '')}"
+    elif kind == "step":
+        line = f"  • {word}: {h.get('snippet', '')}  message_id={h.get('message_id')}"
+        if h.get("doc_id"):
+            line += f" (задокументирован схемой doc_id={h['doc_id']})"
+    else:
+        line = f"  • {word} {h.get('title', '?')}: {h.get('snippet', '')}"
+    return line + _hit_tail(h)
+
+
+def doc_card(detail: dict[str, Any]) -> str:
+    """Одна схема логики (NodeDocDetail): адрес, вид, эндпоинт, заглушка,
+    участие в процессах и полный текст."""
+    kind = str(detail.get("kind", "?"))
+    head = KIND_WORD.get(kind, kind)
+    if detail.get("operation"):
+        head += f" · {detail['operation']}"
+    out = [
+        f"Объект: {detail.get('node_path', '?')}  node_id={detail.get('node_id')}",
+        f"Схема: «{detail.get('name', '?')}» ({head})  doc_id={detail.get('id')}",
+    ]
+    if detail.get("described") is False:
+        out.append("Не описана: это заглушка разведки, тела у схемы нет.")
+    procs: list[dict[str, Any]] = detail.get("processes") or []
+    if procs:
+        n = len(procs)
+        out.append(f"В {n} {_plural(n, ('процессе', 'процессах', 'процессах'))}:")
+        for p in procs:
+            steps = int(p.get("steps", 0) or 0)
+            out.append(
+                f"  • {p.get('process_name', '?')} — {steps} "
+                f"{_plural(steps, ('шаг', 'шага', 'шагов'))}  process_id={p.get('process_id')}"
+            )
+    else:
+        out.append("В процессах шаги этой схемой не задокументированы.")
+    if detail.get("described") is not False:
+        out.append("")
+        out.append("```mermaid\n" + str(detail.get("content", "")) + "\n```")
+    return "\n".join(out)

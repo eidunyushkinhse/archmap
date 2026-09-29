@@ -21,7 +21,7 @@ from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 SERVER_NAME = "archmap"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 
 def build_server(client: ArchMapClient) -> Server:  # type: ignore[type-arg]

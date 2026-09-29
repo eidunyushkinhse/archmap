@@ -4,7 +4,8 @@
 и зеркалить их один в один — значит вывалить на модель роуты вместо смысла.
 Здесь три слоя:
 
-  • чтение — понять систему (проекты, дерево, карточка, алерты, процессы, YAML)
+  • чтение — понять систему (проекты, дерево, поиск по всему знанию, карточка,
+    одна схема логики, алерты, процессы, YAML)
     и вынести её знание наружу целиком (архив проекта — в файл на диске);
   • правила формата — те же промпты, что отдаёт интерфейс (BYOA): агент сперва
     узнаёт требуемый формат, потом строит YAML/.mmd/перечень/таблицы. Сюда же
@@ -244,6 +245,50 @@ async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
     detail = await client.request("GET", f"/processes/{args['process_id']}", project_id=pid)
     head = f"Процесс «{detail['name']}» (проект «{pname}»)"
     return f"{head}\n\n{render.process_detail(detail)}"
+
+
+SEARCH_KINDS = [
+    "node", "doc", "spec", "table", "column", "channel", "field", "param", "process", "step",
+]
+
+
+async def t_search(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Поиск по знанию проекта. Матчинг и ранжирование — на бэкенде (app/search.py):
+    здесь только доставка запроса и свёртка выдачи в текст по объектам."""
+    pid, pname = await resolve_project(client, args["project"])
+    params: dict[str, Any] = {"q": args["query"]}
+    if args.get("limit"):
+        params["limit"] = int(args["limit"])
+    if args.get("kinds"):
+        # Повторяемый параметр (?kinds=doc&kinds=spec): httpx раскладывает список сам.
+        params["kinds"] = list(args["kinds"])
+    data = await client.request("GET", "/search", project_id=pid, params=params)
+    return f"Проект «{pname}» — поиск\n\n{render.search_results(data)}"
+
+
+async def t_doc(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Одна схема логики по doc_id.
+
+    Эндпоинт адресует схему через объект (/nodes/{node_id}/docs/{doc_id}), а у
+    агента на руках только doc_id — объект находим по мете схем в плоском списке
+    узлов: он уже несёт id всех схем, лишнего запроса на каждый объект нет.
+    """
+    pid, pname = await resolve_project(client, args["project"])
+    doc_id = str(args["doc_id"])
+    nodes = await client.request("GET", "/nodes/all", project_id=pid)
+    owner = next(
+        (n for n in nodes if any(str(d.get("id")) == doc_id for d in n.get("docs") or [])),
+        None,
+    )
+    if owner is None:
+        raise ArchMapError(
+            f"Схема {doc_id} не найдена в проекте «{pname}». doc_id берут из "
+            "archmap_search, archmap_node или шага archmap_processes."
+        )
+    detail = await client.request(
+        "GET", f"/nodes/{owner['id']}/docs/{doc_id}", project_id=pid
+    )
+    return f"Проект «{pname}»\n{render.doc_card(detail)}"
 
 
 async def t_step_docs(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -928,6 +973,28 @@ TOOLS: list[dict[str, Any]] = [
         "handler": t_schema,
     },
     {
+        "name": "archmap_search",
+        "description": "Поиск по ВСЕМУ знанию проекта: объекты, схемы логики построчно, OpenAPI-спеки, структура БД, каналы брокера с полями, параметры конфигурации, процессы и шаги. Строку лога или текст ошибки вставляйте ЦЕЛИКОМ, как есть: переменные части (пути, id, имена устройств) не мешают — решают редкие слова, а не общие. Ищите ПЕРЕД тем, как открывать карточки объектов подряд. Выдача сгруппирована по объектам; у находки — адрес (путь объекта, схема и номер строки) и id для следующего шага: archmap_doc(doc_id) — схема целиком, archmap_node(node_id) — карточка объекта, archmap_processes(process_id) — процесс. limit — сколько находок (по умолчанию 20, максимум 100); kinds — только эти виды.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "query": {
+                    "type": "string",
+                    "description": "Строка лога, текст ошибки или ключевые слова — целиком.",
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "kinds": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": SEARCH_KINDS},
+                    "description": "Виды находок: node — объект, doc — схема логики, spec — строка OpenAPI, table/column — структура БД, channel/field — каналы брокера, param — конфигурация, process/step — процессы.",
+                },
+            },
+            "required": ["project", "query"],
+        },
+        "handler": t_search,
+    },
+    {
         "name": "archmap_node",
         "description": "Карточка объекта: путь, мета, якорь (чем объект опознаётся при обновлениях из кода — «код github.com/org/repo, путь src/api», «имя зависимости postgres» либо «нет — опознаётся по имени»), входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
         "schema": {
@@ -941,6 +1008,16 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "node_id"],
         },
         "handler": t_node,
+    },
+    {
+        "name": "archmap_doc",
+        "description": "Одна схема логики целиком по doc_id (из archmap_search, archmap_node или шага archmap_processes): путь объекта, имя, вид, эндпоинт, «не описана» у заглушки разведки, в каких процессах схема документирует шаги, и полный текст mermaid. Когда нужна одна схема, это дешевле archmap_node с include_docs.",
+        "schema": {
+            "type": "object",
+            "properties": {"project": PROJECT_ARG, "doc_id": {"type": "string"}},
+            "required": ["project", "doc_id"],
+        },
+        "handler": t_doc,
     },
     {
         "name": "archmap_alerts",
