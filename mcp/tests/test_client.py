@@ -54,6 +54,20 @@ async def test_логин_с_неверным_паролем_называет_п
     assert "ARCHMAP_USERNAME" in str(exc.value)
 
 
+async def test_заблокированная_учётка_называется_прямо(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    def blocked(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"detail": "Учётная запись заблокирована"})
+
+    client._http = httpx.AsyncClient(transport=httpx.MockTransport(blocked))
+    with pytest.raises(ArchMapError) as exc:
+        await client.request("GET", "/nodes/all")
+
+    assert "Учётная запись заблокирована" in str(exc.value)
+    assert "ARCHMAP_USERNAME" not in str(exc.value)
+
+
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
