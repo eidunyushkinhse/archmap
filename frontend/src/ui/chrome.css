@@ -20,7 +20,16 @@
   background: #dbeafe;
 }
 
-/* Пункт меню профиля «Выйти». */
+/* Пункты меню профиля. Фон задаётся здесь, а не инлайном: инлайновый background
+   перебивал бы :hover. */
+.pf-item,
+.pf-logout {
+  background: none;
+}
+.pf-item:hover {
+  background: #f1f5f9;
+}
+/* Пункт «Выйти». */
 .pf-logout:hover {
   background: #fef2f2;
 }

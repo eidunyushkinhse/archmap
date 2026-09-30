@@ -2,7 +2,7 @@
 // из OpenAPI в ./api.gen.ts (npm run gen:api) и здесь лишь переименованы в
 // привычные фронту имена-алиасы. Менять контракт — правкой Pydantic-схем +
 // перегенерацией, НЕ здесь. Рукописным остаётся только чисто фронтовое
-// (canHaveChildren, UserRole); NodeShape и EdgePoint выводятся из генерата.
+// (canHaveChildren); NodeShape, EdgePoint и UserRole выводятся из генерата.
 import type { components, operations } from "./api.gen";
 
 type Schemas = components["schemas"];
@@ -226,6 +226,13 @@ export type DescendantEdgeAlert = Schemas["DescendantEdgeAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
+// Текущий пользователь (GET /auth/me): роль и признак администратора — из БД,
+// а не из токена (токен несёт роль на момент входа).
+export type Me = Schemas["MeResponse"];
+// Админка пользователей (/admin/users): строка списка, создание, частичная правка.
+export type AdminUser = Schemas["AdminUser"];
+export type AdminUserCreate = Schemas["AdminUserCreate"];
+export type AdminUserUpdate = Schemas["AdminUserUpdate"];
 
 // Снимок удаляемого поддерева (узлы + рёбра + ghost-метаданные) для отката удаления
 // через Undo: берётся ПЕРЕД delete, восстанавливается через POST /nodes/restore.
@@ -236,7 +243,8 @@ export type DeletionSnapshot = Schemas["DeletionSnapshot"];
 // Экспорт схемы (или поддерева) в текст для скармливания LLM.
 export type ExportResponse = Schemas["ExportResponse"];
 
-export type UserRole = "architect" | "viewer";
+// Роль — Literal контракта; администратор — отдельный признак is_admin, не роль.
+export type UserRole = Me["role"];
 
 // ── Бизнес-процессы (sequence-конструктор) ────────────────────────────────────
 export type ProcessListItem = Schemas["ProcessListItem"];

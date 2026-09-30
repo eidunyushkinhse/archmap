@@ -12,7 +12,7 @@ import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
 import { processesApi } from "../api/processes";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
-import ProfileMenu from "../ui/ProfileMenu";
+import AccountMenu from "../components/users/AccountMenu";
 import ProjectSwitcher from "../components/ProjectSwitcher";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import { useSchemaAlerts, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
@@ -30,6 +30,8 @@ interface Props {
   // null = страница проекта (корень), иначе — страница узла
   nodeId: string | null;
   onLogout: () => void;
+  // Экран «Пользователи» — пункт меню профиля, виден только администратору.
+  onOpenUsers: () => void;
   onAllProjects: () => void;
   onSwitchProject: (id: string) => void;
   // Навигация внутри проекта
@@ -42,6 +44,7 @@ export default function ProjectShell({
   projectId,
   nodeId,
   onLogout,
+  onOpenUsers,
   onAllProjects,
   onSwitchProject,
   onNavigateNode,
@@ -169,7 +172,7 @@ export default function ProjectShell({
               setSyncToken((t) => t + 1);
             }}
           />
-          <ProfileMenu role={isArchitect ? "Архитектор" : "Наблюдатель"} onLogout={onLogout} />
+          <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
         </div>
       </div>
 

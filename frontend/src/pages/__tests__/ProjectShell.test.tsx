@@ -12,7 +12,10 @@ import { getUserRole } from "../../api/auth";
 import { exportApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 
-vi.mock("../../api/auth", () => ({ getUserRole: vi.fn(() => "architect") }));
+vi.mock("../../api/auth", () => ({
+  getUserRole: vi.fn(() => "architect"),
+  getIsAdmin: vi.fn(() => false),
+}));
 vi.mock("../../api/nodes", () => ({
   exportApi: { all: vi.fn(), subtree: vi.fn() },
 }));
@@ -105,6 +108,7 @@ vi.mock("../../components/ProjectSwitcher", () => ({
 
 const nav = {
   onLogout: vi.fn(),
+  onOpenUsers: vi.fn(),
   onAllProjects: vi.fn(),
   onSwitchProject: vi.fn(),
   onNavigateNode: vi.fn(),

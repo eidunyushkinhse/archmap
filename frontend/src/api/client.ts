@@ -19,14 +19,35 @@ export function isConflict(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409;
 }
 
+// Текст отказа заблокированному (BLOCKED_DETAIL бэка, app/auth.py): им сервер
+// отвечает 401 и на вход, и на любой запрос с уже выданным токеном.
+export const BLOCKED_DETAIL = "Учётная запись заблокирована";
+
+// Подписчики «учётку заблокировали»: App выходит на экран входа с этим текстом.
+// Сигнал из общего клиента, а не из каждой страницы: блокировка застаёт человека
+// на любом экране, в любом запросе.
+type BlockedListener = (message: string) => void;
+const blockedListeners = new Set<BlockedListener>();
+
+export function onAccountBlocked(listener: BlockedListener): () => void {
+  blockedListeners.add(listener);
+  return () => { blockedListeners.delete(listener); };
+}
+
+function reportIfBlocked(status: number, detail: unknown): void {
+  if (status !== 401 || detail !== BLOCKED_DETAIL) return;
+  for (const listener of blockedListeners) listener(BLOCKED_DETAIL);
+}
+
 function getToken(): string | null {
   return localStorage.getItem("access_token");
 }
 
-// Запросы к управлению проектами и авторизации скоупом проекта не оборачиваются
-// (они оперируют самими проектами / логином); все доменные — оборачиваются.
+// Запросы к управлению проектами, авторизации и админке скоупом проекта не
+// оборачиваются (они оперируют самими проектами / логином / пользователями); все
+// доменные — оборачиваются.
 function needsProjectScope(path: string): boolean {
-  return !path.startsWith("/projects") && !path.startsWith("/auth");
+  return !path.startsWith("/projects") && !path.startsWith("/auth") && !path.startsWith("/admin");
 }
 
 function buildHeaders(path: string, options: RequestInit): HeadersInit {
@@ -49,6 +70,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
+    reportIfBlocked(res.status, error.detail);
     throw new ApiError(res.status, error.detail ?? "Неизвестная ошибка");
   }
 
@@ -61,6 +83,7 @@ async function requestBlob(path: string): Promise<Blob> {
   const res = await fetch(`${BASE_URL}${path}`, { headers: buildHeaders(path, {}) });
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
+    reportIfBlocked(res.status, error.detail);
     throw new ApiError(res.status, error.detail ?? "Неизвестная ошибка");
   }
   return res.blob();
