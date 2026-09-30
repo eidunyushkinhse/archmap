@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/v1/auth/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Auth Config
+         * @description Публичные настройки входа — без авторизации (их читают до логина).
+         */
+        get: operations["auth_config_api_v1_auth_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/register": {
         parameters: {
             query?: never;
@@ -32,6 +52,46 @@ export interface paths {
         put?: never;
         /** Login */
         post: operations["login_api_v1_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Me
+         * @description Кто я: роль и признак администратора из БД (токен несёт роль на момент входа).
+         */
+        get: operations["me_api_v1_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description Смена своего пароля. Выданные токены остаются в силе: пароль в них не входит.
+         */
+        post: operations["change_password_api_v1_auth_password_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2259,6 +2319,14 @@ export interface components {
             channel_stubs: number;
         };
         /**
+         * AuthConfig
+         * @description Публичные настройки входа (без авторизации): фронту и будущему демо-режиму.
+         */
+        AuthConfig: {
+            /** Allow Signup */
+            allow_signup: boolean;
+        };
+        /**
          * BindResult
          * @description Итог привязки: сам участник + сколько его повисших шагов подхватило каналы.
          *     Числа нужны интерфейсу: молча подхватывать и молчать — значит скрывать, что часть
@@ -4474,6 +4542,27 @@ export interface components {
             default_caption: string | null;
         };
         /**
+         * MeResponse
+         * @description Текущий пользователь по данным БД, а не токена: роль и признак администратора
+         *     меняются без перелогина, фронт берёт их отсюда при старте приложения.
+         */
+        MeResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Username */
+            username: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "architect" | "viewer";
+            /** Is Admin */
+            is_admin: boolean;
+        };
+        /**
          * MergedNodeOut
          * @description Склеенный узел с ОСНОВАНИЕМ склейки словами (Ф2 docs/plan-anchor-ux.md).
          *
@@ -5118,6 +5207,17 @@ export interface components {
             status: ("existing" | "planned" | "deprecated") | null;
             /** Order */
             order: number;
+        };
+        /**
+         * PasswordChange
+         * @description Смена своего пароля: старый обязателен, иначе оставленная открытой вкладка
+         *     позволила бы любому сменить пароль владельца.
+         */
+        PasswordChange: {
+            /** Old Password */
+            old_password: string;
+            /** New Password */
+            new_password: string;
         };
         /**
          * PersonInsideAlert
@@ -6384,6 +6484,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    auth_config_api_v1_auth_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthConfig"];
+                };
+            };
+        };
+    };
     register_api_v1_auth_register_post: {
         parameters: {
             query?: never;
@@ -6438,6 +6558,57 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Token"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    me_api_v1_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    change_password_api_v1_auth_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChange"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
