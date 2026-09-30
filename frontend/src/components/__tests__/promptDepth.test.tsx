@@ -17,7 +17,7 @@ import type { Project } from "../../types";
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(),
+    importPrompt: vi.fn(),
     get: vi.fn(), syncPreview: vi.fn(), syncApply: vi.fn(), create: vi.fn(),
   },
 }));
@@ -33,7 +33,6 @@ const глубина = () => vi.mocked(projectsApi.importPrompt).mock.calls.at(-
 
 function моки() {
   vi.clearAllMocks();
-  vi.mocked(projectsApi.templates).mockResolvedValue([]);
   vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Платформа" } as Project);
   vi.mocked(projectsApi.importPrompt).mockResolvedValue({ prompt: "промпт" });
   Object.defineProperty(navigator, "clipboard", {

@@ -29,7 +29,7 @@ vi.mock("../../api/docsImport", () => ({
 }));
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(),
+    importPrompt: vi.fn(),
     get: vi.fn(), syncPreview: vi.fn(), syncApply: vi.fn(), create: vi.fn(),
   },
 }));
@@ -140,7 +140,6 @@ function мокиРучек() {
   vi.mocked(projectsApi.importPrompt).mockImplementation((p) =>
     Promise.resolve({ prompt: `промпт:${p.variant}` }),
   );
-  vi.mocked(projectsApi.templates).mockResolvedValue([]);
   vi.mocked(projectsApi.get).mockResolvedValue({ id: "p1", name: "Платформа" } as Project);
 }
 

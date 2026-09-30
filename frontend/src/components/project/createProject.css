@@ -1,12 +1,17 @@
-/* Витрина создания проекта (CreateProjectDialog): сегменты режимов, списки
-   шаблонов/копий, скелетон загрузки. Токены — единый синий акцент #2563eb
+/* Окно создания проекта (CreateProjectDialog): сегменты режимов, список
+   проектов-источников копии, чипы импорта. Токены — единый синий акцент #2563eb
    (активный текст #1d4ed8, мягкий фон #eff6ff) + slate-нейтрали. */
 
+/* Четыре способа старта — ровной сеткой 2×2. В одну строку узкой колонки они не
+   помещаются: «ИИ-агент» упирался в рамку (находка ручной проверки 2026-08-08),
+   а флекс-перенос 3+1 растягивал последнюю кнопку на весь ряд. */
+.cp-segs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .cp-seg {
-  /* Пять кнопок в одну строку узкой колонки не помещаются по определению:
-     базис задаёт перенос на второй ряд, а боковые отступы возвращают тексту
-     воздух (находка ручной проверки 2026-08-08 — «ИИ-агент» упирался в рамку). */
-  flex: 1 1 92px;
   padding: 8px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -23,7 +28,7 @@
 .cp-seg:disabled { opacity: 0.5; cursor: not-allowed; }
 .cp-seg:disabled:hover { background: #fff; }
 
-/* Строка выбора в списке слева (шаблон или проект-источник копии) */
+/* Строка выбора в списке слева (проект-источник копии) */
 .cp-row {
   display: flex;
   align-items: center;
@@ -54,14 +59,3 @@
 .cp-chip:hover { background: #f1f5f9; }
 .cp-chip--on { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
 .cp-chip--on:hover { background: #eff6ff; }
-
-/* Скелетон, пока каталог шаблонов не загрузился */
-.cp-skel {
-  border-radius: 10px;
-  background: #f1f5f9;
-  animation: cp-pulse 1.2s ease-in-out infinite;
-}
-@keyframes cp-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.55; }
-}

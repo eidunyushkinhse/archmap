@@ -1,27 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type {
-  ArchiveImportResult, Project, PromptVariant, TemplateOut, UnifiedFamilyCountsOut,
-  UnifiedPreviewOut,
+  ArchiveImportResult, Project, PromptVariant, UnifiedFamilyCountsOut, UnifiedPreviewOut,
 } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptCopyButton from "../docsImport/PromptCopyButton";
-import C4Preview from "./C4Preview";
 import ImportPane from "./ImportPane";
 import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
 import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
 
 /**
- * Создание проекта — двухпанельная витрина: слева способ старта (Пустой / Шаблон /
- * Копия / Импорт / ИИ-агент) со списком вариантов и полями имени/описания, справа
- * живое превью выбранного шаблона (C4Preview 1:1 с холстом) либо ЕДИНАЯ панель
- * ввоза (ImportPane: чипы YAML и .zip вперемешку + живая сводка dry-run с отчётом
+ * Создание проекта — двухпанельное окно: слева способ старта (Пустой / Копия /
+ * Импорт / ИИ-агент) со списком вариантов и полями имени/описания, справа превью
+ * выбранного варианта (пустой холст, источник копии) либо ЕДИНАЯ панель ввоза
+ * (ImportPane: чипы YAML и .zip вперемешку + живая сводка dry-run с отчётом
  * слияния и спорами содержимого). Открывается из лендинга и из дропдауна шапки —
  * компонент один, без редиректов. Успех → onCreated(id).
+ *
+ * Способа «Шаблон» (шесть каркасов C4 + демо-пакет в витрине) больше нет — убран
+ * 2026-09-30; демо-пакет «Ярмарки» ждёт онбординга (tasks.md).
  *
  * Отдельного таба «Из архива» больше нет: архив — такой же вход панели, как YAML
  * (Ф2б, docs/plan-unified-import.md). Ввоз идёт мультипартом /import-unified, а не
@@ -39,38 +40,12 @@ interface Props {
 // "repo" — «Из репозитория»: генератор промпта для ИИ-агента пользователя + ТА ЖЕ
 // единая панель ввоза, что у «Импорта» (таб отдельный — витрина BYOA, решение
 // груминга; панель внутри одна).
-type StartMode = "blank" | "template" | "copy" | "import" | "repo";
-
-// Линейные SVG-глифы шаблонов (currentColor, без эмодзи), по id из каталога.
-function TemplateGlyph({ id, size = 18 }: { id: string; size?: number }) {
-  const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none",
-    stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-  switch (id) {
-    case "monolith": // стопка
-      return (<svg {...p}><rect x="6" y="3.5" width="12" height="17" rx="2" /><path d="M6 9h12M6 14.5h12" /></svg>);
-    case "webapp": // окно-браузер
-      return (<svg {...p}><rect x="3" y="4.5" width="18" height="14" rx="2" /><path d="M3 9h18M8 18.5v2M16 18.5v2M6 21h12" /></svg>);
-    case "microservices": // сетка 2×2
-      return (<svg {...p}><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" /><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" /><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" /></svg>);
-    case "eventdriven": // волны
-      return (<svg {...p}><circle cx="12" cy="12" r="2.4" /><path d="M7 7a7 7 0 0 0 0 10M17 7a7 7 0 0 1 0 10M4 4a11 11 0 0 0 0 16M20 4a11 11 0 0 1 0 16" /></svg>);
-    case "serverless": // молния
-      return (<svg {...p}><path d="M13 2.5 4.5 13.5H11l-1.5 8L20 9.5h-7z" /></svg>);
-    case "cqrs": // две встречные стрелки
-      return (<svg {...p}><path d="M4 8h11l-3-3M4 8l3 3M20 16H9l3-3M20 16l-3 3" /></svg>);
-    case "demo-marketplace": // стопка слоёв — заполненный проект, а не каркас
-      return (<svg {...p}><path d="M12 3 3 7.5 12 12l9-4.5z" /><path d="M3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></svg>);
-    default:
-      return (<svg {...p}><rect x="4" y="4" width="16" height="16" rx="2" /></svg>);
-  }
-}
+type StartMode = "blank" | "copy" | "import" | "repo";
 
 export default function CreateProjectDialog({ projects, onClose, onCreated }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [mode, setMode] = useState<StartMode>("template");
-  const [templates, setTemplates] = useState<TemplateOut[] | null>(null); // null = грузится
-  const [templateId, setTemplateId] = useState<string | null>(null);
+  const [mode, setMode] = useState<StartMode>("blank");
   const [sourceId, setSourceId] = useState<string | null>(projects[0]?.id ?? null);
   // Документы импорта (мульти-репо: по YAML на репозиторий) и их имена с диска
   // (строка в строку с docs, null — вставленный текст). Каждое изменение — новый
@@ -100,21 +75,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // (неразрешённые адреса, тёзки путей) — видимая деградация, молча провалиться в
   // проект значило бы их спрятать.
   const [unifiedResult, setUnifiedResult] = useState<ArchiveImportResult | null>(null);
-
-  // Загрузка каталога шаблонов (легитимный эффект). По умолчанию выбран webapp,
-  // иначе первый из ответа.
-  useEffect(() => {
-    projectsApi.templates().then(
-      (list) => {
-        setTemplates(list);
-        setTemplateId((cur) => cur ?? (list.find((t) => t.id === "webapp") ?? list[0])?.id ?? null);
-      },
-      (e: unknown) => {
-        setTemplates([]);
-        setError(e instanceof Error ? e.message : "Не удалось загрузить шаблоны");
-      },
-    );
-  }, []);
 
   const importish = mode === "import" || mode === "repo";
 
@@ -158,7 +118,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     return () => { alive = false; clearTimeout(t); };
   }, [docs, archives, inputFiles, importish]);
 
-  const tpl = templates?.find((t) => t.id === templateId) ?? null;
   const source = projects.find((p) => p.id === sourceId) ?? null;
   const fresh = preview && preview.forDocs === docs && preview.forArchives === archives
     && inputFiles.length > 0
@@ -220,7 +179,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         || (fresh?.ok === true && (fromManifest || name.trim().length > 0)))
       : name.trim().length > 0 &&
         !busy &&
-        !(mode === "template" && !templateId) &&
         !(mode === "copy" && !sourceId);
 
   // Промпт собирает бэкенд (истина формата — рядом с валидатором импорта);
@@ -277,9 +235,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     }
     setBusy(true);
     setError(null);
-    const start =
-      mode === "template" ? `template:${templateId}` :
-      mode === "copy" ? `copy:${sourceId}` : "blank";
+    const start = mode === "copy" ? `copy:${sourceId}` : "blank";
     try {
       const created = await projectsApi.create({
         name: name.trim(),
@@ -336,9 +292,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         <div style={body}>
           {/* ── Левая колонка: способ старта + список + имя/описание ── */}
           <div style={leftCol}>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {/* Четыре способа — сеткой 2×2: в строку узкой колонки они не влезают
+                («ИИ-агент» упирался в рамку), а перенос 3+1 растягивал последний. */}
+            <div className="cp-segs">
               <SegBtn label="Пустой" on={mode === "blank"} onClick={() => setMode("blank")} />
-              <SegBtn label="Шаблон" on={mode === "template"} onClick={() => setMode("template")} />
               <SegBtn
                 label="Копия"
                 on={mode === "copy"}
@@ -350,28 +307,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             </div>
 
             <div style={listArea}>
-              {mode === "template" && (
-                templates === null ? (
-                  <>
-                    <div className="cp-skel" style={{ height: 34, marginBottom: 6 }} />
-                    <div className="cp-skel" style={{ height: 34, marginBottom: 6 }} />
-                    <div className="cp-skel" style={{ height: 34 }} />
-                  </>
-                ) : (
-                  templates.map((t) => (
-                    <button
-                      key={t.id}
-                      type="button"
-                      className={`cp-row${t.id === templateId ? " cp-row--on" : ""}`}
-                      onClick={() => setTemplateId(t.id)}
-                    >
-                      <span style={glyphBox}><TemplateGlyph id={t.id} /></span>
-                      <span style={{ fontWeight: 600 }}>{t.name}</span>
-                    </button>
-                  ))
-                )
-              )}
-
               {mode === "copy" &&
                 projects.map((p) => (
                   <button
@@ -451,25 +386,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
           {/* ── Правая колонка: живое превью выбранного варианта ── */}
           <div style={rightCol}>
-            {mode === "template" && (
-              templates === null || !tpl ? (
-                <div className="cp-skel" style={{ height: 280 }} />
-              ) : (
-                <>
-                  <C4Preview template={tpl} height={280} showLabels />
-                  <div style={{ marginTop: 14 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a" }}>{tpl.name}</div>
-                    <p style={blurbStyle}>{tpl.blurb}</p>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {tpl.techs.map((tech) => (
-                        <span key={tech} style={techChip}>{tech}</span>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )
-            )}
-
             {mode === "blank" && (
               <>
                 <div style={emptyFrame}>
@@ -624,18 +540,10 @@ const body: CSSProperties = { display: "flex", gap: 22, padding: 22, height: 560
 const leftCol: CSSProperties = { width: 326, flexShrink: 0, display: "flex", flexDirection: "column", gap: 12, minHeight: 0 };
 const listArea: CSSProperties = { flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 };
 const rightCol: CSSProperties = { flex: 1, minWidth: 0, overflowY: "auto" };
-const glyphBox: CSSProperties = {
-  width: 30, height: 30, flexShrink: 0, display: "inline-flex", alignItems: "center",
-  justifyContent: "center", color: "#64748b",
-};
 const blurbStyle: CSSProperties = { margin: "8px 0 12px", fontSize: 13.5, lineHeight: 1.55, color: "#475569" };
 // Плашка вместо полей имени/описания, когда единственный вход — архив (П3).
 const manifestBox: CSSProperties = {
   padding: "10px 12px", borderRadius: 10, border: "1px solid #e2e8f0", background: "#f8fafc",
-};
-const techChip: CSSProperties = {
-  padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600,
-  background: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0",
 };
 const emptyFrame: CSSProperties = {
   height: 280, display: "flex", alignItems: "center", justifyContent: "center",

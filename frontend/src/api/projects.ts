@@ -1,7 +1,7 @@
 import type {
   ArchiveImportResult, ImportPromptOut, IntoApplyOut, IntoPreviewOut, Project,
   ProjectCreate, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
-  TemplateOut, UnifiedPreviewOut,
+  UnifiedPreviewOut,
 } from "../types";
 // Форма ответов на вопросы остатка слияния (Ф-E). В OpenAPI её нет: бэк принимает
 // её Form-полем decisions ОДНОЙ JSON-строкой, поэтому генерат контракта её не
@@ -35,8 +35,6 @@ function appendDecisions(form: FormData, decisions?: DecisionsPayload | null): v
 export const projectsApi = {
   list: (archived = false): Promise<Project[]> =>
     api.get<Project[]>(`/projects?archived=${archived}`),
-  // Каталог стартовых шаблонов для витрины создания проекта.
-  templates: (): Promise<TemplateOut[]> => api.get<TemplateOut[]>(`/projects/templates`),
   // Единый ввоз: N входов ЛЮБОГО типа (YAML C4 и/или полный архив знания .zip)
   // одним мультипартом. ПОРЯДОК files ЗНАЧИМ — им бэк нумерует входы («вход 3»,
   // file_remarks), от него же зависят tie-break C4-мерджа и дефолты споров семей,

@@ -21,7 +21,7 @@ import type {
 
 vi.mock("../../api/projects", () => ({
   projectsApi: {
-    templates: vi.fn(), importPrompt: vi.fn(), create: vi.fn(),
+    importPrompt: vi.fn(), create: vi.fn(),
     unifiedPreview: vi.fn(), importUnified: vi.fn(),
   },
 }));
@@ -142,7 +142,6 @@ const кнопка = () => screen.getByRole("button", { name: /Создать п
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(projectsApi.templates).mockResolvedValue([]);
   vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью());
   vi.mocked(projectsApi.importUnified).mockResolvedValue(ОТЧЁТ);
 });
