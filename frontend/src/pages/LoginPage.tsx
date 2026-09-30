@@ -3,12 +3,15 @@ import { login, saveToken } from "../api/auth";
 
 interface Props {
   onLogin: () => void;
+  // Почему сессию закрыли без спроса (например, «Учётная запись заблокирована»):
+  // показывается на месте ошибки входа, пока человек не попробует войти снова.
+  notice?: string | null;
 }
 
-export default function LoginPage({ onLogin }: Props) {
+export default function LoginPage({ onLogin, notice = null }: Props) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(notice);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

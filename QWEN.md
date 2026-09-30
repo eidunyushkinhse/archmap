@@ -15,7 +15,7 @@
 archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
-│   │   ├── api/           # клиент для бэкенда (auth, nodes, processes, projects, docsImport, projectScope)
+│   │   ├── api/           # клиент для бэкенда (auth, admin, nodes, processes, projects, docsImport, projectScope)
 │   │   ├── components/
 │   │   │   ├── graph/     # движок холста: layout/ (роутер, раскладка, VPSC, ELK), interaction/ (драг, снап, анимации, undo)
 │   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, DocOverlay
@@ -23,10 +23,11 @@ archmap/
 │   │   │   ├── project/   # создание/редактирование проектов, импорт YAML, превью
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
+│   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
 │   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
-│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), LoginPage; TreePage — легаси за фиче-флагом
+│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), UsersPage (админка пользователей), LoginPage; TreePage — легаси за фиче-флагом
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
 │   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
 │   ├── package.json
@@ -34,10 +35,10 @@ archmap/
 ├── backend/               # FastAPI
 │   ├── app/
 │   │   ├── models/        # SQLAlchemy: node, edge, project, user, node_doc, view_layout, view_state, business_process, process_*
-│   │   ├── routers/       # API: auth, nodes, edges, projects, views, export, processes, node_docs, docs_import
-│   │   ├── schemas/       # Pydantic: node, edge, project, auth, process, export, node_doc, docs_import, restore
+│   │   ├── routers/       # API: auth, admin, nodes, edges, projects, views, export, processes, node_docs, docs_import
+│   │   ├── schemas/       # Pydantic: node, edge, project, auth, admin, process, export, node_doc, docs_import, restore
 │   │   ├── main.py        # FastAPI app, CORS, роутеры /api/v1
-│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins)
+│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup)
 │   │   ├── export.py / import_yaml.py / import_merge.py / import_prompt.py  # экспорт/импорт YAML
 │   │   ├── docs_import.py / docs_prompt.py  # BYOA-дозаливка доков
 │   │   ├── templates.py   # каталог шаблонов: 6 каркасов C4 + пакетный демо-шаблон
@@ -45,6 +46,7 @@ archmap/
 │   │   │                       # архив знания (demo-marketplace); сеется единым импортом
 │   │   ├── processes.py   # логика бизнес-процессов
 │   │   ├── tree.py / projects.py / restore.py / view_state.py
+│   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   └── auth.py / database.py / deps.py
 │   ├── alembic/           # миграции БД
 │   ├── tests/             # pytest (23 тестовых файла)

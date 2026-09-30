@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -17,6 +17,19 @@ class User(Base):
         Enum("architect", "viewer", name="user_role"),
         nullable=False,
         default="viewer",
+    )
+    # Администратор — отдельный ПРИЗНАК, а не третья роль: право управлять людьми
+    # не смешивается с правом на документацию (админ остаётся architect или viewer).
+    # Регистрация его никогда не выставляет; первый админ — командой на сервере
+    # (python -m app.admin create-admin).
+    is_admin: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Блокировка вместо удаления: в проектах живут created_by/updated_by, строку
+    # пользователя удалять нельзя. Заблокированный не входит, а его уже выданный
+    # токен перестаёт работать сразу — get_current_user сверяет флаг с БД.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

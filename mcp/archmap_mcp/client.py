@@ -111,6 +111,11 @@ class ArchMapClient:
                 "Проверьте ARCHMAP_URL и что сервис запущен."
             ) from exc
         if resp.status_code == 401:
+            # Заблокированную учётку ArchMap называет прямо — этот текст агенту важнее
+            # подсказки про переменные: менять пароль в .env бесполезно.
+            reason = _detail(resp)
+            if "заблокирована" in reason:
+                raise ArchMapError(f"ArchMap отклонил логин: {reason}. Обратитесь к администратору.")
             raise ArchMapError(
                 "ArchMap отклонил логин: неверные ARCHMAP_USERNAME или ARCHMAP_PASSWORD."
             )

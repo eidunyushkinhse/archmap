@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
-import { LogoutIcon } from "./icons";
+import type { CSSProperties, ReactNode } from "react";
+import { KeyIcon, LogoutIcon, UsersIcon } from "./icons";
 
 // Меню профиля под аватаром (заменяет прежнюю кнопку «Выйти» в шапке). Аватар-кружок
-// с инициалом роли; по клику — поповер с бейджем роли и пунктом «Выйти». Закрытие по
-// клику вне / Escape. Имя пользователя в проекте пока не хранится — показываем роль.
+// с инициалом роли; по клику — поповер с бейджем роли и пунктами «Сменить пароль»,
+// «Пользователи» (только администратору) и «Выйти». Закрытие по клику вне / Escape.
+// Сам ничего не запрашивает: окно смены пароля и переход на экран «Пользователи» —
+// колбэки владельца (components/account/AccountMenu).
 interface Props {
   role: string;
   onLogout: () => void;
+  // Администратор видит пункт «Пользователи» (при переданном onOpenUsers).
+  isAdmin?: boolean;
+  onChangePassword?: () => void;
+  onOpenUsers?: () => void;
 }
 
-export default function ProfileMenu({ role, onLogout }: Props) {
+export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangePassword, onOpenUsers }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   // инициал из роли («Архитектор» → «А», «Наблюдатель» → «Н»); пусто → «—»
@@ -30,6 +36,19 @@ export default function ProfileMenu({ role, onLogout }: Props) {
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // Пункт меню: закрывает поповер и зовёт действие.
+  const item = (label: string, icon: ReactNode, action: () => void) => (
+    <button
+      className="pf-item"
+      style={menuItem}
+      onClick={() => { setOpen(false); action(); }}
+      role="menuitem"
+    >
+      {icon}
+      {label}
+    </button>
+  );
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -51,7 +70,10 @@ export default function ProfileMenu({ role, onLogout }: Props) {
               <span style={roleDot} />
               {role}
             </span>
+            {isAdmin && <span style={adminBadge}>Администратор</span>}
           </div>
+          {onChangePassword && item("Сменить пароль", <KeyIcon />, onChangePassword)}
+          {isAdmin && onOpenUsers && item("Пользователи", <UsersIcon />, onOpenUsers)}
           <button
             className="pf-logout"
             style={logoutItem}
@@ -96,6 +118,10 @@ const menu: CSSProperties = {
   zIndex: 20,
 };
 const menuHead: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: 6,
   padding: "4px 6px 10px",
   borderBottom: "1px solid #eef2f6",
   marginBottom: 6,
@@ -111,6 +137,16 @@ const roleBadge: CSSProperties = {
   fontSize: 12.5,
   fontWeight: 600,
 };
+const adminBadge: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  padding: "4px 10px",
+  borderRadius: 999,
+  background: "#f1f5f9",
+  color: "#475569",
+  fontSize: 12.5,
+  fontWeight: 600,
+};
 const roleDot: CSSProperties = {
   width: 7,
   height: 7,
@@ -118,18 +154,19 @@ const roleDot: CSSProperties = {
   background: "#2563eb",
   flex: "none",
 };
-const logoutItem: CSSProperties = {
+const itemBase: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 9,
   width: "100%",
   padding: "8px 10px",
-  background: "none",
+  // фон — в .pf-item / .pf-logout (chrome.css): инлайновый перебивал бы :hover
   border: "none",
   borderRadius: 8,
   cursor: "pointer",
-  color: "#dc2626",
   fontSize: 13.5,
   textAlign: "left",
   transition: "background .12s ease",
 };
+const menuItem: CSSProperties = { ...itemBase, color: "#1e293b" };
+const logoutItem: CSSProperties = { ...itemBase, color: "#dc2626" };

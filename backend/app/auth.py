@@ -17,6 +17,28 @@ from app.schemas.auth import TokenData
 pwd_context = PasswordHash((BcryptHasher(),))
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
+# Текст отказа заблокированному: один на вход и на запросы с уже выданным токеном.
+# Фронт узнаёт по нему блокировку и выходит на экран входа с этим же текстом.
+BLOCKED_DETAIL = "Учётная запись заблокирована"
+
+# Единственное правило пароля: длина. Других требований сложности нет намеренно.
+MIN_PASSWORD_LENGTH = 8
+
+
+def password_problem(password: str) -> str | None:
+    """Чем новый пароль не годится, или None. Чистая функция без HTTP: её зовут и
+    роутеры (отдают текст в detail), и серверная команда create-admin (печатает)."""
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов"
+    return None
+
+
+def check_new_password(password: str) -> None:
+    """Проверка нового пароля для роутеров: 400 с русским текстом в detail."""
+    problem = password_problem(password)
+    if problem is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
+
 
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
@@ -53,6 +75,14 @@ def _get_current_user(token: str, db: Session) -> User:
     user = db.query(User).filter(User.username == token_data.username).first()
     if user is None:
         raise credentials_error
+    # Блокировка действует сразу, в том числе на уже выданный токен: флаг сверяется
+    # с БД на каждом запросе (роль берётся отсюда же, из строки БД, а не из токена).
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=BLOCKED_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 
@@ -67,5 +97,16 @@ def require_architect(user: User = Depends(get_current_user)) -> User:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Требуется роль architect",
+        )
+    return user
+
+
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """Права администратора: управление пользователями. Признак, а не роль, —
+    администратор-наблюдатель проходит сюда, но не в require_architect."""
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Требуются права администратора",
         )
     return user

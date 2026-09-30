@@ -7,7 +7,7 @@ import CreateProjectDialog from "../components/project/CreateProjectDialog";
 import EditProjectDialog from "../components/project/EditProjectDialog";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components/project/ProjectDialogs";
 import SchemaPreview from "../components/project/SchemaPreview";
-import ProfileMenu from "../ui/ProfileMenu";
+import AccountMenu from "../components/users/AccountMenu";
 import { LogoMark, PlusIcon } from "../ui/icons";
 
 /**
@@ -19,6 +19,8 @@ import { LogoMark, PlusIcon } from "../ui/icons";
 interface Props {
   onOpenProject: (id: string) => void;
   onLogout: () => void;
+  // Экран «Пользователи» — пункт меню профиля, виден только администратору.
+  onOpenUsers: () => void;
 }
 
 type Tab = "active" | "archived";
@@ -27,7 +29,7 @@ type Dialog =
   | { kind: "edit" | "archive" | "restore" | "delete"; project: Project }
   | null;
 
-export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
+export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: Props) {
   const isArchitect = getUserRole() === "architect";
   const [active, setActive] = useState<Project[]>([]);
   const [archived, setArchived] = useState<Project[]>([]);
@@ -77,7 +79,7 @@ export default function ProjectsPage({ onOpenProject, onLogout }: Props) {
             Arch<span style={{ color: "#2563eb" }}>Map</span>
           </span>
         </div>
-        <ProfileMenu role={isArchitect ? "Архитектор" : "Наблюдатель"} onLogout={onLogout} />
+        <AccountMenu onLogout={onLogout} onOpenUsers={onOpenUsers} />
       </div>
 
       <div style={container}>

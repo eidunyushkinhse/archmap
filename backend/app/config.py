@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Разрешённые CORS-источники: строка через запятую (JSON-списки в .env неудобны
     # для Railway). Парсится в список в main.py.
     cors_origins: str = "http://localhost:5173"
+    # Открытая регистрация (POST /auth/register). По умолчанию включена — публичная
+    # версия и dev ведут себя как раньше. В закрытом контуре ставят ALLOW_SIGNUP=false:
+    # учётки заводит администратор на экране «Пользователи», регистрация отвечает 403.
+    allow_signup: bool = True
 
     model_config = SettingsConfigDict(env_file=".env")
 

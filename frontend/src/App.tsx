@@ -1,21 +1,26 @@
-import { useEffect, useState } from "react";
-import { clearToken, getToken } from "./api/auth";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { clearToken, fetchMe, getMe, getToken, subscribeMe } from "./api/auth";
+import { onAccountBlocked } from "./api/client";
 import { setCurrentProjectId } from "./api/projectScope";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectShell from "./pages/ProjectShell";
 import MapEditorPage from "./pages/MapEditorPage";
+import UsersPage from "./pages/UsersPage";
 
 // Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — страница проекта,
-// #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта.
+// #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта,
+// #/admin/users — экран «Пользователи» (администратор).
 type Route =
   | { name: "projects" }
+  | { name: "users" }
   | { name: "node"; projectId: string; nodeId: string }
   | { name: "project-home"; projectId: string }
   | { name: "map"; projectId: string; nodeId: string | null; locate: string | null; ret: string | null };
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#/, "");
+  if (/^\/admin\/users(?:[/?]|$)/.test(hash)) return { name: "users" };
   // #/p/<pid>/map/<levelId>?locate=<nodeId>&ret=<return> (или #/p/<pid>/map?…)
   const mapMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/map(?:\/([0-9a-fA-F-]+))?(?:\?(.*))?/);
   if (mapMatch) {
@@ -46,7 +51,7 @@ function parseHash(): Route {
 function routeFromHash(): Route {
   const route = parseHash();
   // Скоуп проекта нужен всем маршрутам внутри проекта (node, project-home, map)
-  const pid = route.name === "projects" ? null : route.projectId;
+  const pid = "projectId" in route ? route.projectId : null;
   setCurrentProjectId(pid);
   return route;
 }
@@ -54,12 +59,39 @@ function routeFromHash(): Route {
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
   const [route, setRoute] = useState<Route>(routeFromHash);
+  // Почему выкинули на экран входа (блокировка) — текст для LoginPage.
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  // «Кто я» (роль и признак администратора из БД) — внешний стор api/auth. Подписка
+  // перерисовывает дерево, когда ответ /auth/me пришёл: страницы зовут синхронный
+  // getUserRole() в рендере и видят свежую роль, а не записанную в токен при входе.
+  useSyncExternalStore(subscribeMe, getMe);
 
   useEffect(() => {
     const onHash = () => setRoute(routeFromHash());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
+
+  // При старте и после каждого входа — загрузить «кто я». Отказ не ломает экран:
+  // до ответа (и без него) действует роль из токена; 401 блокировки ловит подписка ниже.
+  useEffect(() => {
+    if (!authenticated) return;
+    fetchMe().catch(() => {});
+  }, [authenticated]);
+
+  // Учётку заблокировали, пока человек работал: любой запрос получил 401 с этим
+  // текстом — выходим на экран входа и показываем причину.
+  useEffect(
+    () =>
+      onAccountBlocked((message) => {
+        clearToken();
+        setCurrentProjectId(null);
+        setLoginNotice(message);
+        setAuthenticated(false);
+        window.location.hash = "/projects";
+      }),
+    [],
+  );
 
   function navigate(hash: string) {
     window.location.hash = hash;
@@ -68,12 +100,22 @@ export default function App() {
   function handleLogout() {
     clearToken();
     setCurrentProjectId(null);
+    setLoginNotice(null);
     setAuthenticated(false);
     navigate("/projects");
   }
 
   if (!authenticated) {
-    return <LoginPage onLogin={() => setAuthenticated(true)} />;
+    return (
+      <LoginPage
+        notice={loginNotice}
+        onLogin={() => { setLoginNotice(null); setAuthenticated(true); }}
+      />
+    );
+  }
+
+  if (route.name === "users") {
+    return <UsersPage onAllProjects={() => navigate("/projects")} onLogout={handleLogout} />;
   }
 
   // pages_pivot: редактор-карта
@@ -108,6 +150,7 @@ export default function App() {
         projectId={pid}
         nodeId={route.name === "node" ? route.nodeId : null}
         onLogout={handleLogout}
+        onOpenUsers={() => navigate("/admin/users")}
         onAllProjects={() => navigate("/projects")}
         onSwitchProject={(id) => navigate(`/p/${id}`)}
         onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
@@ -127,6 +170,7 @@ export default function App() {
     <ProjectsPage
       onOpenProject={(id) => navigate(`/p/${id}`)}
       onLogout={handleLogout}
+      onOpenUsers={() => navigate("/admin/users")}
     />
   );
 }
