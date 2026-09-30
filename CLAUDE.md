@@ -41,9 +41,9 @@ archmap/
 │   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup)
 │   │   ├── export.py / import_yaml.py / import_merge.py / import_prompt.py  # экспорт/импорт YAML
 │   │   ├── docs_import.py / docs_prompt.py  # BYOA-дозаливка доков
-│   │   ├── templates.py   # каталог шаблонов: 6 каркасов C4 + пакетный демо-шаблон
-│   │   ├── template_packages/  # содержание пакетных шаблонов — распакованный
-│   │   │                       # архив знания (demo-marketplace); сеется единым импортом
+│   │   ├── demo_package.py  # посев демо-пакета для будущего онбординга (из API не зовётся)
+│   │   ├── template_packages/  # демо-пакет — распакованный архив знания
+│   │   │                       # (demo-marketplace); сеется единым импортом
 │   │   ├── processes.py   # доменная логика бизнес-процессов
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   └── tree.py / projects.py / restore.py / view_state.py / auth.py / database.py / deps.py
