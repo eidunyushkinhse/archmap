@@ -18,8 +18,9 @@ MAX_IMPORT_FILES = 256
 class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=256)
     description: str | None = None
-    # Старт схемы: "blank" — пусто; "template:<id>" — преднастроенный каркас;
-    # "copy:<projectId>" — глубокая копия другого проекта. Парсится в роутере.
+    # Старт схемы: "blank" — пусто; "copy:<projectId>" — глубокая копия другого
+    # проекта. Парсится в роутере. Старт "template:<id>" (каркасы C4 и демо-пакет)
+    # снят 2026-09-30 вместе со способом «Шаблон» — теперь это 400.
     # Ввоз схемы из файлов — ТОЛЬКО единым путём (multipart /projects/import-unified);
     # старый start="import" с YAML текстами снесён 2026-09-05 (потребителей не было).
     start: str = "blank"
@@ -174,48 +175,6 @@ class ImportPromptOut(BaseModel):
     """Текст универсального промпта «Из репозитория» для ИИ-агента пользователя."""
 
     prompt: str
-
-
-class TemplateNodeOut(BaseModel):
-    """Узел стартового шаблона для витрины выбора (GET /projects/templates).
-
-    x/y заданы у КАРКАСОВ (их раскладка запечена) — превью в модалке совпадает с
-    раскладкой на холсте. У ПАКЕТНОГО шаблона координат нет: раскладку он не везёт
-    вовсе, её строит движок, и превью считает ту же раскладку тем же ELK
-    (docs/plan-demo-template.md, решение Р3)."""
-
-    key: str
-    name: str
-    shape: Literal["service", "database", "broker", "person"]
-    role: str | None = None
-    technology: str | None = None
-    is_external: bool
-    # Nullable, но ОБЯЗАТЕЛЬНЫЕ: ключи в ответе есть всегда, значение null говорит
-    # «координат нет». С дефолтом генерат делал их optional (x?: number | null), и
-    # фронт получал третий случай undefined, которого в контракте нет.
-    x: float | None
-    y: float | None
-
-
-class TemplateEdgeOut(BaseModel):
-    """Связь стартового шаблона: source/target — ключи узлов того же шаблона."""
-
-    source: str
-    target: str
-    label: str | None = None
-    technology: str | None = None
-
-
-class TemplateOut(BaseModel):
-    """Стартовый шаблон целиком: подписи для витрины + узлы/связи для превью."""
-
-    id: str
-    name: str
-    tagline: str
-    blurb: str
-    techs: list[str]
-    nodes: list[TemplateNodeOut]
-    edges: list[TemplateEdgeOut]
 
 
 class ProjectPreviewNode(BaseModel):

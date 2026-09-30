@@ -23,6 +23,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
+from app.models.project import Project
 from app.routers.projects import (
     archive_project,
     create_project,
@@ -88,56 +89,31 @@ def test_preview_projects_edges_to_root_ancestors(db):
     assert len(fresh.preview.edges) == 1  # проекция дала ровно одно ребро R1↔R2
 
 
-def test_create_from_template_seeds_schema(db):
+def test_template_start_removed(db):
+    """Способ старта «Шаблон» снят 2026-09-30: каркасов нет, демо-пакет из API не
+    сеется (его дождётся онбординг, app/demo_package.py). start="template:<id>"
+    отвергается как неизвестный способ — и для бывших каркасов, и для демо-пакета."""
     user = ensure_architect(db)
-    p = create_project(ProjectCreate(name="Веб", start="template:webapp"), db=db, user=user)
-    assert p.object_count > 0 and p.edge_count > 0
-    # У шаблонных узлов задана раскладка → превью карточки показывает реальные
-    # координаты (а не гадает по центроидам/окружности).
-    assert p.preview.nodes and all(n.x is not None and n.y is not None for n in p.preview.nodes)
-    # Внешние системы шаблона (актор, вход, почта) сидятся с is_external → серые.
-    ext = {n.name for n in db.query(Node).filter(Node.project_id == p.id, Node.is_external).all()}
-    assert ext == {"Пользователь", "Провайдер входа", "Сервис email"}
+    db.commit()  # откат отказа ниже не должен уносить пользователя
+    было = db.query(Project).count()
+    for start in ("template:webapp", "template:demo-marketplace"):
+        with pytest.raises(HTTPException) as ei:
+            create_project(ProjectCreate(name="X", start=start), db=db, user=user)
+        assert ei.value.status_code == 400, start
+        assert ei.value.detail == "Неизвестный способ старта проекта"
+        # Транзакцией владеет роут: без коммита отказ проекта не оставляет.
+        db.rollback()
+        assert db.query(Project).count() == было
 
 
-def test_all_templates_seed_and_match_catalog(db):
-    """Каждый шаблон каталога сидится, и счётчики совпадают с его описанием —
-    страховка от рёбер на несуществующие ключи при правке каталога."""
-    from app.templates import _TEMPLATES, template_ids
+def test_templates_catalog_endpoint_removed():
+    """Каталога витрины GET /projects/templates больше нет (снят 2026-09-30).
+    Соседняя статическая ручка на месте — проверка не пустая по построению."""
+    from app.main import app
 
-    user = ensure_architect(db)
-    for tid in template_ids():
-        p = create_project(ProjectCreate(name=f"T-{tid}", start=f"template:{tid}"), db=db, user=user)
-        tpl = _TEMPLATES[tid]
-        assert (p.object_count, p.edge_count) == (len(tpl.nodes), len(tpl.edges)), tid
-
-
-def test_templates_catalog_serializes():
-    """Каталог витрины проходит контракт TemplateOut: 6 каркасов с обязательными
-    координатами (превью = раскладка холста) и пакетные шаблоны ЗА ними — у тех
-    координат нет, раскладку они не везут (docs/plan-demo-template.md, Р3).
-    Содержание пакетных шаблонов сторожит tests/test_template_package.py."""
-    from app.schemas.project import TemplateOut
-    from app.templates import list_templates, package_ids
-
-    catalog = [TemplateOut.model_validate(t) for t in list_templates()]
-    assert [t.id for t in catalog] == [
-        "monolith", "webapp", "microservices", "eventdriven", "serverless", "cqrs",
-        *package_ids(),
-    ]
-    for t in catalog:
-        keys = {n.key for n in t.nodes}
-        assert t.tagline and t.blurb and t.techs
-        assert all(e.source in keys and e.target in keys for e in t.edges)
-        координаты_заданы = all(n.x is not None and n.y is not None for n in t.nodes)
-        assert координаты_заданы is (t.id not in package_ids()), t.id
-
-
-def test_create_unknown_template_404(db):
-    user = ensure_architect(db)
-    with pytest.raises(HTTPException) as ei:
-        create_project(ProjectCreate(name="X", start="template:нет"), db=db, user=user)
-    assert ei.value.status_code == 404
+    paths = {getattr(r, "path", "") for r in app.routes}
+    assert "/api/v1/projects/import/prompt" in paths
+    assert "/api/v1/projects/templates" not in paths
 
 
 def test_deep_copy_clones_schema_without_touching_source(db):

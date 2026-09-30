@@ -168,31 +168,15 @@ export interface paths {
         put?: never;
         /**
          * Create Project
-         * @description Создать проект. start: "blank" — пусто; "template:<id>" — шаблон (каркас
-         *     либо ПАКЕТНЫЙ шаблон — готовый проект с процессами, логикой, спеками и фактами);
-         *     "copy:<projectId>" — глубокая копия схемы другого проекта.
+         * @description Создать проект. start: "blank" — пусто; "copy:<projectId>" — глубокая копия
+         *     схемы другого проекта. Старт "template:<id>" снят 2026-09-30 вместе со способом
+         *     «Шаблон» (каркасы удалены, демо-пакет ждёт онбординга в app/demo_package.py) —
+         *     теперь это «Неизвестный способ старта», 400.
          *
          *     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
          *     (multipart, YAML и архивы вперемешку).
          */
         post: operations["create_project_api_v1_projects_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Templates */
-        get: operations["get_templates_api_v1_projects_templates_get"];
-        put?: never;
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6046,70 +6030,6 @@ export interface components {
             /** Node Name */
             node_name: string;
         };
-        /**
-         * TemplateEdgeOut
-         * @description Связь стартового шаблона: source/target — ключи узлов того же шаблона.
-         */
-        TemplateEdgeOut: {
-            /** Source */
-            source: string;
-            /** Target */
-            target: string;
-            /** Label */
-            label?: string | null;
-            /** Technology */
-            technology?: string | null;
-        };
-        /**
-         * TemplateNodeOut
-         * @description Узел стартового шаблона для витрины выбора (GET /projects/templates).
-         *
-         *     x/y заданы у КАРКАСОВ (их раскладка запечена) — превью в модалке совпадает с
-         *     раскладкой на холсте. У ПАКЕТНОГО шаблона координат нет: раскладку он не везёт
-         *     вовсе, её строит движок, и превью считает ту же раскладку тем же ELK
-         *     (docs/plan-demo-template.md, решение Р3).
-         */
-        TemplateNodeOut: {
-            /** Key */
-            key: string;
-            /** Name */
-            name: string;
-            /**
-             * Shape
-             * @enum {string}
-             */
-            shape: "service" | "database" | "broker" | "person";
-            /** Role */
-            role?: string | null;
-            /** Technology */
-            technology?: string | null;
-            /** Is External */
-            is_external: boolean;
-            /** X */
-            x: number | null;
-            /** Y */
-            y: number | null;
-        };
-        /**
-         * TemplateOut
-         * @description Стартовый шаблон целиком: подписи для витрины + узлы/связи для превью.
-         */
-        TemplateOut: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Tagline */
-            tagline: string;
-            /** Blurb */
-            blurb: string;
-            /** Techs */
-            techs: string[];
-            /** Nodes */
-            nodes: components["schemas"]["TemplateNodeOut"][];
-            /** Edges */
-            edges: components["schemas"]["TemplateEdgeOut"][];
-        };
         /** Token */
         Token: {
             /** Access Token */
@@ -6926,26 +6846,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_templates_api_v1_projects_templates_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["TemplateOut"][];
                 };
             };
         };

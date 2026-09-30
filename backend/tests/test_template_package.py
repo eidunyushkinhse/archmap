@@ -1,25 +1,25 @@
-"""Сторож ПАКЕТНОГО шаблона (демо-проект «Маркетплейс "Ярмарка"»).
+"""Сторож ДЕМО-ПАКЕТА (демо-проект «Маркетплейс "Ярмарка"») для будущего онбординга.
 
 Пакет — СНИМОК живого эталонного проекта (scripts/refresh-demo-template.py), а не
 декларация в коде: протухнуть он способен молча — файл потерялся при обновлении,
-семья не доехала, привязки шагов осыпались. Тест держит не точные числа (они
-законно меняются с каждым снимком), а ИНВАРИАНТЫ витрины:
+семья не доехала, привязки шагов осыпались. Способ старта «Шаблон» убран
+2026-09-30, и из API пакет больше не сеется — тест зовёт сидер
+(app/demo_package.py) напрямую. Держит он не точные числа (они законно меняются с
+каждым снимком), а ИНВАРИАНТЫ демо:
 
 • пакет ввозится начисто — без замечаний и без алертов (демо обязано быть эталоном);
-• все семьи фактов на месте и не пусты — иначе шаблон перестал быть витриной;
+• все семьи фактов на месте и не пусты — иначе демо перестало быть витриной продукта;
 • каждый шаг процесса привязан к схеме логики (AL34 по построению ноль);
 • жизненный цикл показан: в схеме есть и planned, и deprecated;
 • раскладку пакет НЕ везёт (решение Р3, docs/plan-demo-template.md);
-• каталог витрины собирается из самого пакета и совпадает с его корнями.
+• неизвестный пакет не сеется и сирот не оставляет.
 """
-
-import uuid
 
 import pytest
 from conftest import ensure_architect
-from fastapi import HTTPException
 
 from app.alerts import compute_alerts
+from app.demo_package import DEMO_PACKAGE, seed_package_template
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -28,22 +28,15 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
+from app.models.project import Project
 from app.models.view_layout import ViewLayoutItem
-from app.routers.projects import create_project
-from app.schemas.project import ProjectCreate
-from app.templates import (
-    is_package_template,
-    list_templates,
-    package_ids,
-    seed_package_template,
-)
 
-ДЕМО = "demo-marketplace"
+ДЕМО = DEMO_PACKAGE
 
 
 @pytest.fixture()
 def посеянный(db):
-    """Проект, созданный из пакетного шаблона (тот же путь, что у роутера)."""
+    """Проект, посеянный из демо-пакета напрямую сидером (из API он не зовётся)."""
     user = ensure_architect(db)
     project = seed_package_template(db, ДЕМО, "Демо-проект", None, user.id)
     assert project is not None
@@ -113,64 +106,23 @@ def test_раскладку_пакет_не_везёт(db, посеянный):
     assert db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == посеянный.id).count() == 0
 
 
-def test_каталог_витрины_совпадает_с_пакетом(db, посеянный):
-    записи = {t["id"]: t for t in list_templates()}
-    assert ДЕМО in записи, "пакетный шаблон пропал из витрины"
-    демо = записи[ДЕМО]
-    assert демо["name"] and демо["tagline"] and демо["blurb"] and демо["techs"]
-
-    # Превью — корни пакета: те же имена, что у корней посеянного проекта.
-    корни_проекта = {
-        n.name for n in db.query(Node).filter(Node.project_id == посеянный.id, Node.parent_id.is_(None))
-    }
-    assert {n["name"] for n in демо["nodes"]} == корни_проекта
-    # Координат у пакетного шаблона нет — их считает фронт тем же ELK, что холст.
-    assert all(n["x"] is None and n["y"] is None for n in демо["nodes"])
-    ключи = {n["key"] for n in демо["nodes"]}
-    assert all(e["source"] in ключи and e["target"] in ключи for e in демо["edges"])
-    assert демо["edges"], "превью осталось без связей"
-
-
-def test_каркасы_витрины_целы():
-    """Пакетный шаблон не вытеснил каркасы и не сломал их контракт."""
-    записи = list_templates()
-    каркасы = [t for t in записи if t["id"] not in package_ids()]
-    assert len(каркасы) == 6
-    assert all(n["x"] is not None and n["y"] is not None for t in каркасы for n in t["nodes"])
-    # Пакетные — последние в списке (решение Р2: рядовой седьмой пункт).
-    assert записи[-1]["id"] in package_ids()
-
-
-def test_роутер_создаёт_проект_пакетным_шаблоном(db):
+def test_сидер_создаёт_проект_с_описанием_из_манифеста(db):
     user = ensure_architect(db)
-    ответ = create_project(
-        ProjectCreate(name="Из демо-шаблона", start=f"template:{ДЕМО}"), db=db, user=user
-    )
-    assert ответ.name == "Из демо-шаблона"
-    assert ответ.object_count >= 30 and ответ.edge_count >= 30
-    # Описание пакетный шаблон подставляет из манифеста, если пользователь его не задал.
-    assert ответ.description
-    assert db.query(BusinessProcess).filter(BusinessProcess.project_id == ответ.id).count() >= 3
+    проект = seed_package_template(db, ДЕМО, "Из демо-пакета", None, user.id)
+    assert проект is not None
+    db.commit()
+    assert проект.name == "Из демо-пакета"
+    # Описание подставляется из манифеста пакета, если его не задали.
+    assert проект.description
+    assert db.query(Node).filter(Node.project_id == проект.id).count() >= 30
+    assert db.query(BusinessProcess).filter(BusinessProcess.project_id == проект.id).count() >= 3
 
 
-def test_неизвестный_шаблон_даёт_404(db):
-    user = ensure_architect(db)
-    assert not is_package_template("нет-такого")
-    with pytest.raises(HTTPException) as e:
-        create_project(ProjectCreate(name="X", start="template:нет-такого"), db=db, user=user)
-    assert e.value.status_code == 404
-    # Сирота не остаётся: проект не создаётся вовсе.
-    assert db.query(BusinessProcess).count() == 0
-
-
-def test_сироты_после_отказа_нет(db):
-    """Пакетный шаблон создаёт проект сам — при отказе в БД не должно остаться пусто-проекта."""
-    from app.models.project import Project
-
+def test_неизвестный_пакет_не_сеется_и_сирот_нет(db):
+    """Сидер создаёт проект сам — на неизвестный пакет он не заводит ничего."""
     user = ensure_architect(db)
     было = db.query(Project).count()
-    with pytest.raises(HTTPException):
-        create_project(ProjectCreate(name="X", start="template:нет-такого"), db=db, user=user)
-    db.rollback()
+    assert seed_package_template(db, "нет-такого", "X", None, user.id) is None
+    db.commit()
     assert db.query(Project).count() == было
-    assert uuid.UUID(str(user.id))
+    assert db.query(BusinessProcess).count() == 0
