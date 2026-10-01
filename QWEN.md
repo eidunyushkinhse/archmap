@@ -34,8 +34,8 @@ archmap/
 │   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom)
 ├── backend/               # FastAPI
 │   ├── app/
-│   │   ├── models/        # SQLAlchemy: node, edge, project, user, node_doc, view_layout, view_state, business_process, process_*
-│   │   ├── routers/       # API: auth, admin, nodes, edges, projects, views, export, processes, node_docs, docs_import
+│   │   ├── models/        # SQLAlchemy: node, edge, project, project_member, user, node_doc, view_layout, view_state, business_process, process_*
+│   │   ├── routers/       # API: auth, admin, users, nodes, edges, projects, views, export, processes, node_docs, docs_import
 │   │   ├── schemas/       # Pydantic: node, edge, project, auth, admin, process, export, node_doc, docs_import, restore
 │   │   ├── main.py        # FastAPI app, CORS, роутеры /api/v1
 │   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup)
@@ -45,7 +45,7 @@ archmap/
 │   │   ├── template_packages/  # демо-пакет — распакованный архив знания
 │   │   │                       # (demo-marketplace); сеется единым импортом
 │   │   ├── processes.py   # логика бизнес-процессов
-│   │   ├── tree.py / projects.py / restore.py / view_state.py
+│   │   ├── tree.py / projects.py / access.py / restore.py / view_state.py
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   └── auth.py / database.py / deps.py
 │   ├── alembic/           # миграции БД
@@ -135,6 +135,8 @@ Git
 
 Project (проект — изолированная схема)
 - id UUID, name, description, archived_at (null = активен)
+- visible_to_all — «Виден всем пользователям»: не-участники получают чтение
+  (иначе проект виден только участникам)
 - created_at, updated_at, created_by_id, updated_by_id → User
 - Все доменные сущности несут project_id (NOT NULL, каскад)
 
@@ -180,6 +182,13 @@ ConfigParam (параметр конфигурации сервиса — тре
 - Владелец ВСЕГДА сам сервис: одинаковый параметр у двух сервисов — две записи.
   Пометка «зависит от: ИМЯ» в тексте схемы логики резолвится ТОЛЬКО среди параметров
   владельца схемы, поэтому «неоднозначно» невозможно по построению (класс алертов AL33)
+
+ProjectMember (участник проекта)
+- ключ (project_id → Project, user_id → User), оба CASCADE; role — owner | editor | reader
+- владелец ровно один (держит код app/access.py, передача — POST /projects/{id}/transfer)
+- права ВНУТРИ проекта решает только effective_role: админ → owner, участник → его
+  роль, visible_to_all → reader, иначе 404. Общая роль architect/viewer — только
+  право создавать проекты
 
 ViewLayout / ViewState
 - view_layout: project_id, view_id, item_id, payload JSONB {x, y, expanded}
