@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
-import { getUserRole } from "../api/auth";
+import { canEditProject, useProjectRole } from "./projectRole";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
   Node, NodeShape, NodeUpdate,
@@ -119,7 +119,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
 
   const history = useHistory();
-  const isArchitect = getUserRole() === "architect";
+  // Право правки — роль в проекте (owner/editor), не глобальная роль.
+  const isArchitect = canEditProject(useProjectRole());
   const currentParent = breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
 

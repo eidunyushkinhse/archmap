@@ -49,6 +49,12 @@ export type Project = Schemas["ProjectResponse"];
 export type ProjectCreate = Schemas["ProjectCreate"];
 export type ProjectUpdate = Schemas["ProjectUpdate"];
 export type ProjectPreview = Schemas["ProjectPreview"];
+// Доступ к проекту (docs/tasks/project-access.md): роль в проекте решает права
+// ВНУТРИ него; глобальная роль architect/viewer — только право создавать проекты.
+export type ProjectRole = Project["my_role"];
+export type ProjectMember = Schemas["ProjectMemberOut"];
+// Пользователь в выборе участника: только id и логин (GET /users).
+export type UserBrief = Schemas["UserBrief"];
 
 // Отчёт импорта архива знания (zip): счётчики категорий + родные отчёты семей.
 export type ArchiveImportResult = Schemas["ArchiveImportResult"];
