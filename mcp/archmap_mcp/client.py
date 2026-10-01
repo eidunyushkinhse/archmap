@@ -175,9 +175,11 @@ class ArchMapClient:
             resp = await attempt()
 
         if resp.status_code == 403:
+            # Права решает роль в проекте (владелец, редактор, чтение), а создание
+            # проектов — роль architect; причину называет сервер.
             raise ArchMapError(
-                "Недостаточно прав: операция доступна только роли «архитектор». "
-                "Войдите пользователем-архитектором."
+                f"Недостаточно прав: {_detail(resp)}. Роль учётки в каждом проекте "
+                "показывает archmap_projects."
             )
         if resp.status_code == 404:
             raise ArchMapError(f"Не найдено: {_detail(resp)}")
