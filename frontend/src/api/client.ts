@@ -43,11 +43,14 @@ function getToken(): string | null {
   return localStorage.getItem("access_token");
 }
 
-// Запросы к управлению проектами, авторизации и админке скоупом проекта не
-// оборачиваются (они оперируют самими проектами / логином / пользователями); все
-// доменные — оборачиваются.
+// Запросы к управлению проектами, авторизации, админке и списку пользователей
+// скоупом проекта не оборачиваются (они оперируют самими проектами / логином /
+// пользователями); все доменные — оборачиваются.
 function needsProjectScope(path: string): boolean {
-  return !path.startsWith("/projects") && !path.startsWith("/auth") && !path.startsWith("/admin");
+  return (
+    !path.startsWith("/projects") && !path.startsWith("/auth") && !path.startsWith("/admin")
+    && !path.startsWith("/users")
+  );
 }
 
 function buildHeaders(path: string, options: RequestInit): HeadersInit {
