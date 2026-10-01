@@ -4,10 +4,12 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-# Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она.
-# Набор объявлен рядом с моделью участника (там же CHECK в БД).
-from app.models.project_member import ProjectRole
 from app.schemas.node import NodeSource
+
+# Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она. Тот же
+# набор держит CHECK в БД (app/models/project_member.py). Объявлена здесь, а не у
+# модели: схемы не тянут SQLAlchemy (их импортирует MCP-сервер для сверки контракта).
+ProjectRole = Literal["owner", "editor", "reader"]
 
 # Один YAML-документ прогона агента (текст файла). Лимит — защита от «бомбы».
 _ImportDoc = Annotated[str, Field(max_length=2_000_000)]

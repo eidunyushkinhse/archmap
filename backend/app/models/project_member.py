@@ -1,16 +1,15 @@
 import uuid
 from datetime import UTC, datetime
-from typing import Literal
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
-# Роли в проекте (docs/tasks/project-access.md). Права внутри проекта определяет
-# ТОЛЬКО эта роль; глобальная роль architect/viewer решает лишь, можно ли создавать
-# новые проекты. Один источник набора: CHECK в БД, app/access.py и контракт API.
-ProjectRole = Literal["owner", "editor", "reader"]
+# Роли в проекте (docs/tasks/project-access.md): owner, editor, reader. Права внутри
+# проекта определяет ТОЛЬКО эта роль; глобальная роль architect/viewer решает лишь,
+# можно ли создавать новые проекты. Тип набора (ProjectRole) объявлен в контракте
+# app/schemas/project.py, здесь его держит CHECK в БД.
 
 
 class ProjectMember(Base):

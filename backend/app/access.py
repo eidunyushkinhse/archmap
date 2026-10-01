@@ -20,8 +20,9 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Query, Session
 
 from app.models.project import Project
-from app.models.project_member import ProjectMember, ProjectRole
+from app.models.project_member import ProjectMember
 from app.models.user import User
+from app.schemas.project import ProjectRole
 
 # Порядок силы ролей: проверка «не ниже требуемой» — сравнение рангов.
 _RANK: dict[str, int] = {"reader": 0, "editor": 1, "owner": 2}
