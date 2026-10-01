@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.access import add_owner
 from app.channels_import import (
     ChannelIn,
     apply_channels_plan,
@@ -533,6 +534,8 @@ def apply_unified_plan(
     )
     db.add(project)
     db.flush()
+    # Создатель нового проекта — его владелец (docs/tasks/project-access.md).
+    add_owner(db, project.id, user_id)
 
     # ── C4. Карта «индекс плана → узел» — ТОЛЬКО по возврату seed_import: пути
     #    неоднозначны (тёзки в одном родителе), а индекс точен всегда.

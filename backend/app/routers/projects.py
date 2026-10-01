@@ -25,6 +25,7 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.access import add_owner
 from app.auth import get_current_user, require_architect
 from app.database import get_db
 from app.identity import source_ref_dict
@@ -610,7 +611,9 @@ def create_project(
         updated_by_id=user.id,
     )
     db.add(project)
-    db.flush()  # нужен project.id для копии
+    db.flush()  # нужен project.id для копии и строки владельца
+    # Создатель нового проекта — его владелец (docs/tasks/project-access.md).
+    add_owner(db, project.id, user.id)
 
     if start == "blank":
         pass

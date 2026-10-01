@@ -25,6 +25,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.search import (
     SNIPPET_LEN,
@@ -398,8 +399,11 @@ def test_изоляция_проектов(db):
 
 @pytest.fixture()
 def viewer_client(db):
-    """Настоящая аутентификация читателем: поиск — чтение, ему открыт."""
-    db.add(User(id=uuid.uuid4(), username="reader", hashed_password="x", role="viewer"))
+    """Настоящая аутентификация читателем: поиск — чтение, ему открыт. Читатель —
+    участник тестового проекта с ролью reader (без участия проект ему не виден)."""
+    reader = User(id=uuid.uuid4(), username="reader", hashed_password="x", role="viewer")
+    db.add(reader)
+    db.add(ProjectMember(project_id=ensure_project(db).id, user_id=reader.id, role="reader"))
     db.commit()
     app.dependency_overrides[get_db] = lambda: db
     token = create_access_token({"sub": "reader", "role": "viewer"})

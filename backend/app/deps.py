@@ -3,25 +3,74 @@
 get_current_project — скоуп доменных запросов текущим проектом. Идентификатор
 проекта приходит заголовком X-Project-Id (наименее инвазивно для существующих
 роутеров: добавляется один Depends + фильтр по project_id, без path-префикса).
+
+Доступ (docs/tasks/project-access.md): get_current_project пускает только того,
+у кого есть действующая роль в проекте (app/access.py), поэтому ЧТЕНИЕ закрыто во
+всех роутерах проекта одним местом. Запись — require_project_editor, управление
+проектом — require_project_owner. Проекты, адресуемые ПУТЁМ (/projects/{id}/...),
+проверяет project_for с той же логикой.
 """
 
 import uuid
+from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.access import ProjectRole, effective_role, role_at_least
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
+from app.models.user import User
+
+# Недоступный проект неотличим от несуществующего: существование не выдаём.
+PROJECT_NOT_FOUND = "Проект не найден"
+# Отказы тем, кто проект видит, но прав на действие не имеет.
+NOT_EDITOR_DETAIL = "Нет прав на правку этого проекта"
+NOT_OWNER_DETAIL = "Это может только владелец проекта"
 
 
-def get_current_project(
+@dataclass(frozen=True)
+class ProjectAccess:
+    """Проект запроса, пользователь и его действующая роль в этом проекте."""
+
+    project: Project
+    user: User
+    role: ProjectRole
+
+
+def _require_role(role: ProjectRole, need: ProjectRole) -> None:
+    """403, если роли не хватает на действие уровня need (доступ к проекту уже есть)."""
+    if not role_at_least(role, need):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=NOT_OWNER_DETAIL if need == "owner" else NOT_EDITOR_DETAIL,
+        )
+
+
+def project_for(
+    db: Session, user: User, project_id: uuid.UUID, need: ProjectRole = "reader"
+) -> tuple[Project, ProjectRole]:
+    """Проект, адресованный путём, с проверкой прав: 404 — проекта нет или он
+    пользователю не виден, 403 — виден, но роли не хватает на действие need."""
+    project = db.get(Project, project_id)
+    role = effective_role(db, user, project) if project is not None else None
+    if project is None or role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PROJECT_NOT_FOUND)
+    _require_role(role, need)
+    return project, role
+
+
+def get_project_access(
     x_project_id: str | None = Header(default=None, alias="X-Project-Id"),
     db: Session = Depends(get_db),
-) -> Project:
-    """Текущий проект из заголовка X-Project-Id. 400 — нет/битый заголовок,
-    404 — проект не найден, 409 — проект в архиве (работать с архивным нельзя)."""
+    user: User = Depends(get_current_user),
+) -> ProjectAccess:
+    """Текущий проект из заголовка X-Project-Id и роль в нём. 400 — нет/битый
+    заголовок, 404 — проект не найден ИЛИ недоступен, 409 — проект в архиве.
+    Доступ проверяется ДО архива: чужой архивный проект — 404, а не 409."""
     if not x_project_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -34,15 +83,34 @@ def get_current_project(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Некорректный идентификатор проекта",
         ) from None
-    project = db.query(Project).filter(Project.id == pid).first()
-    if project is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Проект не найден")
+    project = db.get(Project, pid)
+    role = effective_role(db, user, project) if project is not None else None
+    if project is None or role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=PROJECT_NOT_FOUND)
     if project.archived_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Проект в архиве — сначала восстановите его",
         )
-    return project
+    return ProjectAccess(project=project, user=user, role=role)
+
+
+def get_current_project(access: ProjectAccess = Depends(get_project_access)) -> Project:
+    """Текущий проект, доступный пользователю хотя бы на чтение."""
+    return access.project
+
+
+def require_project_editor(access: ProjectAccess = Depends(get_project_access)) -> User:
+    """Запись в текущий проект: роль editor или owner. Возвращает пользователя —
+    подменяет прежний require_architect в роутерах проекта один в один."""
+    _require_role(access.role, "editor")
+    return access.user
+
+
+def require_project_owner(access: ProjectAccess = Depends(get_project_access)) -> User:
+    """Управление текущим проектом: только owner (администратор — тоже owner)."""
+    _require_role(access.role, "owner")
+    return access.user
 
 
 def scoped_node(db: Session, node_id: uuid.UUID, project: Project) -> Node | None:
