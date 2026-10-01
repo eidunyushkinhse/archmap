@@ -9,11 +9,10 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.auth import require_architect
 from app.data_import import apply_data_plan, build_data_plan
 from app.data_prompt import build_data_prompt
 from app.database import get_db
-from app.deps import get_current_project, touch_project
+from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
@@ -30,7 +29,7 @@ def data_prompt(
     variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DataPromptOut:
     """Промпт агенту с узлами-БД ЭТОГО проекта: адрес владельца записей слабая
     модель без списка выдумывает, и пакет блокируется целиком (находка QA).
@@ -54,7 +53,7 @@ def data_import_preview(
     payload: DataImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DataImportReport:
     """Dry-run: план без записи."""
     return _plan(db, project, payload, payload.node_id).report
@@ -65,7 +64,7 @@ def data_import_apply(
     payload: DataImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DataImportReport:
     """Применение: план пересчитывается на живом состоянии; при errors не пишем ничего."""
     plan = _plan(db, project, payload, payload.node_id)

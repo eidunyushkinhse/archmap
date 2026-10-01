@@ -4,7 +4,7 @@
 схем логики вызывающих (пивот §9 plan-db-docs.md), а индекс собирается их разбором на
 чтении. Записями хранится только структура — «контракт» узла-базы.
 
-Мутации — только архитектору, чтение — обеим ролям: как у node_docs. Каждая мутация
+Мутации — редактору проекта, чтение — всем с доступом: как у node_docs. Каждая мутация
 бампает meta_rev — структура это МЕТА узла (видна на его странице, не на схеме), и
 поллинг страницы обязан отличать её от изменений схемы (graph_rev).
 
@@ -20,10 +20,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
-from app.deps import get_current_project, scoped_node, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_node,
+    touch_project,
+)
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -188,7 +193,7 @@ def create_table(
     payload: DbTableCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DbTable:
     node = _writable_node(db, node_id, project)
     if _table_taken(db, node.id, payload.schema_name, payload.name, None):
@@ -214,7 +219,7 @@ def update_table(
     payload: DbTableUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DbTable:
     node = _get_node(db, node_id, project)
     table = _scoped_table(db, node, table_id)
@@ -243,7 +248,7 @@ def delete_table(
     table_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = _get_node(db, node_id, project)
     table = _scoped_table(db, node, table_id)
@@ -265,7 +270,7 @@ def create_column(
     payload: DbColumnCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DbColumn:
     node = _get_node(db, node_id, project)
     table = _scoped_table(db, node, table_id)
@@ -288,7 +293,7 @@ def update_column(
     payload: DbColumnUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DbColumn:
     node = _get_node(db, node_id, project)
     table = _scoped_table(db, node, table_id)
@@ -320,7 +325,7 @@ def delete_column(
     column_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = _get_node(db, node_id, project)
     table = _scoped_table(db, node, table_id)

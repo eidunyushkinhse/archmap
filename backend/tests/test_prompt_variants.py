@@ -19,12 +19,12 @@ import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi.testclient import TestClient
 
-from app.auth import require_architect
+from app.auth import get_current_user
 from app.channels_import import edge_channel_minimum
 from app.channels_prompt import build_channels_prompt
 from app.data_prompt import build_data_prompt
 from app.database import get_db
-from app.deps import get_current_project
+from app.deps import get_current_project, require_project_editor
 from app.docs_import import _node_paths
 from app.docs_prompt import build_docs_prompt
 from app.export import build_export
@@ -308,7 +308,8 @@ def клиент(db):
     user = ensure_architect(db)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_project] = lambda: p
-    app.dependency_overrides[require_architect] = lambda: user
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[require_project_editor] = lambda: user
     try:
         yield TestClient(app)
     finally:

@@ -6,7 +6,7 @@
 чужой формой), здесь же наоборот — «канал» без брокера бессмысленен, и правило формы
 энфорсится на ВХОДЕ, а не разбирается потом расхождением (урок находки Х1 №4).
 
-Мутации — только архитектору, чтение — обеим ролям: как у node_docs. Каждая мутация
+Мутации — редактору проекта, чтение — всем с доступом: как у node_docs. Каждая мутация
 бампает meta_rev — структура это МЕТА узла (видна на его странице, не на схеме), и
 поллинг страницы обязан отличать её от изменений схемы (graph_rev).
 
@@ -21,10 +21,15 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
-from app.deps import get_current_project, scoped_node, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_node,
+    touch_project,
+)
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.node import Node
@@ -206,7 +211,7 @@ def create_channel(
     payload: BrokerChannelCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> BrokerChannel:
     node = _broker_node(db, node_id, project)
     if _channel_taken(db, node.id, payload.group_name, payload.name, None):
@@ -227,7 +232,7 @@ def update_channel(
     payload: BrokerChannelUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> BrokerChannel:
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
@@ -256,7 +261,7 @@ def delete_channel(
     channel_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
@@ -280,7 +285,7 @@ def create_field(
     payload: ChannelFieldCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ChannelField:
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
@@ -303,7 +308,7 @@ def update_field(
     payload: ChannelFieldUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ChannelField:
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
@@ -333,7 +338,7 @@ def delete_field(
     field_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)

@@ -6,10 +6,15 @@ from sqlalchemy.orm import Session
 
 from app import identity, reparent, restore, tree
 from app.alerts import compute_alerts
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.context_graph import build_context_graph
 from app.database import get_db
-from app.deps import get_current_project, scoped_node, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_node,
+    touch_project,
+)
 from app.graph_queries import build_graph, project_has_status_info
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -92,7 +97,7 @@ def create_node(
     payload: NodeCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> Node:
     if payload.parent_id:
         parent = scoped_node(db, payload.parent_id, project)
@@ -134,7 +139,7 @@ def restore_nodes(
     snapshot: DeletionSnapshot,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     """Восстановить удалённое поддерево из снимка (Undo удаления).
 
@@ -250,7 +255,7 @@ def get_root_graph(
 def transition_preview(
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> TransitionPreviewOut:
     """Что произойдёт при принятии перехода (новое → существующее, выводимое →
     удалить). Ничего не записывает."""
@@ -274,7 +279,7 @@ def transition_apply(
     payload: TransitionApplyIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> TransitionApplyOut:
     """Принять переход. План ПЕРЕСЧИТЫВАЕТСЯ здесь — клиентскому не доверяем; при
     расхождении курсора схемы отказываем, а не пишем вслепую."""
@@ -316,9 +321,9 @@ def _transition_node(n: Node, paths: dict[uuid.UUID, str]) -> TransitionNodeOut:
 def get_alerts(
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> AlertsResponse:
-    """Глобальные алерты незавершённости схемы (только архитектор):
+    """Глобальные алерты незавершённости схемы (только редактор проекта):
     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
     2) связи, у которых хотя бы один конец упирается в промежуточный
        (контейнерный) узел, а не в атомарный;
@@ -450,7 +455,7 @@ def update_node(
     payload: NodeUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> Node:
     node = scoped_node(db, node_id, project)
     if not node:
@@ -518,7 +523,7 @@ def get_move_snapshot(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DeletionSnapshot:
     """Снимок раскладки, которую снимет перенос узла на другой уровень.
 
@@ -537,7 +542,7 @@ def get_deletion_snapshot(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DeletionSnapshot:
     """Снимок всего, что снесёт удаление узла (поддерево + рёбра + ghost-метаданные).
 
@@ -553,7 +558,7 @@ def delete_node(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = scoped_node(db, node_id, project)
     if not node:
@@ -767,7 +772,7 @@ def _clear_level_layout(
 def relayout_root_level(
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> None:
     """«Переразложить» корневой уровень: позиции корневых узлов → авто (ELK)."""
     _clear_level_layout(db, None, project)
@@ -781,7 +786,7 @@ def relayout_level(
     container_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> None:
     """«Переразложить уровень»: весь ручной layout уровня container_id → авто."""
     if not scoped_node(db, container_id, project):
@@ -797,7 +802,7 @@ def relayout_context(
     node_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> None:
     """«Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
     (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние

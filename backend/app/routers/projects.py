@@ -1,9 +1,16 @@
 """API проектов: /api/v1/projects.
 
 Управление изолированными схемами: список с метаданными (счётчики объектов/связей,
-кто и когда менял), создание (пустой / шаблон / копия), переименование, мягкое
-архивирование/восстановление и необратимое удаление. Доменные данные эти эндпоинты
-НЕ скоупят через X-Project-Id — они оперируют самими проектами.
+кто и когда менял), создание (пустой / копия), переименование, мягкое
+архивирование/восстановление и необратимое удаление, участники и передача владения.
+Доменные данные эти эндпоинты НЕ скоупят через X-Project-Id — они оперируют самими
+проектами, адресуя их путём.
+
+Доступ (docs/tasks/project-access.md): проект проверяется project_for по
+действующей роли в нём. Чтение — любой роли, правка схемы (синк, догрузка) —
+редактору, управление проектом (PATCH, архив, восстановление, удаление, участники,
+передача владения) — владельцу. Глобальная роль architect нужна только для
+СОЗДАНИЯ проекта.
 """
 
 import json
@@ -25,15 +32,25 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.access import add_owner
+from app.access import (
+    add_owner,
+    effective_role,
+    effective_roles,
+    owner_member,
+    owner_usernames,
+    transfer_ownership,
+    visible_projects,
+)
 from app.auth import get_current_user, require_architect
 from app.database import get_db
+from app.deps import project_for
 from app.identity import source_ref_dict
 from app.import_merge import parse_and_merge
 from app.import_prompt import build_import_prompt
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.projects import copy_project_schema
@@ -42,10 +59,13 @@ from app.schemas.node import NodeSource
 from app.schemas.project import (
     ImportPromptOut,
     ProjectCreate,
+    ProjectMemberIn,
+    ProjectMemberOut,
     ProjectPreview,
     ProjectPreviewEdge,
     ProjectPreviewNode,
     ProjectResponse,
+    ProjectTransferIn,
     ProjectUpdate,
     SyncApplyIn,
     SyncApplyOut,
@@ -196,27 +216,6 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
     return out
 
 
-def _to_response(
-    p: Project,
-    node_counts: dict,
-    edge_counts: dict,
-    users: dict,
-    previews: dict[uuid.UUID, ProjectPreview],
-) -> ProjectResponse:
-    return ProjectResponse(
-        id=p.id,
-        name=p.name,
-        description=p.description,
-        archived_at=p.archived_at,
-        created_at=p.created_at,
-        updated_at=p.updated_at,
-        object_count=node_counts.get(p.id, 0),
-        edge_count=edge_counts.get(p.id, 0),
-        updated_by=users.get(p.updated_by_id) if p.updated_by_id else None,
-        preview=previews.get(p.id) or ProjectPreview(nodes=[], edges=[]),
-    )
-
-
 def _users_map(db: Session, projects: list[Project]) -> dict[uuid.UUID, str]:
     """id → username для редакторов проектов (одним запросом)."""
     ids = {p.updated_by_id for p in projects if p.updated_by_id is not None}
@@ -225,21 +224,60 @@ def _users_map(db: Session, projects: list[Project]) -> dict[uuid.UUID, str]:
     return {u.id: u.username for u in db.query(User).filter(User.id.in_(ids)).all()}
 
 
-@router.get("", response_model=list[ProjectResponse])
-def list_projects(
-    archived: bool = False,
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-) -> list[ProjectResponse]:
-    """Список проектов: активные (archived=false) или архив, сорт. по дате изменения."""
-    q = db.query(Project)
-    q = q.filter(Project.archived_at.isnot(None)) if archived else q.filter(Project.archived_at.is_(None))
-    projects = q.order_by(Project.updated_at.desc()).all()
+def _responses(db: Session, user: User, projects: list[Project]) -> list[ProjectResponse]:
+    """Карточки проектов глазами пользователя: счётчики, превью, кто менял, владелец
+    и действующая роль — всё батчем, без N+1. Проекты сюда приходят уже доступные
+    (роль не None): список фильтруется запросом, одиночные — через project_for."""
     ids = [p.id for p in projects]
     nc, ec = _counts(db, ids)
     users = _users_map(db, projects)
     previews = _previews(db, ids)
-    return [_to_response(p, nc, ec, users, previews) for p in projects]
+    roles = effective_roles(db, user, projects)
+    owners = owner_usernames(db, ids)
+    out: list[ProjectResponse] = []
+    for p in projects:
+        role = roles.get(p.id)
+        if role is None:  # недоступный проект в выдачу не попадает (страховка)
+            continue
+        out.append(
+            ProjectResponse(
+                id=p.id,
+                name=p.name,
+                description=p.description,
+                archived_at=p.archived_at,
+                created_at=p.created_at,
+                updated_at=p.updated_at,
+                object_count=nc.get(p.id, 0),
+                edge_count=ec.get(p.id, 0),
+                updated_by=users.get(p.updated_by_id) if p.updated_by_id else None,
+                preview=previews.get(p.id) or ProjectPreview(nodes=[], edges=[]),
+                my_role=role,
+                owner_username=owners.get(p.id),
+                visible_to_all=p.visible_to_all,
+            )
+        )
+    return out
+
+
+def _response(db: Session, user: User, p: Project) -> ProjectResponse:
+    """Одна карточка проекта (см. _responses)."""
+    [one] = _responses(db, user, [p])
+    return one
+
+
+@router.get("", response_model=list[ProjectResponse])
+def list_projects(
+    archived: bool = False,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ProjectResponse]:
+    """Список проектов: активные (archived=false) или архив, сорт. по дате изменения.
+    Только доступные пользователю: где он участник и видимые всем; администратору —
+    все (в обеих вкладках)."""
+    q = visible_projects(db.query(Project), user)
+    q = q.filter(Project.archived_at.isnot(None)) if archived else q.filter(Project.archived_at.is_(None))
+    projects = q.order_by(Project.updated_at.desc()).all()
+    return _responses(db, user, projects)
 
 
 # ⚠️ Статические пути — ДО параметрического GET /{project_id}, иначе он их перехватит
@@ -251,7 +289,7 @@ def import_prompt(
     lang: Literal["ru", "en"] = "ru",
     hints: str | None = Query(default=None, max_length=2_000),
     variant: PromptVariant = "builder",
-    _user: User = Depends(require_architect),
+    _user: User = Depends(get_current_user),
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
     один и тот же промпт запускается в каждом репозитории системы, YAML-ответы
@@ -260,7 +298,11 @@ def import_prompt(
     variant — что отдать кнопке: строительный промпт (дефолт, байт-в-байт прежний —
     на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
-    одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06)."""
+    одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
+
+    Любому вошедшему: это текст без данных, а нужен он и созданию проекта
+    (глобальная роль architect), и синку в существующий проект (редактор проекта,
+    который может быть viewer глобально)."""
     return ImportPromptOut(
         prompt=prompt_for_variant(
             variant,
@@ -363,7 +405,7 @@ async def import_archive_preview(
     project_id: uuid.UUID,
     files: list[UploadFile] = File(default=[]),
     db: Session = Depends(get_db),
-    _user: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> IntoPreviewOut:
     """Dry-run ДОГРУЗКИ архивов к живому проекту (Ф3, docs/plan-unified-import.md):
     что появится и о чём придётся выбрать. БД не пишем.
@@ -372,9 +414,7 @@ async def import_archive_preview(
     сравнение «живое vs привозное» делает то же ядро, что и федерацию архивов.
     Только zip: YAML в существующий проект заливается синком («Импорт схемы») —
     это другая механика, и подменять её мерджем нельзя."""
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project, _ = project_for(db, user, project_id, need="editor")
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
@@ -394,7 +434,7 @@ async def import_archive_apply(
     base_graph_rev: int | None = Form(default=None),
     base_meta_rev: int | None = Form(default=None),
     db: Session = Depends(get_db),
-    user: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> IntoApplyOut:
     """Применить догрузку к живому проекту.
 
@@ -410,9 +450,7 @@ async def import_archive_apply(
 
     Аддитивность: живая запись перетирается ТОЛЬКО там, где пользователь явно
     выбрал архивного кандидата; ничего никогда не удаляется."""
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project, _ = project_for(db, user, project_id, need="editor")
     if (base_graph_rev is not None and base_graph_rev != project.graph_rev) or (
         base_meta_rev is not None and base_meta_rev != project.meta_rev
     ):
@@ -452,7 +490,7 @@ def sync_preview(
     project_id: uuid.UUID,
     payload: SyncPreviewIn,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> SyncPreviewOut:
     """Dry-run синхронизации ЖИВОГО проекта со свежим прогоном агента: что
     изменится, если применить. БД не пишем (применение — отдельным вызовом).
@@ -461,9 +499,7 @@ def sync_preview(
     ошибки разбора и предупреждения слияния возвращаются в той же форме — фронт
     показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
     синк адресует конкретный проект, а не «текущий» сеанса."""
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project, _ = project_for(db, user, project_id, need="editor")
 
     merged, report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
@@ -522,7 +558,7 @@ def sync_apply(
     project_id: uuid.UUID,
     payload: SyncApplyIn,
     db: Session = Depends(get_db),
-    _user: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> SyncApplyOut:
     """Применить прогон агента к живому проекту.
 
@@ -534,9 +570,7 @@ def sync_apply(
 
     НЕ ТРОГАЕМ: схемы логики, OpenAPI-спеки, раскладку и бизнес-процессы —
     ради этого синк и существует. Удаления нет ни в каком режиме."""
-    project = db.get(Project, project_id)
-    if project is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    project, _ = project_for(db, user, project_id, need="editor")
     if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
         raise HTTPException(
             status_code=409,
@@ -563,7 +597,7 @@ def sync_apply(
     )
     report = apply_sync_plan(db, project, merged, plan)
     project.updated_at = datetime.now(UTC)
-    project.updated_by_id = _user.id
+    project.updated_by_id = user.id
     db.commit()
     return SyncApplyOut(
         created_nodes=report.created_nodes,
@@ -579,13 +613,10 @@ def sync_apply(
 def get_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    p = db.get(Project, project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
-    nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
+    p, _ = project_for(db, user, project_id)
+    return _response(db, user, p)
 
 
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
@@ -600,8 +631,26 @@ def create_project(
     теперь это «Неизвестный способ старта», 400.
 
     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
-    (multipart, YAML и архивы вперемешку)."""
+    (multipart, YAML и архивы вперемешку).
+
+    Создатель становится владельцем. Копировать можно только проект, который
+    пользователь видит: недоступный источник неотличим от несуществующего (404)."""
     start = payload.start or "blank"
+
+    # Способ старта проверяется ДО создания строки: отказ не оставляет следов.
+    src_id: uuid.UUID | None = None
+    if start == "blank":
+        pass
+    elif start.startswith("copy:"):
+        try:
+            src_id = uuid.UUID(start.split(":", 1)[1])
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Некорректный источник копии") from None
+        src = db.get(Project, src_id)
+        if src is None or effective_role(db, user, src) is None:
+            raise HTTPException(status_code=404, detail="Исходный проект не найден")
+    else:
+        raise HTTPException(status_code=400, detail="Неизвестный способ старта проекта")
 
     project = Project(
         id=uuid.uuid4(),
@@ -612,27 +661,13 @@ def create_project(
     )
     db.add(project)
     db.flush()  # нужен project.id для копии и строки владельца
-    # Создатель нового проекта — его владелец (docs/tasks/project-access.md).
     add_owner(db, project.id, user.id)
-
-    if start == "blank":
-        pass
-    elif start.startswith("copy:"):
-        try:
-            src_id = uuid.UUID(start.split(":", 1)[1])
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Некорректный источник копии") from None
-        src = db.get(Project, src_id)
-        if src is None:
-            raise HTTPException(status_code=404, detail="Исходный проект не найден")
+    if src_id is not None:
         copy_project_schema(db, src_id, project.id)
-    else:
-        raise HTTPException(status_code=400, detail="Неизвестный способ старта проекта")
 
     db.commit()
     db.refresh(project)
-    nc, ec = _counts(db, [project.id])
-    return _to_response(project, nc, ec, _users_map(db, [project]), _previews(db, [project.id]))
+    return _response(db, user, project)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
@@ -640,55 +675,50 @@ def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    p = db.get(Project, project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    """Имя, описание и «Виден всем пользователям» — только владелец."""
+    p, _ = project_for(db, user, project_id, need="owner")
     data = payload.model_dump(exclude_unset=True)
+    # null у NOT NULL-полей (имя, видимость) — «не менять», а не 500 на коммите;
+    # описание обнуляется законно.
+    data = {k: v for k, v in data.items() if v is not None or k == "description"}
     for field, value in data.items():
         setattr(p, field, value)
     if data:
         p.updated_by_id = user.id
     db.commit()
     db.refresh(p)
-    nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
+    return _response(db, user, p)
 
 
 @router.post("/{project_id}/archive", response_model=ProjectResponse)
 def archive_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    """Мягкое удаление: проставляем archived_at. Данные сохраняются."""
-    p = db.get(Project, project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    """Мягкое удаление: проставляем archived_at. Данные сохраняются. Только владелец."""
+    p, _ = project_for(db, user, project_id, need="owner")
     if p.archived_at is None:
         p.archived_at = datetime.now(UTC)
         db.commit()
         db.refresh(p)
-    nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
+    return _response(db, user, p)
 
 
 @router.post("/{project_id}/restore", response_model=ProjectResponse)
 def restore_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    """Вернуть из архива: archived_at = null."""
-    p = db.get(Project, project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    """Вернуть из архива: archived_at = null. Только владелец."""
+    p, _ = project_for(db, user, project_id, need="owner")
     p.archived_at = None
     db.commit()
     db.refresh(p)
-    nc, ec = _counts(db, [p.id])
-    return _to_response(p, nc, ec, _users_map(db, [p]), _previews(db, [p.id]))
+    return _response(db, user, p)
 
 
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -696,16 +726,133 @@ def delete_project(
     project_id: uuid.UUID,
     confirm: str = "",
     db: Session = Depends(get_db),
-    _: User = Depends(require_architect),
+    user: User = Depends(get_current_user),
 ) -> None:
-    """Необратимое удаление со всей схемой (БД-каскад). Разрешено только из архива
-    и с ?confirm=<точное имя проекта> — двойная защита от случайного сноса."""
-    p = db.get(Project, project_id)
-    if p is None:
-        raise HTTPException(status_code=404, detail="Проект не найден")
+    """Необратимое удаление со всей схемой (БД-каскад). Разрешено только владельцу,
+    только из архива и с ?confirm=<точное имя проекта> — двойная защита от
+    случайного сноса."""
+    p, _ = project_for(db, user, project_id, need="owner")
     if p.archived_at is None:
         raise HTTPException(status_code=409, detail="Сначала отправьте проект в архив")
     if confirm != p.name:
         raise HTTPException(status_code=400, detail="Подтвердите удаление точным именем проекта")
     db.delete(p)  # каскад сносит узлы/связи/процессы и раскладку
     db.commit()
+
+
+# ── Участники и владение (docs/tasks/project-access.md) ──────────────────────
+
+
+def _member_out(db: Session, project_id: uuid.UUID, user_id: uuid.UUID) -> ProjectMemberOut:
+    row = (
+        db.query(ProjectMember, User.username)
+        .join(User, User.id == ProjectMember.user_id)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .one()
+    )
+    member, username = row
+    return ProjectMemberOut(user_id=member.user_id, username=username, role=member.role)
+
+
+@router.get("/{project_id}/members", response_model=list[ProjectMemberOut])
+def list_members(
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[ProjectMemberOut]:
+    """Участники проекта: логин и роль. Видят все, у кого есть доступ к проекту.
+    Владелец первым, дальше по алфавиту логина."""
+    project_for(db, user, project_id)
+    rows = (
+        db.query(ProjectMember, User.username)
+        .join(User, User.id == ProjectMember.user_id)
+        .filter(ProjectMember.project_id == project_id)
+        .all()
+    )
+    rows.sort(key=lambda r: (r[0].role != "owner", r[1].lower()))
+    return [
+        ProjectMemberOut(user_id=m.user_id, username=username, role=m.role)
+        for m, username in rows
+    ]
+
+
+@router.put("/{project_id}/members/{user_id}", response_model=ProjectMemberOut)
+def put_member(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    payload: ProjectMemberIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectMemberOut:
+    """Добавить участника или сменить ему роль (editor/reader). Только владелец.
+    Владелец так не понижается: его роль меняет только передача владения."""
+    project_for(db, user, project_id, need="owner")
+    target = db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    member = db.get(ProjectMember, (project_id, user_id))
+    if member is None:
+        if not target.is_active:
+            raise HTTPException(
+                status_code=409, detail="Пользователь заблокирован, добавить его нельзя"
+            )
+        db.add(ProjectMember(project_id=project_id, user_id=user_id, role=payload.role))
+    elif member.role == "owner":
+        raise HTTPException(
+            status_code=409,
+            detail="Роль владельца не меняется. Чтобы сменить владельца, передайте владение",
+        )
+    else:
+        member.role = payload.role
+    db.commit()
+    return _member_out(db, project_id, user_id)
+
+
+@router.delete("/{project_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_member(
+    project_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Убрать участника из проекта. Только владелец; самого владельца убрать нельзя.
+    Если проект виден всем, убранный участник остаётся с чтением."""
+    project_for(db, user, project_id, need="owner")
+    member = db.get(ProjectMember, (project_id, user_id))
+    if member is None:
+        raise HTTPException(status_code=404, detail="Участник не найден")
+    if member.role == "owner":
+        raise HTTPException(
+            status_code=409,
+            detail="Владельца нельзя убрать из проекта. Сначала передайте владение",
+        )
+    db.delete(member)
+    db.commit()
+
+
+@router.post("/{project_id}/transfer", response_model=ProjectResponse)
+def transfer_project(
+    project_id: uuid.UUID,
+    payload: ProjectTransferIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ProjectResponse:
+    """Передать владение другому активному пользователю. Только владелец
+    (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
+    прежний остаётся редактором. Ответ — карточка проекта глазами того, кто
+    передавал: его my_role после передачи уже editor."""
+    p, _ = project_for(db, user, project_id, need="owner")
+    target = db.get(User, payload.user_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if not target.is_active:
+        raise HTTPException(
+            status_code=409, detail="Пользователь заблокирован, передать ему проект нельзя"
+        )
+    current = owner_member(db, project_id)
+    if current is not None and current.user_id == target.id:
+        raise HTTPException(status_code=409, detail="Этот пользователь уже владелец проекта")
+    transfer_ownership(db, project_id, target.id)
+    db.commit()
+    db.refresh(p)
+    return _response(db, user, p)

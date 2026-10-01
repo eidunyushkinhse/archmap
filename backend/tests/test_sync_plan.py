@@ -275,7 +275,7 @@ def test_sync_preview_endpoint(db):
     user = ensure_architect(db)
     p = seed_project_from_yaml(db, [RUN])
 
-    same = sync_preview(p.id, SyncPreviewIn(contents=[RUN]), db=db, _user=user)
+    same = sync_preview(p.id, SyncPreviewIn(contents=[RUN]), db=db, user=user)
     assert same.ok and same.is_noop
     assert same.summary == {"nodes_unchanged": 4, "edges_unchanged": 2}
 
@@ -283,7 +283,7 @@ def test_sync_preview_endpoint(db):
         "edges:",
         "      - name: cache\n        source: {host: cache}\nedges:\n  - {from: payments, to: cache, label: кэширует}",
     )
-    plan = sync_preview(p.id, SyncPreviewIn(contents=[grown]), db=db, _user=user)
+    plan = sync_preview(p.id, SyncPreviewIn(contents=[grown]), db=db, user=user)
     assert plan.ok and not plan.is_noop
     assert [a.path for a in plan.nodes if a.action == "create"] == ["Система / cache"]
     assert plan.summary["edges_create"] == 1
@@ -311,13 +311,13 @@ def test_sync_preview_broken_yaml_and_404(db):
     user = ensure_architect(db)
     p = seed_project_from_yaml(db, [RUN], name="Проект")
 
-    bad = sync_preview(p.id, SyncPreviewIn(contents=["nodes: [oops"]), db=db, _user=user)
+    bad = sync_preview(p.id, SyncPreviewIn(contents=["nodes: [oops"]), db=db, user=user)
     assert not bad.ok and bad.errors and bad.nodes == []
 
     import pytest
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc:
-        sync_preview(uuid.uuid4(), SyncPreviewIn(contents=[RUN]), db=db, _user=user)
+        sync_preview(uuid.uuid4(), SyncPreviewIn(contents=[RUN]), db=db, user=user)
     assert exc.value.status_code == 404
 
 

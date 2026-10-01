@@ -4,9 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app import restore
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.database import get_db
-from app.deps import get_current_project, scoped_edge, scoped_node, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_edge,
+    scoped_node,
+    touch_project,
+)
 from app.models.edge import Edge
 from app.models.project import Project
 from app.models.user import User
@@ -31,7 +37,7 @@ def create_edge(
     payload: EdgeCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> Edge:
     for node_id in (payload.source_id, payload.target_id):
         if not scoped_node(db, node_id, project):
@@ -65,7 +71,7 @@ def update_edge(
     payload: EdgeUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> Edge:
     edge = scoped_edge(db, edge_id, project)
     if not edge:
@@ -103,7 +109,7 @@ def edge_deletion_snapshot(
     edge_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DeletionSnapshot:
     """Снимок связи для отката удаления/создания (Undo).
 
@@ -122,7 +128,7 @@ def delete_edge(
     edge_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     edge = scoped_edge(db, edge_id, project)
     if not edge:

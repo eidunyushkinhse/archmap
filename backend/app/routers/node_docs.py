@@ -1,6 +1,6 @@
 """CRUD именованных схем логики узла (node_docs, этап 1 plan-agent-docs.md).
 
-Мутации — только архитектору; чтение — обеим ролям (наблюдатель смотрит доки в
+Мутации — редактору проекта; чтение — всем с доступом (читатель смотрит доки в
 оверлее). Каждая мутация бампает meta_rev: доки — МЕТА узла (видны на странице
 объекта, не на схеме), поллинг страницы отличает их от изменений схемы
 (graph_rev). PATCH под optimistic CAS — паттерн update_node (устаревший
@@ -13,9 +13,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.database import get_db
-from app.deps import get_current_project, scoped_node, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_node,
+    touch_project,
+)
 from app.models.business_process import BusinessProcess
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -172,7 +177,7 @@ def create_doc(
     payload: NodeDocCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> NodeDoc:
     node = _get_node(db, node_id, project)
     if _name_taken(db, node.id, payload.name, None):
@@ -199,7 +204,7 @@ def update_doc(
     payload: NodeDocUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> NodeDoc:
     node = _get_node(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id, body=True)
@@ -228,7 +233,7 @@ def delete_doc(
     doc_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     node = _get_node(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id)
@@ -244,7 +249,7 @@ def distribute_docs(
     payload: DistributeDocsIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DistributeDocsOut:
     """«Распределить по детям» (правила контейнеров, grandfather): переносит
     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
