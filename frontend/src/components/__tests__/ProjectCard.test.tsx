@@ -1,5 +1,5 @@
-// Карточка проекта на лендинге: пункты меню ⋯ по роли в проекте и метка
-// «Только чтение» у читателя (меню ⋯ у него нет). Глобальная роль здесь ни при чём.
+// Карточка проекта на лендинге: пункты меню ⋯ по роли в проекте (у читателя меню
+// нет). Глобальная роль здесь ни при чём.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
@@ -53,20 +53,5 @@ describe("ProjectCard: меню по роли в проекте", () => {
     await пункты("editor");
     await userEvent.click(screen.getByRole("button", { name: "Доступ" }));
     expect(колбэки.onAccess).toHaveBeenCalledOnce();
-  });
-});
-
-describe("ProjectCard: метка «Только чтение»", () => {
-  it("есть у читателя", () => {
-    render(<ProjectCard project={проект("reader")} archivedTab={false} {...колбэки} />);
-    expect(screen.getByText("Только чтение")).toBeInTheDocument();
-  });
-
-  it("нет у редактора и владельца", () => {
-    const { unmount } = render(<ProjectCard project={проект("editor")} archivedTab={false} {...колбэки} />);
-    expect(screen.queryByText("Только чтение")).not.toBeInTheDocument();
-    unmount();
-    render(<ProjectCard project={проект("owner")} archivedTab={false} {...колбэки} />);
-    expect(screen.queryByText("Только чтение")).not.toBeInTheDocument();
   });
 });

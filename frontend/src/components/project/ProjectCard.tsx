@@ -8,7 +8,7 @@ import SchemaPreview from "./SchemaPreview";
  * меню ⋯. Меню — редактору и владельцу: «Открыть» и «Доступ» обоим, управление
  * проектом (редактировать, архив, восстановить, удалить) — только владельцу.
  * Читателю состав участников не показываем, а без «Доступа» в меню остался бы один
- * пункт «Открыть» — поэтому у читателя меню ⋯ нет вовсе, только метка «Только чтение».
+ * пункт «Открыть» — поэтому у читателя меню ⋯ нет вовсе (и меток роли тоже нет).
  */
 export default function ProjectCard({
   project, archivedTab, onOpen, onAccess, onEdit, onArchive, onRestore, onDelete,
@@ -45,10 +45,7 @@ export default function ProjectCard({
         />}
       </div>
       <button style={cardBody} onClick={onOpen}>
-        <div style={cardNameRow}>
-          <span style={cardName}>{project.name}</span>
-          {project.my_role === "reader" && <span style={readOnlyTag}>Только чтение</span>}
-        </div>
+        <div style={cardName}>{project.name}</div>
         <div style={cardDesc}>{project.description || "Без описания"}</div>
       </button>
       <div style={cardFooter}>
@@ -172,10 +169,7 @@ const cardBody: CSSProperties = {
   display: "block", width: "100%", textAlign: "left", padding: "2px 14px 10px",
   background: "none", border: "none", cursor: "pointer",
 };
-const cardNameRow: CSSProperties = { display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 };
-const cardName: CSSProperties = { fontSize: 15.5, fontWeight: 700, color: "#0f172a", minWidth: 0 };
-// Тихая метка «Только чтение» у проектов, где пользователь читатель.
-const readOnlyTag: CSSProperties = { flex: "none", fontSize: 11.5, fontWeight: 500, color: "#94a3b8" };
+const cardName: CSSProperties = { fontSize: 15.5, fontWeight: 700, color: "#0f172a", marginBottom: 3 };
 const cardDesc: CSSProperties = {
   fontSize: 13, color: "#64748b", lineHeight: 1.4, display: "-webkit-box",
   WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", minHeight: 36,
