@@ -31,6 +31,18 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    # Гость демо-стенда (docs/tasks/demo-mode.md): учётка заводится кнопкой
+    # «Попробовать без регистрации», пароль случайный и никому не показывается.
+    # Гость живёт, пока активен: уборка app/demo.py удаляет его вместе с проектами
+    # после суток бездействия.
+    is_guest: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Последний запрос гостя (обновляется не чаще раза в минуту). По нему уборка
+    # решает, жива ли песочница. У обычных пользователей не ведётся.
+    last_active_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

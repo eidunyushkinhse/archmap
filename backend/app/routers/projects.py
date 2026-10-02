@@ -32,6 +32,7 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app import demo
 from app.access import (
     add_owner,
     effective_role,
@@ -385,6 +386,7 @@ async def import_project_unified(
     передавать — тогда они приедут из манифеста (П3)."""
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
+    demo.check_guest_can_create(db, user)
     chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
     try:
@@ -636,6 +638,8 @@ def create_project(
     Создатель становится владельцем. Копировать можно только проект, который
     пользователь видит: недоступный источник неотличим от несуществующего (404)."""
     start = payload.start or "blank"
+    # Гость демо-стенда держит не больше двух своих проектов (docs/tasks/demo-mode.md).
+    demo.check_guest_can_create(db, user)
 
     # Способ старта проверяется ДО создания строки: отказ не оставляет следов.
     src_id: uuid.UUID | None = None
@@ -677,9 +681,12 @@ def update_project(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> ProjectResponse:
-    """Имя, описание и «Виден всем пользователям» — только владелец."""
+    """Имя, описание и «Виден всем пользователям» — только владелец. Гостю демо-стенда
+    открывать проект всем нельзя: 403."""
     p, _ = project_for(db, user, project_id, need="owner")
     data = payload.model_dump(exclude_unset=True)
+    if data.get("visible_to_all"):
+        demo.deny_guest(user)
     # null у NOT NULL-полей (имя, видимость) — «не менять», а не 500 на коммите;
     # описание обнуляется законно.
     data = {k: v for k, v in data.items() if v is not None or k == "description"}
@@ -763,6 +770,7 @@ def list_members(
     """Участники проекта: логин и роль. Видят редактор и владелец; читателю состав
     проекта не показываем (решение пользователя 2026-10-02) — 403.
     Владелец первым, дальше по алфавиту логина."""
+    demo.deny_guest(user)  # гость демо-стенда не делится песочницей
     project_for(db, user, project_id, need="editor")
     rows = (
         db.query(ProjectMember, User.username)
@@ -787,6 +795,7 @@ def put_member(
 ) -> ProjectMemberOut:
     """Добавить участника или сменить ему роль (editor/reader). Только владелец.
     Владелец так не понижается: его роль меняет только передача владения."""
+    demo.deny_guest(user)  # гость демо-стенда не делится песочницей
     project_for(db, user, project_id, need="owner")
     target = db.get(User, user_id)
     if target is None:
@@ -818,6 +827,7 @@ def delete_member(
 ) -> None:
     """Убрать участника из проекта. Только владелец; самого владельца убрать нельзя.
     Если проект виден всем, убранный участник остаётся с чтением."""
+    demo.deny_guest(user)  # гость демо-стенда не делится песочницей
     project_for(db, user, project_id, need="owner")
     member = db.get(ProjectMember, (project_id, user_id))
     if member is None:
@@ -842,6 +852,7 @@ def transfer_project(
     (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
     прежний остаётся редактором. Ответ — карточка проекта глазами того, кто
     передавал: его my_role после передачи уже editor."""
+    demo.deny_guest(user)  # гость демо-стенда не делится песочницей
     p, _ = project_for(db, user, project_id, need="owner")
     target = db.get(User, payload.user_id)
     if target is None:

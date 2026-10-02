@@ -41,7 +41,7 @@ const petr = user("petr", { is_active: false });
 
 async function setup(list: AdminUser[]) {
   vi.mocked(adminApi.list).mockResolvedValue(list);
-  vi.mocked(fetchMe).mockResolvedValue({ id: boss.id, username: "boss", role: "architect", is_admin: true });
+  vi.mocked(fetchMe).mockResolvedValue({ id: boss.id, username: "boss", role: "architect", is_admin: true, is_guest: false, can_create_project: true });
   const props = { onAllProjects: vi.fn(), onLogout: vi.fn() };
   render(<UsersPage {...props} />);
   await screen.findByTestId("user-row-boss");
@@ -85,7 +85,7 @@ describe("UsersPage", () => {
     // Список глазами админа, которого уже разжаловали в другой вкладке: активный
     // админ один, и это не он сам.
     vi.mocked(adminApi.list).mockResolvedValue([olga, user("boss", { role: "architect" })]);
-    vi.mocked(fetchMe).mockResolvedValue({ id: boss.id, username: "boss", role: "architect", is_admin: false });
+    vi.mocked(fetchMe).mockResolvedValue({ id: boss.id, username: "boss", role: "architect", is_admin: false, is_guest: false, can_create_project: true });
     render(<UsersPage onAllProjects={vi.fn()} onLogout={vi.fn()} />);
     await screen.findByTestId("user-row-olga");
     const block = row("olga").getByRole("button", { name: "Заблокировать" });
@@ -176,7 +176,7 @@ describe("UsersPage", () => {
 
   it("неадмину — текст отказа бэка", async () => {
     vi.mocked(adminApi.list).mockRejectedValue(new Error("Требуются права администратора"));
-    vi.mocked(fetchMe).mockResolvedValue({ id: "u-x", username: "x", role: "viewer", is_admin: false });
+    vi.mocked(fetchMe).mockResolvedValue({ id: "u-x", username: "x", role: "viewer", is_admin: false, is_guest: false, can_create_project: false });
     render(<UsersPage onAllProjects={vi.fn()} onLogout={vi.fn()} />);
     expect(await screen.findByText("Требуются права администратора")).toBeInTheDocument();
   });

@@ -13,15 +13,25 @@
 блокировку (это путь восстановления доступа, когда админов не осталось), а пароль
 не трогает, пока не передан --reset-password. Роль существующего меняется, только
 если --role передан явно.
+
+Демо-стенд (docs/tasks/demo-mode.md) администрируется тоже отсюда:
+
+    ./venv/bin/python -m app.admin demo-cleanup [--idle-hours 24]
+    ./venv/bin/python -m app.admin demo-stats
+
+demo-cleanup сразу убирает песочницы гостей без активности дольше срока (то же
+делает фоновая уборка приложения раз в 10 минут), demo-stats печатает сводку.
 """
 
 import argparse
 import getpass
 import sys
 from collections.abc import Callable
+from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
 
+from app import demo
 from app.auth import hash_password, password_problem
 from app.database import SessionLocal
 from app.models.user import User
@@ -96,6 +106,36 @@ def create_admin(
     return ", ".join(parts) + "."
 
 
+def demo_cleanup(db: Session, idle_hours: float = 24.0) -> str:
+    """Убрать просроченные песочницы демо-стенда сейчас. Итог для консоли."""
+    if idle_hours < 0:
+        raise AdminCommandError("Срок бездействия не может быть отрицательным")
+    report = demo.cleanup_sandboxes(db, idle=timedelta(hours=idle_hours))
+    return f"Убрано песочниц: {report.guests}, проектов: {report.projects}."
+
+
+def _when(moment: datetime | None) -> str:
+    return moment.strftime("%Y-%m-%d %H:%M") if moment is not None else "—"
+
+
+def demo_stats(db: Session) -> str:
+    """Сводка демо-стенда: живые песочницы, проекты гостей, кто дольше всех без
+    активности (уборка снимет их первыми)."""
+    stats = demo.sandbox_stats(db)
+    lines = [
+        f"Живых песочниц: {stats.sandboxes}",
+        f"Проектов у гостей: {stats.projects}",
+    ]
+    if stats.oldest:
+        lines.append("Дольше всех без активности:")
+        lines.extend(
+            f"  {row.username}: создан {_when(row.created_at)}, "
+            f"активен {_when(row.last_active_at)}, проектов {row.projects}"
+            for row in stats.oldest
+        )
+    return "\n".join(lines)
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m app.admin", description="Администрирование ArchMap на сервере."
@@ -117,6 +157,16 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="задать существующему пользователю новый пароль",
     )
+    cleanup = commands.add_parser(
+        "demo-cleanup", help="демо-стенд: убрать песочницы гостей без активности сейчас"
+    )
+    cleanup.add_argument(
+        "--idle-hours",
+        type=float,
+        default=24.0,
+        help="сколько часов бездействия считать сроком (по умолчанию 24)",
+    )
+    commands.add_parser("demo-stats", help="демо-стенд: сводка по песочницам")
     return parser
 
 
@@ -126,7 +176,12 @@ def main(argv: list[str] | None = None) -> int:
     # (движок SQLAlchemy соединяется лениво, при первом запросе).
     with SessionLocal() as db:
         try:
-            print(create_admin(db, args.username, args.role, args.reset_password))
+            if args.command == "demo-cleanup":
+                print(demo_cleanup(db, args.idle_hours))
+            elif args.command == "demo-stats":
+                print(demo_stats(db))
+            else:
+                print(create_admin(db, args.username, args.role, args.reset_password))
         except AdminCommandError as exc:
             print(f"Ошибка: {exc}", file=sys.stderr)
             return 1

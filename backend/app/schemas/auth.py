@@ -29,6 +29,12 @@ class MeResponse(BaseModel):
     username: str
     role: UserRole
     is_admin: bool
+    # Гость демо-стенда (docs/tasks/demo-mode.md): фронт прячет меню профиля, «Доступ»
+    # и показывает метку «Песочница».
+    is_guest: bool = False
+    # Можно ли создать ещё один проект: глобальная роль architect, а гостю ещё и
+    # предел своих проектов. Считает сервер, фронт только гасит кнопку.
+    can_create_project: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -51,10 +57,26 @@ class PasswordChange(BaseModel):
     new_password: str
 
 
+class DemoLimits(BaseModel):
+    """Пределы демо-стенда: фронт проверяет по ним файлы до загрузки и подписывает
+    отказы. Объём текста и размер файла — в байтах."""
+
+    nodes: int
+    edges: int
+    docs: int
+    processes: int
+    text_bytes: int
+    file_bytes: int
+
+
 class AuthConfig(BaseModel):
-    """Публичные настройки входа (без авторизации): фронту и будущему демо-режиму."""
+    """Публичные настройки входа (без авторизации): их читают до логина."""
 
     allow_signup: bool
+    # Демо-режим публичного стенда: вместо формы входа «Попробовать без регистрации».
+    demo_mode: bool = False
+    # Пределы проекта и файла; только в демо-режиме, иначе null.
+    demo_limits: DemoLimits | None = None
 
 
 class Token(BaseModel):
