@@ -18,6 +18,7 @@ import { processesApi } from "../../api/processes";
 vi.mock("../../api/auth", () => ({
   getUserRole: vi.fn(() => "architect"),
   getIsAdmin: vi.fn(() => false),
+  getIsGuest: vi.fn(() => false),
 }));
 vi.mock("../../api/nodes", () => ({
   exportApi: { all: vi.fn(), subtree: vi.fn() },

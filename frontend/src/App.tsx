@@ -1,7 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { clearToken, fetchMe, getMe, getToken, subscribeMe } from "./api/auth";
-import { onAccountBlocked } from "./api/client";
+import {
+  clearToken, fetchAuthConfig, fetchMe, getAuthConfig, getIsGuest, getMe, getToken, subscribeMe,
+} from "./api/auth";
+import { onAccountBlocked, onUnauthorized } from "./api/client";
 import { setCurrentProjectId } from "./api/projectScope";
+import type { AuthConfig } from "./types";
+import DemoLoginPage from "./pages/DemoLoginPage";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectShell from "./pages/ProjectShell";
@@ -60,8 +64,12 @@ function routeFromHash(): Route {
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
   const [route, setRoute] = useState<Route>(routeFromHash);
-  // Почему выкинули на экран входа (блокировка) — текст для LoginPage.
+  // Почему выкинули на экран входа (блокировка, удалённая песочница) — текст плашки.
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  // Публичные настройки входа: демо-стенд показывает свой экран входа
+  // (docs/tasks/demo-mode.md). До ответа экран входа не рисуем, чтобы не мелькнуть
+  // формой логина там, где её нет.
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(getAuthConfig);
   // «Кто я» (роль и признак администратора из БД) — внешний стор api/auth. Подписка
   // перерисовывает дерево, когда ответ /auth/me пришёл: страницы зовут синхронный
   // getUserRole() в рендере и видят свежую роль, а не записанную в токен при входе.
@@ -80,8 +88,14 @@ export default function App() {
     fetchMe().catch(() => {});
   }, [authenticated]);
 
-  // Учётку заблокировали, пока человек работал: любой запрос получил 401 с этим
-  // текстом — выходим на экран входа и показываем причину.
+  useEffect(() => {
+    let alive = true;
+    void fetchAuthConfig().then((cfg) => { if (alive) setAuthConfig(cfg); });
+    return () => { alive = false; };
+  }, []);
+
+  // Учётку заблокировали (или песочницу гостя убрали), пока человек работал: любой
+  // запрос получил 401 с этим текстом — выходим на экран входа и показываем причину.
   useEffect(
     () =>
       onAccountBlocked((message) => {
@@ -93,6 +107,20 @@ export default function App() {
       }),
     [],
   );
+
+  // Демо-стенд: прочий 401 (токен гостя истёк) — на экран демо-входа без плашки.
+  // Выйти гостю иначе нечем: меню профиля у него нет. Вне демо ничего не меняется.
+  const demoMode = authConfig?.demo_mode ?? false;
+  useEffect(() => {
+    if (!demoMode) return;
+    return onUnauthorized(() => {
+      clearToken();
+      setCurrentProjectId(null);
+      setLoginNotice(null);
+      setAuthenticated(false);
+      window.location.hash = "/projects";
+    });
+  }, [demoMode]);
 
   function navigate(hash: string) {
     window.location.hash = hash;
@@ -107,15 +135,15 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return (
-      <LoginPage
-        notice={loginNotice}
-        onLogin={() => { setLoginNotice(null); setAuthenticated(true); }}
-      />
-    );
+    if (authConfig === null) return null;
+    const onLogin = () => { setLoginNotice(null); setAuthenticated(true); };
+    return authConfig.demo_mode
+      ? <DemoLoginPage key={loginNotice ?? ""} notice={loginNotice} onLogin={onLogin} />
+      : <LoginPage notice={loginNotice} onLogin={onLogin} />;
   }
 
-  if (route.name === "users") {
+  // Гостю демо-стенда экран «Пользователи» недоступен: ведём на «Все проекты».
+  if (route.name === "users" && !getIsGuest()) {
     return <UsersPage onAllProjects={() => navigate("/projects")} onLogout={handleLogout} />;
   }
 

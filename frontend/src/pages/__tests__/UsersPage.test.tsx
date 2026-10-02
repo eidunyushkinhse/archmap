@@ -16,6 +16,7 @@ vi.mock("../../api/auth", () => ({
   fetchMe: vi.fn(),
   getUserRole: vi.fn(() => "architect"),
   getIsAdmin: vi.fn(() => true),
+  getIsGuest: vi.fn(() => false),
   changePassword: vi.fn(),
 }));
 vi.mock("../../ui/Modal", () => ({

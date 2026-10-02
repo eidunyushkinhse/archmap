@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
+import { getIsGuest } from "../api/auth";
 import { canEditProject, useProjectRole } from "./projectRole";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
@@ -43,6 +44,7 @@ import TransitionConfirm from "../components/TransitionConfirm";
 import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } from "../ui/icons";
 import "../ui/chrome.css";
 import BrandLink from "../ui/BrandLink";
+import SandboxChip from "../ui/SandboxChip";
 
 interface Props {
   projectId: string;
@@ -707,6 +709,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             </button>
           )}
           <button style={doneBtn} onClick={() => onDone()}>Готово</button>
+          {/* Гость демо-стенда: метка «Песочница», как в шапках оболочки и списка. */}
+          {getIsGuest() && <SandboxChip />}
         </div>
       </div>
 

@@ -10,6 +10,7 @@ import { getIsAdmin, getUserRole } from "../../../api/auth";
 vi.mock("../../../api/auth", () => ({
   getUserRole: vi.fn(() => "architect"),
   getIsAdmin: vi.fn(() => false),
+  getIsGuest: vi.fn(() => false),
   changePassword: vi.fn(),
 }));
 // Модалка — прозрачная обёртка: jsdom не выставляет содержимое <dialog> в a11y-дерево.
