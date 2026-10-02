@@ -36,7 +36,7 @@ describe("AccountMenu", () => {
     const onOpenUsers = vi.fn();
     render(<AccountMenu onLogout={vi.fn()} onOpenUsers={onOpenUsers} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
-    expect(screen.getByText("Наблюдатель")).toBeInTheDocument();
+    expect(screen.getByText("Пользователь")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("menuitem", { name: "Пользователи" }));
     expect(onOpenUsers).toHaveBeenCalledTimes(1);
   });

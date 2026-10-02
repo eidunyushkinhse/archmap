@@ -3,7 +3,7 @@ import type { UserRole } from "../../types";
 // Подписи ролей на экране «Пользователи» и в его окнах: одно место на все.
 export const ROLE_LABEL: Record<UserRole, string> = {
   architect: "Архитектор",
-  viewer: "Наблюдатель",
+  viewer: "Пользователь",
 };
 export const ROLES: UserRole[] = ["architect", "viewer"];
 
