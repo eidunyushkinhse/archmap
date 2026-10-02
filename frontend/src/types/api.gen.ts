@@ -286,7 +286,13 @@ export interface paths {
          *
          *     Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
          *     может приехать из буфера обмена, а расширение — соврать. Беда отдельного
-         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому входу.
+         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому
+         *     входу.
+         *
+         *     Демо-стенд (docs/tasks/demo-mode.md): файлы не больше предела (413), а в ответе
+         *     demo_excess, если проект не поместится в пределы. Для этого план пробно
+         *     применяется в транзакции, которая тут же откатывается: числа те же, что
+         *     проверит настоящее применение. Вне демо-режима БД по-прежнему не трогается.
          */
         post: operations["import_unified_preview_api_v1_projects_import_unified_preview_post"];
         delete?: never;
@@ -3687,6 +3693,24 @@ export interface components {
             config_params: components["schemas"]["ConfigParamSnapshot"][];
         };
         /**
+         * DemoExcess
+         * @description Превышение предела демо-проекта, которое дало бы применение импорта: что
+         *     (объекты, связи, схемы логики, процессы, объём текста в байтах), сколько вышло и
+         *     сколько можно. Есть только в демо-режиме и только при превышении; фронт по нему
+         *     гасит кнопку применения и показывает полоску «142 из 100».
+         */
+        DemoExcess: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "nodes" | "edges" | "docs" | "processes" | "text";
+            /** Actual */
+            actual: number;
+            /** Limit */
+            limit: number;
+        };
+        /**
          * DemoLimits
          * @description Пределы демо-стенда: фронт проверяет по ним файлы до загрузки и подписывает
          *     отказы. Объём текста и размер файла — в байтах.
@@ -4751,6 +4775,7 @@ export interface components {
              * @default 0
              */
             base_meta_rev: number;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * IsolatedGroupAlert
@@ -6213,6 +6238,7 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * TableUsage
@@ -6494,6 +6520,7 @@ export interface components {
             manifest_name?: string | null;
             /** Manifest Description */
             manifest_description?: string | null;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * UnlinkedMessageAlert

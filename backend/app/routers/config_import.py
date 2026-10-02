@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import demo_limits
 from app.config_import import ConfigPlan, apply_config_plan, build_config_plan
 from app.config_prompt import build_config_prompt
 from app.database import get_db
@@ -51,6 +52,8 @@ def config_prompt(
 def _plan(
     db: Session, project: Project, payload: ConfigImportIn, window: uuid.UUID | None
 ) -> ConfigPlan:
+    # Демо-стенд: файл больше предела — 413 до разбора (docs/tasks/demo-mode.md).
+    demo_limits.check_texts((f.name, f.content) for f in payload.files)
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     return build_config_plan(
         db, nodes, [(f.name, f.content) for f in payload.files], window, payload.overwrite

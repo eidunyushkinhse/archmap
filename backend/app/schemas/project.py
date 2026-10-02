@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
+from app.schemas.demo import DemoExcess
 from app.schemas.node import NodeSource
 
 # Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она. Тот же
@@ -188,6 +189,8 @@ class SyncPreviewOut(BaseModel):
     summary: dict[str, int] = {}  # счётчики действий для шапки превью
     is_noop: bool = False  # ничего не изменится (фикспойнт)
     graph_rev: int = 0  # курсор схемы на момент расчёта — вернуть в apply
+    # Демо-стенд: после синка проект выйдет за предел (docs/tasks/demo-mode.md).
+    demo_excess: DemoExcess | None = None
 
 
 class SyncApplyOut(BaseModel):

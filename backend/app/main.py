@@ -2,11 +2,13 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app import demo
 from app.config import settings
+from app.demo_limits import DEMO_LIMIT_CODE, DemoLimitExceeded
 from app.routers import (
     admin,
     auth,
@@ -56,6 +58,18 @@ app = FastAPI(
 
 # CORS-источники задаются в Settings (cors_origins, через запятую) — не хардкод.
 allowed_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
+
+
+
+@app.exception_handler(DemoLimitExceeded)
+async def demo_limit_exceeded(_request: Request, exc: DemoLimitExceeded) -> JSONResponse:
+    """Запись вывела проект за предел демо-стенда (центральная проверка в
+    app/demo_limits.py): 409 с текстом по прототипу. code отличает отказ по
+    пределу от конфликта версий, который тоже 409."""
+    return JSONResponse(
+        status_code=409, content={"detail": exc.detail, "code": DEMO_LIMIT_CODE}
+    )
+
 
 app.add_middleware(
     CORSMiddleware,

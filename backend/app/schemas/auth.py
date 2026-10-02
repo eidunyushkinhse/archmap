@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.schemas.demo import DemoLimits
+
 # Роли пользователя: право на документацию. Администратор — отдельный признак
 # is_admin, а не третья роль (docs/tasks/admin-users.md).
 UserRole = Literal["architect", "viewer"]
@@ -55,18 +57,6 @@ class PasswordChange(BaseModel):
 
     old_password: str
     new_password: str
-
-
-class DemoLimits(BaseModel):
-    """Пределы демо-стенда: фронт проверяет по ним файлы до загрузки и подписывает
-    отказы. Объём текста и размер файла — в байтах."""
-
-    nodes: int
-    edges: int
-    docs: int
-    processes: int
-    text_bytes: int
-    file_bytes: int
 
 
 class AuthConfig(BaseModel):

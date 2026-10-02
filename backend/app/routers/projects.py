@@ -32,7 +32,7 @@ from fastapi import (
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import demo
+from app import demo, demo_limits
 from app.access import (
     add_owner,
     effective_role,
@@ -338,7 +338,8 @@ def _parse_resolutions(raw: str | None) -> dict[str, str]:
 @router.post("/import/unified-preview", response_model=UnifiedPreviewOut)
 async def import_unified_preview(
     files: list[UploadFile] = File(default=[]),
-    _user: User = Depends(require_architect),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_architect),
 ) -> UnifiedPreviewOut:
     """Dry-run ЕДИНОГО ввоза: N входов ЛЮБОГО типа (YAML C4 и/или zip-архив знания)
     вперемешку — C4 всех входов сливается, семьи фактов архивов переезжают на
@@ -347,15 +348,31 @@ async def import_unified_preview(
 
     Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
     может приехать из буфера обмена, а расширение — соврать. Беда отдельного
-    входа не 400-ит запрос, а едет ошибкой, адресованной этому входу."""
+    входа не 400-ит запрос, а едет ошибкой, адресованной этому
+    входу.
+
+    Демо-стенд (docs/tasks/demo-mode.md): файлы не больше предела (413), а в ответе
+    demo_excess, если проект не поместится в пределы. Для этого план пробно
+    применяется в транзакции, которая тут же откатывается: числа те же, что
+    проверит настоящее применение. Вне демо-режима БД по-прежнему не трогается."""
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         plan = build_unified_plan(inputs)
     except UnifiedImportError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return preview_from_plan(plan)
+    out = preview_from_plan(plan)
+    if out.ok:
+
+        def _try() -> uuid.UUID:
+            # Имя пробному проекту нужно только чтобы применение не отказало.
+            project, _ = apply_unified_plan(db, plan, {}, "Превью", None, user.id)
+            return project.id
+
+        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, None, _try))
+    return out
 
 
 @router.post(
@@ -389,6 +406,7 @@ async def import_project_unified(
     demo.check_guest_can_create(db, user)
     chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         ответы = parse_decisions(decisions)
         plan = build_unified_plan(inputs)
@@ -420,11 +438,23 @@ async def import_archive_preview(
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         into = build_into_plan(db, project, inputs)
     except UnifiedImportError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return into_preview(into)
+    out = into_preview(into)
+    if out.ok:
+        # Демо-стенд: пробное применение с дефолтными решениями и откат — видно,
+        # выйдет ли проект за предел (docs/tasks/demo-mode.md).
+        pid = project.id
+
+        def _try() -> uuid.UUID:
+            apply_into_plan(db, project, into, {})
+            return pid
+
+        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, pid, _try))
+    return out
 
 
 @router.post("/{project_id}/import-archive/apply", response_model=IntoApplyOut)
@@ -464,6 +494,7 @@ async def import_archive_apply(
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     chosen = _parse_resolutions(resolutions)
     inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         ответы = parse_decisions(decisions)
         into = build_into_plan(db, project, inputs)
@@ -487,6 +518,11 @@ def _action_source(ref: str | None) -> NodeSource | None:
     return NodeSource(**d) if d else None
 
 
+def _sync_files(payload: SyncPreviewIn) -> list[tuple[str, str]]:
+    """Файлы синка для проверки размера: имён у них в запросе нет, только номер."""
+    return [(f"Файл {i + 1}", text) for i, text in enumerate(payload.contents)]
+
+
 @router.post("/{project_id}/sync/preview", response_model=SyncPreviewOut)
 def sync_preview(
     project_id: uuid.UUID,
@@ -502,6 +538,7 @@ def sync_preview(
     показывает их до плана. Проект скоупится ПУТЁМ (не заголовком X-Project-Id):
     синк адресует конкретный проект, а не «текущий» сеанса."""
     project, _ = project_for(db, user, project_id, need="editor")
+    demo_limits.check_texts(_sync_files(payload))
 
     merged, report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
@@ -521,7 +558,7 @@ def sync_preview(
             restore_returned=payload.restore_returned,
         ),
     )
-    return SyncPreviewOut(
+    out = SyncPreviewOut(
         ok=True,
         files=len(payload.contents),
         nodes=[
@@ -553,6 +590,16 @@ def sync_preview(
         is_noop=plan.is_noop,
         graph_rev=project.graph_rev,
     )
+    if not plan.is_noop:
+        # Демо-стенд: пробное применение и откат — выйдет ли проект за предел.
+        pid = project.id
+
+        def _try() -> uuid.UUID:
+            apply_sync_plan(db, project, merged, plan)
+            return pid
+
+        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, pid, _try))
+    return out
 
 
 @router.post("/{project_id}/sync/apply", response_model=SyncApplyOut)
@@ -579,6 +626,7 @@ def sync_apply(
             detail="Схема изменилась после расчёта — обновите превью и повторите",
         )
 
+    demo_limits.check_texts(_sync_files(payload))
     merged, _report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
         raise HTTPException(status_code=400, detail="; ".join(errors[:5]))
