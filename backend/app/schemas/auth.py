@@ -33,6 +33,16 @@ class MeResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserBrief(BaseModel):
+    """Пользователь в выборе участника проекта: только id и логин, без ролей и
+    признаков (это не админский список /admin/users)."""
+
+    id: uuid.UUID
+    username: str
+
+    model_config = {"from_attributes": True}
+
+
 class PasswordChange(BaseModel):
     """Смена своего пароля: старый обязателен, иначе оставленная открытой вкладка
     позволила бы любому сменить пароль владельца."""

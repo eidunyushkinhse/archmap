@@ -14,9 +14,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth import require_architect
 from app.database import get_db
-from app.deps import get_current_project, touch_project
+from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
@@ -36,7 +35,7 @@ def recon_prompt(
     variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ReconPromptOut:
     """Промпт агенту на разведку точек входа узла.
 
@@ -81,7 +80,7 @@ def recon_import_preview(
     payload: ReconImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ReconImportReport:
     """Dry-run: план без записи (build_recon_plan БД только читает).
 
@@ -96,7 +95,7 @@ def recon_import_apply(
     payload: ReconImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ReconImportReport:
     """Применение: план пересчитывается на живом состоянии (между превью и применением
     мир мог измениться); при errors не пишется ничего."""

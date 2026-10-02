@@ -22,9 +22,9 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.database import get_db
-from app.deps import get_current_project, scoped_node
+from app.deps import get_current_project, require_project_editor, scoped_node
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
@@ -53,7 +53,7 @@ def get_view_state(
 ) -> ViewStateResponse:
     """Лёгкий опрос свежести (поллинг этапа 1): версия вида + курсор проекта.
 
-    Доступен обеим ролям — наблюдатель поллит наравне с архитектором. Удалённый
+    Доступен любой роли в проекте — читатель поллит наравне с редактором. Удалённый
     вид здесь не проверяется (версия просто 0): арбитр существования — рефетч
     графа, который на мёртвом виде отдаст 404.
     """
@@ -72,7 +72,7 @@ def save_view_layout(
     payload: ViewLayoutBatch,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ViewLayoutResult:
     vid = parse_view_id(view_id)
     # Вид, чей контейнер уже удалён другой сессией, — 404 (раньше батч доходил до

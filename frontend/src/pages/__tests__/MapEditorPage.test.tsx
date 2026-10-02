@@ -2,15 +2,25 @@
 // по узлу), диспетчеры undo/redo (включая навигацию на уровень команды), кнопки
 // «Готово» и Esc. Тяжёлый холст LevelGraph (@xyflow/react), инспектор, дерево,
 // модалки и поллинг замоканы — тестируем оболочку редактора и её диспетчеры.
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
-import { getUserRole } from "../../api/auth";
-import type { Node } from "../../types";
+import { ProjectRoleContext } from "../projectRole";
+import type { Node, ProjectRole } from "../../types";
 
-vi.mock("../../api/auth", () => ({ getUserRole: vi.fn(() => "architect") }));
+// Право правки — роль в проекте, её раздаёт гейт маршрутов (ProjectAccessGate)
+// контекстом. Тесты рендерят редактор внутри провайдера с ролью role.current.
+const role = { current: "owner" as ProjectRole | null };
+function render(ui: ReactElement) {
+  return rtlRender(ui, {
+    wrapper: ({ children }: { children: ReactNode }) => (
+      <ProjectRoleContext.Provider value={role.current}>{children}</ProjectRoleContext.Provider>
+    ),
+  });
+}
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
     getGraph: vi.fn(),
@@ -152,7 +162,7 @@ const props = {
 describe("MapEditorPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getUserRole).mockReturnValue("architect");
+    role.current = "owner";
     levelGraphProps.current = null;
     sessionStorage.clear();
     historyMock.canUndo.mockReturnValue(false);
@@ -252,21 +262,21 @@ describe("MapEditorPage", () => {
     expect(props.onDone).toHaveBeenCalledOnce();
   });
 
-  // Рекомендации — только архитектору (AL10): у читателя кнопки на холсте нет.
-  it("кнопка «Рекомендации» на холсте есть у архитектора и нет у читателя", async () => {
+  // Рекомендации — только тем, кто правит проект (AL10): у читателя кнопки на холсте нет.
+  it("кнопка «Рекомендации» на холсте есть у владельца и нет у читателя проекта", async () => {
     const { unmount } = render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     expect(screen.getByTestId("recs-button")).toBeInTheDocument();
     unmount();
 
     // Роль возвращаем в finally: у соседних describe свои beforeEach без сброса роли.
-    vi.mocked(getUserRole).mockReturnValue("viewer");
+    role.current = "reader";
     try {
       render(<MapEditorPage {...props} nodeId={null} />);
       await screen.findByTestId("level-graph");
       expect(screen.queryByTestId("recs-button")).not.toBeInTheDocument();
     } finally {
-      vi.mocked(getUserRole).mockReturnValue("architect");
+      role.current = "owner";
     }
   });
 

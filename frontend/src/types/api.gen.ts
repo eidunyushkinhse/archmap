@@ -153,6 +153,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Users
+         * @description Активные пользователи по алфавиту логина.
+         */
+        get: operations["list_users_api_v1_users_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -163,6 +183,8 @@ export interface paths {
         /**
          * List Projects
          * @description Список проектов: активные (archived=false) или архив, сорт. по дате изменения.
+         *     Только доступные пользователю: где он участник и видимые всем; администратору —
+         *     все (в обеих вкладках).
          */
         get: operations["list_projects_api_v1_projects_get"];
         put?: never;
@@ -175,6 +197,9 @@ export interface paths {
          *
          *     Ввоз схемы из файлов сюда не ходит: у него единый путь /projects/import-unified
          *     (multipart, YAML и архивы вперемешку).
+         *
+         *     Создатель становится владельцем. Копировать можно только проект, который
+         *     пользователь видит: недоступный источник неотличим от несуществующего (404).
          */
         post: operations["create_project_api_v1_projects_post"];
         delete?: never;
@@ -200,6 +225,10 @@ export interface paths {
          *     на нём сидят MCP-тулзы), оркестраторную обёртку с аудитом или один промпт аудита
          *     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
          *     одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
+         *
+         *     Любому вошедшему: это текст без данных, а нужен он и созданию проекта
+         *     (глобальная роль architect), и синку в существующий проект (редактор проекта,
+         *     который может быть viewer глобально).
          */
         get: operations["import_prompt_api_v1_projects_import_prompt_get"];
         put?: never;
@@ -397,13 +426,17 @@ export interface paths {
         post?: never;
         /**
          * Delete Project
-         * @description Необратимое удаление со всей схемой (БД-каскад). Разрешено только из архива
-         *     и с ?confirm=<точное имя проекта> — двойная защита от случайного сноса.
+         * @description Необратимое удаление со всей схемой (БД-каскад). Разрешено только владельцу,
+         *     только из архива и с ?confirm=<точное имя проекта> — двойная защита от
+         *     случайного сноса.
          */
         delete: operations["delete_project_api_v1_projects__project_id__delete"];
         options?: never;
         head?: never;
-        /** Update Project */
+        /**
+         * Update Project
+         * @description Имя, описание и «Виден всем пользователям» — только владелец.
+         */
         patch: operations["update_project_api_v1_projects__project_id__patch"];
         trace?: never;
     };
@@ -418,7 +451,7 @@ export interface paths {
         put?: never;
         /**
          * Archive Project
-         * @description Мягкое удаление: проставляем archived_at. Данные сохраняются.
+         * @description Мягкое удаление: проставляем archived_at. Данные сохраняются. Только владелец.
          */
         post: operations["archive_project_api_v1_projects__project_id__archive_post"];
         delete?: never;
@@ -438,9 +471,79 @@ export interface paths {
         put?: never;
         /**
          * Restore Project
-         * @description Вернуть из архива: archived_at = null.
+         * @description Вернуть из архива: archived_at = null. Только владелец.
          */
         post: operations["restore_project_api_v1_projects__project_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Members
+         * @description Участники проекта: логин и роль. Видят все, у кого есть доступ к проекту.
+         *     Владелец первым, дальше по алфавиту логина.
+         */
+        get: operations["list_members_api_v1_projects__project_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Member
+         * @description Добавить участника или сменить ему роль (editor/reader). Только владелец.
+         *     Владелец так не понижается: его роль меняет только передача владения.
+         */
+        put: operations["put_member_api_v1_projects__project_id__members__user_id__put"];
+        post?: never;
+        /**
+         * Delete Member
+         * @description Убрать участника из проекта. Только владелец; самого владельца убрать нельзя.
+         *     Если проект виден всем, убранный участник остаётся с чтением.
+         */
+        delete: operations["delete_member_api_v1_projects__project_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/transfer": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transfer Project
+         * @description Передать владение другому активному пользователю. Только владелец
+         *     (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
+         *     прежний остаётся редактором. Ответ — карточка проекта глазами того, кто
+         *     передавал: его my_role после передачи уже editor.
+         */
+        post: operations["transfer_project_api_v1_projects__project_id__transfer_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -583,7 +686,7 @@ export interface paths {
         };
         /**
          * Get Alerts
-         * @description Глобальные алерты незавершённости схемы (только архитектор):
+         * @description Глобальные алерты незавершённости схемы (только редактор проекта):
          *     1) атомарные (листовые) узлы без единой связи — «подвисшие»;
          *     2) связи, у которых хотя бы один конец упирается в промежуточный
          *        (контейнерный) узел, а не в атомарный;
@@ -1665,7 +1768,7 @@ export interface paths {
          * Get View State
          * @description Лёгкий опрос свежести (поллинг этапа 1): версия вида + курсор проекта.
          *
-         *     Доступен обеим ролям — наблюдатель поллит наравне с архитектором. Удалённый
+         *     Доступен любой роли в проекте — читатель поллит наравне с редактором. Удалённый
          *     вид здесь не проверяется (версия просто 0): арбитр существования — рефетч
          *     графа, который на мёртвом виде отдаст 404.
          */
@@ -5495,6 +5598,37 @@ export interface components {
             start: string;
         };
         /**
+         * ProjectMemberIn
+         * @description Добавить участника или сменить ему роль. Роль owner так не выдаётся:
+         *     владелец меняется только передачей владения.
+         */
+        ProjectMemberIn: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "editor" | "reader";
+        };
+        /**
+         * ProjectMemberOut
+         * @description Участник проекта для окна «Доступ»: логин и роль. user_id — адрес строки в
+         *     PUT/DELETE /projects/{id}/members/{user_id}.
+         */
+        ProjectMemberOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Username */
+            username: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "editor" | "reader";
+        };
+        /**
          * ProjectPreview
          * @description Реальная топология корневого уровня схемы в миниатюре (узлы + связи между
          *     ними). Пустая схема → пустые списки.
@@ -5574,6 +5708,27 @@ export interface components {
             /** Updated By */
             updated_by: string | null;
             preview: components["schemas"]["ProjectPreview"];
+            /**
+             * My Role
+             * @enum {string}
+             */
+            my_role: "owner" | "editor" | "reader";
+            /** Owner Username */
+            owner_username: string | null;
+            /** Visible To All */
+            visible_to_all: boolean;
+        };
+        /**
+         * ProjectTransferIn
+         * @description Кому передать владение: новый владелец становится owner, прежний остаётся
+         *     в проекте редактором.
+         */
+        ProjectTransferIn: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
         };
         /** ProjectUpdate */
         ProjectUpdate: {
@@ -5581,6 +5736,8 @@ export interface components {
             name?: string | null;
             /** Description */
             description?: string | null;
+            /** Visible To All */
+            visible_to_all?: boolean | null;
         };
         /**
          * ReattachResult
@@ -6411,6 +6568,20 @@ export interface components {
              */
             reason: "unknown_table" | "ambiguous" | "unknown_column";
         };
+        /**
+         * UserBrief
+         * @description Пользователь в выборе участника проекта: только id и логин, без ролей и
+         *     признаков (это не админский список /admin/users).
+         */
+        UserBrief: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Username */
+            username: string;
+        };
         /** UserCreate */
         UserCreate: {
             /** Username */
@@ -6782,6 +6953,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_v1_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserBrief"][];
                 };
             };
         };
@@ -7229,6 +7420,138 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_members_api_v1_projects__project_id__members_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_member_api_v1_projects__project_id__members__user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectMemberIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectMemberOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_member_api_v1_projects__project_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_project_api_v1_projects__project_id__transfer_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectTransferIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

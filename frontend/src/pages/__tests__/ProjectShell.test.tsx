@@ -1,6 +1,7 @@
 // Рендер/поведенческие тесты ProjectShell: свитч «Объекты/Процессы» (с сохранением
 // режима в localStorage), открытие экспорта (схема/поддерево/процесс), навигация
-// (переход в процессы со страницы узла, удаление узла), locate из алертов шапки.
+// (переход в процессы со страницы узла, удаление узла), locate из алертов шапки,
+// право правки по роли в проекте (my_role через контекст гейта), а не по глобальной.
 // Тяжёлые потомки (дерево, страницы, ProcessWorkspace, модалки) замоканы —
 // тестируем оркестрацию оболочки, а не внутренности детей.
 import { render, screen, waitFor } from "@testing-library/react";
@@ -8,6 +9,8 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ProjectShell from "../ProjectShell";
+import { ProjectRoleContext } from "../projectRole";
+import type { ProjectRole } from "../../types";
 import { getUserRole } from "../../api/auth";
 import { exportApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
@@ -52,8 +55,8 @@ vi.mock("../../components/SchemaAlerts", () => ({
 }));
 
 vi.mock("../../components/NodeTreePanel", () => ({
-  default: ({ currentNodeId }: { currentNodeId?: string | null }) => (
-    <div data-testid="tree-panel">{currentNodeId ?? "root"}</div>
+  default: ({ currentNodeId, isArchitect }: { currentNodeId?: string | null; isArchitect: boolean }) => (
+    <div data-testid="tree-panel" data-can-edit={String(isArchitect)}>{currentNodeId ?? "root"}</div>
   ),
 }));
 vi.mock("../../components/NodeModal", () => ({
@@ -103,7 +106,9 @@ vi.mock("../../components/ExportModal", () => ({
 }));
 vi.mock("../../ui/ProfileMenu", () => ({ default: () => <div data-testid="profile-menu" /> }));
 vi.mock("../../components/ProjectSwitcher", () => ({
-  default: () => <div data-testid="project-switcher" />,
+  default: ({ isArchitect }: { isArchitect: boolean }) => (
+    <div data-testid="project-switcher" data-can-create={String(isArchitect)} />
+  ),
 }));
 
 const nav = {
@@ -124,8 +129,13 @@ describe("ProjectShell", () => {
     vi.mocked(getUserRole).mockReturnValue("architect");
   });
 
-  function setup(nodeId: string | null = null) {
-    return render(<ProjectShell projectId="proj1" nodeId={nodeId} {...nav} />);
+  // Роль в проекте приходит контекстом гейта маршрутов (ProjectAccessGate).
+  function setup(nodeId: string | null = null, role: ProjectRole | null = "owner") {
+    return render(
+      <ProjectRoleContext.Provider value={role}>
+        <ProjectShell projectId="proj1" nodeId={nodeId} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
   }
 
   it("режим «Объекты» (по умолчанию): дерево + домашняя страница при nodeId=null", () => {
@@ -277,15 +287,38 @@ describe("ProjectShell", () => {
     expect(screen.queryByText("Открыть в редакторе?")).not.toBeInTheDocument();
   });
 
-  it("наблюдателю кнопки «Рекомендации» в шапке нет", async () => {
-    vi.mocked(getUserRole).mockReturnValue("viewer");
-    setup(null);
+  it("читателю проекта кнопки «Рекомендации» в шапке нет", async () => {
+    setup(null, "reader");
     await waitFor(() => expect(screen.getByTestId("tree-panel")).toBeInTheDocument());
     expect(screen.queryByTestId("alert-node")).not.toBeInTheDocument();
   });
 
-  it("архитектору кнопка «Рекомендации» в шапке есть", () => {
-    setup(null);
+  it("владельцу и редактору проекта кнопка «Рекомендации» в шапке есть", () => {
+    const { unmount } = setup(null, "owner");
     expect(screen.getByTestId("alert-node")).toBeInTheDocument();
+    unmount();
+    setup(null, "editor");
+    expect(screen.getByTestId("alert-node")).toBeInTheDocument();
+  });
+
+  // ── Право правки — роль в проекте, а не глобальная роль ──────────────────
+  it("viewer, редактор проекта: может править", () => {
+    vi.mocked(getUserRole).mockReturnValue("viewer");
+    setup(null, "editor");
+    expect(screen.getByTestId("tree-panel")).toHaveAttribute("data-can-edit", "true");
+    expect(screen.getByTestId("alert-node")).toBeInTheDocument();
+    // «+ Новый проект» в свитчере — по-прежнему глобальная роль.
+    expect(screen.getByTestId("project-switcher")).toHaveAttribute("data-can-create", "false");
+  });
+
+  it("architect, читатель проекта: только смотрит", () => {
+    setup(null, "reader");
+    expect(screen.getByTestId("tree-panel")).toHaveAttribute("data-can-edit", "false");
+    expect(screen.getByTestId("project-switcher")).toHaveAttribute("data-can-create", "true");
+  });
+
+  it("роль не загрузилась: только чтение", () => {
+    setup(null, null);
+    expect(screen.getByTestId("tree-panel")).toHaveAttribute("data-can-edit", "false");
   });
 });

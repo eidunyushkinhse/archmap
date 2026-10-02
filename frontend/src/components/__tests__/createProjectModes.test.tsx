@@ -31,6 +31,7 @@ const проект = (id: string, name: string): Project => ({
   created_at: "2026-09-30T00:00:00Z", updated_at: "2026-09-30T00:00:00Z",
   object_count: 3, edge_count: 2, updated_by: null,
   preview: { nodes: [], edges: [] },
+  my_role: "owner", owner_username: null, visible_to_all: false,
 });
 
 const onCreated = vi.fn();

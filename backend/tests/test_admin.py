@@ -227,14 +227,15 @@ def test_создать_с_ошибкой_400(client, db, boss, username, passwo
 def test_сменить_роль_действует_на_следующий_запрос(client, db, boss):
     ivan = _user(db, "ivan", role="architect")
     h = _bearer(ivan)  # токен выписан архитектору и несёт его роль
-    prompt = "/api/v1/projects/import/prompt?system_name=Ярмарка"
-    assert client.get(prompt, headers=h).status_code == 200
+    # Глобальная роль architect — это право СОЗДАВАТЬ проекты (docs/tasks/project-access.md).
+    create = "/api/v1/projects"
+    assert client.post(create, headers=h, json={"name": "Ярмарка"}).status_code == 201
 
     r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"role": "viewer"})
     assert r.status_code == 200 and r.json()["role"] == "viewer"
 
     # тот же токен, следующий запрос: роль берётся из БД, архитекторское закрыто
-    assert client.get(prompt, headers=h).status_code == 403
+    assert client.post(create, headers=h, json={"name": "Плёнка"}).status_code == 403
     assert client.get("/api/v1/auth/me", headers=h).json()["role"] == "viewer"
 
 

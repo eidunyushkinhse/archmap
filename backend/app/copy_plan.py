@@ -36,6 +36,7 @@ from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
+from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
@@ -221,6 +222,8 @@ NOT_COPIED: dict[type[Base], str] = {
     Project: "сам проект копия не копирует: строку создаёт роутер (имя, описание и "
     "автор у копии свои)",
     User: "пользователи глобальны и проекту не принадлежат",
+    ProjectMember: "участники у копии свои: владелец — тот, кто копировал, остальных "
+    "он добавит сам (доступ к источнику не означает доступа к копии)",
     ViewState: "fence конкурентных записей раскладки: счётчик версий вида у копии "
     "свой и начинается с нуля",
 }

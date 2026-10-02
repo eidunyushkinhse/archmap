@@ -6,6 +6,11 @@ from pydantic import BaseModel, Field
 
 from app.schemas.node import NodeSource
 
+# Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она. Тот же
+# набор держит CHECK в БД (app/models/project_member.py). Объявлена здесь, а не у
+# модели: схемы не тянут SQLAlchemy (их импортирует MCP-сервер для сверки контракта).
+ProjectRole = Literal["owner", "editor", "reader"]
+
 # Один YAML-документ прогона агента (текст файла). Лимит — защита от «бомбы».
 _ImportDoc = Annotated[str, Field(max_length=2_000_000)]
 # Максимум документов за раз (мульти-репо «Из репозитория»). Щедрый предел: реальные
@@ -29,6 +34,32 @@ class ProjectCreate(BaseModel):
 class ProjectUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = None
+    # «Виден всем пользователям»: не-участники получают чтение. Меняет, как и
+    # остальные поля PATCH, только владелец.
+    visible_to_all: bool | None = None
+
+
+class ProjectMemberOut(BaseModel):
+    """Участник проекта для окна «Доступ»: логин и роль. user_id — адрес строки в
+    PUT/DELETE /projects/{id}/members/{user_id}."""
+
+    user_id: uuid.UUID
+    username: str
+    role: ProjectRole
+
+
+class ProjectMemberIn(BaseModel):
+    """Добавить участника или сменить ему роль. Роль owner так не выдаётся:
+    владелец меняется только передачей владения."""
+
+    role: Literal["editor", "reader"]
+
+
+class ProjectTransferIn(BaseModel):
+    """Кому передать владение: новый владелец становится owner, прежний остаётся
+    в проекте редактором."""
+
+    user_id: uuid.UUID
 
 
 class FileRemarksOut(BaseModel):
@@ -220,3 +251,10 @@ class ProjectResponse(BaseModel):
     updated_by: str | None
     # Мини-граф корневого уровня для карточки (реальные узлы/связи).
     preview: ProjectPreview
+    # Действующая роль ТЕКУЩЕГО пользователя в проекте (у администратора всегда
+    # owner). Фронт решает по ней, можно ли править проект и управлять им.
+    my_role: ProjectRole
+    # Логин владельца; null только у наследия миграции (проект без владельца).
+    owner_username: str | None
+    # «Виден всем пользователям»: не-участники получают чтение.
+    visible_to_all: bool

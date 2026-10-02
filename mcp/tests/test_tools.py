@@ -72,6 +72,27 @@ async def test_неизвестный_проект_показывает_спис
 
 # ── Чтение ───────────────────────────────────────────────────────────────────
 
+async def test_список_проектов_называет_роль_учётки(client: ArchMapClient, api: FakeApi) -> None:
+    # Сервер отдаёт только доступные учётке проекты; агенту важно знать, где он
+    # может править, а где только смотреть (docs/tasks/project-access.md).
+    api.get(
+        "/projects",
+        [
+            {"id": PROJECT_ID, "name": "Ярмарка", "object_count": 3, "my_role": "owner"},
+            {"id": OTHER_ID, "name": "Плёнка", "object_count": 2, "my_role": "reader",
+             "description": "демо"},
+            {"id": "33333333-3333-3333-3333-333333333333", "name": "Zabbix",
+             "object_count": 9, "my_role": "editor"},
+        ],
+    )
+    out = await tools.t_projects(client, {})
+    assert out.splitlines() == [
+        f"• Ярмарка [владелец]: 3 объектов  id={PROJECT_ID}",
+        f"• Плёнка [чтение]: 2 объектов — демо  id={OTHER_ID}",
+        "• Zabbix [редактор]: 9 объектов  id=33333333-3333-3333-3333-333333333333",
+    ]
+
+
 async def test_схема_отдаёт_дерево_и_связи(client: ArchMapClient, api: FakeApi) -> None:
     api.get("/nodes/all", [
         node("n1", "Маркетплейс"),

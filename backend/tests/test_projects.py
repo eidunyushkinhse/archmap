@@ -52,7 +52,7 @@ def test_create_blank_lists_with_meta(db):
     assert p.updated_by == user.username
     assert p.preview.nodes == [] and p.preview.edges == []
 
-    active = list_projects(archived=False, db=db)
+    active = list_projects(archived=False, db=db, user=user)
     assert [x.name for x in active] == ["Пустой"]
 
 
@@ -77,7 +77,7 @@ def test_preview_projects_edges_to_root_ancestors(db):
     db.add(Edge(id=uuid.uuid4(), source_id=child.id, target_id=r2.id, project_id=p.id))
     db.commit()
 
-    fresh = get_project(p.id, db=db)
+    fresh = get_project(p.id, db=db, user=user)
     node_ids = {n.id for n in fresh.preview.nodes}
     assert node_ids == {r1.id, r2.id}  # потомок в превью не попадает
     by_id = {n.id: n for n in fresh.preview.nodes}
@@ -120,7 +120,7 @@ def test_deep_copy_clones_schema_without_touching_source(db):
     user = ensure_architect(db)
     src = create_project(ProjectCreate(name="Источник"), db=db, user=user)
     _schema(db, src.id)
-    src_after = get_project(src.id, db=db)
+    src_after = get_project(src.id, db=db, user=user)
     assert (src_after.object_count, src_after.edge_count) == (2, 1)
 
     copy = create_project(
@@ -135,7 +135,7 @@ def test_deep_copy_clones_schema_without_touching_source(db):
     assert len(copy_nodes) == 2 and len(src_nodes) == 2
     assert {n.id for n in copy_nodes}.isdisjoint({n.id for n in src_nodes})
     # Исходник не тронут.
-    assert get_project(src.id, db=db).object_count == 2
+    assert get_project(src.id, db=db, user=user).object_count == 2
 
 
 def test_deep_copy_keeps_node_status(db):
@@ -491,13 +491,13 @@ def test_archive_restore_flow(db):
     user = ensure_architect(db)
     p = create_project(ProjectCreate(name="Архивируемый"), db=db, user=user)
 
-    archive_project(p.id, db=db)
-    assert [x.name for x in list_projects(archived=False, db=db)] == []
-    assert [x.name for x in list_projects(archived=True, db=db)] == ["Архивируемый"]
+    archive_project(p.id, db=db, user=user)
+    assert [x.name for x in list_projects(archived=False, db=db, user=user)] == []
+    assert [x.name for x in list_projects(archived=True, db=db, user=user)] == ["Архивируемый"]
 
-    restore_project(p.id, db=db)
-    assert [x.name for x in list_projects(archived=False, db=db)] == ["Архивируемый"]
-    assert list_projects(archived=True, db=db) == []
+    restore_project(p.id, db=db, user=user)
+    assert [x.name for x in list_projects(archived=False, db=db, user=user)] == ["Архивируемый"]
+    assert list_projects(archived=True, db=db, user=user) == []
 
 
 def test_delete_requires_archive_and_exact_name(db):
@@ -507,17 +507,17 @@ def test_delete_requires_archive_and_exact_name(db):
 
     # Активный — удалять нельзя.
     with pytest.raises(HTTPException) as ei:
-        delete_project(p.id, confirm="Удаляемый", db=db)
+        delete_project(p.id, confirm="Удаляемый", db=db, user=user)
     assert ei.value.status_code == 409
 
-    archive_project(p.id, db=db)
+    archive_project(p.id, db=db, user=user)
     # Неверное подтверждение имени.
     with pytest.raises(HTTPException) as ei:
-        delete_project(p.id, confirm="не то", db=db)
+        delete_project(p.id, confirm="не то", db=db, user=user)
     assert ei.value.status_code == 400
 
     # Точное имя — сносит проект и его схему каскадом.
-    delete_project(p.id, confirm="Удаляемый", db=db)
+    delete_project(p.id, confirm="Удаляемый", db=db, user=user)
     assert get_project_or_none(db, p.id) is None
     assert db.query(Node).filter(Node.project_id == p.id).count() == 0
 

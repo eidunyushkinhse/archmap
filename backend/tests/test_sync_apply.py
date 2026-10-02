@@ -72,7 +72,7 @@ def test_apply_creates_and_updates(db):
     p, user = _project(db)
     before = _node(db, p.id, "payments").id
 
-    out = sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, _user=user)
+    out = sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, user=user)
 
     assert out.created_nodes == ["Система / cache"]
     assert out.created_edges == ["Система / billing → Система / cache"]
@@ -95,7 +95,7 @@ def test_apply_preserves_docs_specs_and_layout(db):
     )
     db.commit()
 
-    sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN], update_names=True), db=db, _user=user)
+    sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN], update_names=True), db=db, user=user)
 
     renamed = _node(db, p.id, "billing")  # имя обновилось по политике
     assert renamed.id == payments.id
@@ -112,13 +112,13 @@ def test_apply_preserves_docs_specs_and_layout(db):
 def test_apply_is_fixpoint(db):
     """Сквозной критерий фазы: применили — превью на том же входе пусто."""
     p, user = _project(db)
-    sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, _user=user)
+    sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, user=user)
 
-    again = sync_preview(p.id, SyncPreviewIn(contents=[NEXT_RUN]), db=db, _user=user)
+    again = sync_preview(p.id, SyncPreviewIn(contents=[NEXT_RUN]), db=db, user=user)
     assert again.is_noop, again.summary
 
     # И повторное применение ничего не делает.
-    twice = sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, _user=user)
+    twice = sync_apply(p.id, SyncApplyIn(contents=[NEXT_RUN]), db=db, user=user)
     assert (twice.created_nodes, twice.updated_nodes, twice.created_edges) == ([], [], [])
 
 
@@ -134,7 +134,7 @@ def test_apply_never_deletes(db):
     ).replace("  - {from: orders, to: orders-db, label: хранит}\n", "")
 
     out = sync_apply(
-        p.id, SyncApplyIn(contents=[without_db], mark_missing_deprecated=True), db=db, _user=user
+        p.id, SyncApplyIn(contents=[without_db], mark_missing_deprecated=True), db=db, user=user
     )
 
     assert sorted(out.deprecated_nodes) == ["Система / orders-db", "Система / ручной"]
@@ -146,17 +146,17 @@ def test_apply_bumps_graph_rev_and_guards_stale_preview(db):
     """Курсор схемы двигается (поллинг чужих сессий), а применение с устаревшим
     курсором отклоняется — пользователь не пишет вслепую то, чего не видел."""
     p, user = _project(db)
-    preview = sync_preview(p.id, SyncPreviewIn(contents=[NEXT_RUN]), db=db, _user=user)
+    preview = sync_preview(p.id, SyncPreviewIn(contents=[NEXT_RUN]), db=db, user=user)
     rev_before = preview.graph_rev
 
     out = sync_apply(
-        p.id, SyncApplyIn(contents=[NEXT_RUN], base_graph_rev=rev_before), db=db, _user=user
+        p.id, SyncApplyIn(contents=[NEXT_RUN], base_graph_rev=rev_before), db=db, user=user
     )
     assert out.graph_rev > rev_before
 
     with pytest.raises(HTTPException) as exc:
         sync_apply(
-            p.id, SyncApplyIn(contents=[NEXT_RUN], base_graph_rev=rev_before), db=db, _user=user
+            p.id, SyncApplyIn(contents=[NEXT_RUN], base_graph_rev=rev_before), db=db, user=user
         )
     assert exc.value.status_code == 409
 
@@ -164,9 +164,9 @@ def test_apply_bumps_graph_rev_and_guards_stale_preview(db):
 def test_apply_rejects_broken_yaml_and_unknown_project(db):
     p, user = _project(db)
     with pytest.raises(HTTPException) as exc:
-        sync_apply(p.id, SyncApplyIn(contents=["nodes: [oops"]), db=db, _user=user)
+        sync_apply(p.id, SyncApplyIn(contents=["nodes: [oops"]), db=db, user=user)
     assert exc.value.status_code == 400
 
     with pytest.raises(HTTPException) as exc:
-        sync_apply(uuid.uuid4(), SyncApplyIn(contents=[RUN]), db=db, _user=user)
+        sync_apply(uuid.uuid4(), SyncApplyIn(contents=[RUN]), db=db, user=user)
     assert exc.value.status_code == 404

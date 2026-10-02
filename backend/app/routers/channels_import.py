@@ -11,7 +11,6 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.auth import require_architect
 from app.channels_import import (
     ChannelsPlan,
     apply_channels_plan,
@@ -20,7 +19,7 @@ from app.channels_import import (
 )
 from app.channels_prompt import build_channels_prompt
 from app.database import get_db
-from app.deps import get_current_project, touch_project
+from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import _node_paths
 from app.models.edge import Edge
 from app.models.node import Node
@@ -42,7 +41,7 @@ def channels_prompt(
     variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ChannelsPromptOut:
     """Промпт агенту с узлами-брокерами ЭТОГО проекта: адрес владельца слабая модель
     без списка выдумывает, и пакет блокируется целиком (урок Н8). Плюс каналы,
@@ -91,7 +90,7 @@ def channels_import_preview(
     payload: ChannelsImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ChannelsImportReport:
     """Dry-run: план без записи."""
     return _plan(db, project, payload, payload.node_id).report
@@ -102,7 +101,7 @@ def channels_import_apply(
     payload: ChannelsImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ChannelsImportReport:
     """Применение: план пересчитывается на живом состоянии; при errors не пишем ничего."""
     plan = _plan(db, project, payload, payload.node_id)

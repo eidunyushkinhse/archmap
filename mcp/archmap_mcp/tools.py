@@ -89,7 +89,12 @@ async def resolve_project(client: ArchMapClient, ref: str) -> tuple[str, str]:
 
 # ── Чтение ───────────────────────────────────────────────────────────────────
 
+# Роль учётки агента в проекте (my_role) словами: что агенту там можно.
+ROLE_WORDS = {"owner": "владелец", "editor": "редактор", "reader": "чтение"}
+
+
 async def t_projects(client: ArchMapClient, args: dict[str, Any]) -> str:
+    # Сервер отдаёт только проекты, доступные учётке агента, — фильтровать нечего.
     projects = await client.request("GET", "/projects")
     if not projects:
         return "Проектов нет."
@@ -97,8 +102,11 @@ async def t_projects(client: ArchMapClient, args: dict[str, Any]) -> str:
     for p in projects:
         tail = f" — {p['description']}" if p.get("description") else ""
         archived = " (в архиве)" if p.get("archived_at") else ""
+        role = ROLE_WORDS.get(p.get("my_role") or "")
+        badge = f" [{role}]" if role else ""
         lines.append(
-            f"• {p['name']}{archived}: {p.get('object_count', '?')} объектов{tail}  id={p['id']}"
+            f"• {p['name']}{archived}{badge}: {p.get('object_count', '?')} объектов{tail}"
+            f"  id={p['id']}"
         )
     return "\n".join(lines)
 
@@ -958,7 +966,7 @@ RESOLUTIONS_ARG = {
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_projects",
-        "description": "Список проектов ArchMap: имя, число объектов, id. С него начинают — дальше проект указывают именем.",
+        "description": "Список проектов ArchMap, доступных учётке: имя, роль в проекте ([владелец], [редактор] — можно править; [чтение] — только смотреть), число объектов, id. С него начинают — дальше проект указывают именем.",
         "schema": {"type": "object", "properties": {}},
         "handler": t_projects,
     },

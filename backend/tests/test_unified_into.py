@@ -21,11 +21,11 @@ import zipfile
 
 import pytest
 import yaml
-from conftest import ensure_architect
+from conftest import ensure_architect, make_project
 from fastapi.testclient import TestClient
 
 from app.archive_export import build_archive
-from app.auth import require_architect
+from app.auth import get_current_user
 from app.config_import import ParamIn
 from app.database import get_db
 from app.export import build_export
@@ -70,10 +70,9 @@ from app.unified_into import (
 
 
 def _проект(db, имя: str) -> Project:
-    p = Project(id=uuid.uuid4(), name=имя)
-    db.add(p)
-    db.flush()
-    return p
+    # С владельцем (architect из ensure_architect): эндпоинты догрузки пускают
+    # только редактора проекта.
+    return make_project(db, имя)
 
 
 def _узел(db, проект: Project, имя: str, родитель: Node | None = None, **поля) -> Node:
@@ -1448,7 +1447,7 @@ def клиент(db):
     """Клиент с настоящей БД: догрузка пишет, а форму multipart с текстовыми полями
     (JSON резолюций, курсоры fence) видно только настоящим запросом."""
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_architect] = lambda: ensure_architect(db)
+    app.dependency_overrides[get_current_user] = lambda: ensure_architect(db)
     try:
         yield TestClient(app)
     finally:
@@ -1551,8 +1550,8 @@ def test_эндпоинт_превью_не_пишет_в_бд(клиент, db)
     assert _снимок(db, проект.id) == было
 
 
-def test_роль_читателя_к_догрузке_не_допускается(db):
-    """require_architect — тот же гейт, что у синка и создания."""
+def test_без_входа_к_догрузке_не_допускается(db):
+    """Без токена догрузки нет: проверка доступа к проекту идёт от пользователя."""
     app.dependency_overrides[get_db] = lambda: db
     try:
         клиент = TestClient(app)
@@ -1562,21 +1561,29 @@ def test_роль_читателя_к_догрузке_не_допускаетс
         app.dependency_overrides.clear()
 
 
-def test_пользователь_не_архитектор_отбивается(db):
+def test_читатель_проекта_отбивается(db):
+    """Догрузка — правка проекта: читателю 403, не-участнику 404 (тот же гейт, что
+    у синка, docs/tasks/project-access.md)."""
+    from app.models.project_member import ProjectMember
+
+    проект = _проект(db, "Живой")
+    читатель = User(id=uuid.uuid4(), username="reader", hashed_password="x", role="architect")
+    чужой = User(id=uuid.uuid4(), username="stranger", hashed_password="x", role="architect")
+    db.add_all([читатель, чужой])
+    db.flush()  # пользователи раньше участия (FK без relationship не упорядочит)
+    db.add(ProjectMember(project_id=проект.id, user_id=читатель.id, role="reader"))
+    db.commit()
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_architect] = _отказ
     try:
         клиент = TestClient(app)
-        ответ = клиент.post(ПРЕВЬЮ.format(uuid.uuid4()), files=_файлы(b"PK"))
+        app.dependency_overrides[get_current_user] = lambda: читатель
+        ответ = клиент.post(ПРЕВЬЮ.format(проект.id), files=_файлы(b"PK"))
         assert ответ.status_code == 403
+        app.dependency_overrides[get_current_user] = lambda: чужой
+        ответ = клиент.post(ПРЕВЬЮ.format(проект.id), files=_файлы(b"PK"))
+        assert ответ.status_code == 404
     finally:
         app.dependency_overrides.clear()
-
-
-def _отказ() -> User:
-    from fastapi import HTTPException
-
-    raise HTTPException(status_code=403, detail="Только архитектор")
 
 
 # ── Основание склейки и якоря новых объектов в превью (Ф2 якорей) ────────────
@@ -1909,7 +1916,7 @@ def test_эндпоинт_догрузки_принимает_decisions(db):
     план = build_into_plan(db, проект, [("a.zip", архив)])
     [связь] = remainder_from_plan(план.plan, 0).container_edges
     app.dependency_overrides[get_db] = lambda: db
-    app.dependency_overrides[require_architect] = lambda: ensure_architect(db)
+    app.dependency_overrides[get_current_user] = lambda: ensure_architect(db)
     try:
         клиент = TestClient(app)
         r = клиент.post(

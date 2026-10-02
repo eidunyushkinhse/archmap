@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, Uuid
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -19,8 +19,9 @@ class Project(Base):
 
     Корневая сущность: вся доменная модель (узлы, связи, бизнес-процессы)
     принадлежит ровно одному проекту и никогда не пересекается с другими. Одна
-    организация без multi-tenant — проекты общие для всех пользователей, роль
-    (architect/viewer) остаётся глобальной и проектом не меняется.
+    организация без multi-tenant. Доступ — по участникам (ProjectMember, роли
+    owner/editor/reader) и флагу visible_to_all; глобальная роль architect/viewer
+    решает только, можно ли создавать проекты (app/access.py).
     """
 
     __tablename__ = "projects"
@@ -30,6 +31,11 @@ class Project(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # null = активен; datetime = в архиве (мягкое удаление; хранит и факт, и время).
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # «Виден всем пользователям»: не-участники получают чтение. По умолчанию проект
+    # виден только участникам.
+    visible_to_all: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

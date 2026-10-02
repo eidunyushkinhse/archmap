@@ -10,9 +10,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user
 from app.database import get_db
-from app.deps import get_current_project, scoped_edge, touch_project
+from app.deps import (
+    get_current_project,
+    require_project_editor,
+    scoped_edge,
+    touch_project,
+)
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -117,7 +122,7 @@ def create_process(
     payload: ProcessCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ProcessDetail:
     all_nodes = load_nodes(db, project.id)
     if payload.scope_node_id is not None and payload.scope_node_id not in all_nodes:
@@ -153,7 +158,7 @@ def import_process(
     payload: ProcessImportApply,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ProcessImportResult:
     """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
     _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
@@ -196,7 +201,7 @@ def update_process(
     payload: ProcessUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ProcessDetail:
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
@@ -219,7 +224,7 @@ def duplicate_process_endpoint(
     process_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ProcessDetail:
     """Копия процесса целиком — одной транзакцией на сервере.
 
@@ -245,7 +250,7 @@ def delete_process(
     process_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     proc = _get_process(db, process_id, project)
     db.delete(proc)  # каскад сносит участников/сообщения/фрагменты
@@ -264,7 +269,7 @@ def add_participant(
     payload: ParticipantCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ParticipantOut:
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
@@ -292,7 +297,7 @@ def reorder_participants(
     payload: ReorderPayload,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> list[ParticipantOut]:
     proc = _get_process(db, process_id, project)
     by_id = {p.id: p for p in proc.participants}
@@ -318,7 +323,7 @@ def bind_participant(
     payload: ParticipantBind,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> BindResult:
     """Привязать непривязанного участника к узлу схемы (или снять привязку — для undo).
 
@@ -367,7 +372,7 @@ def reattach_process(
     process_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ReattachResult:
     """Прогнать ВСЕ повисшие шаги процесса через подбор канала.
 
@@ -389,7 +394,7 @@ def detach_messages_endpoint(
     payload: ReorderPayload,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     """Отцепить перечисленные шаги от каналов — компенсация подхвата для undo.
 
@@ -415,7 +420,7 @@ def delete_participant(
     participant_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     proc = _get_process(db, process_id, project)
     part = db.get(ProcessParticipant, participant_id)
@@ -437,7 +442,7 @@ def create_message(
     payload: MessageCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> MessageOut:
     proc = _get_process(db, process_id, project)
     # Самосообщение: внутренняя операция участника — НЕ плечо канала C4, поэтому
@@ -538,7 +543,7 @@ def reorder_messages(
     payload: ReorderPayload,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> list[MessageOut]:
     """Новый порядок шагов сценария одной транзакцией: ids сверху вниз → order 0..N-1.
 
@@ -665,7 +670,7 @@ def update_message(
     payload: MessageUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> MessageOut:
     proc = _get_process(db, process_id, project)
     msg = db.get(ProcessMessage, message_id)
@@ -716,7 +721,7 @@ def delete_message(
     message_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     proc = _get_process(db, process_id, project)
     msg = db.get(ProcessMessage, message_id)
@@ -795,7 +800,7 @@ def create_fragment(
     payload: FragmentCreate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> FragmentOut:
     proc = _get_process(db, process_id, project)
     _check_fragment(
@@ -830,7 +835,7 @@ def update_fragment(
     payload: FragmentUpdate,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> FragmentOut:
     proc = _get_process(db, process_id, project)
     frag = db.get(ProcessFragment, fragment_id)
@@ -885,7 +890,7 @@ def delete_fragment(
     fragment_id: uuid.UUID,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> None:
     proc = _get_process(db, process_id, project)
     frag = db.get(ProcessFragment, fragment_id)

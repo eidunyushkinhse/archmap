@@ -1,7 +1,7 @@
 import type {
   ArchiveImportResult, ImportPromptOut, IntoApplyOut, IntoPreviewOut, Project,
-  ProjectCreate, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
-  UnifiedPreviewOut,
+  ProjectCreate, ProjectMember, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
+  UnifiedPreviewOut, UserBrief,
 } from "../types";
 // Форма ответов на вопросы остатка слияния (Ф-E). В OpenAPI её нет: бэк принимает
 // её Form-полем decisions ОДНОЙ JSON-строкой, поэтому генерат контракта её не
@@ -141,4 +141,23 @@ export const projectsApi = {
   // Необратимо: бэкенд требует точное имя проекта (confirm) и архивный статус.
   remove: (id: string, confirmName: string): Promise<void> =>
     api.delete(`/projects/${id}?confirm=${encodeURIComponent(confirmName)}`),
+
+  // ── Доступ (окно «Доступ к проекту»). Смотреть участников может любой с
+  // доступом; добавлять, менять роль, убирать и передавать владение — владелец.
+  members: (id: string): Promise<ProjectMember[]> =>
+    api.get<ProjectMember[]>(`/projects/${id}/members`),
+  // Добавить участника или сменить роль. Роль владельца так не выдаётся.
+  putMember: (id: string, userId: string, role: "editor" | "reader"): Promise<ProjectMember> =>
+    api.put<ProjectMember>(`/projects/${id}/members/${userId}`, { role }),
+  removeMember: (id: string, userId: string): Promise<void> =>
+    api.delete(`/projects/${id}/members/${userId}`),
+  // Передать владение: прежний владелец остаётся редактором. Ответ — карточка
+  // проекта глазами передавшего (my_role у него уже editor).
+  transfer: (id: string, userId: string): Promise<Project> =>
+    api.post<Project>(`/projects/${id}/transfer`, { user_id: userId }),
+};
+
+// Активные пользователи сервиса для выбора участника (только id и логин).
+export const usersApi = {
+  list: (): Promise<UserBrief[]> => api.get<UserBrief[]>("/users"),
 };

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { getUserRole } from "../api/auth";
+import { canEditProject, useProjectRole } from "./projectRole";
 import type { Node } from "../types";
 import { exportApi } from "../api/nodes";
 import NodeTreePanel from "../components/NodeTreePanel";
@@ -51,7 +52,8 @@ export default function ProjectShell({
   onNavigateProject,
   onNavigateMap,
 }: Props) {
-  const isArchitect = getUserRole() === "architect";
+  // isArchitect теперь значит «может править этот проект» (роль в проекте owner/editor).
+  const isArchitect = canEditProject(useProjectRole());
   // Пришли из редактора-карты по строке процессного алерта (AL26/AL27)? Ключ
   // одноразовый, поэтому читаем его при маунте, а гасим эффектом: инициализатор
   // useState под StrictMode вызывается дважды, и удаление прямо в нём потеряло бы
@@ -141,7 +143,8 @@ export default function ProjectShell({
           <span style={divider} />
           <ProjectSwitcher
             projectId={projectId}
-            isArchitect={isArchitect}
+            // Свитчеру нужна ГЛОБАЛЬНАЯ роль: «+ Новый проект» — право architect.
+            isArchitect={getUserRole() === "architect"}
             onAllProjects={onAllProjects}
             onSwitchProject={onSwitchProject}
           />

@@ -10,11 +10,10 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.auth import require_architect
 from app.config_import import ConfigPlan, apply_config_plan, build_config_plan
 from app.config_prompt import build_config_prompt
 from app.database import get_db
-from app.deps import get_current_project, touch_project
+from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
@@ -35,7 +34,7 @@ def config_prompt(
     variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ConfigPromptOut:
     """Промпт агенту с узлами-сервисами ЭТОГО проекта: адрес владельца слабая модель
     без списка выдумывает, и пакет блокируется целиком (урок Н8).
@@ -63,7 +62,7 @@ def config_import_preview(
     payload: ConfigImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> ConfigImportReport:
     """Dry-run: план без записи."""
     return _plan(db, project, payload, payload.node_id).report
@@ -74,7 +73,7 @@ def config_import_apply(
     payload: ConfigImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> ConfigImportReport:
     """Применение: план пересчитывается на живом состоянии; при errors не пишем ничего."""
     plan = _plan(db, project, payload, payload.node_id)

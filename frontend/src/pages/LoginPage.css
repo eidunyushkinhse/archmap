@@ -1,0 +1,226 @@
+/* Страница входа: сплит «заголовок + превью схемы» слева и форма справа.
+   Сознательно одна светлая тема (slate + синий #2563eb, как ui/styles.ts): так
+   выглядит само приложение. Стили — файлом, а не инлайном: нужны :focus, :hover
+   и медиазапрос. Глобальные h1/h2 из index.css перебиваются классами ниже. */
+
+.login {
+  --login-bg: #f8fafc;
+  --login-line: #e2e8f0;
+  --login-line-soft: #eef2f6;
+  --login-ink: #0f172a;
+  --login-ink-2: #475569;
+  --login-ink-3: #64748b;
+  --login-ink-4: #94a3b8;
+  --login-accent: #2563eb;
+  --login-accent-ink: #1d4ed8;
+
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto; /* #root и body режут переполнение — прокрутка своя */
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  background: #fff;
+  color: var(--login-ink);
+  color-scheme: light;
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: normal;
+  letter-spacing: normal;
+}
+
+/* ── Левая половина: заголовок и превью холста ─────────────────────────── */
+.login-left {
+  min-width: 0;
+  background: var(--login-bg);
+  border-right: 1px solid var(--login-line);
+  padding: 28px 36px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+
+.login-pitch h1 {
+  margin: 0 0 10px;
+  max-width: 16em;
+  font-size: 30px;
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+  color: var(--login-ink);
+}
+
+.login-pitch p {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--login-ink-2);
+}
+
+/* Карточка-«холст»: SVG позиционирован абсолютно, чтобы не влиять на высоту
+   колонки — карточка забирает остаток высоты, схема вписывается по viewBox. */
+.login-canvas {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 220px;
+  background: #fff;
+  border: 1px solid var(--login-line);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+}
+
+.login-canvas svg {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  width: calc(100% - 28px);
+  height: calc(100% - 28px);
+  display: block;
+}
+
+/* ── Правая половина: форма ────────────────────────────────────────────── */
+.login-right {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-formbox {
+  width: min(340px, 100%);
+  display: grid;
+  gap: 22px;
+}
+
+.login-formbox h2 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--login-ink);
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-field {
+  display: grid;
+  gap: 6px;
+}
+
+.login-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--login-ink-2);
+}
+
+.login-wrap {
+  position: relative;
+}
+
+.login-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--login-line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--login-ink);
+  background: #fff;
+}
+
+.login-field input.login-input--password {
+  padding-right: 40px; /* место под кнопку-глаз */
+}
+
+.login-field input:focus {
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+  outline: none;
+}
+
+/* После :focus — красная рамка неверного пароля держится и в фокусе. */
+.login-field input.login-input--bad {
+  border-color: #fca5a5;
+}
+
+.login-eye {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  padding: 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--login-ink-4);
+}
+
+.login-eye:hover {
+  color: var(--login-ink-2);
+  background: var(--login-line-soft);
+}
+
+.login-btn {
+  margin-top: 4px;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--login-accent);
+  color: #fff;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.login-btn:hover:not(:disabled) {
+  background: var(--login-accent-ink);
+}
+
+.login-btn:focus-visible,
+.login-eye:focus-visible {
+  outline: 2px solid var(--login-accent);
+  outline-offset: 2px;
+}
+
+/* Плашки: ошибка входа — красная, причина выхода (notice) — жёлтая. */
+.login-msg {
+  font-size: 13.5px;
+  line-height: 1.45;
+  border: 1px solid;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.login-msg--error {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.login-msg--notice {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.login-hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--login-ink-3);
+}
+
+/* Узкий экран: левая половина уходит, форма — по центру. */
+@media (max-width: 820px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+
+  .login-left {
+    display: none;
+  }
+}

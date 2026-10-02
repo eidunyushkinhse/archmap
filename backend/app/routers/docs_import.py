@@ -1,6 +1,6 @@
 """Дозаливка доков от ИИ-агента в СУЩЕСТВУЮЩИЙ проект (этап 2 plan-agent-docs.md).
 
-Три эндпоинта под require_architect (кнопка и применение — только архитектор):
+Три эндпоинта под require_project_editor (кнопка и применение — редактору проекта):
 prompt — промпт со вложенным срезом схемы (весь проект или поддерево);
 preview — dry-run плана без записи; apply — тот же план, пересчитанный на живом
 состоянии, + запись (при errors ничего не пишется, отчёт с applied=false).
@@ -15,10 +15,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
 from app import tree
-from app.auth import require_architect
 from app.data_refs import catalog_for_project
 from app.database import get_db
-from app.deps import get_current_project, touch_project
+from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import (
     DocsPlan,
     MmdOverride,
@@ -135,7 +134,7 @@ def docs_prompt(
     variant: PromptVariant = "builder",
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DocsPromptOut:
     """Промпт агенту со вложенным срезом схемы: node_id — поддерево (агенту
     одного сервиса хватает его контейнера), без node_id — весь проект.
@@ -279,7 +278,7 @@ def docs_import_preview(
     payload: DocsImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    _: User = Depends(require_architect),
+    _: User = Depends(require_project_editor),
 ) -> DocsImportReport:
     """Dry-run: план без записи (build_docs_plan БД только читает)."""
     return _report(_plan_from_files(db, project, payload))
@@ -290,7 +289,7 @@ def docs_import_apply(
     payload: DocsImportIn,
     db: Session = Depends(get_db),
     project: Project = Depends(get_current_project),
-    user: User = Depends(require_architect),
+    user: User = Depends(require_project_editor),
 ) -> DocsImportReport:
     """Применение: план пересчитывается на живом состоянии (между превью и
     применением мир мог измениться); при errors не пишется ничего."""

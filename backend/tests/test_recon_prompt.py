@@ -27,9 +27,9 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.auth import require_architect
+from app.auth import get_current_user
 from app.database import get_db
-from app.deps import get_current_project
+from app.deps import get_current_project, require_project_editor
 from app.main import app
 from app.models.node import Node
 from app.recon_prompt import RECON_FILE, build_recon_prompt
@@ -442,7 +442,8 @@ def клиент(db):
     user = ensure_architect(db)
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_project] = lambda: p
-    app.dependency_overrides[require_architect] = lambda: user
+    app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[require_project_editor] = lambda: user
     try:
         yield TestClient(app), сервис
     finally:

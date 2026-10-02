@@ -28,7 +28,8 @@ from app.models.process_fragment import ProcessFragment  # noqa: F401
 from app.models.process_message import ProcessMessage  # noqa: F401
 from app.models.process_participant import ProcessParticipant  # noqa: F401
 from app.models.project import Project
-from app.models.user import User  # noqa: F401
+from app.models.project_member import ProjectMember  # noqa: F401
+from app.models.user import User
 from app.models.view_layout import ViewLayoutItem  # noqa: F401
 from app.models.view_state import ViewState  # noqa: F401
 
@@ -96,21 +97,42 @@ def ensure_architect(db) -> User:
     return u
 
 
-def seed_project_from_yaml(db, texts: list[str], name: str = "Из репозитория") -> Project:
+def make_project(
+    db, name: str = "Тестовый проект", owner: User | None = None, visible_to_all: bool = False
+) -> Project:
+    """Проект С ВЛАДЕЛЬЦЕМ — как его создаёт POST /projects (docs/tasks/project-access.md).
+
+    Проект без участника для обычного пользователя не существует (404), поэтому
+    тесты, идущие через настоящие зависимости доступа, создают проекты здесь.
+    Владелец по умолчанию — architect из ensure_architect. Делать тестового
+    пользователя администратором НЕЛЬЗЯ: это спрятало бы баги прав."""
+    import uuid
+
+    from app.access import add_owner
+
+    owner = owner or ensure_architect(db)
+    p = Project(id=uuid.uuid4(), name=name, created_by_id=owner.id, visible_to_all=visible_to_all)
+    db.add(p)
+    db.flush()
+    add_owner(db, p.id, owner.id)
+    db.flush()
+    return p
+
+
+def seed_project_from_yaml(
+    db, texts: list[str], name: str = "Из репозитория", owner: User | None = None
+) -> Project:
     """Проект со схемой из YAML-текстов — ровно то, что делал снесённый 2026-09-05
     путь start="import": parse_and_merge + seed_import (те же функции, что звал
     роутер). Живой ввоз файлов идёт единым путём (/projects/import-unified), а
-    тестам синка/импорта нужна лишь дешёвая заготовка схемы без multipart."""
-    import uuid
-
+    тестам синка/импорта нужна лишь дешёвая заготовка схемы без multipart.
+    Проект с владельцем (по умолчанию architect из ensure_architect), см. make_project."""
     from app.import_merge import parse_and_merge
     from app.import_yaml import seed_import
 
     merged, _report, errors = parse_and_merge(texts)
     assert merged is not None, errors
-    p = Project(id=uuid.uuid4(), name=name)
-    db.add(p)
-    db.flush()
+    p = make_project(db, name, owner=owner)
     seed_import(db, p.id, merged)
     db.commit()
     return p
