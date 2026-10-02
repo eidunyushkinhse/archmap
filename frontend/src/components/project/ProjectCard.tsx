@@ -5,9 +5,10 @@ import SchemaPreview from "./SchemaPreview";
 
 /**
  * Карточка проекта на лендинге: превью схемы, имя и описание, кто и когда менял,
- * меню ⋯. Меню видят все, кто видит проект: «Открыть» и «Доступ» — каждому,
- * управление проектом (редактировать, архив, восстановить, удалить) — только
- * владельцу. Читателю на карточке — тихая метка «Только чтение».
+ * меню ⋯. Меню — редактору и владельцу: «Открыть» и «Доступ» обоим, управление
+ * проектом (редактировать, архив, восстановить, удалить) — только владельцу.
+ * Читателю состав участников не показываем, а без «Доступа» в меню остался бы один
+ * пункт «Открыть» — поэтому у читателя меню ⋯ нет вовсе, только метка «Только чтение».
  */
 export default function ProjectCard({
   project, archivedTab, onOpen, onAccess, onEdit, onArchive, onRestore, onDelete,
@@ -32,7 +33,7 @@ export default function ProjectCard({
         <button style={cardPreviewBtn} onClick={onOpen} title="Открыть проект">
           <SchemaPreview preview={project.preview} />
         </button>
-        <CardMenu
+        {project.my_role !== "reader" && <CardMenu
           isOwner={project.my_role === "owner"}
           archivedTab={archivedTab}
           onOpen={onOpen}
@@ -41,7 +42,7 @@ export default function ProjectCard({
           onArchive={onArchive}
           onRestore={onRestore}
           onDelete={onDelete}
-        />
+        />}
       </div>
       <button style={cardBody} onClick={onOpen}>
         <div style={cardNameRow}>

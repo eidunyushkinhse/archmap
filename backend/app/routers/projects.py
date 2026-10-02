@@ -760,9 +760,10 @@ def list_members(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> list[ProjectMemberOut]:
-    """Участники проекта: логин и роль. Видят все, у кого есть доступ к проекту.
+    """Участники проекта: логин и роль. Видят редактор и владелец; читателю состав
+    проекта не показываем (решение пользователя 2026-10-02) — 403.
     Владелец первым, дальше по алфавиту логина."""
-    project_for(db, user, project_id)
+    project_for(db, user, project_id, need="editor")
     rows = (
         db.query(ProjectMember, User.username)
         .join(User, User.id == ProjectMember.user_id)

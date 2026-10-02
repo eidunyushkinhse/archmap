@@ -1,5 +1,5 @@
 // Карточка проекта на лендинге: пункты меню ⋯ по роли в проекте и метка
-// «Только чтение» у читателя. Глобальная роль здесь ни при чём.
+// «Только чтение» у читателя (меню ⋯ у него нет). Глобальная роль здесь ни при чём.
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
@@ -36,16 +36,21 @@ describe("ProjectCard: меню по роли в проекте", () => {
     ]);
   });
 
-  it("редактору и читателю — только «Открыть» и «Доступ»", async () => {
+  it("редактору — только «Открыть» и «Доступ»", async () => {
     expect(await пункты("editor")).toEqual(["Открыть", "Доступ"]);
   });
 
-  it("читателю в архиве тоже без управления", async () => {
-    expect(await пункты("reader", true)).toEqual(["Открыть", "Доступ"]);
+  it("редактору в архиве тоже без управления", async () => {
+    expect(await пункты("editor", true)).toEqual(["Открыть", "Доступ"]);
+  });
+
+  it("у читателя меню ⋯ нет: состав участников ему не показываем", () => {
+    render(<ProjectCard project={проект("reader")} archivedTab={false} {...колбэки} />);
+    expect(screen.queryByRole("button", { name: "Меню проекта" })).not.toBeInTheDocument();
   });
 
   it("«Доступ» открывает окно доступа", async () => {
-    await пункты("reader");
+    await пункты("editor");
     await userEvent.click(screen.getByRole("button", { name: "Доступ" }));
     expect(колбэки.onAccess).toHaveBeenCalledOnce();
   });

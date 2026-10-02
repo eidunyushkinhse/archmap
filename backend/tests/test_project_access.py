@@ -219,7 +219,8 @@ def test_не_участник_и_visible_to_all(client, db, scene):
     card = client.get(f"{PROJECTS}/{p.id}", headers=_h(stranger)).json()
     assert card["my_role"] == "reader" and card["owner_username"] == "owner"
     assert client.get(NODES, headers=_h(stranger, p)).status_code == 200
-    assert client.get(f"{PROJECTS}/{p.id}/members", headers=_h(stranger)).status_code == 200
+    # Состав участников читателю не показываем (решение пользователя 2026-10-02).
+    assert client.get(f"{PROJECTS}/{p.id}/members", headers=_h(stranger)).status_code == 403
     r = client.post(NODES, headers=_h(stranger, p), json={"name": "чужой"})
     assert r.status_code == 403 and r.json() == {"detail": "Нет прав на правку этого проекта"}
 
@@ -312,7 +313,8 @@ def test_копия_из_недоступного_источника(client, db,
 def test_участники_список_и_правка(client, db, scene):
     p = scene["p"]
     url = f"{PROJECTS}/{p.id}/members"
-    listed = client.get(url, headers=_h(scene["reader"])).json()
+    assert client.get(url, headers=_h(scene["reader"])).status_code == 403
+    listed = client.get(url, headers=_h(scene["editor"])).json()
     assert [(m["username"], m["role"]) for m in listed] == [
         ("owner", "owner"),
         ("editor", "editor"),
