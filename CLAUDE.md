@@ -24,10 +24,11 @@ archmap/
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
 │   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
+│   │   │   ├── login/     # анимированное превью схемы на странице входа
 │   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
-│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), UsersPage (админка пользователей), LoginPage; TreePage — легаси за фиче-флагом
+│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), UsersPage (админка пользователей), LoginPage (сплит: превью схемы + форма); TreePage — легаси за фиче-флагом
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
 │   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
 │   ├── package.json
