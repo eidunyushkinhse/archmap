@@ -31,6 +31,8 @@ import { anchorKind, basisLabel } from "../anchor/anchorText";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
+import { firstTooBig } from "../demo/demoLimits";
 
 interface Props {
   projectId: string;
@@ -128,12 +130,15 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   };
 
   const drop = useFileDrop({ accept: [".zip"], onFiles: addFiles });
+  // Демо-стенд (docs/tasks/demo-mode.md): архив больше предела файла не отправляем
+  // вовсе — сервер ответил бы 413; отказ показываем сразу.
+  const tooBig = useMemo(() => firstTooBig(files), [files]);
 
   // Превью БЕЗ дебаунса: состав файлов меняется редко (перетащили архив), а не
   // посимвольно, как текст в редакторе. Устаревшие ответы отбрасывает seq —
   // синхронного setState в эффекте нет (react-hooks/set-state-in-effect).
   useEffect(() => {
-    if (files.length === 0) return;
+    if (files.length === 0 || tooBig) return;
     const seq = ++seqRef.current;
     projectsApi.importIntoPreview(projectId, files).then(
       (res) => { if (seq === seqRef.current) setPreview({ forFiles: files, key: reloadKey, res }); },
@@ -143,11 +148,14 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
         setPreview({ forFiles: files, key: reloadKey, res: failedPreview(msg) });
       },
     );
-  }, [projectId, files, reloadKey]);
+  }, [projectId, files, reloadKey, tooBig]);
 
   const fresh =
-    preview && preview.forFiles === files && preview.key === reloadKey ? preview.res : null;
-  const checking = files.length > 0 && fresh === null;
+    preview && preview.forFiles === files && preview.key === reloadKey && !tooBig
+      ? preview.res : null;
+  const checking = files.length > 0 && fresh === null && !tooBig;
+  // Демо-стенд: после догрузки проект выйдет за предел (считает сервер в превью).
+  const excess = fresh?.demo_excess ?? null;
   // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
   // стабильность зависимых мемо ниже.
   const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
@@ -215,7 +223,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
 
   // Применять нечего, когда архив ничего не добавляет и ни о чём не спорит (типовой
   // случай: догрузили архив ЭТОГО же проекта) — кнопка гаснет, а дифф это объясняет.
-  const canApply = !!fresh?.ok && !applying && brings(fresh, questions.length);
+  const canApply = !!fresh?.ok && !applying && excess === null && brings(fresh, questions.length);
 
   return (
     <Modal
@@ -283,11 +291,16 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
 
           {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что приедет…</p>}
+          {tooBig && <div style={{ marginTop: 10 }}><FileTooBigNotice {...tooBig} /></div>}
+          {/* Не помещается в демо: вместо диффа и вопросов — отказ с полоской. */}
+          {excess && (
+            <div style={{ marginTop: 10 }}><DemoExcessNotice excess={excess} scope="project" /></div>
+          )}
           {/* Та же строка статуса, что в окне создания (§1.2): отказ разбора
               архива — её красное состояние со ВСЕМИ ошибками (несколько —
               списком, правка Ф2г). Виновника-чипа здесь нет: архивы не
               переключаются, их читают; имя архива — в начале текста ошибки. */}
-          {fresh && (
+          {fresh && !excess && (
             <StatusLine
               state={statusState(fresh.ok, questions.length + fresh.remainder.unfixable.length)}
               errors={fresh.ok ? undefined : (
@@ -295,9 +308,9 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
               ).map((e) => ({ chipLabel: null, chipIndex: null, ...splitErrorLine(e) }))}
             />
           )}
-          {fresh?.ok && <Diff preview={fresh} />}
+          {fresh?.ok && !excess && <Diff preview={fresh} />}
 
-          {fresh?.ok && questions.length > 0 && (
+          {fresh?.ok && !excess && questions.length > 0 && (
             <RemainderBlock
               questions={questions}
               answers={answers}
@@ -309,10 +322,10 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           )}
           {/* Массовые действия — под вопросами: сначала видно, о чём спор, потом
               «а можно всё разом». Жестов и споров без живого они не касаются. */}
-          {fresh?.ok && withMine && (
+          {fresh?.ok && !excess && withMine && (
             <BulkBox onKeepMine={() => resolveAll(true)} onTakeArchives={() => resolveAll(false)} />
           )}
-          {fresh?.ok && <UnfixableFold items={fresh.remainder.unfixable} />}
+          {fresh?.ok && !excess && <UnfixableFold items={fresh.remainder.unfixable} />}
           {applyError && (
             <p style={{ ...grayLine, color: "#b45309", marginTop: 8 }}>{applyError}</p>
           )}

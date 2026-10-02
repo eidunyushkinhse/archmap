@@ -20,6 +20,9 @@ import { useShrinkAnchor } from "./useShrinkAnchor";
 import { ChevronDownIcon } from "../ui/icons";
 import type { BrokerChannel, ChannelField, ChannelUsage } from "../types";
 import "./brokerChannels.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitNotice } from "./demo/DemoLimitNotice";
 
 interface Props {
   nodeId: string;
@@ -60,6 +63,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
   const [channels, setChannels] = useState<BrokerChannel[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
   // Свёрнутые группы (по умолчанию раскрыты — иначе структура выглядит пустой).
@@ -92,11 +96,16 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
   // а необходимость: CAS-версия канала и порядок полей приходят с сервера, и локальная
   // склейка разъезжалась бы с ними на первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
+    setLimit(null);
     try {
       await fn();
       setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
+      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
   }, [setSeq]);
@@ -171,6 +180,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
     <div className="np-card">
       <h3 className="np-card-title">Каналы</h3>
       {error && <p className="np-warn">{error}</p>}
+      {limit && <LimitNotice message={limit} />}
       <div ref={listRef}>
       {(channels ?? []).length === 0 ? (
         <p className="np-empty">Каналы не описаны</p>

@@ -11,6 +11,9 @@ import { processesApi } from "../../api/processes";
 import type { ProcessImportPreview, ProcessImportResult } from "../../types";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { BPT, BROKEN } from "./tokens";
+import { limitMessage } from "../demo/demoLimits";
+import type { LimitMessage } from "../demo/demoLimits";
+import { LimitText } from "../demo/DemoLimitToast";
 
 interface Props {
   onClose: () => void;
@@ -32,10 +35,12 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
   const [result, setResult] = useState<ProcessImportResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
 
   async function doPreview() {
     setBusy(true);
     setError(null);
+    setLimit(null);
     try {
       const p = await processesApi.importPreview({ text, name: name.trim() || null });
       setPreview(p);
@@ -55,6 +60,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
     if (!preview) return;
     setBusy(true);
     setError(null);
+    setLimit(null);
     try {
       const res = await processesApi.importProcess({
         text,
@@ -67,6 +73,9 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
       });
       setResult(res);
     } catch (e: unknown) {
+      // Демо-стенд: проект упёрся в предел (docs/tasks/demo-mode.md).
+      const refusal = limitMessage(e, "process");
+      if (refusal) { setLimit(refusal); return; }
       setError(e instanceof Error ? e.message : "Не удалось импортировать процесс");
     } finally {
       setBusy(false);
@@ -194,6 +203,11 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
           )}
 
           {error && <div style={{ color: "#dc2626", fontSize: 12, marginTop: 10 }}>{error}</div>}
+          {limit && (
+            <div style={{ color: "#dc2626", fontSize: 12, marginTop: 10 }} role="alert">
+              <LimitText message={limit} />
+            </div>
+          )}
 
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
             <button style={secondaryBtn} onClick={onClose}>Отмена</button>

@@ -9,6 +9,8 @@ import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptCopyButton from "../docsImport/PromptCopyButton";
 import ImportPane from "./ImportPane";
+import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
+import { firstTooBig, textBytes } from "../demo/demoLimits";
 import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
 import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
@@ -97,11 +99,24 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     ];
   }, [docs, docNames, archives]);
 
+  // Демо-стенд (docs/tasks/demo-mode.md): вход больше предела файла — превью не
+  // запрашиваем (сервер ответил бы 413), показываем отказ и гасим «Создать проект».
+  // Вставленный текстом вход подписан номером чипа, как в самой панели.
+  const tooBig = useMemo(() => {
+    const texts = docs
+      .map((text, i) => ({ text, name: docNames[i] ?? null }))
+      .filter((d) => d.text.trim());
+    return firstTooBig([
+      ...texts.map((d, i) => ({ name: d.name ?? `Файл ${i + 1}`, size: textBytes(d.text) })),
+      ...archives.map((f) => ({ name: f.name, size: f.size })),
+    ]);
+  }, [docs, docNames, archives]);
+
   // Живая сводка ввоза: дебаунс 500мс → dry-run всех входов; устаревшие ответы
   // отбрасываются (alive-флаг в cleanup). Пустая панель сводку не запрашивает — она
   // скрыта по несовпадению ссылок, синхронного сброса стейта в эффекте нет.
   useEffect(() => {
-    if (!importish || inputFiles.length === 0) return;
+    if (!importish || inputFiles.length === 0 || tooBig) return;
     const forDocs = docs;
     const forArchives = archives;
     let alive = true;
@@ -116,13 +131,15 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
       );
     }, 500);
     return () => { alive = false; clearTimeout(t); };
-  }, [docs, archives, inputFiles, importish]);
+  }, [docs, archives, inputFiles, importish, tooBig]);
 
   const source = projects.find((p) => p.id === sourceId) ?? null;
   const fresh = preview && preview.forDocs === docs && preview.forArchives === archives
-    && inputFiles.length > 0
+    && inputFiles.length > 0 && !tooBig
     ? preview.res
     : null;
+  // Демо-стенд: проект из этих входов не поместится в пределы (считает сервер).
+  const excess = fresh?.demo_excess ?? null;
   // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
   // стабильность бандла архивов ниже (лишние ре-рендеры панели).
   const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
@@ -176,7 +193,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
       // Ввоз: после применения кнопка становится «Открыть проект»; до него нужна
       // зелёная сводка и имя — кроме «копии одного архива», где имя из манифеста.
       ? !busy && (unifiedResult !== null
-        || (fresh?.ok === true && (fromManifest || name.trim().length > 0)))
+        || (fresh?.ok === true && excess === null && (fromManifest || name.trim().length > 0)))
       : name.trim().length > 0 &&
         !busy &&
         !(mode === "copy" && !sourceId);
@@ -420,10 +437,18 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                   onDocs={setDocs}
                   names={docNames}
                   onNames={setDocNames}
-                  summary={fresh?.c4 ?? null}
+                  // Не помещается в демо — сводка и вопросы ни к чему: сначала
+                  // уменьшить входы. Вместо них — отказ с полоской ниже.
+                  summary={excess ? null : (fresh?.c4 ?? null)}
                   archives={archiveInputs}
                   remainder={remainderInputs}
                 />
+                {tooBig && (
+                  <div style={{ marginTop: 12 }}><FileTooBigNotice {...tooBig} /></div>
+                )}
+                {excess && (
+                  <div style={{ marginTop: 12 }}><DemoExcessNotice excess={excess} scope="files" /></div>
+                )}
               </>
             ) : (
               /* Отчёт применения ДО перехода в проект: замечания — видимая

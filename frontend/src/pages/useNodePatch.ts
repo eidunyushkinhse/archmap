@@ -5,7 +5,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { Node, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
-import { ApiError, isConflict } from "../api/client";
+import { ApiError, isConflict, isDemoLimit } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import { docToMeta } from "../components/inspector/docMeta";
 
@@ -90,8 +90,10 @@ export function useNodePatch(
   // Возвращает ТЕКСТ ОТКАЗА или null при успехе. Плашки conflict/error оно
   // выставляет само (как и раньше); возврат нужен полям, которые показывают
   // отказ у себя (якорь) — остальные зовут через void и его игнорируют.
+  // rethrowLimit: отказ по пределу демо-стенда не глотать, а пробросить вызывающему
+  // (окно спеки оставляет правку в редакторе и показывает отказ у себя).
   const save = useCallback(
-    async (over: Partial<NodeUpdate>): Promise<string | null> => {
+    async (over: Partial<NodeUpdate>, rethrowLimit = false): Promise<string | null> => {
       const before = beforeRef.current;
       const payload: NodeUpdate = {
         name: name.trim() || before.name,
@@ -114,6 +116,7 @@ export function useNodePatch(
         onSaved?.(saved);
         return null;
       } catch (e: unknown) {
+        if (rethrowLimit && isDemoLimit(e)) throw e;
         if (!isConflict(e)) {
           // Не конфликт версий, а ОТКАЗ с причиной (400: смена типа у узла с детьми
           // либо у базы с описанной структурой). Раньше такие ошибки глотались молча —
@@ -122,7 +125,9 @@ export function useNodePatch(
           // (форма): иначе интерфейс показывал бы тип, которого в БД нет.
           setShape(beforeRef.current.shape);
           setConflict(null);
-          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
+          // Предел демо-стенда — с тем же жирным по смыслу началом, что в окнах.
+          const текст = isDemoLimit(e) ? `Не сохранилось. ${e.message}`
+            : e instanceof ApiError ? e.message : "Правка не сохранена";
           setError(текст);
           return текст;
         }
@@ -164,7 +169,7 @@ export function useNodePatch(
 
   const commitOpenapi = useCallback((value: string): Promise<string | null> => {
     if (value === (beforeRef.current.openapi_spec ?? "")) return Promise.resolve(null);
-    return save({ openapi_spec: value || null });
+    return save({ openapi_spec: value || null }, true);
   }, [save]);
 
   const toggleExternal = useCallback(() => {

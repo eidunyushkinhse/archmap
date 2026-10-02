@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
 import { nodesApi, nodeDocsApi, exportApi, viewsApi } from "../api/nodes";
-import { isConflict } from "../api/client";
+import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
@@ -309,6 +309,8 @@ function NodePageInner({
       syncCursors();
       return true;
     } catch (e: unknown) {
+      // Предел демо-стенда — окну спеки: оно оставит правку и покажет отказ в подвале.
+      if (isDemoLimit(e)) throw e;
       if (!isConflict(e)) return false;
       nodesApi.get(base.id)
         .then(applyChild)

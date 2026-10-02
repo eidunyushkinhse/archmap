@@ -8,6 +8,9 @@ import { legMeta } from "./processes/legMeta";
 import { BPT } from "./processes/tokens";
 import SyncSegmented from "./SyncSegmented";
 import "./processes/processes.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitText } from "./demo/DemoLimitToast";
 
 /**
  * Композитор сообщения (звезда фичи). Пара участников приходит готовой: её задаёт
@@ -43,6 +46,7 @@ export default function MessageComposer({
   const [result, setResult] = useState<{ key: string; data: Channel[] } | null>(null);
   const [sel, setSel] = useState<{ edgeId: string; leg: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   const [busy, setBusy] = useState(false);
   // edge_id связи, у которой сейчас переключаем тип (на время запроса блокируем тумблеры).
   const [syncEdge, setSyncEdge] = useState<string | null>(null);
@@ -90,6 +94,7 @@ export default function MessageComposer({
   async function addSchemaEdge() {
     setBusy(true);
     setError(null);
+    setLimit(null);
     try {
       // «Достроить схему»: документируем связь source→target — она тут же появится
       // как плечо (канал). Поля заполняются ЗДЕСЬ же: раньше связь рождалась
@@ -107,6 +112,9 @@ export default function MessageComposer({
       const ch = await processesApi.channels(processId, fromNode, toNode);
       setResult({ key: pairKey, data: ch });
     } catch (e: unknown) {
+      // Демо-стенд: проект упёрся в предел (docs/tasks/demo-mode.md).
+      const refusal = limitMessage(e, "edge");
+      if (refusal) { setLimit(refusal); return; }
       setError(e instanceof Error ? e.message : "Не удалось добавить связь");
     } finally {
       setBusy(false);
@@ -146,6 +154,7 @@ export default function MessageComposer({
     }
     setBusy(true);
     setError(null);
+    setLimit(null);
     try {
       const payload: MessageCreate = {
         edge_id: channel.edge_id,
@@ -185,6 +194,11 @@ export default function MessageComposer({
       </div>
 
       {error && <div style={{ color: "#dc2626", fontSize: 12, padding: "0 14px 6px" }}>{error}</div>}
+      {limit && (
+        <div style={{ color: "#dc2626", fontSize: 12, padding: "0 14px 6px" }} role="alert">
+          <LimitText message={limit} />
+        </div>
+      )}
 
       {channels === null ? (
         <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>Загрузка каналов…</div>

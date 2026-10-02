@@ -21,6 +21,9 @@ import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable, TableUsage } from "../types";
 import "./dbStructure.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitNotice } from "./demo/DemoLimitNotice";
 
 interface Props {
   nodeId: string;
@@ -43,6 +46,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   const [tables, setTables] = useState<DbTable[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
   // переключатель показа, а не второй источник правды и не отдельное хранилище.
   const [showEr, setShowEr] = useState(false);
@@ -84,11 +88,16 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   // лень, а необходимость: CAS-версия таблицы и порядок колонок приходят с сервера,
   // и локальная склейка разъезжалась бы с ними на первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
+    setLimit(null);
     try {
       await fn();
       setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
+      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
   }, [setSeq]);
@@ -169,6 +178,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
     <div className="np-card">
       <h3 className="np-card-title">Структура</h3>
       {error && <p className="np-warn">{error}</p>}
+      {limit && <LimitNotice message={limit} />}
       {(tables ?? []).length > 0 && (
         <div className="dbs-ertoggle">
           <button type="button" className="np-addbtn" onClick={() => setShowEr((v) => !v)}>

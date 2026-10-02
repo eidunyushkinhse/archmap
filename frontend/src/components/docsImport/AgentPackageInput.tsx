@@ -82,6 +82,10 @@ export default function AgentPackageInput({ pkg, onRemove, dropText, pasteTitle 
       {drop.error && (
         <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>
       )}
+      {/* Демо-стенд: файл больше предела не взят (docs/tasks/demo-mode.md). */}
+      {pkg.sizeError && (
+        <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>
+      )}
     </>
   );
 }

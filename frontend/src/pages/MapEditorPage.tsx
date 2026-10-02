@@ -45,6 +45,9 @@ import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } fr
 import "../ui/chrome.css";
 import BrandLink from "../ui/BrandLink";
 import SandboxChip from "../ui/SandboxChip";
+import DemoLimitToast from "../components/demo/DemoLimitToast";
+import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
+import type { LimitAction } from "../components/demo/demoLimits";
 
 interface Props {
   projectId: string;
@@ -200,6 +203,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     },
   });
 
+  // Демо-стенд (docs/tasks/demo-mode.md, экран 4): отказ по пределу при отмене или
+  // повторе — тост внизу холста; схема при этом пересинхронизируется, как при любом
+  // отказе записи.
+  const [limitToast, showLimit] = useDemoLimitToast();
   const resyncingRef = useRef<Promise<void> | null>(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер). Бандл persistence (Фаза 3д) пересобирается с ним — поведение идентично прежней прямой передаче пропа; стабилизация через useCallback потребует обернуть load (отдельный рефакторинг).
   function resyncOnPersistError(): Promise<void> {
@@ -207,6 +214,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const p = load(currentParentId).then(() => undefined).finally(() => { resyncingRef.current = null; });
     resyncingRef.current = p;
     return p;
+  }
+  // Обработчик отказа записи истории: предел демо — тост, затем обычный ресинк.
+  function onHistoryError(action: LimitAction): (e: unknown) => void {
+    return (e: unknown) => {
+      showLimit(e, action);
+      void resyncOnPersistError();
+    };
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError: plain-function, бандл пересобирается с ним (поведение не меняется).
   function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
@@ -379,14 +393,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           nodesApi.update(node.id, { parent_id: oldParentId })
             .then(() => nodesApi.restore(snapshot))
             .then(() => { setTreeReload((t) => t + 1); refetch(); }),
-          resyncOnPersistError,
+          onHistoryError("save"),
         );
       },
       redo: () => {
         guardPersist(
           nodesApi.update(node.id, { parent_id: newParentId })
             .then(() => { setTreeReload((t) => t + 1); refetch(); }),
-          resyncOnPersistError,
+          onHistoryError("save"),
         );
       },
     });
@@ -424,7 +438,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       let snap: DeletionSnapshot | null = null;
       history.push({ label: "Создание объекта", level: levelAtCreate,
         undo: () => { guardPersist(nodesApi.deletionSnapshot(saved.id).then((s) => { snap = s; return nodesApi.delete(saved.id); }).then(refetch), resyncOnPersistError); },
-        redo: () => { guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), resyncOnPersistError); },
+        redo: () => { guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), onHistoryError("node")); },
       });
     } else if (before) {
       // Правка ребёнка раскрытой рамки: в nodes уровня его нет, оптимистичный патч
@@ -433,8 +447,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       if (!nodes.some((n) => n.id === saved.id)) setChildrenRev((r) => r + 1);
       const apply = (n: Node) => { setNodes((prev) => prev.map((x) => (x.id === n.id ? n : x))); };
       history.push({ label: "Правка объекта", level: currentParentId,
-        undo: () => { apply(before); guardPersist(nodesApi.update(before.id, nodeFields(before)), resyncOnPersistError); },
-        redo: () => { apply(saved); guardPersist(nodesApi.update(saved.id, nodeFields(saved)), resyncOnPersistError); },
+        undo: () => { apply(before); guardPersist(nodesApi.update(before.id, nodeFields(before)), onHistoryError("save")); },
+        redo: () => { apply(saved); guardPersist(nodesApi.update(saved.id, nodeFields(saved)), onHistoryError("save")); },
       });
     }
   }
@@ -449,7 +463,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const levelAtDelete = currentParentId;
     const refetch = refetchLevel(levelAtDelete);
     history.push({ label: "Удаление объекта", level: levelAtDelete,
-      undo: () => { guardPersist(nodesApi.restore(snapshot).then(refetch), resyncOnPersistError); },
+      undo: () => { guardPersist(nodesApi.restore(snapshot).then(refetch), onHistoryError("node")); },
       redo: () => { guardPersist(nodesApi.delete(id).then(refetch), resyncOnPersistError); },
     });
   }
@@ -462,7 +476,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const levelAtDelete = currentParentId;
     const refetch = refetchLevel(levelAtDelete);
     history.push({ label: `Удаление объектов (${ids.length})`, level: levelAtDelete,
-      undo: () => { guardPersist(Promise.all(snapshots.map((s) => nodesApi.restore(s))).then(refetch), resyncOnPersistError); },
+      undo: () => { guardPersist(Promise.all(snapshots.map((s) => nodesApi.restore(s))).then(refetch), onHistoryError("node")); },
       redo: () => { guardPersist(Promise.all(ids.map((id2) => nodesApi.delete(id2))).then(refetch), resyncOnPersistError); },
     });
   }
@@ -494,7 +508,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const levelAtDelete = currentParentId;
     const refetch = () => load(levelAtDelete);
     history.push({ label: "Удаление связи", level: levelAtDelete,
-      undo: () => { guardPersist(nodesApi.restore(snapshot).then(refetch), resyncOnPersistError); },
+      undo: () => { guardPersist(nodesApi.restore(snapshot).then(refetch), onHistoryError("edge")); },
       redo: () => { guardPersist(edgesApi.delete(id).then(refetch), resyncOnPersistError); },
     });
   }
@@ -506,8 +520,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const levelAtEdit = currentParentId;
     const refetch = () => load(levelAtEdit);
     history.push({ label: "Правка связи", level: levelAtEdit,
-      undo: () => { guardPersist(edgesApi.update(updated.id, undoPayload).then(refetch), resyncOnPersistError); },
-      redo: () => { guardPersist(edgesApi.update(updated.id, redoPayload).then(refetch), resyncOnPersistError); },
+      undo: () => { guardPersist(edgesApi.update(updated.id, undoPayload).then(refetch), onHistoryError("save")); },
+      redo: () => { guardPersist(edgesApi.update(updated.id, redoPayload).then(refetch), onHistoryError("save")); },
     });
   }
 
@@ -545,7 +559,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     let snap: DeletionSnapshot | null = null;
     history.push({ label: "Создание связи", level: levelAtCreate,
       undo: () => { guardPersist(edgesApi.deletionSnapshot(created.id).then((s) => { snap = s; return edgesApi.delete(created.id); }).then(refetch), resyncOnPersistError); },
-      redo: () => { guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), resyncOnPersistError); },
+      redo: () => { guardPersist((snap ? nodesApi.restore(snap) : Promise.resolve()).then(refetch), onHistoryError("edge")); },
     });
   }
 
@@ -752,6 +766,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
           </div>
+          <DemoLimitToast message={limitToast} />
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
           ) : (

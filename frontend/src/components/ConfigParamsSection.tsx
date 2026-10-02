@@ -19,6 +19,9 @@ import InfoPopover from "../ui/InfoPopover";
 import ConfigAgentModal from "./docsImport/ConfigAgentModal";
 import type { ConfigParam, ConfigParamUsage } from "../types";
 import "./configParams.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitNotice } from "./demo/DemoLimitNotice";
 
 interface Props {
   nodeId: string;
@@ -51,6 +54,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
   const [params, setParams] = useState<ConfigParam[] | null>(null);
   const [usage, setUsage] = useState<ConfigParamUsage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
 
@@ -71,11 +75,16 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
   // Любая правка: применяем и перечитываем. Перечитывание — не лень: CAS-версия
   // приходит с сервера, и локальная склейка разъехалась бы на первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
+    setLimit(null);
     try {
       await fn();
       setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
+      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
   }, []);
@@ -126,6 +135,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
         )}
       </h3>
       {error && <p className="np-warn">{error}</p>}
+      {limit && <LimitNotice message={limit} />}
       {!allowed && (
         <p className="np-warn">
           Конфигурация описывает ручки сервиса, а у этого объекта их нет — перенесите

@@ -5,6 +5,7 @@
 // именем замещает старый (не плодим дубли).
 import { useState } from "react";
 import type { DocsFile } from "../../api/docsImport";
+import { fileTooBigMessage } from "../demo/demoLimits";
 
 // Клиентский предохранитель. Зеркало MAX_PACKAGE_FILES бэка: схема логики стала
 // отдельным .mmd, и у монолита их десятки (docs/plan-docs-mmd.md).
@@ -32,11 +33,15 @@ export interface DocsFilesApi {
   setActive: (i: number) => void;
   // Очистка пакета (например, «Добавить ещё» в режиме «по одной»)
   reset: () => void;
+  // Демо-стенд: последний файл с диска, не взятый из-за предела размера, — текст
+  // отказа (docs/tasks/demo-mode.md). null — отказов не было.
+  sizeError: string | null;
 }
 
 export function useDocsFiles(): DocsFilesApi {
   const [files, setFiles] = useState<DocsFile[]>([]);
   const [activeRaw, setActiveRaw] = useState(0);
+  const [sizeError, setSizeError] = useState<string | null>(null);
 
   const active = Math.min(activeRaw, files.length - 1);
   const nonEmpty = files.filter((f) => f.content.trim() !== "");
@@ -59,10 +64,16 @@ export function useDocsFiles(): DocsFilesApi {
 
   function pickFiles(list: ArrayLike<File> | null) {
     if (!list || list.length === 0) return;
+    // Демо-стенд: файл больше предела не читаем и не отправляем — сервер ответил бы
+    // 413. Отказ показывает окно (sizeError); остальные файлы берутся как обычно.
+    const all = Array.from(list);
+    const refusals = all.map((f) => fileTooBigMessage(f)).filter((m): m is string => m !== null);
+    setSizeError(refusals[0] ?? null);
+    const fit = all.filter((f) => fileTooBigMessage(f) === null);
     void Promise.all(
       // Нечитаемое пропускаем молча: через перетаскивание сюда может приехать
       // то, чего не бывает в диалоге выбора (папка, удалённый уже файл).
-      Array.from(list).map(async (f) => {
+      fit.map(async (f) => {
         try {
           return { name: f.name, content: await f.text() };
         } catch {
@@ -94,7 +105,11 @@ export function useDocsFiles(): DocsFilesApi {
   function reset() {
     setFiles([]);
     setActiveRaw(0);
+    setSizeError(null);
   }
 
-  return { files, active, hasContent, nonEmpty, addFiles, pickFiles, addPaste, removeFile, setText, setActive, reset };
+  return {
+    files, active, hasContent, nonEmpty, addFiles, pickFiles, addPaste, removeFile, setText,
+    setActive, reset, sizeError,
+  };
 }
