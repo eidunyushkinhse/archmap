@@ -115,7 +115,8 @@ def demo_cleanup(db: Session, idle_hours: float = 24.0) -> str:
 
 
 def _when(moment: datetime | None) -> str:
-    return moment.strftime("%Y-%m-%d %H:%M") if moment is not None else "—"
+    # В БД время UTC: подписываем, чтобы оператор не принял его за местное.
+    return moment.strftime("%Y-%m-%d %H:%M UTC") if moment is not None else "—"
 
 
 def demo_stats(db: Session) -> str:
