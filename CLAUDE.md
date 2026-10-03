@@ -25,6 +25,7 @@ archmap/
 │   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
 │   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
+│   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
 │   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
@@ -39,7 +40,7 @@ archmap/
 │   │   ├── routers/       # API: auth, admin, users, nodes, edges, projects, views, export, processes, node_docs, docs_import
 │   │   ├── schemas/       # Pydantic: node, edge, project, auth, admin, process, export, node_doc, docs_import, restore
 │   │   ├── main.py        # FastAPI app, CORS, роутеры /api/v1
-│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup)
+│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup, demo_mode)
 │   │   ├── export.py / import_yaml.py / import_merge.py / import_prompt.py  # экспорт/импорт YAML
 │   │   ├── docs_import.py / docs_prompt.py  # BYOA-дозаливка доков
 │   │   ├── demo_package.py  # посев демо-пакета для будущего онбординга (из API не зовётся)
@@ -47,6 +48,7 @@ archmap/
 │   │   │                       # (demo-marketplace); сеется единым импортом
 │   │   ├── processes.py   # доменная логика бизнес-процессов
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
+│   │   ├── demo.py / demo_limits.py  # демо-режим: гость, песочница, уборка; центральная проверка пределов проекта
 │   │   └── tree.py / projects.py / access.py / restore.py / view_state.py / auth.py / database.py / deps.py
 │   ├── alembic/           # миграции БД
 │   ├── tests/             # pytest (24 тестовых файла, in-memory SQLite)
@@ -66,6 +68,7 @@ archmap/
 │   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
 │   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
 │   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
+│   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
 │   └── setup-hooks.sh
 ├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
