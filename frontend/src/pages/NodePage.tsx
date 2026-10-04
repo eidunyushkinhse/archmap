@@ -720,7 +720,7 @@ function NodePageInner({
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {(allow.logic || legacyLogic || container.docGroups.length > 0)
           && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
-          <div className="np-card">
+          <div className="np-card" data-tour="node-logic">
             <h3 className="np-card-title">Логика</h3>
             {isContainer ? (
               <>

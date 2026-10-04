@@ -110,7 +110,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
           {isArchitect && (createBlocked ? (
             <BlockedNewButton />
           ) : (
-            <button style={newBtn} onClick={() => setDialog({ kind: "create" })}>
+            <button style={newBtn} data-tour="new-project" onClick={() => setDialog({ kind: "create" })}>
               <PlusIcon /> Новый проект
             </button>
           ))}
@@ -229,6 +229,7 @@ function BlockedNewButton() {
     >
       <button
         style={{ ...newBtn, ...newBtnBlocked }}
+        data-tour="new-project"
         aria-disabled="true"
         aria-describedby={tip ? "guest-limit-tip" : undefined}
         onFocus={() => setTip(true)}

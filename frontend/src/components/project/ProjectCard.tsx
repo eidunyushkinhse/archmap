@@ -30,6 +30,7 @@ export default function ProjectCard({
   const [hover, setHover] = useState(false);
   return (
     <div
+      data-tour={`project:${project.id}`}
       style={{ ...card, transform: hover ? "translateY(-2px)" : "none", boxShadow: hover ? "0 12px 28px rgba(15,23,42,.12)" : "0 1px 2px rgba(15,23,42,.06)" }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}

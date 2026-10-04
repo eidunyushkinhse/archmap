@@ -4,6 +4,7 @@
 // обрезки холстом), в координатах окна.
 import { padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { TourVars } from "./tourMachine";
+import { resolveHandlePair } from "./tourHandles";
 import type { Target } from "./tourSteps";
 
 export interface TargetCtx {
@@ -151,8 +152,7 @@ export function resolveTarget(target: Target, ctx: TargetCtx): Resolved | null {
       return node && part ? single(part.el, part.rect, [padHole(node.rect, "rect")]) : null;
     }
     case "handles":
-      // Пару хэндлов считает роутер стрелок — подключается вместе с привязкой к холсту.
-      return null;
+      return vars.peerId && vars.systemId ? resolveHandlePair(vars.peerId, vars.systemId) : null;
     case "frame-end":
       return vars.systemId ? resolveFrameEnd(vars.systemId) : null;
     case "context-edge":

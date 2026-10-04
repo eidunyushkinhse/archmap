@@ -69,6 +69,7 @@ import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/u
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
+import { emitTourEvent } from "./tour/tourBus";
 
 // --- Основной компонент ---
 
@@ -401,10 +402,13 @@ function LevelGraphInner({
     pendingToggleRef.current.set(id, performance.now());
     fn(id);
   }, []);
+  // Раскрытие лупой ждёт обучающий тур демо-стенда (шина tourBus, docs/tasks/demo-tour.md).
   const expandContainer = useCallback(
-    (id: string) => guardedToggle(id, rawExpandContainer), [guardedToggle, rawExpandContainer]);
+    (id: string) => guardedToggle(id, (x) => { rawExpandContainer(x); emitTourEvent({ type: "node-expanded", id: x }); }),
+    [guardedToggle, rawExpandContainer]);
   const expandLocalContainer = useCallback(
-    (id: string) => guardedToggle(id, rawExpandLocalContainer), [guardedToggle, rawExpandLocalContainer]);
+    (id: string) => guardedToggle(id, (x) => { rawExpandLocalContainer(x); emitTourEvent({ type: "node-expanded", id: x }); }),
+    [guardedToggle, rawExpandLocalContainer]);
   const collapseContainer = useCallback(
     (id: string) => guardedToggle(id, rawCollapseContainer), [guardedToggle, rawCollapseContainer]);
 
@@ -542,7 +546,10 @@ function LevelGraphInner({
         // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
         const committed = handleNodeDragStop(e, n, ns);
         if (!committed) liveDragHandles.restore();
-        else dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
+        else {
+          dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
+          emitTourEvent({ type: "node-drag-end", ids: [n.id] }); // ждёт обучающий тур демо
+        }
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
@@ -560,7 +567,10 @@ function LevelGraphInner({
       try {
         const committed = handleSelectionDragStop(e, ns);
         if (!committed) liveDragHandles.restore();
-        else dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
+        else {
+          dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
+          emitTourEvent({ type: "node-drag-end", ids: ns.map((x) => x.id) }); // ждёт обучающий тур демо
+        }
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");

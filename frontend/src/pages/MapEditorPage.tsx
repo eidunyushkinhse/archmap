@@ -49,6 +49,7 @@ import TourHelpButton from "../components/tour/TourHelpButton";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
+import { emitTourEvent } from "../components/tour/tourBus";
 
 interface Props {
   projectId: string;
@@ -168,6 +169,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       setProjectHasStatuses(graph.has_status_info);
       setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
       reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
+      // Обучающий тур демо-стенда: показан слой (вход внутрь, возврат наверх).
+      emitTourEvent({ type: "level", levelId: parentId });
       return graph.nodes;
     } finally {
       if (opts?.foreground) setLoading(false);
@@ -542,7 +545,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const to = (id: string): EdgeUpdate => (end === "source" ? { source_id: id } : { target_id: id });
     const move = (id: string) =>
       Promise.all(edgeIds.map((eid) => edgesApi.update(eid, to(id)))).then(refetch);
-    guardPersist(move(toNodeId), resyncOnPersistError);
+    guardPersist(
+      move(toNodeId).then(() => emitTourEvent({ type: "edge-reconnected", fromId: fromFrameId, toId: toNodeId })),
+      resyncOnPersistError,
+    );
     noteMutation();
     history.push({
       label: edgeIds.length > 1 ? "Перепривязка связей" : "Перепривязка связи",
@@ -553,6 +559,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }
 
   function pushEdgeCreate(created: Edge) {
+    emitTourEvent({ type: "edge-created", id: created.id, sourceId: created.source_id, targetId: created.target_id });
     if (!isArchitect) return;
     noteMutation();
     const levelAtCreate = currentParentId;
@@ -668,7 +675,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           <BrandLink onClick={onAllProjects} />
           <span style={divider} />
           {/* Breadcrumb уровней */}
-          <button className="crumb" style={crumbLink} onClick={() => { void navigateToLevel(null); }}>
+          <button className="crumb" style={crumbLink} data-tour="crumb-root" onClick={() => { void navigateToLevel(null); }}>
             {breadcrumb.length === 0 ? "Контекст" : "Проект"}
           </button>
           {breadcrumb.map((n, i) => (

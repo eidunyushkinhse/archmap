@@ -308,7 +308,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
         <div style={body}>
           {/* ── Левая колонка: способ старта + список + имя/описание ── */}
-          <div style={leftCol}>
+          <div style={leftCol} data-tour="create-project">
             {/* Четыре способа — сеткой 2×2: в строку узкой колонки они не влезают
                 («ИИ-агент» упирался в рамку), а перенос 3+1 растягивал последний. */}
             <div className="cp-segs">
@@ -463,6 +463,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
           {error && <span style={{ flex: 1, color: "#dc2626", fontSize: 13, alignSelf: "center" }}>{error}</span>}
           <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
           <button
+            data-tour="create-project-submit"
             style={{ ...primaryBtn, whiteSpace: "nowrap", opacity: canSubmit ? 1 : 0.55 }}
             disabled={!canSubmit}
             onClick={submit}

@@ -15,7 +15,7 @@ export default function BrandLink({ onClick }: { onClick?: () => void }) {
   );
   if (!onClick) return <div style={row}>{inner}</div>;
   return (
-    <button type="button" className="brand-link" style={btn} onClick={onClick} title="Все проекты" aria-label="Все проекты">
+    <button type="button" className="brand-link" data-tour="logo" style={btn} onClick={onClick} title="Все проекты" aria-label="Все проекты">
       {inner}
     </button>
   );

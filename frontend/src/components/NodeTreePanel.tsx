@@ -569,7 +569,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
             )}
 
             {/* Результаты поиска или дерево */}
-            <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <div ref={treeScrollRef} data-tour="tree" style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
               {searchResults !== null ? (
                 searching ? (
                   <div style={hint}>Поиск…</div>
@@ -607,10 +607,11 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
                 onToggle={() => toggleSection("add")}
               >
                 <div style={paletteHint}>Перетащите форму на схему</div>
-                <div style={palette}>
+                <div style={palette} data-tour="palette">
                   {NODE_TEMPLATES.map((t) => (
                     <div
                       key={t.shape}
+                      data-tour={`palette:${t.shape}`}
                       className="template-card"
                       draggable
                       onDragStart={(e) => onTemplateDragStart(e, t.shape)}

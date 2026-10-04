@@ -11,6 +11,7 @@ import "../ui/modalShell.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { emitTourEvent } from "./tour/tourBus";
 
 // Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
 // панель схемы (inspector/NodeInspector) — здесь осталась только форма нового объекта,
@@ -83,6 +84,8 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
       if (intoFrame && initialPos) {
         await viewsApi.saveLayout(posView ?? null, { [saved.id]: { x: initialPos.x, y: initialPos.y } });
       }
+      // Обучающий тур демо-стенда ждёт созданные объекты (docs/tasks/demo-tour.md).
+      emitTourEvent({ type: "node-created", id: saved.id, name: saved.name, shape: saved.shape, parentId: saved.parent_id ?? null });
       onSaved(saved, true);
     } catch (e: unknown) {
       const refusal = limitMessage(e, "node");
