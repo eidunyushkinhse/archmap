@@ -151,6 +151,19 @@ describe("DemoTour", () => {
     frame.remove();
   });
 
+  it("шаг перевеса связи: плашки подписей пропускают нажатия к ручке конца", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "rehang", variant: "full", dir: 1,
+      vars: { ownProjectId: OWN, systemId: "s1", systemName: "Касса", peerId: "p1", peerName: "Банк" },
+    }));
+    const view = render(<DemoTour />);
+    await waitFor(() => expect(document.body).toHaveClass("tour-pass-labels"));
+    act(() => emitTourEvent({ type: "edge-reconnected", fromId: "s1", toId: "c1" }));
+    await waitFor(() => expect(document.body).not.toHaveClass("tour-pass-labels"));
+    view.unmount();
+  });
+
   it("цели нет на экране — после паузы карточка сбоку без затемнения", async () => {
     window.location.hash = `/p/${OWN}`;
     localStorage.setItem(KEY, JSON.stringify({

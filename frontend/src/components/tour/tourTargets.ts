@@ -162,6 +162,52 @@ export function resolveTarget(target: Target, ctx: TargetCtx): Resolved | null {
   }
 }
 
+/**
+ * Цель есть в DOM, но не видна: секция страницы ниже сгиба, узел холста за краем
+ * пана (раскрытая рамка выросла за экран). Возвращает элемент, к которому надо
+ * подвести взгляд, или null (цели нет вовсе или она уже видна).
+ */
+export function hiddenTarget(target: Target, ctx: TargetCtx): Element | null {
+  let selector: string | null = null;
+  switch (target.kind) {
+    case "tour":
+      selector = byTour(target.key);
+      break;
+    case "yar-card":
+      selector = ctx.yarProjectId ? byTour(`project:${ctx.yarProjectId}`) : null;
+      break;
+    case "yar-node": {
+      const id = ctx.yarObjects?.get(target.name);
+      selector = id ? rfNode(id) : null;
+      break;
+    }
+    case "system-part":
+    case "handles":
+    case "frame-end":
+    case "context-edge":
+      selector = ctx.vars.systemId ? rfNode(ctx.vars.systemId) : null;
+      break;
+    case "create-project":
+      selector = null;
+      break;
+  }
+  if (!selector) return null;
+  const els = Array.from(document.querySelectorAll(selector));
+  if (els.length === 0 || els.some((el) => visibleRect(el))) return null;
+  return els[0];
+}
+
+/** Подвести взгляд к скрытой цели: холст — «вписать схему» (кнопка React Flow),
+ *  страница — прокрутка к элементу. */
+export function revealTarget(el: Element): void {
+  const flow = el.closest(".react-flow");
+  if (flow) {
+    flow.querySelector<HTMLElement>(".react-flow__controls-fitview")?.click();
+    return;
+  }
+  el.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
 /** Самый верхний открытый модальный <dialog>: остальной документ под ним инертен. */
 export function topDialog(): HTMLElement | null {
   const open = Array.from(document.getElementsByTagName("dialog")).filter((d) => d.open);

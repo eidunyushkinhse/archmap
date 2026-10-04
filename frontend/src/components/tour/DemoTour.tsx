@@ -6,7 +6,9 @@
 // Тур запускается сам, если для гостя ничего не сохранено (первый вход в песочницу);
 // «Пропустить» и «Завершить» сохраняют «пройден», и сам он больше не появится —
 // заново его запускает кнопка «?» в шапке (TourHelpButton).
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore,
+} from "react";
 import { fetchMe, getCanCreateProject, getMe, subscribeMe } from "../../api/auth";
 import { nodesApi } from "../../api/nodes";
 import { projectsApi } from "../../api/projects";
@@ -18,13 +20,17 @@ import {
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
 import { dropStaleTours, loadTour, onTourRestart, saveTour } from "./tourStore";
-import { resolveTarget, topDialog } from "./tourTargets";
+import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { HIDDEN_VIEW, type TourView } from "./tourView";
 
 /** Сколько ждать цель после входа в шаг или смены экрана, прежде чем считать, что
  *  пользователь ушёл в сторону (холст раскладывается не мгновенно). */
 const GRACE_MS = 1500;
+/** Скрытую цель (за краем холста, ниже сгиба) подводим в вид не чаще раза в это
+ *  время и не больше REVEAL_TRIES раз на шаг: раскладка после раскрытия оседает не сразу. */
+const REVEAL_EVERY_MS = 1200;
+const REVEAL_TRIES = 3;
 
 export default function DemoTour() {
   const me = useSyncExternalStore(subscribeMe, getMe);
@@ -65,7 +71,9 @@ function TourRuntime({ userId }: { userId: string }) {
   const [route, setRoute] = useState<TourRoute>(() => parseTourRoute(window.location.hash));
   const [yarProjectId, setYarProjectId] = useState<string | null | undefined>(undefined);
   const [yarObjects, setYarObjects] = useState<ReadonlyMap<string, string> | undefined>(undefined);
-  const [view, setView] = useState<TourView>(HIDDEN_VIEW);
+  // Вид кадра — с шагом, для которого он посчитан: карточка нового шага не рисуется
+  // поверх выреза прежнего, пока кадровый цикл не посчитал новый.
+  const [view, setView] = useState<{ step: StepId | null; v: TourView }>({ step: null, v: HIDDEN_VIEW });
 
   const env = useMemo<TourEnv>(() => ({ yarProjectId, yarObjects }), [yarProjectId, yarObjects]);
   const state = useMemo(() => normalize(raw, env), [raw, env]);
@@ -79,8 +87,10 @@ function TourRuntime({ userId }: { userId: string }) {
   const routeAtRef = useRef(0);
   // Последний слой редактора, о котором сообщила шина (проект:слой).
   const lastLevelRef = useRef<string | null>(null);
-  useEffect(() => { stateRef.current = state; }, [state]);
-  useEffect(() => { envRef.current = env; }, [env]);
+  // Layout-эффекты: кадровый цикл (rAF) обязан увидеть новый шаг уже в ближайшем кадре,
+  // а пассивные эффекты могут прийти после него.
+  useLayoutEffect(() => { stateRef.current = state; }, [state]);
+  useLayoutEffect(() => { envRef.current = env; }, [env]);
 
   const dispatch = useCallback((action: TourAction) => send({ action, env: envRef.current }), []);
 
@@ -181,10 +191,10 @@ function TourRuntime({ userId }: { userId: string }) {
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
   // раскрытый узел засчитан.
-  const doneForRef = useRef({ mode: false, scroll: false, expanded: false });
-  useEffect(() => {
+  const doneForRef = useRef({ mode: false, scroll: false, expanded: false, reveals: 0, revealAt: 0 });
+  useLayoutEffect(() => {
     enteredAtRef.current = performance.now();
-    doneForRef.current = { mode: false, scroll: false, expanded: false };
+    doneForRef.current = { mode: false, scroll: false, expanded: false, reveals: 0, revealAt: 0 };
   }, [state.step]);
   useEffect(() => {
     if (!running || navForRef.current === state.step) return;
@@ -199,12 +209,24 @@ function TourRuntime({ userId }: { userId: string }) {
     window.location.hash = hash;
   }, [running, state, env]);
 
+  // Шаг «Перевесьте связь»: плашка подписи может лечь на ручку конца — пропускаем
+  // нажатия сквозь плашки, пока шаг на экране (tour.css, .tour-pass-labels).
+  const passLabels = running && state.step === "rehang";
+  useEffect(() => {
+    if (!passLabels) return;
+    document.body.classList.add("tour-pass-labels");
+    return () => document.body.classList.remove("tour-pass-labels");
+  }, [passLabels]);
+
   // ── Кадровый цикл: цель в DOM, вырезы, окно поверх, сигналы DOM ──
   useEffect(() => {
     if (!running) return;
     let raf = 0;
     let lastKey = "";
     let lastHost: HTMLElement | null = null;
+    // Когда цель видели последний раз: пропавшую только что цель (нажали «Войти» —
+    // слой перезагружается, кнопки уже нет) ждём так же, как новую.
+    let foundAt = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
       const st = stateRef.current;
@@ -217,11 +239,22 @@ function TourRuntime({ userId }: { userId: string }) {
       if (step.kind === "start" || step.kind === "end") {
         next = { ...HIDDEN_VIEW, phase: "center", host: dialog ?? document.body };
       } else {
-        const res = screenOk && step.target
-          ? resolveTarget(step.target, { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars })
-          : null;
+        const tctx = { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars };
+        const res = screenOk && step.target ? resolveTarget(step.target, tctx) : null;
+        // Цель есть, но не видна (за краем холста, ниже сгиба страницы) — подводим к ней.
+        const done = doneForRef.current;
+        const now = performance.now();
+        if (!res && screenOk && step.target && !dialog && done.reveals < REVEAL_TRIES && now - done.revealAt > REVEAL_EVERY_MS) {
+          const hidden = hiddenTarget(step.target, tctx);
+          if (hidden) {
+            done.reveals += 1;
+            done.revealAt = now;
+            revealTarget(hidden);
+          }
+        }
         if (res && (!dialog || res.elements.every((el) => dialog.contains(el)))) {
           next = { phase: "spot", host: dialog ?? document.body, holes: res.holes, anchor: res.anchor, avoid: res.avoid };
+          foundAt = now;
           // Секции страницы объекта — к середине экрана, один раз на вход в шаг.
           if (step.target?.kind === "tour" && step.target.scroll && !doneForRef.current.scroll) {
             doneForRef.current.scroll = true;
@@ -233,7 +266,7 @@ function TourRuntime({ userId }: { userId: string }) {
           // Открыто окно, а цель не в нём: окно работает, тур не мешает.
           next = HIDDEN_VIEW;
         } else {
-          const since = Math.max(enteredAtRef.current, routeAtRef.current);
+          const since = Math.max(enteredAtRef.current, routeAtRef.current, foundAt);
           next = { ...HIDDEN_VIEW, phase: performance.now() - since < GRACE_MS ? "pending" : "docked", host: document.body };
         }
       }
@@ -262,11 +295,11 @@ function TourRuntime({ userId }: { userId: string }) {
           send({ action: { type: "blocked" }, env: en });
         }
       }
-      const key = viewKey(next);
+      const key = `${st.step}|${viewKey(next)}`;
       if (key !== lastKey || next.host !== lastHost) {
         lastKey = key;
         lastHost = next.host;
-        setView(next);
+        setView({ step: st.step, v: next });
       }
     };
     raf = requestAnimationFrame(frame);
@@ -277,7 +310,7 @@ function TourRuntime({ userId }: { userId: string }) {
   const step = STEPS[state.step];
   return (
     <TourLayer
-      view={view}
+      view={view.step === state.step ? view.v : HIDDEN_VIEW}
       stepKey={state.step}
       step={step}
       texts={stepTexts(step, state.vars)}
