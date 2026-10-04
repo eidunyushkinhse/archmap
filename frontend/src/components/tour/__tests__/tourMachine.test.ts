@@ -3,7 +3,7 @@
 // созданных объектов и их подстановка, короткий проход при уже созданном проекте.
 import { describe, it, expect } from "vitest";
 import {
-  availability, canGoBack, onScreen, parseTourState, reduceTour, screenHash, startState,
+  availability, canGoBack, expandTarget, onScreen, parseTourState, reduceTour, screenHash, startState,
   stepTexts, stepTotal,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
@@ -65,6 +65,13 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(s.step).toBe("expand-service");
     s = run(s, [sig({ kind: "node-expanded", projectId: YAR, id: "c0de-03" })]);
     expect(s.step).toBe("service-expanded");
+  });
+
+  it("шаги с лупой знают, какой узел ждут раскрытым", () => {
+    expect(expandTarget(at("expand-system"), ENV)).toBe("c0de-02");
+    expect(expandTarget(at("expand-service"), ENV)).toBe("c0de-03");
+    expect(expandTarget(at("expand-own", { vars: OWN_VARS }), ENV)).toBe("s1");
+    expect(expandTarget(at("drag"), ENV)).toBeNull();
   });
 
   it("вход на слой системы засчитывается как её раскрытие", () => {

@@ -12,7 +12,7 @@ import { nodesApi } from "../../api/nodes";
 import { projectsApi } from "../../api/projects";
 import { onTourEvent, type TourBusEvent } from "./tourBus";
 import {
-  availability, canGoBack, onScreen, reduceTour, screenHash, startState, stepTexts, stepTotal,
+  availability, canGoBack, expandTarget, onScreen, reduceTour, screenHash, startState, stepTexts, stepTotal,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
@@ -179,11 +179,12 @@ function TourRuntime({ userId }: { userId: string }) {
   // После перезагрузки страницы на сохранённом шаге никуда не ведём: пользователь мог
   // уйти в сторону сам, шаг подождёт его на своём экране.
   const navForRef = useRef<StepId | null>(raw.step);
-  // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена.
-  const doneForRef = useRef<{ mode: boolean; scroll: boolean }>({ mode: false, scroll: false });
+  // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
+  // раскрытый узел засчитан.
+  const doneForRef = useRef({ mode: false, scroll: false, expanded: false });
   useEffect(() => {
     enteredAtRef.current = performance.now();
-    doneForRef.current = { mode: false, scroll: false };
+    doneForRef.current = { mode: false, scroll: false, expanded: false };
   }, [state.step]);
   useEffect(() => {
     if (!running || navForRef.current === state.step) return;
@@ -242,6 +243,15 @@ function TourRuntime({ userId }: { userId: string }) {
         if (tab) {
           doneForRef.current.mode = true;
           tab.click();
+        }
+      }
+      // Повторный проход: узел раскрыт ещё с прошлого раза (раскрытие хранится в виде) —
+      // идя вперёд, шаг засчитываем сразу. «Назад» на такой шаг оставляет его ждать.
+      if (screenOk && st.dir === 1 && !doneForRef.current.expanded) {
+        const id = expandTarget(st, en);
+        if (id && document.querySelector(`.react-flow__node-frame[data-id="${id}"]`)) {
+          doneForRef.current.expanded = true;
+          send({ action: { type: "signal", signal: { kind: "node-expanded", projectId: routeProject(rt), id } }, env: en });
         }
       }
       // «Новый проект»: окно открылось — шаг сделан; кнопка погашена — проект уже есть.

@@ -22,7 +22,9 @@ vi.mock("../../../api/projects", () => ({
   projectsApi: { list: vi.fn(async () => [{ id: YAR, name: "Маркетплейс «Ярмарка»" }]) },
 }));
 vi.mock("../../../api/nodes", () => ({
-  nodesApi: { getAll: vi.fn(async () => [{ id: "c0de-01", name: "Продавец" }]) },
+  nodesApi: {
+    getAll: vi.fn(async () => [{ id: "c0de-01", name: "Продавец" }, { id: "c0de-03", name: "Сервис заказов" }]),
+  },
 }));
 
 import DemoTour from "../DemoTour";
@@ -121,6 +123,32 @@ describe("DemoTour", () => {
     act(() => emitTourEvent({ type: "node-created", id: "s1", name: "Касса", shape: "service", parentId: null }));
     expect(await screen.findByRole("dialog", { name: "Добавьте ещё один объект" })).toBeInTheDocument();
     expect(stored()).toMatchObject({ step: "add-peer", vars: { systemId: "s1", systemName: "Касса" } });
+  });
+
+  it("повторный проход: узел уже раскрыт с прошлого раза — шаг засчитан сразу", async () => {
+    window.location.hash = `/p/${YAR}/map`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "expand-service", variant: "full", dir: 1, vars: {} }));
+    const frame = target("frame-probe");
+    frame.removeAttribute("data-tour");
+    frame.className = "react-flow__node react-flow__node-frame";
+    frame.setAttribute("data-id", "c0de-03");
+    render(<DemoTour />);
+    await waitFor(() => expect(stored()).toMatchObject({ step: "service-expanded" }));
+    frame.remove();
+  });
+
+  it("«Назад» на шаг с лупой при раскрытом узле — шаг ждёт", async () => {
+    window.location.hash = `/p/${YAR}/map`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "expand-service", variant: "full", dir: -1, vars: {} }));
+    const frame = target("frame-probe");
+    frame.removeAttribute("data-tour");
+    frame.className = "react-flow__node react-flow__node-frame";
+    frame.setAttribute("data-id", "c0de-03");
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Внутри системы её сервисы" })).toBeInTheDocument();
+    await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
+    expect(stored()).toMatchObject({ step: "expand-service" });
+    frame.remove();
   });
 
   it("цели нет на экране — после паузы карточка сбоку без затемнения", async () => {

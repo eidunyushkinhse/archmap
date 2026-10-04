@@ -222,6 +222,21 @@ export function reduceTour(state: TourState, action: TourAction, env: TourEnv): 
   }
 }
 
+/** Какой узел шаг просит раскрыть лупой (null — шаг не про раскрытие). Раскрытие
+ *  хранится в виде: при повторном проходе узел может быть раскрыт с прошлого раза. */
+export function expandTarget(state: TourState, env: TourEnv): string | null {
+  switch (state.step) {
+    case "expand-system":
+      return env.yarObjects?.get(YAR_SYSTEM) ?? null;
+    case "expand-service":
+      return env.yarObjects?.get(YAR_ORDERS) ?? null;
+    case "expand-own":
+      return state.vars.systemId ?? null;
+    default:
+      return null;
+  }
+}
+
 /** Тексты шага с подставленными именами созданных объектов. */
 export function stepTexts(step: TourStep, vars: TourVars): { title: string; body: string; action?: string } {
   const sub = (s: string) => s
