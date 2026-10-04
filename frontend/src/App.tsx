@@ -12,6 +12,7 @@ import ProjectShell from "./pages/ProjectShell";
 import MapEditorPage from "./pages/MapEditorPage";
 import ProjectAccessGate from "./pages/ProjectAccessGate";
 import UsersPage from "./pages/UsersPage";
+import DemoTour from "./components/tour/DemoTour";
 
 // Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — страница проекта,
 // #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта,
@@ -142,6 +143,10 @@ export default function App() {
       : <LoginPage notice={loginNotice} onLogin={onLogin} />;
   }
 
+  // Обучающий тур — только гостю демо-стенда (docs/tasks/demo-tour.md): слой поверх
+  // любой страницы, сам следит за маршрутом.
+  const tour = demoMode && getIsGuest() ? <DemoTour /> : null;
+
   // Гостю демо-стенда экран «Пользователи» недоступен: ведём на «Все проекты».
   if (route.name === "users" && !getIsGuest()) {
     return <UsersPage onAllProjects={() => navigate("/projects")} onLogout={handleLogout} />;
@@ -154,55 +159,61 @@ export default function App() {
   if (route.name === "map" || route.name === "node" || route.name === "project-home") {
     const pid = route.projectId;
     return (
-      <ProjectAccessGate key={pid} projectId={pid}>
-        {route.name === "map" ? (
-          // pages_pivot: редактор-карта
-          <MapEditorPage
-            key={`${pid}:${route.nodeId ?? "root"}:${route.locate ?? ""}`}
-            projectId={pid}
-            nodeId={route.nodeId}
-            locateNodeId={route.locate}
-            onAllProjects={() => navigate("/projects")}
-            onDone={() => {
-              // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
-              // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).
-              const ret = route.ret;
-              if (ret?.startsWith("node:")) navigate(`/p/${pid}/nodes/${ret.slice(5)}`);
-              else if (ret === "project") navigate(`/p/${pid}`);
-              else navigate(`/p/${pid}`);
-            }}
-            onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
-          />
-        ) : (
-          // pages_pivot: страница узла или страница проекта (ProjectShell)
-          <ProjectShell
-            key={pid}
-            projectId={pid}
-            nodeId={route.name === "node" ? route.nodeId : null}
-            onLogout={handleLogout}
-            onOpenUsers={() => navigate("/admin/users")}
-            onAllProjects={() => navigate("/projects")}
-            onSwitchProject={(id) => navigate(`/p/${id}`)}
-            onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
-            onNavigateProject={() => navigate(`/p/${pid}`)}
-            onNavigateMap={(level, opts) => {
-              const q = new URLSearchParams();
-              if (opts?.locate) q.set("locate", opts.locate);
-              if (opts?.ret) q.set("ret", opts.ret);
-              const qs = q.toString();
-              navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
-            }}
-          />
-        )}
-      </ProjectAccessGate>
+      <>
+        <ProjectAccessGate key={pid} projectId={pid}>
+          {route.name === "map" ? (
+            // pages_pivot: редактор-карта
+            <MapEditorPage
+              key={`${pid}:${route.nodeId ?? "root"}:${route.locate ?? ""}`}
+              projectId={pid}
+              nodeId={route.nodeId}
+              locateNodeId={route.locate}
+              onAllProjects={() => navigate("/projects")}
+              onDone={() => {
+                // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
+                // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).
+                const ret = route.ret;
+                if (ret?.startsWith("node:")) navigate(`/p/${pid}/nodes/${ret.slice(5)}`);
+                else if (ret === "project") navigate(`/p/${pid}`);
+                else navigate(`/p/${pid}`);
+              }}
+              onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
+            />
+          ) : (
+            // pages_pivot: страница узла или страница проекта (ProjectShell)
+            <ProjectShell
+              key={pid}
+              projectId={pid}
+              nodeId={route.name === "node" ? route.nodeId : null}
+              onLogout={handleLogout}
+              onOpenUsers={() => navigate("/admin/users")}
+              onAllProjects={() => navigate("/projects")}
+              onSwitchProject={(id) => navigate(`/p/${id}`)}
+              onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
+              onNavigateProject={() => navigate(`/p/${pid}`)}
+              onNavigateMap={(level, opts) => {
+                const q = new URLSearchParams();
+                if (opts?.locate) q.set("locate", opts.locate);
+                if (opts?.ret) q.set("ret", opts.ret);
+                const qs = q.toString();
+                navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
+              }}
+            />
+          )}
+        </ProjectAccessGate>
+        {tour}
+      </>
     );
   }
 
   return (
-    <ProjectsPage
-      onOpenProject={(id) => navigate(`/p/${id}`)}
-      onLogout={handleLogout}
-      onOpenUsers={() => navigate("/admin/users")}
-    />
+    <>
+      <ProjectsPage
+        onOpenProject={(id) => navigate(`/p/${id}`)}
+        onLogout={handleLogout}
+        onOpenUsers={() => navigate("/admin/users")}
+      />
+      {tour}
+    </>
   );
 }

@@ -45,6 +45,7 @@ import { RelayoutIcon, ChevronIcon, EdgeLabelsIcon, CollapseIcon, PropsIcon } fr
 import "../ui/chrome.css";
 import BrandLink from "../ui/BrandLink";
 import SandboxChip from "../ui/SandboxChip";
+import TourHelpButton from "../components/tour/TourHelpButton";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
@@ -723,8 +724,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             </button>
           )}
           <button style={doneBtn} onClick={() => onDone()}>Готово</button>
-          {/* Гость демо-стенда: метка «Песочница», как в шапках оболочки и списка. */}
+          {/* Гость демо-стенда: метка «Песочница», как в шапках оболочки и списка, и
+              «?» — пройти обучение заново. */}
           {getIsGuest() && <SandboxChip />}
+          {getIsGuest() && <TourHelpButton />}
         </div>
       </div>
 

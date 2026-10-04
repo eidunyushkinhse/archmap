@@ -1,0 +1,122 @@
+// Слой тура: карточка по виду шага (приветствие, «Далее», ожидание действия,
+// финал), затемнение с вырезами, пропуск жеста из выреза сквозь затемнение,
+// карточка «в стороне» без затемнения, рисование в открытый <dialog>.
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import TourLayer from "../TourLayer";
+import { STEPS, type StepId } from "../tourSteps";
+import type { TourView } from "../tourView";
+
+function view(patch: Partial<TourView>): TourView {
+  return { phase: "spot", host: document.body, holes: [], anchor: null, avoid: [], ...patch };
+}
+
+function renderLayer(stepId: StepId, v: TourView, canBack = true) {
+  const handlers = { onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn() };
+  const step = STEPS[stepId];
+  const utils = render(
+    <TourLayer
+      view={v}
+      stepKey={stepId}
+      step={step}
+      texts={{ title: step.title, body: step.body, action: step.action }}
+      count={step.n ? `Шаг ${step.n} из 24` : null}
+      canBack={canBack}
+      {...handlers}
+    />,
+  );
+  return { ...utils, handlers };
+}
+
+const HOLE = { x: 100, y: 100, w: 200, h: 80, shape: "rect" as const };
+
+describe("TourLayer", () => {
+  it("приветствие: по центру, «Пропустить» и «Начать», затемнение без вырезов", () => {
+    const { handlers } = renderLayer("welcome", view({ phase: "center" }), false);
+    expect(screen.getByRole("dialog", { name: "Добро пожаловать в ArchMap" })).toHaveClass("tour-card--center");
+    expect(screen.queryByText(/Шаг/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Начать" }));
+    fireEvent.click(screen.getByRole("button", { name: "Пропустить" }));
+    expect(handlers.onNext).toHaveBeenCalledOnce();
+    expect(handlers.onSkip).toHaveBeenCalledOnce();
+    expect(document.querySelector("[data-tour-blocker]")).not.toBeNull();
+    expect(document.querySelector(".tour-ring")).toBeNull();
+  });
+
+  it("шаг с действием: счётчик, строка действия, пульс, без «Далее»", () => {
+    const { handlers } = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    expect(screen.getByText("Шаг 3 из 24")).toBeInTheDocument();
+    expect(screen.getByText("Нажмите «Редактировать».")).toHaveClass("tour-do");
+    expect(screen.queryByRole("button", { name: "Далее" })).toBeNull();
+    expect(document.querySelector(".tour-ring")).toHaveClass("tour-ring--act");
+    fireEvent.click(screen.getByRole("button", { name: "Назад" }));
+    fireEvent.click(screen.getByRole("button", { name: "Пропустить обучение" }));
+    expect(handlers.onBack).toHaveBeenCalledOnce();
+    expect(handlers.onSkip).toHaveBeenCalledOnce();
+  });
+
+  it("шаг с «Далее»: без пульса, карточка рядом с целью", () => {
+    const { handlers } = renderLayer("yar-home", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    expect(document.querySelector(".tour-ring")).not.toHaveClass("tour-ring--act");
+    fireEvent.click(screen.getByRole("button", { name: "Далее" }));
+    expect(handlers.onNext).toHaveBeenCalledOnce();
+    const card = screen.getByRole("dialog", { name: "Главная страница проекта" });
+    expect(card.style.left).toBe(`${HOLE.x + HOLE.w + 16}px`);
+  });
+
+  it("финал: только «Завершить»", () => {
+    const { handlers } = renderLayer("final", view({ phase: "center" }));
+    expect(screen.queryByRole("button", { name: /Пропустить/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Назад" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Завершить" }));
+    expect(handlers.onFinish).toHaveBeenCalledOnce();
+  });
+
+  it("жест, начатый в вырезе, проходит сквозь затемнение до отпускания", () => {
+    vi.useFakeTimers();
+    try {
+      renderLayer("create-system", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+      const blocker = document.querySelector("[data-tour-blocker]")!;
+      expect(blocker).not.toHaveClass("tour-blocker--pass");
+      // нажатие мимо выреза — затемнение держит
+      fireEvent.pointerDown(document.body, { clientX: 10, clientY: 10 });
+      expect(blocker).not.toHaveClass("tour-blocker--pass");
+      fireEvent.pointerDown(document.body, { clientX: 150, clientY: 120 });
+      expect(blocker).toHaveClass("tour-blocker--pass");
+      // нативный драг из палитры: отпускание мыши его не обрывает
+      fireEvent.dragStart(document.body);
+      fireEvent.pointerUp(document.body);
+      act(() => { vi.runAllTimers(); });
+      expect(blocker).toHaveClass("tour-blocker--pass");
+      fireEvent.drop(document.body);
+      act(() => { vi.runAllTimers(); });
+      expect(blocker).not.toHaveClass("tour-blocker--pass");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("пользователь не на экране шага: карточка сбоку, без затемнения", () => {
+    renderLayer("drag", view({ phase: "docked" }));
+    expect(screen.getByRole("dialog", { name: "Объекты можно двигать" })).toHaveClass("tour-card--docked");
+    expect(document.querySelector("[data-tour-blocker]")).toBeNull();
+  });
+
+  it("цель ещё грузится или открыто чужое окно — ничего не рисуем", () => {
+    renderLayer("drag", view({ phase: "pending" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    renderLayer("drag", view({ phase: "hidden", host: null }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("цель внутри открытого <dialog> — слой рисуется в него", () => {
+    const dialog = document.createElement("dialog");
+    document.body.appendChild(dialog);
+    try {
+      renderLayer("create-blank", view({ host: dialog, holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+      expect(dialog.querySelector(".tour-card")).not.toBeNull();
+    } finally {
+      dialog.remove();
+    }
+  });
+});
