@@ -20,6 +20,7 @@ import {
   anchorKind as kindOf, anchorReadable as readable,
 } from "./anchorText";
 import "./anchor.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 // Вид якоря: код (репозиторий + путь) или имя зависимости. Третьего нет —
 // контур развёртывания (образ, объект k8s) из идентичности убран (Ф0).
@@ -182,19 +183,19 @@ export default function AnchorField({ source, isArchitect, onSave }: Props) {
         <>
           <label className="anchor-label">
             {FIELD_LABEL.repo}
-            <input className="anchor-input" value={repo} placeholder={PLACEHOLDER.repo}
+            <input {...noAutofill("anchor-field-1")} className="anchor-input" value={repo} placeholder={PLACEHOLDER.repo}
               autoFocus onChange={(e) => setRepo(e.target.value)} />
           </label>
           <label className="anchor-label">
             {FIELD_LABEL.path}
-            <input className="anchor-input" value={path} placeholder={PLACEHOLDER.path}
+            <input {...noAutofill("anchor-field-2")} className="anchor-input" value={path} placeholder={PLACEHOLDER.path}
               onChange={(e) => setPath(e.target.value)} />
           </label>
         </>
       ) : (
         <label className="anchor-label">
           {FIELD_LABEL.host}
-          <input className="anchor-input" value={host} placeholder={PLACEHOLDER.host}
+          <input {...noAutofill("anchor-field-3")} className="anchor-input" value={host} placeholder={PLACEHOLDER.host}
             autoFocus onChange={(e) => setHost(e.target.value)} />
         </label>
       )}

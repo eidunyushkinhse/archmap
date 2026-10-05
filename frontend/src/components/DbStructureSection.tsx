@@ -24,6 +24,7 @@ import "./dbStructure.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
@@ -319,6 +320,7 @@ function TableCard({
         </button>
         {isArchitect ? (
           <input
+            {...noAutofill("db-structure-section-1")}
             className="np-field dbs-name"
             defaultValue={table.name}
             key={`n:${table.id}:${table.version}`}
@@ -329,6 +331,7 @@ function TableCard({
         )}
         {isArchitect ? (
           <input
+            {...noAutofill("db-structure-section-2")}
             className="np-field dbs-schema"
             // РАЗДЕЛ — намеренно нейтральное слово: у каждого движка свой термин для
             // этого уровня (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse,
@@ -350,6 +353,7 @@ function TableCard({
       </div>
       {isArchitect ? (
         <input
+          {...noAutofill("db-structure-section-3")}
           className="np-field dbs-desc"
           placeholder="назначение таблицы"
           defaultValue={table.description ?? ""}
@@ -454,9 +458,9 @@ function ColumnRow({
   }
   return (
     <div className="dbs-col">
-      <input className="np-field dbs-cname" defaultValue={column.name}
+      <input {...noAutofill("db-structure-section-4")} className="np-field dbs-cname" defaultValue={column.name}
         onBlur={(e) => { if (e.target.value !== column.name) patch({ name: e.target.value }); }} />
-      <input className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
+      <input {...noAutofill("db-structure-section-5")} className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
         onBlur={(e) => { if (e.target.value !== column.type) patch({ type: e.target.value }); }} />
       {/* Подписей «PK» и «NOT NULL» в строках больше нет: их называет шапка, а в
           каждой строке они повторялись столбиком и читались как шум. */}
@@ -473,7 +477,7 @@ function ColumnRow({
         <option value="">без ссылки</option>
         {fkOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select>
-      <input className="np-field dbs-cdesc" placeholder="смысл значения"
+      <input {...noAutofill("db-structure-section-6")} className="np-field dbs-cdesc" placeholder="смысл значения"
         defaultValue={column.description ?? ""}
         onBlur={(e) => {
           if (e.target.value !== (column.description ?? "")) patch({ description: e.target.value });

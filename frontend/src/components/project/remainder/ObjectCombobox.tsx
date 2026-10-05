@@ -10,6 +10,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ComponentOut } from "../../../types";
 import { lastSegment } from "./questionText";
 import { PathLabel } from "./Option";
+import { noAutofill } from "../../../ui/noAutofill";
 
 interface Props {
   /** Объекты, из которых выбирают (левый объект строки сюда не попадает). */
@@ -88,6 +89,7 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
   return (
     <div className="rq-cbo" ref={wrapRef}>
       <input
+        {...noAutofill("object-combobox-1")}
         className="rq-inp rq-cbo-inp"
         role="combobox"
         aria-expanded={open}

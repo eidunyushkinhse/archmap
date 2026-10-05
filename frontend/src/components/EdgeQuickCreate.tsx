@@ -6,6 +6,7 @@ import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   // Концы связи уже определены жестом: стрелку протянули от source к target (хэндл).
@@ -67,6 +68,7 @@ export default function EdgeQuickCreate({
 
       <label style={labelStyle}>Описание</label>
       <input
+        {...noAutofill("edge-quick-create-1")}
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         placeholder="запрос, событие..."
@@ -75,6 +77,7 @@ export default function EdgeQuickCreate({
       />
       <label style={labelStyle}>Технология</label>
       <input
+        {...noAutofill("edge-quick-create-2")}
         value={technology}
         onChange={(e) => setTechnology(e.target.value)}
         placeholder="REST, gRPC, Kafka..."

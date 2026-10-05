@@ -7,6 +7,7 @@ import { input } from "../ui/styles";
 import { CloseIcon } from "../ui/icons";
 import { ShapeGlyph } from "./nodeTree.shared";
 import "./NodeTreePanel.css";
+import { noAutofill } from "../ui/noAutofill";
 
 /**
  * Поиск узла по имени среди всех уровней. Используется для выбора концов связи —
@@ -77,6 +78,7 @@ export default function NodeSearchPicker({
   return (
     <div style={{ position: "relative", marginBottom: 10 }}>
       <input
+        {...noAutofill("node-search-picker-1")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Поиск по имени..."

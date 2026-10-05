@@ -8,6 +8,7 @@ import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   title: string;
@@ -286,6 +287,7 @@ export default function CrossLevelEdgePicker({
 
       {/* Поиск фильтрует дерево на месте (без дропдауна) */}
       <input
+        {...noAutofill("cross-level-edge-picker-1")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Найти объект…"
@@ -311,6 +313,7 @@ export default function CrossLevelEdgePicker({
         <div>
           <label style={labelStyle}>Описание</label>
           <input
+            {...noAutofill("cross-level-edge-picker-2")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="запрос, событие…"
@@ -320,6 +323,7 @@ export default function CrossLevelEdgePicker({
         <div>
           <label style={labelStyle}>Технология</label>
           <input
+            {...noAutofill("cross-level-edge-picker-3")}
             value={technology}
             onChange={(e) => setTechnology(e.target.value)}
             placeholder="REST, Kafka…"

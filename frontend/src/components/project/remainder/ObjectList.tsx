@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { ComponentOut } from "../../../types";
 import { plural } from "../../../ui/plural";
 import Option, { PathLabel } from "./Option";
+import { noAutofill } from "../../../ui/noAutofill";
 
 interface Props {
   items: ComponentOut[];
@@ -49,6 +50,7 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
     <>
       {expanded && (
         <input
+          {...noAutofill("object-list-1")}
           className="rq-filter"
           value={filter}
           aria-label="Фильтр по имени"

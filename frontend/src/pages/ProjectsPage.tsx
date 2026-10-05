@@ -10,6 +10,7 @@ import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
 import { LogoMark, PlusIcon } from "../ui/icons";
+import { noAutofill } from "../ui/noAutofill";
 
 /**
  * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
@@ -127,6 +128,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
             </TabBtn>
           </div>
           <input
+            {...noAutofill("projects-page-1")}
             style={search}
             placeholder="Поиск по имени или описанию"
             value={query}

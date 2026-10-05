@@ -14,6 +14,7 @@ import { dangerBtn, primaryBtn, secondaryBtn } from "../ui/styles";
 import NodeSearchPicker from "./NodeSearchPicker";
 import { useEdgeEdit } from "./inspector/useEdgeEdit";
 import "./inspector/inspector.css";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   edgeId: string;
@@ -188,7 +189,7 @@ function EdgeEditForm({ data, onClose, onChanged }: {
           <dt className="insp-term"><span className="insp-term-ico">{ICON.desc}</span>Описание</dt>
           <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
             <span className="insp-value">
-              <textarea className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+              <textarea {...noAutofill("edge-edit-modal-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
                 onChange={(e) => setLabelText(e.target.value)}
                 onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
             </span>
@@ -199,7 +200,7 @@ function EdgeEditForm({ data, onClose, onChanged }: {
           <dt className="insp-term"><span className="insp-term-ico">{ICON.tech}</span>Технология</dt>
           <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
             <span className="insp-value">
-              <input className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
+              <input {...noAutofill("edge-edit-modal-2")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
                 onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
             </span>
           </dd>

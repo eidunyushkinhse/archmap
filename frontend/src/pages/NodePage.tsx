@@ -37,6 +37,7 @@ import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/t
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
+import { noAutofill } from "../ui/noAutofill";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -413,6 +414,7 @@ function NodePageInner({
 
             {isArchitect ? (
               <input
+                {...noAutofill("node-page-1")}
                 className="np-name-input"
                 value={patch.name}
                 onChange={(e) => patch.setName(e.target.value)}
@@ -569,6 +571,7 @@ function NodePageInner({
             <span className="np-value">
               {isArchitect ? (
                 <input
+                  {...noAutofill("node-page-2")}
                   className="np-field"
                   value={patch.role}
                   onChange={(e) => patch.setRole(e.target.value)}
@@ -597,6 +600,7 @@ function NodePageInner({
                     )
                   ) : isArchitect ? (
                     <input
+                      {...noAutofill("node-page-3")}
                       className="np-field"
                       value={patch.technology}
                       onChange={(e) => patch.setTechnology(e.target.value)}
@@ -631,6 +635,7 @@ function NodePageInner({
             <span className="np-value">
               {isArchitect ? (
                 <textarea
+                  {...noAutofill("node-page-4")}
                   className="np-field np-fieldarea"
                   value={patch.description}
                   onChange={(e) => patch.setDescription(e.target.value)}

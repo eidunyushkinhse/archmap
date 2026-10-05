@@ -26,6 +26,7 @@ import FlowchartDoc from "./FlowchartDoc";
 import FlowchartView, { StubCard } from "./FlowchartView";
 import DocsAgentPanel from "../docsImport/DocsAgentPanel";
 import { DocAgentSteps, DocHead, EditMenu, FlowGlyph, TwoStepDeleteButton } from "./docChrome";
+import { noAutofill } from "../../ui/noAutofill";
 
 // Событие мутации дока для истории/меты. before/after — полные доки: undo/redo
 // делаются компенсациями PATCH/POST/DELETE без base_version (паттерн U24).
@@ -307,7 +308,7 @@ export default function FlowchartDocs({
         <div className="doc-fields">
           <label className="doc-field doc-field--grow">
             Имя схемы
-            <input value={form.name} onChange={(e) => edit({ name: e.target.value })} />
+            <input {...noAutofill("flowchart-docs-1")} value={form.name} onChange={(e) => edit({ name: e.target.value })} />
           </label>
           <label className="doc-field" title="Обработчик операции или сценарий клиента / фоновый воркер">
             Вид
@@ -318,7 +319,7 @@ export default function FlowchartDocs({
           {form.kind === "operation" && (
             <label className="doc-field doc-field--grow" title="Эндпоинт OpenAPI-спеки узла, который обрабатывает эта схема">
               Эндпоинт
-              <input value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
+              <input {...noAutofill("flowchart-docs-2")} value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
             </label>
           )}
         </div>

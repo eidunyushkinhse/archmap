@@ -7,6 +7,7 @@ import { ShapeGlyph } from "./nodeTree.shared";
 import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
+import { noAutofill } from "../ui/noAutofill";
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
@@ -556,6 +557,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
             ) : (
               <div style={searchWrap}>
                 <input
+                  {...noAutofill("node-tree-panel-1")}
                   style={searchInput}
                   type="text"
                   placeholder="Поиск по имени…"

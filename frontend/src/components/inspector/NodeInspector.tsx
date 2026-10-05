@@ -15,6 +15,7 @@ import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AnchorField from "../anchor/AnchorField";
 import { useContainerChildren } from "../../pages/useContainerChildren";
 import "./inspector.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   node: Node;
@@ -183,6 +184,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         <div className="insp-headmain">
           {isArchitect ? (
             <input
+              {...noAutofill("node-inspector-1")}
               className="insp-field insp-field--name"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -200,6 +202,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {/* Описание */}
       {isArchitect ? (
         <textarea
+          {...noAutofill("node-inspector-2")}
           className="insp-field insp-fieldarea"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -318,6 +321,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           {isArchitect ? (
             <span className="insp-value">
               <input
+                {...noAutofill("node-inspector-3")}
                 className="insp-field"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
@@ -342,6 +346,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             ) : isArchitect ? (
               <span className="insp-value">
                 <input
+                  {...noAutofill("node-inspector-4")}
                   className="insp-field"
                   value={technology}
                   onChange={(e) => setTechnology(e.target.value)}

@@ -22,6 +22,7 @@ import "./configParams.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
@@ -238,12 +239,14 @@ function ParamRow({
     <div className="cfg-item">
       <div className="cfg-row">
         <input
+          {...noAutofill("config-params-section-1")}
           className="np-field cfg-name"
           defaultValue={param.name}
           key={`n:${param.id}:${param.version}`}
           onBlur={(e) => { if (e.target.value !== param.name) patch({ name: e.target.value }); }}
         />
         <input
+          {...noAutofill("config-params-section-2")}
           className="np-field cfg-type"
           placeholder="string/int/bool"
           title={TYPE_TITLE}
@@ -262,6 +265,7 @@ function ParamRow({
           onChange={(e) => patch({ required: e.target.checked })}
         />
         <input
+          {...noAutofill("config-params-section-3")}
           className="np-field cfg-default"
           placeholder="дефолт из кода"
           title={DEFAULT_TITLE}
@@ -274,6 +278,7 @@ function ParamRow({
         {/* «Что переключает», а не «описание»: имя ручки обычно и так читаемо, а
             ценность несёт именно последствие её переключения. */}
         <input
+          {...noAutofill("config-params-section-4")}
           className="np-field cfg-desc"
           placeholder="что переключает"
           defaultValue={param.description ?? ""}

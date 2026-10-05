@@ -23,6 +23,7 @@ import { BPT, BROKEN } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
 import "./processes.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   id: string;
@@ -1045,6 +1046,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   Действие участника над самим собой (без связи в C4) — внутренняя операция.
                 </div>
                 <input
+                  {...noAutofill("process-canvas-1")}
                   value={selfCaption}
                   onChange={(e) => setSelfCaption(e.target.value)}
                   placeholder="напр. валидация заказа"
@@ -1144,6 +1146,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                     : `Ветка ${branchEdit.index + 2} у этого alt`}
                 </div>
                 <input
+                  {...noAutofill("process-canvas-2")}
                   className="bp-input"
                   value={branchGuard}
                   onChange={(e) => setBranchGuard(e.target.value)}
@@ -1192,6 +1195,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   {" "}· условие (показывается у рамки)
                 </div>
                 <input
+                  {...noAutofill("process-canvas-3")}
                   value={fragGuard}
                   onChange={(e) => setFragGuard(e.target.value)}
                   placeholder="напр. оплата прошла"

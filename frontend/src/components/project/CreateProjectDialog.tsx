@@ -14,6 +14,7 @@ import { firstTooBig, textBytes } from "../demo/demoLimits";
 import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
 import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 /**
  * Создание проекта — двухпанельное окно: слева способ старта (Пустой / Копия /
@@ -270,6 +271,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     <div>
       <label style={labelStyle}>Название</label>
       <input
+        {...noAutofill("create-project-dialog-1")}
         data-autofocus
         style={input}
         value={name}
@@ -279,6 +281,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
       />
       <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>
       <textarea
+        {...noAutofill("create-project-dialog-2")}
         style={{ ...input, minHeight: 52, resize: "none", marginBottom: 0 }}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
@@ -376,6 +379,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                       Подсказки агенту <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span>
                     </label>
                     <textarea
+                      {...noAutofill("create-project-dialog-3")}
                       style={{ ...input, minHeight: 44, resize: "none", marginBottom: 0 }}
                       value={promptHints}
                       onChange={(e) => setPromptHints(e.target.value)}

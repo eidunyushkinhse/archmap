@@ -12,6 +12,7 @@ import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
 import { emitTourEvent } from "./tour/tourBus";
+import { noAutofill } from "../ui/noAutofill";
 
 // Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
 // панель схемы (inspector/NodeInspector) — здесь осталась только форма нового объекта,
@@ -107,18 +108,18 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
       </div>
 
       <label style={labelStyle}>Название *</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
+      <input {...noAutofill("node-modal-1")} value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
 
       <label style={labelStyle}>Описание</label>
-      <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
+      <textarea {...noAutofill("node-modal-2")} value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
 
       <label style={labelStyle}>Роль</label>
-      <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="сервис, БД, брокер..." style={input} />
+      <input {...noAutofill("node-modal-3")} value={role} onChange={(e) => setRole(e.target.value)} placeholder="сервис, БД, брокер..." style={input} />
 
       {shape !== "person" && (
         <>
           <label style={labelStyle}>Технология</label>
-          <input value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="Python, Kafka, Redis..." style={input} />
+          <input {...noAutofill("node-modal-4")} value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="Python, Kafka, Redis..." style={input} />
         </>
       )}
 

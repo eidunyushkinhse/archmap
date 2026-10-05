@@ -6,6 +6,7 @@
 import { useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { fileTooBigMessage } from "../demo/demoLimits";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface EditorProps {
   width: number; // flowchart 440 / openapi 460 (Часть A1 ТЗ)
@@ -123,6 +124,7 @@ export function DocEditorColumn({
         </div>
       </div>
       <textarea
+        {...noAutofill("doc-shared-1")}
         ref={taRef}
         className={"doc-edta" + (overDrop ? " doc-edta--drop" : "")}
         value={value}

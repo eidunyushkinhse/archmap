@@ -11,6 +11,7 @@ import "./processes/processes.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { noAutofill } from "../ui/noAutofill";
 
 /**
  * Композитор сообщения (звезда фичи). Пара участников приходит готовой: её задаёт
@@ -224,6 +225,7 @@ export default function MessageComposer({
           <div style={{ marginTop: 12 }}>
             <label className="bp-field-label" htmlFor="bp-new-label">Что передаётся</label>
             <input
+              {...noAutofill("message-composer-1")}
               id="bp-new-label"
               className="bp-input"
               value={newLabel}
@@ -237,6 +239,7 @@ export default function MessageComposer({
             <div style={{ flex: 1, minWidth: 0 }}>
               <label className="bp-field-label" htmlFor="bp-new-tech">Технология</label>
               <input
+                {...noAutofill("message-composer-2")}
                 id="bp-new-tech"
                 className="bp-input"
                 value={newTech}

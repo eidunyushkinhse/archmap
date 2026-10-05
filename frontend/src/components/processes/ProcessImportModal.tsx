@@ -14,6 +14,7 @@ import { BPT, BROKEN } from "./tokens";
 import { limitMessage } from "../demo/demoLimits";
 import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   onClose: () => void;
@@ -139,6 +140,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
         <>
           <div style={label}>Текст диаграммы</div>
           <textarea
+            {...noAutofill("process-import-modal-1")}
             value={text}
             onChange={(e) => { setText(e.target.value); setPreview(null); }}
             placeholder={"sequenceDiagram\n    participant P1 as Покупатель\n    P1->>P2: создать заказ"}
@@ -151,6 +153,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
           />
           <div style={{ ...label, marginTop: 12 }}>Название процесса</div>
           <input
+            {...noAutofill("process-import-modal-2")}
             className="bp-input"
             value={name}
             onChange={(e) => setName(e.target.value)}

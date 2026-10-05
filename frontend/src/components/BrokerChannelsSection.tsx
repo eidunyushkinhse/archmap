@@ -23,6 +23,7 @@ import "./brokerChannels.css";
 import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
@@ -295,6 +296,7 @@ function ChannelCard({
         </button>
         {isArchitect ? (
           <input
+            {...noAutofill("broker-channels-section-1")}
             className="np-field bch-name"
             defaultValue={channel.name}
             key={`n:${channel.id}:${channel.version}`}
@@ -305,6 +307,7 @@ function ChannelCard({
         )}
         {isArchitect ? (
           <input
+            {...noAutofill("broker-channels-section-2")}
             className="np-field bch-group-field"
             // ГРУППА — намеренно нейтральное слово: у каждого движка свой термин для
             // этого уровня (vhost в RabbitMQ, namespace в Pulsar, account в NATS), а
@@ -322,6 +325,7 @@ function ChannelCard({
         )}
         {isArchitect ? (
           <input
+            {...noAutofill("broker-channels-section-3")}
             className="np-field bch-kind"
             placeholder="topic/queue/exchange"
             title={KIND_TITLE}
@@ -348,7 +352,7 @@ function ChannelCard({
               нашлось» (retention). */}
           <div className="bch-meta">
             {isArchitect ? (
-              <input className="np-field" placeholder="ключ партиционирования"
+              <input {...noAutofill("broker-channels-section-4")} className="np-field" placeholder="ключ партиционирования"
                 title={KEY_TITLE}
                 defaultValue={channel.partition_key}
                 key={`p:${channel.id}:${channel.version}`}
@@ -361,7 +365,7 @@ function ChannelCard({
               <span className="bch-ro" title={KEY_TITLE}>ключ: {channel.partition_key}</span>
             ) : null}
             {isArchitect ? (
-              <input className="np-field" placeholder="at-least-once / at-most-once"
+              <input {...noAutofill("broker-channels-section-5")} className="np-field" placeholder="at-least-once / at-most-once"
                 title={DELIVERY_TITLE}
                 defaultValue={channel.delivery}
                 key={`dl:${channel.id}:${channel.version}`}
@@ -372,7 +376,7 @@ function ChannelCard({
               <span className="bch-ro" title={DELIVERY_TITLE}>доставка: {channel.delivery}</span>
             ) : null}
             {isArchitect ? (
-              <input className="np-field" placeholder="retention: 7d / до ack"
+              <input {...noAutofill("broker-channels-section-6")} className="np-field" placeholder="retention: 7d / до ack"
                 title={RETENTION_TITLE}
                 defaultValue={channel.retention}
                 key={`r:${channel.id}:${channel.version}`}
@@ -385,6 +389,7 @@ function ChannelCard({
           </div>
           {isArchitect ? (
             <input
+              {...noAutofill("broker-channels-section-7")}
               className="np-field bch-desc"
               placeholder="назначение канала"
               defaultValue={channel.description ?? ""}
@@ -489,9 +494,9 @@ function FieldRow({
   }
   return (
     <div className="bch-field">
-      <input className="np-field bch-fname" defaultValue={field.name}
+      <input {...noAutofill("broker-channels-section-8")} className="np-field bch-fname" defaultValue={field.name}
         onBlur={(e) => { if (e.target.value !== field.name) patch({ name: e.target.value }); }} />
-      <input className="np-field bch-ftype" placeholder="тип" defaultValue={field.type}
+      <input {...noAutofill("broker-channels-section-9")} className="np-field bch-ftype" placeholder="тип" defaultValue={field.type}
         onBlur={(e) => { if (e.target.value !== field.type) patch({ type: e.target.value }); }} />
       {/* Подпись «обяз.» называет шапка — в каждой строке она читалась бы столбиком-шумом. */}
       <input type="checkbox" className="bch-check" checked={field.required}
@@ -499,7 +504,7 @@ function FieldRow({
         onChange={(e) => patch({ required: e.target.checked })} />
       {/* Смысл значения ОСОБЕННО важен у enum-подобных полей (event_type, status):
           перечень значений — это и есть ответ на «что означает это событие». */}
-      <input className="np-field bch-fdesc" placeholder="смысл значения"
+      <input {...noAutofill("broker-channels-section-10")} className="np-field bch-fdesc" placeholder="смысл значения"
         defaultValue={field.description ?? ""}
         onBlur={(e) => {
           if (e.target.value !== (field.description ?? "")) patch({ description: e.target.value });

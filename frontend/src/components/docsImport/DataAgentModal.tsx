@@ -26,6 +26,7 @@ import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   // Объект, из окна которого открыта дозаливка: к нему уезжают записи без адреса.
@@ -189,6 +190,7 @@ export default function DataAgentModal({ nodeId, nodeName, onClose, onApplied }:
           <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
             {pkg.files.length > 0 ? (
               <textarea
+                {...noAutofill("data-agent-modal-1")}
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}

@@ -28,6 +28,7 @@ import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   projectId: string;
@@ -223,6 +224,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           </div>
           <label style={labelStyle}>Подсказки агенту (необязательно)</label>
           <textarea
+            {...noAutofill("sync-repo-modal-1")}
             style={hintsArea}
             value={hints}
             onChange={(e) => setHints(e.target.value)}
@@ -296,6 +298,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               </button>
             ) : (
               <textarea
+                {...noAutofill("sync-repo-modal-2")}
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
