@@ -165,12 +165,15 @@ export default function EmbeddedSchemaBlock({
     schemaView,
   }), [schemaView, persistence]);
 
+  // Панели у страничной схемы нет: двойной клик по любому узлу — рамке и свёрнутому
+  // контейнеру тоже — ведёт на его страницу.
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: handleNavigate,
     onEditNode: handleNavigate,
     onInspectGhost: handleGhostNavigate,
+    onInspectNodeId: onNavigateNode,
     onClearSelection: () => setSelectedEdge(null),
-  }), [handleNavigate, handleGhostNavigate]);
+  }), [handleNavigate, handleGhostNavigate, onNavigateNode]);
 
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,

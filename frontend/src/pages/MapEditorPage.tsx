@@ -317,6 +317,40 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alertsLoaded]);
 
+  // Двойной клик по рамке раскрытого узла или по свёрнутому контейнеру гостя: объекта
+  // узла у канваса нет, только id. Узел текущего слоя — сразу; иначе по всему списку
+  // узлов: в поддереве слоя — свой (панель свойств), вне — гость (проекция с путём
+  // предков, только просмотр). Ответ, опоздавший к новому выбору, не применяется.
+  const inspectSeq = useRef(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. drillDown: plain-function, бандл drill пересобирается с ним (поведение не меняется).
+  async function inspectNodeById(id: string) {
+    const seq = ++inspectSeq.current;
+    const onLevel = nodes.find((n) => n.id === id);
+    if (onLevel) { setSelectedObject({ kind: "node", node: onLevel }); return; }
+    const all = await nodesApi.getAll();
+    if (seq !== inspectSeq.current) return;
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const node = byId.get(id);
+    if (!node) return;
+    const chain: Node[] = [];
+    for (let p = node.parent_id ? byId.get(node.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
+      chain.unshift(p);
+    }
+    if (currentParentId === null || chain.some((a) => a.id === currentParentId)) {
+      setSelectedObject({ kind: "node", node });
+      return;
+    }
+    setSelectedObject({
+      kind: "ghost",
+      ghost: {
+        id: node.id, name: node.name, role: node.role, technology: node.technology, is_external: node.is_external,
+        shape: node.shape, status: node.status, node_depth: chain.length, has_children: node.has_children,
+        child_count: node.child_count, ancestors: chain.map((a) => ({ id: a.id, name: a.name, is_external: a.is_external })),
+        is_ghost: true,
+      },
+    });
+  }
+
   // Клик по контейнеру → дрилл на его слой (путь собран деревом).
   function drillFromTree(path: Node[]) {
     drillToPath(path.map((n) => ({ id: n.id, name: n.name, is_external: n.is_external })));
@@ -621,13 +655,18 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // чтобы не создавать новый объект-литерал на каждый рендер (канвас чувствителен к
   // ре-рендерам). Зависимости — динамические значения, которые замыкают колбэки;
   // стабильные setState-сеттеры и ref'ы в deps не нужны (exhaustive-deps их не требует).
+  // Двойной клик по ЛЮБОМУ узлу — его панель свойств (решение пользователя 2026-10-05):
+  // свой узел — правка, гость — проекция только для просмотра. На страницу узла ведёт
+  // одна кнопка — «Документация → Открыть» в панели. Новый выбор гасит ответ ещё не
+  // доехавшей догрузки узла по id (inspectNodeById).
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: drillDown,
     onEnterNode: drillToPath,
-    onEditNode: (node) => { setSelectedObject({ kind: "node", node }); },
-    onInspectGhost: (ghost) => { onNavigateNode(ghost.id); },
-    onClearSelection: () => setSelectedObject(null),
-  }), [drillDown, drillToPath, onNavigateNode]);
+    onEditNode: (node) => { inspectSeq.current++; setSelectedObject({ kind: "node", node }); },
+    onInspectGhost: (ghost) => { inspectSeq.current++; setSelectedObject({ kind: "ghost", ghost }); },
+    onInspectNodeId: (id) => { void inspectNodeById(id); },
+    onClearSelection: () => { inspectSeq.current++; setSelectedObject(null); },
+  }), [drillDown, drillToPath, inspectNodeById]);
 
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,

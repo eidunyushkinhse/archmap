@@ -416,4 +416,50 @@ describe("MapEditorPage: правка объекта в истории", () => {
       source: { repo: null, path: null, host: "kafka" },
     }));
   });
+
+  // Двойной клик по ЛЮБОМУ узлу — его панель свойств (решение пользователя 2026-10-05):
+  // гость — проекция только для просмотра, рамка и свёрнутый контейнер — по id. На
+  // страницу узла ведёт лишь «Документация → Открыть» в самой панели.
+  describe("двойной клик по узлу — панель свойств", () => {
+    type Drill = {
+      onInspectGhost: (g: unknown) => void;
+      onInspectNodeId: (id: string) => void;
+    };
+    type Sel = { kind: string; node?: { name: string }; ghost?: { name: string; ancestors: { name: string }[] } } | null;
+    const drill = () => levelGraphProps.current?.drill as unknown as Drill;
+    const selected = () => inspectorProps.current.selected as Sel;
+
+    it("гость — панель проекции, на страницу не уводит", async () => {
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      act(() => drill().onInspectGhost({ id: "g1", name: "Банк", ancestors: [] }));
+      expect(selected()).toMatchObject({ kind: "ghost", ghost: { name: "Банк" } });
+      expect(props.onNavigateNode).not.toHaveBeenCalled();
+    });
+
+    it("рамка узла слоя — его панель свойств", async () => {
+      vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [node("s1", { name: "Касса" })] }) as never);
+      render(<MapEditorPage {...props} nodeId={null} />);
+      await screen.findByTestId("level-graph");
+      await act(async () => { drill().onInspectNodeId("s1"); });
+      expect(selected()).toMatchObject({ kind: "node", node: { name: "Касса" } });
+    });
+
+    it("свёрнутый контейнер гостя (вне слоя) — проекция с путём предков, из поддерева слоя — своя панель", async () => {
+      vi.mocked(nodesApi.getAll).mockResolvedValue([
+        node("sys", { name: "Система" }),
+        node("svc", { name: "Сервис", parent_id: "sys" }),
+        node("deep", { name: "Модуль", parent_id: "svc" }),
+        node("ext", { name: "Партнёр", is_external: true }),
+        node("ext-api", { name: "API партнёра", parent_id: "ext", is_external: true }),
+      ]);
+      render(<MapEditorPage {...props} nodeId="sys" />);
+      await screen.findByTestId("level-graph");
+      act(() => drill().onInspectNodeId("ext-api"));
+      await waitFor(() => expect(selected()?.kind).toBe("ghost"));
+      expect(selected()?.ghost).toMatchObject({ name: "API партнёра", ancestors: [{ name: "Партнёр" }] });
+      act(() => drill().onInspectNodeId("deep"));
+      await waitFor(() => expect(selected()).toMatchObject({ kind: "node", node: { name: "Модуль" } }));
+    });
+  });
 });

@@ -1,7 +1,9 @@
 // Мета ГОСТЯ (проекция чужого узла) в правой панели — только просмотр. Гость несёт
 // лишь GhostNode: имя, роль, технология, статус, путь предков; description/flowchart/
 // openapi у проекции нет, править её нельзя (реальный узел живёт в другой ветке дерева).
-// Кнопка «Перейти к источнику» уводит на уровень, где узел показан как локал.
+// Кнопка «Перейти к источнику» уводит на уровень, где узел показан как локал; раздел
+// «Документация → Открыть» — на страницу узла, как у своего узла (двойной клик по узлу
+// сам на страницу не уводит).
 import type { GhostNode } from "../../types";
 import { canHaveChildren } from "../../types";
 import { STATUS_META } from "../graph/colors";
@@ -12,9 +14,11 @@ interface Props {
   ghost: GhostNode;
   // Навигация к источнику: MapEditorPage грузит уровень-родитель, где гость — видимый узел.
   onGoToSource: (ghost: GhostNode) => void;
+  // Переход на страницу узла (раздел «Документация» → «Открыть»).
+  onNavigateNode: (nodeId: string) => void;
 }
 
-export default function GhostInspector({ ghost, onGoToSource }: Props) {
+export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: Props) {
   const container = canHaveChildren(ghost.shape) && ghost.has_children;
   const path = ghost.ancestors.map((a) => a.name).join(" / ");
 
@@ -55,6 +59,15 @@ export default function GhostInspector({ ghost, onGoToSource }: Props) {
       <button type="button" className="insp-goto" onClick={() => onGoToSource(ghost)}>
         Перейти к источнику
       </button>
+      {/* Документация — на странице узла, как у своего узла (у пользователя её нет). */}
+      {ghost.shape !== "person" && (
+        <>
+          <div className="insp-block-label">Документация</div>
+          <button type="button" className="insp-doc-item" onClick={() => onNavigateNode(ghost.id)}>
+            <span className="insp-doc-name">Открыть</span>
+          </button>
+        </>
+      )}
     </div>
   );
 }

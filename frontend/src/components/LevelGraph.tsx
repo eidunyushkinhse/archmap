@@ -24,6 +24,7 @@ import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
+import { frameUnder } from "./graph/frameUnder";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
@@ -142,7 +143,7 @@ interface LevelGraphProps {
   // ignorePersistedExpanded, fitOnLoad, fitOnExpand, schemaView. Состав — LevelModeFlags.
   mode?: LevelModeFlags;
   // Drill-навигация и деталька (двойной клик по узлу/гостю/пустому холсту): onDrillDown,
-  // onEnterNode, onEditNode, onInspectGhost, onClearSelection. Состав — LevelDrillCallbacks.
+  // onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection. Состав — LevelDrillCallbacks.
   drill: LevelDrillCallbacks;
   // Колбэки создания и инспекции связей: onEdgesChoice, onTrunkChoice, onCreateEdge,
   // onConnectInto, onExitUp. НАМЕРЕННО НЕ `edges` (так зовётся дата-проп AppEdge[]).
@@ -205,7 +206,7 @@ function LevelGraphInner({
     arrangeOnly = false, ignorePersistedExpanded = false, fitOnLoad = false,
     fitOnExpand = false, schemaView = "all", edgeLabelsHidden: edgeLabelsHiddenMode,
   } = mode ?? {};
-  const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onClearSelection } = drill;
+  const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection } = drill;
   const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
   const { onDropNode, dragShape } = drop ?? {};
@@ -686,13 +687,13 @@ function LevelGraphInner({
   // (Фаза 3б) — оба колбэка кормят cbRef ниже.
   const { openEdgeMembers, openTrunkMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, onTrunkChoice });
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers };
   });
   // Ленивая читалка колбэков для сборки: обработчики в data собранных объектов зовут
   // getCb() в момент клика (не при сборке) — объект может пережить несколько прогонов
@@ -1059,17 +1060,20 @@ function LevelGraphInner({
   })();
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
-  // штатное выделение RF. По узлу: только локальный блок (гость/контейнер не правим).
-  // readOnly: двойной клик вызывает onEditNode/onInspectGhost для навигации на страницу.
+  // штатное выделение RF. Отзывается ЛЮБОЙ узел: локальный блок, гость, рамка раскрытого
+  // узла (по её плашке), свёрнутый контейнер гостя. readOnly-страница те же колбэки
+  // замыкает на переход на страницу узла.
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
       if (rfNode.type === "block") {
         const appNode = (rfNode.data as BlockData | undefined)?.appNode;
         if (appNode) cbRef.current.onEditNode(appNode);
       } else if (rfNode.type === "ghost") {
-        // Гость/сосед — навигация на страницу (в том числе в readOnly).
         const ghost = (rfNode.data as GhostData | undefined)?.appNode;
         if (ghost) cbRef.current.onInspectGhost?.(ghost);
+      } else if (rfNode.type === "frame" || rfNode.type === "container") {
+        // у рамки и контейнера объекта узла нет — только id (он же id узла)
+        cbRef.current.onInspectNodeId?.(rfNode.id);
       }
     },
     []
@@ -1226,9 +1230,17 @@ function LevelGraphInner({
       onKeyDown={handleKeyDown}
       // Двойной клик по ПУСТОМУ холсту — сброс выделения (подсветки) и правой панели.
       // Клик по узлу/ребру/плашке исключаем closest'ом (у них свои даблклик-триггеры).
+      // Пустое место ВНУТРИ раскрытой рамки — не пустой холст, а её узел: интерьер рамки
+      // прозрачен для мыши (выделять и двигать холст сквозь него), поэтому клик приходит
+      // сюда, и рамку находим по геометрии — самую вложенную под курсором.
       onDoubleClick={(e) => {
         const t = e.target as HTMLElement;
         if (t.closest?.(".react-flow__node, .react-flow__edge, .react-flow__edgelabel-renderer")) return;
+        const frameId = frameUnder(e.currentTarget, e.clientX, e.clientY);
+        if (frameId && cbRef.current.onInspectNodeId) {
+          cbRef.current.onInspectNodeId(frameId);
+          return;
+        }
         cbRef.current.onClearSelection?.();
       }}
       // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не

@@ -1,5 +1,5 @@
 // Кастомные компоненты узлов React Flow и их реестр nodeTypes.
-import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties, type MouseEvent } from "react";
 import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
 import {
   SIDE_HANDLES, hid, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
@@ -517,7 +517,21 @@ function FrameHandles({ nodeId }: { nodeId: string }) {
   );
 }
 
+/** Окно двойного клика по плашке рамки: столько ждём второго клика, прежде чем
+ *  свернуть (двойной клик открывает узел рамки в панели — LevelGraph). */
+const FRAME_DBLCLICK_MS = 300;
+
 function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+  // Клик по плашке сворачивает, но не сразу: второй клик того же жеста — двойной
+  // (панель узла рамки), и рамка тогда остаётся раскрытой.
+  const collapseTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(collapseTimer.current), []);
+  const onPlaqueClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    window.clearTimeout(collapseTimer.current);
+    if (e.detail > 1) return;
+    collapseTimer.current = window.setTimeout(() => data.onCollapse?.(), FRAME_DBLCLICK_MS);
+  };
   return (
     <div
       className="lg-frame"
@@ -533,10 +547,10 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
       <FrameHandles nodeId={id} />
       {/* Плашка подписи: клик по ВСЕЙ плашке сворачивает (крупная цель; раньше был
           только маленький ✕, а плашка занята драгом — драг рамок запрещён, цель
-          вернулась клику) */}
+          вернулась клику) — после окна двойного клика; ✕ сворачивает сразу */}
       <div
         className="nopan"
-        onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
+        onClick={onPlaqueClick}
         title={data.onCollapse ? "Свернуть" : undefined}
         style={{
           position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,

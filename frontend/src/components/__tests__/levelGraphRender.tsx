@@ -31,6 +31,7 @@ export function baseProps(): LevelGraphProps {
       onDrillDown: vi.fn<(n: AppNode) => void>(),
       onEditNode: vi.fn<(n: AppNode) => void>(),
       onInspectGhost: vi.fn<(g: GhostNode) => void>(),
+      onInspectNodeId: vi.fn<(id: string) => void>(),
       onClearSelection: vi.fn<() => void>(),
     },
     edgeCallbacks: {

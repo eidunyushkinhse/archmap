@@ -13,7 +13,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 import type { Edge as RFEdge } from "@xyflow/react";
 import LevelGraph from "../LevelGraph";
-import { resetHarness, rfHandles, flushRaf, settle } from "./levelGraphHarness";
+import { resetHarness, rfHandles, rfProps, flushRaf, settle } from "./levelGraphHarness";
 import { renderGraph, baseProps, type LevelGraphProps } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
@@ -184,5 +184,43 @@ describe("LevelGraph orchestration: linked-highlight / выделение", () =
 
     fireEvent.doubleClick(node);
     expect(props.drill.onClearSelection).not.toHaveBeenCalled();
+  });
+
+  // Двойной клик по ЛЮБОМУ узлу открывает его панель (решение пользователя 2026-10-05):
+  // у рамки раскрытого узла и свёрнутого контейнера гостя объекта узла нет — хозяин
+  // получает id. Интерьер рамки прозрачен для мыши, клик приходит холсту: рамку под
+  // курсором находим по геометрии — её узел, а не сброс панели.
+  it("двойной клик по рамке и свёрнутому контейнеру — onInspectNodeId(id)", async () => {
+    const { props } = await renderGraph({});
+    const dbl = rfProps.current.onNodeDoubleClick as (e: unknown, n: unknown) => void;
+    act(() => dbl({}, { id: "f1", type: "frame", position: { x: 0, y: 0 }, data: { name: "Система" } }));
+    act(() => dbl({}, { id: "c1", type: "container", position: { x: 0, y: 0 }, data: { id: "c1", name: "Партнёр" } }));
+    expect(props.drill.onInspectNodeId).toHaveBeenNthCalledWith(1, "f1");
+    expect(props.drill.onInspectNodeId).toHaveBeenNthCalledWith(2, "c1");
+    expect(props.drill.onEditNode).not.toHaveBeenCalled();
+  });
+
+  it("двойной клик в пустом месте раскрытой рамки — её узел (вложенной — внутренней); вне рамок — сброс", async () => {
+    const { props, container } = await renderGraph({});
+    const canvas = container.querySelector(".lg-canvas") as HTMLElement;
+    const frame = (id: string, x: number, y: number, w: number, h: number) => {
+      const el = document.createElement("div");
+      el.className = "react-flow__node react-flow__node-frame";
+      el.setAttribute("data-id", id);
+      el.style.pointerEvents = "none";
+      el.getBoundingClientRect = () => ({
+        x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}),
+      }) as DOMRect;
+      canvas.appendChild(el);
+    };
+    frame("outer", 100, 100, 600, 400);
+    frame("inner", 300, 200, 200, 150);
+    fireEvent.doubleClick(canvas, { clientX: 150, clientY: 450 });
+    expect(props.drill.onInspectNodeId).toHaveBeenLastCalledWith("outer");
+    fireEvent.doubleClick(canvas, { clientX: 400, clientY: 300 });
+    expect(props.drill.onInspectNodeId).toHaveBeenLastCalledWith("inner");
+    expect(props.drill.onClearSelection).not.toHaveBeenCalled();
+    fireEvent.doubleClick(canvas, { clientX: 900, clientY: 700 });
+    expect(props.drill.onClearSelection).toHaveBeenCalledOnce();
   });
 });

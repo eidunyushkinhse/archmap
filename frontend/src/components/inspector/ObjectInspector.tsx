@@ -26,7 +26,8 @@ interface Props {
   onEdgeSaved: (edge: Edge, undoPayload: EdgeUpdate, redoPayload: EdgeUpdate) => void;
   onEdgeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
   onGhostGoToSource: (ghost: GhostNode) => void;
-  // Переход на страницу узла (раздел «Документация» инспектора)
+  // Переход на страницу узла (раздел «Документация» инспектора узла и гостя) —
+  // единственный путь из панели на страницу
   onNavigateNode: (nodeId: string) => void;
 }
 
@@ -53,6 +54,7 @@ export default function ObjectInspector({
           key={selected.ghost.id}
           ghost={selected.ghost}
           onGoToSource={onGhostGoToSource}
+          onNavigateNode={onNavigateNode}
         />
       ) : (
         <EdgeInspector
