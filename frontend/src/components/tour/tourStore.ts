@@ -84,3 +84,17 @@ export function subscribeTourPaused(listener: () => void): () => void {
   pausedListeners.add(listener);
   return () => { pausedListeners.delete(listener); };
 }
+
+// Клик по затемнению: карточка шага уходит не угасанием, а сворачивается в пилюлю —
+// видно, куда нажать, чтобы продолжить. Признак забирает уходящая карточка (TourLayer).
+let exitToPill = false;
+
+export function markExitToPill(): void {
+  exitToPill = true;
+}
+
+export function takeExitToPill(): boolean {
+  const value = exitToPill;
+  exitToPill = false;
+  return value;
+}

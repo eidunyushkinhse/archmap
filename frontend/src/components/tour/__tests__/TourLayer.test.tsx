@@ -2,8 +2,9 @@
 // финал), затемнение с вырезами, пропуск жеста из выреза сквозь затемнение,
 // карточка «в стороне» без затемнения, рисование в открытый <dialog>.
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import TourLayer from "../TourLayer";
+import { markExitToPill } from "../tourStore";
 import { STEPS, type StepId } from "../tourSteps";
 import type { TourView } from "../tourView";
 
@@ -208,6 +209,82 @@ describe("TourLayer", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // Пауза (docs/tasks/demo-tour-pause.md): карточка шага сворачивается в пилюлю
+  // «Продолжить обучение». В jsdom нет раскладки и Web Animations — рамки и animate
+  // подменены: проверяем, куда и как полетела копия.
+  describe("сворачивание в пилюлю", () => {
+    const rect = (x: number, y: number, w: number, h: number) => ({
+      x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}),
+    }) as DOMRect;
+    const CARD = rect(500, 300, 340, 200), PILL = rect(1200, 10, 160, 28);
+    let pill: HTMLButtonElement;
+    const animate = vi.fn((..._args: unknown[]) => ({ finished: Promise.resolve() }) as unknown as Animation);
+    const props = () => {
+      const step = STEPS["yar-home"];
+      return {
+        view: view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }), stepKey: "yar-home", step,
+        texts: { title: step.title, body: step.body, action: step.action }, count: null, canBack: true,
+        onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(), onShade: vi.fn(),
+      };
+    };
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["requestAnimationFrame", "setTimeout", "clearTimeout"] });
+      animate.mockClear();
+      Object.defineProperty(HTMLElement.prototype, "animate", { value: animate, configurable: true, writable: true });
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        if (this.matches("[data-tour-pill]")) return PILL;
+        return this.classList.contains("tour-card") ? CARD : rect(0, 0, 0, 0);
+      });
+      pill = document.createElement("button");
+      pill.setAttribute("data-tour-pill", "");
+      document.body.appendChild(pill);
+    });
+    afterEach(() => {
+      pill.remove();
+      vi.restoreAllMocks();
+      delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+      vi.useRealTimers();
+    });
+
+    it("ушла по клику на затемнение — копия летит в рамку пилюли, текст гаснет по пути", async () => {
+      const shown = render(<TourLayer {...props()} />);
+      markExitToPill();
+      shown.unmount();
+      await act(async () => { await Promise.resolve(); });
+      const ghost = document.querySelector<HTMLElement>(".tour-card--fly");
+      expect(ghost).not.toBeNull();
+      expect(ghost).toHaveAttribute("aria-hidden", "true");
+      expect(ghost?.style.left).toBe("500px");
+      act(() => { vi.advanceTimersByTime(20); }); // кадр спустя — перелёт
+      const flight = animate.mock.calls.find(([frames]) => (frames as Keyframe[]).length === 3);
+      const frames = flight?.[0] as Keyframe[];
+      // центр карточки (670, 400) → центр пилюли (1280, 24); 340×200 → 160×28
+      expect(frames[2].transform).toBe(`translate(610px, -376px) scale(${160 / 340}, ${28 / 200})`);
+      expect(frames[2].opacity).toBe(0);
+      expect(frames[1].offset).toBeGreaterThan(0.5);
+      // текст карточки гаснет отдельно, раньше конца перелёта
+      expect(animate.mock.calls.filter(([f]) => (f as Keyframe[]).length === 2).length).toBeGreaterThan(0);
+      await act(async () => { await Promise.resolve(); });
+      expect(document.querySelector(".tour-card--fly")).toBeNull();
+    });
+
+    it("пилюли на экране нет — обычное угасание; без клика по затемнению — тоже", async () => {
+      pill.remove();
+      const first = render(<TourLayer {...props()} />);
+      markExitToPill();
+      first.unmount();
+      await act(async () => { await Promise.resolve(); });
+      expect(document.querySelector(".tour-card--fly")).toBeNull();
+      expect(document.querySelector(".tour-card--ghost")).not.toBeNull();
+      document.querySelectorAll(".tour-card--ghost").forEach((el) => el.parentElement?.remove());
+      document.body.appendChild(pill);
+      const second = render(<TourLayer {...props()} />);
+      second.unmount();
+      await act(async () => { await Promise.resolve(); });
+      expect(document.querySelector(".tour-card--fly")).toBeNull();
+    });
   });
 
   it("смена шага: копия прежней карточки гаснет на старом месте, новая проявляется", async () => {

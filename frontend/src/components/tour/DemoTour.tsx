@@ -21,7 +21,9 @@ import {
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
-import { dropStaleTours, loadTour, onTourRestart, onTourResume, saveTour, setTourPaused } from "./tourStore";
+import {
+  dropStaleTours, loadTour, markExitToPill, onTourRestart, onTourResume, saveTour, setTourPaused, takeExitToPill,
+} from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
@@ -194,6 +196,7 @@ function TourRuntime({ userId }: { userId: string }) {
   useEffect(() => onTourResume(() => {
     const st = stateRef.current;
     if (st.status !== "paused") return;
+    takeExitToPill(); // карточки на паузе нет — признак сворачивания не должен зависнуть
     const at = st.pause;
     send({ action: { type: "resume" }, env: envRef.current });
     if (!at || at.step !== st.step) return;
@@ -205,9 +208,10 @@ function TourRuntime({ userId }: { userId: string }) {
     }
     if (window.location.hash !== at.hash) window.location.hash = at.hash;
   }), []);
-  // Пилюля в шапке зовёт «Продолжить обучение», пока тур на паузе.
+  // Пилюля в шапке зовёт «Продолжить обучение», пока тур на паузе. Layout-эффект:
+  // пилюля обновляется в том же коммите, и карточка сворачивается уже в «Продолжить».
   const paused = state.status === "paused";
-  useEffect(() => { setTourPaused(paused); }, [paused]);
+  useLayoutEffect(() => { setTourPaused(paused); }, [paused]);
   useEffect(() => () => setTourPaused(false), []);
 
   // ── «Ярмарка»: проект по имени, его объекты по именам ──
@@ -424,6 +428,7 @@ function TourRuntime({ userId }: { userId: string }) {
           dispatch({ type: "finish" });
           return;
         }
+        markExitToPill();
         dispatch({ type: "pause", at: { step: stateRef.current.step, hash: window.location.hash, level: levelRef.current } });
       }}
     />

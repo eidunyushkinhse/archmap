@@ -385,6 +385,34 @@ describe("DemoTour — пауза", () => {
     expect(getTourPaused()).toBe(false);
   });
 
+  it("клик по затемнению — карточка шага сворачивается в пилюлю «Продолжить обучение»", async () => {
+    const box = (x: number, y: number, w: number, h: number) => ({
+      x, y, left: x, top: y, width: w, height: h, right: x + w, bottom: y + h, toJSON: () => ({}),
+    }) as DOMRect;
+    const pill = document.createElement("button");
+    pill.setAttribute("data-tour-pill", "");
+    document.body.appendChild(pill);
+    const animate = vi.fn(() => ({ finished: new Promise(() => {}) }) as unknown as Animation);
+    Object.defineProperty(HTMLElement.prototype, "animate", { value: animate, configurable: true, writable: true });
+    const rects = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      if (this.matches("[data-tour-pill]")) return box(900, 10, 160, 28);
+      return this.classList.contains("tour-card") ? box(320, 100, 340, 200) : box(0, 0, 0, 0);
+    });
+    try {
+      render(<DemoTour />);
+      await tick(1000);
+      pokeShade();
+      await tick(20);
+      expect(document.querySelector(".tour-card--fly")).not.toBeNull();
+      expect(animate).toHaveBeenCalled();
+    } finally {
+      rects.mockRestore();
+      delete (HTMLElement.prototype as Partial<HTMLElement>).animate;
+      pill.remove();
+      document.querySelectorAll(".tour-card--fly").forEach((el) => el.parentElement?.remove());
+    }
+  });
+
   it("на паузе тур никуда не уводит; «Продолжить обучение» возвращает на экран паузы", async () => {
     render(<DemoTour />);
     await tick(1000);
