@@ -7,6 +7,9 @@
 //     „Покупателе“», «с „Моей системой“», «„Моя система“ стала»), фраза перестроена
 //     так, чтобы имя стояло в кавычках в именительном падеже.
 // Короткий финал повторного запуска (свой проект уже есть) — текст архитектора.
+// Доработка по приёмке (docs/tasks/demo-tour-2.md): шаги дерева (8а/8б), «диаграмма
+// контекста» перед входом в систему (19а/19б), шаг «Вот куда ведёт связь на самом
+// деле» после лупы, новые тексты шагов 22 и финала — тексты пользователя дословно.
 
 /** Имена демо-пакета: по ним тур находит объекты «Ярмарки» (гость мог их удалить —
  *  тогда шаг пропускается). Проект и его система называются одинаково. */
@@ -17,6 +20,7 @@ export const YAR_ORDERS = "Сервис заказов";
 export const YAR_ORDERS_DB = "БД заказов";
 export const YAR_BROKER = "Kafka";
 export const YAR_ORDER_API = "Order API";
+export const YAR_ORCH = "Оркестратор заказа";
 
 /** Имена из прототипа: запас на случай, если созданный объект тур не застал. */
 export const FALLBACK_NAMES = { system: "Моя система", peer: "Покупатель", child: "Веб-витрина" } as const;
@@ -30,7 +34,10 @@ export type StepId =
   | "expand-system"
   | "expand-service"
   | "service-expanded"
+  /** дерево: раскрыть «Сервис заказов» шевроном (8а) */
   | "tree"
+  /** дерево: открыть страницу «Оркестратора заказа» (8б) */
+  | "tree-open"
   | "service-docs"
   | "db-docs"
   | "broker-docs"
@@ -41,12 +48,16 @@ export type StepId =
   | "create-system"
   | "add-peer"
   | "connect"
+  /** вся диаграмма контекста: система, второй объект и связь (19а) */
+  | "context-diagram"
   | "enter-system"
   | "add-child"
   | "rehang"
   | "go-up"
   | "context-edge"
   | "expand-own"
+  /** после лупы: связь и сервис внутри раскрытой системы */
+  | "inside"
   | "final"
   | "final-short";
 
@@ -66,10 +77,21 @@ export type Screen =
   /** редактор своего проекта */
   | { kind: "own-map" };
 
+/** Часть составной цели: элемент с data-tour, холст редактора или узел «система». */
+export type TargetPart =
+  | { kind: "tour"; key: string }
+  | { kind: "canvas" }
+  | { kind: "system" };
+
 /** Что подсвечивается. Разбор в DOM — tourTargets.ts. */
 export type Target =
   /** элемент с data-tour=key; scroll — прокрутить к нему при входе в шаг */
   | { kind: "tour"; key: string; scroll?: boolean }
+  /** два выреза: main — то, с чем работать (карточка ставится к нему, пульс), zone —
+   *  куда бросать или на что смотреть (без пульса; карточка по возможности не на ней) */
+  | { kind: "pair"; main: TargetPart; zone: TargetPart }
+  /** строка «Ярмарки» в дереве слева по имени объекта: шеврон или вся строка */
+  | { kind: "yar-tree"; name: string; part: "chevron" | "row" }
   /** карточка проекта «Ярмарка» в списке */
   | { kind: "yar-card" }
   /** узел или рамка «Ярмарки» на холсте по имени объекта */
@@ -78,8 +100,13 @@ export type Target =
   | { kind: "system-part"; part: "node-enter" | "node-expand" }
   /** пара хэндлов, которую рендерер выберет для связи «второй объект → система» */
   | { kind: "handles" }
-  /** рамка системы и конец стрелки на ней */
+  /** конец стрелки на рамке системы и одна точка на дочернем объекте — та, куда
+   *  роутер провёл бы связь после перевеса */
   | { kind: "frame-end" }
+  /** вся диаграмма контекста: система, второй объект и связь между ними */
+  | { kind: "context-diagram" }
+  /** связь и сервис внутри раскрытой системы */
+  | { kind: "inside" }
   /** связь между системой и вторым объектом на слое контекста */
   | { kind: "context-edge" }
   /** окно «Новый проект»: левая колонка и кнопка «Создать проект» */
@@ -92,6 +119,7 @@ export interface TourStep {
   /** номер в «Шаг N из M»; у приветствия и финалов его нет */
   n?: number;
   title: string;
+  /** пустой — только заголовок и строка действия */
   body: string;
   /** синяя строка действия */
   action?: string;
@@ -160,112 +188,133 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     body: "Видны его компоненты и их связи, а со схемы уходить не нужно. Свернуть можно крестиком у названия рамки.",
   },
   tree: {
-    id: "tree", kind: "info", n: 8, screen: { kind: "yar-node", name: YAR_ORDERS }, needs: [YAR_ORDERS],
-    mode: "schema", target: { kind: "tour", key: "tree" },
+    id: "tree", kind: "act", n: 8, screen: { kind: "yar-node", name: YAR_ORDERS }, needs: [YAR_ORDERS],
+    mode: "schema", target: { kind: "yar-tree", name: YAR_ORDERS, part: "chevron" },
     title: "Дерево системы",
-    body: "Слева вся система списком. Нажмите на любой объект, чтобы открыть его страницу. Сейчас открыт «Сервис заказов».",
+    body: "Слева вся система списком. Шеврон раскрывает объект, а название открывает его страницу.",
+    action: "Раскройте «Сервис заказов» шевроном.",
+  },
+  "tree-open": {
+    id: "tree-open", kind: "act", n: 9, screen: { kind: "yar-node", name: YAR_ORDERS },
+    needs: [YAR_ORDERS, YAR_ORCH], mode: "schema", target: { kind: "yar-tree", name: YAR_ORCH, part: "row" },
+    title: "Откройте страницу объекта",
+    body: "Здесь вся документация объекта.",
+    action: "Нажмите «Оркестратор заказа».",
   },
   "service-docs": {
-    id: "service-docs", kind: "info", n: 9, screen: { kind: "yar-node", name: YAR_ORDER_API },
-    needs: [YAR_ORDER_API], mode: "schema", target: { kind: "tour", key: "node-logic", scroll: true },
+    id: "service-docs", kind: "info", n: 10, screen: { kind: "yar-node", name: YAR_ORCH },
+    needs: [YAR_ORCH], mode: "schema", target: { kind: "tour", key: "node-logic", scroll: true },
     title: "Документация сервиса",
-    body: "Схемы логики операций и воркеров, параметры конфигурации и спецификация OpenAPI.",
+    // У «Оркестратора заказа» в демо-пакете одна схема логики — воркер «Сага заказа» —
+    // и параметры конфигурации; операций и спецификации OpenAPI у него нет.
+    body: "Схема логики воркера и параметры конфигурации.",
     action: "Нажмите «открыть», чтобы посмотреть схему логики.",
   },
   "db-docs": {
-    id: "db-docs", kind: "info", n: 10, screen: { kind: "yar-node", name: YAR_ORDERS_DB },
+    id: "db-docs", kind: "info", n: 11, screen: { kind: "yar-node", name: YAR_ORDERS_DB },
     needs: [YAR_ORDERS_DB], mode: "schema", target: { kind: "tour", key: "node-structure", scroll: true },
     title: "Документация базы данных",
     body: "Таблицы и колонки с пояснениями. «Показать диаграмму» нарисует связи таблиц.",
   },
   "broker-docs": {
-    id: "broker-docs", kind: "info", n: 11, screen: { kind: "yar-node", name: YAR_BROKER },
+    id: "broker-docs", kind: "info", n: 12, screen: { kind: "yar-node", name: YAR_BROKER },
     needs: [YAR_BROKER], mode: "schema", target: { kind: "tour", key: "node-channels", scroll: true },
     title: "Документация брокера",
     body: "Каналы брокера: топики и очереди. В связях выше видно, кто в них пишет и кто читает.",
   },
   processes: {
-    id: "processes", kind: "info", n: 12, screen: { kind: "yar-shell" }, mode: "proc",
-    target: { kind: "tour", key: "mode-proc" },
+    id: "processes", kind: "info", n: 13, screen: { kind: "yar-shell" }, mode: "proc",
+    target: { kind: "pair", main: { kind: "tour", key: "mode-proc" }, zone: { kind: "tour", key: "process-diagram" } },
     title: "Бизнес-процессы",
     body: "Сценарий шаг за шагом: какие сервисы участвуют и что передают друг другу. Каждый шаг ведёт к схеме логики нужной операции.",
   },
   "leave-yar": {
-    id: "leave-yar", kind: "act", n: 13, screen: { kind: "yar-any" }, mode: "schema",
+    id: "leave-yar", kind: "act", n: 14, screen: { kind: "yar-any" }, mode: "schema",
     target: { kind: "tour", key: "logo" },
     title: "Вы посмотрели «Ярмарку»",
     body: "Логотип ArchMap всегда ведёт ко всем проектам.",
     action: "Нажмите на логотип.",
   },
   "new-project": {
-    id: "new-project", kind: "act", n: 14, screen: { kind: "projects" },
+    id: "new-project", kind: "act", n: 15, screen: { kind: "projects" },
     target: { kind: "tour", key: "new-project" },
     title: "Начните свой проект",
     body: "Теперь ваша очередь. В песочнице можно создать один свой проект.",
     action: "Нажмите «Новый проект».",
   },
   "create-blank": {
-    id: "create-blank", kind: "act", n: 15, screen: ANY, target: { kind: "create-project" },
+    id: "create-blank", kind: "act", n: 16, screen: ANY, target: { kind: "create-project" },
     title: "Проще всего начать с пустого",
     body: "Импорт и ИИ-агент пригодятся, когда захотите собрать схему из кода.",
     action: "Выберите «Пустой», введите название и нажмите «Создать проект».",
   },
   "create-system": {
-    id: "create-system", kind: "act", n: 16, screen: OWN_MAP, target: { kind: "tour", key: "palette:service" },
+    id: "create-system", kind: "act", n: 17, screen: OWN_MAP,
+    target: { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "canvas" } },
     title: "Создайте свою систему",
     body: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.",
     action: "Перетащите «Сервис» на схему и назовите его именем вашей системы.",
   },
   "add-peer": {
-    id: "add-peer", kind: "act", n: 17, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
+    id: "add-peer", kind: "act", n: 18, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
     title: "Добавьте ещё один объект",
     body: "Например, внешний сервис, который обменивается данными с вашей системой, или пользователя.",
     action: "Перетащите форму на схему.",
   },
   connect: {
-    id: "connect", kind: "act", n: 18, screen: OWN_MAP, target: { kind: "handles" },
+    id: "connect", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "handles" },
     title: "Проведите связь",
     body: "Стрелка идёт от того, кто вызывает, к тому, кого вызывают.",
     // Прототип: «от точки на «Покупателе» к точке на «Моей системе»».
     action: "Протяните стрелку от точки на объекте «{peer}» к точке на объекте «{system}».",
   },
-  "enter-system": {
-    id: "enter-system", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
+  "context-diagram": {
+    id: "context-diagram", kind: "info", n: 20, screen: OWN_MAP, target: { kind: "context-diagram" },
     title: "У вас получилась диаграмма контекста",
-    body: "Она ещё не полная, но вы уже знаете, как её доделать. Перейдём на следующий слой архитектуры.",
+    body: "Она ещё не полная, но вы уже знаете, как её доделать.",
+  },
+  "enter-system": {
+    id: "enter-system", kind: "act", n: 21, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
+    title: "Перейдём на следующий слой архитектуры",
+    body: "",
     action: "Нажмите «Войти» на системе «{system}».",
   },
   "add-child": {
-    id: "add-child", kind: "act", n: 20, screen: OWN_MAP, target: { kind: "tour", key: "palette:service" },
+    id: "add-child", kind: "act", n: 22, screen: OWN_MAP,
+    target: { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "system" } },
     title: "Соберите систему из сервисов",
     body: "Поместите в рамку сервис, который входит в состав вашей системы. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте приложение, которое отдаёт ему фронтенд. А если внешнюю систему, то сервис, который с ней интегрирован.",
     action: "Перетащите «Сервис» в рамку «{system}».",
   },
   rehang: {
-    id: "rehang", kind: "act", n: 21, screen: OWN_MAP, target: { kind: "frame-end" },
+    id: "rehang", kind: "act", n: 23, screen: OWN_MAP, target: { kind: "frame-end" },
     title: "Перевесьте связь на сервис",
     // Прототип: «„Моя система“ стала контейнером» — глагол согласован с именем.
     body: "Система «{system}» стала контейнером. Контейнер является абстракцией и не может быть связан с внешним объектом.",
-    // Прототип: «отпустите на „Веб-витрине“».
-    action: "Потяните конец стрелки с рамки и отпустите на объекте «{child}».",
+    action: "Потяните конец стрелки с рамки к точке на объекте «{child}».",
   },
   "go-up": {
-    id: "go-up", kind: "act", n: 22, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
+    id: "go-up", kind: "act", n: 24, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
     title: "Вернитесь на верхний слой",
     body: "Связь теперь ведёт прямо к сервису «{child}». Посмотрим, как это выглядит на диаграмме контекста.",
     action: "Нажмите «Проект» в шапке.",
   },
   "context-edge": {
-    id: "context-edge", kind: "info", n: 23, screen: OWN_MAP, target: { kind: "context-edge" },
+    id: "context-edge", kind: "info", n: 25, screen: OWN_MAP, target: { kind: "context-edge" },
     title: "Наверху связь по-прежнему ведёт в систему",
     // Прототип: «„Покупатель“ работает с „Моей системой“ целиком».
     body: "Для слоя контекста это правда: «{peer}» работает с системой «{system}» целиком.",
   },
   "expand-own": {
-    id: "expand-own", kind: "act", n: 24, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
+    id: "expand-own", kind: "act", n: 26, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
     title: "Загляните внутрь",
     body: "Лупа раскрывает систему прямо на схеме, и видно, куда связь ведёт на самом деле.",
     action: "Нажмите лупу.",
+  },
+  inside: {
+    id: "inside", kind: "info", n: 27, screen: OWN_MAP, target: { kind: "inside" },
+    title: "Вот куда ведёт связь на самом деле",
+    body: "Внутри системы «{system}» связь приходит в сервис «{child}». Диаграмма контекста показывает систему целиком, а лупа — то, что внутри.",
   },
   final: {
     id: "final", kind: "end", screen: ANY,
@@ -279,19 +328,19 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
 };
 
-/** Шаги «Ярмарки» (по прототипу 1–13): общие у полного и короткого прохода. */
+/** Шаги «Ярмарки» (1–14): общие у полного и короткого прохода. */
 const YAR_PART: readonly StepId[] = [
   "open-yar", "yar-home", "open-editor", "drag", "expand-system", "expand-service",
-  "service-expanded", "tree", "service-docs", "db-docs", "broker-docs", "processes", "leave-yar",
+  "service-expanded", "tree", "tree-open", "service-docs", "db-docs", "broker-docs", "processes", "leave-yar",
 ];
 
 /** Полный проход: «Ярмарка», затем свой проект. */
 export const FULL_SEQUENCE: readonly StepId[] = [
   "welcome", ...YAR_PART,
-  "new-project", "create-blank", "create-system", "add-peer", "connect", "enter-system",
-  "add-child", "rehang", "go-up", "context-edge", "expand-own", "final",
+  "new-project", "create-blank", "create-system", "add-peer", "connect", "context-diagram", "enter-system",
+  "add-child", "rehang", "go-up", "context-edge", "expand-own", "inside", "final",
 ];
 
 /** Повторный запуск при уже созданном своём проекте: «Новый проект» погашена, шаги
- *  14–15 не выполнить — после «Ярмарки» короткий финал. */
+ *  15–16 не выполнить — после «Ярмарки» короткий финал. */
 export const SHORT_SEQUENCE: readonly StepId[] = ["welcome", ...YAR_PART, "final-short"];

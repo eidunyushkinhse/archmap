@@ -947,7 +947,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               : "В процессе пока нет участников и сообщений."}
           </div>
         ) : (
-          <div style={{ padding: "8px 12px 18px", width: "max-content" }}>
+          // data-tour: диаграмма процесса — вторая цель шага «Бизнес-процессы» тура демо
+          <div style={{ padding: "8px 12px 18px", width: "max-content" }} data-tour="process-diagram">
             <SequenceDiagram
               participants={seq.participants}
               messages={seq.messages}

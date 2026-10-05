@@ -8,7 +8,7 @@ import { STEPS, type StepId } from "../tourSteps";
 import type { TourView } from "../tourView";
 
 function view(patch: Partial<TourView>): TourView {
-  return { phase: "spot", host: document.body, holes: [], anchor: null, avoid: [], ...patch };
+  return { phase: "spot", host: document.body, holes: [], anchor: null, avoid: [], soft: [], ...patch };
 }
 
 function renderLayer(stepId: StepId, v: TourView, canBack = true) {
@@ -20,7 +20,7 @@ function renderLayer(stepId: StepId, v: TourView, canBack = true) {
       stepKey={stepId}
       step={step}
       texts={{ title: step.title, body: step.body, action: step.action }}
-      count={step.n ? `Шаг ${step.n} из 24` : null}
+      count={step.n ? `Шаг ${step.n} из 27` : null}
       canBack={canBack}
       {...handlers}
     />,
@@ -45,7 +45,7 @@ describe("TourLayer", () => {
 
   it("шаг с действием: счётчик, строка действия, пульс, без «Далее»", () => {
     const { handlers } = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
-    expect(screen.getByText("Шаг 3 из 24")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 3 из 27")).toBeInTheDocument();
     expect(screen.getByText("Нажмите «Редактировать».")).toHaveClass("tour-do");
     expect(screen.queryByRole("button", { name: "Далее" })).toBeNull();
     expect(document.querySelector(".tour-ring")).toHaveClass("tour-ring--act");
@@ -62,6 +62,19 @@ describe("TourLayer", () => {
     expect(handlers.onNext).toHaveBeenCalledOnce();
     const card = screen.getByRole("dialog", { name: "Главная страница проекта" });
     expect(card.style.left).toBe(`${HOLE.x + HOLE.w + 16}px`);
+  });
+
+  it("зона второго выреза не пульсирует; шаг без текста — только заголовок и действие", () => {
+    const zone = { x: 400, y: 100, w: 500, h: 400, shape: "rect" as const, quiet: true };
+    renderLayer("enter-system", view({ holes: [HOLE, zone], anchor: HOLE, avoid: [HOLE], soft: [zone] }));
+    const rings = document.querySelectorAll(".tour-ring");
+    expect(rings).toHaveLength(2);
+    expect(rings[0]).toHaveClass("tour-ring--act");
+    expect(rings[1]).not.toHaveClass("tour-ring--act");
+    const card = screen.getByRole("dialog", { name: "Перейдём на следующий слой архитектуры" });
+    // тело пустое — абзаца нет, есть только строка действия
+    expect(card.querySelectorAll("p")).toHaveLength(1);
+    expect(card.querySelector("p")).toHaveClass("tour-do");
   });
 
   it("финал: только «Завершить»", () => {

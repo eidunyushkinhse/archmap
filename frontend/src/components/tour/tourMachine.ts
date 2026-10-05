@@ -5,7 +5,7 @@
 import { routeProject, type TourRoute } from "./tourRoute";
 import {
   FALLBACK_NAMES, FULL_SEQUENCE, SHORT_SEQUENCE, STEPS,
-  YAR_ORDERS, YAR_SYSTEM,
+  YAR_ORCH, YAR_ORDERS, YAR_SYSTEM,
   type Screen, type StepId, type TourStep,
 } from "./tourSteps";
 
@@ -33,7 +33,8 @@ export interface TourState {
 }
 
 /** Сигналы продукта: маршрут, шина событий (projectId — проект маршрута в момент
- *  события), появление окна «Новый проект» в DOM. */
+ *  события) и состояния DOM: окно «Новый проект» открылось, ветка «Сервиса заказов»
+ *  в дереве раскрыта. */
 export type TourSignal =
   | { kind: "route"; route: TourRoute }
   | { kind: "level"; projectId: string; levelId: string | null }
@@ -42,7 +43,7 @@ export type TourSignal =
   | { kind: "edge-reconnected"; projectId: string | null; fromId: string; toId: string }
   | { kind: "node-expanded"; projectId: string | null; id: string }
   | { kind: "node-drag-end"; projectId: string | null; ids: string[] }
-  | { kind: "dom"; key: "create-project" };
+  | { kind: "dom"; key: "create-project" | "tree-expanded" };
 
 export type TourAction =
   | { type: "next" }
@@ -86,8 +87,8 @@ export function canGoBack(step: StepId): boolean {
 }
 
 const OWN_STEPS = new Set<StepId>([
-  "create-system", "add-peer", "connect", "enter-system", "add-child",
-  "rehang", "go-up", "context-edge", "expand-own",
+  "create-system", "add-peer", "connect", "context-diagram", "enter-system", "add-child",
+  "rehang", "go-up", "context-edge", "expand-own", "inside",
 ]);
 
 /** Нужна ли шагу «Ярмарка»: экран, цель или объекты из её проекта. */
@@ -151,6 +152,15 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
     case "expand-service": {
       const svc = obj(YAR_ORDERS);
       return ok(!!svc && s.kind === "node-expanded" && s.id === svc);
+    }
+    case "tree":
+      // Ветка раскрыта (шевроном или нажатием на название) — кадровый цикл видит это
+      // в DOM дерева; уже раскрытая засчитывается сама (DemoTour, «идя вперёд»).
+      return ok(s.kind === "dom" && s.key === "tree-expanded");
+    case "tree-open": {
+      const orch = obj(YAR_ORCH);
+      return ok(!!orch && s.kind === "route" && s.route.name === "node"
+        && s.route.projectId === yar && s.route.nodeId === orch);
     }
     case "leave-yar":
       return ok(s.kind === "route" && s.route.name === "projects");
@@ -235,6 +245,11 @@ export function expandTarget(state: TourState, env: TourEnv): string | null {
     default:
       return null;
   }
+}
+
+/** Чью ветку шаг ждёт раскрытой в дереве слева (null — шаг не про дерево). */
+export function treeExpandTarget(state: TourState, env: TourEnv): string | null {
+  return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;
 }
 
 /** Тексты шага с подставленными именами созданных объектов. */

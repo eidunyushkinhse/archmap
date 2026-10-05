@@ -57,6 +57,18 @@ describe("место карточки", () => {
     expect(at2.x).toBeGreaterThanOrEqual(node.x + node.w);
   });
 
+  it("зона второго выреза: карточка по возможности не на ней, иначе — рядом с целью", () => {
+    // палитра слева, холст справа во всю высоту: справа от палитры — на холсте
+    const palette = { x: 20, y: 600, w: 220, h: 40 };
+    const canvas = { x: 260, y: 60, w: 1180, h: 840 };
+    const strict = placeCard(palette, [palette], CARD, VIEW, [{ x: 900, y: 60, w: 540, h: 840 }]);
+    // зона справа узкая — карточка встаёт вне её (снизу у палитры)
+    expect(strict.x + CARD.w).toBeLessThanOrEqual(900);
+    // холст на весь экран — без зоны не обойтись: сторона рядом с палитрой, не угол окна
+    const loose = placeCard(palette, [palette], CARD, VIEW, [canvas]);
+    expect(loose).toEqual(placeCard(palette, [palette], CARD, VIEW));
+  });
+
   it("цель на весь экран — правый нижний угол", () => {
     const at = placeCard({ x: 0, y: 0, w: 1440, h: 900 }, [], CARD, VIEW);
     expect(at).toEqual({ x: VIEW.w - CARD.w - 16, y: VIEW.h - CARD.h - 16 });

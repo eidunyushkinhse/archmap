@@ -131,7 +131,7 @@ function Shade({ width, height, holes, act }: { width: number; height: number; h
       {holes.map((hole, i) => (
         <div
           key={i}
-          className={`tour-ring${hole.shape === "dot" ? " tour-ring--dot" : ""}${act ? " tour-ring--act" : ""}`}
+          className={`tour-ring${hole.shape === "dot" ? " tour-ring--dot" : ""}${act && !hole.quiet ? " tour-ring--act" : ""}`}
           style={{ left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
         />
       ))}
@@ -164,7 +164,7 @@ function Card({
   if (view.phase === "center") cls += " tour-card--center";
   else if (view.phase === "docked") cls += " tour-card--docked";
   else if (view.anchor) {
-    const at = placeCard(view.anchor, view.avoid, size, viewport);
+    const at = placeCard(view.anchor, view.avoid, size, viewport, view.soft);
     style = { left: at.x, top: at.y };
   }
 
@@ -174,7 +174,7 @@ function Card({
     <div ref={ref} className={cls} style={style} role="dialog" aria-label={texts.title}>
       {count && <span className="tour-count">{count}</span>}
       <h3>{texts.title}</h3>
-      <p>{texts.body}</p>
+      {texts.body && <p>{texts.body}</p>}
       {texts.action && <p className="tour-do">{texts.action}</p>}
       <div className="tour-bar">
         {isEnd ? <span /> : (

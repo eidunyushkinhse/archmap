@@ -15,6 +15,7 @@ import { projectsApi } from "../../api/projects";
 import { onTourEvent, type TourBusEvent } from "./tourBus";
 import {
   availability, canGoBack, expandTarget, onScreen, reduceTour, screenHash, startState, stepTexts, stepTotal,
+  treeExpandTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
@@ -63,7 +64,7 @@ function viewKey(v: TourView): string {
   const r = (n: number) => Math.round(n);
   const rect = (x: { x: number; y: number; w: number; h: number }) => `${r(x.x)},${r(x.y)},${r(x.w)},${r(x.h)}`;
   return [v.phase, v.holes.map((h) => h.shape + rect(h)).join(";"), v.anchor ? rect(v.anchor) : "",
-    v.avoid.map(rect).join(";")].join("|");
+    v.avoid.map(rect).join(";"), v.soft.map(rect).join(";")].join("|");
 }
 
 function TourRuntime({ userId }: { userId: string }) {
@@ -190,11 +191,11 @@ function TourRuntime({ userId }: { userId: string }) {
   // уйти в сторону сам, шаг подождёт его на своём экране.
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
-  // раскрытый узел засчитан.
-  const doneForRef = useRef({ mode: false, scroll: false, expanded: false, reveals: 0, revealAt: 0 });
+  // раскрытый узел засчитан; treeClosed — ветка дерева была свёрнутой на этом шаге.
+  const doneForRef = useRef({ mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0 });
   useLayoutEffect(() => {
     enteredAtRef.current = performance.now();
-    doneForRef.current = { mode: false, scroll: false, expanded: false, reveals: 0, revealAt: 0 };
+    doneForRef.current = { mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0 };
   }, [state.step]);
   useEffect(() => {
     if (!running || navForRef.current === state.step) return;
@@ -253,7 +254,10 @@ function TourRuntime({ userId }: { userId: string }) {
           }
         }
         if (res && (!dialog || res.elements.every((el) => dialog.contains(el)))) {
-          next = { phase: "spot", host: dialog ?? document.body, holes: res.holes, anchor: res.anchor, avoid: res.avoid };
+          next = {
+            phase: "spot", host: dialog ?? document.body, holes: res.holes, anchor: res.anchor, avoid: res.avoid,
+            soft: res.soft ?? [],
+          };
           foundAt = now;
           // Секции страницы объекта — к середине экрана, один раз на вход в шаг.
           if (step.target?.kind === "tour" && step.target.scroll && !doneForRef.current.scroll) {
@@ -285,6 +289,16 @@ function TourRuntime({ userId }: { userId: string }) {
         if (id && document.querySelector(`.react-flow__node-frame[data-id="${id}"]`)) {
           doneForRef.current.expanded = true;
           send({ action: { type: "signal", signal: { kind: "node-expanded", projectId: routeProject(rt), id } }, env: en });
+        }
+      }
+      // Дерево: ветка раскрыта (шеврон в DOM — aria-expanded). Идя вперёд, уже раскрытая
+      // засчитывается сразу; после «Назад» — когда её свернули и раскрыли снова.
+      const treeId = screenOk ? treeExpandTarget(st, en) : null;
+      const chev = treeId ? document.querySelector(`[data-tour="tree-chev:${treeId}"]`) : null;
+      if (chev) {
+        if (chev.getAttribute("aria-expanded") !== "true") doneForRef.current.treeClosed = true;
+        else if (st.dir === 1 || doneForRef.current.treeClosed) {
+          send({ action: { type: "signal", signal: { kind: "dom", key: "tree-expanded" } }, env: en });
         }
       }
       // «Новый проект»: окно открылось — шаг сделан; кнопка погашена — проект уже есть.

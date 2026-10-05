@@ -4,8 +4,8 @@
 // обрезки холстом), в координатах окна.
 import { padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { TourVars } from "./tourMachine";
-import { resolveHandlePair } from "./tourHandles";
-import type { Target } from "./tourSteps";
+import { resolveHandlePair, resolveRehang } from "./tourHandles";
+import type { Target, TargetPart } from "./tourSteps";
 
 export interface TargetCtx {
   yarProjectId: string | null | undefined;
@@ -21,6 +21,8 @@ export interface Resolved {
   anchor: Rect;
   /** что карточка не закрывает */
   avoid: Rect[];
+  /** что карточке лучше не закрывать (зона второго выреза) */
+  soft?: Rect[];
 }
 
 // Предки, обрезающие содержимое (overflow не visible): у элемента они не меняются,
@@ -76,32 +78,10 @@ function single(el: Element, rect: Rect, avoid: Rect[] = []): Resolved {
   return { elements: [el], holes: [hole], anchor: hole, avoid: [hole, ...avoid] };
 }
 
-/** Рамка системы и конец стрелки на ней: из ручек перепривязки React Flow берётся
- *  та, что сидит на границе рамки (тянуть можно только конец, упёршийся в рамку). */
-function resolveFrameEnd(systemId: string): Resolved | null {
-  const frame = firstVisible(rfNode(systemId));
-  if (!frame) return null;
-  const f = frame.rect;
-  const near = (x: number, y: number) => {
-    const inside = x >= f.x - 14 && x <= f.x + f.w + 14 && y >= f.y - 14 && y <= f.y + f.h + 14;
-    const edge = Math.min(Math.abs(x - f.x), Math.abs(x - f.x - f.w), Math.abs(y - f.y), Math.abs(y - f.y - f.h));
-    return inside && edge <= 14;
-  };
-  for (const anchor of Array.from(document.querySelectorAll(".react-flow__edgeupdater"))) {
-    const r = anchor.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
-    if (r.width === 0 || !near(cx, cy)) continue;
-    const frameHole = padHole(f, "rect");
-    const endHole = padHole({ x: cx - 10, y: cy - 10, w: 20, h: 20 }, "rect");
-    const u = union([frameHole, endHole]) ?? frameHole;
-    return { elements: [frame.el, anchor], holes: [frameHole, endHole], anchor: u, avoid: [u] };
-  }
-  return null;
-}
-
-/** Связь между двумя объектами на холсте: React Flow подписывает ребро концами
- *  («Edge from A to B»), плашка подписи несёт data-lg-edge с id ребра. */
-function resolveEdge(a: string, b: string): Resolved | null {
+/** Видимая связь между двумя объектами на холсте: React Flow подписывает ребро
+ *  концами («Edge from A to B»), плашка подписи несёт data-lg-edge с id ребра.
+ *  Прямоугольник — линия вместе с плашкой. */
+function edgeBox(a: string, b: string): { el: Element; rect: Rect } | null {
   for (const el of Array.from(document.querySelectorAll(".react-flow__edge"))) {
     const label = el.getAttribute("aria-label") ?? "";
     if (!label.includes(a) || !label.includes(b)) continue;
@@ -109,12 +89,71 @@ function resolveEdge(a: string, b: string): Resolved | null {
     if (!path) continue;
     const id = el.getAttribute("data-id");
     const plaque = id ? firstVisible(`[data-lg-edge="${id}"]`) : null;
-    const rect = union([path, ...(plaque ? [plaque.rect] : [])]) ?? path;
-    const hole = padHole(rect, "rect");
-    const ends = [a, b].map((n) => firstVisible(rfNode(n))?.rect).filter((r): r is Rect => !!r);
-    return { elements: [el], holes: [hole], anchor: hole, avoid: [hole, ...ends] };
+    return { el, rect: union([path, ...(plaque ? [plaque.rect] : [])]) ?? path };
   }
   return null;
+}
+
+/** Связь между двумя объектами: вырез по ней, карточка не закрывает и концы. */
+function resolveEdge(a: string, b: string): Resolved | null {
+  const edge = edgeBox(a, b);
+  if (!edge) return null;
+  const hole = padHole(edge.rect, "rect");
+  const ends = [a, b].map((n) => firstVisible(rfNode(n))?.rect).filter((r): r is Rect => !!r);
+  return { elements: [edge.el], holes: [hole], anchor: hole, avoid: [hole, ...ends] };
+}
+
+/** Один вырез вокруг связи и объектов на её концах (если они на экране): вся
+ *  диаграмма контекста или «связь и сервис внутри раскрытой системы». */
+function resolveEdgeWith(a: string, b: string, ids: readonly string[]): Resolved | null {
+  const edge = edgeBox(a, b);
+  if (!edge) return null;
+  const parts = ids.map((id) => firstVisible(rfNode(id))).filter((p): p is { el: Element; rect: Rect } => !!p);
+  if (parts.length < ids.length) return null;
+  const hole = padHole(union([edge.rect, ...parts.map((p) => p.rect)]) ?? edge.rect, "rect");
+  return { elements: [edge.el, ...parts.map((p) => p.el)], holes: [hole], anchor: hole, avoid: [hole] };
+}
+
+/** Часть составной цели в DOM: элемент data-tour, холст редактора, узел «система». */
+function findPart(part: TargetPart, systemId: string | undefined): { el: Element; rect: Rect } | null {
+  switch (part.kind) {
+    case "tour":
+      return firstVisible(byTour(part.key));
+    case "canvas":
+      return firstVisible(".react-flow");
+    case "system":
+      return systemId ? firstVisible(rfNode(systemId)) : null;
+  }
+}
+
+/** Два выреза: main (с ним работать — к нему карточка, на шаге с действием пульс) и
+ *  zone (куда бросать или на что смотреть — без пульса, карточка по возможности не на
+ *  ней). Без main цели нет; зону, которой ещё нет (холст грузится), просто не рисуем. */
+function resolvePair(main: TargetPart, zone: TargetPart, systemId: string | undefined): Resolved | null {
+  const m = findPart(main, systemId);
+  if (!m) return null;
+  const mainHole = padHole(m.rect, "rect");
+  const z = findPart(zone, systemId);
+  if (!z) return { elements: [m.el], holes: [mainHole], anchor: mainHole, avoid: [mainHole] };
+  const zoneHole: Hole = { ...padHole(z.rect, "rect"), quiet: true };
+  return {
+    elements: [m.el, z.el], holes: [mainHole, zoneHole], anchor: mainHole, avoid: [mainHole], soft: [zoneHole],
+  };
+}
+
+const treeKey = (part: "chevron" | "row", id: string) => `${part === "chevron" ? "tree-chev" : "tree-row"}:${id}`;
+
+/** Строка дерева: вырез по шеврону или строке, карточка — к строке целиком и по
+ *  возможности мимо дерева (оно на шаге и есть то, на что смотрят: раскрытая ветка
+ *  показывает детей прямо под строкой). */
+function resolveTreeRow(hit: { el: Element; rect: Rect }, id: string): Resolved {
+  const hole = padHole(hit.rect, "rect");
+  const row = firstVisible(byTour(treeKey("row", id)));
+  const tree = firstVisible(byTour("tree"));
+  return {
+    elements: [hit.el], holes: [hole], anchor: row ? padHole(row.rect, "rect") : hole, avoid: [hole],
+    soft: tree ? [tree.rect] : [],
+  };
 }
 
 /** Окно «Новый проект»: левая колонка и кнопка «Создать проект» — без неё действие
@@ -145,6 +184,13 @@ export function resolveTarget(target: Target, ctx: TargetCtx): Resolved | null {
       const hit = id ? firstVisible(rfNode(id)) : null;
       return hit ? single(hit.el, hit.rect) : null;
     }
+    case "yar-tree": {
+      const id = ctx.yarObjects?.get(target.name);
+      const hit = id ? firstVisible(byTour(treeKey(target.part, id))) : null;
+      return hit && id ? resolveTreeRow(hit, id) : null;
+    }
+    case "pair":
+      return resolvePair(target.main, target.zone, vars.systemId);
     case "system-part": {
       if (!vars.systemId) return null;
       const node = firstVisible(rfNode(vars.systemId));
@@ -154,9 +200,15 @@ export function resolveTarget(target: Target, ctx: TargetCtx): Resolved | null {
     case "handles":
       return vars.peerId && vars.systemId ? resolveHandlePair(vars.peerId, vars.systemId) : null;
     case "frame-end":
-      return vars.systemId ? resolveFrameEnd(vars.systemId) : null;
+      return vars.systemId && vars.childId ? resolveRehang(vars.systemId, vars.childId) : null;
     case "context-edge":
       return vars.peerId && vars.systemId ? resolveEdge(vars.peerId, vars.systemId) : null;
+    case "context-diagram":
+      return vars.peerId && vars.systemId
+        ? resolveEdgeWith(vars.peerId, vars.systemId, [vars.peerId, vars.systemId])
+        : null;
+    case "inside":
+      return vars.peerId && vars.childId ? resolveEdgeWith(vars.peerId, vars.childId, [vars.childId]) : null;
     case "create-project":
       return resolveCreateProject();
   }
@@ -181,10 +233,21 @@ export function hiddenTarget(target: Target, ctx: TargetCtx): Element | null {
       selector = id ? rfNode(id) : null;
       break;
     }
+    case "yar-tree": {
+      // строка дерева ниже края его прокрутки
+      const id = ctx.yarObjects?.get(target.name);
+      selector = id ? byTour(treeKey(target.part, id)) : null;
+      break;
+    }
+    case "pair":
+      selector = target.main.kind === "tour" ? byTour(target.main.key) : null;
+      break;
     case "system-part":
     case "handles":
     case "frame-end":
     case "context-edge":
+    case "context-diagram":
+    case "inside":
       selector = ctx.vars.systemId ? rfNode(ctx.vars.systemId) : null;
       break;
     case "create-project":

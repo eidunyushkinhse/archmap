@@ -91,6 +91,8 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
           + (ctx.dropTargetId === id ? " nt-row--droptarget" : "")
         }
         onClick={() => ctx.onSelect(node)}
+        // обучающий тур демо: строка и шеврон объекта (docs/tasks/demo-tour-2.md)
+        data-tour={`tree-row:${id}`}
         onDragOver={ctx.drag && ((e) => ctx.onDragOverRow?.(e, node))}
         onDragLeave={ctx.drag && (() => ctx.onDragLeaveRow?.(node))}
         onDrop={ctx.drag && ((e) => ctx.onDropRow?.(e, node))}
@@ -102,6 +104,7 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
             // строку (иначе провалились бы на слой). Зона широкая (26px, вся высота
             // строки), глиф визуально остаётся на месте — см. .nt-chevzone/.nt-chevhit.
             className="nt-chevzone"
+            data-tour={`tree-chev:${id}`}
             onClick={(e) => { e.stopPropagation(); ctx.onToggle(node); }}
             title={isExpanded ? "Свернуть" : "Развернуть"}
             aria-label={isExpanded ? "Свернуть ветку" : "Развернуть ветку"}

@@ -10,6 +10,8 @@ export interface TourView {
   holes: Hole[];
   anchor: Rect | null;
   avoid: Rect[];
+  /** что карточке лучше не закрывать (зона второго выреза) — см. placeCard */
+  soft: Rect[];
 }
 
-export const HIDDEN_VIEW: TourView = { phase: "hidden", host: null, holes: [], anchor: null, avoid: [] };
+export const HIDDEN_VIEW: TourView = { phase: "hidden", host: null, holes: [], anchor: null, avoid: [], soft: [] };

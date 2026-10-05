@@ -3,8 +3,10 @@
 
 export interface Rect { x: number; y: number; w: number; h: number }
 
-/** Вырез: прямоугольник со скруглением или круг (точки-хэндлы связи). */
-export interface Hole extends Rect { shape: "rect" | "dot" }
+/** Вырез: прямоугольник со скруглением или круг (точки-хэндлы связи). quiet — без
+ *  пульса даже на шаге с действием: зона броска или то, на что смотреть (холст, рамка,
+ *  диаграмма процесса), а не то, что нажимать. */
+export interface Hole extends Rect { shape: "rect" | "dot"; quiet?: boolean }
 
 export const HOLE_PAD = 6;
 export const DOT_PAD = 4;
@@ -100,14 +102,33 @@ type Side = "right" | "left" | "bottom" | "top";
 /**
  * Где поставить карточку: рядом с anchor, целиком в окне и не поверх avoid.
  * Мелкие цели (кнопки шапки) — сначала снизу, крупные — сначала справа, как в
- * прототипе. Ни одна сторона не подошла — правый нижний угол окна.
+ * прототипе. soft — то, что карточке лучше не закрывать (зона второго выреза): сперва
+ * ищем место вне avoid и soft, не нашлось — вне avoid. Ни одна сторона не подошла —
+ * правый нижний угол окна.
  */
 export function placeCard(
   anchor: Rect,
   avoid: readonly Rect[],
   card: { w: number; h: number },
   view: { w: number; h: number },
+  soft: readonly Rect[] = [],
 ): { x: number; y: number } {
+  if (soft.length > 0) {
+    const strict = placeBeside(anchor, [...avoid, ...soft], card, view);
+    if (strict) return strict;
+  }
+  const m = CARD_MARGIN;
+  return placeBeside(anchor, avoid, card, view)
+    ?? { x: Math.max(m, view.w - card.w - m), y: Math.max(m, view.h - card.h - m) };
+}
+
+/** Сторона рядом с anchor, где карточка целиком в окне и не поверх avoid (null — нет). */
+function placeBeside(
+  anchor: Rect,
+  avoid: readonly Rect[],
+  card: { w: number; h: number },
+  view: { w: number; h: number },
+): { x: number; y: number } | null {
   const m = CARD_MARGIN, g = CARD_GAP;
   const clampX = (x: number) => Math.max(m, Math.min(x, view.w - card.w - m));
   const clampY = (y: number) => Math.max(m, Math.min(y, view.h - card.h - m));
@@ -123,5 +144,5 @@ export function placeCard(
     const box = { x, y, w: card.w, h: card.h };
     if (fits && !avoid.some((a) => overlaps(box, a))) return { x, y };
   }
-  return { x: Math.max(m, view.w - card.w - m), y: Math.max(m, view.h - card.h - m) };
+  return null;
 }

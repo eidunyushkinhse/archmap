@@ -4,12 +4,12 @@
 import { describe, it, expect } from "vitest";
 import {
   availability, canGoBack, expandTarget, onScreen, parseTourState, reduceTour, screenHash, startState,
-  stepTexts, stepTotal,
+  stepTexts, stepTotal, treeExpandTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
 import { parseTourRoute } from "../tourRoute";
 import {
-  STEPS, YAR_BROKER, YAR_ORDER_API, YAR_ORDERS, YAR_ORDERS_DB, YAR_SELLER, YAR_SYSTEM,
+  FULL_SEQUENCE, STEPS, YAR_BROKER, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_ORDERS_DB, YAR_SELLER, YAR_SYSTEM,
   type StepId,
 } from "../tourSteps";
 
@@ -22,6 +22,7 @@ const OBJECTS = new Map<string, string>([
   [YAR_ORDER_API, "c0de-04"],
   [YAR_ORDERS_DB, "c0de-05"],
   [YAR_BROKER, "c0de-06"],
+  [YAR_ORCH, "c0de-07"],
 ]);
 const ENV: TourEnv = { yarProjectId: YAR, yarObjects: OBJECTS };
 
@@ -72,6 +73,29 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(expandTarget(at("expand-service"), ENV)).toBe("c0de-03");
     expect(expandTarget(at("expand-own", { vars: OWN_VARS }), ENV)).toBe("s1");
     expect(expandTarget(at("drag"), ENV)).toBeNull();
+  });
+
+  it("дерево: раскрыл «Сервис заказов» — открой «Оркестратор заказа»; его страница — документация", () => {
+    let s = run(at("service-expanded"), [NEXT]);
+    expect(s.step).toBe("tree");
+    expect(treeExpandTarget(s, ENV)).toBe("c0de-03");
+    expect(treeExpandTarget(at("tree-open"), ENV)).toBeNull();
+    // «Далее» нет — ждём раскрытия ветки
+    expect(run(s, [NEXT]).step).toBe("tree");
+    s = run(s, [sig({ kind: "dom", key: "tree-expanded" })]);
+    expect(s.step).toBe("tree-open");
+    // страница другого объекта шаг не засчитывает
+    expect(run(s, [route(`#/p/${YAR}/nodes/c0de-04`)]).step).toBe("tree-open");
+    s = run(s, [route(`#/p/${YAR}/nodes/c0de-07`)]);
+    expect(s.step).toBe("service-docs");
+    expect(screenHash(STEPS["service-docs"].screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
+  });
+
+  it("нет «Оркестратора заказа»: после раскрытия ветки — документация БД", () => {
+    const objects = new Map(OBJECTS);
+    objects.delete(YAR_ORCH);
+    const env = { ...ENV, yarObjects: objects };
+    expect(run(at("tree"), [sig({ kind: "dom", key: "tree-expanded" })], env).step).toBe("db-docs");
   });
 
   it("вход на слой системы засчитывается как её раскрытие", () => {
@@ -130,7 +154,7 @@ describe("тур — пропуск ненайденных объектов", ()
     objects.delete(YAR_ORDERS);
     const env = { ...ENV, yarObjects: objects };
     const s = run(at("expand-system"), [sig({ kind: "node-expanded", projectId: YAR, id: "c0de-02" })], env);
-    // 6, 7 и 8 завязаны на «Сервис заказов» — следующий шаг документация Order API
+    // 6–9 завязаны на «Сервис заказов» — следующий шаг документация «Оркестратора заказа»
     expect(s.step).toBe("service-docs");
   });
 
@@ -171,8 +195,14 @@ describe("тур — свой проект", () => {
     const edge = (a: string, b: string) =>
       sig({ kind: "edge-created", projectId: OWN, id: "e1", sourceId: a, targetId: b });
     expect(run(s, [edge("p1", "x")]).step).toBe("connect");
-    expect(run(s, [edge("p1", "s1")]).step).toBe("enter-system");
-    expect(run(s, [edge("s1", "p1")]).step).toBe("enter-system");
+    expect(run(s, [edge("p1", "s1")]).step).toBe("context-diagram");
+    expect(run(s, [edge("s1", "p1")]).step).toBe("context-diagram");
+  });
+
+  it("диаграмма контекста — «Далее», затем «Войти» на системе", () => {
+    const s = run(at("context-diagram", { vars: OWN_VARS }), [NEXT]);
+    expect(s.step).toBe("enter-system");
+    expect(run(s, [BACK]).step).toBe("context-diagram");
   });
 
   it("вход на слой системы, сервис внутри, перевес связи, возврат и лупа", () => {
@@ -197,6 +227,9 @@ describe("тур — свой проект", () => {
     s = run(s, [NEXT]);
     expect(s.step).toBe("expand-own");
     s = run(s, [sig({ kind: "node-expanded", projectId: OWN, id: "s1" })]);
+    // финал не сразу: сначала показываем, куда связь ведёт на самом деле
+    expect(s.step).toBe("inside");
+    s = run(s, [NEXT]);
     expect(s.step).toBe("final");
   });
 
@@ -207,9 +240,15 @@ describe("тур — свой проект", () => {
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Сервис» в рамку «Платёжный шлюз».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Система «Платёжный шлюз» стала контейнером.")).toBe(true);
-    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки и отпустите на объекте «Касса».");
+    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки к точке на объекте «Касса».");
+    expect(stepTexts(STEPS["go-up"], vars).body)
+      .toBe("Связь теперь ведёт прямо к сервису «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
     expect(stepTexts(STEPS["context-edge"], vars).body)
       .toBe("Для слоя контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
+    expect(stepTexts(STEPS.inside, vars).body).toBe(
+      "Внутри системы «Платёжный шлюз» связь приходит в сервис «Касса». "
+      + "Диаграмма контекста показывает систему целиком, а лупа — то, что внутри.",
+    );
   });
 
   it("без захваченных имён — имена прототипа", () => {
@@ -224,8 +263,8 @@ describe("тур — свой проект", () => {
 
 describe("тур — повторный запуск при своём проекте", () => {
   it("короткий проход: «Ярмарка» до логотипа и короткий финал", () => {
-    expect(stepTotal("full")).toBe(24);
-    expect(stepTotal("short")).toBe(13);
+    expect(stepTotal("full")).toBe(27);
+    expect(stepTotal("short")).toBe(14);
     const s = run({ ...startState("short"), step: "leave-yar" }, [route("#/projects")]);
     expect(s.step).toBe("final-short");
     expect(stepTexts(STEPS[s.step], s.vars).body).toBe("Свой проект у вас уже есть. Продолжайте в нём.");
@@ -251,10 +290,18 @@ describe("тур — экраны шагов", () => {
   });
 
   it("куда вести при входе в шаг", () => {
-    expect(screenHash(STEPS["service-docs"].screen, own, ENV)).toBe(`/p/${YAR}/nodes/c0de-04`);
+    expect(screenHash(STEPS["service-docs"].screen, own, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
+    expect(screenHash(STEPS["tree-open"].screen, own, ENV)).toBe(`/p/${YAR}/nodes/c0de-03`);
     expect(screenHash(STEPS["open-yar"].screen, own, ENV)).toBe("/projects");
     expect(screenHash(STEPS["create-system"].screen, own, ENV)).toBe(`/p/${OWN}/map`);
     expect(screenHash(STEPS["create-blank"].screen, own, ENV)).toBeNull();
+  });
+});
+
+describe("тур — нумерация", () => {
+  it("«Шаг N из M» идёт подряд от 1 до последнего шага", () => {
+    const numbered = FULL_SEQUENCE.map((id) => STEPS[id].n).filter((n): n is number => n !== undefined);
+    expect(numbered).toEqual(numbered.map((_, i) => i + 1));
   });
 });
 
