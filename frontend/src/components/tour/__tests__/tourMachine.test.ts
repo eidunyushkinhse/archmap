@@ -328,3 +328,50 @@ describe("тур — маршрут и хранение", () => {
       .toMatchObject({ vars: { peerName: "Банк" } });
   });
 });
+
+// Пауза (docs/tasks/demo-tour-pause.md): клик по затемнению сворачивает тур в пилюлю,
+// «Продолжить обучение» возвращает. На паузе тур молча следит за действиями шага.
+describe("тур — пауза", () => {
+  const PAUSE: TourAction = { type: "pause", at: { step: "service-expanded", hash: `#/p/${YAR}/map`, level: null } };
+  const RESUME: TourAction = { type: "resume" };
+
+  it("пауза запоминает, где её взяли; продолжение снимает её", () => {
+    const paused = run(at("service-expanded"), [PAUSE]);
+    expect(paused).toMatchObject({ status: "paused", step: "service-expanded", pause: { level: null } });
+    const resumed = run(paused, [RESUME]);
+    expect(resumed.status).toBe("running");
+    expect(resumed.step).toBe("service-expanded");
+    expect(resumed.pause).toBeUndefined();
+  });
+
+  it("на паузе кнопок нет: «Далее», «Назад», «Пропустить» и повторная пауза ничего не меняют", () => {
+    const paused = run(at("service-expanded"), [PAUSE]);
+    for (const a of [NEXT, BACK, { type: "skip" }, { type: "finish" }, PAUSE] as TourAction[]) {
+      expect(run(paused, [a])).toEqual(paused);
+    }
+    // а без паузы «Продолжить» ни на что не влияет
+    expect(run(at("service-expanded"), [RESUME])).toEqual(at("service-expanded"));
+  });
+
+  it("действие шага, сделанное на паузе самим человеком, засчитывается; пауза остаётся", () => {
+    const paused = run(at("open-editor"), [{ type: "pause", at: { step: "open-editor", hash: `#/p/${YAR}` } }]);
+    const s = run(paused, [route(`#/p/${YAR}/map`)]);
+    expect(s).toMatchObject({ status: "paused", step: "drag", pause: { step: "open-editor" } });
+    expect(run(s, [RESUME])).toMatchObject({ status: "running", step: "drag" });
+  });
+
+  it("финал на паузу не ставится; пройденный тур — тоже", () => {
+    const final = at("final");
+    expect(run(final, [{ type: "pause", at: { step: "final", hash: "#/projects" } }])).toEqual(final);
+    const done = at("drag", { status: "done" });
+    expect(run(done, [PAUSE, RESUME])).toEqual(done);
+  });
+
+  it("пауза переживает перезагрузку вместе с местом, где её взяли", () => {
+    const paused = run(at("service-expanded"), [PAUSE]);
+    expect(parseTourState(JSON.stringify(paused))).toEqual(paused);
+    const offMap = run(at("yar-home"), [{ type: "pause", at: { step: "yar-home", hash: `#/p/${YAR}` } }]);
+    expect(parseTourState(JSON.stringify(offMap))?.pause).toEqual({ step: "yar-home", hash: `#/p/${YAR}` });
+    expect(parseTourState(JSON.stringify({ ...paused, pause: { step: "nope", hash: "#/" } }))?.pause).toBeUndefined();
+  });
+});

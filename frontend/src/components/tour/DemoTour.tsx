@@ -5,14 +5,15 @@
 //
 // Тур запускается сам, если для гостя ничего не сохранено (первый вход в песочницу);
 // «Пропустить» и «Завершить» сохраняют «пройден», и сам он больше не появится —
-// заново его запускает пилюля «Обучение» в шапке (TourHelpButton).
+// заново его запускает пилюля «Обучение» в шапке (TourHelpButton). Клик по затемнению
+// ставит тур на паузу: пилюля становится «Продолжить обучение».
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore,
 } from "react";
 import { fetchMe, getCanCreateProject, getMe, subscribeMe } from "../../api/auth";
 import { nodesApi } from "../../api/nodes";
 import { projectsApi } from "../../api/projects";
-import { onTourEvent, type TourBusEvent } from "./tourBus";
+import { onTourEvent, requestTourLevel, type TourBusEvent } from "./tourBus";
 import {
   availability, canGoBack, expandTarget, onScreen, reduceTour, screenHash, startState, stepTexts, stepTotal,
   treeExpandTarget,
@@ -20,7 +21,7 @@ import {
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
-import { dropStaleTours, loadTour, onTourRestart, saveTour } from "./tourStore";
+import { dropStaleTours, loadTour, onTourRestart, onTourResume, saveTour, setTourPaused } from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
@@ -106,6 +107,10 @@ function TourRuntime({ userId }: { userId: string }) {
   const routeAtRef = useRef(0);
   // Последний слой редактора, о котором сообщила шина (проект:слой).
   const lastLevelRef = useRef<string | null>(null);
+  // Слой, открытый в редакторе сейчас (undefined — не в редакторе), и слой, на который
+  // «Продолжить обучение» вернёт, когда редактор откроется (undefined — никуда).
+  const levelRef = useRef<string | null | undefined>(undefined);
+  const pendingLevelRef = useRef<string | null | undefined>(undefined);
   // Layout-эффекты: кадровый цикл (rAF) обязан увидеть новый шаг уже в ближайшем кадре,
   // а пассивные эффекты могут прийти после него.
   useLayoutEffect(() => { stateRef.current = state; }, [state]);
@@ -121,7 +126,10 @@ function TourRuntime({ userId }: { userId: string }) {
       const next = parseTourRoute(window.location.hash);
       routeRef.current = next;
       routeAtRef.current = performance.now();
-      if (next.name !== "map") lastLevelRef.current = null;
+      if (next.name !== "map") {
+        lastLevelRef.current = null;
+        levelRef.current = undefined;
+      }
       setRoute(next);
       send({ action: { type: "signal", signal: { kind: "route", route: next } }, env: envRef.current });
     };
@@ -138,6 +146,13 @@ function TourRuntime({ userId }: { userId: string }) {
     switch (e.type) {
       case "level": {
         if (!pid) return;
+        levelRef.current = e.levelId;
+        // Редактор открылся после «Продолжить обучение» — на слой, где взяли паузу.
+        const want = pendingLevelRef.current;
+        if (want !== undefined) {
+          pendingLevelRef.current = undefined;
+          if (want !== e.levelId) requestTourLevel(want);
+        }
         const key = `${pid}:${e.levelId ?? ""}`;
         if (lastLevelRef.current === key) return;
         lastLevelRef.current = key;
@@ -173,6 +188,28 @@ function TourRuntime({ userId }: { userId: string }) {
     });
   }), []);
 
+  // ── Пауза (docs/tasks/demo-tour-pause.md): клик по затемнению свернул тур в пилюлю ──
+  // «Продолжить обучение»: шаг за паузу не продвинулся — назад, где её взяли (экран и
+  // слой схемы); продвинулся — экран нового шага откроет «Вход в шаг», как после «Далее».
+  useEffect(() => onTourResume(() => {
+    const st = stateRef.current;
+    if (st.status !== "paused") return;
+    const at = st.pause;
+    send({ action: { type: "resume" }, env: envRef.current });
+    if (!at || at.step !== st.step) return;
+    if (at.level !== undefined) {
+      // слой знает только открытый редактор: здесь он открыт — просим сразу, иначе —
+      // когда откроется (событие «level»)
+      if (levelRef.current === undefined || window.location.hash !== at.hash) pendingLevelRef.current = at.level;
+      else if (levelRef.current !== at.level) requestTourLevel(at.level);
+    }
+    if (window.location.hash !== at.hash) window.location.hash = at.hash;
+  }), []);
+  // Пилюля в шапке зовёт «Продолжить обучение», пока тур на паузе.
+  const paused = state.status === "paused";
+  useEffect(() => { setTourPaused(paused); }, [paused]);
+  useEffect(() => () => setTourPaused(false), []);
+
   // ── «Ярмарка»: проект по имени, его объекты по именам ──
   useEffect(() => {
     if (!running || yarProjectId !== undefined) return;
@@ -206,7 +243,9 @@ function TourRuntime({ userId }: { userId: string }) {
 
   // ── Вход в шаг: отметка времени и переход на экран шага ──
   // После перезагрузки страницы на сохранённом шаге никуда не ведём: пользователь мог
-  // уйти в сторону сам, шаг подождёт его на своём экране.
+  // уйти в сторону сам, шаг подождёт его на своём экране. Продолжение после паузы —
+  // тоже вход в шаг: режим, прокрутка и подводка к цели делаются заново, а пока тур на
+  // паузе, он никуда не уводит.
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
   // раскрытый узел засчитан; treeClosed — ветка дерева была свёрнутой на этом шаге.
@@ -214,7 +253,7 @@ function TourRuntime({ userId }: { userId: string }) {
   useLayoutEffect(() => {
     enteredAtRef.current = performance.now();
     doneForRef.current = { mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0 };
-  }, [state.step]);
+  }, [state.step, running]);
   useEffect(() => {
     if (!running || navForRef.current === state.step) return;
     const step = STEPS[state.step];
@@ -378,6 +417,15 @@ function TourRuntime({ userId }: { userId: string }) {
       onBack={() => dispatch({ type: "back" })}
       onSkip={() => dispatch({ type: "skip" })}
       onFinish={() => dispatch({ type: "finish" })}
+      onShade={() => {
+        // Клик по затемнению: на финале — «Завершить», иначе — пауза там, где человек
+        // сейчас (экран и слой схемы): «Продолжить обучение» вернёт сюда.
+        if (step.kind === "end") {
+          dispatch({ type: "finish" });
+          return;
+        }
+        dispatch({ type: "pause", at: { step: stateRef.current.step, hash: window.location.hash, level: levelRef.current } });
+      }}
     />
   );
 }

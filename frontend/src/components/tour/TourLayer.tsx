@@ -8,16 +8,18 @@
 // целиком до отпускания: бросать форму нужно на холст, а он под затемнением.
 // Колёсико над затемнением на миг тоже пропускается — прокрутка и зум не залипают.
 // Перехват идёт по ЦЕЛЕВЫМ вырезам, а не по нарисованным: по цели можно нажать сразу,
-// пока вырез ещё едет к ней.
+// пока вырез ещё едет к ней. Клик по самому затемнению — человек хочет осмотреться
+// сам: тур встаёт на паузу (docs/tasks/demo-tour-pause.md); промах рядом с вырезом
+// паузой не считается.
 //
 // Плавность (tourMotion.ts): затемнение и вырезы рисуются по кадру аниматора; карточка
 // нового шага или нового места проявляется, а копия прежней гаснет на старом месте;
 // при закрытии тура так же гаснет затемнение. Окно-хозяин слоя закрылось или ушло из
 // DOM — слой переходит в body в той же отрисовке: затемнение не мигает.
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { holePath, inHole, mergeHoles, placeCard, shadePath, type Hole } from "./tourGeometry";
+import { holePath, inHole, mergeHoles, nearHole, placeCard, shadePath, type Hole } from "./tourGeometry";
 import { prefersReducedMotion, restingFrame, type MotionFrame } from "./tourMotion";
 import type { TourStep } from "./tourSteps";
 import type { TourView } from "./tourView";
@@ -39,6 +41,8 @@ interface Props {
   onBack: () => void;
   onSkip: () => void;
   onFinish: () => void;
+  /** клик по затемнению мимо выреза: пауза (на финале — завершить) */
+  onShade: () => void;
 }
 
 // Размер окна — внешний стор: перерисовка на resize без эффектов с setState.
@@ -85,7 +89,12 @@ export default function TourLayer(props: Props) {
   return createPortal(
     <div className="tour-layer" data-tour-layer="">
       {motion.opacity > 0 && <ShadeArt width={w} height={h} frame={motion} act={props.step.kind === "act"} />}
-      {blocks && <Blocker key={props.stepKey} width={w} height={h} holes={view.phase === "spot" ? view.holes : []} />}
+      {blocks && (
+        <Blocker
+          key={props.stepKey} width={w} height={h} holes={view.phase === "spot" ? view.holes : []}
+          onShade={props.onShade}
+        />
+      )}
       {hasCard && (
         <Card key={`${props.stepKey}|${view.phase}`} {...props} viewport={{ w, h }} moved={host !== view.host} />
       )}
@@ -134,9 +143,15 @@ function ShadeArt({ width, height, frame, act }: { width: number; height: number
   );
 }
 
+/** Промах мимо цели — до стольких px от края выреза: такой клик паузой не считается
+ *  (точки связи на шаге «Проведите связь» всего 22 px). */
+const NEAR_MISS = 24;
+
 /** Перехватчик кликов по целевым вырезам. Ключ — шаг: новый шаг начинает без
  *  пропуска жеста. */
-function Blocker({ width, height, holes }: { width: number; height: number; holes: Hole[] }) {
+function Blocker({ width, height, holes, onShade }: {
+  width: number; height: number; holes: Hole[]; onShade: () => void;
+}) {
   const [pass, setPass] = useState(false);
   const holesRef = useRef(holes);
   useEffect(() => { holesRef.current = holes; }, [holes]);
@@ -184,6 +199,14 @@ function Blocker({ width, height, holes }: { width: number; height: number; hole
   };
   useEffect(() => () => window.clearTimeout(wheelTimer.current), []);
 
+  // Нажатие пришлось на само затемнение (в вырезах заливки нет, карточка выше):
+  // человек хочет осмотреться сам. Промах рядом с вырезом — не в счёт.
+  const onShadeDown = (e: ReactPointerEvent<SVGPathElement>) => {
+    if (e.button !== 0) return;
+    if (holesRef.current.some((hole) => nearHole(hole, e.clientX, e.clientY, NEAR_MISS))) return;
+    onShade();
+  };
+
   return (
     <svg className="tour-shade" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
       <path
@@ -193,6 +216,7 @@ function Blocker({ width, height, holes }: { width: number; height: number; hole
         fill="transparent"
         fillRule="evenodd"
         onWheel={onWheel}
+        onPointerDown={onShadeDown}
       />
     </svg>
   );

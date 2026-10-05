@@ -28,3 +28,19 @@ export function onTourEvent(listener: Listener): () => void {
   listeners.add(listener);
   return () => { listeners.delete(listener); };
 }
+
+// ── Обратная команда: тур просит редактор открыть слой ──────────────────────
+// «Продолжить обучение» возвращает на слой схемы, где взяли паузу
+// (docs/tasks/demo-tour-pause.md). Слой в хэше бывает только при открытии редактора,
+// дальше его знает сам редактор — поэтому просьба идёт через шину.
+type LevelListener = (levelId: string | null) => void;
+const levelListeners = new Set<LevelListener>();
+
+export function requestTourLevel(levelId: string | null): void {
+  for (const listener of levelListeners) listener(levelId);
+}
+
+export function onTourLevelRequest(listener: LevelListener): () => void {
+  levelListeners.add(listener);
+  return () => { levelListeners.delete(listener); };
+}

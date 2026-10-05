@@ -1,7 +1,7 @@
 // Геометрия слоя тура: вырезы, слияние пересекающихся вырезов для перехвата кликов,
 // место карточки рядом с целью (в окне, не поверх цели).
 import { describe, it, expect } from "vitest";
-import { inHole, mergeHoles, padHole, placeCard, shadePath, type Hole } from "../tourGeometry";
+import { inHole, mergeHoles, nearHole, padHole, placeCard, shadePath, type Hole } from "../tourGeometry";
 
 const VIEW = { w: 1440, h: 900 };
 const CARD = { w: 340, h: 200 };
@@ -14,6 +14,19 @@ describe("вырезы", () => {
     expect(dot.x + dot.w / 2).toBe(101);
     expect(inHole(dot, 101, 101)).toBe(true);
     expect(inHole(dot, dot.x + 1, dot.y + 1)).toBe(false); // угол квадрата — вне круга
+  });
+
+  it("промах мимо цели: в вырезе или не дальше pad от края, у круга — по радиусу", () => {
+    const rect: Hole = { x: 100, y: 100, w: 50, h: 20, shape: "rect" };
+    expect(nearHole(rect, 120, 110, 24)).toBe(true);
+    expect(nearHole(rect, 76, 96, 24)).toBe(true);
+    expect(nearHole(rect, 75, 110, 24)).toBe(false);
+    expect(nearHole(rect, 120, 145, 24)).toBe(false);
+    const dot: Hole = { x: 100, y: 100, w: 22, h: 22, shape: "dot" };
+    expect(nearHole(dot, 111 + 35, 111, 24)).toBe(true);
+    expect(nearHole(dot, 111 + 36, 111, 24)).toBe(false);
+    expect(nearHole(dot, 111 + 24, 111 + 24, 24)).toBe(true);
+    expect(nearHole(dot, 111 + 25, 111 + 25, 24)).toBe(false); // по диагонали 35,4 > 35 — вне круга
   });
 
   it("пересекающиеся вырезы сливаются, отдельные — нет", () => {

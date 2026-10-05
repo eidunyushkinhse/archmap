@@ -1,13 +1,14 @@
 // Шина тура (docs/tasks/demo-tour.md) из редактора-карты: показан слой (после
 // загрузки — и при входе внутрь, и при возврате наверх), создана связь, конец связи
-// перевешен с рамки и сохранён. Холст, окна и поллинг — заглушки.
+// перевешен с рамки и сохранён; в обратную сторону — тур просит открыть слой
+// (возврат из паузы, docs/tasks/demo-tour-pause.md). Холст, окна и поллинг — заглушки.
 import { render as rtlRender, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
-import { onTourEvent, type TourBusEvent } from "../../components/tour/tourBus";
+import { onTourEvent, requestTourLevel, type TourBusEvent } from "../../components/tour/tourBus";
 import type { Edge, Node } from "../../types";
 
 function render(ui: ReactElement) {
@@ -101,6 +102,20 @@ describe("MapEditorPage — события тура", () => {
     await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: "s1" }));
     events.length = 0;
     fireEvent.click(await screen.findByRole("button", { name: "Проект" }));
+    await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: null }));
+  });
+
+  it("тур просит слой (продолжение после паузы) — редактор открывает его и обратно корень", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([sys]);
+    render(<MapEditorPage {...props} />);
+    await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: null }));
+    events.length = 0;
+    act(() => requestTourLevel("s1"));
+    await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: "s1" }));
+    expect(nodesApi.getGraph).toHaveBeenLastCalledWith("s1");
+    expect(await screen.findByRole("button", { name: "Касса" })).toBeInTheDocument(); // крошка слоя
+    events.length = 0;
+    act(() => requestTourLevel(null));
     await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: null }));
   });
 

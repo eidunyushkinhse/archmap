@@ -2,7 +2,7 @@
 // Роут: #/p/<pid>/map/<nodeId?>. Топбар: breadcrumb + undo/redo + «Готово».
 // Слева: дерево объектов (дизайн страниц + секция «Добавить объект» внизу).
 // Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getIsGuest } from "../api/auth";
@@ -48,7 +48,7 @@ import TourHelpButton from "../components/tour/TourHelpButton";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
-import { emitTourEvent } from "../components/tour/tourBus";
+import { emitTourEvent, onTourLevelRequest } from "../components/tour/tourBus";
 
 interface Props {
   projectId: string;
@@ -249,6 +249,12 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     setBreadcrumb(path);
     return load(level, { foreground: true });
   }
+
+  // Обучающий тур демо-стенда: «Продолжить обучение» после паузы просит вернуть слой,
+  // где её взяли (tourBus). Навигатор — свежий, через ref: подписка одна на маунт.
+  const navigateToLevelRef = useRef(navigateToLevel);
+  useLayoutEffect(() => { navigateToLevelRef.current = navigateToLevel; });
+  useEffect(() => onTourLevelRequest((level) => { void navigateToLevelRef.current(level); }), []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк drill: plain-function (зависит от load), бандл drill (Фаза 3д) пересобирается с ним — поведение не меняется.
   function drillDown(node: Node) {

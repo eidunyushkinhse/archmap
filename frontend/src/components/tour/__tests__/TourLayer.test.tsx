@@ -12,7 +12,7 @@ function view(patch: Partial<TourView>): TourView {
 }
 
 function renderLayer(stepId: StepId, v: TourView, canBack = true) {
-  const handlers = { onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn() };
+  const handlers = { onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(), onShade: vi.fn() };
   const step = STEPS[stepId];
   const utils = render(
     <TourLayer
@@ -114,6 +114,24 @@ describe("TourLayer", () => {
     }
   });
 
+  it("клик по затемнению — пауза; промах рядом с вырезом, правая кнопка и карточка — нет", () => {
+    const { handlers } = renderLayer("drag", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    const blocker = document.querySelector("[data-tour-blocker]")!;
+    // до 24 px от края выреза — промах мимо цели
+    fireEvent.pointerDown(blocker, { clientX: HOLE.x - 20, clientY: HOLE.y + 10, button: 0 });
+    fireEvent.pointerDown(blocker, { clientX: 600, clientY: 500, button: 2 });
+    fireEvent.pointerDown(screen.getByRole("dialog"), { clientX: 600, clientY: 500, button: 0 });
+    expect(handlers.onShade).not.toHaveBeenCalled();
+    fireEvent.pointerDown(blocker, { clientX: 600, clientY: 500, button: 0 });
+    expect(handlers.onShade).toHaveBeenCalledOnce();
+  });
+
+  it("приветствие: клик по затемнению вокруг карточки — тоже onShade", () => {
+    const { handlers } = renderLayer("welcome", view({ phase: "center" }), false);
+    fireEvent.pointerDown(document.querySelector("[data-tour-blocker]")!, { clientX: 20, clientY: 20, button: 0 });
+    expect(handlers.onShade).toHaveBeenCalledOnce();
+  });
+
   it("пользователь не на экране шага: карточка сбоку, без затемнения", () => {
     renderLayer("drag", view({ phase: "docked" }));
     expect(screen.getByRole("dialog", { name: "Объекты можно двигать" })).toHaveClass("tour-card--docked");
@@ -172,7 +190,7 @@ describe("TourLayer", () => {
       const step = STEPS["open-editor"];
       const props = {
         view: v, stepKey: "open-editor", step, texts: { title: step.title, body: step.body, action: step.action },
-        count: null, canBack: true, onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(),
+        count: null, canBack: true, onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(), onShade: vi.fn(),
       };
       const shown = render(<TourLayer {...props} motion={{ opacity: 1, holes: [{ ...HOLE, r: 10, alpha: 1 }], settled: true }} />);
       shown.unmount();
@@ -200,7 +218,7 @@ describe("TourLayer", () => {
         const step = STEPS[id];
         return {
           view: v, stepKey: id, step, texts: { title: step.title, body: step.body, action: step.action },
-          count: null, canBack: true, onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(),
+          count: null, canBack: true, onNext: vi.fn(), onBack: vi.fn(), onSkip: vi.fn(), onFinish: vi.fn(), onShade: vi.fn(),
         };
       };
       const { rerender } = render(<TourLayer {...props("yar-home")} />);

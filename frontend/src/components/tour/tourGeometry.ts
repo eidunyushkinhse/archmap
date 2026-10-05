@@ -52,6 +52,16 @@ export function inHole(h: Hole, px: number, py: number): boolean {
   return px >= h.x && px <= h.x + h.w && py >= h.y && py <= h.y + h.h;
 }
 
+/** Промах мимо цели: точка в вырезе или не дальше pad от его края (круг — по радиусу). */
+export function nearHole(h: Hole, px: number, py: number, pad: number): boolean {
+  if (h.shape === "dot") {
+    const r = h.w / 2 + pad;
+    const dx = px - (h.x + h.w / 2), dy = py - (h.y + h.h / 2);
+    return dx * dx + dy * dy <= r * r;
+  }
+  return px >= h.x - pad && px <= h.x + h.w + pad && py >= h.y - pad && py <= h.y + h.h + pad;
+}
+
 /**
  * Вырезы для слоя, перехватывающего клики: пересекающиеся сливаются в общий
  * прямоугольник. Правило заливки evenodd иначе закрасило бы пересечение заново

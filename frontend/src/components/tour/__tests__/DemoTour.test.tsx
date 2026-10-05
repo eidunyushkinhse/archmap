@@ -32,7 +32,7 @@ vi.mock("../../../api/nodes", () => ({
 
 import DemoTour from "../DemoTour";
 import { emitTourEvent } from "../tourBus";
-import { requestTourRestart, tourKey } from "../tourStore";
+import { getTourPaused, requestTourRestart, requestTourResume, tourKey } from "../tourStore";
 
 const KEY = tourKey(GUEST.id);
 const stored = () => JSON.parse(localStorage.getItem(KEY) ?? "null") as { status: string; step: string } | null;
@@ -343,5 +343,104 @@ describe("DemoTour — плавные переходы", () => {
     fireEvent.click(screen.getByRole("button", { name: "Далее" }));
     await tick(20);
     expect(ringLeft()).toBe(594);
+  });
+});
+
+// Пауза (docs/tasks/demo-tour-pause.md): клик по затемнению сворачивает тур в пилюлю
+// «Продолжить обучение»; продолжение — с того же места. Время поддельное, как выше.
+describe("DemoTour — пауза", () => {
+  const tick = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+  // нажатие на затемнение вдали от выреза
+  const pokeShade = () => fireEvent.pointerDown(document.querySelector("[data-tour-blocker]")!, { clientX: 900, clientY: 600, button: 0 });
+  const layer = () => document.querySelector("[data-tour-layer]");
+  // браузер после смены хэша шлёт hashchange — в jsdom шлём сами
+  const hashSettled = () => act(() => { window.dispatchEvent(new HashChangeEvent("hashchange")); });
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout",
+        "setInterval", "clearInterval", "Date"],
+    });
+    window.location.hash = `/p/${YAR}`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "yar-home", variant: "full", dir: 1, vars: {} }));
+    target("schema-block", { x: 100, y: 100, w: 200, h: 120 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("клик по затемнению — тур на паузе, страница свободна; «Продолжить обучение» — тот же шаг", async () => {
+    render(<DemoTour />);
+    await tick(1000);
+    pokeShade();
+    expect(layer()).toBeNull();
+    expect(stored()).toMatchObject({ status: "paused", step: "yar-home" });
+    expect(getTourPaused()).toBe(true);
+    await tick(2000);
+    expect(layer()).toBeNull();
+    act(() => requestTourResume());
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Главная страница проекта" })).not.toHaveClass("tour-card--docked");
+    expect(stored()).toMatchObject({ status: "running", step: "yar-home" });
+    expect(getTourPaused()).toBe(false);
+  });
+
+  it("на паузе тур никуда не уводит; «Продолжить обучение» возвращает на экран паузы", async () => {
+    render(<DemoTour />);
+    await tick(1000);
+    pokeShade();
+    act(() => goHash("/projects"));
+    await tick(2000);
+    expect(window.location.hash).toBe("#/projects");
+    expect(layer()).toBeNull();
+    act(() => requestTourResume());
+    expect(window.location.hash).toBe(`#/p/${YAR}`);
+    hashSettled();
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Главная страница проекта" })).not.toHaveClass("tour-card--docked");
+  });
+
+  it("действие шага, сделанное на паузе, засчитано: «Продолжить обучение» — следующий шаг", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "open-editor", variant: "full", dir: 1, vars: {} }));
+    target("schema-edit", { x: 600, y: 400, w: 80, h: 30 });
+    render(<DemoTour />);
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Откройте редактор" })).toBeInTheDocument();
+    pokeShade();
+    act(() => goHash(`/p/${YAR}/map`));
+    await tick(500);
+    expect(stored()).toMatchObject({ status: "paused", step: "drag" });
+    expect(layer()).toBeNull();
+    act(() => requestTourResume());
+    expect(window.location.hash).toBe(`#/p/${YAR}/map`); // экран нового шага — уже тот
+    await tick(2000);
+    expect(stored()).toMatchObject({ status: "running", step: "drag" });
+    expect(screen.getByRole("dialog", { name: "Объекты можно двигать" })).toBeInTheDocument();
+  });
+
+  it("финал: клик по затемнению завершает тур", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "final", variant: "full", dir: 1, vars: {} }));
+    render(<DemoTour />);
+    await tick(500);
+    expect(screen.getByRole("dialog", { name: "Теперь вы знаете, с чего начать" })).toBeInTheDocument();
+    pokeShade();
+    expect(stored()).toMatchObject({ status: "done" });
+    expect(layer()).toBeNull();
+    expect(getTourPaused()).toBe(false);
+  });
+
+  it("пауза переживает перезагрузку: тур сам не появляется, ждёт пилюли", async () => {
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "paused", step: "yar-home", variant: "full", dir: 1, vars: {}, pause: { step: "yar-home", hash: `#/p/${YAR}` },
+    }));
+    render(<DemoTour />);
+    await tick(1000);
+    expect(layer()).toBeNull();
+    expect(getTourPaused()).toBe(true);
+    act(() => requestTourResume());
+    // «Ярмарку» тур ищет, только когда идёт: первый такт — её поиск, второй — кадры
+    await tick(100);
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Главная страница проекта" })).not.toHaveClass("tour-card--docked");
   });
 });

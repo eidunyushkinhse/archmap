@@ -1,6 +1,7 @@
-// Хранение тура: состояние (пройден/пропущен, текущий шаг, имена созданных объектов)
-// в localStorage по id гостя. Гость живёт, пока жива сессия браузера, — сервер для
-// этого не нужен. Здесь же сигнал «пройти заново» от пилюли «Обучение» в шапке.
+// Хранение тура: состояние (пройден/пропущен, на паузе, текущий шаг, имена созданных
+// объектов) в localStorage по id гостя. Гость живёт, пока жива сессия браузера, —
+// сервер для этого не нужен. Здесь же связь с пилюлей «Обучение» в шапке: сигналы
+// «пройти заново» и «продолжить», признак «тур на паузе».
 import { parseTourState, type TourState } from "./tourMachine";
 
 const PREFIX = "archmap_tour:";
@@ -51,4 +52,35 @@ export function requestTourRestart(): void {
 export function onTourRestart(listener: () => void): () => void {
   restartListeners.add(listener);
   return () => { restartListeners.delete(listener); };
+}
+
+// ── Пауза: «Продолжить обучение» (пилюля, пока тур на паузе) ────────────────
+const resumeListeners = new Set<() => void>();
+
+export function requestTourResume(): void {
+  for (const listener of resumeListeners) listener();
+}
+
+export function onTourResume(listener: () => void): () => void {
+  resumeListeners.add(listener);
+  return () => { resumeListeners.delete(listener); };
+}
+
+// Тур на паузе — внешний стор для пилюли (её шапки тур не рендерит).
+let paused = false;
+const pausedListeners = new Set<() => void>();
+
+export function setTourPaused(value: boolean): void {
+  if (paused === value) return;
+  paused = value;
+  for (const listener of pausedListeners) listener();
+}
+
+export function getTourPaused(): boolean {
+  return paused;
+}
+
+export function subscribeTourPaused(listener: () => void): () => void {
+  pausedListeners.add(listener);
+  return () => { pausedListeners.delete(listener); };
 }

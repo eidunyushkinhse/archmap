@@ -23,13 +23,24 @@ export interface TourVars {
 /** full — «Ярмарка» и свой проект; short — свой проект уже есть (повторный запуск). */
 export type TourVariant = "full" | "short";
 
+/** Где взяли паузу (docs/tasks/demo-tour-pause.md): шаг, экран (хэш) и слой редактора
+ *  (null — корень проекта; нет поля — паузу взяли не в редакторе). «Продолжить
+ *  обучение» возвращает сюда, если шаг за паузу не продвинулся. */
+export interface TourPausePoint {
+  step: StepId;
+  hash: string;
+  level?: string | null;
+}
+
 export interface TourState {
-  status: "running" | "done";
+  /** paused — клик по затемнению свернул тур в пилюлю «Продолжить обучение» */
+  status: "running" | "paused" | "done";
   step: StepId;
   variant: TourVariant;
   /** направление последнего хода: туда же пропускаются недоступные шаги */
   dir: 1 | -1;
   vars: TourVars;
+  pause?: TourPausePoint;
 }
 
 /** Сигналы продукта: маршрут, шина событий (projectId — проект маршрута в момент
@@ -56,7 +67,11 @@ export type TourAction =
   | { type: "unavailable" }
   /** «Новый проект» погашена: свой проект уже есть */
   | { type: "blocked" }
-  | { type: "signal"; signal: TourSignal };
+  | { type: "signal"; signal: TourSignal }
+  /** клик по затемнению: человек хочет осмотреться сам */
+  | { type: "pause"; at: TourPausePoint }
+  /** «Продолжить обучение» в шапке */
+  | { type: "resume" };
 
 /** Что тур знает о «Ярмарке»: id проекта (null — проекта нет, undefined — ещё не
  *  выяснили) и её объекты по именам (undefined — ещё не загружены). */
@@ -206,9 +221,15 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
 }
 
 export function reduceTour(state: TourState, action: TourAction, env: TourEnv): TourState {
-  if (state.status !== "running") return state;
+  if (state.status === "done") return state;
+  if (state.status === "paused") return reducePaused(state, action, env);
   const kind = STEPS[state.step].kind;
   switch (action.type) {
+    case "pause":
+      // На финале ставить на паузу нечего: клик по затемнению там завершает тур.
+      return kind === "end" ? state : { ...state, status: "paused", pause: action.at };
+    case "resume":
+      return state;
     case "skip":
     case "finish":
       return { ...state, status: "done" };
@@ -229,6 +250,22 @@ export function reduceTour(state: TourState, action: TourAction, env: TourEnv): 
       if (!caught) return state;
       return move({ ...state, vars: { ...state.vars, ...caught } }, 1, env);
     }
+  }
+}
+
+/** На паузе тур молча следит: действие шага, сделанное самим человеком, засчитывается
+ *  (шаг продвигается, пауза остаётся); кнопок нет — «Далее», «Назад» и прочее не
+ *  приходят. «Продолжить обучение» снимает паузу. */
+function reducePaused(state: TourState, action: TourAction, env: TourEnv): TourState {
+  switch (action.type) {
+    case "resume":
+      return { ...state, status: "running", pause: undefined };
+    case "signal":
+    case "unavailable":
+    case "blocked":
+      return { ...reduceTour({ ...state, status: "running" }, action, env), status: "paused" };
+    default:
+      return state;
   }
 }
 
@@ -333,7 +370,7 @@ export function parseTourState(raw: string | null): TourState | null {
   }
   if (!data || typeof data !== "object") return null;
   const o = data as Record<string, unknown>;
-  if (o.status !== "running" && o.status !== "done") return null;
+  if (o.status !== "running" && o.status !== "paused" && o.status !== "done") return null;
   if (o.variant !== "full" && o.variant !== "short") return null;
   if (typeof o.step !== "string" || !STEP_IDS.has(o.step)) return null;
   const step = o.step as StepId;
@@ -346,6 +383,15 @@ export function parseTourState(raw: string | null): TourState | null {
       if (typeof value === "string") vars[key] = value;
     }
   }
-  return { status: o.status, step, variant: o.variant, dir: o.dir === -1 ? -1 : 1, vars };
+  const state: TourState = { status: o.status, step, variant: o.variant, dir: o.dir === -1 ? -1 : 1, vars };
+  const p = o.pause;
+  if (state.status === "paused" && p && typeof p === "object") {
+    const at = p as Record<string, unknown>;
+    if (typeof at.step === "string" && STEP_IDS.has(at.step) && typeof at.hash === "string") {
+      state.pause = { step: at.step as StepId, hash: at.hash };
+      if (typeof at.level === "string" || at.level === null) state.pause.level = at.level;
+    }
+  }
+  return state;
 }
 
