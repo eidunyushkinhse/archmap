@@ -1,6 +1,7 @@
 // «Все проекты» у гостя демо-стенда (docs/tasks/demo-mode.md, экран 2 прототипа):
-// метка «Песочница» вместо меню профиля, плашка песочницы, «Новый проект» активна,
-// пока есть только «Ярмарка», и гаснет с подсказкой, когда свой проект создан.
+// пилюля «Обучение» вместо меню профиля (метки «Песочница» в шапке нет), плашка
+// песочницы, «Новый проект» активна, пока есть только «Ярмарка», и гаснет с
+// подсказкой, когда свой проект создан.
 // «Доступа» у гостя нет. Обычный пользователь всего этого не видит.
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -55,7 +56,8 @@ describe("ProjectsPage: гость демо-стенда", () => {
   it("только «Ярмарка»: метка, плашка, кнопка активна и открывает окно", async () => {
     список([ЯРМАРКА]);
     await открыть();
-    expect(screen.getByText("Песочница")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Обучение" })).toBeInTheDocument();
+    expect(screen.queryByText("Песочница")).toBeNull();
     expect(screen.queryByRole("button", { name: "Профиль" })).toBeNull();
     expect(screen.getByRole("note")).toHaveTextContent(BANNER);
     const кнопка = screen.getByRole("button", { name: /Новый проект/ });
@@ -100,7 +102,7 @@ describe("ProjectsPage: гость демо-стенда", () => {
     vi.mocked(getIsGuest).mockReturnValue(false);
     список([ЯРМАРКА]);
     await открыть();
-    expect(screen.queryByText("Песочница")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Обучение" })).toBeNull();
     expect(screen.queryByRole("note")).toBeNull();
     expect(screen.getByRole("button", { name: "Профиль" })).toBeInTheDocument();
     expect(screen.getByText("guest-1a2b3c4d")).toBeInTheDocument();

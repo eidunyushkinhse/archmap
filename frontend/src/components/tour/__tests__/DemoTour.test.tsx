@@ -1,5 +1,5 @@
 // Корень тура: автозапуск при первом входе гостя, хранение по id гостя, «Пропустить»
-// навсегда, «?» — заново (короткий проход, если свой проект уже есть), переход на
+// навсегда, «Обучение» — заново (короткий проход, если свой проект уже есть), переход на
 // экран шага, сигналы маршрута и шины событий продукта.
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -100,7 +100,7 @@ describe("DemoTour", () => {
     expect(await screen.findByRole("dialog", { name: "Главная страница проекта" })).toBeInTheDocument();
   });
 
-  it("«?» при уже созданном проекте — короткий проход по «Ярмарке»", async () => {
+  it("«Обучение» при уже созданном проекте — короткий проход по «Ярмарке»", async () => {
     localStorage.setItem(KEY, JSON.stringify({ status: "done", step: "final", variant: "full", dir: 1, vars: {} }));
     target(`project:${YAR}`);
     render(<DemoTour />);

@@ -252,7 +252,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   "go-up": {
     id: "go-up", kind: "act", n: 22, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
     title: "Вернитесь на верхний слой",
-    body: "Связь теперь ведёт прямо к сервису.",
+    body: "Связь теперь ведёт прямо к сервису «{child}». Посмотрим, как это выглядит на диаграмме контекста.",
     action: "Нажмите «Проект» в шапке.",
   },
   "context-edge": {
@@ -269,8 +269,8 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
   final: {
     id: "final", kind: "end", screen: ANY,
-    title: "Готово",
-    body: "Вы прошли путь от контекста до сервисов внутри системы. Дальше справитесь сами. Пройти обучение заново можно кнопкой «?» в шапке.",
+    title: "Теперь вы знаете, с чего начать",
+    body: "Мы показали самое важное, но это только верхушка айсберга. Остальные возможности ArchMap откроются на практике. Пройти обучение заново можно кнопкой «Обучение» в шапке.",
   },
   "final-short": {
     id: "final-short", kind: "end", screen: ANY,

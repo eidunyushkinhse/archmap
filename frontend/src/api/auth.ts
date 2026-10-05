@@ -105,7 +105,7 @@ export async function changePassword(oldPassword: string, newPassword: string): 
 // ── Гость демо-стенда (docs/tasks/demo-mode.md) ──────────────────────────────
 
 /** Гость ли текущий пользователь. До ответа /auth/me — признак гостя из токена:
- *  шапка сразу рисует метку «Песочница», а не мелькает аватаром. Права по нему не
+ *  шапка сразу рисует пилюлю «Обучение», а не мелькает аватаром. Права по нему не
  *  решаются (их решает сервер). */
 export function getIsGuest(): boolean {
   if (!getToken()) return false;

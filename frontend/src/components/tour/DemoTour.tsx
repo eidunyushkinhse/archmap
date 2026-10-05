@@ -5,7 +5,7 @@
 //
 // Тур запускается сам, если для гостя ничего не сохранено (первый вход в песочницу);
 // «Пропустить» и «Завершить» сохраняют «пройден», и сам он больше не появится —
-// заново его запускает кнопка «?» в шапке (TourHelpButton).
+// заново его запускает пилюля «Обучение» в шапке (TourHelpButton).
 import {
   useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore,
 } from "react";
@@ -144,7 +144,7 @@ function TourRuntime({ userId }: { userId: string }) {
     send({ action: { type: "signal", signal }, env: envRef.current });
   }), []);
 
-  // ── «?»: пройти заново. Свой проект уже есть («Новый проект» погашена) — короткий
+  // ── «Обучение»: пройти заново. Свой проект уже есть («Новый проект» погашена) — короткий
   // проход по «Ярмарке». Признак берём свежим с сервера: кэш «кто я» мог устареть.
   useEffect(() => onTourRestart(() => {
     void fetchMe().catch(() => undefined).then(() => {
