@@ -314,7 +314,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   inside: {
     id: "inside", kind: "info", n: 27, screen: OWN_MAP, target: { kind: "inside" },
     title: "Вот куда ведёт связь на самом деле",
-    body: "Внутри системы «{system}» связь приходит в сервис «{child}». Диаграмма контекста показывает систему целиком, а лупа — то, что внутри.",
+    body: "Внутри системы «{system}» связь приходит в сервис «{child}». Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
   },
   final: {
     id: "final", kind: "end", screen: ANY,
