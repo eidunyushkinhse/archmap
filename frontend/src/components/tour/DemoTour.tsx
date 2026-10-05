@@ -23,6 +23,7 @@ import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
 import { dropStaleTours, loadTour, onTourRestart, saveTour } from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
+import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
 import { HIDDEN_VIEW, type TourView } from "./tourView";
 
 /** Сколько ждать цель после входа в шаг или смены экрана, прежде чем считать, что
@@ -32,6 +33,10 @@ const GRACE_MS = 1500;
  *  время и не больше REVEAL_TRIES раз на шаг: раскладка после раскрытия оседает не сразу. */
 const REVEAL_EVERY_MS = 1200;
 const REVEAL_TRIES = 3;
+/** Цель шага (или зона пары) пропала на кадр-другой — узел перерисовался, холст ещё
+ *  монтируется: столько держим прежний кадр шага, прежде чем ждать её как новую или
+ *  убирать зону. Вырез и карточка не дёргаются. */
+const HOLD_MS = 120;
 
 export default function DemoTour() {
   const me = useSyncExternalStore(subscribeMe, getMe);
@@ -67,14 +72,27 @@ function viewKey(v: TourView): string {
     v.avoid.map(rect).join(";"), v.soft.map(rect).join(";")].join("|");
 }
 
+/** Ключ кадра анимации: пока вырез едет или затемнение проявляется, он меняется
+ *  каждый кадр; в покое — стоит, и лишних перерисовок нет. */
+function motionKey(m: MotionFrame): string {
+  const r = (n: number) => Math.round(n * 2) / 2;
+  return [m.opacity.toFixed(2), m.settled ? "1" : "0",
+    m.holes.map((h) => `${h.shape}${r(h.x)},${r(h.y)},${r(h.w)},${r(h.h)},${r(h.r)},${h.alpha.toFixed(2)}`).join(";")].join("|");
+}
+
+/** Кадр слоя: шаг, для которого он посчитан, цель кадра и что рисовать сейчас. */
+interface LayerFrame { step: StepId | null; v: TourView; m: MotionFrame | null }
+const NO_FRAME: LayerFrame = { step: null, v: HIDDEN_VIEW, m: null };
+
 function TourRuntime({ userId }: { userId: string }) {
   const [raw, send] = useReducer(reducer, userId, initTour);
   const [route, setRoute] = useState<TourRoute>(() => parseTourRoute(window.location.hash));
   const [yarProjectId, setYarProjectId] = useState<string | null | undefined>(undefined);
   const [yarObjects, setYarObjects] = useState<ReadonlyMap<string, string> | undefined>(undefined);
-  // Вид кадра — с шагом, для которого он посчитан: карточка нового шага не рисуется
-  // поверх выреза прежнего, пока кадровый цикл не посчитал новый.
-  const [view, setView] = useState<{ step: StepId | null; v: TourView }>({ step: null, v: HIDDEN_VIEW });
+  // Кадр слоя — с шагом, для которого он посчитан: карточка нового шага не рисуется
+  // поверх выреза прежнего, пока кадровый цикл не посчитал новый, а до тех пор на
+  // экране остаётся прежний кадр целиком (без пустого кадра между шагами).
+  const [view, setView] = useState<LayerFrame>(NO_FRAME);
 
   const env = useMemo<TourEnv>(() => ({ yarProjectId, yarObjects }), [yarProjectId, yarObjects]);
   const state = useMemo(() => normalize(raw, env), [raw, env]);
@@ -219,7 +237,7 @@ function TourRuntime({ userId }: { userId: string }) {
     return () => document.body.classList.remove("tour-pass-labels");
   }, [passLabels]);
 
-  // ── Кадровый цикл: цель в DOM, вырезы, окно поверх, сигналы DOM ──
+  // ── Кадровый цикл: цель в DOM, вырезы, окно поверх, сигналы DOM, кадр анимации ──
   useEffect(() => {
     if (!running) return;
     let raf = 0;
@@ -228,8 +246,16 @@ function TourRuntime({ userId }: { userId: string }) {
     // Когда цель видели последний раз: пропавшую только что цель (нажали «Войти» —
     // слой перезагружается, кнопки уже нет) ждём так же, как новую.
     let foundAt = 0;
+    // Последний кадр с целью целиком и когда он был — держим его HOLD_MS, если цель
+    // шага (или зона пары) на миг пропала.
+    let lastSpot: { step: StepId; view: TourView; at: number } | null = null;
+    // Куда слой рисовал последний раз: окно поверх — затемнение гаснет там же.
+    let drawHost: HTMLElement | null = null;
+    // Плавность: вырезы и затемнение идут к цели кадра (tourMotion.ts).
+    const motion = new TourMotion(prefersReducedMotion());
     const frame = () => {
       raf = requestAnimationFrame(frame);
+      const now = performance.now();
       const st = stateRef.current;
       const en = envRef.current;
       const rt = routeRef.current;
@@ -244,7 +270,6 @@ function TourRuntime({ userId }: { userId: string }) {
         const res = screenOk && step.target ? resolveTarget(step.target, tctx) : null;
         // Цель есть, но не видна (за краем холста, ниже сгиба страницы) — подводим к ней.
         const done = doneForRef.current;
-        const now = performance.now();
         if (!res && screenOk && step.target && !dialog && done.reveals < REVEAL_TRIES && now - done.revealAt > REVEAL_EVERY_MS) {
           const hidden = hiddenTarget(step.target, tctx);
           if (hidden) {
@@ -253,11 +278,14 @@ function TourRuntime({ userId }: { userId: string }) {
             revealTarget(hidden);
           }
         }
+        const held = lastSpot?.step === st.step && now - lastSpot.at < HOLD_MS ? lastSpot.view : null;
         if (res && (!dialog || res.elements.every((el) => dialog.contains(el)))) {
-          next = {
+          const found: TourView = {
             phase: "spot", host: dialog ?? document.body, holes: res.holes, anchor: res.anchor, avoid: res.avoid,
             soft: res.soft ?? [],
           };
+          // Пара нашлась без зоны (холст ещё монтируется) — держим прежний кадр с зоной.
+          next = held && found.holes.length < held.holes.length ? held : found;
           foundAt = now;
           // Секции страницы объекта — к середине экрана, один раз на вход в шаг.
           if (step.target?.kind === "tour" && step.target.scroll && !doneForRef.current.scroll) {
@@ -266,13 +294,18 @@ function TourRuntime({ userId }: { userId: string }) {
             const tall = el.getBoundingClientRect().height > window.innerHeight * 0.6;
             el.scrollIntoView({ block: tall ? "start" : "center", behavior: "smooth" });
           }
+        } else if (held) {
+          // Только что открылось окно, а шаг ещё прежний (окно и есть следующий шаг) —
+          // тоже держим: затемнение не проседает на кадр.
+          next = held;
         } else if (dialog) {
           // Открыто окно, а цель не в нём: окно работает, тур не мешает.
           next = HIDDEN_VIEW;
         } else {
           const since = Math.max(enteredAtRef.current, routeAtRef.current, foundAt);
-          next = { ...HIDDEN_VIEW, phase: performance.now() - since < GRACE_MS ? "pending" : "docked", host: document.body };
+          next = { ...HIDDEN_VIEW, phase: now - since < GRACE_MS ? "pending" : "docked", host: document.body };
         }
+        if (next.phase === "spot" && next !== held) lastSpot = { step: st.step, view: next, at: now };
       }
       // Режим оболочки («Объекты»/«Процессы») — один раз на вход в шаг.
       if (step.mode && screenOk && !doneForRef.current.mode) {
@@ -309,27 +342,38 @@ function TourRuntime({ userId }: { userId: string }) {
           send({ action: { type: "blocked" }, env: en });
         }
       }
-      const key = `${st.step}|${viewKey(next)}`;
-      if (key !== lastKey || next.host !== lastHost) {
+      // Кадр анимации. Окно поверх (цели в нём нет) — затемнение гаснет там, где было.
+      const m = motion.frame(now, motionTarget(st.step, next), window.innerWidth, window.innerHeight);
+      if (next.host) drawHost = next.host;
+      const v = next.host ? next : { ...next, host: drawHost };
+      const key = `${st.step}|${viewKey(v)}|${motionKey(m)}`;
+      if (key !== lastKey || v.host !== lastHost) {
         lastKey = key;
-        lastHost = next.host;
-        setView({ step: st.step, v: next });
+        lastHost = v.host;
+        setView({ step: st.step, v, m });
       }
     };
     raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      // Тур закрыт — кадр прохода снят: новый проход («Обучение») начинает с пустого
+      // слоя, а не с карточки и затемнения шага, на котором вышли.
+      setView(NO_FRAME);
+    };
   }, [running]);
 
-  if (!running) return null;
-  const step = STEPS[state.step];
+  if (!running || view.step === null) return null;
+  // Слой рисует кадр того шага, для которого он посчитан (см. view выше).
+  const step = STEPS[view.step];
   return (
     <TourLayer
-      view={view.step === state.step ? view.v : HIDDEN_VIEW}
-      stepKey={state.step}
+      view={view.v}
+      motion={view.m ?? undefined}
+      stepKey={view.step}
       step={step}
       texts={stepTexts(step, state.vars)}
       count={step.n !== undefined ? `Шаг ${step.n} из ${stepTotal(state.variant)}` : null}
-      canBack={canGoBack(state.step)}
+      canBack={canGoBack(view.step)}
       onNext={() => dispatch({ type: "next" })}
       onBack={() => dispatch({ type: "back" })}
       onSkip={() => dispatch({ type: "skip" })}

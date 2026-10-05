@@ -41,12 +41,17 @@ const stored = () => JSON.parse(localStorage.getItem(KEY) ?? "null") as { status
 function target(attr: string, rect = { x: 100, y: 100, w: 200, h: 120 }): HTMLElement {
   const el = document.createElement("div");
   el.setAttribute("data-tour", attr);
+  place(el, rect);
+  document.body.appendChild(el);
+  return el;
+}
+
+/** Поставить элемент-цель в прямоугольник окна (прокрутка, зум и пан двигают его так). */
+function place(el: HTMLElement, rect: { x: number; y: number; w: number; h: number }) {
   el.getBoundingClientRect = () => ({
     x: rect.x, y: rect.y, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
     right: rect.x + rect.w, bottom: rect.y + rect.h, toJSON: () => ({}),
   });
-  document.body.appendChild(el);
-  return el;
 }
 
 function goHash(hash: string) {
@@ -62,6 +67,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   document.querySelectorAll("[data-tour]").forEach((el) => el.remove());
+});
+// Копии гаснущих карточек и затемнения прошлых тестов (их размонтировал cleanup) ещё в DOM.
+beforeEach(() => {
+  document.querySelectorAll(".tour-card--ghost, .tour-art--ghost").forEach((el) => el.parentElement?.remove());
 });
 
 describe("DemoTour", () => {
@@ -207,5 +216,132 @@ describe("DemoTour", () => {
     const card = await screen.findByRole("dialog", { name: "Создайте свою систему" }, { timeout: 3000 });
     expect(card).toHaveClass("tour-card--docked");
     expect(document.querySelector("[data-tour-blocker]")).toBeNull();
+  });
+});
+
+// Плавные переходы (tourMotion.ts): время — поддельное, вместе с requestAnimationFrame и
+// performance.now(), поэтому кадры кадрового цикла идут ровно по часам теста.
+describe("DemoTour — плавные переходы", () => {
+  const ringLeft = () => parseFloat(document.querySelector<HTMLElement>("[data-tour-layer] .tour-ring")?.style.left ?? "NaN");
+  const tick = async (ms: number) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
+
+  beforeEach(() => {
+    vi.useFakeTimers({
+      toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout",
+        "setInterval", "clearInterval", "Date"],
+    });
+    window.location.hash = `/p/${YAR}`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "yar-home", variant: "full", dir: 1, vars: {} }));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("та же цель сдвинулась — вырез за ней в том же кадре; смена цели — вырез перетекает, без пустого кадра", async () => {
+    const block = target("schema-block", { x: 100, y: 100, w: 200, h: 120 });
+    target("schema-edit", { x: 600, y: 400, w: 80, h: 30 });
+    render(<DemoTour />);
+    await tick(1000);
+    expect(screen.getByRole("dialog", { name: "Главная страница проекта" })).toBeInTheDocument();
+    expect(ringLeft()).toBe(94);
+    // прокрутка сдвинула ту же цель — без твина, рамка уже на новом месте
+    place(block, { x: 140, y: 100, w: 200, h: 120 });
+    await tick(20);
+    expect(ringLeft()).toBe(134);
+    fireEvent.click(screen.getByRole("button", { name: "Далее" }));
+    // до кадра нового шага на экране прежний кадр целиком — слой не пропадает
+    expect(document.querySelector("[data-tour-layer]")).not.toBeNull();
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).not.toBeNull();
+    await tick(150);
+    expect(screen.getByRole("dialog", { name: "Откройте редактор" })).toBeInTheDocument();
+    // вырез в пути: уже не на прежней цели и ещё не на новой
+    expect(ringLeft()).toBeGreaterThan(134);
+    expect(ringLeft()).toBeLessThan(594);
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).not.toHaveClass("tour-ring--act"); // пульс ждёт конца
+    await tick(600);
+    expect(ringLeft()).toBe(594);
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).toHaveClass("tour-ring--act");
+  });
+
+  it("зона пары пропала на кадр-другой (холст монтируется) — вырезы и рамки не дрогнули", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "create-system", variant: "full", dir: 1, vars: { ownProjectId: OWN },
+    }));
+    target("palette:service", { x: 10, y: 600, w: 150, h: 40 });
+    const flow = document.createElement("div");
+    flow.className = "react-flow";
+    place(flow, { x: 400, y: 80, w: 900, h: 700 });
+    document.body.appendChild(flow);
+    try {
+      render(<DemoTour />);
+      await tick(1000);
+      const rings = () => [...document.querySelectorAll<HTMLElement>("[data-tour-layer] .tour-ring")]
+        .map((r) => `${r.style.left},${r.style.top},${r.style.width},${r.style.height}`);
+      const settled = rings();
+      expect(settled).toHaveLength(2);
+      flow.remove();
+      await tick(50);
+      expect(rings()).toEqual(settled);
+      document.body.appendChild(flow);
+      await tick(400);
+      expect(rings()).toEqual(settled);
+      // зона ушла по-настоящему — после удержания её вырез стягивается и исчезает
+      flow.remove();
+      await tick(700);
+      expect(rings()).toHaveLength(1);
+    } finally {
+      flow.remove();
+    }
+  });
+
+  it("открылось окно, а шаг ещё прежний — затемнение не проседает; цель так и не в окне — тур прячется", async () => {
+    window.location.hash = "/projects";
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "new-project", variant: "full", dir: 1, vars: {} }));
+    target("new-project", { x: 800, y: 140, w: 180, h: 40 });
+    const shade = () => document.querySelector("[data-tour-layer] .tour-shade rect[mask]")?.getAttribute("opacity") ?? null;
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("open", "");
+    try {
+      render(<DemoTour />);
+      await tick(1000);
+      expect(shade()).toBe("1");
+      document.body.appendChild(dialog);
+      await tick(80);
+      expect(shade()).toBe("1");
+      await tick(500);
+      expect(shade()).toBeNull();
+    } finally {
+      dialog.remove();
+    }
+  });
+
+  it("«Обучение» после выхода из тура — прежний кадр не мелькает до первого кадра нового прохода", async () => {
+    target("schema-block", { x: 100, y: 100, w: 200, h: 120 });
+    render(<DemoTour />);
+    await tick(1000);
+    fireEvent.click(screen.getByRole("button", { name: "Пропустить обучение" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => { requestTourRestart(); await Promise.resolve(); await Promise.resolve(); });
+    // проход начался, кадрового цикла ещё не было: на экране ни карточки прежнего шага,
+    // ни его затемнения
+    expect(stored()).toMatchObject({ status: "running", step: "welcome" });
+    expect(screen.queryByRole("dialog", { name: "Главная страница проекта" })).toBeNull();
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).toBeNull();
+    await tick(100);
+    expect(screen.getByRole("dialog", { name: "Добро пожаловать в ArchMap" })).toBeInTheDocument();
+  });
+
+  it("без анимаций (prefers-reduced-motion) — вырез на новой цели в ближайшем кадре", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    target("schema-block", { x: 100, y: 100, w: 200, h: 120 });
+    target("schema-edit", { x: 600, y: 400, w: 80, h: 30 });
+    render(<DemoTour />);
+    await tick(100);
+    expect(ringLeft()).toBe(94);
+    fireEvent.click(screen.getByRole("button", { name: "Далее" }));
+    await tick(20);
+    expect(ringLeft()).toBe(594);
   });
 });

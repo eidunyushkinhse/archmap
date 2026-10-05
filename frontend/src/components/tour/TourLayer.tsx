@@ -7,17 +7,28 @@
 // из палитры, протягивание связи от хэндла, перетаскивание узла), пропускается
 // целиком до отпускания: бросать форму нужно на холст, а он под затемнением.
 // Колёсико над затемнением на миг тоже пропускается — прокрутка и зум не залипают.
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+// Перехват идёт по ЦЕЛЕВЫМ вырезам, а не по нарисованным: по цели можно нажать сразу,
+// пока вырез ещё едет к ней.
+//
+// Плавность (tourMotion.ts): затемнение и вырезы рисуются по кадру аниматора; карточка
+// нового шага или нового места проявляется, а копия прежней гаснет на старом месте;
+// при закрытии тура так же гаснет затемнение. Окно-хозяин слоя закрылось или ушло из
+// DOM — слой переходит в body в той же отрисовке: затемнение не мигает.
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { holePath, inHole, mergeHoles, placeCard, shadePath, type Hole } from "./tourGeometry";
+import { prefersReducedMotion, restingFrame, type MotionFrame } from "./tourMotion";
 import type { TourStep } from "./tourSteps";
 import type { TourView } from "./tourView";
 import "./tour.css";
 
 interface Props {
+  /** цель кадра: фаза, куда рисовать, вырезы цели (по ним перехват кликов), место карточки */
   view: TourView;
-  /** ключ шага: новый шаг — свежее состояние перехватчика */
+  /** что рисовать сейчас — кадр аниматора; без него покой: вырезы ровно на цели */
+  motion?: MotionFrame;
+  /** ключ шага: новый шаг — свежее состояние перехватчика и новая карточка */
   stepKey: string;
   step: TourStep;
   texts: { title: string; body: string; action?: string };
@@ -37,31 +48,95 @@ function subscribeViewport(cb: () => void): () => void {
 }
 const viewportKey = () => `${window.innerWidth}x${window.innerHeight}`;
 
+/** Хозяин слоя жив: в документе и, если это окно, открыт. */
+function hostAlive(el: HTMLElement): boolean {
+  return el.isConnected && !(el instanceof HTMLDialogElement && !el.open);
+}
+
+/**
+ * Хозяин слоя, а если окно-хозяин закрылось или ушло из DOM (окно убрали по успеху),
+ * — body. Слой внутри убранного окна ушёл бы из документа вместе с ним до ближайшего
+ * кадра тура; смерть окна замечает MutationObserver (микрозадача после коммита), и
+ * внешний стор перерисовывает слой синхронно — до отрисовки кадра.
+ */
+function useLiveHost(host: HTMLElement | null): HTMLElement | null {
+  const subscribe = useCallback((onChange: () => void) => {
+    if (!host || host === document.body) return () => {};
+    const mo = new MutationObserver(onChange);
+    mo.observe(document.body, { childList: true, subtree: true });
+    mo.observe(host, { attributes: true, attributeFilter: ["open"] });
+    return () => mo.disconnect();
+  }, [host]);
+  const alive = useSyncExternalStore(subscribe, () => !host || hostAlive(host));
+  return alive ? host : document.body;
+}
+
 export default function TourLayer(props: Props) {
   const { view } = props;
   const vp = useSyncExternalStore(subscribeViewport, viewportKey);
-  if (!view.host || view.phase === "hidden" || view.phase === "pending") return null;
+  const host = useLiveHost(view.host);
+  const motion = props.motion ?? restingFrame(view);
+  const hasCard = view.phase === "center" || view.phase === "spot" || view.phase === "docked";
+  if (!host || (!hasCard && motion.opacity <= 0)) return null;
   const [w, h] = vp.split("x").map(Number);
-  const shaded = view.phase === "center" || view.phase === "spot";
+  // Клики держит только затемнение с целью или по центру; пока цель грузится, затемнение
+  // (если было) лишь держится на экране и нажатиям не мешает.
+  const blocks = view.phase === "center" || view.phase === "spot";
   return createPortal(
     <div className="tour-layer" data-tour-layer="">
-      {shaded && (
-        <Shade
-          key={props.stepKey}
-          width={w}
-          height={h}
-          holes={view.phase === "spot" ? view.holes : []}
-          act={props.step.kind === "act"}
-        />
+      {motion.opacity > 0 && <ShadeArt width={w} height={h} frame={motion} act={props.step.kind === "act"} />}
+      {blocks && <Blocker key={props.stepKey} width={w} height={h} holes={view.phase === "spot" ? view.holes : []} />}
+      {hasCard && (
+        <Card key={`${props.stepKey}|${view.phase}`} {...props} viewport={{ w, h }} moved={host !== view.host} />
       )}
-      <Card {...props} viewport={{ w, h }} />
     </div>,
-    view.host,
+    host,
   );
 }
 
-function Shade({ width, height, holes, act }: { width: number; height: number; holes: Hole[]; act: boolean }) {
+/** Затемнение с вырезами и синие рамки — по кадру аниматора. Вырез с alpha < 1
+ *  наполовину затянут затемнением, рамка вокруг него видна в той же мере. Пульс —
+ *  только когда вырезы доехали до цели. Снятое на виду (тур закрыт) гаснет копией. */
+function ShadeArt({ width, height, frame, act }: { width: number; height: number; frame: MotionFrame; act: boolean }) {
   const maskId = useId();
+  const ref = useRef<HTMLDivElement>(null);
+  // Видимость последнего нарисованного кадра: погасшее до нуля затемнение копии не оставляет.
+  const shownOpacity = useRef(frame.opacity);
+  useLayoutEffect(() => { shownOpacity.current = frame.opacity; });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    return () => { if (el && shownOpacity.current > 0.05) leaveGhost(el, "tour-art--ghost"); };
+  }, []);
+  return (
+    <div ref={ref} className="tour-art">
+      <svg className="tour-shade" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+        <defs>
+          <mask id={maskId}>
+            <rect width={width} height={height} fill="#fff" />
+            {frame.holes.map((hole, i) => (hole.alpha > 0
+              ? <path key={i} d={holePath(hole, hole.r)} fill="#000" fillOpacity={hole.alpha} />
+              : null))}
+          </mask>
+        </defs>
+        <rect width={width} height={height} fill="rgba(15,23,42,.55)" mask={`url(#${maskId})`} opacity={frame.opacity} />
+      </svg>
+      {frame.holes.map((hole, i) => (hole.alpha > 0.01 ? (
+        <div
+          key={i}
+          className={`tour-ring${hole.shape === "dot" ? " tour-ring--dot" : ""}${act && !hole.quiet && frame.settled ? " tour-ring--act" : ""}`}
+          style={{
+            left: hole.x, top: hole.y, width: hole.w, height: hole.h,
+            borderRadius: hole.r, opacity: hole.alpha * frame.opacity,
+          }}
+        />
+      ) : null))}
+    </div>
+  );
+}
+
+/** Перехватчик кликов по целевым вырезам. Ключ — шаг: новый шаг начинает без
+ *  пропуска жеста. */
+function Blocker({ width, height, holes }: { width: number; height: number; holes: Hole[] }) {
   const [pass, setPass] = useState(false);
   const holesRef = useRef(holes);
   useEffect(() => { holesRef.current = holes; }, [holes]);
@@ -110,43 +185,72 @@ function Shade({ width, height, holes, act }: { width: number; height: number; h
   useEffect(() => () => window.clearTimeout(wheelTimer.current), []);
 
   return (
-    <>
-      <svg className="tour-shade" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
-        <defs>
-          <mask id={maskId}>
-            <rect width={width} height={height} fill="#fff" />
-            {holes.map((hole, i) => <path key={i} d={holePath(hole)} fill="#000" />)}
-          </mask>
-        </defs>
-        <rect width={width} height={height} fill="rgba(15,23,42,.55)" mask={`url(#${maskId})`} />
-        <path
-          className={pass ? "tour-blocker tour-blocker--pass" : "tour-blocker"}
-          data-tour-blocker=""
-          d={shadePath(width, height, mergeHoles(holes))}
-          fill="transparent"
-          fillRule="evenodd"
-          onWheel={onWheel}
-        />
-      </svg>
-      {holes.map((hole, i) => (
-        <div
-          key={i}
-          className={`tour-ring${hole.shape === "dot" ? " tour-ring--dot" : ""}${act && !hole.quiet ? " tour-ring--act" : ""}`}
-          style={{ left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
-        />
-      ))}
-    </>
+    <svg className="tour-shade" viewBox={`0 0 ${width} ${height}`} aria-hidden="true">
+      <path
+        className={pass ? "tour-blocker tour-blocker--pass" : "tour-blocker"}
+        data-tour-blocker=""
+        d={shadePath(width, height, mergeHoles(holes))}
+        fill="transparent"
+        fillRule="evenodd"
+        onWheel={onWheel}
+      />
+    </svg>
   );
+}
+
+/** Сколько живёт копия ушедшего элемента, если конца анимации не дождались (tour.css:
+ *  tour-fade-out 200 мс). */
+const GHOST_MS = 400;
+
+/**
+ * Карточка или затемнение ушли (новый шаг, новое место, тур закрыт) — копия гаснет на
+ * старом месте (tour.css: .tour-card--ghost, .tour-art--ghost), пока новое проявляется:
+ * место и текст меняются без вспышки, затемнение при закрытии тура гаснет, а не
+ * пропадает. Копия живёт вне React — отдельный слой в том же хосте, сам себя убирает.
+ * Смотрим после коммита: StrictMode «размонтирует» понарошку, и элемент тогда остаётся
+ * в DOM — копия не нужна. Хозяин закрыт или ушёл из DOM — копии не видно, её нет.
+ */
+function leaveGhost(el: HTMLElement, ghostClass: string): void {
+  const host = el.parentElement?.parentElement;
+  if (!host || !hostAlive(host) || prefersReducedMotion()) return;
+  queueMicrotask(() => {
+    if (el.isConnected || !hostAlive(host)) return;
+    const ghost = el.cloneNode(true) as HTMLElement;
+    ghost.classList.add(ghostClass);
+    ghost.removeAttribute("role");
+    ghost.removeAttribute("aria-label");
+    ghost.setAttribute("aria-hidden", "true");
+    ghost.setAttribute("inert", "");
+    const layer = document.createElement("div");
+    layer.className = "tour-layer";
+    layer.appendChild(ghost);
+    host.appendChild(layer);
+    const done = () => layer.remove();
+    // пульс рамки внутри копии затемнения — свои события анимации, их пропускаем
+    ghost.addEventListener("animationend", (e) => { if (e.target === ghost) done(); });
+    window.setTimeout(done, GHOST_MS);
+  });
 }
 
 // Оценка размера до первого замера (ширина — как в прототипе).
 const CARD_ESTIMATE = { w: 340, h: 200 };
 
+/** moved — карточку перенесли из убранного окна в body: она уже была на экране, заново
+ *  не проявляется (признак запоминается на всю жизнь карточки — снятый класс запустил
+ *  бы проявление уже видимой карточки). */
 function Card({
-  view, step, texts, count, canBack, onNext, onBack, onSkip, onFinish, viewport,
-}: Props & { viewport: { w: number; h: number } }) {
+  view, step, texts, count, canBack, onNext, onBack, onSkip, onFinish, viewport, moved,
+}: Props & { viewport: { w: number; h: number }; moved: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(CARD_ESTIMATE);
+  const [wasMoved] = useState(moved);
+  // Новая карточка замеряется до первой отрисовки: место у цели сразу по её размеру,
+  // а не по оценке (иначе она проявлялась бы с прыжком).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && el.offsetWidth > 0) setSize({ w: el.offsetWidth, h: el.offsetHeight });
+    return () => { if (el) leaveGhost(el, "tour-card--ghost"); };
+  }, []);
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -160,7 +264,7 @@ function Card({
   }, []);
 
   let style: CSSProperties | undefined;
-  let cls = "tour-card";
+  let cls = wasMoved ? "tour-card tour-card--moved" : "tour-card";
   if (view.phase === "center") cls += " tour-card--center";
   else if (view.phase === "docked") cls += " tour-card--docked";
   else if (view.anchor) {

@@ -18,6 +18,17 @@
   pointer-events: none;
 }
 
+/* Затемнение с рамками одной обёрткой: при закрытии тура его копия гаснет
+   (.tour-art--ghost), а не пропадает разом. */
+.tour-art {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+.tour-art--ghost {
+  animation: tour-fade-out 200ms ease-in forwards;
+}
+
 /* Перехватчик кликов: залит прозрачно, ловит события только своей заливкой — в
    вырезах её нет, и клик проходит к цели. */
 .tour-blocker {
@@ -28,6 +39,9 @@
   pointer-events: none;
 }
 
+/* Рамка выреза. Место, размер, скругление и видимость — из кадра аниматора
+   (tourMotion.ts) инлайн-стилем: CSS-переходы здесь не нужны и навредили бы — рамка
+   следует за целью при прокрутке кадр в кадр. */
 .tour-ring {
   position: fixed;
   box-sizing: border-box;
@@ -79,6 +93,30 @@ body.tour-pass-labels [data-lg-edge] {
   box-shadow: 0 18px 44px rgba(15, 23, 42, 0.28);
   font-size: 14.5px;
   pointer-events: auto;
+  /* Новая карточка (новый шаг или новое место) проявляется; копия прежней гаснет
+     (.tour-card--ghost) — смена без вспышки. Слежение за целью идёт без анимации:
+     элемент тот же, меняются только left/top. */
+  animation: tour-card-in 250ms ease-out;
+}
+/* Перенесена из убранного окна в body — уже была на экране. Объявлена до копии:
+   копия перенесённой карточки всё равно гаснет. */
+.tour-card--moved {
+  animation: none;
+}
+.tour-card--ghost {
+  pointer-events: none;
+  animation: tour-fade-out 200ms ease-in forwards;
+}
+@keyframes tour-card-in {
+  from { opacity: 0; translate: 0 6px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes tour-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tour-card { animation: none; }
 }
 .tour-card--center {
   left: 50%;
