@@ -312,13 +312,13 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
           transition: "transform .22s cubic-bezier(.4,0,.2,1)",
         }}
       />
-      <button style={tab(mode === "schema")} onClick={() => onChange("schema")} title="Объекты: схема и страницы">
+      <button style={tab(mode === "schema")} data-tour="mode-schema" onClick={() => onChange("schema")} title="Объекты: схема и страницы">
         <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <rect x="9" y="3" width="6" height="4.5" rx="1" /><rect x="3" y="16.5" width="6" height="4.5" rx="1" /><rect x="15" y="16.5" width="6" height="4.5" rx="1" /><path d="M12 7.5 V11 M6 16.5 V13 H18 V16.5" />
         </svg>
         Объекты
       </button>
-      <button style={tab(mode === "proc")} onClick={() => onChange("proc")} title="Бизнес-процессы">
+      <button style={tab(mode === "proc")} data-tour="mode-proc" onClick={() => onChange("proc")} title="Бизнес-процессы">
         <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" /><path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
         </svg>

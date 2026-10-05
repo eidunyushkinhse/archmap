@@ -20,6 +20,7 @@ import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 type Mode = "batch" | "single";
 
@@ -93,6 +94,7 @@ export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }:
             <>
               <label style={labelStyle}>Что описать</label>
               <textarea
+                {...noAutofill("docs-agent-modal-1")}
                 style={targetInput}
                 rows={3}
                 value={target}
@@ -114,6 +116,7 @@ export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }:
 
           <label style={labelStyle}>Подсказки агенту (опционально)</label>
           <textarea
+            {...noAutofill("docs-agent-modal-2")}
             style={hintsArea}
             value={hints}
             onChange={(e) => setHints(e.target.value)}

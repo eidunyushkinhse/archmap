@@ -17,6 +17,9 @@ import { docsImportApi } from "../../api/docsImport";
 import OpenApiDoc from "./OpenApiDoc";
 import SpecAgentPanel from "../docsImport/SpecAgentPanel";
 import { ApiGlyph, DocAgentSteps, DocHead, EditMenu } from "./docChrome";
+import { limitMessage } from "../demo/demoLimits";
+import type { LimitMessage } from "../demo/demoLimits";
+import { LimitText } from "../demo/DemoLimitToast";
 
 export type DocStage = "view" | "manual" | "agent";
 
@@ -68,6 +71,8 @@ export default function OpenApiPane({
   }
   const [draft, setDraft] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Демо-стенд: сохранение упёрлось в предел — красная плашка в подвале, черновик цел.
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   const [showCode, setShowCode] = useState(false); // наблюдатель: «Показать код»
   // Версия OAS из последнего валидного парса (шлёт OpenApiDoc) — для тега шапки.
   const [oasVersion, setOasVersion] = useState<string | undefined>(undefined);
@@ -85,6 +90,7 @@ export default function OpenApiPane({
   function toView() {
     setStage("view");
     setDraft(null);
+    setLimit(null);
   }
 
   // Спеки ещё нет — показывать нечего: выход из правки закрывает окно.
@@ -101,7 +107,20 @@ export default function OpenApiPane({
       return;
     }
     setSaving(true);
-    const ok = await onCommitOpenapi(value).catch(() => false);
+    setLimit(null);
+    let ok = false;
+    try {
+      ok = await onCommitOpenapi(value);
+    } catch (e: unknown) {
+      // Отказ по пределу демо-стенда страница пробрасывает сюда: правка остаётся в
+      // редакторе, её можно сократить и сохранить снова. Прочее — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) {
+        setSaving(false);
+        setLimit(refusal);
+        return;
+      }
+    }
     setSaving(false);
     if (ok) {
       show(value);
@@ -205,7 +224,11 @@ export default function OpenApiPane({
         onClose={onRequestClose ?? onClose}
       />
       <div className="doc-body">{body}</div>
-      {foot && <div className="doc-foot">{foot}</div>}
+      {limit && stage === "manual" ? (
+        <div className="doc-foot doc-foot--bar">
+          <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
+        </div>
+      ) : foot && <div className="doc-foot">{foot}</div>}
     </>
   );
 }

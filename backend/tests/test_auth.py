@@ -161,6 +161,10 @@ def test_me(client, db):
         "username": "alice",
         "role": "viewer",
         "is_admin": True,
+        # Поля демо-режима (docs/tasks/demo-mode.md) — аддитивно: обычный
+        # пользователь не гость, а наблюдатель проекты не создаёт.
+        "is_guest": False,
+        "can_create_project": False,
     }
 
 
@@ -178,10 +182,12 @@ def test_me_роль_из_бд_а_не_из_токена(client, db):
 
 
 def test_auth_config_без_авторизации(client, monkeypatch):
+    # Поля демо-режима аддитивны: вне демо он выключен и пределов нет.
+    off = {"demo_mode": False, "demo_limits": None}
     monkeypatch.setattr(settings, "allow_signup", True)
-    assert client.get("/api/v1/auth/config").json() == {"allow_signup": True}
+    assert client.get("/api/v1/auth/config").json() == {"allow_signup": True, **off}
     monkeypatch.setattr(settings, "allow_signup", False)
-    assert client.get("/api/v1/auth/config").json() == {"allow_signup": False}
+    assert client.get("/api/v1/auth/config").json() == {"allow_signup": False, **off}
 
 
 def test_register_при_allow_signup_true(client, db, monkeypatch):

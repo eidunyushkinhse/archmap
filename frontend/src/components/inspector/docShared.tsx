@@ -5,6 +5,8 @@
 // ТЗ «Визуализация Mermaid и OpenAPI».
 import { useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
+import { fileTooBigMessage } from "../demo/demoLimits";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface EditorProps {
   width: number; // flowchart 440 / openapi 460 (Часть A1 ТЗ)
@@ -66,6 +68,12 @@ export function DocEditorColumn({
 
   const loadFile = async (file: File | undefined | null) => {
     if (!file || !onChange) return;
+    // Демо-стенд: файл больше предела стенда в редактор не берём (docs/tasks/demo-mode.md).
+    const demoRefusal = fileTooBigMessage(file);
+    if (demoRefusal) {
+      onFileError?.(demoRefusal);
+      return;
+    }
     if (file.size > FILE_LIMIT) {
       onFileError?.(`Файл больше ${FILE_LIMIT / 1024 / 1024} МБ — это не похоже на спеку`);
       return;
@@ -116,6 +124,7 @@ export function DocEditorColumn({
         </div>
       </div>
       <textarea
+        {...noAutofill("doc-shared-1")}
         ref={taRef}
         className={"doc-edta" + (overDrop ? " doc-edta--drop" : "")}
         value={value}

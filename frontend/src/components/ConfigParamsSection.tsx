@@ -19,6 +19,10 @@ import InfoPopover from "../ui/InfoPopover";
 import ConfigAgentModal from "./docsImport/ConfigAgentModal";
 import type { ConfigParam, ConfigParamUsage } from "../types";
 import "./configParams.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitNotice } from "./demo/DemoLimitNotice";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
@@ -51,6 +55,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
   const [params, setParams] = useState<ConfigParam[] | null>(null);
   const [usage, setUsage] = useState<ConfigParamUsage[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
 
@@ -71,11 +76,16 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
   // Любая правка: применяем и перечитываем. Перечитывание — не лень: CAS-версия
   // приходит с сервера, и локальная склейка разъехалась бы на первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
+    setLimit(null);
     try {
       await fn();
       setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
+      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
   }, []);
@@ -126,6 +136,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
         )}
       </h3>
       {error && <p className="np-warn">{error}</p>}
+      {limit && <LimitNotice message={limit} />}
       {!allowed && (
         <p className="np-warn">
           Конфигурация описывает ручки сервиса, а у этого объекта их нет — перенесите
@@ -228,12 +239,14 @@ function ParamRow({
     <div className="cfg-item">
       <div className="cfg-row">
         <input
+          {...noAutofill("config-params-section-1")}
           className="np-field cfg-name"
           defaultValue={param.name}
           key={`n:${param.id}:${param.version}`}
           onBlur={(e) => { if (e.target.value !== param.name) patch({ name: e.target.value }); }}
         />
         <input
+          {...noAutofill("config-params-section-2")}
           className="np-field cfg-type"
           placeholder="string/int/bool"
           title={TYPE_TITLE}
@@ -252,6 +265,7 @@ function ParamRow({
           onChange={(e) => patch({ required: e.target.checked })}
         />
         <input
+          {...noAutofill("config-params-section-3")}
           className="np-field cfg-default"
           placeholder="дефолт из кода"
           title={DEFAULT_TITLE}
@@ -264,6 +278,7 @@ function ParamRow({
         {/* «Что переключает», а не «описание»: имя ручки обычно и так читаемо, а
             ценность несёт именно последствие её переключения. */}
         <input
+          {...noAutofill("config-params-section-4")}
           className="np-field cfg-desc"
           placeholder="что переключает"
           defaultValue={param.description ?? ""}

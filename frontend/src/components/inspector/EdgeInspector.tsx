@@ -12,6 +12,7 @@ import NodeSearchPicker from "../NodeSearchPicker";
 import { ShapeGlyph } from "../nodeTree.shared";
 import { useEdgeEdit } from "./useEdgeEdit";
 import "./inspector.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   edge: LevelEdge;
@@ -150,7 +151,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
                 <span className="insp-value">
                   {/* многострочное описание: textarea (лимит — модель, String(256));
                       переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
-                  <textarea className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+                  <textarea {...noAutofill("edge-inspector-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
                     onChange={(e) => setLabelText(e.target.value)}
                     onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
                 </span>
@@ -168,7 +169,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
             <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
               {isArchitect ? (
                 <span className="insp-value">
-                  <input className="insp-field" value={channel} maxLength={256}
+                  <input {...noAutofill("edge-inspector-2")} className="insp-field" value={channel} maxLength={256}
                     onChange={(e) => setChannel(e.target.value)}
                     onBlur={() => void commit({ channel })} placeholder="топик / очередь" />
                 </span>
@@ -186,7 +187,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
             <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
               {isArchitect ? (
                 <span className="insp-value">
-                  <input className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
+                  <input {...noAutofill("edge-inspector-3")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
                     onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
                 </span>
               ) : (

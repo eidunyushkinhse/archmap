@@ -14,6 +14,8 @@ import ProcessRail from "./ProcessRail";
 import { IcoFlow } from "./icons";
 import { BPT } from "./tokens";
 import "./processes.css";
+import DemoLimitToast from "../demo/DemoLimitToast";
+import { useDemoLimitToast } from "../demo/useDemoLimitToast";
 
 interface Props {
   isArchitect: boolean;
@@ -55,6 +57,9 @@ export default function ProcessWorkspace({
 }: Props) {
   const [items, setItems] = useState<ProcessListItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Демо-стенд (docs/tasks/demo-mode.md, экран 4): «Новый процесс» и дубль упёрлись в
+  // предел — тост внизу холста процессов.
+  const [limitToast, showLimit] = useDemoLimitToast();
   // Явно выбранный процесс. null → берём первый из списка (derived ниже), без эффекта.
   const [picked, setPicked] = useState<string | null>(initialProcessId ?? null);
   // Импорт из mermaid: заводит НОВЫЙ процесс (слияние с существующим — отдельная задача).
@@ -156,6 +161,7 @@ export default function ProcessWorkspace({
         setEditingPref(true); // новый процесс сразу в правке (как было в BusinessProcessSection)
       }
     } catch (e: unknown) {
+      if (showLimit(e, "process")) return;
       setError(e instanceof Error ? e.message : "Не удалось создать процесс");
     }
   }
@@ -167,6 +173,7 @@ export default function ProcessWorkspace({
       await reload();
       if (opSeq.current === myOp) setPicked(copy.id);
     } catch (e: unknown) {
+      if (showLimit(e, "process")) return;
       setError(e instanceof Error ? e.message : "Не удалось дублировать процесс");
     }
   }
@@ -239,11 +246,13 @@ export default function ProcessWorkspace({
           <div style={{ fontSize: 13, color: BPT.mut }}>Загрузка…</div>
         </div>
       )}
+      <DemoLimitToast message={limitToast} />
     </div>
   );
 }
 
 const workspace: CSSProperties = {
+  position: "relative", // опора тоста предела демо-стенда (DemoLimitToast)
   flex: 1,
   display: "flex",
   minHeight: 0,

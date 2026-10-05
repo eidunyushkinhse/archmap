@@ -9,12 +9,17 @@ import SchemaPreview from "./SchemaPreview";
  * проектом (редактировать, архив, восстановить, удалить) — только владельцу.
  * Читателю состав участников не показываем, а без «Доступа» в меню остался бы один
  * пункт «Открыть» — поэтому у читателя меню ⋯ нет вовсе (и меток роли тоже нет).
+ * Гостю демо-стенда «Доступ» не показываем (canShare=false): делиться ему не с кем.
  */
 export default function ProjectCard({
-  project, archivedTab, onOpen, onAccess, onEdit, onArchive, onRestore, onDelete,
+  project, archivedTab, canShare = true, updaterLabel, onOpen, onAccess, onEdit, onArchive,
+  onRestore, onDelete,
 }: {
   project: Project;
   archivedTab: boolean;
+  canShare?: boolean;
+  // Подпись «кто менял» вместо логина (гость видит себя «Гостем», а не guest-…).
+  updaterLabel?: string;
   onOpen: () => void;
   onAccess: () => void;
   onEdit: () => void;
@@ -25,6 +30,7 @@ export default function ProjectCard({
   const [hover, setHover] = useState(false);
   return (
     <div
+      data-tour={`project:${project.id}`}
       style={{ ...card, transform: hover ? "translateY(-2px)" : "none", boxShadow: hover ? "0 12px 28px rgba(15,23,42,.12)" : "0 1px 2px rgba(15,23,42,.06)" }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
@@ -36,6 +42,7 @@ export default function ProjectCard({
         {project.my_role !== "reader" && <CardMenu
           isOwner={project.my_role === "owner"}
           archivedTab={archivedTab}
+          canShare={canShare}
           onOpen={onOpen}
           onAccess={onAccess}
           onEdit={onEdit}
@@ -50,8 +57,8 @@ export default function ProjectCard({
       </button>
       <div style={cardFooter}>
         <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0 }}>
-          <span style={miniAvatar}>{initials(project.updated_by)}</span>
-          <span style={editorName}>{project.updated_by ?? "—"}</span>
+          <span style={miniAvatar}>{initials(updaterLabel ?? project.updated_by)}</span>
+          <span style={editorName}>{updaterLabel ?? project.updated_by ?? "—"}</span>
           <span style={{ color: "#cbd5e1" }}>·</span>
           <span style={{ color: "#94a3b8", whiteSpace: "nowrap" }}>{fmtDate(project.updated_at)}</span>
         </div>
@@ -64,10 +71,11 @@ export default function ProjectCard({
 }
 
 function CardMenu({
-  isOwner, archivedTab, onOpen, onAccess, onEdit, onArchive, onRestore, onDelete,
+  isOwner, archivedTab, canShare, onOpen, onAccess, onEdit, onArchive, onRestore, onDelete,
 }: {
   isOwner: boolean;
   archivedTab: boolean;
+  canShare: boolean;
   onOpen: () => void;
   onAccess: () => void;
   onEdit: () => void;
@@ -94,7 +102,7 @@ function CardMenu({
       {open && (
         <div style={cardMenu} role="menu">
           {item("Открыть", onOpen)}
-          {item("Доступ", onAccess)}
+          {canShare && item("Доступ", onAccess)}
           {isOwner && item("Редактировать", onEdit)}
           {isOwner && (archivedTab ? (
             <>

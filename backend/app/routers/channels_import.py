@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import demo_limits
 from app.channels_import import (
     ChannelsPlan,
     apply_channels_plan,
@@ -79,6 +80,8 @@ def _edge_channels(
 def _plan(
     db: Session, project: Project, payload: ChannelsImportIn, window: uuid.UUID | None
 ) -> ChannelsPlan:
+    # Демо-стенд: файл больше предела — 413 до разбора (docs/tasks/demo-mode.md).
+    demo_limits.check_texts((f.name, f.content) for f in payload.files)
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     return build_channels_plan(
         db, nodes, [(f.name, f.content) for f in payload.files], window, payload.overwrite

@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
 from app.schemas.data_import import DataImportReport
+from app.schemas.demo import DemoExcess
 from app.schemas.node import NodeSource
 from app.schemas.process_import import ProcessImportResult
 from app.schemas.project import ImportPreviewOut, MergedNodeOut
@@ -211,6 +212,9 @@ class UnifiedPreviewOut(BaseModel):
     name_source: Literal["manifest", "fields"] = "fields"
     manifest_name: str | None = None
     manifest_description: str | None = None
+    # Демо-стенд: новый проект не поместится в пределы (docs/tasks/demo-mode.md).
+    # Только в демо-режиме и только при превышении; «Создать» на фронте гаснет.
+    demo_excess: DemoExcess | None = None
 
 
 class NewNodeOut(BaseModel):
@@ -260,6 +264,8 @@ class IntoPreviewOut(BaseModel):
     # «обновите превью». Курсоров ДВА — догрузка меняет и схему, и мету.
     base_graph_rev: int = 0
     base_meta_rev: int = 0
+    # Демо-стенд: после догрузки проект выйдет за предел (docs/tasks/demo-mode.md).
+    demo_excess: DemoExcess | None = None
 
 
 class IntoApplyOut(BaseModel):

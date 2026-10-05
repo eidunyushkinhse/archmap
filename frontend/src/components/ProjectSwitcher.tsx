@@ -4,6 +4,7 @@ import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
 import { ChevronIcon, PlusIcon } from "../ui/icons";
 import CreateProjectDialog from "./project/CreateProjectDialog";
+import { noAutofill } from "../ui/noAutofill";
 
 /**
  * Свитчер проектов в шапке схемы: имя текущего проекта + дропдаун (поиск ТОЛЬКО по
@@ -55,6 +56,7 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
       {open && (
         <div style={menu} role="menu">
           <input
+            {...noAutofill("project-switcher-1")}
             autoFocus
             style={searchInput}
             placeholder="Поиск проекта"

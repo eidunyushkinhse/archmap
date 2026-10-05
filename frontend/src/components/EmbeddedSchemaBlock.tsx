@@ -190,13 +190,14 @@ export default function EmbeddedSchemaBlock({
             верхний угол) — единообразно с редактором-картой. Здесь осталась только
             «Редактировать» (переход в редактор-карту). */}
         {isArchitect && onEdit && (
-          <button className="esb-edit" onClick={onEdit}>Редактировать</button>
+          <button className="esb-edit" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
         )}
       </div>
 
       {/* Блок схемы */}
       <div
         ref={wrapRef}
+        data-tour="schema-block"
         className={"esb-wrap" + (active ? " esb-wrap--active" : "")}
         style={{ height: responsiveHeight }}
       >

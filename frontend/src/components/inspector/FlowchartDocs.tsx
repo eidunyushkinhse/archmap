@@ -19,10 +19,14 @@ import type { NodeDoc, NodeDocKind, NodeDocUpdate, NodeDocUsage, PromptVariant }
 import { nodeDocsApi } from "../../api/nodes";
 import { docsImportApi } from "../../api/docsImport";
 import { isConflict } from "../../api/client";
+import { limitMessage } from "../demo/demoLimits";
+import type { LimitMessage } from "../demo/demoLimits";
+import { LimitText } from "../demo/DemoLimitToast";
 import FlowchartDoc from "./FlowchartDoc";
 import FlowchartView, { StubCard } from "./FlowchartView";
 import DocsAgentPanel from "../docsImport/DocsAgentPanel";
 import { DocAgentSteps, DocHead, EditMenu, FlowGlyph, TwoStepDeleteButton } from "./docChrome";
+import { noAutofill } from "../../ui/noAutofill";
 
 // Событие мутации дока для истории/меты. before/after — полные доки: undo/redo
 // делаются компенсациями PATCH/POST/DELETE без base_version (паттерн U24).
@@ -93,6 +97,8 @@ export default function FlowchartDocs({
   // Ремаунт рендера/редактора после подтяжки свежего с сервера (409, агент).
   const [epoch, setEpoch] = useState(0);
   const [notice, setNotice] = useState<string | null>(null);
+  // Демо-стенд: сохранение упёрлось в предел — красная плашка в подвале, черновик цел.
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   const [saving, setSaving] = useState(false);
   const [showCode, setShowCode] = useState(false); // наблюдатель: «Показать код»
   const [usage, setUsage] = useState<NodeDocUsage[]>([]);
@@ -130,11 +136,13 @@ export default function FlowchartDocs({
   function toView() {
     setStage("view");
     setDraft(null);
+    setLimit(null);
   }
 
   function enterManual() {
     setDraft(null); // поля — свежие из схемы
     setNotice(null);
+    setLimit(null);
     setStage("manual");
   }
 
@@ -173,6 +181,7 @@ export default function FlowchartDocs({
     }
     const operation = form.operation.trim();
     setSaving(true);
+    setLimit(null);
     try {
       if (!active) {
         const doc = await nodeDocsApi.create(nodeId, {
@@ -206,7 +215,10 @@ export default function FlowchartDocs({
       onDocEvent({ type: "edit", nodeId, before: active, after: saved });
       toView();
     } catch (e: unknown) {
-      if (isConflict(e) && active) await refetchAfterConflict(errorText(e, "Конфликт версий"));
+      const refusal = limitMessage(e, "save");
+      // Предел демо-стенда: черновик остаётся, его можно сократить и сохранить снова.
+      if (refusal) setLimit(refusal);
+      else if (isConflict(e) && active) await refetchAfterConflict(errorText(e, "Конфликт версий"));
       // Прочие отказы (и 409 создания — занятое имя) оставляют черновик на месте.
       else setNotice(errorText(e, "Схема не сохранена"));
     } finally {
@@ -296,7 +308,7 @@ export default function FlowchartDocs({
         <div className="doc-fields">
           <label className="doc-field doc-field--grow">
             Имя схемы
-            <input value={form.name} onChange={(e) => edit({ name: e.target.value })} />
+            <input {...noAutofill("flowchart-docs-1")} value={form.name} onChange={(e) => edit({ name: e.target.value })} />
           </label>
           <label className="doc-field" title="Обработчик операции или сценарий клиента / фоновый воркер">
             Вид
@@ -307,7 +319,7 @@ export default function FlowchartDocs({
           {form.kind === "operation" && (
             <label className="doc-field doc-field--grow" title="Эндпоинт OpenAPI-спеки узла, который обрабатывает эта схема">
               Эндпоинт
-              <input value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
+              <input {...noAutofill("flowchart-docs-2")} value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
             </label>
           )}
         </div>
@@ -363,7 +375,9 @@ export default function FlowchartDocs({
     foot = (
       <div className="doc-foot doc-foot--bar">
         {active && <TwoStepDeleteButton key={active.id} label="Удалить схему" onConfirm={() => void remove()} />}
-        <span>Превью обновляется на лету</span>
+        {limit
+          ? <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
+          : <span>Превью обновляется на лету</span>}
       </div>
     );
   } else if (stage === "agent" && active && isArchitect) {

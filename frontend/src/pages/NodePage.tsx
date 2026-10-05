@@ -6,7 +6,7 @@ import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
 import { nodesApi, nodeDocsApi, exportApi, viewsApi } from "../api/nodes";
-import { isConflict } from "../api/client";
+import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
@@ -37,6 +37,7 @@ import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/t
 import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
+import { noAutofill } from "../ui/noAutofill";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -309,6 +310,8 @@ function NodePageInner({
       syncCursors();
       return true;
     } catch (e: unknown) {
+      // Предел демо-стенда — окну спеки: оно оставит правку и покажет отказ в подвале.
+      if (isDemoLimit(e)) throw e;
       if (!isConflict(e)) return false;
       nodesApi.get(base.id)
         .then(applyChild)
@@ -411,6 +414,7 @@ function NodePageInner({
 
             {isArchitect ? (
               <input
+                {...noAutofill("node-page-1")}
                 className="np-name-input"
                 value={patch.name}
                 onChange={(e) => patch.setName(e.target.value)}
@@ -567,6 +571,7 @@ function NodePageInner({
             <span className="np-value">
               {isArchitect ? (
                 <input
+                  {...noAutofill("node-page-2")}
                   className="np-field"
                   value={patch.role}
                   onChange={(e) => patch.setRole(e.target.value)}
@@ -595,6 +600,7 @@ function NodePageInner({
                     )
                   ) : isArchitect ? (
                     <input
+                      {...noAutofill("node-page-3")}
                       className="np-field"
                       value={patch.technology}
                       onChange={(e) => patch.setTechnology(e.target.value)}
@@ -629,6 +635,7 @@ function NodePageInner({
             <span className="np-value">
               {isArchitect ? (
                 <textarea
+                  {...noAutofill("node-page-4")}
                   className="np-field np-fieldarea"
                   value={patch.description}
                   onChange={(e) => patch.setDescription(e.target.value)}
@@ -718,7 +725,7 @@ function NodePageInner({
         {/* ── Логика (node_docs) ────────────────────────────────── */}
         {(allow.logic || legacyLogic || container.docGroups.length > 0)
           && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
-          <div className="np-card">
+          <div className="np-card" data-tour="node-logic">
             <h3 className="np-card-title">Логика</h3>
             {isContainer ? (
               <>

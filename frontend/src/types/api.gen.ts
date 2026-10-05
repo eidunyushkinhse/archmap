@@ -14,6 +14,9 @@ export interface paths {
         /**
          * Auth Config
          * @description Публичные настройки входа — без авторизации (их читают до логина).
+         *
+         *     В демо-режиме регистрации нет при любом ALLOW_SIGNUP, а фронт получает пределы
+         *     стенда: по ним он проверяет файлы до загрузки.
          */
         get: operations["auth_config_api_v1_auth_config_get"];
         put?: never;
@@ -67,7 +70,8 @@ export interface paths {
         };
         /**
          * Me
-         * @description Кто я: роль и признак администратора из БД (токен несёт роль на момент входа).
+         * @description Кто я: роль и признак администратора из БД (токен несёт роль на момент входа),
+         *     признак гостя демо-стенда и можно ли создать ещё один проект.
          */
         get: operations["me_api_v1_auth_me_get"];
         put?: never;
@@ -90,8 +94,32 @@ export interface paths {
         /**
          * Change Password
          * @description Смена своего пароля. Выданные токены остаются в силе: пароль в них не входит.
+         *     Гостю демо-стенда пароль не нужен и не известен: 403.
          */
         post: operations["change_password_api_v1_auth_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/demo/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Sandbox
+         * @description Завести песочницу: гость + его копия демо-проекта.
+         *
+         *     Адрес берётся из соединения (request.client.host). За прокси это будет адрес
+         *     прокси; заголовки прокси настраиваются на шаге упаковки стенда.
+         */
+        post: operations["start_sandbox_api_v1_demo_start_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -162,7 +190,8 @@ export interface paths {
         };
         /**
          * List Users
-         * @description Активные пользователи по алфавиту логина.
+         * @description Активные пользователи по алфавиту логина. Гостю демо-стенда — 403: делиться
+         *     песочницей ему не с кем и незачем знать чужие логины.
          */
         get: operations["list_users_api_v1_users_get"];
         put?: never;
@@ -257,7 +286,13 @@ export interface paths {
          *
          *     Тип входа определяется ПО СОДЕРЖИМОМУ (магия zip), а не по имени файла: чип
          *     может приехать из буфера обмена, а расширение — соврать. Беда отдельного
-         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому входу.
+         *     входа не 400-ит запрос, а едет ошибкой, адресованной этому
+         *     входу.
+         *
+         *     Демо-стенд (docs/tasks/demo-mode.md): файлы не больше предела (413), а в ответе
+         *     demo_excess, если проект не поместится в пределы. Для этого план пробно
+         *     применяется в транзакции, которая тут же откатывается: числа те же, что
+         *     проверит настоящее применение. Вне демо-режима БД по-прежнему не трогается.
          */
         post: operations["import_unified_preview_api_v1_projects_import_unified_preview_post"];
         delete?: never;
@@ -435,7 +470,8 @@ export interface paths {
         head?: never;
         /**
          * Update Project
-         * @description Имя, описание и «Виден всем пользователям» — только владелец.
+         * @description Имя, описание и «Виден всем пользователям» — только владелец. Гостю демо-стенда
+         *     открывать проект всем нельзя: 403.
          */
         patch: operations["update_project_api_v1_projects__project_id__patch"];
         trace?: never;
@@ -489,7 +525,8 @@ export interface paths {
         };
         /**
          * List Members
-         * @description Участники проекта: логин и роль. Видят все, у кого есть доступ к проекту.
+         * @description Участники проекта: логин и роль. Видят редактор и владелец; читателю состав
+         *     проекта не показываем (решение пользователя 2026-10-02) — 403.
          *     Владелец первым, дальше по алфавиту логина.
          */
         get: operations["list_members_api_v1_projects__project_id__members_get"];
@@ -2523,11 +2560,17 @@ export interface components {
         };
         /**
          * AuthConfig
-         * @description Публичные настройки входа (без авторизации): фронту и будущему демо-режиму.
+         * @description Публичные настройки входа (без авторизации): их читают до логина.
          */
         AuthConfig: {
             /** Allow Signup */
             allow_signup: boolean;
+            /**
+             * Demo Mode
+             * @default false
+             */
+            demo_mode: boolean;
+            demo_limits?: components["schemas"]["DemoLimits"] | null;
         };
         /**
          * BindResult
@@ -3650,6 +3693,43 @@ export interface components {
             config_params: components["schemas"]["ConfigParamSnapshot"][];
         };
         /**
+         * DemoExcess
+         * @description Превышение предела демо-проекта, которое дало бы применение импорта: что
+         *     (объекты, связи, схемы логики, процессы, объём текста в байтах), сколько вышло и
+         *     сколько можно. Есть только в демо-режиме и только при превышении; фронт по нему
+         *     гасит кнопку применения и показывает полоску «142 из 100».
+         */
+        DemoExcess: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "nodes" | "edges" | "docs" | "processes" | "text";
+            /** Actual */
+            actual: number;
+            /** Limit */
+            limit: number;
+        };
+        /**
+         * DemoLimits
+         * @description Пределы демо-стенда: фронт проверяет по ним файлы до загрузки и подписывает
+         *     отказы. Объём текста и размер файла — в байтах.
+         */
+        DemoLimits: {
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** Docs */
+            docs: number;
+            /** Processes */
+            processes: number;
+            /** Text Bytes */
+            text_bytes: number;
+            /** File Bytes */
+            file_bytes: number;
+        };
+        /**
          * DescendantEdgeAlert
          * @description Связь между узлом и его СОБСТВЕННЫМ потомком (ребёнком, внуком, любой
          *     глубины и в любую сторону): вложенность уже выражена иерархией, и стрелка
@@ -4695,6 +4775,7 @@ export interface components {
              * @default 0
              */
             base_meta_rev: number;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * IsolatedGroupAlert
@@ -4764,6 +4845,16 @@ export interface components {
             role: "architect" | "viewer";
             /** Is Admin */
             is_admin: boolean;
+            /**
+             * Is Guest
+             * @default false
+             */
+            is_guest: boolean;
+            /**
+             * Can Create Project
+             * @default false
+             */
+            can_create_project: boolean;
         };
         /**
          * MergedNodeOut
@@ -6147,6 +6238,7 @@ export interface components {
              * @default 0
              */
             graph_rev: number;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * TableUsage
@@ -6428,6 +6520,7 @@ export interface components {
             manifest_name?: string | null;
             /** Manifest Description */
             manifest_description?: string | null;
+            demo_excess?: components["schemas"]["DemoExcess"] | null;
         };
         /**
          * UnlinkedMessageAlert
@@ -6832,6 +6925,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_sandbox_api_v1_demo_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Token"];
                 };
             };
         };

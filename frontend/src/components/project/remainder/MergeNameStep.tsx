@@ -7,6 +7,7 @@ import { plural } from "../../../ui/plural";
 import type { MergeDraft } from "./drafts";
 import { lastSegment } from "./questionText";
 import Option from "./Option";
+import { noAutofill } from "../../../ui/noAutofill";
 
 interface Props {
   pair: FuzzyPairOut;
@@ -49,6 +50,7 @@ export default function MergeNameStep({ pair, draft, onDraft, onApply, onBack }:
       {draft.pick === "own" && (
         <div style={{ marginTop: 8 }}>
           <input
+            {...noAutofill("merge-name-step-1")}
             className="rq-inp"
             value={draft.own}
             aria-label="Своё имя"

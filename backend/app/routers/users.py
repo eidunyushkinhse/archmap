@@ -8,6 +8,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app import demo
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.user import User
@@ -19,7 +20,9 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.get("", response_model=list[UserBrief])
 def list_users(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ) -> list[User]:
-    """Активные пользователи по алфавиту логина."""
+    """Активные пользователи по алфавиту логина. Гостю демо-стенда — 403: делиться
+    песочницей ему не с кем и незачем знать чужие логины."""
+    demo.deny_guest(user)
     return db.query(User).filter(User.is_active.is_(True)).order_by(User.username).all()

@@ -14,7 +14,7 @@ from typing import cast
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
 
-from app import tree
+from app import demo_limits, tree
 from app.data_refs import catalog_for_project
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
@@ -171,6 +171,8 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
     СОДЕРЖИМОМУ (расширение, шапка или начало диаграммы), остальное — кандидат в
     файл спеки. Ошибки блокируют план целиком: частичный план вводил бы в
     заблуждение кнопку «Применить»."""
+    # Демо-стенд: файл больше предела — 413 до разбора (docs/tasks/demo-mode.md).
+    demo_limits.check_texts((f.name, f.content) for f in payload.files)
     entries: list[tuple[str, ParsedPkg]] = []
     assets: dict[str, str] = {}
     errors: list[str] = []

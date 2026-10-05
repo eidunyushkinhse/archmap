@@ -27,6 +27,7 @@ import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   // Объект, из окна которого открыта дозаливка: к нему уедут параметры без адреса.
@@ -182,6 +183,7 @@ export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) 
           <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
             {pkg.files.length > 0 ? (
               <textarea
+                {...noAutofill("config-agent-modal-1")}
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
@@ -196,6 +198,7 @@ export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) 
             )}
           </div>
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
+          {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю пакет…</div>}

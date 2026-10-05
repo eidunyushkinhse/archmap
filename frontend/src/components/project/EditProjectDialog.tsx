@@ -4,6 +4,7 @@ import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 /**
  * Редактирование проекта: урезанная версия CreateProjectDialog — только «Название»
@@ -47,6 +48,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
 
       <label style={labelStyle}>Название</label>
       <input
+        {...noAutofill("edit-project-dialog-1")}
         data-autofocus
         style={input}
         value={name}
@@ -56,6 +58,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
 
       <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>
       <textarea
+        {...noAutofill("edit-project-dialog-2")}
         style={{ ...input, minHeight: 60, resize: "vertical" }}
         value={description}
         onChange={(e) => setDescription(e.target.value)}

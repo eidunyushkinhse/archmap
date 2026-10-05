@@ -304,6 +304,19 @@
   color: #94a3b8;
 }
 
+/* Демо-стенд: правка упёрлась в предел (docs/tasks/demo-mode.md, экран 5).
+   Красная плашка в подвале, правка остаётся в редакторе. */
+.doc-limit {
+  flex: 1 1 320px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
 /* ── колонка редактора ──────────────────────────────────────────────────── */
 
 .doc-edcol {

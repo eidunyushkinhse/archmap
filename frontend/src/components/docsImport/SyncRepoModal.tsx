@@ -10,10 +10,10 @@
 //
 // Слева — тот же промпт «Из репозитория» (его запускают в каждом репозитории
 // системы), справа — файлы прогона, политики и план.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { PromptVariant, SyncApplyOut, SyncPreviewOut } from "../../types";
 import { projectsApi, type SyncPolicies } from "../../api/projects";
-import { ApiError } from "../../api/client";
+import { ApiError, isDemoLimit } from "../../api/client";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import { planSections, planSummary, applySummary } from "./syncPlanView";
@@ -26,6 +26,9 @@ import {
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
+import { firstTooBig, textBytes } from "../demo/demoLimits";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   projectId: string;
@@ -92,8 +95,20 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
     disabled: pkg.files.length >= MAX_FILES,
   });
 
+  // Демо-стенд (docs/tasks/demo-mode.md): файл больше предела не отправляем — сервер
+  // ответил бы 413; отказ видно сразу, план не считается.
+  const tooBig = useMemo(
+    () => firstTooBig(
+      pkg.files.filter((f) => f.content.trim() !== "")
+        .map((f) => ({ name: f.name, size: textBytes(f.content) })),
+    ),
+    [pkg.files],
+  );
+
   // Файлы убрали — план прячем ПРОИЗВОДНО, без зеркалящего эффекта.
-  const preview = pkg.hasContent ? rawPreview : null;
+  const preview = pkg.hasContent && !tooBig ? rawPreview : null;
+  // Демо-стенд: после синка проект выйдет за предел (считает сервер в превью).
+  const excess = preview?.ok ? (preview.demo_excess ?? null) : null;
 
   useEffect(() => {
     let alive = true;
@@ -112,7 +127,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   // только показ. seq отбрасывает устаревшие ответы при быстрой правке.
   useEffect(() => {
     const nonEmpty = pkg.files.filter((f) => f.content.trim() !== "");
-    if (nonEmpty.length === 0) return;
+    if (nonEmpty.length === 0 || tooBig) return;
     const seq = ++seqRef.current;
     // Все setState — асинхронно, внутри таймера/ответа (react-hooks/set-state-in-effect).
     // Побочно полезно: индикатор не мигает на каждом нажатии клавиши в редакторе.
@@ -131,7 +146,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
         });
     }, 400);
     return () => window.clearTimeout(t);
-  }, [pkg.files, policies, projectId]);
+  }, [pkg.files, policies, projectId, tooBig]);
 
   // Запрос задания + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
   // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
@@ -158,7 +173,10 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       })
       .catch((e: unknown) => {
         setApplyError(
-          e instanceof ApiError && e.status === 409
+          // Отказ по пределу демо-стенда — тоже 409, но не устаревший план.
+          isDemoLimit(e)
+            ? `Не сохранилось. ${e.message}`
+            : e instanceof ApiError && e.status === 409
             ? "Схему изменили в другом окне или другим пользователем — список ниже устарел. Закройте это окно и откройте снова."
             : "Не удалось сохранить изменения. Проверьте соединение и повторите.",
         );
@@ -167,7 +185,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   };
 
   const sections = preview?.ok ? planSections(preview) : [];
-  const canApply = !!preview?.ok && !preview.is_noop && !applying && !checking;
+  const canApply = !!preview?.ok && !preview.is_noop && !applying && !checking && excess === null;
 
   return (
     <Modal
@@ -206,6 +224,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           </div>
           <label style={labelStyle}>Подсказки агенту (необязательно)</label>
           <textarea
+            {...noAutofill("sync-repo-modal-1")}
             style={hintsArea}
             value={hints}
             onChange={(e) => setHints(e.target.value)}
@@ -279,6 +298,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               </button>
             ) : (
               <textarea
+                {...noAutofill("sync-repo-modal-2")}
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
@@ -288,6 +308,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             )}
           </div>
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
+          {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
 
           {pkg.files.length > 0 && (
             <>
@@ -309,10 +330,15 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               </div>
 
               {checking && <p style={grayLine}>Сверяем со схемой…</p>}
+              {tooBig && <div style={{ marginBottom: 10 }}><FileTooBigNotice {...tooBig} /></div>}
+              {/* Не помещается в демо: вместо плана — отказ с полоской. */}
+              {excess && (
+                <div style={{ marginBottom: 10 }}><DemoExcessNotice excess={excess} scope="project" /></div>
+              )}
               {preview && !preview.ok && (
                 <NoteList title="YAML не читается" items={preview.errors ?? []} />
               )}
-              {preview?.ok && (
+              {preview?.ok && !excess && (
                 <>
                   <p style={{ ...grayLine, color: "#0f172a", fontWeight: 600 }}>
                     {planSummary(preview)}

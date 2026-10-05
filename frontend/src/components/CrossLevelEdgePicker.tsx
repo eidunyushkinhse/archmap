@@ -5,6 +5,10 @@ import { compareByRank } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitText } from "./demo/DemoLimitToast";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   title: string;
@@ -55,6 +59,8 @@ export default function CrossLevelEdgePicker({
   const [technology, setTechnology] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Демо-стенд: проект упёрся в предел связей или объёма текста.
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // прокрутка к выбранной строке после выбора из поиска
   const pickedRowRef = useRef<HTMLDivElement | null>(null);
 
@@ -227,6 +233,7 @@ export default function CrossLevelEdgePicker({
     }
     setSaving(true);
     setError(null);
+    setLimit(null);
     try {
       const data: EdgeCreate = {
         source_id: direction === "out" ? sourceId : picked.id,
@@ -237,7 +244,9 @@ export default function CrossLevelEdgePicker({
       const created = await edgesApi.create(data);
       onCreated(created);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Ошибка создания связи");
+      const refusal = limitMessage(e, "edge");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error ? e.message : "Ошибка создания связи");
     } finally {
       setSaving(false);
     }
@@ -278,6 +287,7 @@ export default function CrossLevelEdgePicker({
 
       {/* Поиск фильтрует дерево на месте (без дропдауна) */}
       <input
+        {...noAutofill("cross-level-edge-picker-1")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Найти объект…"
@@ -303,6 +313,7 @@ export default function CrossLevelEdgePicker({
         <div>
           <label style={labelStyle}>Описание</label>
           <input
+            {...noAutofill("cross-level-edge-picker-2")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="запрос, событие…"
@@ -312,6 +323,7 @@ export default function CrossLevelEdgePicker({
         <div>
           <label style={labelStyle}>Технология</label>
           <input
+            {...noAutofill("cross-level-edge-picker-3")}
             value={technology}
             onChange={(e) => setTechnology(e.target.value)}
             placeholder="REST, Kafka…"
@@ -321,6 +333,11 @@ export default function CrossLevelEdgePicker({
       </div>
 
       {error && <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }}>{error}</p>}
+      {limit && (
+        <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }} role="alert">
+          <LimitText message={limit} />
+        </p>
+      )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={handleCreate} disabled={saving || !picked} style={primaryBtn}>
           {saving ? "Создание…" : "Создать связь"}

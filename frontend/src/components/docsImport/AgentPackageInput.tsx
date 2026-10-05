@@ -10,6 +10,7 @@ import type { DocsFilesApi } from "./useDocsFiles";
 import { MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import { chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine } from "./agentModalShared";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   pkg: DocsFilesApi;
@@ -67,6 +68,7 @@ export default function AgentPackageInput({ pkg, onRemove, dropText, pasteTitle 
       <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
         {pkg.files.length > 0 ? (
           <textarea
+            {...noAutofill("agent-package-input-1")}
             style={fileArea}
             value={pkg.files[pkg.active]?.content ?? ""}
             onChange={(e) => pkg.setText(pkg.active, e.target.value)}
@@ -81,6 +83,10 @@ export default function AgentPackageInput({ pkg, onRemove, dropText, pasteTitle 
       </div>
       {drop.error && (
         <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>
+      )}
+      {/* Демо-стенд: файл больше предела не взят (docs/tasks/demo-mode.md). */}
+      {pkg.sizeError && (
+        <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>
       )}
     </>
   );

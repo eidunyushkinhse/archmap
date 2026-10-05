@@ -3,6 +3,10 @@ import type { Edge, EdgeCreate } from "../types";
 import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitText } from "./demo/DemoLimitToast";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   // Концы связи уже определены жестом: стрелку протянули от source к target (хэндл).
@@ -30,10 +34,13 @@ export default function EdgeQuickCreate({
   const [technology, setTechnology] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Демо-стенд: проект упёрся в предел связей или объёма текста.
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
 
   async function handleCreate() {
     setSaving(true);
     setError(null);
+    setLimit(null);
     try {
       const data: EdgeCreate = {
         source_id: sourceId,
@@ -44,7 +51,9 @@ export default function EdgeQuickCreate({
       const created = await edgesApi.create(data);
       onCreated(created);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Ошибка создания связи");
+      const refusal = limitMessage(e, "edge");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error ? e.message : "Ошибка создания связи");
     } finally {
       setSaving(false);
     }
@@ -59,6 +68,7 @@ export default function EdgeQuickCreate({
 
       <label style={labelStyle}>Описание</label>
       <input
+        {...noAutofill("edge-quick-create-1")}
         value={label}
         onChange={(e) => setLabel(e.target.value)}
         placeholder="запрос, событие..."
@@ -67,6 +77,7 @@ export default function EdgeQuickCreate({
       />
       <label style={labelStyle}>Технология</label>
       <input
+        {...noAutofill("edge-quick-create-2")}
         value={technology}
         onChange={(e) => setTechnology(e.target.value)}
         placeholder="REST, gRPC, Kafka..."
@@ -74,6 +85,11 @@ export default function EdgeQuickCreate({
       />
 
       {error && <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }}>{error}</p>}
+      {limit && (
+        <p style={{ color: "#dc2626", margin: "8px 0", fontSize: 13 }} role="alert">
+          <LimitText message={limit} />
+        </p>
+      )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={handleCreate} disabled={saving} style={primaryBtn}>
           {saving ? "Создание..." : "Создать связь"}

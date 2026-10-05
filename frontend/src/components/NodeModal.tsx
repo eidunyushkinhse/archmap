@@ -8,6 +8,11 @@ import { labelStyle, input, primaryBtn } from "../ui/styles";
 import { useScrollEdges } from "../ui/useScrollEdges";
 import { CloseIcon } from "../ui/icons";
 import "../ui/modalShell.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitText } from "./demo/DemoLimitToast";
+import { emitTourEvent } from "./tour/tourBus";
+import { noAutofill } from "../ui/noAutofill";
 
 // Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
 // панель схемы (inspector/NodeInspector) — здесь осталась только форма нового объекта,
@@ -41,6 +46,8 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
   const [status, setStatus] = useState<NodeStatus>("existing");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Демо-стенд: проект упёрся в предел — тот же текст, что в тосте холста.
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
 
   // Форма не редактируется: при создании — из шаблона. Используется для скрытия полей у person.
   const shape: NodeShape = templateShape ?? "service";
@@ -56,6 +63,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
     }
     setSaving(true);
     setError(null);
+    setLimit(null);
     try {
       const data: NodeCreate = {
         name: name.trim(),
@@ -77,9 +85,13 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
       if (intoFrame && initialPos) {
         await viewsApi.saveLayout(posView ?? null, { [saved.id]: { x: initialPos.x, y: initialPos.y } });
       }
+      // Обучающий тур демо-стенда ждёт созданные объекты (docs/tasks/demo-tour.md).
+      emitTourEvent({ type: "node-created", id: saved.id, name: saved.name, shape: saved.shape, parentId: saved.parent_id ?? null });
       onSaved(saved, true);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Ошибка сохранения");
+      const refusal = limitMessage(e, "node");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error ? e.message : "Ошибка сохранения");
     } finally {
       setSaving(false);
     }
@@ -96,18 +108,18 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
       </div>
 
       <label style={labelStyle}>Название *</label>
-      <input value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
+      <input {...noAutofill("node-modal-1")} value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
 
       <label style={labelStyle}>Описание</label>
-      <textarea value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
+      <textarea {...noAutofill("node-modal-2")} value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
 
       <label style={labelStyle}>Роль</label>
-      <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="сервис, БД, брокер..." style={input} />
+      <input {...noAutofill("node-modal-3")} value={role} onChange={(e) => setRole(e.target.value)} placeholder="сервис, БД, брокер..." style={input} />
 
       {shape !== "person" && (
         <>
           <label style={labelStyle}>Технология</label>
-          <input value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="Python, Kafka, Redis..." style={input} />
+          <input {...noAutofill("node-modal-4")} value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="Python, Kafka, Redis..." style={input} />
         </>
       )}
 
@@ -140,6 +152,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
       <div ref={bottomRef} style={{ height: 1 }} aria-hidden />
       <div className={footerClass}>
         {error && <p style={errStyle}>{error}</p>}
+        {limit && <p style={errStyle} role="alert"><LimitText message={limit} /></p>}
         <div style={{ display: "flex", gap: 8 }}>
           <button onClick={handleSave} disabled={saving} style={primaryBtn}>
             {saving ? "Сохранение..." : "Создать"}

@@ -7,6 +7,7 @@ import { ShapeGlyph } from "./nodeTree.shared";
 import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
+import { noAutofill } from "../ui/noAutofill";
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
@@ -556,6 +557,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
             ) : (
               <div style={searchWrap}>
                 <input
+                  {...noAutofill("node-tree-panel-1")}
                   style={searchInput}
                   type="text"
                   placeholder="Поиск по имени…"
@@ -569,7 +571,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
             )}
 
             {/* Результаты поиска или дерево */}
-            <div ref={treeScrollRef} style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
+            <div ref={treeScrollRef} data-tour="tree" style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
               {searchResults !== null ? (
                 searching ? (
                   <div style={hint}>Поиск…</div>
@@ -607,10 +609,11 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
                 onToggle={() => toggleSection("add")}
               >
                 <div style={paletteHint}>Перетащите форму на схему</div>
-                <div style={palette}>
+                <div style={palette} data-tour="palette">
                   {NODE_TEMPLATES.map((t) => (
                     <div
                       key={t.shape}
+                      data-tour={`palette:${t.shape}`}
                       className="template-card"
                       draggable
                       onDragStart={(e) => onTemplateDragStart(e, t.shape)}

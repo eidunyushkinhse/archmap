@@ -7,7 +7,7 @@
 // «не позвал колбэк» здесь такое же важное утверждение, как «позвал».
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Edge as RFEdge, Connection } from "@xyflow/react";
-import { resetHarness, pipeline, rfProps } from "./levelGraphHarness";
+import { resetHarness, pipeline, rfProps, edgeConnectMock } from "./levelGraphHarness";
 import { renderGraph } from "./levelGraphRender";
 import type { FrameRect } from "../graph/layout/frames";
 
@@ -101,6 +101,17 @@ describe("LevelGraph — перепривязка конца-в-рамку", () 
     reconnect(edgeToFrame(["e1"]), { source: "X", target: "K", sourceHandle: null, targetHandle: null });
 
     expect(onReconnectFrameEnd).not.toHaveBeenCalled();
+  });
+
+  it("начало и конец перевеса уходят в поток протягивания — он гасит «Новую связь»", async () => {
+    // RF зовёт для перевеса общие onConnectStart/onConnectEnd; метку перевеса ставят
+    // onReconnectStart/End (регресс: перевес открывал ещё и окно «Новая связь»,
+    // поведение самой метки — useEdgeConnect.reconnect.test.ts).
+    await renderGraph({ edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd: vi.fn() } });
+
+    expect(rfProps.current.onReconnectStart).toBe(edgeConnectMock.handleReconnectStart);
+    expect(rfProps.current.onReconnectEnd).toBe(edgeConnectMock.handleReconnectEnd);
+    expect(rfProps.current.onConnectEnd).toBe(edgeConnectMock.handleConnectEnd);
   });
 
   it("оба конца не изменились — не жест перепривязки", async () => {

@@ -1,13 +1,18 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { clearToken, fetchMe, getMe, getToken, subscribeMe } from "./api/auth";
-import { onAccountBlocked } from "./api/client";
+import {
+  clearToken, fetchAuthConfig, fetchMe, getAuthConfig, getIsGuest, getMe, getToken, subscribeMe,
+} from "./api/auth";
+import { onAccountBlocked, onUnauthorized } from "./api/client";
 import { setCurrentProjectId } from "./api/projectScope";
+import type { AuthConfig } from "./types";
+import DemoLoginPage from "./pages/DemoLoginPage";
 import LoginPage from "./pages/LoginPage";
 import ProjectsPage from "./pages/ProjectsPage";
 import ProjectShell from "./pages/ProjectShell";
 import MapEditorPage from "./pages/MapEditorPage";
 import ProjectAccessGate from "./pages/ProjectAccessGate";
 import UsersPage from "./pages/UsersPage";
+import DemoTour from "./components/tour/DemoTour";
 
 // Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — страница проекта,
 // #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта,
@@ -60,8 +65,12 @@ function routeFromHash(): Route {
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
   const [route, setRoute] = useState<Route>(routeFromHash);
-  // Почему выкинули на экран входа (блокировка) — текст для LoginPage.
+  // Почему выкинули на экран входа (блокировка, удалённая песочница) — текст плашки.
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  // Публичные настройки входа: демо-стенд показывает свой экран входа
+  // (docs/tasks/demo-mode.md). До ответа экран входа не рисуем, чтобы не мелькнуть
+  // формой логина там, где её нет.
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(getAuthConfig);
   // «Кто я» (роль и признак администратора из БД) — внешний стор api/auth. Подписка
   // перерисовывает дерево, когда ответ /auth/me пришёл: страницы зовут синхронный
   // getUserRole() в рендере и видят свежую роль, а не записанную в токен при входе.
@@ -80,8 +89,14 @@ export default function App() {
     fetchMe().catch(() => {});
   }, [authenticated]);
 
-  // Учётку заблокировали, пока человек работал: любой запрос получил 401 с этим
-  // текстом — выходим на экран входа и показываем причину.
+  useEffect(() => {
+    let alive = true;
+    void fetchAuthConfig().then((cfg) => { if (alive) setAuthConfig(cfg); });
+    return () => { alive = false; };
+  }, []);
+
+  // Учётку заблокировали (или песочницу гостя убрали), пока человек работал: любой
+  // запрос получил 401 с этим текстом — выходим на экран входа и показываем причину.
   useEffect(
     () =>
       onAccountBlocked((message) => {
@@ -93,6 +108,20 @@ export default function App() {
       }),
     [],
   );
+
+  // Демо-стенд: прочий 401 (токен гостя истёк) — на экран демо-входа без плашки.
+  // Выйти гостю иначе нечем: меню профиля у него нет. Вне демо ничего не меняется.
+  const demoMode = authConfig?.demo_mode ?? false;
+  useEffect(() => {
+    if (!demoMode) return;
+    return onUnauthorized(() => {
+      clearToken();
+      setCurrentProjectId(null);
+      setLoginNotice(null);
+      setAuthenticated(false);
+      window.location.hash = "/projects";
+    });
+  }, [demoMode]);
 
   function navigate(hash: string) {
     window.location.hash = hash;
@@ -107,15 +136,19 @@ export default function App() {
   }
 
   if (!authenticated) {
-    return (
-      <LoginPage
-        notice={loginNotice}
-        onLogin={() => { setLoginNotice(null); setAuthenticated(true); }}
-      />
-    );
+    if (authConfig === null) return null;
+    const onLogin = () => { setLoginNotice(null); setAuthenticated(true); };
+    return authConfig.demo_mode
+      ? <DemoLoginPage key={loginNotice ?? ""} notice={loginNotice} onLogin={onLogin} />
+      : <LoginPage notice={loginNotice} onLogin={onLogin} />;
   }
 
-  if (route.name === "users") {
+  // Обучающий тур — только гостю демо-стенда (docs/tasks/demo-tour.md): слой поверх
+  // любой страницы, сам следит за маршрутом.
+  const tour = demoMode && getIsGuest() ? <DemoTour /> : null;
+
+  // Гостю демо-стенда экран «Пользователи» недоступен: ведём на «Все проекты».
+  if (route.name === "users" && !getIsGuest()) {
     return <UsersPage onAllProjects={() => navigate("/projects")} onLogout={handleLogout} />;
   }
 
@@ -126,55 +159,61 @@ export default function App() {
   if (route.name === "map" || route.name === "node" || route.name === "project-home") {
     const pid = route.projectId;
     return (
-      <ProjectAccessGate key={pid} projectId={pid}>
-        {route.name === "map" ? (
-          // pages_pivot: редактор-карта
-          <MapEditorPage
-            key={`${pid}:${route.nodeId ?? "root"}:${route.locate ?? ""}`}
-            projectId={pid}
-            nodeId={route.nodeId}
-            locateNodeId={route.locate}
-            onAllProjects={() => navigate("/projects")}
-            onDone={() => {
-              // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
-              // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).
-              const ret = route.ret;
-              if (ret?.startsWith("node:")) navigate(`/p/${pid}/nodes/${ret.slice(5)}`);
-              else if (ret === "project") navigate(`/p/${pid}`);
-              else navigate(`/p/${pid}`);
-            }}
-            onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
-          />
-        ) : (
-          // pages_pivot: страница узла или страница проекта (ProjectShell)
-          <ProjectShell
-            key={pid}
-            projectId={pid}
-            nodeId={route.name === "node" ? route.nodeId : null}
-            onLogout={handleLogout}
-            onOpenUsers={() => navigate("/admin/users")}
-            onAllProjects={() => navigate("/projects")}
-            onSwitchProject={(id) => navigate(`/p/${id}`)}
-            onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
-            onNavigateProject={() => navigate(`/p/${pid}`)}
-            onNavigateMap={(level, opts) => {
-              const q = new URLSearchParams();
-              if (opts?.locate) q.set("locate", opts.locate);
-              if (opts?.ret) q.set("ret", opts.ret);
-              const qs = q.toString();
-              navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
-            }}
-          />
-        )}
-      </ProjectAccessGate>
+      <>
+        <ProjectAccessGate key={pid} projectId={pid}>
+          {route.name === "map" ? (
+            // pages_pivot: редактор-карта
+            <MapEditorPage
+              key={`${pid}:${route.nodeId ?? "root"}:${route.locate ?? ""}`}
+              projectId={pid}
+              nodeId={route.nodeId}
+              locateNodeId={route.locate}
+              onAllProjects={() => navigate("/projects")}
+              onDone={() => {
+                // Ф12: возврат туда, откуда открыли (роут при закрытии не меняется).
+                // ret = "node:<id>" | "project" | null (по умолчанию — страница уровня).
+                const ret = route.ret;
+                if (ret?.startsWith("node:")) navigate(`/p/${pid}/nodes/${ret.slice(5)}`);
+                else if (ret === "project") navigate(`/p/${pid}`);
+                else navigate(`/p/${pid}`);
+              }}
+              onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
+            />
+          ) : (
+            // pages_pivot: страница узла или страница проекта (ProjectShell)
+            <ProjectShell
+              key={pid}
+              projectId={pid}
+              nodeId={route.name === "node" ? route.nodeId : null}
+              onLogout={handleLogout}
+              onOpenUsers={() => navigate("/admin/users")}
+              onAllProjects={() => navigate("/projects")}
+              onSwitchProject={(id) => navigate(`/p/${id}`)}
+              onNavigateNode={(nodeId) => navigate(`/p/${pid}/nodes/${nodeId}`)}
+              onNavigateProject={() => navigate(`/p/${pid}`)}
+              onNavigateMap={(level, opts) => {
+                const q = new URLSearchParams();
+                if (opts?.locate) q.set("locate", opts.locate);
+                if (opts?.ret) q.set("ret", opts.ret);
+                const qs = q.toString();
+                navigate(level ? `/p/${pid}/map/${level}${qs ? `?${qs}` : ""}` : `/p/${pid}/map${qs ? `?${qs}` : ""}`);
+              }}
+            />
+          )}
+        </ProjectAccessGate>
+        {tour}
+      </>
     );
   }
 
   return (
-    <ProjectsPage
-      onOpenProject={(id) => navigate(`/p/${id}`)}
-      onLogout={handleLogout}
-      onOpenUsers={() => navigate("/admin/users")}
-    />
+    <>
+      <ProjectsPage
+        onOpenProject={(id) => navigate(`/p/${id}`)}
+        onLogout={handleLogout}
+        onOpenUsers={() => navigate("/admin/users")}
+      />
+      {tour}
+    </>
   );
 }

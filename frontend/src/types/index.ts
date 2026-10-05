@@ -232,6 +232,11 @@ export type Token = Schemas["Token"];
 // Текущий пользователь (GET /auth/me): роль и признак администратора — из БД,
 // а не из токена (токен несёт роль на момент входа).
 export type Me = Schemas["MeResponse"];
+// Публичные настройки входа (GET /auth/config, без авторизации) и демо-стенд
+// (docs/tasks/demo-mode.md): пределы проекта и файла, превышение в превью импорта.
+export type AuthConfig = Schemas["AuthConfig"];
+export type DemoLimits = Schemas["DemoLimits"];
+export type DemoExcess = Schemas["DemoExcess"];
 // Админка пользователей (/admin/users): строка списка, создание, частичная правка.
 export type AdminUser = Schemas["AdminUser"];
 export type AdminUserCreate = Schemas["AdminUserCreate"];

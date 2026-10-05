@@ -26,6 +26,7 @@ import {
 import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
 import AgentPackageInput from "./AgentPackageInput";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 // Режим панели. «doc» несёт имя схемы, которую обновляет пакет.
 export type DocsAgentPanelMode =
@@ -381,6 +382,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
                 extra: docName !== null ? undefined : (
                   <>
                     <input
+                      {...noAutofill("docs-agent-panel-1")}
                       style={nameInput}
                       value={nameOf(l.source, l.name)}
                       onChange={(e) => edit(l.source, { name: e.target.value || undefined })}

@@ -16,6 +16,7 @@ import { answerFromDraft } from "./drafts";
 import { SwapIcon } from "../../../ui/icons";
 import ObjectCombobox from "./ObjectCombobox";
 import { PathLabel } from "./Option";
+import { noAutofill } from "../../../ui/noAutofill";
 
 interface Props {
   /** Всё слитое дерево: сосед выбирается по нему. */
@@ -67,6 +68,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
             <div>
               <div className="rq-flbl">Описание</div>
               <input
+                {...noAutofill("new-edge-form-1")}
                 className="rq-inp"
                 value={row.label}
                 aria-label={`Описание связи — ${row.nodePath}`}
@@ -77,6 +79,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
             <div>
               <div className="rq-flbl">Технология</div>
               <input
+                {...noAutofill("new-edge-form-2")}
                 className="rq-inp"
                 value={row.tech}
                 aria-label={`Технология связи — ${row.nodePath}`}

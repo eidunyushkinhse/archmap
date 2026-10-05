@@ -14,6 +14,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app import demo_limits
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
 from app.docs_import import _node_paths
@@ -69,6 +70,8 @@ def recon_prompt(
 
 
 def _plan(db: Session, project: Project, payload: ReconImportIn) -> ReconPlan:
+    # Демо-стенд: файл больше предела — 413 до разбора (docs/tasks/demo-mode.md).
+    demo_limits.check_texts((f.name, f.content) for f in payload.files)
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     return build_recon_plan(
         db, nodes, [(f.name, f.content) for f in payload.files], payload.node_id

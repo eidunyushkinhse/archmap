@@ -29,6 +29,7 @@ import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 // Группы превью — в порядке «что сделаем → что уже есть → расхождение». Подписи
 // русские и говорят действием, а не кодом: человек читает их, а не Literal бэка.
@@ -257,6 +258,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
           <div className={drop.over ? "drop-zone--over" : undefined} {...drop.bind}>
             {pkg.files.length > 0 ? (
               <textarea
+                {...noAutofill("recon-agent-modal-1")}
                 style={fileArea}
                 value={pkg.files[pkg.active]?.content ?? ""}
                 onChange={(e) => pkg.setText(pkg.active, e.target.value)}
@@ -271,6 +273,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
             )}
           </div>
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
+          {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
             {checking && <div style={grayLine}>Проверяю перечень…</div>}

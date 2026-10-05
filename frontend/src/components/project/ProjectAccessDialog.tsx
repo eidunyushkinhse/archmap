@@ -6,6 +6,7 @@ import type { Project, ProjectMember, UserBrief } from "../../types";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import Modal from "../../ui/Modal";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 /**
  * Окно «Доступ к проекту» (docs/tasks/project-access.md): видимость всем,
@@ -218,6 +219,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
             <label style={labelStyle} htmlFor="member-login">Добавить участника</label>
             <div style={inlineRow}>
               <input
+                {...noAutofill("project-access-dialog-1")}
                 id="member-login"
                 style={{ ...input, marginBottom: 0, flex: 1 }}
                 list="member-candidates"

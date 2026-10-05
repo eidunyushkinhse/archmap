@@ -10,6 +10,7 @@ import { Chevron, ShapeGlyph } from "../nodeTree.shared";
 import { IcoSearch } from "./icons";
 import { BPT } from "./tokens";
 import "../NodeTreePanel.css";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   added: Set<string>; // node_id уже добавленных участников
@@ -128,6 +129,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
           <IcoSearch s={14} />
         </span>
         <input
+          {...noAutofill("participant-picker-1")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Фильтр по имени…"

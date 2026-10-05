@@ -69,6 +69,7 @@ import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/u
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
+import { emitTourEvent } from "./tour/tourBus";
 
 // --- Основной компонент ---
 
@@ -401,10 +402,13 @@ function LevelGraphInner({
     pendingToggleRef.current.set(id, performance.now());
     fn(id);
   }, []);
+  // Раскрытие лупой ждёт обучающий тур демо-стенда (шина tourBus, docs/tasks/demo-tour.md).
   const expandContainer = useCallback(
-    (id: string) => guardedToggle(id, rawExpandContainer), [guardedToggle, rawExpandContainer]);
+    (id: string) => guardedToggle(id, (x) => { rawExpandContainer(x); emitTourEvent({ type: "node-expanded", id: x }); }),
+    [guardedToggle, rawExpandContainer]);
   const expandLocalContainer = useCallback(
-    (id: string) => guardedToggle(id, rawExpandLocalContainer), [guardedToggle, rawExpandLocalContainer]);
+    (id: string) => guardedToggle(id, (x) => { rawExpandLocalContainer(x); emitTourEvent({ type: "node-expanded", id: x }); }),
+    [guardedToggle, rawExpandLocalContainer]);
   const collapseContainer = useCallback(
     (id: string) => guardedToggle(id, rawCollapseContainer), [guardedToggle, rawCollapseContainer]);
 
@@ -542,7 +546,10 @@ function LevelGraphInner({
         // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
         const committed = handleNodeDragStop(e, n, ns);
         if (!committed) liveDragHandles.restore();
-        else dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
+        else {
+          dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
+          emitTourEvent({ type: "node-drag-end", ids: [n.id] }); // ждёт обучающий тур демо
+        }
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
@@ -560,7 +567,10 @@ function LevelGraphInner({
       try {
         const committed = handleSelectionDragStop(e, ns);
         if (!committed) liveDragHandles.restore();
-        else dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
+        else {
+          dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
+          emitTourEvent({ type: "node-drag-end", ids: ns.map((x) => x.id) }); // ждёт обучающий тур демо
+        }
       } finally {
         liveDragHandles.end();
         history.commitGroup("Перемещение группы");
@@ -641,13 +651,15 @@ function LevelGraphInner({
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
-  const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
-    useEdgeConnect({
-      isArchitect, disabled: !canStructure, resolveTarget,
-      onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
-      onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
-      onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
-    });
+  const {
+    connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection,
+    handleReconnectStart, handleReconnectEnd,
+  } = useEdgeConnect({
+    isArchitect, disabled: !canStructure, resolveTarget,
+    onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
+    onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
+    onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
+  });
 
   // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
   // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
@@ -1412,6 +1424,11 @@ function LevelGraphInner({
         // Перепривязка конца-в-рамку (см. handleReconnect): единственный ручной жест
         // над геометрией связи; остальные рёбра помечены reconnectable:false.
         onReconnect={handleReconnect}
+        // RF ведёт перевес тем же протягиванием и зовёт для него общие onConnectStart/
+        // onConnectEnd: метка перевеса гасит в useEdgeConnect поток НОВОЙ связи (иначе
+        // отпускание конца на узле открывало ещё и окно «Новая связь»).
+        onReconnectStart={handleReconnectStart}
+        onReconnectEnd={handleReconnectEnd}
         // 0 — не «нулевая зона захвата», а отказ от собственного СДВИГА RF: свой
         // радиус он использует и как смещение круга-ручки наружу, отчего ручка
         // вставала рядом с рамкой. Размер ручки задаёт CSS (см. LevelGraph.css,

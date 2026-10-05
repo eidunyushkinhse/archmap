@@ -21,6 +21,10 @@ import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable, TableUsage } from "../types";
 import "./dbStructure.css";
+import { limitMessage } from "./demo/demoLimits";
+import type { LimitMessage } from "./demo/demoLimits";
+import { LimitNotice } from "./demo/DemoLimitNotice";
+import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
@@ -43,6 +47,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   const [tables, setTables] = useState<DbTable[] | null>(null);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [limit, setLimit] = useState<LimitMessage | null>(null);
   // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
   // переключатель показа, а не второй источник правды и не отдельное хранилище.
   const [showEr, setShowEr] = useState(false);
@@ -84,11 +89,16 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   // лень, а необходимость: CAS-версия таблицы и порядок колонок приходят с сервера,
   // и локальная склейка разъезжалась бы с ними на первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
+    setLimit(null);
     try {
       await fn();
       setError(null);
     } catch (e) {
-      setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
+      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
+      const refusal = limitMessage(e, "save");
+      if (refusal) setLimit(refusal);
+      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
     }
     setSeq((n) => n + 1);
   }, [setSeq]);
@@ -166,9 +176,10 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   }
 
   return (
-    <div className="np-card">
+    <div className="np-card" data-tour="node-structure">
       <h3 className="np-card-title">Структура</h3>
       {error && <p className="np-warn">{error}</p>}
+      {limit && <LimitNotice message={limit} />}
       {(tables ?? []).length > 0 && (
         <div className="dbs-ertoggle">
           <button type="button" className="np-addbtn" onClick={() => setShowEr((v) => !v)}>
@@ -309,6 +320,7 @@ function TableCard({
         </button>
         {isArchitect ? (
           <input
+            {...noAutofill("db-structure-section-1")}
             className="np-field dbs-name"
             defaultValue={table.name}
             key={`n:${table.id}:${table.version}`}
@@ -319,6 +331,7 @@ function TableCard({
         )}
         {isArchitect ? (
           <input
+            {...noAutofill("db-structure-section-2")}
             className="np-field dbs-schema"
             // РАЗДЕЛ — намеренно нейтральное слово: у каждого движка свой термин для
             // этого уровня (schema в PostgreSQL, database в MySQL/Mongo/ClickHouse,
@@ -340,6 +353,7 @@ function TableCard({
       </div>
       {isArchitect ? (
         <input
+          {...noAutofill("db-structure-section-3")}
           className="np-field dbs-desc"
           placeholder="назначение таблицы"
           defaultValue={table.description ?? ""}
@@ -444,9 +458,9 @@ function ColumnRow({
   }
   return (
     <div className="dbs-col">
-      <input className="np-field dbs-cname" defaultValue={column.name}
+      <input {...noAutofill("db-structure-section-4")} className="np-field dbs-cname" defaultValue={column.name}
         onBlur={(e) => { if (e.target.value !== column.name) patch({ name: e.target.value }); }} />
-      <input className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
+      <input {...noAutofill("db-structure-section-5")} className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
         onBlur={(e) => { if (e.target.value !== column.type) patch({ type: e.target.value }); }} />
       {/* Подписей «PK» и «NOT NULL» в строках больше нет: их называет шапка, а в
           каждой строке они повторялись столбиком и читались как шум. */}
@@ -463,7 +477,7 @@ function ColumnRow({
         <option value="">без ссылки</option>
         {fkOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
       </select>
-      <input className="np-field dbs-cdesc" placeholder="смысл значения"
+      <input {...noAutofill("db-structure-section-6")} className="np-field dbs-cdesc" placeholder="смысл значения"
         defaultValue={column.description ?? ""}
         onBlur={(e) => {
           if (e.target.value !== (column.description ?? "")) patch({ description: e.target.value });

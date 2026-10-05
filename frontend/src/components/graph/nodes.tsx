@@ -294,6 +294,7 @@ function ExpandLens({ onExpand, limited, style }: {
     <>
       <button
         className="nodrag"
+        data-tour="node-expand"
         onClick={(e) => { e.stopPropagation(); if (limited) showHint(); else onExpand?.(); }}
         style={limited ? { ...style, opacity: 0.45, cursor: "help" } : style}
         title={limited ? LENS_LIMIT_HINT : "Раскрыть содержимое"}
@@ -372,6 +373,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
           {data.onDrillDown && (
             <button
               className="nodrag"
+              data-tour="node-enter"
               onClick={(e) => { e.stopPropagation(); data.onDrillDown?.(data.appNode); }}
               style={btnStyle}
               title="Войти"

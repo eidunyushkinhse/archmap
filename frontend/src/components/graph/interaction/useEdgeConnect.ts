@@ -10,8 +10,14 @@
 //   • на пустой холст → стрелка просто исчезает.
 //
 // Хэндл выигрывает у «зоны входа»: его обрабатывает onConnect ещё до onConnectEnd
-// (madeRef глушит дубль). Реконнект концов существующих рёбер умер вместе с ручным
-// слоем стрелок (2026-07-09) — этот поток единственный.
+// (madeRef глушит дубль).
+//
+// ПЕРЕПРИВЯЗКА конца-в-рамку (edge.md E1a) — НЕ новая связь. React Flow ведёт её тем
+// же жестом протягивания и зовёт для неё ОБЩИЕ onConnectStart/onConnectEnd (а вместо
+// onConnect — onReconnect). Без различения конец перевеса проходил здесь как «дроп на
+// тело листа» и открывал окно «Новая связь» (неподвижный конец → узел под курсором).
+// Поэтому жест, начатый с ручки конца (onReconnectStart приходит РАНЬШЕ onConnectStart),
+// этот поток не взводит: ни подсветки зон входа, ни плитки «вне уровня», ни создания.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { OnConnectStartParams, Connection, Edge as RFEdge } from "@xyflow/react";
 
@@ -66,6 +72,8 @@ export function useEdgeConnect({
   // в текущем протягивании конец защёлкнулся на хэндл (onConnect уже создал связь) —
   // тогда onConnectEnd не должен трактовать дроп ещё и как «зону входа»
   const madeRef = useRef(false);
+  // текущий жест — перепривязка конца существующей связи, а не новая связь
+  const reconnectRef = useRef(false);
   // идёт протягивание новой связи — для подсветки «зон входа» (CSS-класс на холсте)
   const [connecting, setConnecting] = useState(false);
 
@@ -149,8 +157,22 @@ export function useEdgeConnect({
   // размонтирование посреди драга — снять слушатель и подсветку
   useEffect(() => stopTracking, [stopTracking]);
 
+  // Начало перевеса конца (RF onReconnectStart): зовётся в том же такте ПЕРЕД общим
+  // onConnectStart — метка успевает погасить взвод потока новой связи.
+  const handleReconnectStart = useCallback(() => {
+    reconnectRef.current = true;
+  }, []);
+
+  // Конец перевеса (RF onReconnectEnd, ПОСЛЕ общего onConnectEnd): метку снимаем и
+  // здесь — на случай, если onConnectEnd до нас не дошёл.
+  const handleReconnectEnd = useCallback(() => {
+    reconnectRef.current = false;
+  }, []);
+
   const handleConnectStart = useCallback(
     (_e: unknown, params: OnConnectStartParams) => {
+      // перевес конца — не новая связь: поток создания не взводим
+      if (reconnectRef.current) return;
       if (!enabled || !params.nodeId) return;
       sourceRef.current = params.nodeId;
       sourceHandleRef.current = params.handleId ?? null;
@@ -183,6 +205,10 @@ export function useEdgeConnect({
 
   const handleConnectEnd = useCallback(
     (event: MouseEvent | TouchEvent) => {
+      // Конец перевеса: запись уже сделал onReconnect (или жест отменён промахом) —
+      // новую связь из этого отпускания не создаём.
+      const reconnect = reconnectRef.current;
+      reconnectRef.current = false;
       stopTracking();
       const made = madeRef.current;
       madeRef.current = false;
@@ -191,7 +217,7 @@ export function useEdgeConnect({
       sourceRef.current = null;
       const sourceHandle = sourceHandleRef.current;
       sourceHandleRef.current = null;
-      if (made) return; // хэндл уже обработан в onConnect
+      if (made || reconnect) return; // хэндл уже обработан в onConnect / это был перевес
       if (!enabled || !source) return;
 
       // Цель определяем по узлу ПОД КУРСОРОМ (надёжнее радиуса хэндлов — «бросай
@@ -224,5 +250,8 @@ export function useEdgeConnect({
     [enabled, resolveTarget, onCreate, onInto, onExitUp, stopTracking],
   );
 
-  return { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection };
+  return {
+    connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection,
+    handleReconnectStart, handleReconnectEnd,
+  };
 }

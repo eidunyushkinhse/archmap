@@ -4,8 +4,7 @@
 // сессию закрыли без спроса.
 import { useState } from "react";
 import { login, saveToken } from "../api/auth";
-import LoginScenePreview from "../components/login/LoginScenePreview";
-import BrandLink from "../ui/BrandLink";
+import LoginPitch from "../components/login/LoginPitch";
 import "./LoginPage.css";
 
 interface Props {
@@ -45,16 +44,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
 
   return (
     <div className="login">
-      <section className="login-left">
-        <BrandLink />
-        <div className="login-pitch">
-          <h1>Документация, понятная вам и вашим агентам</h1>
-          <p>Архитектура, логика и бизнес-процессы в одном месте.</p>
-        </div>
-        <div className="login-canvas">
-          <LoginScenePreview />
-        </div>
-      </section>
+      <LoginPitch />
 
       <main className="login-right">
         <div className="login-formbox">

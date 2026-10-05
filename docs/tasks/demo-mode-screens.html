@@ -1,0 +1,270 @@
+<title>Демо-режим ArchMap</title>
+<style>
+  /* Одна светлая тема — как в самом приложении (slate + синий #2563eb). */
+  :root {
+    --bg: #f8fafc; --surface: #fff; --line: #e2e8f0; --line-soft: #eef2f6;
+    --ink: #0f172a; --ink-2: #475569; --ink-3: #64748b; --ink-4: #94a3b8;
+    --accent: #2563eb; --accent-ink: #1d4ed8; --accent-soft: #eff6ff; --accent-line: #bfdbfe;
+    --danger: #b91c1c; --danger-soft: #fef2f2; --danger-line: #fecaca;
+    --warn: #92400e; --warn-soft: #fffbeb; --warn-line: #fde68a;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  body { background: #e9eef4; color: var(--ink); padding-inline: 16px; padding-block: 20px 48px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header.doc h1 { font-size: 20px; margin: 0 0 6px; }
+  header.doc p { margin: 0 0 16px; color: var(--ink-2); font-size: 14px; line-height: 1.5; max-width: 70ch; }
+  .limits { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 18px; }
+  .limits span { background: #fff; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .limits b { color: var(--ink); }
+  nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  nav.tabs button { border: 1px solid var(--line); background: #fff; color: var(--ink-3); font: inherit; font-size: 13px; font-weight: 600; padding: 7px 12px; border-radius: 999px; cursor: pointer; }
+  nav.tabs button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+  button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .note { font-size: 13px; color: var(--ink-2); background: #fff; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px; line-height: 1.5; }
+  .note b { color: var(--ink); }
+  .sub { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
+  .sub button { border: 0; background: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink-3); padding: 4px 9px; border-radius: 6px; cursor: pointer; }
+  .sub button[aria-pressed="true"] { background: #fff; color: var(--accent-ink); box-shadow: 0 0 0 1px var(--line); }
+  .screen { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(15,23,42,.10); background: var(--bg); min-height: 560px; position: relative; }
+
+  /* общие куски UI */
+  .brand { display: flex; align-items: center; gap: 9px; }
+  .mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; flex: none; box-shadow: 0 1px 2px rgba(37,99,235,.35); }
+  .word { font-size: 16.5px; font-weight: 700; letter-spacing: -.01em; }
+  .word span { color: var(--accent); }
+  .btn { box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 600; padding: 9px 18px; cursor: pointer; line-height: 1.1; }
+  .btn.pri { background: var(--accent); color: #fff; }
+  .btn.pri[disabled] { background: #93b4f5; cursor: not-allowed; }
+  .btn.sec { background: #f1f5f9; color: var(--ink-2); border-color: var(--line); }
+  .btn.dan { background: #dc2626; color: #fff; }
+  .msg { font-size: 13.5px; line-height: 1.45; border-radius: 8px; padding: 10px 12px; border: 1px solid; }
+  .msg.err { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-line); }
+  .msg.blk { color: var(--warn); background: var(--warn-soft); border-color: var(--warn-line); }
+  .hint { font-size: 13px; color: var(--ink-3); line-height: 1.5; }
+  .link { color: var(--accent-ink); font-weight: 600; text-decoration: none; font-size: 13.5px; background: none; border: 0; padding: 0; cursor: pointer; font-family: inherit; }
+
+  /* вход */
+  .login { display: grid; grid-template-columns: 1.25fr 1fr; min-height: 600px; background: #fff; }
+  .login .left { background: var(--bg); border-right: 1px solid var(--line); padding: 28px 36px; display: flex; flex-direction: column; gap: 24px; }
+  .login h2 { margin: 0 0 10px; font-size: 30px; line-height: 1.15; font-weight: 800; letter-spacing: -.025em; max-width: 16em; text-wrap: balance; }
+  .login .lead { margin: 0; color: var(--ink-2); font-size: 15.5px; }
+  .canvas-ph { flex: 1; min-height: 260px; border: 1px solid var(--line); border-radius: 12px; background: #fff; display: grid; place-items: center; color: var(--ink-4); font-size: 13px; }
+  .login .right { display: grid; place-items: center; padding: 24px; }
+  .box { width: min(340px, 100%); display: grid; gap: 18px; }
+  .box h3 { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+  .box .big { width: 100%; padding: 12px 18px; font-size: 15px; }
+  .spin { display: inline-block; width: 13px; height: 13px; border: 2px solid rgba(255,255,255,.5); border-top-color: #fff; border-radius: 50%; vertical-align: -2px; margin-right: 8px; animation: sp .8s linear infinite; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .facts li { font-size: 13.5px; color: var(--ink-2); display: flex; gap: 9px; line-height: 1.45; }
+  .facts li::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); margin-top: 7px; }
+  .sep { border: 0; border-top: 1px solid var(--line-soft); margin: 2px 0; }
+
+  /* список проектов */
+  .topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: #fff; border-bottom: 1px solid var(--line); gap: 12px; }
+  .avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--accent-line); cursor: pointer; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--warn); background: var(--warn-soft); border: 1px solid var(--warn-line); padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+  .container { max-width: 1060px; margin: 0 auto; padding: 24px 24px 40px; }
+  .banner { display: flex; gap: 12px; align-items: flex-start; background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn); border-radius: 12px; padding: 12px 16px; font-size: 13.5px; line-height: 1.5; margin-bottom: 22px; }
+  .banner b { color: #78350f; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .h1 { margin: 0; font-size: 26px; font-weight: 800; letter-spacing: -.02em; }
+  .newbtn { display: inline-flex; align-items: center; gap: 7px; padding: 10px 16px; background: var(--accent); color: #fff; border: 0; border-radius: 10px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .newbtn[aria-disabled="true"] { background: #e2e8f0; color: var(--ink-4); cursor: not-allowed; }
+  .newwrap { position: relative; display: inline-block; }
+  .tip { position: absolute; right: 0; top: calc(100% + 8px); width: 270px; background: rgba(17,24,39,.94); color: #f9fafb; font-size: 12.5px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; z-index: 3; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 18px; margin-top: 22px; }
+  .card { background: #fff; border: 1px solid #e8edf3; border-radius: 14px; overflow: hidden; }
+  .card .pv { height: 120px; margin: 12px; border-radius: 10px; background: #f1f5f9 radial-gradient(#d5dde7 1px, transparent 1.2px) 0 0/16px 16px; position: relative; }
+  .pv i { position: absolute; width: 42px; height: 22px; border-radius: 5px; background: #2389cc; }
+  .card .bd { padding: 2px 14px 10px; }
+  .card .nm { font-size: 15.5px; font-weight: 700; margin-bottom: 3px; }
+  .card .ds { font-size: 13px; color: var(--ink-3); line-height: 1.4; min-height: 36px; }
+  .card .ft { display: flex; justify-content: space-between; padding: 10px 14px; border-top: 1px solid #f1f5f9; font-size: 12px; color: var(--ink-4); font-variant-numeric: tabular-nums; }
+  .pmenu { position: absolute; right: 24px; top: 54px; width: 220px; background: #fff; border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 16px 40px rgba(15,23,42,.16); padding: 6px; z-index: 4; }
+  .pmenu .who { padding: 8px 10px 10px; border-bottom: 1px solid var(--line-soft); margin-bottom: 4px; }
+  .pmenu .who b { display: block; font-size: 14px; }
+  .pmenu .who span { font-size: 12.5px; color: var(--ink-3); }
+  .pmenu button { display: block; width: 100%; text-align: left; padding: 8px 10px; background: none; border: 0; border-radius: 7px; font: inherit; font-size: 13.5px; cursor: pointer; color: var(--ink); }
+  .pmenu button:hover { background: #f1f5f9; }
+
+  /* модалки поверх затемнения */
+  .scrim { position: absolute; inset: 0; background: rgba(15,23,42,.45); display: grid; place-items: center; padding: 20px; }
+  .modal { background: #fff; border-radius: 14px; box-shadow: 0 30px 70px rgba(15,23,42,.3); width: min(460px, 100%); padding: 22px 24px 20px; display: grid; gap: 14px; }
+  .modal.wide { width: min(880px, 100%); }
+  .modal h3 { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: -.01em; }
+  .modal p { margin: 0; font-size: 14px; color: var(--ink-2); line-height: 1.5; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-content: start; }
+  .modes span { border: 1px solid var(--line); border-radius: 8px; padding: 10px; text-align: center; font-weight: 700; font-size: 14px; }
+  .modes span.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+  .imp { display: grid; grid-template-columns: 300px 1fr; gap: 20px; }
+  .files { display: flex; gap: 8px; flex-wrap: wrap; }
+  .files span { border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 600; }
+  .code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 12px; height: 150px; overflow: hidden; color: #334155; white-space: pre; }
+  .field label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+  .field .in { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 14px; }
+  .meter { display: grid; gap: 6px; }
+  .meter .bar { height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; }
+  .meter .bar i { display: block; height: 100%; background: #dc2626; }
+  .meter .lbl { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .toast { position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); background: #1e293b; color: #f8fafc; font-size: 13.5px; line-height: 1.45; padding: 11px 16px; border-radius: 10px; box-shadow: 0 12px 30px rgba(15,23,42,.3); width: min(520px, calc(100% - 32px)); display: flex; gap: 12px; align-items: flex-start; }
+  .toast b { color: #fff; }
+  .editor { display: grid; grid-template-columns: 240px 1fr; min-height: 560px; }
+  .editor .tree { background: #fff; border-right: 1px solid var(--line); padding: 14px; display: grid; gap: 8px; align-content: start; font-size: 13.5px; color: var(--ink-2); }
+  .editor .tree div { padding: 6px 8px; border-radius: 6px; }
+  .editor .cv { position: relative; background: var(--bg); }
+  .doc { display: grid; grid-template-columns: 1fr 1fr; gap: 0; border-top: 1px solid var(--line); }
+  .doc > div { padding: 14px; min-height: 220px; }
+  .doc .src { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: #334155; border-right: 1px solid var(--line); white-space: pre; overflow: hidden; }
+  .doc .prev { background: var(--bg); display: grid; place-items: center; color: var(--ink-4); font-size: 13px; }
+  .foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
+  .foot .msg { flex: 1 1 320px; }
+
+  @media (max-width: 760px) {
+    .login { grid-template-columns: 1fr; }
+    .login .left { display: none; }
+    .imp, .doc, .editor { grid-template-columns: 1fr; }
+    .editor .tree { display: none; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="doc">
+    <h1>Демо-режим ArchMap · экраны на согласование</h1>
+    <p>Все места, где посетитель демо встречает ограничения или заглушки. Переключайте экраны вкладками, а состояния экрана — строкой под заметкой. Пределы взяты как примерно три объёма «Ярмарки» и округлены; в интерфейсе показываются только сами числа.</p>
+    <div class="limits">
+      <span>Своих проектов: <b>1</b> (плюс копия «Ярмарки»)</span>
+      <span>Объектов в проекте: <b>до 100</b></span>
+      <span>Связей: <b>до 120</b></span>
+      <span>Схем логики: <b>до 75</b></span>
+      <span>Процессов: <b>до 10</b></span>
+      <span>Объём текста проекта: <b>до 250 КБ</b></span>
+      <span>Песочница живёт: <b>сутки бездействия</b></span>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs"></nav>
+  <div class="note" id="note"></div>
+  <div class="sub" id="sub"></div>
+  <div class="screen" id="screen"></div>
+</div>
+
+<script>
+const LOGO = '<div class="brand"><span class="mark"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round"><circle cx="6.5" cy="7" r="2.6" fill="#fff" stroke="none"/><rect x="13" y="13.5" width="6.5" height="6" rx="1.5" fill="#fff" stroke="none"/><path d="M8 8.8 L14.5 14.2" stroke="#bcd2fb"/></svg></span><span class="word">Arch<span>Map</span></span></div>';
+const LEFT = `<div class="left">${LOGO}<div><h2>Документация, понятная вам и вашим агентам</h2><p class="lead">Архитектура, логика и бизнес-процессы в одном месте.</p></div><div class="canvas-ph">Анимированная схема, как на обычной странице входа</div></div>`;
+
+const loginBox = (state) => {
+  const btn = state === "busy"
+    ? '<button class="btn pri big" disabled><span class="spin"></span>Готовим песочницу…</button>'
+    : '<button class="btn pri big">Попробовать без регистрации</button>';
+  const msg = state === "full" ? '<div class="msg err" role="alert">На демо сейчас слишком много пользователей. Попробуйте через час.</div>'
+    : state === "expired" ? '<div class="msg blk" role="alert">Ваша песочница удалена: прошли сутки бездействия. Начните заново, это займёт пару секунд.</div>' : "";
+  return `<div class="login">${LEFT}<div class="right"><div class="box">
+    <h3>Попробуйте ArchMap</h3>
+    ${msg}
+    <ul class="facts">
+      <li>Познакомьтесь с демо-проектом «Ярмарка». Вы поймёте, как может выглядеть ваша документация.</li>
+      <li>Начните свой первый проект с нуля. Вы поймёте, как эта документация создаётся.</li>
+    </ul>
+    <div style="display:grid;gap:8px">${btn}
+    <a class="btn sec big" style="text-align:center;text-decoration:none;display:flex;align-items:center;justify-content:center;gap:8px" href="https://github.com/eidunyushkinhse/archmap" target="_blank" rel="noopener"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.27 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>Установить</a></div>
+    <p class="hint" style="font-style:italic;margin:0">Помните: это только знакомство. Ваш проект удалится через сутки бездействия. Не вносите сюда рабочие данные. Полные возможности ArchMap раскроются в вашем контуре.</p>
+  </div></div></div>`;
+};
+
+const card = (name, desc, objs, edges, nodes) => `<div class="card"><div class="pv">${nodes.map(([x, y, c]) => `<i style="left:${x}%;top:${y}%;${c ? "background:" + c : ""}"></i>`).join("")}</div>
+  <div class="bd"><div class="nm">${name}</div><div class="ds">${desc}</div></div>
+  <div class="ft"><span>Гость · только что</span><span>${objs} об. · ${edges} св.</span></div></div>`;
+const YAR = card("Маркетплейс «Ярмарка»", "Демо-проект: C4, схемы логики, БД, брокеры, конфигурация, спеки и бизнес-процессы.", 35, 39, [[10, 20], [40, 15, "#4da8da"], [70, 25, "#555"], [25, 60], [60, 62, "#4da8da"]]);
+const MINE = card("Мой сервис доставки", "Без описания", 6, 5, [[15, 30], [50, 40, "#4da8da"], [75, 65]]);
+
+const projects = (state) => {
+  const has = state !== "empty";
+  const btn = has
+    ? `<span class="newwrap"><button class="newbtn" aria-disabled="true">+ Новый проект</button>${state === "tip" ? '<span class="tip">В демо можно создать один свой проект. Удалите его, чтобы создать другой.</span>' : ""}</span>`
+    : '<button class="newbtn">+ Новый проект</button>';
+  return `<div class="topbar">${LOGO}<span class="chip">Песочница</span></div>
+  <div class="container">
+    <div class="banner"><div><b>Это песочница.</b> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.</div></div>
+    <div class="row"><h1 class="h1">Все проекты</h1>${btn}</div>
+    <div class="grid">${YAR}${has ? MINE : ""}</div>
+  </div>`;
+};
+
+const importLimit = (state) => {
+  const over = state === "over";
+  const msg = over
+    ? `<div class="msg err" role="alert"><b>Проект не помещается в демо.</b> В файлах 142 объекта, а в демо можно до 100. Уберите часть файлов или загрузите проект поменьше.</div>
+       <div class="meter"><div class="lbl"><span>Объекты</span><span>142 из 100</span></div><div class="bar"><i style="width:100%"></i></div></div>`
+    : `<div class="msg err" role="alert"><b>Файл слишком большой для демо.</b> «billing-full.zip» весит 1,4 МБ, а в демо можно загрузить до 250 КБ.</div>`;
+  return `<div style="height:100%;min-height:560px;background:#f1f5f9"></div><div class="scrim"><div class="modal wide" role="dialog">
+    <h3>Новый проект</h3>
+    <div class="imp">
+      <div class="modes"><span>Пустой</span><span>Копия</span><span class="on">Импорт</span><span>ИИ-агент</span></div>
+      <div style="display:grid;gap:12px">
+        <div class="files"><span>${over ? "Файл 1" : "billing-full.zip"}</span>${over ? "<span>Файл 2</span>" : ""}<span style="border:0;color:#64748b">+ Загрузить файлы…</span></div>
+        ${over ? '<div class="code"># Прогон агента в репозитории биллинга «Плёнки»\nnodes:\n  - name: Плёнка\n    shape: service\n    children:\n      - name: Сервис биллинга\n        …</div>' : ""}
+        ${msg}
+      </div>
+    </div>
+    <div class="actions"><button class="btn sec">Отмена</button><button class="btn pri" disabled>Создать проект</button></div>
+  </div></div>`;
+};
+
+const editLimit = (state) => {
+  const t = {
+    node: ["объектов", "100"], edge: ["связей", "120"], proc: ["процессов", "10"],
+  }[state];
+  const what = { node: "объект", edge: "связь", proc: "процесс" }[state];
+  return `<div class="topbar">${LOGO}<span class="chip">Песочница</span></div>
+  <div class="editor"><div class="tree"><div style="font-weight:700;color:#0f172a">Мой сервис доставки</div><div>Сервис заказов</div><div>Сервис оплаты</div><div>БД заказов</div><div>…</div></div>
+  <div class="cv"><div class="toast" role="status"><div><b>Не получилось добавить ${what}.</b> Демо-проект поддерживает до ${t[1]} ${t[0]}. Удалите ненужные, чтобы добавить новые.</div></div></div></div>`;
+};
+
+const docLimit = (state) => {
+  const msg = state === "volume"
+    ? "<b>Не сохранилось.</b> Текста в проекте стало больше 250 КБ, это предел демо. Сократите схему или удалите ненужные."
+    : "<b>Не сохранилось.</b> Демо-проект поддерживает до 75 схем логики. Удалите ненужные, чтобы добавить новые.";
+  return `<div style="height:100%;min-height:560px;background:#f1f5f9"></div><div class="scrim"><div class="modal wide" style="padding:0;gap:0" role="dialog">
+    <div style="padding:16px 18px"><h3>Order API · Создание заказа</h3></div>
+    <div class="doc"><div class="src">flowchart TD
+  A[POST /orders] --> B{Товар в наличии?}
+  B -- нет --> C[409 Нет в наличии]
+  B -- да --> D[Резерв на складе]
+  D --> E[Событие OrderCreated]
+  …</div><div class="prev">живое превью схемы</div></div>
+    <div class="foot"><div class="msg err" role="alert">${msg}</div><div style="display:flex;gap:8px"><button class="btn sec">Отмена</button><button class="btn pri">Сохранить</button></div></div>
+  </div></div>`;
+};
+
+const SCREENS = [
+  { id: "login", name: "1 · Вход в демо",
+    note: "<b>Вместо формы входа</b> кнопка «Попробовать без регистрации» и «Установить» (ведёт на GitHub). Входа по логину на демо нет: гость возвращается в свою песочницу, пока жива сессия в его браузере. Левая половина как на обычной странице входа.",
+    states: [["ok", "Обычное"], ["busy", "Создаём песочницу"], ["full", "Слишком много пользователей"], ["expired", "Песочница удалена"]], render: loginBox },
+  { id: "projects", name: "2 · Все проекты",
+    note: "<b>Плашка песочницы</b> над списком и метка «Песочница» в шапке. Когда свой проект уже есть, «+ Новый проект» неактивна, подсказка по наведению. Меню профиля у гостя нет: выходить и менять пароль ему незачем. «Доступ» и «Пользователи» скрыты без заглушек.",
+    states: [["empty", "Только «Ярмарка»"], ["has", "Свой проект создан"], ["tip", "Наведение на кнопку"]], render: projects },
+  { id: "import", name: "3 · Импорт больше предела",
+    note: "<b>Новый проект → Импорт</b>. То же сообщение будет в «Импорт схемы» (догрузка в проект) и в синхронизации с кодом: там тоже проверяем, поместится ли результат.",
+    states: [["over", "Объектов больше предела"], ["file", "Файл слишком большой"]], render: importLimit },
+  { id: "edit", name: "4 · Предел при правке схемы",
+    note: "<b>Тост внизу холста</b>, когда добавление упирается в предел: объект (палитра или «+ Объект»), связь, процесс. Тот же текст в окне «Новый объект», если создают через него.",
+    states: [["node", "Объект"], ["edge", "Связь"], ["proc", "Процесс"]], render: editLimit },
+  { id: "doc", name: "5 · Предел при сохранении документации",
+    note: "<b>Ошибка в футере окна схемы</b>. Правка не теряется, её можно сократить и сохранить снова. Так же ведут себя спеки, конфигурация, таблицы и каналы: у них общий предел по объёму текста.",
+    states: [["volume", "Объём текста"], ["count", "Число схем"]], render: docLimit },
+];
+
+const st = { s: 0, k: 0 };
+function render() {
+  const sc = SCREENS[st.s];
+  document.getElementById("tabs").innerHTML = SCREENS.map((x, i) => `<button type="button" data-i="${i}" aria-pressed="${i === st.s}">${x.name}</button>`).join("");
+  document.getElementById("note").innerHTML = sc.note;
+  document.getElementById("sub").innerHTML = sc.states.length > 1 ? sc.states.map(([, n], i) => `<button type="button" data-k="${i}" aria-pressed="${i === st.k}">${n}</button>`).join("") : "";
+  document.getElementById("screen").innerHTML = sc.render(sc.states[st.k][0]);
+}
+document.getElementById("tabs").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { st.s = +b.dataset.i; st.k = 0; render(); } });
+document.getElementById("sub").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { st.k = +b.dataset.k; render(); } });
+render();
+</script>

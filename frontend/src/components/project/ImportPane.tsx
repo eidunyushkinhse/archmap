@@ -7,6 +7,7 @@ import { allErrors, statusState } from "./importRemarks";
 import { ArchiveCard, ReportList } from "./ImportPaneParts";
 import { RemainderBlock, StatusLine, UnfixableFold } from "./remainder";
 import type { Answer, Answers, Question, Resolutions } from "./remainder";
+import { noAutofill } from "../../ui/noAutofill";
 
 /**
  * Единая панель ввоза в модалке создания проекта: N входов ЛЮБОГО типа — YAML
@@ -320,6 +321,7 @@ export default function ImportPane({
           <ArchiveCard file={zips[activeZip]} no={zipNo(activeZip)} />
         ) : (
           <textarea
+            {...noAutofill("import-pane-1")}
             style={importArea}
             value={docs[active]}
             onChange={(e) => setDoc(active, e.target.value)}

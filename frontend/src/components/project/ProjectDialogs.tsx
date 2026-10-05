@@ -4,6 +4,7 @@ import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { dangerBtn, input, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { noAutofill } from "../../ui/noAutofill";
 
 /** Подтверждения управления проектом: архив (обратимо), восстановление, удаление
  * навсегда (необратимо, с вводом имени). Каждый при успехе зовёт onDone(). */
@@ -84,6 +85,7 @@ export function DeleteForeverDialog({ project, onClose, onDone }: BaseProps) {
         Это действие нельзя отменить. Для подтверждения введите имя проекта.
       </p>
       <input
+        {...noAutofill("project-dialogs-1")}
         data-autofocus
         style={input}
         value={confirmName}

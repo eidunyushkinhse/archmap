@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { getIsAdmin, getUserRole } from "../../api/auth";
+import { getIsAdmin, getIsGuest, getUserRole } from "../../api/auth";
 import ProfileMenu from "../../ui/ProfileMenu";
+import TourHelpButton from "../tour/TourHelpButton";
 import ChangePasswordDialog from "./ChangePasswordDialog";
 import { ROLE_LABEL } from "./userLabels";
 
@@ -9,6 +10,8 @@ import { ROLE_LABEL } from "./userLabels";
  * признак администратора читает из кэша «кто я» (api/auth): App перерисовывает
  * дерево, когда пришёл ответ /auth/me, и меню видит свежие значения.
  * onOpenUsers не передают на самом экране «Пользователи» — вести некуда.
+ * Гостю демо-стенда вместо меню — пилюля «Обучение»: пройти обучение заново
+ * (docs/tasks/demo-tour.md, demo-tour-2.md).
  */
 
 interface Props {
@@ -19,6 +22,9 @@ interface Props {
 export default function AccountMenu({ onLogout, onOpenUsers }: Props) {
   const [changingPassword, setChangingPassword] = useState(false);
   const isArchitect = getUserRole() === "architect";
+  if (getIsGuest()) {
+    return <TourHelpButton />;
+  }
   return (
     <>
       <ProfileMenu

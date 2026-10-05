@@ -1,0 +1,167 @@
+<title>Обучение в ArchMap</title>
+<style>
+  /* Одна светлая тема, как у самого приложения (slate + синий #2563eb). */
+  :root {
+    --line: #e2e8f0; --ink: #0f172a; --ink-2: #475569; --ink-3: #64748b; --ink-4: #94a3b8;
+    --accent: #2563eb; --accent-ink: #1d4ed8; --accent-soft: #eff6ff; --accent-line: #bfdbfe;
+    font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  body { background: #e9eef4; color: var(--ink); padding-inline: 16px; padding-block: 20px 48px; }
+  .wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { font-size: 20px; margin: 0; }
+  .lead { margin: 0; color: var(--ink-2); font-size: 14px; line-height: 1.55; max-width: 80ch; }
+  .lead b { color: var(--ink); }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; }
+  .steps button { border: 1px solid var(--line); background: #fff; color: var(--ink-3); font: inherit; font-size: 12.5px; font-weight: 600; padding: 5px 10px; border-radius: 999px; cursor: pointer; font-variant-numeric: tabular-nums; }
+  .steps button[aria-current="step"] { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-ink); }
+  .steps .grp { font-size: 12px; color: var(--ink-4); align-self: center; margin: 0 4px 0 8px; text-transform: uppercase; letter-spacing: .05em; font-weight: 700; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* Экран: скриншот демо + слой обучения поверх, координаты в системе 1440×900 */
+  .stage { position: relative; width: 100%; aspect-ratio: 1440 / 900; max-width: 100%; border-radius: 12px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 20px 50px rgba(15,23,42,.12); background: #fff; container-type: inline-size; }
+  .stage img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .shade { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .hole { position: absolute; border-radius: 10px; box-shadow: 0 0 0 2px #2563eb, 0 0 0 6px rgba(37,99,235,.25); cursor: pointer; }
+  .hole.dot { border-radius: 50%; background: radial-gradient(circle, #2563eb 0 30%, rgba(255,255,255,.85) 32% 100%); }
+  .hole.dot.act::after { border-radius: 50%; }
+  .hole.act::after { content: ""; position: absolute; inset: -2px; border-radius: 12px; border: 2px solid #2563eb; animation: pulse 1.6s ease-out infinite; }
+  @keyframes pulse { from { opacity: .9; transform: scale(1); } to { opacity: 0; transform: scale(1.12); } }
+  @media (prefers-reduced-motion: reduce) { .hole.dot { border-radius: 50%; background: radial-gradient(circle, #2563eb 0 30%, rgba(255,255,255,.85) 32% 100%); }
+  .hole.dot.act::after { border-radius: 50%; }
+  .hole.act::after { animation: none; } }
+
+  /* Карточка подсказки. Размер шрифта масштабируется вместе со скриншотом. */
+  .pop { position: absolute; width: 23.5%; min-width: 220px; background: #fff; border-radius: 12px; box-shadow: 0 18px 44px rgba(15,23,42,.28); padding: 16px 18px 14px; display: grid; gap: 9px; font-size: clamp(12px, 1.02cqi, 14.5px); }
+  .pop.center { left: 50%; top: 50%; transform: translate(-50%, -50%); width: 34%; }
+  .pop .count { font-size: .82em; color: var(--ink-4); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pop h3 { margin: 0; font-size: 1.18em; font-weight: 800; letter-spacing: -.01em; text-wrap: balance; }
+  .pop p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+  .pop .do { color: var(--accent-ink); font-weight: 600; }
+  .pop .bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .pop .skip { background: none; border: 0; padding: 0; font: inherit; font-size: .9em; color: var(--ink-4); cursor: pointer; }
+  .pop .skip:hover { color: var(--ink-2); }
+  .pop .btns { display: flex; gap: 6px; }
+  .btn { border: 1px solid transparent; border-radius: 8px; font: inherit; font-size: .95em; font-weight: 600; padding: 7px 13px; cursor: pointer; line-height: 1.1; }
+  .btn.pri { background: var(--accent); color: #fff; }
+  .btn.sec { background: #f1f5f9; color: var(--ink-2); border-color: var(--line); }
+  .dots { display: flex; gap: 4px; }
+  .dots i { width: 6px; height: 6px; border-radius: 50%; background: #e2e8f0; }
+  .dots i.on { background: var(--accent); width: 14px; border-radius: 3px; }
+
+  .notes { display: grid; gap: 6px; background: #fff; border: 1px dashed #cbd5e1; border-radius: 10px; padding: 12px 16px; font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .notes b { color: var(--ink); }
+  @media (max-width: 760px) { .pop, .pop.center { width: 70%; } }
+</style>
+
+<div class="wrap">
+  <h1>Обучение в демо ArchMap · прототип</h1>
+  <p class="lead">Сквозной тур по песочнице на настоящих экранах демо. <b>Синяя рамка</b> показывает, что нажать; на шагах с пульсом тур ждёт действия пользователя (в прототипе достаточно нажать на рамку). Переключать шаги можно и строкой ниже.</p>
+  <div class="steps" id="steps"></div>
+  <div class="stage" id="stage"></div>
+  <div class="notes">
+    <div><b>Хэндлы связи (шаг «Проведите связь»).</b> Подсвечиваем ту пару точек, которую выберет сам рендерер стрелки для этих двух объектов; в прототипе это левые стороны, как легла стрелка на настоящем экране.</div>
+    <div><b>Имена.</b> «Моя система», «Покупатель» и «Веб-витрина» в продукте подставятся из того, что создал пользователь.</div>
+    <div><b>Когда показывается.</b> Само при первом входе в песочницу. Пропустить можно на любом шаге, тур больше не появится.</div>
+    <div><b>Вернуться к обучению.</b> Предлагаю кнопку «?» рядом с меткой «Песочница» в шапке: она запускает тур заново. Это единственный новый элемент интерфейса.</div>
+    <div><b>Шаги с действием.</b> Тур идёт дальше, когда пользователь сделал то, что просили (открыл проект, нажал «Редактировать», раскрыл сервис). Если он ушёл в сторону, подсказка ждёт на месте, а «Назад» и «Пропустить обучение» работают всегда.</div>
+  </div>
+</div>
+
+<script>
+// Шаги тура. r — подсвечиваемая область, p — левый верхний угол подсказки (всё в координатах 1440×900).
+// act — шаг ждёт действия пользователя.
+const S = [
+  { g: "Знакомство", img: "02-projects", center: true, t: "Добро пожаловать в ArchMap",
+    b: "Перед вами песочница с демо-проектом «Ярмарка». Это выдуманный маркетплейс, полностью описанный в ArchMap. На его примере за пару минут покажем, как устроена документация.", start: true },
+  { img: "02-projects", r: [160, 272, 361, 277], p: [545, 300], act: true, t: "Откройте «Ярмарку»",
+    b: "Здесь все ваши проекты. Пока он один.", d: "Нажмите на карточку проекта." },
+  { img: "03-home", r: [370, 404, 1006, 496], p: [30, 450], t: "Главная страница проекта",
+    b: "Описание, счётчики и схема системы: «Ярмарка» в центре, вокруг покупатели, продавцы и внешние сервисы." },
+  { g: "Схема", img: "03-home", r: [1238, 375, 138, 25], p: [890, 418], act: true, t: "Откройте редактор",
+    b: "В редакторе схему можно двигать и раскрывать.", d: "Нажмите «Редактировать»." },
+  { img: "04-map-root", r: [402, 416, 142, 74], p: [566, 340], act: true, t: "Объекты можно двигать",
+    b: "Расставьте схему так, как вам удобно: связи перестроятся сами.", d: "Перетащите «Продавца» мышью." },
+  { img: "04-map-root", r: [724, 481, 142, 72], p: [890, 470], act: true, t: "Объекты раскрываются",
+    b: "Значок со счётчиком внизу значит, что внутри есть содержимое. У «Ярмарки» это 11 объектов.", d: "Нажмите лупу в правом верхнем углу «Ярмарки»." },
+  { img: "05-map-system", r: [620, 426, 95, 50], p: [740, 600], act: true, t: "Внутри системы её сервисы",
+    b: "Раскрывать можно на любой глубине.", d: "Раскройте «Сервис заказов» той же лупой." },
+  { img: "17-map-expanded", r: [600, 405, 310, 190], p: [930, 600], t: "Сервис раскрыт прямо на схеме",
+    b: "Видны его компоненты и их связи, а со схемы уходить не нужно. Свернуть можно крестиком у названия рамки." },
+  { g: "Документация", img: "06-node-service", r: [10, 110, 305, 610], p: [345, 230], t: "Дерево системы",
+    b: "Слева вся система списком. Нажмите на любой объект, чтобы открыть его страницу. Сейчас открыт «Сервис заказов»." },
+  { img: "13-logic", r: [346, 375, 1055, 336], p: [700, 160], t: "Документация сервиса",
+    b: "Схемы логики операций и воркеров, параметры конфигурации и спецификация OpenAPI.", d: "Нажмите «открыть», чтобы посмотреть схему логики." },
+  { img: "14-db", r: [346, 351, 1055, 494], p: [880, 120], t: "Документация базы данных",
+    b: "Таблицы и колонки с пояснениями. «Показать диаграмму» нарисует связи таблиц." },
+  { img: "15-kafka", r: [346, 600, 1055, 245], p: [880, 330], t: "Документация брокера",
+    b: "Каналы брокера: топики и очереди. В связях выше видно, кто в них пишет и кто читает." },
+  { img: "09-processes", r: [1100, 14, 118, 32], p: [880, 70], t: "Бизнес-процессы",
+    b: "Сценарий шаг за шагом: какие сервисы участвуют и что передают друг другу. Каждый шаг ведёт к схеме логики нужной операции." },
+  { g: "Ваш проект", img: "09-processes", r: [20, 14, 125, 32], p: [30, 70], act: true, t: "Вы посмотрели «Ярмарку»",
+    b: "Логотип ArchMap всегда ведёт ко всем проектам.", d: "Нажмите на логотип." },
+  { img: "02-projects", r: [1110, 159, 170, 37], p: [870, 215], act: true, t: "Начните свой проект",
+    b: "Теперь ваша очередь. В песочнице можно создать один свой проект.", d: "Нажмите «Новый проект»." },
+  { img: "10-new-project", r: [282, 152, 343, 486], p: [660, 480], act: true, t: "Проще всего начать с пустого",
+    b: "Импорт и ИИ-агент пригодятся, когда захотите собрать схему из кода.", d: "Выберите «Пустой», введите название и нажмите «Создать проект»." },
+  { img: "11-empty-map", r: [14, 678, 142, 84], p: [180, 560], act: true, t: "Создайте свою систему",
+    b: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.", d: "Перетащите «Сервис» на схему и назовите его именем вашей системы." },
+  { img: "20-one", r: [14, 678, 292, 176], p: [330, 560], act: true, t: "Добавьте ещё один объект",
+    b: "Например, внешний сервис, который обменивается данными с вашей системой, или пользователя.", d: "Перетащите форму на схему." },
+  { img: "21-two", rs: [[656, 503, 14, 14], [656, 444, 14, 14]], dots: true, p: [860, 430], act: true, t: "Проведите связь",
+    b: "Стрелка идёт от того, кто вызывает, к тому, кого вызывают.", d: "Протяните стрелку от точки на «Покупателе» к точке на «Моей системе»." },
+  { img: "22b-edge-hover", r: [794, 391, 26, 19], p: [860, 330], act: true, t: "У вас получилась диаграмма контекста",
+    b: "Она ещё не полная, но вы уже знаете, как её доделать. Перейдём на следующий слой архитектуры.", d: "Нажмите «Войти» на системе «Моя система»." },
+  { img: "23-inner-empty", r: [14, 678, 142, 84], p: [180, 470], act: true, t: "Соберите систему из сервисов",
+    b: "Поместите в рамку сервис, который входит в состав вашей системы. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте приложение, которое отдаёт ему фронтенд. А если внешнюю систему, то сервис, который с ней интегрирован.",
+    d: "Перетащите «Сервис» в рамку «Моя система»." },
+  { img: "24-inner-child", rs: [[545, 400, 213, 161], [750, 495, 104, 36]], p: [960, 560], act: true, t: "Перевесьте связь на сервис",
+    b: "«Моя система» стала контейнером. Контейнер является абстракцией и не может быть связан с внешним объектом.", d: "Потяните конец стрелки с рамки и отпустите на «Веб-витрине»." },
+  { img: "25-inner-rehung", r: [158, 16, 62, 28], p: [30, 70], act: true, t: "Вернитесь на верхний слой",
+    b: "Связь теперь ведёт прямо к сервису.", d: "Нажмите «Проект» в шапке." },
+  { img: "26-context", r: [548, 444, 118, 72], p: [700, 600], t: "Наверху связь по-прежнему ведёт в систему",
+    b: "Для слоя контекста это правда: «Покупатель» работает с «Моей системой» целиком." },
+  { img: "26-context", r: [800, 393, 19, 18], p: [860, 330], act: true, t: "Загляните внутрь",
+    b: "Лупа раскрывает систему прямо на схеме, и видно, куда связь ведёт на самом деле.", d: "Нажмите лупу." },
+  { img: "27-context-expanded", center: true, t: "Готово",
+    b: "Вы прошли путь от контекста до сервисов внутри системы. Дальше справитесь сами. Пройти обучение заново можно кнопкой «?» в шапке.", end: true },
+];
+
+let cur = 0;
+const W = 1440, H = 900, pct = (v, of) => (v / of * 100) + "%";
+
+function render() {
+  const s = S[cur], stage = document.getElementById("stage");
+  const rects = s.rs || (s.r ? [s.r] : []);
+  const pad = s.dots ? 4 : 6;
+  let html = `<img src="tour/${s.img}.jpg" alt="Экран демо: ${s.t}">`;
+  // Затемнение с вырезом под подсвеченную область
+  html += `<svg class="shade" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><defs><mask id="m"><rect width="${W}" height="${H}" fill="#fff"/>` +
+    rects.map((r) => `<rect x="${r[0] - pad}" y="${r[1] - pad}" width="${r[2] + pad * 2}" height="${r[3] + pad * 2}" rx="${s.dots ? (r[2] + pad * 2) / 2 : 10}" fill="#000"/>`).join("") +
+    `</mask></defs><rect width="${W}" height="${H}" fill="rgba(15,23,42,.55)" mask="url(#m)"/></svg>`;
+  rects.forEach((r) => {
+    html += `<div class="hole${s.act ? " act" : ""}${s.dots ? " dot" : ""}" title="${s.act ? "Сделать действие" : ""}" style="left:${pct(r[0] - pad, W)};top:${pct(r[1] - pad, H)};width:${pct(r[2] + pad * 2, W)};height:${pct(r[3] + pad * 2, H)}"></div>`;
+  });
+  const pos = s.center ? "" : `left:${pct(s.p[0], W)};top:${pct(s.p[1], H)}`;
+  const n = S.length - 2; // без приветствия и финала
+  const count = s.start || s.end ? "" : `<span class="count">Шаг ${cur} из ${n}</span>`;
+  const next = s.start ? `<button class="btn pri" data-go="1">Начать</button>`
+    : s.end ? `<button class="btn pri" data-go="0">Завершить</button>`
+    : s.act ? "" : `<button class="btn pri" data-go="1">Далее</button>`;
+  const back = cur > 1 && !s.end ? `<button class="btn sec" data-go="-1">Назад</button>` : "";
+  const skip = s.end ? "<span></span>" : `<button class="skip" data-go="0">${s.start ? "Пропустить" : "Пропустить обучение"}</button>`;
+  html += `<div class="pop${s.center ? " center" : ""}" role="dialog" aria-label="${s.t}" style="${pos}">
+    ${count}<h3>${s.t}</h3><p>${s.b}</p>${s.d ? `<p class="do">${s.d}</p>` : ""}
+    <div class="bar">${skip}<div class="btns">${back}${next}</div></div></div>`;
+  stage.innerHTML = html;
+  if (s.act) stage.querySelectorAll(".hole").forEach((h) => h.onclick = () => go(1));
+  stage.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(+b.dataset.go));
+  renderSteps();
+}
+function go(d) { cur = d === 0 ? (cur === S.length - 1 ? 0 : S.length - 1) : Math.max(0, Math.min(S.length - 1, cur + d)); render(); }
+function renderSteps() {
+  document.getElementById("steps").innerHTML = S.map((s, i) =>
+    `${s.g ? `<span class="grp">${s.g}</span>` : ""}<button type="button" data-i="${i}" ${i === cur ? 'aria-current="step"' : ""}>${s.start ? "Привет" : s.end ? "Финал" : i}</button>`).join("");
+}
+document.getElementById("steps").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { cur = +b.dataset.i; render(); } });
+render();
+</script>

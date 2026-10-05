@@ -26,6 +26,7 @@ import type { CSSProperties } from "react";
 import { processesApi } from "../../api/processes";
 import type { DocChoice, ProcessMessage, ProcessParticipant } from "../../types";
 import { BPT } from "./tokens";
+import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
   processId: string;
@@ -137,6 +138,7 @@ export default function MessageCard({
       </div>
 
       <input
+        {...noAutofill("message-card-1")}
         className="bp-input"
         style={{ marginTop: 10 }}
         value={caption}
@@ -254,6 +256,7 @@ export default function MessageCard({
           <div style={{ marginTop: 6 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <input
+                {...noAutofill("message-card-2")}
                 className="bp-input"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}

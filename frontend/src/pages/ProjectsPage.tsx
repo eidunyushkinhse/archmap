@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { getUserRole } from "../api/auth";
+import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
 import CreateProjectDialog from "../components/project/CreateProjectDialog";
@@ -10,6 +10,7 @@ import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../components
 import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
 import { LogoMark, PlusIcon } from "../ui/icons";
+import { noAutofill } from "../ui/noAutofill";
 
 /**
  * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
@@ -17,6 +18,10 @@ import { LogoMark, PlusIcon } from "../ui/icons";
  * карточки. Создать проект — глобальная роль architect; управлять им
  * (редактировать, архив, восстановить, удалить) — только его владелец (my_role);
  * окно «Доступ» открывает каждый, кто видит проект (не-владельцу — на чтение).
+ *
+ * Гость демо-стенда (docs/tasks/demo-mode.md): над списком плашка песочницы, «Доступа»
+ * нет, а «Новый проект» гаснет с подсказкой, когда свой проект уже есть (решает
+ * сервер: can_create_project в /auth/me).
  */
 
 interface Props {
@@ -34,6 +39,10 @@ type Dialog =
 
 export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: Props) {
   const isArchitect = getUserRole() === "architect";
+  const isGuest = getIsGuest();
+  // Гостю: создать ещё один проект можно, только пока предел не выбран.
+  const createBlocked = isGuest && !getCanCreateProject();
+  const guestName = isGuest ? (getMe()?.username ?? null) : null;
   const [active, setActive] = useState<Project[]>([]);
   const [archived, setArchived] = useState<Project[]>([]);
   const [tab, setTab] = useState<Tab>("active");
@@ -45,6 +54,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
 
   const reload = useCallback(async () => {
     setError(null);
+    // Гостю «можно ли создать ещё» пересчитывает сервер: список мог измениться.
+    if (getIsGuest()) fetchMe().catch(() => {});
     try {
       const [a, ar] = await Promise.all([projectsApi.list(false), projectsApi.list(true)]);
       setActive(a);
@@ -86,15 +97,24 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
       </div>
 
       <div style={container}>
+        {isGuest && (
+          <div style={sandboxBanner} role="note">
+            <div>
+              <b style={{ color: "#78350f" }}>Это песочница.</b> Она удалится через сутки бездействия. Не вносите сюда рабочие данные.
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
           <div>
             <h1 style={h1}>Проекты</h1>
           </div>
-          {isArchitect && (
-            <button style={newBtn} onClick={() => setDialog({ kind: "create" })}>
+          {isArchitect && (createBlocked ? (
+            <BlockedNewButton />
+          ) : (
+            <button style={newBtn} data-tour="new-project" onClick={() => setDialog({ kind: "create" })}>
               <PlusIcon /> Новый проект
             </button>
-          )}
+          ))}
         </div>
 
         {/* Табы + поиск */}
@@ -108,6 +128,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
             </TabBtn>
           </div>
           <input
+            {...noAutofill("projects-page-1")}
             style={search}
             placeholder="Поиск по имени или описанию"
             value={query}
@@ -122,7 +143,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
           <EmptyState
             tab={tab}
             hasQuery={q.length > 0}
-            isArchitect={isArchitect}
+            isArchitect={isArchitect && !createBlocked}
             onCreate={() => setDialog({ kind: "create" })}
           />
         ) : (
@@ -132,6 +153,8 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
                 key={p.id}
                 project={p}
                 archivedTab={tab === "archived"}
+                canShare={!isGuest}
+                updaterLabel={guestName !== null && p.updated_by === guestName ? "Гость" : undefined}
                 onOpen={() => onOpenProject(p.id)}
                 onAccess={() => setDialog({ kind: "access", project: p })}
                 onEdit={() => setDialog({ kind: "edit", project: p })}
@@ -193,6 +216,34 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
   );
 }
 
+// Подсказка к погашенной кнопке (docs/tasks/demo-mode.md, экран 2).
+const GUEST_LIMIT_HINT = "В демо можно создать один свой проект. Удалите его, чтобы создать другой.";
+
+// «Новый проект», когда гость уже держит предельное число проектов: кнопка видна, но
+// не действует; по наведению и фокусу — подсказка, что делать.
+function BlockedNewButton() {
+  const [tip, setTip] = useState(false);
+  return (
+    <span
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setTip(true)}
+      onMouseLeave={() => setTip(false)}
+    >
+      <button
+        style={{ ...newBtn, ...newBtnBlocked }}
+        data-tour="new-project"
+        aria-disabled="true"
+        aria-describedby={tip ? "guest-limit-tip" : undefined}
+        onFocus={() => setTip(true)}
+        onBlur={() => setTip(false)}
+      >
+        <PlusIcon /> Новый проект
+      </button>
+      {tip && <span id="guest-limit-tip" role="tooltip" style={tipStyle}>{GUEST_LIMIT_HINT}</span>}
+    </span>
+  );
+}
+
 function EmptyState({
   tab, hasQuery, isArchitect, onCreate,
 }: { tab: Tab; hasQuery: boolean; isArchitect: boolean; onCreate: () => void }) {
@@ -234,6 +285,17 @@ const newBtn: CSSProperties = {
   display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px",
   background: "#2563eb", color: "#fff", border: "none", borderRadius: 10,
   fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+};
+const newBtnBlocked: CSSProperties = { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" };
+const tipStyle: CSSProperties = {
+  position: "absolute", right: 0, top: "calc(100% + 8px)", width: 270, zIndex: 3,
+  background: "rgba(17,24,39,.94)", color: "#f9fafb", fontSize: 12.5, lineHeight: 1.45,
+  padding: "9px 11px", borderRadius: 8, fontWeight: 400, whiteSpace: "normal",
+};
+const sandboxBanner: CSSProperties = {
+  display: "flex", gap: 12, alignItems: "flex-start", marginBottom: 22, padding: "12px 16px",
+  background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12,
+  fontSize: 13.5, lineHeight: 1.5,
 };
 const controls: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "space-between",
