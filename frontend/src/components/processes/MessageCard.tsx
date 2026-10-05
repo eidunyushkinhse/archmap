@@ -26,6 +26,7 @@ import type { CSSProperties } from "react";
 import { processesApi } from "../../api/processes";
 import type { DocChoice, ProcessMessage, ProcessParticipant } from "../../types";
 import { BPT } from "./tokens";
+import { stepDoc } from "./stepDoc";
 import { noAutofill } from "../../ui/noAutofill";
 
 interface Props {
@@ -83,16 +84,12 @@ export default function MessageCard({
     [participants],
   );
 
-  // Провал в привязанную схему — на ЧТЕНИЕ (У7). Имя узла для шапки оверлея —
-  // последний сегмент пути из самого шага (схема может жить у потомка участника);
-  // фолбэк на имя участника с тем же узлом, лучшего всё равно нет.
+  // Провал в привязанную схему — на ЧТЕНИЕ (У7), тем же путём, что клик по шагу в
+  // просмотре (stepDoc.ts).
   const openLinked = useCallback(() => {
-    if (!msg.doc_id || !msg.doc_node_id) return;
-    const nodeName = msg.doc_node_path?.split(" / ").pop()
-      ?? participants.find((p) => p.node_id === msg.doc_node_id)?.name
-      ?? "";
-    onOpenDoc({ docId: msg.doc_id, nodeId: msg.doc_node_id, nodeName });
-  }, [msg.doc_id, msg.doc_node_id, msg.doc_node_path, participants, onOpenDoc]);
+    const doc = stepDoc(msg, participants);
+    if (doc) onOpenDoc(doc);
+  }, [msg, participants, onOpenDoc]);
 
   // Поиск по имени схемы, адресу операции и пути узла: у монолита в каталоге две
   // сотни строк, и листать их глазами человек не станет.

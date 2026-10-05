@@ -11,6 +11,7 @@ import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, 
 import { RedoIcon, UndoIcon } from "../../ui/icons";
 import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
+import { stepDoc } from "./stepDoc";
 import MessageCard from "./MessageCard";
 import ParticipantDeleteConfirm from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
@@ -990,6 +991,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 setMsgCaption(detail?.messages.find((m) => m.id === mid)?.caption ?? "");
                 setMsgEdit(mid);
               } : undefined}
+              // Просмотр: шаг со схемой логики открывает её — тем же оверлеем, что
+              // провал из карточки шага в правке.
+              onOpenDoc={editing ? undefined : (mid) => {
+                const m = detail?.messages.find((x) => x.id === mid);
+                const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
+                if (doc) setDocView(doc);
+              }}
               onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}

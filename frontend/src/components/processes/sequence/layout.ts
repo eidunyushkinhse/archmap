@@ -35,6 +35,8 @@ export interface SeqMessage {
   tech: string | null;
   valid: boolean;
   invalidReason: "edge_deleted" | "leg_gone" | null;
+  /** привязанная к шагу схема логики — её имя; нет поля или null — схемы нет */
+  doc?: string | null;
 }
 
 export interface SeqActivation {

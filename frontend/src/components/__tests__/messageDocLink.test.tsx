@@ -19,8 +19,11 @@ import { processesApi } from "../../api/processes";
 import type { ProcessDetail } from "../../types";
 
 vi.mock("../processes/SequenceDiagram", () => ({
-  default: (props: { onMessageClick?: (id: string) => void }) => (
-    <button onClick={() => props.onMessageClick?.("m1")}>click-m1</button>
+  default: (props: { onMessageClick?: (id: string) => void; onOpenDoc?: (id: string) => void }) => (
+    <>
+      <button onClick={() => props.onMessageClick?.("m1")}>click-m1</button>
+      {props.onOpenDoc && <button onClick={() => props.onOpenDoc?.("m1")}>view-m1</button>}
+    </>
   ),
 }));
 vi.mock("../MessageComposer", () => ({ default: () => null }));
@@ -286,5 +289,34 @@ describe("карточка шага: привязка к схеме логики
     await userEvent.click(screen.getByRole("button", { name: "Выбрать" }));
 
     expect(screen.getByText(/нет схем логики/)).toBeTruthy();
+  });
+});
+
+// Просмотр: шаг со схемой открывает её сразу, без карточки шага и без «Редактировать».
+describe("шаг в просмотре: схема логики", () => {
+  const смотреть = async (detail: ProcessDetail) => {
+    vi.mocked(processesApi.get).mockResolvedValue(detail);
+    render(<ProcessCanvas id="p1" isArchitect={false} editing={false} onToggleEditing={vi.fn()} onChanged={vi.fn()} />);
+    return screen.findByText("view-m1");
+  };
+
+  it("шаг со схемой открывает окно этой схемы, карточки шага нет", async () => {
+    await userEvent.click(await смотреть(ПРИВЯЗАН));
+    expect(screen.getByTestId("ov-doc").textContent).toBe("d1");
+    expect(screen.getByTestId("ov-node").textContent).toBe("Заказы");
+    expect(screen.getByTestId("ov-edit").textContent).toBe("false");
+    expect(screen.queryByText("Шаг сценария")).toBeNull();
+  });
+
+  it("шаг без схемы окна не открывает", async () => {
+    await userEvent.click(await смотреть(DETAIL));
+    expect(screen.queryByTestId("doc-overlay")).toBeNull();
+  });
+
+  it("в правке колбэка просмотра нет: шаг открывает карточку", async () => {
+    vi.mocked(processesApi.get).mockResolvedValue(ПРИВЯЗАН);
+    render(<ProcessCanvas id="p1" isArchitect editing onToggleEditing={vi.fn()} onChanged={vi.fn()} />);
+    await screen.findByText("click-m1");
+    expect(screen.queryByText("view-m1")).toBeNull();
   });
 });

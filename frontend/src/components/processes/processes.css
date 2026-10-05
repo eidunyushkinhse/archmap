@@ -520,3 +520,16 @@
   font-weight: 600;
   color: #64748b;
 }
+
+/* Просмотр: подпись шага, к которому привязана схема логики, — ссылка на неё
+   (SequenceDiagram). Намёк спокойный — бледный пунктир под тёмным текстом: в
+   документированном процессе схема есть почти у каждого шага, и сплошь синие подписи
+   превратили бы диаграмму в страницу ссылок. При наведении — синяя. */
+.seq-doclink {
+  text-decoration: underline dotted rgba(37, 99, 235, 0.5);
+  text-underline-offset: 3px;
+}
+[data-mid]:hover .seq-doclink {
+  color: #1d4ed8;
+  text-decoration-color: currentColor;
+}

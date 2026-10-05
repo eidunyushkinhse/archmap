@@ -12,6 +12,7 @@ import { legMeta } from "./legMeta";
 import { arrayMove, strongestStatus } from "./sequence/layout";
 import type { SeqActivation, SeqBranch, SeqFragment, SeqMessage, SeqParticipant } from "./sequence/layout";
 import { BPT, BROKEN, SQ, STATUS_LEG, withAlpha } from "./tokens";
+import "./processes.css";
 
 const DEFAULT_LH = 18; // высота однострочной подписи до замера
 const LABEL_GAP = 10; // зазор между низом подписи и стрелкой
@@ -55,6 +56,10 @@ interface Props {
   // рефлексивное сообщение (внутренняя операция участника).
   onSelfConnect?: (id: string) => void;
   onMessageClick?: (id: string) => void;
+  // Просмотр: клик по шагу, к которому привязана схема логики, открывает её (id —
+  // СООБЩЕНИЯ). Кликаются только шаги со схемой; в правке шаг открывает карточку
+  // (onMessageClick), и этот колбэк не нужен.
+  onOpenDoc?: (id: string) => void;
   // Удаление участника со схемы (крестик по ховеру на шапке). id — УЧАСТНИКА.
   // Передаётся только в режиме редактирования — в read-only окне крестика нет.
   onDeleteParticipant?: (participantId: string) => void;
@@ -100,6 +105,7 @@ export default function SequenceDiagram({
   canConnect,
   onSelfConnect,
   onMessageClick,
+  onOpenDoc,
   onDeleteParticipant,
   onBindParticipant,
   onOpenNode,
@@ -392,28 +398,37 @@ export default function SequenceDiagram({
   // Приглушение видом управление НЕ отбирает (см. dimP выше): шаг остаётся на месте
   // и его по-прежнему можно открыть и перетащить — поэтому от самого сообщения
   // признак больше не зависит.
-  const grabbable = (!!onReorderMessages || !!onMessageClick) && !selectMode;
-  const grabProps = (m: SeqMessage) => ({
-    fill: "none" as const,
-    stroke: "transparent",
-    strokeWidth: GRAB_W,
-    strokeLinecap: "round" as const,
-    style: {
-      pointerEvents: "stroke" as const,
-      cursor: onReorderMessages ? "grab" : onMessageClick ? "pointer" : "default",
-    },
-    onPointerDown: onReorderMessages
-      ? (e: ReactPointerEvent<SVGElement>) => onLabelDown(e, m.r)
-      : undefined,
-    onClick: onMessageClick
-      ? () => {
-          // Перетаскивание завершилось сдвигом — click, который браузер шлёт следом,
-          // не должен открывать удаление (та же защита, что у подписи).
-          if (suppressClick.current) { suppressClick.current = false; return; }
-          onMessageClick(m.id);
-        }
-      : undefined,
-  });
+  // Клик по шагу (стрелка или подпись): в правке — карточка шага; в просмотре —
+  // привязанная к шагу схема логики, и только у шагов со схемой.
+  const clickOf = (m: SeqMessage): (() => void) | undefined => {
+    if (onMessageClick) return () => onMessageClick(m.id);
+    if (onOpenDoc && m.doc != null) return () => onOpenDoc(m.id);
+    return undefined;
+  };
+  // Перетаскивание завершилось сдвигом — click, который браузер шлёт следом, шаг не
+  // открывает (одна защита для стрелки и подписи).
+  const clickGuarded = (click: () => void) => () => {
+    if (suppressClick.current) { suppressClick.current = false; return; }
+    click();
+  };
+  const grabbableFor = (m: SeqMessage) => (!!onReorderMessages || !!clickOf(m)) && !selectMode;
+  const grabProps = (m: SeqMessage) => {
+    const click = clickOf(m);
+    return {
+      fill: "none" as const,
+      stroke: "transparent",
+      strokeWidth: GRAB_W,
+      strokeLinecap: "round" as const,
+      style: {
+        pointerEvents: "stroke" as const,
+        cursor: onReorderMessages ? "grab" : click ? "pointer" : "default",
+      },
+      onPointerDown: onReorderMessages
+        ? (e: ReactPointerEvent<SVGElement>) => onLabelDown(e, m.r)
+        : undefined,
+      onClick: click ? clickGuarded(click) : undefined,
+    };
+  };
 
   // Начало перетаскивания ШАГА за его подпись. Порог сдвига (DRAG_SLOP) отделяет
   // драг от клика: подпись открывает правку сообщения, и жест не должен её отбирать.
@@ -794,7 +809,7 @@ export default function SequenceDiagram({
                   markerEnd={marker}
                   opacity={dimMsg(m) ? 0.12 : 1}
                 />
-                {grabbable && (
+                {grabbableFor(m) && (
                   <path d={d} {...grabProps(m)} />
                 )}
               </g>
@@ -819,7 +834,7 @@ export default function SequenceDiagram({
               opacity={dimMsg(m) ? 0.12 : 1}
               style={{ transition: dragged ? undefined : "x1 .15s ease, x2 .15s ease" }}
             />
-            {grabbable && (
+            {grabbableFor(m) && (
               <line x1={x1} y1={y} x2={x2} y2={y} {...grabProps(m)} />
             )}
             </g>
@@ -847,20 +862,18 @@ export default function SequenceDiagram({
         const badgeBg = m.valid ? withAlpha(sc.bg, 0.14) : BROKEN.soft;
         const badgeBorder = m.valid ? sc.border : BROKEN.border;
         const badgeInk = m.valid ? STATUS_LEG[st] : BROKEN.ink;
+        const click = clickOf(m);
+        // Просмотр: подпись шага со схемой логики — ссылка на неё (в правке шаг
+        // открывает карточку, и выделять ссылку незачем).
+        const docLink = !onMessageClick && !!click && m.valid;
         return (
           <div
             key={"l" + m.id}
             data-mid={m.id}
             ref={bindLabel}
             onPointerDown={onReorderMessages ? (e) => onLabelDown(e, m.r) : undefined}
-            onClick={
-              onMessageClick
-                ? () => {
-                    if (suppressClick.current) { suppressClick.current = false; return; }
-                    onMessageClick(m.id);
-                  }
-                : undefined
-            }
+            onClick={click ? clickGuarded(click) : undefined}
+            title={docLink ? (m.doc ? `Схема логики «${m.doc}»` : "Схема логики шага") : undefined}
             style={{
               position: "absolute",
               left: left + 8,
@@ -870,11 +883,11 @@ export default function SequenceDiagram({
               display: "flex",
               alignItems: "flex-start",
               justifyContent: "center",
-              gap: 5,
+              gap: 6,
               zIndex: 3,
               opacity: dimMsg(m) ? 0.12 : 1,
-              pointerEvents: onMessageClick ? "auto" : "none",
-              cursor: onMessageClick ? "pointer" : "default",
+              pointerEvents: click ? "auto" : "none",
+              cursor: click ? "pointer" : "default",
               transition:
                 dragged || rowDrag ? undefined : "left .15s ease, width .15s ease, top .15s ease",
               // Тянущаяся подпись поверх остальных, чтобы не ныряла под соседние.
@@ -886,83 +899,102 @@ export default function SequenceDiagram({
               userSelect: onReorderMessages ? "none" : undefined,
             }}
           >
-            <span
-              style={{
-                width: 16,
-                height: 15,
-                borderRadius: 5,
-                background: badgeBg,
-                color: badgeInk,
-                border: "1px solid " + badgeBorder,
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 9,
-                fontWeight: 800,
-                flex: "none",
-              }}
-            >
-              {m.valid ? m.n : <IcoBrokenLink s={11} />}
-            </span>
-            {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
-            {m.valid && (
-              <span style={{ color: badgeInk, display: "inline-flex", flex: "none", marginTop: 1 }}>
-                <shape.Icon s={12} />
+            {/* Номер, type-глиф и технология — одним блоком слева, текст его обтекает:
+                рядом с блоком идут первые строки, дальше текст берёт всю ширину (между
+                соседними участниками иначе слова рвались посередине, а длинная
+                технология вроде JSON/HTTPS съедала ширину на все строки). Обёртка —
+                flow-root: высота подписи включает блок, короткая подпись по-прежнему
+                центрована над стрелкой. */}
+            {/* Текст — строчный, в одном строчном контексте с блоком: только так
+                естественная ширина обёртки = блок + текст, и короткая подпись не
+                переносится зря. */}
+            <span style={{ display: "flow-root", flex: "0 1 auto", minWidth: 0, textAlign: "left", fontSize: 11.5, lineHeight: 1.35 }}>
+              {/* высота блока — не больше двух строк текста (15 + 2 + 13,4 ≤ 2 × 15,5):
+                  третья строка уже идёт под ним во всю ширину */}
+              <span style={{ float: "left", marginRight: 6, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span
+                    style={{
+                      width: 16,
+                      height: 15,
+                      borderRadius: 5,
+                      background: badgeBg,
+                      color: badgeInk,
+                      border: "1px solid " + badgeBorder,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 9,
+                      fontWeight: 800,
+                      flex: "none",
+                    }}
+                  >
+                    {m.valid ? m.n : <IcoBrokenLink s={11} />}
+                  </span>
+                  {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
+                  {m.valid && (
+                    <span style={{ color: badgeInk, display: "inline-flex", flex: "none" }}>
+                      <shape.Icon s={12} />
+                    </span>
+                  )}
+                </span>
+                {m.valid && m.tech && (
+                  <span
+                    style={{
+                      fontSize: 9.5,
+                      fontWeight: 600,
+                      letterSpacing: ".02em",
+                      lineHeight: 1.2,
+                      color: BPT.micro,
+                      background: "#f1f5f9",
+                      border: "1px solid " + BPT.line,
+                      borderRadius: 4,
+                      padding: "0 5px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {m.tech}
+                  </span>
+                )}
               </span>
-            )}
-            <span
-              style={{
-                fontSize: 11.5,
-                fontWeight: 500,
-                color: m.valid ? BPT.head : BROKEN.ink,
-                textDecoration: m.valid ? "none" : "line-through",
-                // переносим по словам (и рвём слишком длинные слова), чтобы текст влезал
-                whiteSpace: "normal",
-                overflowWrap: "anywhere",
-                textAlign: "center",
-                lineHeight: 1.35,
-                flex: "0 1 auto",
-                minWidth: 0,
-              }}
-            >
-              {m.label}
-            </span>
-            {!m.valid && (
               <span
+                className={docLink ? "seq-doclink" : undefined}
                 style={{
-                  flex: "none",
-                  fontSize: 9.5,
-                  fontWeight: 700,
-                  color: BROKEN.ink,
-                  background: BROKEN.soft,
-                  border: "1px solid " + BROKEN.border,
-                  borderRadius: 4,
-                  padding: "1px 5px",
-                  whiteSpace: "nowrap",
+                  fontSize: 11.5,
+                  fontWeight: 500,
+                  color: m.valid ? BPT.head : BROKEN.ink,
+                  // у ссылки на схему подчёркивание — из класса (processes.css)
+                  ...(docLink ? null : { textDecoration: m.valid ? "none" : "line-through" }),
+                  // переносим по словам, длинные — по слогам (lang="ru" у страницы), и рвём
+                  // только то, что не делится
+                  whiteSpace: "normal",
+                  hyphens: "auto",
+                  overflowWrap: "anywhere",
+                  textAlign: "left",
+                  lineHeight: 1.35,
                 }}
               >
-                {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
+                {m.label}
               </span>
-            )}
-            {m.valid && m.tech && (
-              <span style={{ flex: "none" }}>
+              {!m.valid && (
                 <span
                   style={{
+                    display: "inline-block",
+                    marginLeft: 5,
                     fontSize: 9.5,
-                    fontWeight: 600,
-                    letterSpacing: ".02em",
-                    color: BPT.micro,
-                    background: "#f1f5f9",
-                    border: "1px solid " + BPT.line,
+                    fontWeight: 700,
+                    color: BROKEN.ink,
+                    background: BROKEN.soft,
+                    border: "1px solid " + BROKEN.border,
                     borderRadius: 4,
                     padding: "1px 5px",
                     whiteSpace: "nowrap",
                   }}
                 >
-                  {m.tech}
+                  {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
                 </span>
-              </span>
-            )}
+              )}
+            </span>
           </div>
         );
       })}

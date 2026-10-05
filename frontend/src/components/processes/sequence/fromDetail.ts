@@ -43,6 +43,8 @@ export function toSeqMessages(messages: ProcessMessage[]): SeqMessage[] {
       tech: m.technology,
       valid: m.valid,
       invalidReason: m.invalid_reason ?? null,
+      // открыть схему можно, только зная и её, и узел-хозяина (stepDoc.ts)
+      doc: m.doc_id && m.doc_node_id ? (m.doc_name ?? "") : null,
     }));
 }
 
