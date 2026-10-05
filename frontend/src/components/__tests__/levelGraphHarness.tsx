@@ -369,6 +369,8 @@ export const edgeConnectMock = {
   handleConnect: vi.fn(),
   handleConnectEnd: vi.fn(),
   isValidNewConnection: vi.fn((): boolean => true),
+  handleReconnectStart: vi.fn(),
+  handleReconnectEnd: vi.fn(),
 };
 export const edgeConnectParams: { current?: EdgeConnectParams } = {};
 export const useEdgeConnectMock = {
@@ -430,6 +432,7 @@ const ALL_MOCK_FNS = [
   historyMock.beginGroup, historyMock.commitGroup, historyMock.clear,
   edgeConnectMock.handleConnectStart, edgeConnectMock.handleConnect,
   edgeConnectMock.handleConnectEnd, edgeConnectMock.isValidNewConnection,
+  edgeConnectMock.handleReconnectStart, edgeConnectMock.handleReconnectEnd,
   apiNodesMock.nodesApi.getGraph, apiNodesMock.nodesApi.getAll, apiNodesMock.nodesApi.get,
   apiNodesMock.nodesApi.getChildren, apiNodesMock.nodesApi.getDescendants,
   apiNodesMock.viewsApi.saveLayout, apiNodesMock.viewsApi.state,

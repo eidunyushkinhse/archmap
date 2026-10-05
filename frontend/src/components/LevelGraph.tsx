@@ -651,13 +651,15 @@ function LevelGraphInner({
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
-  const { connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection } =
-    useEdgeConnect({
-      isArchitect, disabled: !canStructure, resolveTarget,
-      onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
-      onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
-      onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
-    });
+  const {
+    connecting, handleConnectStart, handleConnect, handleConnectEnd, isValidNewConnection,
+    handleReconnectStart, handleReconnectEnd,
+  } = useEdgeConnect({
+    isArchitect, disabled: !canStructure, resolveTarget,
+    onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
+    onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
+    onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
+  });
 
   // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
   // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
@@ -1422,6 +1424,11 @@ function LevelGraphInner({
         // Перепривязка конца-в-рамку (см. handleReconnect): единственный ручной жест
         // над геометрией связи; остальные рёбра помечены reconnectable:false.
         onReconnect={handleReconnect}
+        // RF ведёт перевес тем же протягиванием и зовёт для него общие onConnectStart/
+        // onConnectEnd: метка перевеса гасит в useEdgeConnect поток НОВОЙ связи (иначе
+        // отпускание конца на узле открывало ещё и окно «Новая связь»).
+        onReconnectStart={handleReconnectStart}
+        onReconnectEnd={handleReconnectEnd}
         // 0 — не «нулевая зона захвата», а отказ от собственного СДВИГА RF: свой
         // радиус он использует и как смещение круга-ручки наружу, отчего ручка
         // вставала рядом с рамкой. Размер ручки задаёт CSS (см. LevelGraph.css,
