@@ -186,21 +186,21 @@ describe("LevelGraph orchestration: linked-highlight / выделение", () =
     expect(props.drill.onClearSelection).not.toHaveBeenCalled();
   });
 
-  // Двойной клик по ЛЮБОМУ узлу открывает его панель (решение пользователя 2026-10-05):
-  // у рамки раскрытого узла и свёрнутого контейнера гостя объекта узла нет — хозяин
-  // получает id. Интерьер рамки прозрачен для мыши, клик приходит холсту: рамку под
-  // курсором находим по геометрии — её узел, а не сброс панели.
-  it("двойной клик по рамке и свёрнутому контейнеру — onInspectNodeId(id)", async () => {
+  // Двойной клик по ЛЮБОМУ узлу — сплошной фигуре — открывает его панель (решение
+  // пользователя 2026-10-05): у свёрнутого контейнера гостя объекта узла нет — хозяин
+  // получает id. Рамка раскрытого узла — не узел: ни плашка, ни пустое место внутри
+  // панель не открывают (пустое место — как пустой холст: сброс).
+  it("двойной клик по свёрнутому контейнеру — onInspectNodeId(id); по рамке — ничего", async () => {
     const { props } = await renderGraph({});
     const dbl = rfProps.current.onNodeDoubleClick as (e: unknown, n: unknown) => void;
     act(() => dbl({}, { id: "f1", type: "frame", position: { x: 0, y: 0 }, data: { name: "Система" } }));
+    expect(props.drill.onInspectNodeId).not.toHaveBeenCalled();
     act(() => dbl({}, { id: "c1", type: "container", position: { x: 0, y: 0 }, data: { id: "c1", name: "Партнёр" } }));
-    expect(props.drill.onInspectNodeId).toHaveBeenNthCalledWith(1, "f1");
-    expect(props.drill.onInspectNodeId).toHaveBeenNthCalledWith(2, "c1");
+    expect(props.drill.onInspectNodeId).toHaveBeenCalledWith("c1");
     expect(props.drill.onEditNode).not.toHaveBeenCalled();
   });
 
-  it("двойной клик в пустом месте раскрытой рамки — её узел (вложенной — внутренней); вне рамок — сброс", async () => {
+  it("двойной клик в пустом месте раскрытой рамки — как по пустому холсту: сброс панели", async () => {
     const { props, container } = await renderGraph({});
     const canvas = container.querySelector(".lg-canvas") as HTMLElement;
     const frame = (id: string, x: number, y: number, w: number, h: number) => {
@@ -214,13 +214,8 @@ describe("LevelGraph orchestration: linked-highlight / выделение", () =
       canvas.appendChild(el);
     };
     frame("outer", 100, 100, 600, 400);
-    frame("inner", 300, 200, 200, 150);
     fireEvent.doubleClick(canvas, { clientX: 150, clientY: 450 });
-    expect(props.drill.onInspectNodeId).toHaveBeenLastCalledWith("outer");
-    fireEvent.doubleClick(canvas, { clientX: 400, clientY: 300 });
-    expect(props.drill.onInspectNodeId).toHaveBeenLastCalledWith("inner");
-    expect(props.drill.onClearSelection).not.toHaveBeenCalled();
-    fireEvent.doubleClick(canvas, { clientX: 900, clientY: 700 });
+    expect(props.drill.onInspectNodeId).not.toHaveBeenCalled();
     expect(props.drill.onClearSelection).toHaveBeenCalledOnce();
   });
 });

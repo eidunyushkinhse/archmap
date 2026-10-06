@@ -1,13 +1,13 @@
 // Двойной клик по узлу — его панель свойств (решение пользователя 2026-10-05):
-//   • плашка «🔍 имя ✕» раскрытой рамки по одиночному клику сворачивает рамку — но
-//     после окна двойного клика: двойной клик по плашке открывает узел рамки в панели и
-//     рамку не сворачивает; ✕ сворачивает сразу;
+//   • рамка раскрытого узла — не узел и в этом не участвует: клик по плашке «🔍 имя ✕»
+//     сворачивает рамку сразу, как и прежде (попытка ждать двойного клика отменена
+//     пользователем);
 //   • панель гостя ведёт на страницу узла разделом «Документация → Открыть» (двойной клик
 //     по гостю сам больше не уводит); у пользователя (person) документации нет.
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider, type NodeProps } from "@xyflow/react";
 import type { ComponentType } from "react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { nodeTypes } from "../graph/nodes";
 import GhostInspector from "../inspector/GhostInspector";
 import type { GhostNode } from "../../types";
@@ -25,25 +25,10 @@ function renderFrame(onCollapse: () => void) {
 }
 
 describe("плашка раскрытой рамки", () => {
-  beforeEach(() => { vi.useFakeTimers(); });
-  afterEach(() => { vi.useRealTimers(); });
-
-  it("одиночный клик сворачивает — после окна двойного клика", () => {
+  it("клик по плашке сворачивает сразу", () => {
     const onCollapse = vi.fn();
-    const plaque = renderFrame(onCollapse);
-    fireEvent.click(plaque, { detail: 1 });
-    expect(onCollapse).not.toHaveBeenCalled();
-    act(() => { vi.advanceTimersByTime(300); });
+    fireEvent.click(renderFrame(onCollapse));
     expect(onCollapse).toHaveBeenCalledOnce();
-  });
-
-  it("двойной клик рамку не сворачивает (он открывает её узел в панели)", () => {
-    const onCollapse = vi.fn();
-    const plaque = renderFrame(onCollapse);
-    fireEvent.click(plaque, { detail: 1 });
-    fireEvent.click(plaque, { detail: 2 });
-    act(() => { vi.advanceTimersByTime(1000); });
-    expect(onCollapse).not.toHaveBeenCalled();
   });
 
   it("✕ сворачивает сразу", () => {

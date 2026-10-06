@@ -24,7 +24,6 @@ import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint
 import { canHaveChildren } from "../types";
 import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
-import { frameUnder } from "./graph/frameUnder";
 import type {
   WrappedEdgeData,
   BlockData, GhostData, ContainerData,
@@ -1060,9 +1059,9 @@ function LevelGraphInner({
   })();
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
-  // штатное выделение RF. Отзывается ЛЮБОЙ узел: локальный блок, гость, рамка раскрытого
-  // узла (по её плашке), свёрнутый контейнер гостя. readOnly-страница те же колбэки
-  // замыкает на переход на страницу узла.
+  // штатное выделение RF. Отзывается ЛЮБОЙ узел — сплошная фигура на схеме: локальный
+  // блок, гость, свёрнутый контейнер гостя; рамка раскрытого узла — нет (это не узел,
+  // а его раскрытие). readOnly-страница те же колбэки замыкает на переход на страницу.
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
       if (rfNode.type === "block") {
@@ -1071,8 +1070,8 @@ function LevelGraphInner({
       } else if (rfNode.type === "ghost") {
         const ghost = (rfNode.data as GhostData | undefined)?.appNode;
         if (ghost) cbRef.current.onInspectGhost?.(ghost);
-      } else if (rfNode.type === "frame" || rfNode.type === "container") {
-        // у рамки и контейнера объекта узла нет — только id (он же id узла)
+      } else if (rfNode.type === "container") {
+        // у свёрнутого контейнера объекта узла нет — только id (он же id узла)
         cbRef.current.onInspectNodeId?.(rfNode.id);
       }
     },
@@ -1230,17 +1229,9 @@ function LevelGraphInner({
       onKeyDown={handleKeyDown}
       // Двойной клик по ПУСТОМУ холсту — сброс выделения (подсветки) и правой панели.
       // Клик по узлу/ребру/плашке исключаем closest'ом (у них свои даблклик-триггеры).
-      // Пустое место ВНУТРИ раскрытой рамки — не пустой холст, а её узел: интерьер рамки
-      // прозрачен для мыши (выделять и двигать холст сквозь него), поэтому клик приходит
-      // сюда, и рамку находим по геометрии — самую вложенную под курсором.
       onDoubleClick={(e) => {
         const t = e.target as HTMLElement;
         if (t.closest?.(".react-flow__node, .react-flow__edge, .react-flow__edgelabel-renderer")) return;
-        const frameId = frameUnder(e.currentTarget, e.clientX, e.clientY);
-        if (frameId && cbRef.current.onInspectNodeId) {
-          cbRef.current.onInspectNodeId(frameId);
-          return;
-        }
         cbRef.current.onClearSelection?.();
       }}
       // ПКМ панорамирует холст — гасим браузерное контекст-меню, чтобы оно не
