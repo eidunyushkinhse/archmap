@@ -208,6 +208,11 @@ async function resolveScene(token) {
 const blocked = [];
 const warnings = [];
 const results = [];
+// Лупа «🔍» на узлах и рамках — эмодзи: без шрифта с ним (fonts-noto-color-emoji или
+// NotoColorEmoji.ttf в ~/.local/share/fonts) Chromium рисует вместо неё квадрат.
+if (!spawnSync("fc-list", [":charset=1f50d", "family"]).stdout?.toString().trim()) {
+  warnings.push("нет шрифта с эмодзи 🔍 — лупа на узлах и рамках выйдет квадратом (fonts-noto-color-emoji)");
+}
 
 async function newPage(browser, token, pid, w, h, name) {
   const ctx = await browser.newContext({
