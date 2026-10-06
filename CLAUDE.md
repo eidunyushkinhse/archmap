@@ -69,6 +69,7 @@ archmap/
 │   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
 │   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
 │   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
+│   ├── landing-shots.mjs / landing-videos.mjs  # скриншоты и видео реального UI для лендинга (демо-проект, без записи в БД)
 │   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
 │   └── setup-hooks.sh
 ├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
