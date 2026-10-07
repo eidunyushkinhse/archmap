@@ -20,8 +20,9 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 def start_sandbox(request: Request, db: Session = Depends(get_db)) -> Token:
     """Завести песочницу: гость + его копия демо-проекта.
 
-    Адрес берётся из соединения (request.client.host). За прокси это будет адрес
-    прокси; заголовки прокси настраиваются на шаге упаковки стенда."""
+    Адрес берётся из соединения (request.client.host). За nginx его восстанавливает
+    uvicorn (--proxy-headers, доверенный только 127.0.0.1): последний адрес
+    X-Forwarded-For дописывает nginx, подделать его клиент не может."""
     if not settings.demo_mode:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     ip = request.client.host if request.client else "unknown"

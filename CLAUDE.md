@@ -10,7 +10,8 @@
 - Линтеры: eslint + tsc (фронт), ruff (бэк)
 - CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта
 - Деплой: закрытый контур — OpenShift/Kubernetes (deploy/openshift) или сервер с systemd и nginx
-  (deploy/install.sh), см. DEPLOY.md; Railway — не настроен
+  (deploy/install.sh), см. DEPLOY.md; публичный стенд — https://archmap.tech (лендинг) и
+  https://demo.archmap.tech (DEMO_MODE) на серверной поставке; Railway — не настроен
 
 Структура проекта (проверено 2026-08-01)
 archmap/

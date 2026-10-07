@@ -312,6 +312,30 @@ deploy/build-bundle.sh
 Образец — конфигурация, которую установщик пишет для nginx (функция `render_nginx` в
 `deploy/install.sh`).
 
+### Публичный сервер: Let's Encrypt и демо-режим
+
+Так поднят публичный стенд https://demo.archmap.tech. Сертификат Let's Encrypt выпускается
+после первой установки по http, затем установщик запускается ещё раз уже с ним:
+
+```bash
+sudo ./deploy/install.sh --server-name demo.example.org
+sudo certbot certonly --nginx -d demo.example.org --deploy-hook "systemctl reload nginx"
+sudo ./deploy/install.sh --server-name demo.example.org \
+  --tls-cert /etc/letsencrypt/live/demo.example.org/fullchain.pem \
+  --tls-key /etc/letsencrypt/live/demo.example.org/privkey.pem
+```
+
+Сертификат продлевает `certbot.timer`, после продления nginx перечитывает его
+(`--deploy-hook`). Первая установка по http записала в `CORS_ORIGINS` адрес с `http://` —
+исправьте на `https://`.
+
+Демо-режим — `DEMO_MODE=true` в `archmap.env`: вход только гостем, у каждого гостя своя
+песочница с пределами, через сутки бездействия она удаляется. Процесс на демо один
+(`ARCHMAP_WORKERS=1`): уборка песочниц и счётчик стартов с адреса живут внутри процесса —
+с двумя процессами уборка шла бы наперегонки, а лимит стартов удвоился бы. Адрес гостя
+бэкенд берёт из `X-Forwarded-For`: последний адрес в нём дописывает nginx, а uvicorn
+доверяет только 127.0.0.1, так что подделать адрес клиент не может.
+
 ## Резервные копии
 
 Всё состояние ArchMap — в базе, на диске приложение ничего не хранит.
