@@ -47,7 +47,7 @@ pg_isready -h localhost -p 5432        # → accepting connections
 sudo service postgresql start          # или: sudo systemctl start postgresql
 ```
 
-Дефолтные доступы (зашиты в `backend/app/config.py`): пользователь `postgres`, пароль `postgres`, БД `archmap`.
+`dev.sh` по умолчанию подключается пользователем `postgres` с паролем `postgres` к БД `archmap` (переопределяются переменными `DB_USER`, `DB_PASSWORD`, `DB_NAME`) и записывает этот адрес в `backend/.env`.
 
 ### 2. Бэкенд — venv и зависимости
 

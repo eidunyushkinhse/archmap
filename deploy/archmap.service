@@ -1,0 +1,30 @@
+# Служба ArchMap (бэкенд FastAPI). Устанавливает deploy/install.sh, метки __…__ он же
+# подставляет. Файл перезаписывается при каждом обновлении — свои параметры задавайте
+# через `systemctl edit archmap`.
+[Unit]
+Description=ArchMap
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Group=__USER__
+# Значения по умолчанию; archmap.env их переопределяет
+Environment=ARCHMAP_PORT=8000 ARCHMAP_WORKERS=2
+EnvironmentFile=__ETC__/archmap.env
+WorkingDirectory=__PREFIX__/current/backend
+ExecStart=__PREFIX__/current/python/bin/python3 -m uvicorn app.main:app \
+  --host 127.0.0.1 --port ${ARCHMAP_PORT} --workers ${ARCHMAP_WORKERS} \
+  --proxy-headers --forwarded-allow-ips 127.0.0.1
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+# Приложение ничего не пишет на диск: система только для чтения, свой /tmp
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

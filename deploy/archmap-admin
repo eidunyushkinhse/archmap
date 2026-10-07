@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Команды администрирования ArchMap на сервере (python -m app.admin) с настройками из
+# /etc/archmap/archmap.env. Установщик кладёт ссылку в /usr/local/bin:
+#   sudo archmap-admin create-admin <логин> [--role architect|viewer] [--reset-password]
+set -euo pipefail
+HERE="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+REL="$(dirname "$HERE")"
+ENV_FILE="${ARCHMAP_ENV_FILE:-/etc/archmap/archmap.env}"
+cd "$REL/backend"
+exec "$REL/python/bin/python3" "$HERE/runenv.py" "$ENV_FILE" -- \
+  "$REL/python/bin/python3" -m app.admin "$@"

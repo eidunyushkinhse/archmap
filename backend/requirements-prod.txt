@@ -1,0 +1,15 @@
+# Зависимости рантайма: то, что едет на сервер в поставке (deploy/build-bundle.sh).
+# Инструменты разработки — в requirements.txt поверх этого файла.
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+sqlalchemy==2.0.30
+alembic==1.13.1
+psycopg2-binary==2.9.9
+PyJWT==2.13.0
+pwdlib[bcrypt]==0.3.0
+bcrypt==5.0.0
+python-multipart==0.0.9
+pydantic==2.7.1
+pydantic-settings==2.2.1
+python-dotenv==1.0.1
+PyYAML==6.0.3

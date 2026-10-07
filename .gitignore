@@ -12,6 +12,7 @@ backend/venv/
 node_modules/
 frontend/dist/
 frontend/dist-embed/
+dist-bundle/
 frontend/dist-ssr/
 *.local
 
