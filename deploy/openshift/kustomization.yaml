@@ -1,0 +1,20 @@
+# ArchMap в OpenShift (DEPLOY.md, «OpenShift»): oc apply -k .
+# Перед первым применением впишите адрес образа в реестре (images.newName ниже) и, если
+# нужно своё имя, хост в route.yaml. Секрет archmap-secrets создаётся отдельной командой,
+# в этих файлах его нет.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - route.yaml
+# Несекретные настройки. После правки settings.env и `oc apply -k .` поды перезапустятся сами
+configMapGenerator:
+  - name: archmap-settings
+    envs:
+      - settings.env
+images:
+  - name: archmap
+    newName: registry.example.local/archmap/archmap
+    # Версию проставляет deploy/build-image.sh
+    newTag: "dev"

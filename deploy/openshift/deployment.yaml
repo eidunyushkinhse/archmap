@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: archmap
+  labels:
+    app.kubernetes.io/name: archmap
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  # Сначала старый под останавливается, потом новый применяет миграции и стартует:
+  # старый код не работает на новой схеме базы
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: archmap
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: archmap
+    spec:
+      # Приложению не нужен ни API кластера, ни переменные соседних сервисов
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Проверка базы (версия, кодировка, права) и миграции; несколько подов
+        # применяют их по очереди
+        - name: migrate
+          image: archmap
+          command:
+            - sh
+            - -c
+            - python3 /opt/archmap/deploy/preflight.py && exec python3 -m alembic upgrade head
+          envFrom:
+            - secretRef:
+                name: archmap-secrets
+            - configMapRef:
+                name: archmap-settings
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: archmap
+          image: archmap
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - secretRef:
+                name: archmap-secrets
+            - configMapRef:
+                name: archmap-settings
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # Загруженные файлы больше 1 МБ на время запроса ложатся сюда
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 1Gi

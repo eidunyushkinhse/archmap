@@ -9,7 +9,8 @@
 - Тесты: vitest (фронт), pytest (бэк)
 - Линтеры: eslint + tsc (фронт), ruff (бэк)
 - CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта
-- Деплой: Railway (не настроен)
+- Деплой: закрытый контур — OpenShift/Kubernetes (deploy/openshift) или сервер с systemd и nginx
+  (deploy/install.sh), см. DEPLOY.md; Railway — не настроен
 
 Структура проекта (проверено 2026-08-01)
 archmap/
@@ -51,6 +52,7 @@ archmap/
 │   │   ├── processes.py   # доменная логика бизнес-процессов
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py  # демо-режим: гость, песочница, уборка; центральная проверка пределов проекта
+│   │   ├── standalone.py  # API и собранный фронт одним процессом (образ OpenShift без nginx): статика, лимит входа, предел запроса
 │   │   └── tree.py / projects.py / access.py / restore.py / view_state.py / auth.py / database.py / deps.py
 │   ├── alembic/           # миграции БД
 │   ├── tests/             # pytest (24 тестовых файла, in-memory SQLite)
@@ -75,9 +77,10 @@ archmap/
 │   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
 │   └── setup-hooks.sh
 ├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
-├── deploy/               # поставка на голый Linux-сервер: build-bundle.sh (офлайн-архив с переносным Python), install.sh (установка/обновление, systemd, nginx), preflight.py
+├── deploy/               # поставка: build-bundle.sh (офлайн-архив с переносным Python), build-image.sh (образ и пакет для OpenShift),
+│                         # openshift/ (Dockerfile, манифесты kustomize), install.sh (сервер: systemd, nginx), preflight.py (проверка базы)
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
-├── DEPLOY.md              # установка на сервер (закрытый контур), обновление, резервные копии
+├── DEPLOY.md              # установка в OpenShift/Kubernetes и на сервер (закрытый контур), обновление, резервные копии
 ├── spec.md                # продуктовая спецификация
 ├── tasks.md               # живые задачи и бэклог
 ├── .mcp.json              # MCP-серверы: LSP (python-lsp, typescript-lsp) + archmap (учётка — в mcp/.env)
@@ -87,6 +90,7 @@ archmap/
 - Поднять весь сервис:   ./dev.sh         (бэк+фронт+миграции одной командой)
 - Остановить:            ./stop.sh        (или Ctrl+C в терминале с dev.sh)
 - Поставка на сервер:    deploy/build-bundle.sh   (→ dist-bundle/*.tar.gz; установка — DEPLOY.md)
+- Образ для OpenShift:   deploy/build-image.sh    (→ dist-bundle/*-openshift.tar.gz: образ + манифесты; нужен Docker или Podman)
 - Запуск фронта:         cd frontend && npm run dev
 - Запуск бэкенда:        cd backend && ./venv/bin/uvicorn app.main:app --reload
 - Миграции (создать):    cd backend && ./venv/bin/alembic revision --autogenerate -m "название"

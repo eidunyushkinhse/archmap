@@ -4,7 +4,8 @@
 #   deploy/build-bundle.sh              → dist-bundle/archmap-<дата>-<коммит>-linux-x86_64.tar.gz
 #   deploy/build-bundle.sh --worktree   → пробная сборка из рабочего дерева (с незакоммиченным)
 # Внутри: переносной CPython со всеми зависимостями, бэкенд, собранный фронт и скрипты
-# установки. Серверу не нужны ни интернет, ни свой Python, ни Node.js.
+# установки. Серверу не нужны ни интернет, ни свой Python, ни Node.js. Тот же архив —
+# контекст сборки образа для OpenShift (deploy/openshift/Dockerfile, deploy/build-image.sh).
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
@@ -76,13 +77,17 @@ tar -xzf "$CACHE/$PY_ASSET" -C "$STAGE"
 say "Зависимости бэкенда (только готовые бинарные пакеты)"
 "$STAGE/python/bin/python3" -m pip install --quiet --no-cache-dir --disable-pip-version-check \
   --only-binary=:all: --no-compile -r "$SRC/backend/requirements-prod.txt"
+# На сервере пакеты не ставятся: pip и его копия в ensurepip — лишний вес и лишние
+# находки сканеров уязвимостей
+"$STAGE/python/bin/python3" -m pip uninstall --quiet --yes pip
+rm -rf "$STAGE/python/lib/python${PY_VERSION%.*}/ensurepip" "$STAGE"/python/bin/pip*
 
 say "Бэкенд и скрипты установки"
 mkdir -p "$STAGE/backend"
 cp -a "$SRC/backend/app" "$SRC/backend/alembic" "$SRC/backend/alembic.ini" \
   "$SRC/backend/requirements-prod.txt" "$STAGE/backend/"
 cp -a "$SRC/deploy" "$STAGE/deploy"
-rm -f "$STAGE/deploy/build-bundle.sh"
+rm -f "$STAGE/deploy/build-bundle.sh" "$STAGE/deploy/build-image.sh"
 cp "$SRC/DEPLOY.md" "$STAGE/"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 find "$STAGE/backend" "$STAGE/deploy" -name __pycache__ -prune -exec rm -rf {} +

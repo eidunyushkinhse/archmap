@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: archmap
+  labels:
+    app.kubernetes.io/name: archmap
+spec:
+  selector:
+    app.kubernetes.io/name: archmap
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

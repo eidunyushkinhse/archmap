@@ -1,0 +1,24 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: archmap
+  labels:
+    app.kubernetes.io/name: archmap
+  annotations:
+    # Ввоз и экспорт больших проектов считаются дольше минуты (по умолчанию 30 с)
+    haproxy.router.openshift.io/timeout: 300s
+    # В X-Forwarded-For — только адрес, который видит роутер: по нему считаются
+    # попытки входа, и подставить чужой адрес клиент не сможет
+    haproxy.router.openshift.io/set-forwarded-headers: replace
+spec:
+  # Без host OpenShift выдаст имя сам: archmap-<проект>.apps.<домен кластера>
+  # host: archmap.apps.example.local
+  to:
+    kind: Service
+    name: archmap
+  port:
+    targetPort: http
+  # TLS завершается на роутере, сертификат кластера по умолчанию; http → https
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
