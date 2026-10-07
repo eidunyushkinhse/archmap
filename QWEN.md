@@ -32,7 +32,8 @@ archmap/
 │   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
 │   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), UsersPage (админка пользователей), LoginPage (сплит: превью схемы + форма); TreePage — легаси за фиче-флагом
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
-│   │   └── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
+│   │   ├── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
+│   │   └── embed/         # живая схема для лендинга: холст на снимке демо-проекта без бэкенда (embed.html, npm run build:embed)
 │   ├── package.json
 │   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom)
 ├── backend/               # FastAPI
@@ -71,6 +72,7 @@ archmap/
 │   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
 │   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
 │   ├── landing-shots.mjs / landing-videos.mjs  # скриншоты и видео реального UI для лендинга (демо-проект, без записи в БД)
+│   ├── landing-embed-scene.mjs  # снимок сцены для живой схемы лендинга (frontend/src/embed/scene.gen.ts)
 │   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
 │   └── setup-hooks.sh
 ├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
@@ -89,6 +91,8 @@ archmap/
 - Миграции (применить):  cd backend && ./venv/bin/alembic upgrade head
 - Тесты бэкенда:         cd backend && ./venv/bin/python -m pytest -q
 - Тесты фронта:          cd frontend && npx vitest run
+- Живая схема лендинга:  cd frontend && npm run build:embed   (→ frontend/dist-embed; снимок сцены —
+    node scripts/landing-embed-scene.mjs при поднятом ./dev.sh)
 - Типизация фронта:      cd frontend && npx tsc -b
 - Линтер фронта:         cd frontend && npx eslint .
 - Линтер бэкенда:        cd backend && ./venv/bin/ruff check .

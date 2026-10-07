@@ -1,0 +1,124 @@
+/* Страница живой схемы лендинга (embed.html): холст на всё окно iframe. Шрифт и базовые
+   метрики — как у приложения (index.css), тема только светлая: лендинг светлый. */
+:root {
+  color-scheme: light;
+  font: 18px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: 0.18px;
+  color: #6b6375;
+  background: #f8fafc;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Рамку и скругление даёт блок лендинга вокруг iframe */
+.lp-wrap {
+  position: absolute;
+  inset: 0;
+  border: none;
+  border-radius: 0;
+}
+
+/* Активный холст: кольцо поверх содержимого (рамку .esb-wrap--active здесь не видно) */
+.lp-wrap.esb-wrap--active {
+  box-shadow: none;
+}
+.lp-wrap.esb-wrap--active::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border: 2px solid #2563eb;
+  border-radius: 14px;
+  pointer-events: none;
+}
+
+/* Приглашение — сверху по центру, в одной полосе с кнопками холста, и видно сразу, а не
+   по наведению: посетитель лендинга не знает, что схему можно трогать. Кликабелен весь
+   оверлей, пилюля — только надпись. */
+.lp-activate {
+  align-items: flex-start;
+  padding-top: 14px;
+}
+.lp-pill {
+  opacity: 1;
+  min-height: 34px;
+  max-width: calc(100% - 200px);
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 16px;
+  text-align: center;
+  transition: border-color 0.15s, color 0.15s;
+}
+.lp-activate:hover .lp-pill {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+.lp-pill-short {
+  display: none;
+}
+@media (max-width: 620px) {
+  .lp-pill-long {
+    display: none;
+  }
+  .lp-pill-short {
+    display: inline;
+  }
+}
+
+/* «Готово» — на месте приглашения: та же точка входа и выхода */
+.lp-done {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  height: 34px;
+  padding: 0 16px;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #334155;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  cursor: pointer;
+}
+.lp-done:hover {
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+/* Кнопки зума — строкой в правом нижнем углу: слева внизу стоит подпись рамки системы,
+   которую колонка кнопок закрывала. Замок интерактивности посетителю не нужен. */
+.lp-wrap .react-flow__panel.react-flow__controls {
+  left: auto;
+  right: 0;
+  flex-direction: row;
+}
+.lp-wrap .react-flow__controls-button {
+  border-bottom: none;
+}
+.lp-wrap .react-flow__controls-button + .react-flow__controls-button {
+  border-left: 1px solid #eee;
+}
+.lp-wrap .react-flow__controls-interactive {
+  display: none;
+}
+
+@keyframes lp-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.85); }
+  70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+}
