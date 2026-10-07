@@ -18,10 +18,10 @@
 //   node scripts/landing-videos.mjs --only hero,status
 //   node scripts/landing-videos.mjs --out DIR --project "Имя" --capture cdp --trace --keep-raw
 //   --capture x11|cdp|pw   режим захвата
-//   --scale N      DSF съёмки: по умолчанию 1,075 в x11 (кадр 1720 px — рамка лендинга
+//   --scale N      DSF съёмки: по умолчанию 1,18 в x11 (кадр 1888 px — рамка лендинга
 //                  на ретине), 2 в cdp
 //   --fps N        частота файла: 60 в x11, 30 в cdp
-//   --width N      ширина файла (по умолчанию кадр как снят, но не шире 1720 px)
+//   --width N      ширина файла (по умолчанию кадр как снят, но не шире 1888 px)
 //   --crf-mp4 / --crf-webm  качество x264 / VP9: 20 / 31 в x11, 23 / 34 в cdp
 //   --display :N   дисплей Xvfb для x11 (по умолчанию :97)
 //   --trace        хронометраж сцены по шагам — для подгонки hold
@@ -82,23 +82,25 @@ const CAPTURE = (() => {
   if (want && can[want]) return want;
   return ["x11", "cdp", "pw"].find((m) => can[m]);
 })();
-// Масштаб по умолчанию. x11 — 1,075: окно hero/process 1600 px даёт кадр ровно 1720 px,
+// Рамка лендинга — во всю ширину текста: .wrap 1040 px минус поля 2 × 48 = 944 px, на
+// ретине это 1888 физических пикселей.
+const FRAME_W = 944;
+const MAX_WIDTH = 2 * FRAME_W;
+// Масштаб по умолчанию. x11 — 1,18: окно hero/process 1600 px даёт кадр ровно 1888 px,
 // рамку лендинга на ретине — без пересэмплирования ни при записи, ни в браузере. 1×
 // на ретине растягивается и мылит мелкий текст схем, а 2× Chromium в Xvfb рисует
 // программно лишь на 20–30 к/с (прокрутка, перелёт над схемой) — дубли кадров. cdp — 2:
-// скринкаст и так ~25 к/с, зато кадр сжимается до 1720 с запасом резкости.
-const SCALE = Number(argOf("--scale") ?? (CAPTURE === "cdp" ? 2 : 1720 / 1600));
-// Ширина файла. По умолчанию — кадр как снят, но не шире 1720 px: рамка лендинга
-// 860 px, на ретине это 1720 физических пикселей. Шире — только лишние байты, а кадр
-// 4200 px (статусы при 2×) иные аппаратные декодеры H.264 не берут вовсе.
+// скринкаст и так ~25 к/с, зато кадр сжимается до 1888 с запасом резкости.
+const SCALE = Number(argOf("--scale") ?? (CAPTURE === "cdp" ? 2 : MAX_WIDTH / 1600));
+// Ширина файла. По умолчанию — кадр как снят, но не шире рамки лендинга на ретине.
+// Шире — только лишние байты, а кадр 4200 px (статусы при 2×) иные аппаратные
+// декодеры H.264 не берут вовсе.
 const WIDTH = argOf("--width") ? Number(argOf("--width")) : null;
-const FRAME_W = 860; // ширина рамки лендинга: .vis{max-width:860px}
-const MAX_WIDTH = 2 * FRAME_W;
 const KEEP_RAW = args.includes("--keep-raw");
 const FPS = Number(argOf("--fps") ?? (CAPTURE === "x11" ? 60 : 30));
-// crf в x11 — 20 / 31: на 26 / 36 мелкий текст схем заметно мылится, а вес hero при
-// 20 / 31 — 0,7 / 0,8 МБ, в бюджете (mp4 ≤ 1,5, webm ≤ 1 МБ). Не влезет — поднимать crf,
-// кадр не трогать.
+// crf в x11 — 20 / 31: на 26 / 36 мелкий текст схем заметно мылится, а вес hero (18 с с
+// белыми краями) при 20 / 31 — 0,8 / 0,95 МБ, в бюджете (mp4 ≤ 1,5, webm ≤ 1 МБ). Не
+// влезет — поднимать crf, кадр не трогать.
 const CRF_MP4 = Number(argOf("--crf-mp4") ?? (CAPTURE === "x11" ? 20 : 23));
 const CRF_WEBM = Number(argOf("--crf-webm") ?? (CAPTURE === "x11" ? 31 : 34));
 
@@ -452,11 +454,18 @@ async function park(page) {
 // setup — подготовка (в итоговое видео не входит), scene — то, что снимаем,
 // teardown — уборка после записи (тоже вне кадра). Внутри сцены — только ожидания
 // конкретных элементов и hold под длительность анимаций продукта.
+//
+// white — белый край петли: интерфейс проявляется из белого экрана и в него же уходит,
+// чтобы было видно, где ролик начинается и где кончается. Секунды: fade — переход
+// (ложится на первый и последний hold сцены, они должны его покрывать), pad — чистый
+// белый на краях файла.
+const FROM_WHITE = { fade: 1, pad: 0.3 };
 const VIDEOS = {
   // Глубина: страница «Сервиса заказов» → лупой раскрываем его на схеме страницы
   // (настоящая анимация раскрытия) → двойным кликом по Order API уходим на его
-  // страницу → колесом доезжаем до карточки «Конфигурация».
-  hero: { size: [1600, 1000], async setup(page, s) {
+  // страницу → колесом доезжаем до карточки «Конфигурация». Темп неспешный: на каждом
+  // экране есть время его разглядеть.
+  hero: { size: [1600, 1000], white: FROM_WHITE, async setup(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orders}`);
     const chev = page.locator(".nt-row--current .nt-chevzone");
     if ((await chev.getAttribute("aria-expanded")) !== "true") await chev.click();
@@ -466,17 +475,18 @@ const VIDEOS = {
     await park(page);
     return { card };
   }, async scene(page, s, { card }) {
-    await hold(page, 500);
+    await hold(page, 2200);                           // проявление из белого + осмотр страницы
     const node = card.locator(`.react-flow__node[data-id="${s.ids.orders}"]`);
     const c = await center(node);
-    await glide(page, c.x, c.y, 800);               // ховер показывает лупу
-    await clickOn(page, node.locator('button[title="Раскрыть содержимое"]'), 350);
+    await glide(page, c.x, c.y, 1200);              // ховер показывает лупу
+    await hold(page, 600);
+    await clickOn(page, node.locator('button[title="Раскрыть содержимое"]'), 500);
     mark("лупа");
     await card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`).waitFor();
-    await hold(page, 1300);                           // анимация раскрытия + пауза
+    await hold(page, 2600);                           // анимация раскрытия + осмотр содержимого
     // readOnly-схема страницы: двойной клик по блоку — переход на его страницу
     // (EmbeddedSchemaBlock: onEditNode → onNavigateNode)
-    await dblOn(page, card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`), 800);
+    await dblOn(page, card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`), 1200);
     mark("двойной клик");
     const config = page.locator('.np-card:has(h3:text-is("Конфигурация"))').first();
     await config.waitFor();
@@ -485,7 +495,7 @@ const VIDEOS = {
     await page.locator('.np-card:has(h3:text-is("Схема")) .react-flow__node').first().waitFor();
     await ready(page);
     mark("страница Order API готова");
-    await hold(page, 200);
+    await hold(page, 1300);                           // осмотр новой страницы
     // Курсор — в правое поле страницы: под ним на прокрутке не проплывают карточки, и
     // на инертной схеме не всплывает подсказка «кликните, чтобы взаимодействовать».
     const aside = await config.evaluate((el) => {
@@ -493,9 +503,9 @@ const VIDEOS = {
       const r = el.getBoundingClientRect();
       return { x: (r.right + sc.right) / 2, y: sc.top + sc.height * 0.55 };
     });
-    await glide(page, aside.x, aside.y, 500);
+    await glide(page, aside.x, aside.y, 800);
     await page.mouse.wheel(0, 1); // прогрев колеса: зависание первого вызова — пока курсор стоит
-    await hold(page, 150);
+    await hold(page, 300);
     // Ровно до «Конфигурации» у верха (или до конца страницы, если раньше упрёмся)
     const dist = await config.evaluate((el) => {
       const sc = el.closest(".np-page");
@@ -503,8 +513,8 @@ const VIDEOS = {
       return Math.max(0, Math.min(want, sc.scrollHeight - sc.clientHeight - sc.scrollTop));
     });
     mark(`прокрутка ${Math.round(dist)} px`);
-    await scrollSmooth(page, dist, 1300);
-    await hold(page, 2000);
+    await scrollSmooth(page, dist, 2200);
+    await hold(page, 3400);                           // осмотр «Конфигурации» + уход в белый
     mark("конец");
   } },
 
@@ -717,37 +727,61 @@ async function startScreencast(page, dir) {
 }
 
 // ── Кодирование ──────────────────────────────────────────────────────────────
-// Общий хвост: фильтр fps раскладывает кадры по сетке FPS; нечётный край (1075 px)
-// обрезается, а не пересэмплируется — пересэмплирование на пиксель мылит весь кадр;
-// масштаб — только если кадр шире MAX_WIDTH; цвет — в BT.709 ТВ-диапазона с явной
-// разметкой (без неё браузеры гадают о матрице, и синий уезжает).
-function encodeTo(name, input, inColor) {
+// Общий хвост: фильтр fps раскладывает кадры по сетке FPS; нечётный край (бывает при
+// дробном масштабе) обрезается, а не пересэмплируется — пересэмплирование на пиксель
+// мылит весь кадр; масштаб — только если кадр шире MAX_WIDTH; цвет — в BT.709
+// ТВ-диапазона с явной разметкой (без неё браузеры гадают о матрице, и синий уезжает).
+function encodeTo(name, input, inColor, dur, white) {
   const size = WIDTH ? `${WIDTH}:-2` : `'min(iw,${MAX_WIDTH})':-2`;
-  const vf = `fps=${FPS},crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0,scale=${size}:flags=lanczos:${inColor}out_color_matrix=bt709:out_range=tv,setsar=1,format=yuv420p`;
+  // Белый край петли (FROM_WHITE): переходы — по кадрам сцены, чистый белый — сверх них.
+  // Стоят до перевода в 4:2:0: fade в цвет кроме чёрного умеет только RGB, и после
+  // format=yuv420p ffmpeg молча отдал бы кодерам RGB — H.264 4:4:4 и VP9 profile 1.
+  const edges = white
+    ? `,fade=t=in:d=${white.fade}:color=white,fade=t=out:st=${(dur - white.fade).toFixed(3)}:d=${white.fade}:color=white`
+      + `,tpad=start_duration=${white.pad}:stop_duration=${white.pad}:start_mode=add:stop_mode=add:color=white`
+    : "";
+  const vf = `fps=${FPS},crop=trunc(iw/2)*2:trunc(ih/2)*2:0:0${edges},scale=${size}:flags=lanczos:${inColor}out_color_matrix=bt709:out_range=tv,setsar=1,format=yuv420p`;
   const common = ["-y", "-loglevel", "error", ...input, "-an", "-vf", vf,
     "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-color_range", "tv"];
   const base = join(OUT, `vid-${name}`);
+  // Ключевой кадр один, в начале: петлю не перематывают, а каждый лишний ключевой кадр
+  // схемы — около 100 КБ. VP9 — в два прохода: опорные alt-ref кадры libvpx строит
+  // только во втором.
+  const gop = ["-g", "9999"];
+  const passlog = join(tmpdir(), "archmap-landing-videos", `vp9-${name}`);
+  mkdirSync(dirname(passlog), { recursive: true });
+  const vp9 = [...common, ...gop, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(CRF_WEBM), "-deadline", "good",
+    "-row-mt", "1", "-threads", "4", "-passlogfile", passlog];
   const runs = [
-    [...common, "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", String(CRF_MP4), "-threads", "4",
+    [...common, ...gop, "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", String(CRF_MP4), "-threads", "4",
       "-movflags", "+faststart", `${base}.mp4`],
-    [...common, "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", String(CRF_WEBM), "-deadline", "good", "-cpu-used", "2",
-      "-row-mt", "1", "-threads", "4", `${base}.webm`],
+    [...vp9, "-cpu-used", "4", "-pass", "1", "-f", "null", "-"],
+    [...vp9, "-cpu-used", "2", "-pass", "2", `${base}.webm`],
   ];
-  for (const a of runs) {
-    const r = spawnSync(FFMPEG, a, { stdio: ["ignore", "ignore", "pipe"] });
-    if (r.status !== 0) throw new Error(`ffmpeg: ${(r.stderr?.toString().trim().split("\n").pop()) || `код ${r.status ?? r.signal}`}`);
+  try {
+    for (const a of runs) {
+      const r = spawnSync(FFMPEG, a, { stdio: ["ignore", "ignore", "pipe"] });
+      if (r.status !== 0) throw new Error(`ffmpeg: ${(r.stderr?.toString().trim().split("\n").pop()) || `код ${r.status ?? r.signal}`}`);
+    }
+  } finally {
+    rmSync(`${passlog}-0.log`, { force: true });
+  }
+  // Браузеры играют только 4:2:0: H.264 High 4:4:4 и VP9 profile 1 у них не идут
+  for (const ext of ["mp4", "webm"]) {
+    const info = spawnSync(FFMPEG, ["-hide_banner", "-i", `${base}.${ext}`]).stderr?.toString() ?? "";
+    if (!/Video: .*yuv420p\(tv/.test(info)) throw new Error(`vid-${name}.${ext}: кадр не yuv420p — браузеры его не сыграют`);
   }
   return { files: [`vid-${name}.mp4`, `vid-${name}.webm`], sizes: [statSync(`${base}.mp4`).size, statSync(`${base}.webm`).size] };
 }
 // x11: окно [start, end] сырого захвата (секунды от первого кадра); RGB → BT.709
-function encodeGrab({ name, raw, start, end }) {
-  const r = encodeTo(name, ["-ss", start.toFixed(3), "-to", end.toFixed(3), "-i", raw], "");
+function encodeGrab({ name, raw, start, end, white }) {
+  const r = encodeTo(name, ["-ss", start.toFixed(3), "-to", end.toFixed(3), "-i", raw], "", end - start, white);
   const st = grabStats(raw, start, end);
   return { ...r, note: `захват ${st.fps.toFixed(1)} к/с, макс. промежуток ${(st.maxGap * 1000).toFixed(0)} мс` };
 }
 // cdp: каждый кадр держится до следующего (concat с duration); первым идёт кадр, что
 // был на экране в момент t0. JPEG скринкаста — BT.601 полного диапазона.
-function encodeFrames({ name, frames, dir, t0, t1 }) {
+function encodeFrames({ name, frames, dir, t0, t1, white }) {
   let i0 = 0;
   frames.forEach((f, i) => { if (f.t <= t0) i0 = i; });
   const seq = frames.slice(i0).filter((f, k) => k === 0 || f.t < t1);
@@ -759,7 +793,7 @@ function encodeFrames({ name, frames, dir, t0, t1 }) {
   lines.push(`file '${seq[seq.length - 1].file}'`); // без повтора concat теряет длительность последнего
   const list = join(dir, "frames.ffconcat");
   writeFileSync(list, lines.join("\n") + "\n");
-  const r = encodeTo(name, ["-f", "concat", "-safe", "0", "-i", list], "in_color_matrix=bt601:in_range=full:");
+  const r = encodeTo(name, ["-f", "concat", "-safe", "0", "-i", list], "in_color_matrix=bt601:in_range=full:", t1 - t0, white);
   const gaps = seq.slice(1).map((f, k) => f.t - seq[k].t);
   return { ...r, note: `кадров ${seq.length}, макс. пауза ${((gaps.length ? Math.max(...gaps) : 0) * 1000).toFixed(0)} мс` };
 }
@@ -850,9 +884,9 @@ async function record(name, v) {
       return { retry: `шаг настенных часов ${step > 0 ? "+" : ""}${Math.round(step)} мс во время записи` };
     }
     const first = rawStartMs(raw);
-    return { job: { kind: "x11", name, raw, start: (t0 + grab.wall0 - first) / 1000, end: (t1 + grab.wall0 - first) / 1000 } };
+    return { job: { kind: "x11", name, raw, start: (t0 + grab.wall0 - first) / 1000, end: (t1 + grab.wall0 - first) / 1000, white: v.white } };
   }
-  return { job: { kind: "cdp", name, frames: cap.frames, dir, t0: t0 / 1000, t1: t1 / 1000 } };
+  return { job: { kind: "cdp", name, frames: cap.frames, dir, t0: t0 / 1000, t1: t1 / 1000, white: v.white } };
 }
 
 const jobs = []; // записанные сцены: кодируются после закрытия браузера
@@ -873,7 +907,7 @@ stopXvfb();
 // Кодирование — после закрытия браузера: x264 на кадре 3200×2000 берёт ~2.5 ГБ, и рядом
 // с живым Chromium его снимал OOM-киллер.
 for (const j of jobs) {
-  const dur = j.kind === "x11" ? j.end - j.start : j.t1 - j.t0;
+  const dur = (j.kind === "x11" ? j.end - j.start : j.t1 - j.t0) + (j.white ? 2 * j.white.pad : 0);
   try {
     const r = j.kind === "x11" ? encodeGrab(j) : encodeFrames(j);
     results.push({ name: j.name, files: r.files, dur, sizes: r.sizes });
