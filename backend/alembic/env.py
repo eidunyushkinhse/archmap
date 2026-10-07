@@ -1,6 +1,6 @@
 from logging.config import fileConfig
 
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 import app.models.broker_channel  # noqa: F401
 import app.models.business_process  # noqa: F401
@@ -31,6 +31,11 @@ config = context.config
 # interpolation syntax». Само приложение такой URL читает как есть.
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
+# Ключ блокировки миграций. В OpenShift несколько подов стартуют разом, и каждый
+# init-контейнер выполняет `alembic upgrade head`: блокировка ставит их в очередь,
+# второй дождётся первого и найдёт схему уже на head.
+MIGRATION_LOCK_KEY = 0x41524348  # «ARCH»
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
@@ -58,6 +63,10 @@ def run_migrations_online() -> None:
     with connectable.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
+            if connection.dialect.name == "postgresql":
+                connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK_KEY}
+                )
             context.run_migrations()
 
 
