@@ -14,10 +14,7 @@
 import asyncio
 import logging
 import secrets
-import threading
-import time
 import uuid
-from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -30,6 +27,7 @@ from app.demo_package import DEMO_PACKAGE, seed_package_template
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
+from app.rate_limit import AddressLimiter
 
 log = logging.getLogger(__name__)
 
@@ -156,38 +154,9 @@ def guest_token(guest: User) -> str:
     )
 
 
-class StartLimiter:
-    """Сколько песочниц завели с одного адреса за последний час. Счётчик в памяти
-    процесса: стенд один, а после перезапуска забыть историю не страшно."""
-
-    WINDOW_SECONDS = 3600.0
-
-    def __init__(self) -> None:
-        self._hits: dict[str, deque[float]] = {}
-        self._lock = threading.Lock()
-
-    def _fresh(self, ip: str, now: float) -> deque[float]:
-        hits = self._hits.setdefault(ip, deque())
-        while hits and now - hits[0] >= self.WINDOW_SECONDS:
-            hits.popleft()
-        return hits
-
-    def allowed(self, ip: str, per_hour: int, now: float | None = None) -> bool:
-        moment = time.monotonic() if now is None else now
-        with self._lock:
-            return len(self._fresh(ip, moment)) < per_hour
-
-    def record(self, ip: str, now: float | None = None) -> None:
-        moment = time.monotonic() if now is None else now
-        with self._lock:
-            self._fresh(ip, moment).append(moment)
-
-    def reset(self) -> None:
-        with self._lock:
-            self._hits.clear()
-
-
-start_limiter = StartLimiter()
+# Сколько песочниц завели с одного адреса за последний час: стенд один, а после
+# перезапуска забыть историю не страшно.
+start_limiter = AddressLimiter(window_seconds=3600)
 
 
 # ── Уборка ──────────────────────────────────────────────────────────────────

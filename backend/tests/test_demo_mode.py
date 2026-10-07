@@ -29,6 +29,7 @@ from app.models.node import Node
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
+from app.rate_limit import AddressLimiter
 
 START = "/api/v1/demo/start"
 PROJECTS = "/api/v1/projects"
@@ -160,7 +161,7 @@ def test_старт_отказ_429_по_адресу(client, db, demo_on, monkey
 
 
 def test_лимит_по_адресу_окно_час():
-    lim = demo.StartLimiter()
+    lim = AddressLimiter(window_seconds=3600)
     lim.record("1.2.3.4", now=0.0)
     lim.record("1.2.3.4", now=10.0)
     assert not lim.allowed("1.2.3.4", 2, now=20.0)
