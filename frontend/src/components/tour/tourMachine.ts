@@ -9,7 +9,7 @@ import {
   type Screen, type StepId, type TourStep,
 } from "./tourSteps";
 
-/** Что тур узнал о своём проекте пользователя по ходу шагов 15–20. */
+/** Что тур узнал о своём проекте пользователя по ходу шагов 14–20. */
 export interface TourVars {
   ownProjectId?: string;
   systemId?: string;
@@ -114,7 +114,7 @@ function needsYar(step: TourStep): boolean {
 /** Можно ли показать шаг: «no» — пропускаем, «unknown» — данные ещё грузятся. */
 export function availability(id: StepId, state: TourState, env: TourEnv): Availability {
   const step = STEPS[id];
-  // Свой проект уже создан: «Новый проект» погашена, шаги 14–15 не выполнить.
+  // Свой проект уже создан: «Новый проект» погашена, шаги 13–14 не выполнить.
   if ((id === "new-project" || id === "create-blank") && state.vars.ownProjectId) return "no";
   if (OWN_STEPS.has(id) && !state.vars.ownProjectId) return "no";
   if (needsYar(step)) {

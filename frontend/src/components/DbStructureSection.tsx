@@ -176,7 +176,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
   }
 
   return (
-    <div className="np-card" data-tour="node-structure">
+    <div className="np-card">
       <h3 className="np-card-title">Структура</h3>
       {error && <p className="np-warn">{error}</p>}
       {limit && <LimitNotice message={limit} />}

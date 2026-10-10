@@ -106,7 +106,7 @@ describe("DemoTour", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Начать" }));
     await waitFor(() => expect(window.location.hash).toBe("#/projects"));
     expect(await screen.findByRole("dialog", { name: "Откройте «Ярмарку»" })).toBeInTheDocument();
-    expect(screen.getByText("Шаг 1 из 27")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 1 из 25")).toBeInTheDocument();
     target("schema-block");
     act(() => goHash(`/p/${YAR}`));
     expect(await screen.findByRole("dialog", { name: "Главная страница проекта" })).toBeInTheDocument();
@@ -120,7 +120,7 @@ describe("DemoTour", () => {
     auth.canCreate = false;
     act(() => requestTourRestart());
     fireEvent.click(await screen.findByRole("button", { name: "Начать" }));
-    expect(await screen.findByText("Шаг 1 из 14")).toBeInTheDocument();
+    expect(await screen.findByText("Шаг 1 из 12")).toBeInTheDocument();
   });
 
   it("событие шины продвигает шаг: система создана — дальше второй объект", async () => {
@@ -170,13 +170,13 @@ describe("DemoTour", () => {
     chev.setAttribute("aria-expanded", "false");
     render(<DemoTour />);
     expect(await screen.findByRole("dialog", { name: "Дерево системы" })).toBeInTheDocument();
-    expect(screen.getByText("Шаг 8 из 27")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 8 из 25")).toBeInTheDocument();
     chev.setAttribute("aria-expanded", "true");
     await waitFor(() => expect(stored()).toMatchObject({ step: "tree-open" }));
     target("tree-row:c0de-07", { x: 10, y: 330, w: 240, h: 28 });
     expect(await screen.findByRole("dialog", { name: "Откройте страницу объекта" })).toBeInTheDocument();
     act(() => goHash(`/p/${YAR}/nodes/c0de-07`));
-    await waitFor(() => expect(stored()).toMatchObject({ step: "service-docs" }));
+    await waitFor(() => expect(stored()).toMatchObject({ step: "docs" }));
   });
 
   it("«Назад» на шаг дерева при раскрытой ветке — ждёт, пока её свернут и раскроют снова", async () => {

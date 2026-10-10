@@ -666,297 +666,301 @@ function NodePageInner({
           />
         </div>
 
-        {/* ── Связи ─────────────────────────────────────────────── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Связи</h3>
-          {edges.length === 0 ? (
-            <p className="np-empty">Связей нет</p>
-          ) : (
-            <table className="np-edges-table">
-              <thead>
-                <tr>
-                  <th>Вызывающий</th>
-                  <th className="np-edge-arrowcol" aria-hidden="true" />
-                  <th>Вызываемый</th>
-                  <th>Описание</th>
-                  <th style={{ width: 140 }}>Технология</th>
-                </tr>
-              </thead>
-              <tbody>
-                {edges.map((e) => (
-                  <EdgeRow
-                    key={e.id}
-                    edge={e}
-                    nodeName={node.name}
-                    isArchitect={isArchitect}
-                    onNavigateNode={onNavigateNode}
-                    onEdit={setEdgeEditId}
-                  />
-                ))}
-              </tbody>
-            </table>
+        {/* ── Документация под схемой — одним блоком: на него смотрит обучающий тур
+            (шаг «Не только схема»), раскладка та же, что у колонки карточек ── */}
+        <div className="np-docs" data-tour="node-docs">
+          {/* ── Связи ─────────────────────────────────────────────── */}
+          <div className="np-card">
+            <h3 className="np-card-title">Связи</h3>
+            {edges.length === 0 ? (
+              <p className="np-empty">Связей нет</p>
+            ) : (
+              <table className="np-edges-table">
+                <thead>
+                  <tr>
+                    <th>Вызывающий</th>
+                    <th className="np-edge-arrowcol" aria-hidden="true" />
+                    <th>Вызываемый</th>
+                    <th>Описание</th>
+                    <th style={{ width: 140 }}>Технология</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {edges.map((e) => (
+                    <EdgeRow
+                      key={e.id}
+                      edge={e}
+                      nodeName={node.name}
+                      isArchitect={isArchitect}
+                      onNavigateNode={onNavigateNode}
+                      onEdit={setEdgeEditId}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          {/* ── Участвует в процессах ─────────────────────────────── */}
+          <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
+
+          {/* ── Структура (таблицы БД) ────────────────────────────── */}
+          {allow.structure && (
+            <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Каналы (структура брокера) ────────────────────────── */}
+          {allow.channels && (
+            <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
+          )}
+
+          {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
+          {/* Монтируется ВСЕГДА, в отличие от двух секций выше: параметров нет в теле
+              узла, и узнать про легаси-записи у неподходящей формы можно только
+              запросом. Секция сама промолчит, если их нет (спрятать применённое было
+              бы хуже, чем показать с предупреждением). */}
+          <ConfigParamsSection
+            nodeId={node.id}
+            isArchitect={isArchitect}
+            allowed={allow.config}
+          />
+
+          {/* ── Логика (node_docs) ────────────────────────────────── */}
+          {(allow.logic || legacyLogic || container.docGroups.length > 0)
+            && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
+            <div className="np-card">
+              <h3 className="np-card-title">Логика</h3>
+              {isContainer ? (
+                <>
+                  {/* Собственные (grandfather) схемы контейнера: по правилам у
+                      контейнера нет своей логики — предупреждение и перенос на
+                      детей модалкой «Распределить по детям». */}
+                  {node.docs.length > 0 && (
+                    <>
+                      <p className="np-warn">
+                        У контейнера остались собственные логические диаграммы, распределите их по дочерним сервисам
+                      </p>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {node.docs.map((d) => (
+                          <button
+                            key={d.id}
+                            className="np-doc-row"
+                            onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
+                            <span className={`np-doc-chip np-doc-chip--${d.kind}`}>{KIND_LABEL[d.kind]}</span>
+                            {!d.described && <StubMark />}
+                            {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
+                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                          </button>
+                        ))}
+                      </div>
+                      {isArchitect && (
+                        <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
+                          Распределить по детям
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
+                      по непосредственным детям контейнера: собственные схемы ребёнка —
+                      плоские split-кнопки, схемы глубоких потомков — в раскрываемой
+                      группе под ребёнком. Левая часть split-кнопки открывает схему
+                      владельца напрямую, правая ведёт на его страницу. */}
+                  {container.docGroups.length > 0 && (
+                    <>
+                      {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {container.docGroups.map((group) => {
+                          const groupKey = `doc:${group.child.id}`;
+                          const open = openGroups.has(groupKey);
+                          return (
+                            <Fragment key={group.child.id}>
+                              {/* Собственные схемы ребёнка — плоско */}
+                              {group.own.map((doc) => (
+                                <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                              ))}
+                              {/* Схемы глубоких потомков — кнопка-группа с шевроном */}
+                              {group.deep.length > 0 && (
+                                <div className="np-group">
+                                  <button
+                                    type="button"
+                                    className="np-doc-group-toggle"
+                                    onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
+                                    aria-expanded={open}
+                                  >
+                                    <GroupChevron open={open} />
+                                    {group.child.name}
+                                    <span className="np-doc-group-count">
+                                      {group.deep.length} {plural(group.deep.length, ["схема", "схемы", "схем"])}
+                                    </span>
+                                  </button>
+                                  {open && (
+                                    <div className="np-doc-group-body">
+                                      {group.deep.map(({ doc, child }) => (
+                                        <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                  {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
+                  {!container.loading && node.docs.length === 0 && container.docGroups.length === 0 && (
+                    <p className="np-empty">
+                      Это контейнер, то есть абстракция. У него нет своей логики, она может быть у
+                      дочерних сервисов. Задокументируйте логику дочерних сервисов, и она будет
+                      отображаться здесь.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  {legacyLogic && (
+                    <p className="np-warn">
+                      Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
+                    </p>
+                  )}
+                  {/* Витрина — только ОПИСАННЫЕ схемы, группами по видам (после
+                      разведки монолита их может быть двести, и плоский столбец
+                      нечитаем; на маленьком объекте группы стартуют развёрнутыми).
+                      Одни заглушки и ни одной описанной — так выглядит объект сразу
+                      после разведки; «не заданы» тут соврало бы: перечень лежит ниже. */}
+                  {describedDocs.length === 0 ? (
+                    <p className="np-empty">
+                      {stubDocs.length > 0 ? "Описанных схем логики пока нет" : "Схемы логики не заданы"}
+                    </p>
+                  ) : (
+                    <NodeDocsList
+                      docs={describedDocs}
+                      onOpen={openDoc}
+                      usage={docUsage}
+                      onOpenProcess={onNavigateProcesses}
+                    />
+                  )}
+                  {addLogicMenu}
+                  {/* Бэклог документирования — заглушки разведки — под чертой, в той же
+                      карточке и свёрнутым: строка открывает окно схемы, «Описать» —
+                      уже там. Нет заглушек — нет блока. */}
+                  {stubDocs.length > 0 && (
+                    <UndescribedDocs
+                      docs={stubDocs}
+                      onOpen={openDoc}
+                      usage={docUsage}
+                      onOpenProcess={onNavigateProcesses}
+                    />
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ── OpenAPI ───────────────────────────────────────────── */}
+          {(allow.spec || legacySpec || container.specGroups.length > 0)
+            && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
+            <div className="np-card">
+              <h3 className="np-card-title">OpenAPI</h3>
+              {isContainer ? (
+                <>
+                  {/* Своя (grandfather) спека контейнера: по правилам спеки живут
+                      на атомарных детях — предупреждение и перенос одному ребёнку. */}
+                  {node.openapi_spec && (
+                    <>
+                      <p className="np-warn">
+                        У контейнера осталась собственная OpenAPI-спецификация, распределите её по дочерним сервисам
+                      </p>
+                      <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                      </button>
+                      {isArchitect && (
+                        <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
+                          Распределить по детям
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {/* Спеки потомков (дети и глубже), сгруппированные по непосредственным
+                      детям контейнера: спека самого ребёнка — плоская split-кнопка,
+                      спеки глубоких потомков — в раскрываемой группе под ребёнком. */}
+                  {container.specGroups.length > 0 && (
+                    <>
+                      {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {container.specGroups.map((group) => {
+                          const groupKey = `spec:${group.child.id}`;
+                          const open = openGroups.has(groupKey);
+                          return (
+                            <Fragment key={group.child.id}>
+                              {/* Спека самого ребёнка — плоско */}
+                              {group.own && (
+                                <SpecSplitRow child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                              )}
+                              {/* Спеки глубоких потомков — кнопка-группа с шевроном */}
+                              {group.deep.length > 0 && (
+                                <div className="np-group">
+                                  <button
+                                    type="button"
+                                    className="np-doc-group-toggle"
+                                    onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
+                                    aria-expanded={open}
+                                  >
+                                    <GroupChevron open={open} />
+                                    {group.child.name}
+                                    <span className="np-doc-group-count">
+                                      {group.deep.length} {plural(group.deep.length, ["спека", "спеки", "спек"])}
+                                    </span>
+                                  </button>
+                                  {open && (
+                                    <div className="np-doc-group-body">
+                                      {group.deep.map((child) => (
+                                        <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                  {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
+                  {!container.loading && !node.openapi_spec && container.specGroups.length === 0 && (
+                    <p className="np-empty">
+                      Это контейнер, то есть абстракция. У него нет своих эндпоинтов, они могут быть
+                      у дочерних сервисов. Задокументируйте контракты дочерних сервисов, и они будут
+                      отображаться здесь.
+                    </p>
+                  )}
+                </>
+              ) : node.openapi_spec ? (
+                <>
+                  {legacySpec && (
+                    <p className="np-warn">
+                      OpenAPI описывает HTTP-API, который объект предоставляет сам, — у этого объекта его нет
+                    </p>
+                  )}
+                  <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
+                    <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
+                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="np-empty">Спецификация не задана</p>
+                  {addSpecMenu}
+                </>
+              )}
+            </div>
           )}
         </div>
-
-        {/* ── Участвует в процессах ─────────────────────────────── */}
-        <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
-
-        {/* ── Структура (таблицы БД) ────────────────────────────── */}
-        {allow.structure && (
-          <DbStructureSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-        )}
-
-        {/* ── Каналы (структура брокера) ────────────────────────── */}
-        {allow.channels && (
-          <BrokerChannelsSection nodeId={node.id} nodeName={node.name} isArchitect={isArchitect} />
-        )}
-
-        {/* ── Конфигурация (параметры сервиса) ──────────────────── */}
-        {/* Монтируется ВСЕГДА, в отличие от двух секций выше: параметров нет в теле
-            узла, и узнать про легаси-записи у неподходящей формы можно только
-            запросом. Секция сама промолчит, если их нет (спрятать применённое было
-            бы хуже, чем показать с предупреждением). */}
-        <ConfigParamsSection
-          nodeId={node.id}
-          isArchitect={isArchitect}
-          allowed={allow.config}
-        />
-
-        {/* ── Логика (node_docs) ────────────────────────────────── */}
-        {(allow.logic || legacyLogic || container.docGroups.length > 0)
-          && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
-          <div className="np-card" data-tour="node-logic">
-            <h3 className="np-card-title">Логика</h3>
-            {isContainer ? (
-              <>
-                {/* Собственные (grandfather) схемы контейнера: по правилам у
-                    контейнера нет своей логики — предупреждение и перенос на
-                    детей модалкой «Распределить по детям». */}
-                {node.docs.length > 0 && (
-                  <>
-                    <p className="np-warn">
-                      У контейнера остались собственные логические диаграммы, распределите их по дочерним сервисам
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {node.docs.map((d) => (
-                        <button
-                          key={d.id}
-                          className="np-doc-row"
-                          onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
-                        >
-                          <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                          <span className={`np-doc-chip np-doc-chip--${d.kind}`}>{KIND_LABEL[d.kind]}</span>
-                          {!d.described && <StubMark />}
-                          {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
-                          <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                        </button>
-                      ))}
-                    </div>
-                    {isArchitect && (
-                      <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
-                        Распределить по детям
-                      </button>
-                    )}
-                  </>
-                )}
-                {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
-                    по непосредственным детям контейнера: собственные схемы ребёнка —
-                    плоские split-кнопки, схемы глубоких потомков — в раскрываемой
-                    группе под ребёнком. Левая часть split-кнопки открывает схему
-                    владельца напрямую, правая ведёт на его страницу. */}
-                {container.docGroups.length > 0 && (
-                  <>
-                    {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.docGroups.map((group) => {
-                        const groupKey = `doc:${group.child.id}`;
-                        const open = openGroups.has(groupKey);
-                        return (
-                          <Fragment key={group.child.id}>
-                            {/* Собственные схемы ребёнка — плоско */}
-                            {group.own.map((doc) => (
-                              <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                            ))}
-                            {/* Схемы глубоких потомков — кнопка-группа с шевроном */}
-                            {group.deep.length > 0 && (
-                              <div className="np-group">
-                                <button
-                                  type="button"
-                                  className="np-doc-group-toggle"
-                                  onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
-                                  aria-expanded={open}
-                                >
-                                  <GroupChevron open={open} />
-                                  {group.child.name}
-                                  <span className="np-doc-group-count">
-                                    {group.deep.length} {plural(group.deep.length, ["схема", "схемы", "схем"])}
-                                  </span>
-                                </button>
-                                {open && (
-                                  <div className="np-doc-group-body">
-                                    {group.deep.map(({ doc, child }) => (
-                                      <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-                {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                {!container.loading && node.docs.length === 0 && container.docGroups.length === 0 && (
-                  <p className="np-empty">
-                    Это контейнер, то есть абстракция. У него нет своей логики, она может быть у
-                    дочерних сервисов. Задокументируйте логику дочерних сервисов, и она будет
-                    отображаться здесь.
-                  </p>
-                )}
-              </>
-            ) : (
-              <>
-                {legacyLogic && (
-                  <p className="np-warn">
-                    Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
-                  </p>
-                )}
-                {/* Витрина — только ОПИСАННЫЕ схемы, группами по видам (после
-                    разведки монолита их может быть двести, и плоский столбец
-                    нечитаем; на маленьком объекте группы стартуют развёрнутыми).
-                    Одни заглушки и ни одной описанной — так выглядит объект сразу
-                    после разведки; «не заданы» тут соврало бы: перечень лежит ниже. */}
-                {describedDocs.length === 0 ? (
-                  <p className="np-empty">
-                    {stubDocs.length > 0 ? "Описанных схем логики пока нет" : "Схемы логики не заданы"}
-                  </p>
-                ) : (
-                  <NodeDocsList
-                    docs={describedDocs}
-                    onOpen={openDoc}
-                    usage={docUsage}
-                    onOpenProcess={onNavigateProcesses}
-                  />
-                )}
-                {addLogicMenu}
-                {/* Бэклог документирования — заглушки разведки — под чертой, в той же
-                    карточке и свёрнутым: строка открывает окно схемы, «Описать» —
-                    уже там. Нет заглушек — нет блока. */}
-                {stubDocs.length > 0 && (
-                  <UndescribedDocs
-                    docs={stubDocs}
-                    onOpen={openDoc}
-                    usage={docUsage}
-                    onOpenProcess={onNavigateProcesses}
-                  />
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── OpenAPI ───────────────────────────────────────────── */}
-        {(allow.spec || legacySpec || container.specGroups.length > 0)
-          && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
-          <div className="np-card">
-            <h3 className="np-card-title">OpenAPI</h3>
-            {isContainer ? (
-              <>
-                {/* Своя (grandfather) спека контейнера: по правилам спеки живут
-                    на атомарных детях — предупреждение и перенос одному ребёнку. */}
-                {node.openapi_spec && (
-                  <>
-                    <p className="np-warn">
-                      У контейнера осталась собственная OpenAPI-спецификация, распределите её по дочерним сервисам
-                    </p>
-                    <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                      <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                    </button>
-                    {isArchitect && (
-                      <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
-                        Распределить по детям
-                      </button>
-                    )}
-                  </>
-                )}
-                {/* Спеки потомков (дети и глубже), сгруппированные по непосредственным
-                    детям контейнера: спека самого ребёнка — плоская split-кнопка,
-                    спеки глубоких потомков — в раскрываемой группе под ребёнком. */}
-                {container.specGroups.length > 0 && (
-                  <>
-                    {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {container.specGroups.map((group) => {
-                        const groupKey = `spec:${group.child.id}`;
-                        const open = openGroups.has(groupKey);
-                        return (
-                          <Fragment key={group.child.id}>
-                            {/* Спека самого ребёнка — плоско */}
-                            {group.own && (
-                              <SpecSplitRow child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                            )}
-                            {/* Спеки глубоких потомков — кнопка-группа с шевроном */}
-                            {group.deep.length > 0 && (
-                              <div className="np-group">
-                                <button
-                                  type="button"
-                                  className="np-doc-group-toggle"
-                                  onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
-                                  aria-expanded={open}
-                                >
-                                  <GroupChevron open={open} />
-                                  {group.child.name}
-                                  <span className="np-doc-group-count">
-                                    {group.deep.length} {plural(group.deep.length, ["спека", "спеки", "спек"])}
-                                  </span>
-                                </button>
-                                {open && (
-                                  <div className="np-doc-group-body">
-                                    {group.deep.map((child) => (
-                                      <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </Fragment>
-                        );
-                      })}
-                    </div>
-                  </>
-                )}
-                {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                {!container.loading && !node.openapi_spec && container.specGroups.length === 0 && (
-                  <p className="np-empty">
-                    Это контейнер, то есть абстракция. У него нет своих эндпоинтов, они могут быть
-                    у дочерних сервисов. Задокументируйте контракты дочерних сервисов, и они будут
-                    отображаться здесь.
-                  </p>
-                )}
-              </>
-            ) : node.openapi_spec ? (
-              <>
-                {legacySpec && (
-                  <p className="np-warn">
-                    OpenAPI описывает HTTP-API, который объект предоставляет сам, — у этого объекта его нет
-                  </p>
-                )}
-                <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                  <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <p className="np-empty">Спецификация не задана</p>
-                {addSpecMenu}
-              </>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Подтверждение удаления */}

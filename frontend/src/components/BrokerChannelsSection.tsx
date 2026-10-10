@@ -178,7 +178,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
   }
 
   return (
-    <div className="np-card" data-tour="node-channels">
+    <div className="np-card">
       <h3 className="np-card-title">Каналы</h3>
       {error && <p className="np-warn">{error}</p>}
       {limit && <LimitNotice message={limit} />}

@@ -25,20 +25,20 @@ afterEach(() => { document.body.innerHTML = ""; });
 
 describe("цель шага в DOM", () => {
   it("видимая секция — вырез с полями; невидимой нет", () => {
-    const host = el('<div data-tour="node-logic"></div>');
+    const host = el('<div data-tour="node-docs"></div>');
     const sec = host.firstElementChild!;
-    expect(resolveTarget({ kind: "tour", key: "node-logic" }, CTX)).toBeNull();
+    expect(resolveTarget({ kind: "tour", key: "node-docs" }, CTX)).toBeNull();
     withRect(sec, { x: 100, y: 200, w: 300, h: 100 });
-    const res = resolveTarget({ kind: "tour", key: "node-logic" }, CTX)!;
+    const res = resolveTarget({ kind: "tour", key: "node-docs" }, CTX)!;
     expect(res.holes).toEqual([{ x: 94, y: 194, w: 312, h: 112, shape: "rect" }]);
     expect(res.elements).toEqual([sec]);
   });
 
   it("секция ниже сгиба — прокрутка к ней", () => {
-    const host = el('<div data-tour="node-logic"></div>');
+    const host = el('<div data-tour="node-docs"></div>');
     const sec = host.firstElementChild as HTMLElement;
     withRect(sec, { x: 100, y: 5000, w: 300, h: 100 });
-    expect(hiddenTarget({ kind: "tour", key: "node-logic" }, CTX)).toBe(sec);
+    expect(hiddenTarget({ kind: "tour", key: "node-docs" }, CTX)).toBe(sec);
     const spy = vi.fn();
     sec.scrollIntoView = spy;
     revealTarget(sec);

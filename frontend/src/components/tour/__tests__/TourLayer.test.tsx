@@ -21,7 +21,7 @@ function renderLayer(stepId: StepId, v: TourView, canBack = true) {
       stepKey={stepId}
       step={step}
       texts={{ title: step.title, body: step.body, action: step.action }}
-      count={step.n ? `Шаг ${step.n} из 27` : null}
+      count={step.n ? `Шаг ${step.n} из 25` : null}
       canBack={canBack}
       {...handlers}
     />,
@@ -51,7 +51,7 @@ describe("TourLayer", () => {
 
   it("шаг с действием: счётчик, строка действия, пульс, без «Далее»", () => {
     const { handlers } = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
-    expect(screen.getByText("Шаг 3 из 27")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 3 из 25")).toBeInTheDocument();
     expect(screen.getByText("Нажмите «Редактировать».")).toHaveClass("tour-do");
     expect(screen.queryByRole("button", { name: "Далее" })).toBeNull();
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toHaveClass("tour-ring--act");
