@@ -1,4 +1,5 @@
 // Что рисует слой тура в текущем кадре (считает TourRuntime, рисует TourLayer).
+import type { RehangDemo } from "./tourDemo";
 import type { Hole, Rect } from "./tourGeometry";
 
 export interface TourView {
@@ -12,6 +13,8 @@ export interface TourView {
   avoid: Rect[];
   /** что карточке лучше не закрывать (зона второго выреза) — см. placeCard */
   soft: Rect[];
+  /** демонстрация перевеса на шаге «Перевесьте связь» (TourDemo) */
+  demo?: RehangDemo;
 }
 
 export const HIDDEN_VIEW: TourView = { phase: "hidden", host: null, holes: [], anchor: null, avoid: [], soft: [] };

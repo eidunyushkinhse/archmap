@@ -316,3 +316,43 @@ describe("TourLayer", () => {
   });
 });
 
+
+describe("TourLayer — демонстрация перевеса", () => {
+  const DEMO = {
+    grab: { x: 300, y: 142 }, drop: { x: 420, y: 142 }, dropSide: "left" as const,
+    fixed: { x: 161, y: 142 }, fixedSide: "right" as const, headAtFixed: false, zoom: 1,
+  };
+
+  it("ладонь и копия стрелки поверх затемнения, мышь слой не ловит", () => {
+    renderLayer("rehang", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE], demo: DEMO }));
+    const layer = document.querySelector("[data-tour-layer] [data-tour-demo]");
+    expect(layer).toHaveClass("tour-demo");
+    expect(layer?.querySelector("[data-demo='hand']")).not.toBeNull();
+    // связь входит в рамку: тянут её конец, наконечник — у ладони, как у превью-линии холста
+    const ghost = layer?.querySelector("[data-demo='ghost-path']");
+    expect(ghost?.getAttribute("marker-end")).toMatch(/^url\(#/);
+    expect(ghost?.getAttribute("marker-start")).toBeNull();
+  });
+
+  it("рамка — начало связи: наконечник у неподвижного конца", () => {
+    renderLayer("rehang", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE], demo: { ...DEMO, headAtFixed: true } }));
+    const ghost = document.querySelector("[data-tour-demo] [data-demo='ghost-path']");
+    expect(ghost?.getAttribute("marker-start")).toMatch(/^url\(#/);
+    expect(ghost?.getAttribute("marker-end")).toBeNull();
+  });
+
+  it("нет демонстрации у шага или вырезы ещё едут — слоя нет", () => {
+    renderLayer("connect", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    expect(document.querySelector("[data-tour-demo]")).toBeNull();
+    const step = STEPS.rehang;
+    render(
+      <TourLayer
+        view={view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE], demo: DEMO })}
+        motion={{ opacity: 1, holes: [], settled: false }}
+        stepKey="rehang" step={step} texts={{ title: step.title, body: step.body, action: step.action }}
+        count={null} canBack onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
+      />,
+    );
+    expect(document.querySelector("[data-tour-demo]")).toBeNull();
+  });
+});

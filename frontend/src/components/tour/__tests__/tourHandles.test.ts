@@ -75,10 +75,13 @@ describe("resolveRehang", () => {
     const edge = document.createElementNS("http://www.w3.org/2000/svg", "g");
     edge.setAttribute("class", "react-flow__edge");
     edge.setAttribute("aria-label", "Edge from p1 to s1");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("class", "react-flow__edge-path");
+    path.setAttribute("d", "M 161,142 L 300,142");
     const updater = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     updater.setAttribute("class", "react-flow__edgeupdater");
     setRect(updater, { x: 294, y: 136, w: 12, h: 12 });
-    edge.append(updater);
+    edge.append(path, updater);
     svg.append(edge);
     flow.append(svg);
     const boxes = new Map<string, Box>([
@@ -101,6 +104,15 @@ describe("resolveRehang", () => {
     expect(res.holes).toHaveLength(2);
     expect(res.holes[0]).toMatchObject({ shape: "rect", x: 284, y: 126 });
     expect(res.holes[1]).toMatchObject({ shape: "dot" });
+    // демонстрация: ладонь берёт конец на рамке и кладёт на точку сервиса; копия стрелки
+    // тянется от правого края «Банка» — начала пути ребра
+    expect(res.demo).toEqual({
+      grab: { x: 300, y: 142 }, drop: { x: 420, y: 142 }, dropSide: "left",
+      fixed: { x: 161, y: 142 }, fixedSide: "right", headAtFixed: false, zoom: 1,
+    });
+    // путь ребра не прочитать — цель та же, просто без демонстрации
+    path.removeAttribute("d");
+    expect(resolveRehang("s1", "c1")!.demo).toBeUndefined();
     // без сервиса на холсте цели нет
     child.remove();
     expect(resolveRehang("s1", "c1")).toBeNull();

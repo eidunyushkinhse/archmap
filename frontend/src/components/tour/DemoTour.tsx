@@ -71,8 +71,11 @@ function initTour(userId: string): TourState {
 function viewKey(v: TourView): string {
   const r = (n: number) => Math.round(n);
   const rect = (x: { x: number; y: number; w: number; h: number }) => `${r(x.x)},${r(x.y)},${r(x.w)},${r(x.h)}`;
+  const pt = (p: { x: number; y: number }) => `${r(p.x)},${r(p.y)}`;
+  const demo = v.demo ? [pt(v.demo.grab), pt(v.demo.drop), pt(v.demo.fixed), v.demo.dropSide, v.demo.fixedSide,
+    v.demo.headAtFixed ? 1 : 0, v.demo.zoom.toFixed(3)].join(",") : "";
   return [v.phase, v.holes.map((h) => h.shape + rect(h)).join(";"), v.anchor ? rect(v.anchor) : "",
-    v.avoid.map(rect).join(";"), v.soft.map(rect).join(";")].join("|");
+    v.avoid.map(rect).join(";"), v.soft.map(rect).join(";"), demo].join("|");
 }
 
 /** Ключ кадра анимации: пока вырез едет или затемнение проявляется, он меняется
@@ -325,7 +328,7 @@ function TourRuntime({ userId }: { userId: string }) {
         if (res && (!dialog || res.elements.every((el) => dialog.contains(el)))) {
           const found: TourView = {
             phase: "spot", host: dialog ?? document.body, holes: res.holes, anchor: res.anchor, avoid: res.avoid,
-            soft: res.soft ?? [],
+            soft: res.soft ?? [], ...(res.demo ? { demo: res.demo } : {}),
           };
           // Пара нашлась без зоны (холст ещё монтируется) — держим прежний кадр с зоной.
           next = held && found.holes.length < held.holes.length ? held : found;

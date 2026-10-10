@@ -4,6 +4,7 @@
 // обрезки холстом), в координатах окна.
 import { padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { TourVars } from "./tourMachine";
+import type { RehangDemo } from "./tourDemo";
 import { resolveHandlePair, resolveRehang } from "./tourHandles";
 import type { Target, TargetPart } from "./tourSteps";
 
@@ -23,6 +24,8 @@ export interface Resolved {
   avoid: Rect[];
   /** что карточке лучше не закрывать (зона второго выреза) */
   soft?: Rect[];
+  /** шаг «Перевесьте связь»: ладонь показывает перевес конца стрелки (tourDemo.ts) */
+  demo?: RehangDemo;
 }
 
 // Предки, обрезающие содержимое (overflow не visible): у элемента они не меняются,

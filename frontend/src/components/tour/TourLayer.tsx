@@ -1,6 +1,7 @@
 // Слой тура: затемнение с вырезами и синей рамкой вокруг цели, пульс на шагах с
-// действием, карточка «Шаг N из M» рядом с целью. Только отрисовка: что и где
-// подсвечивать, решает TourRuntime (DemoTour.tsx).
+// действием, карточка «Шаг N из M» рядом с целью, на шаге «Перевесьте связь» —
+// демонстрация жеста ладонью (TourDemo). Только отрисовка: что и где подсвечивать,
+// решает TourRuntime (DemoTour.tsx).
 //
 // Клики. Затемнение пропускает события только в вырезах: перехватчик — SVG-путь с
 // дырами (evenodd), ловящий указатель своей заливкой. Жест, начатый в вырезе (драг
@@ -22,6 +23,7 @@ import { createPortal } from "react-dom";
 import { holePath, inHole, mergeHoles, nearHole, placeCard, shadePath, type Hole } from "./tourGeometry";
 import { prefersReducedMotion, restingFrame, type MotionFrame } from "./tourMotion";
 import { takeExitToPill } from "./tourStore";
+import TourDemo from "./TourDemo";
 import type { TourStep } from "./tourSteps";
 import type { TourView } from "./tourView";
 import "./tour.css";
@@ -95,6 +97,10 @@ export default function TourLayer(props: Props) {
           key={props.stepKey} width={w} height={h} holes={view.phase === "spot" ? view.holes : []}
           onShade={props.onShade}
         />
+      )}
+      {/* Демонстрация жеста (шаг «Перевесьте связь»): когда вырезы доехали до цели */}
+      {view.phase === "spot" && view.demo && motion.settled && (
+        <TourDemo key={props.stepKey} demo={view.demo} width={w} height={h} />
       )}
       {hasCard && (
         <Card key={`${props.stepKey}|${view.phase}`} {...props} viewport={{ w, h }} moved={host !== view.host} />
