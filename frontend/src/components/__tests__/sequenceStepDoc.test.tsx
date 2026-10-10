@@ -3,8 +3,8 @@
 // В просмотре шаг, к которому привязана схема логики, открывает её кликом (стрелка или
 // подпись); шаг без схемы не кликается вовсе — курсор-рука на нём обещала бы то, чего
 // нет. В правке клик по любому шагу открывает его карточку, как прежде.
-// Подпись: номер, type-глиф и технология — одной колонкой слева, текст — справа на всю
-// оставшуюся ширину (между соседними участниками иначе слова рвались посередине).
+// Подпись: номер и type-глиф — колонкой слева, текст и под ним технология — колонкой
+// справа с одним отступом у всех строк.
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import SequenceDiagram from "../processes/SequenceDiagram";
@@ -72,15 +72,19 @@ describe("шаг процесса в просмотре: схема логики
 });
 
 describe("подпись шага", () => {
-  it("номер и технология — одним блоком слева, текст его обтекает", () => {
+  it("номер слева, текст и под ним технология — колонкой справа: у всех строк один отступ", () => {
     render(<SequenceDiagram participants={[P("a"), P("b")]} messages={[WITH_DOC]} />);
     const wrap = label("m1").firstElementChild as HTMLElement;
-    // обёртка держит высоту обтекаемого блока — подпись не наезжает на стрелку
-    expect(wrap.style.display).toBe("flow-root");
-    const [meta, text] = Array.from(wrap.children) as HTMLElement[];
-    expect(meta.style.float).toBe("left");
-    expect(meta.style.flexDirection).toBe("column");
-    expect(meta.textContent).toBe("1REST");
+    expect(wrap.style.display).toBe("flex");
+    const [meta, col] = Array.from(wrap.children) as HTMLElement[];
+    // номер — своя колонка, текст её не обтекает: строки под ней не уходят влево
+    expect(meta.style.float).toBe("");
+    expect(meta.textContent).toBe("1");
+    // справа одна колонка: текст, под ним технология — с тем же отступом
+    expect(col.style.flexDirection).toBe("column");
+    expect(col.style.minWidth).toBe("0px");
+    const [text, tech] = Array.from(col.children) as HTMLElement[];
     expect(text.textContent).toBe("создать заказ");
+    expect(tech.textContent).toBe("REST");
   });
 });

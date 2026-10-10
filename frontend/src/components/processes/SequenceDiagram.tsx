@@ -899,42 +899,78 @@ export default function SequenceDiagram({
               userSelect: onReorderMessages ? "none" : undefined,
             }}
           >
-            {/* Номер, type-глиф и технология — одним блоком слева, текст его обтекает:
-                рядом с блоком идут первые строки, дальше текст берёт всю ширину (между
-                соседними участниками иначе слова рвались посередине, а длинная
-                технология вроде JSON/HTTPS съедала ширину на все строки). Обёртка —
-                flow-root: высота подписи включает блок, короткая подпись по-прежнему
+            {/* Номер и type-глиф — колонкой слева, текст и под ним технология — колонкой
+                справа: у всех строк один отступ (обтекание блока давало рваный край —
+                строки под ним уходили влево), и он одинаков у всех шагов. Технология под
+                номером съедала бы ширину текста на всех строках: JSON/HTTPS или Email/SMS
+                сжимали текст между соседними участниками до 5–6 строк. Естественная
+                ширина обёртки = номер + текст: короткая подпись не переносится зря и
                 центрована над стрелкой. */}
-            {/* Текст — строчный, в одном строчном контексте с блоком: только так
-                естественная ширина обёртки = блок + текст, и короткая подпись не
-                переносится зря. */}
-            <span style={{ display: "flow-root", flex: "0 1 auto", minWidth: 0, textAlign: "left", fontSize: 11.5, lineHeight: 1.35 }}>
-              {/* высота блока — не больше двух строк текста (15 + 2 + 13,4 ≤ 2 × 15,5):
-                  третья строка уже идёт под ним во всю ширину */}
-              <span style={{ float: "left", marginRight: 6, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ display: "flex", alignItems: "flex-start", gap: 6, flex: "0 1 auto", minWidth: 0, textAlign: "left", fontSize: 11.5, lineHeight: 1.35 }}>
+              <span style={{ flex: "none", display: "flex", alignItems: "center", gap: 5 }}>
+                <span
+                  style={{
+                    width: 16,
+                    height: 15,
+                    borderRadius: 5,
+                    background: badgeBg,
+                    color: badgeInk,
+                    border: "1px solid " + badgeBorder,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 9,
+                    fontWeight: 800,
+                    flex: "none",
+                  }}
+                >
+                  {m.valid ? m.n : <IcoBrokenLink s={11} />}
+                </span>
+                {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
+                {m.valid && (
+                  <span style={{ color: badgeInk, display: "inline-flex", flex: "none" }}>
+                    <shape.Icon s={12} />
+                  </span>
+                )}
+              </span>
+              <span style={{ flex: "0 1 auto", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2 }}>
+                {/* текст с пометкой «связь удалена» — одним строчным блоком */}
+                <span style={{ maxWidth: "100%" }}>
                   <span
+                    className={docLink ? "seq-doclink" : undefined}
                     style={{
-                      width: 16,
-                      height: 15,
-                      borderRadius: 5,
-                      background: badgeBg,
-                      color: badgeInk,
-                      border: "1px solid " + badgeBorder,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 9,
-                      fontWeight: 800,
-                      flex: "none",
+                      fontSize: 11.5,
+                      fontWeight: 500,
+                      color: m.valid ? BPT.head : BROKEN.ink,
+                      // у ссылки на схему подчёркивание — из класса (processes.css)
+                      ...(docLink ? null : { textDecoration: m.valid ? "none" : "line-through" }),
+                      // переносим по словам, длинные — по слогам (lang="ru" у страницы), и рвём
+                      // только то, что не делится
+                      whiteSpace: "normal",
+                      hyphens: "auto",
+                      overflowWrap: "anywhere",
+                      textAlign: "left",
+                      lineHeight: 1.35,
                     }}
                   >
-                    {m.valid ? m.n : <IcoBrokenLink s={11} />}
+                    {m.label}
                   </span>
-                  {/* маленький type-глиф рядом с цифрой — тип читается даже в ч/б */}
-                  {m.valid && (
-                    <span style={{ color: badgeInk, display: "inline-flex", flex: "none" }}>
-                      <shape.Icon s={12} />
+                  {!m.valid && (
+                    <span
+                      style={{
+                        display: "inline-block",
+                        marginLeft: 5,
+                        fontSize: 9.5,
+                        fontWeight: 700,
+                        color: BROKEN.ink,
+                        background: BROKEN.soft,
+                        border: "1px solid " + BROKEN.border,
+                        borderRadius: 4,
+                        padding: "1px 5px",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
                     </span>
                   )}
                 </span>
@@ -957,43 +993,6 @@ export default function SequenceDiagram({
                   </span>
                 )}
               </span>
-              <span
-                className={docLink ? "seq-doclink" : undefined}
-                style={{
-                  fontSize: 11.5,
-                  fontWeight: 500,
-                  color: m.valid ? BPT.head : BROKEN.ink,
-                  // у ссылки на схему подчёркивание — из класса (processes.css)
-                  ...(docLink ? null : { textDecoration: m.valid ? "none" : "line-through" }),
-                  // переносим по словам, длинные — по слогам (lang="ru" у страницы), и рвём
-                  // только то, что не делится
-                  whiteSpace: "normal",
-                  hyphens: "auto",
-                  overflowWrap: "anywhere",
-                  textAlign: "left",
-                  lineHeight: 1.35,
-                }}
-              >
-                {m.label}
-              </span>
-              {!m.valid && (
-                <span
-                  style={{
-                    display: "inline-block",
-                    marginLeft: 5,
-                    fontSize: 9.5,
-                    fontWeight: 700,
-                    color: BROKEN.ink,
-                    background: BROKEN.soft,
-                    border: "1px solid " + BROKEN.border,
-                    borderRadius: 4,
-                    padding: "1px 5px",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
-                </span>
-              )}
             </span>
           </div>
         );
