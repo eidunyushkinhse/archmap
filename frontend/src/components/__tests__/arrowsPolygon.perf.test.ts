@@ -40,9 +40,12 @@ import {
 } from "../graph/layout/routeQualityMetrics";
 import { cleanup } from "../graph/edgePath";
 import { NODE_W, NODE_H } from "../graph/constants";
+import { __zDebug } from "../graph/layout/zRoutes";
 import type { EdgePoint } from "../../types";
 
 const dir = process.env.ARCHMAP_ARROWS_POLYGON;
+// след выбора Z-вариантов роутера (разбор крестов): ARCHMAP_Z_DEBUG=1
+__zDebug.on = process.env.ARCHMAP_Z_DEBUG === "1";
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {
@@ -440,6 +443,23 @@ describe.skipIf(!dir)("полигон стрелок (эпик «без жёст
       });
       const lrects = new Map<string, Rect>([...labels].map(([id, l]) => [id, l.rect]));
       writeFileSync(join(svgDir, `${scene}-${variant}.svg`), svgOf(sc, routes, lrects, `${scene} · ${variant}`));
+      if (__zDebug.on) {
+        const nameOf = new Map(sc.groups.map((g) => [g.id.slice(0, 8), `${sc.names.get(g.source) ?? "?"} → ${sc.names.get(g.target) ?? "?"}`]));
+        writeFileSync(join(svgDir, `${scene}-${variant}.zlog.txt`), __zDebug.lines.map((l) => {
+          const id = l.split(" ")[0];
+          return `${nameOf.get(id) ?? id} | ${l.slice(id.length + 1)}`;
+        }).join("\n"));
+        __zDebug.lines.length = 0;
+      }
+      // маршруты с именами концов — для разбора крестов руками/скриптом
+      writeFileSync(join(svgDir, `${scene}-${variant}.routes.json`), JSON.stringify({
+        rects: [...sc.rects].map(([id, r]) => ({ id: id.slice(0, 8), name: sc.names.get(id) ?? "?", ...r })),
+        routes: sc.groups.map((g) => ({
+          id: g.id.slice(0, 8),
+          from: sc.names.get(g.source) ?? g.source.slice(0, 8), to: sc.names.get(g.target) ?? g.target.slice(0, 8),
+          pts: routes.get(g.id) ?? [],
+        })),
+      }, null, 1));
     };
     for (const f of files) {
       const scene = basename(f, ".json");

@@ -53,10 +53,12 @@ function edge(id: string, source_id: string, target_id: string, label: string | 
 
 // Сцена с ПОЛНЫМИ замерами: без них авто-режим P10 роняет стадии качества (и вместе с
 // ними бюджет), а гейт авторитетности (v) не проверить — он и так был бы false.
+// Q перегораживает прямую A → B: с Ф2 (своя дорожка) связи с чистым Z идут без A*, а
+// бюджет считает экспансии A* — сцене нужна хотя бы одна связь без Z.
 const SZ = { w: 220, h: 96 };
 function budgetInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
   return {
-    nodes: [appNode("A"), appNode("B"), appNode("C")],
+    nodes: [appNode("A"), appNode("B"), appNode("C"), appNode("Q")],
     endpoints: [ghost("G", []), ghost("H", [a("D")])],
     edges: [
       edge("eAB", "A", "B", "зов"), edge("eBC", "B", "C", "поток"),
@@ -65,13 +67,13 @@ function budgetInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     ],
     containerId: "P",
     viewLayout: {
-      A: { x: 0, y: 0 }, B: { x: 400, y: 0 }, C: { x: 200, y: 300 },
+      A: { x: 0, y: 0 }, B: { x: 500, y: 0 }, C: { x: 200, y: 300 }, Q: { x: 250, y: -20 },
       G: { x: -400, y: 0 }, D: { x: 800, y: 200 },
     },
     ancestorIds: ["P"],
     expanded: new Set(),
     localChildren: {},
-    sizes: { A: SZ, B: SZ, C: SZ, G: SZ, D: SZ },
+    sizes: { A: SZ, B: SZ, C: SZ, Q: SZ, G: SZ, D: SZ },
     edgeQuality: "full",
     ...overrides,
   };

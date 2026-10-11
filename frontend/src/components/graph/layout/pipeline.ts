@@ -862,7 +862,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     budget,
   });
   autoRoutes = ar.routes;
-  mark("роутер: порты+A*+rip-up (проход 1)");
+  mark("роутер: порты+Z+A*+rip-up (проход 1)");
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
@@ -889,13 +889,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // (fixedIds), полировка джогов их пропускает. restoreFrozen оставлен СТРАХОВКОЙ и
   // обязан быть no-op — сколько ему пришлось чинить, считает frozenDrift (хук
   // __ARCHMAP_FROZEN_DIAG в конце стадий; инвариант — нули).
+  // С Ф2 (своя дорожка) заморожены и Z-маршруты ЛЮБОГО прогона (ar.fixedIds): их
+  // дорожки уже разведены каналом, нуджинг держит их пинами, а связи без Z встают
+  // рядом. Нероутируемая связь, чей prev не пересел и которую роутер проложил сам
+  // (ar.routedIds), не замораживается.
   const frozenRoutes = new Map<string, EdgePoint[]>();
-  if (scoped) {
-    for (const g of groupArr) {
-      if (routableIds.has(g.id)) continue;
-      const rt = autoRoutes.get(g.id);
-      if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
-    }
+  for (const g of groupArr) {
+    const frozen = ar.fixedIds.has(g.id) || (scoped && !routableIds.has(g.id) && !ar.routedIds.has(g.id));
+    if (!frozen) continue;
+    const rt = autoRoutes.get(g.id);
+    if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
   }
   const frozenIds: ReadonlySet<string> = new Set(frozenRoutes.keys());
   const frozenDrift = { nudge: 0, jogs: 0, t4: 0 };

@@ -121,7 +121,9 @@ const half = (v: number): number => Math.round(v * 2) / 2;
 /**
  * Порты всех связей уровня: сторона по R2, порядок по R3, позиции по R4.
  * rects — тела стыковки (узлы и рамки-концы); frameIds — какие из них рамки;
- * prevSides — прежние стороны пар (гистерезис R2 и прежняя ось).
+ * prevSides — прежние стороны пар (гистерезис R2 и прежняя ось); keys — ключи порядка
+ * концов вместо центра дальнего узла (доводка E85: роутер отдаёт место вертикали
+ * связи в соседнем канале — колонну ZZ или центр своего узла у длинного Z).
  * Группы с концом без прямоугольника пропускаются.
  */
 export function assignPorts(params: {
@@ -130,8 +132,9 @@ export function assignPorts(params: {
   frameIds?: ReadonlySet<string>;
   prevSides?: ReadonlyMap<string, { s: EdgeSide; t: EdgeSide }>;
   axis?: FlowAxis;
+  keys?: ReadonlyMap<string, { s?: number; t?: number }>;
 }): { ports: Map<string, PortPair>; axis: FlowAxis } {
-  const { groups, rects, frameIds, prevSides } = params;
+  const { groups, rects, frameIds, prevSides, keys } = params;
   const pairs: Array<{ a: NodeRect; b: NodeRect }> = [];
   for (const g of groups) {
     const a = rects.get(g.source), b = rects.get(g.target);
@@ -171,8 +174,9 @@ export function assignPorts(params: {
     ports.set(g.id, pair);
     const ca = center(a), cb = center(b);
     const alongOf = (side: EdgeSide, p: EdgePoint): number => (isVerticalSide(side) ? p.x : p.y);
-    push(g.source, a, sides.s, { key: `${g.id}:s`, far: alongOf(sides.s, cb), tie: `${g.id}:s`, set: (p) => { pair.s.point = p; } });
-    push(g.target, b, sides.t, { key: `${g.id}:t`, far: alongOf(sides.t, ca), tie: `${g.id}:t`, set: (p) => { pair.t.point = p; } });
+    const k = keys?.get(g.id);
+    push(g.source, a, sides.s, { key: `${g.id}:s`, far: k?.s ?? alongOf(sides.s, cb), tie: `${g.id}:s`, set: (p) => { pair.s.point = p; } });
+    push(g.target, b, sides.t, { key: `${g.id}:t`, far: k?.t ?? alongOf(sides.t, ca), tie: `${g.id}:t`, set: (p) => { pair.t.point = p; } });
   }
 
   for (const rec of bySide.values()) {

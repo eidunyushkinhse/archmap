@@ -62,6 +62,7 @@ import {
   PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
 } from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
+import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY } from "./zRoutes";
 import {
   NUDGE_GAP, NUDGE_GAP_LADDER, NUDGE_CLEAR, EPS as NUDGE_EPS,
   OVERLAP_MIN as NUDGE_OVERLAP_MIN, NEAR_OVERLAP_MIN as NUDGE_NEAR_OVERLAP_MIN,
@@ -87,7 +88,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 10;
+export const ROUTER_VERSION = 11;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -145,6 +146,12 @@ export function collectRouterConstants(): Record<string, unknown> {
     "ports.AXIS_FLIP_SHARE": AXIS_FLIP_SHARE,
     "ports.AXIS_OVERLAP_SHARE": AXIS_OVERLAP_SHARE,
     "ports.AXIS_DECISIVE_RATIO": AXIS_DECISIVE_RATIO,
+    // --- своя дорожка (zRoutes, Ф2 эпика «стрелки без жёстких хэндлов»): клиренс
+    // дорожек, дно сжатия шага, конфликт слитых стабов — геометрия Z-маршрутов ---
+    "zRoutes.Z_CLEAR": Z_CLEAR,
+    "zRoutes.LANE_GAP_MIN": LANE_GAP_MIN,
+    "zRoutes.LANE_CONFLICT_TOL": LANE_CONFLICT_TOL,
+    "zRoutes.LANE_CONFLICT_PENALTY": LANE_CONFLICT_PENALTY,
     // --- мост домена (autoRoutes) ---
     "autoRoutes.FRAME_CROSS_COST": FRAME_CROSS_COST,
     "autoRoutes.LABEL_CROSS_COST": LABEL_CROSS_COST,
@@ -249,6 +256,13 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v11 — Ф2 эпика «стрелки без жёстких хэндлов», заход 2 (2026-10-11): СВОЯ ДОРОЖКА.
+  // Связи с портами на противоположных сторонах оси получают Z-маршрут с дорожками
+  // канала, упорядоченными по крестам (zRoutes.ts, калька OrthogonalRoutingGenerator
+  // ELK); A* остаётся для связей без чистого Z и видит Z предпроложенным контекстом;
+  // prev нероутируемых связей пересаживается на уехавшие порты (R9). Реестр вырос на
+  // четыре константы Z, И ГЕОМЕТРИЯ ИЗМЕНИЛАСЬ ПОВСЕМЕСТНО (golden перегенерирован).
+  11: "a8fda4837eef36ab",
   // v10 — Ф2 эпика «стрелки без жёстких хэндлов» (2026-10-11), заход первый: СНЯТИЕ
   // СТВОЛОВ. С портом на связь (v9) общих точек стыковки нет, и вся механика общих плеч
   // осталась без причины: стволовой контекст оценки (E25 v2), сварка вееров
