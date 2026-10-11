@@ -239,14 +239,18 @@ describe("zRoutes — ребро через слой (ZZ) и ключи порт
     for (const id of ["mp", "ml", "lk", "pk"]) expect(crosses(km, routes.get(id)!)).toBe(0);
   });
 
-  it("ключи портов: концы ZZ сортируются по колонне, нижний конец длинного Z — по центру своего узла", () => {
-    const { portKeys } = run(rects, groups);
+  it("ключи портов: конец ZZ сортируется по колонне, конец без Z — по просвету, нижний конец длинного Z — по своему порту", () => {
+    const { portKeys, routes } = run(rects, groups);
     const km = portKeys.get("km")!;
-    expect(km.s).toBeDefined();
-    expect(km.t).toBe(km.s);
+    // конец K (источник, adjacent): ключ — колонна ZZ
+    expect(km.s).toBe(routes.get("km")![2].x);
+    // конец M: у связи нет ни одного Z (колонна порта M перегорожена L) — разрешающий
+    // ключ указывает на просвет правее L, где порт M открыл бы прямой Z
+    expect(km.t).toBeGreaterThanOrEqual(220 + Z_CLEAR);
+    expect(km.t).toBeLessThanOrEqual(277 - Z_CLEAR);
     // длинный Z: колонны портов свободны, но пробег дорожки пересекает слой (Mid) —
     // дорожка в канале у H (ранний излом), до B — длинная вертикаль сквозь нижний канал;
-    // ключ у B — центр B (895), у H — обычный (дальний центр)
+    // ключ у B — текущий порт B (единственный на стороне — центр 895), у H — обычный
     const rects2 = new Map([["H", R(0, 0)], ["Mid", R(400, 300)], ["B", R(800, 700)], ["C", R(400, 700)]]);
     const { portKeys: pk2, routes: r2 } = run(rects2, [g("hb", "H", "B"), g("mc", "Mid", "C")]);
     const hb = r2.get("hb")!;

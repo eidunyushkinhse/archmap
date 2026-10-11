@@ -46,6 +46,7 @@ import type { EdgePoint } from "../../types";
 const dir = process.env.ARCHMAP_ARROWS_POLYGON;
 // след выбора Z-вариантов роутера (разбор крестов): ARCHMAP_Z_DEBUG=1
 __zDebug.on = process.env.ARCHMAP_Z_DEBUG === "1";
+__zDebug.trace = process.env.ARCHMAP_Z_TRACE ?? "";
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {

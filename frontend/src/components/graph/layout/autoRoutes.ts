@@ -306,21 +306,25 @@ export function buildAutoRoutes(params: {
   };
   // Итерация до согласия ключей и портов (не больше трёх кругов): ключи считаются по
   // маршрутам ТЕКУЩИХ портов, а порты следующего круга могут изменить выбор варианта.
-  // Ключи НАКАПЛИВАЮТСЯ: конец, однажды получивший ключ, держит его, пока новый круг не
-  // даст другой, — иначе пара «ключ есть / ключа нет» качается между кругами.
+  // Ключи круга ЗАМЕНЯЮТ прежние: конец без ключа сортируется по умолчанию (центр
+  // дальнего узла). Накопление ключей (заход 2) держало устаревший ключ колонны ZZ у
+  // связи, давно ставшей Z, и ломало порядок стороны; качелей «ключ есть / ключа нет»
+  // больше нет — длинный Z отдаёт липкий ключ по своему порту (zRoutes, E85).
   let keys = new Map<string, { s?: number; t?: number }>();
   let ports = assignPorts({ groups, rects: dockRects, frameIds, prevSides }).ports;
   let z = zRoutes({ groups, ports, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
-  for (let round = 0; round < 3; round++) {
-    const merged = new Map<string, { s?: number; t?: number }>(keys);
-    let changed = false;
-    for (const [id, k] of z.portKeys) {
-      const o = merged.get(id) ?? {};
-      const n = { ...o, ...(k.s !== undefined ? { s: k.s } : {}), ...(k.t !== undefined ? { t: k.t } : {}) };
-      if (n.s !== o.s || n.t !== o.t) { merged.set(id, n); changed = true; }
+  const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
+    if (a.size !== b.size) return false;
+    for (const [id, k] of a) {
+      const o = b.get(id);
+      if (!o || o.s !== k.s || o.t !== k.t) return false;
     }
-    if (!changed) break;
-    keys = merged;
+    return true;
+  };
+  for (let round = 0; round < 3; round++) {
+    const next = new Map(z.portKeys);
+    if (sameKeys(next, keys)) break;
+    keys = next;
     ports = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys }).ports;
     z = zRoutes({ groups, ports, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
   }
