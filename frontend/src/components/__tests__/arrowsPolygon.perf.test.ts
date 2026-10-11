@@ -41,12 +41,15 @@ import {
 import { cleanup } from "../graph/edgePath";
 import { NODE_W, NODE_H } from "../graph/constants";
 import { __zDebug } from "../graph/layout/zRoutes";
+import { PORT_SHARE } from "../graph/layout/ports";
 import type { EdgePoint } from "../../types";
 
 const dir = process.env.ARCHMAP_ARROWS_POLYGON;
 // след выбора Z-вариантов роутера (разбор крестов): ARCHMAP_Z_DEBUG=1
 __zDebug.on = process.env.ARCHMAP_Z_DEBUG === "1";
 __zDebug.trace = process.env.ARCHMAP_Z_TRACE ?? "";
+// общие плеча (прототип захода 4): ARCHMAP_SHARE=1
+PORT_SHARE.on = process.env.ARCHMAP_SHARE === "1";
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {

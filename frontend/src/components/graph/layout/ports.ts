@@ -101,8 +101,19 @@ interface SideEntry {
   key: string;            // id группы + конец
   far: number;            // координата дальнего конца вдоль стороны (порядок R3)
   tie: string;            // тай-брейк
+  share?: string;         // id общего плеча: концы с одним id делят одну точку стороны
   set: (p: EdgePoint) => void;
 }
+
+/**
+ * ОБЩИЕ ПЛЕЧА (прототип, заход 4 Ф2): концы ОДНОГО направления на одной стороне узла
+ * (все исходящие либо все входящие) делят один порт, стаб и первую дорожку — ствол,
+ * расходящийся там, где расходятся цели (режим mergeEdges ELK). Связь делит плечо не
+ * больше чем на одном конце: ствол отправления и ствол прибытия на одной линии дали бы
+ * ложную связь между их чужими концами. Выбор конца — где группа больше, при равенстве
+ * — отправление. Флаг включает полигон; в проде пока выключено.
+ */
+export const PORT_SHARE = { on: false };
 
 // координата вдоль стороны и её диапазон
 function sideSpan(r: NodeRect, side: EdgeSide): { start: number; len: number } {
@@ -133,7 +144,7 @@ export function assignPorts(params: {
   prevSides?: ReadonlyMap<string, { s: EdgeSide; t: EdgeSide }>;
   axis?: FlowAxis;
   keys?: ReadonlyMap<string, { s?: number; t?: number }>;
-}): { ports: Map<string, PortPair>; axis: FlowAxis } {
+}): { ports: Map<string, PortPair>; axis: FlowAxis; shares: Map<string, { s?: string; t?: string }> } {
   const { groups, rects, frameIds, prevSides, keys } = params;
   const pairs: Array<{ a: NodeRect; b: NodeRect }> = [];
   for (const g of groups) {
@@ -157,6 +168,8 @@ export function assignPorts(params: {
     if (!rec) { rec = { rect, side, frame: frameIds?.has(nodeId) ?? false, entries: [] }; bySide.set(k, rec); }
     rec.entries.push(entry);
   };
+  // стороны всех пар — заранее: общие плеча считаются по сторонам
+  const items: Array<{ g: { id: string; source: string; target: string }; a: NodeRect; b: NodeRect; sides: { s: EdgeSide; t: EdgeSide } }> = [];
   for (const g of groups) {
     const a = rects.get(g.source), b = rects.get(g.target);
     if (!a || !b) continue;
@@ -167,6 +180,48 @@ export function assignPorts(params: {
     } else {
       sides = sidesFor(a, b, axis, prevSides?.get(g.id));
     }
+    items.push({ g, a, b, sides });
+  }
+  // ОБЩИЕ ПЛЕЧА: корзины «узел|сторона|направление|куда» (куда — дальний конец левее или
+  // правее середины узла вдоль стороны: ствол в одну сторону; общая шина через весь борт
+  // режется любой связью, выходящей из того же борта между её ветвями), связь — в
+  // бо́льшую корзину (не меньше двух), при равенстве — отправление; корзины, где после
+  // выбора остался один, распускаются.
+  const shares = new Map<string, { s?: string; t?: string }>();
+  if (PORT_SHARE.on) {
+    const bucket = new Map<string, number>();
+    const wing = (side: EdgeSide, self: NodeRect, other: NodeRect): string => {
+      const c = center(self), o = center(other);
+      return (isVerticalSide(side) ? o.x < c.x : o.y < c.y) ? "lo" : "hi";
+    };
+    const keyS = (it: typeof items[number]): string => `${it.g.source}|${it.sides.s}|out|${wing(it.sides.s, it.a, it.b)}`;
+    const keyT = (it: typeof items[number]): string => `${it.g.target}|${it.sides.t}|in|${wing(it.sides.t, it.b, it.a)}`;
+    const eligible = (it: typeof items[number]): boolean =>
+      it.g.source !== it.g.target && !(frameIds?.has(it.g.source) ?? false) && !(frameIds?.has(it.g.target) ?? false);
+    for (const it of items) {
+      if (!eligible(it)) continue;
+      bucket.set(keyS(it), (bucket.get(keyS(it)) ?? 0) + 1);
+      bucket.set(keyT(it), (bucket.get(keyT(it)) ?? 0) + 1);
+    }
+    const chosen = new Map<string, number>();
+    const pick = new Map<string, "s" | "t">();
+    for (const it of items) {
+      if (!eligible(it)) continue;
+      const ns = bucket.get(keyS(it)) ?? 0, nt = bucket.get(keyT(it)) ?? 0;
+      const end: "s" | "t" | null = ns >= 2 && ns >= nt ? "s" : nt >= 2 ? "t" : null;
+      if (!end) continue;
+      const k = end === "s" ? keyS(it) : keyT(it);
+      pick.set(it.g.id, end);
+      chosen.set(k, (chosen.get(k) ?? 0) + 1);
+    }
+    for (const it of items) {
+      const end = pick.get(it.g.id);
+      if (!end) continue;
+      const k = end === "s" ? keyS(it) : keyT(it);
+      if ((chosen.get(k) ?? 0) >= 2) shares.set(it.g.id, end === "s" ? { s: k } : { t: k });
+    }
+  }
+  for (const { g, a, b, sides } of items) {
     const pair: PortPair = {
       s: { side: sides.s, point: center(a) },
       t: { side: sides.t, point: center(b) },
@@ -175,32 +230,86 @@ export function assignPorts(params: {
     const ca = center(a), cb = center(b);
     const alongOf = (side: EdgeSide, p: EdgePoint): number => (isVerticalSide(side) ? p.x : p.y);
     const k = keys?.get(g.id);
-    push(g.source, a, sides.s, { key: `${g.id}:s`, far: k?.s ?? alongOf(sides.s, cb), tie: `${g.id}:s`, set: (p) => { pair.s.point = p; } });
-    push(g.target, b, sides.t, { key: `${g.id}:t`, far: k?.t ?? alongOf(sides.t, ca), tie: `${g.id}:t`, set: (p) => { pair.t.point = p; } });
+    const sh = shares.get(g.id);
+    push(g.source, a, sides.s, { key: `${g.id}:s`, far: k?.s ?? alongOf(sides.s, cb), tie: `${g.id}:s`, share: sh?.s, set: (p) => { pair.s.point = p; } });
+    push(g.target, b, sides.t, { key: `${g.id}:t`, far: k?.t ?? alongOf(sides.t, ca), tie: `${g.id}:t`, share: sh?.t, set: (p) => { pair.t.point = p; } });
   }
 
-  for (const rec of bySide.values()) {
-    const { rect, side, frame, entries } = rec;
-    entries.sort((p, q) => p.far - q.far || (p.tie < q.tie ? -1 : p.tie > q.tie ? 1 : 0));
+  // Слоты сторон: концы одного общего плеча — один слот (ключ — среднее ключей членов).
+  interface Slot { far: number; tie: string; setters: Array<(p: EdgePoint) => void>; keys: Set<string> }
+  const slotsBySide = new Map<string, Slot[]>();
+  for (const [sideKey, rec] of bySide) {
+    const slots: Slot[] = [];
+    const slotByShare = new Map<string, Slot>();
+    for (const e of rec.entries) {
+      if (e.share) {
+        const sl = slotByShare.get(e.share);
+        if (sl) { sl.far += e.far; sl.setters.push(e.set); sl.keys.add(e.key); if (e.tie < sl.tie) sl.tie = e.tie; continue; }
+        const fresh: Slot = { far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]) };
+        slotByShare.set(e.share, fresh); slots.push(fresh);
+        continue;
+      }
+      slots.push({ far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]) });
+    }
+    for (const sl of slots) sl.far /= sl.setters.length;
+    slotsBySide.set(sideKey, slots);
+  }
+  const cmpSlot = (p: Slot, q: Slot): number => p.far - q.far || (p.tie < q.tie ? -1 : p.tie > q.tie ? 1 : 0);
+  // ВСТРЕЧНЫЕ ПАРЫ И СЛОТЫ: порядок концов пары вдоль стороны обязан совпадать на обоих
+  // узлах (иначе крест неустраним). У одиночных портов это даёт равный ключ (zRoutes) и
+  // тай-брейк по id; слот общего плеча несёт средний ключ группы и может развернуть
+  // порядок — тогда менее весомая сторона (меньше концов в двух слотах) подстраивается:
+  // слот второй связи встаёт вплотную к слоту первой с нужной стороны.
+  if (PORT_SHARE.on) {
+    const byPair = new Map<string, Array<typeof items[number]>>();
+    for (const it of items) {
+      if (it.g.source === it.g.target) continue;
+      const k = it.g.source < it.g.target ? `${it.g.source}|${it.g.target}` : `${it.g.target}|${it.g.source}`;
+      const arr = byPair.get(k);
+      if (arr) arr.push(it); else byPair.set(k, [it]);
+    }
+    const slotOf = (sideKey: string, entryKey: string): Slot | undefined =>
+      slotsBySide.get(sideKey)?.find((sl) => sl.keys.has(entryKey));
+    for (const arr of byPair.values()) {
+      if (arr.length !== 2 || arr[0].g.source !== arr[1].g.target) continue;
+      const [e1, e2] = arr; // e1: A → B, e2: B → A
+      if (e1.sides.s !== e2.sides.t || e1.sides.t !== e2.sides.s) continue;
+      const A = e1.g.source, B = e1.g.target;
+      const sA1 = slotOf(`${A}|${e1.sides.s}`, `${e1.g.id}:s`), sA2 = slotOf(`${A}|${e1.sides.s}`, `${e2.g.id}:t`);
+      const sB1 = slotOf(`${B}|${e1.sides.t}`, `${e1.g.id}:t`), sB2 = slotOf(`${B}|${e1.sides.t}`, `${e2.g.id}:s`);
+      if (!sA1 || !sA2 || !sB1 || !sB2 || sA1 === sA2 || sB1 === sB2) continue;
+      const oA = Math.sign(cmpSlot(sA1, sA2)), oB = Math.sign(cmpSlot(sB1, sB2));
+      if (oA === oB) continue;
+      const EPS_FAR = 1e-3;
+      const wA = sA1.setters.length + sA2.setters.length, wB = sB1.setters.length + sB2.setters.length;
+      if (wA <= wB) sA2.far = sA1.far + (oB > 0 ? -EPS_FAR : EPS_FAR);
+      else sB2.far = sB1.far + (oA > 0 ? -EPS_FAR : EPS_FAR);
+    }
+  }
+
+  for (const [sideKey, rec] of bySide) {
+    const { rect, side, frame } = rec;
+    const slots = slotsBySide.get(sideKey) ?? [];
+    slots.sort(cmpSlot);
     const { start, len } = sideSpan(rect, side);
     const margin = Math.min(PORT_MARGIN, len / 4);
     const lo = start + margin, hi = start + len - margin;
-    const k = entries.length;
+    const k = slots.length;
     let along: number[];
     if (frame) {
       // рамка: проекция дальнего конца на сторону, зажатая полями, затем разведение с
       // минимальным зазором; не влезло — равный шаг
-      const desired = entries.map((e) => Math.min(hi, Math.max(lo, e.far)));
+      const desired = slots.map((e) => Math.min(hi, Math.max(lo, e.far)));
       along = spread1D(desired, FRAME_PORT_GAP);
       if (along.some((v) => v < lo - 0.5 || v > hi + 0.5)) {
         const step = (hi - lo) / (k + 1);
-        along = entries.map((_, i) => lo + step * (i + 1));
+        along = slots.map((_, i) => lo + step * (i + 1));
       }
     } else {
       const step = (hi - lo) / (k + 1);
-      along = entries.map((_, i) => lo + step * (i + 1));
+      along = slots.map((_, i) => lo + step * (i + 1));
     }
-    entries.forEach((e, i) => e.set(pointOnSide(rect, side, half(along[i]))));
+    slots.forEach((sl, i) => { const pt = pointOnSide(rect, side, half(along[i])); for (const set of sl.setters) set({ ...pt }); });
   }
-  return { ports, axis };
+  return { ports, axis, shares };
 }

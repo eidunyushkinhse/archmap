@@ -311,8 +311,9 @@ export function buildAutoRoutes(params: {
   // связи, давно ставшей Z, и ломало порядок стороны; качелей «ключ есть / ключа нет»
   // больше нет — длинный Z отдаёт липкий ключ по своему порту (zRoutes, E85).
   let keys = new Map<string, { s?: number; t?: number }>();
-  let ports = assignPorts({ groups, rects: dockRects, frameIds, prevSides }).ports;
-  let z = zRoutes({ groups, ports, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
+  let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides });
+  let ports = pr.ports;
+  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
   const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
     if (a.size !== b.size) return false;
     for (const [id, k] of a) {
@@ -325,8 +326,9 @@ export function buildAutoRoutes(params: {
     const next = new Map(z.portKeys);
     if (sameKeys(next, keys)) break;
     keys = next;
-    ports = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys }).ports;
-    z = zRoutes({ groups, ports, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
+    pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys });
+    ports = pr.ports;
+    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
   }
   const routes = new Map<string, EdgePoint[]>();
   const fixedIds = new Set<string>();

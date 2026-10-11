@@ -110,7 +110,9 @@ interface Vert { along: number; dir: Dir }
 // Сегмент раздачи: дорожка связи (idx 0/1) либо колонна ZZ (idx 2) — та же дорожка, но
 // поперечной ориентации. lane — across сегмента в его ориентации, lo..hi — пробег along.
 interface Seg {
-  edge: ZEdge;
+  edge: ZEdge;             // владелец (у ствола — первый член)
+  members: ZEdge[];        // связи, делящие сегмент (ствол общего плеча — несколько)
+  share?: string;          // id общего плеча, по которому сегменты сливаются в ствол
   orient: Orient;
   idx: number;
   verts: Vert[];
@@ -158,6 +160,8 @@ interface ZEdge {
   hard: ReadonlyArray<NodeRect>;
   uNode: string;           // узел конца U / D (ключи портов)
   dNode: string;
+  shareU?: string;         // общее плечо на конце U / D (прототип, заход 4)
+  shareD?: string;
   // РАЗРЕШАЮЩИЙ КЛЮЧ: у связи без единого Z (стаб в ряду порта упирается в тело) —
   // along конца, где другой порт той же стороны открыл бы Z; null — такого нет
   enable: { u?: number; d?: number } | null;
@@ -465,19 +469,34 @@ function distribute(
     }
   }
   pairs.sort((p, q) => slots[p[0]] - slots[q[0]] || slots[p[1]] - slots[q[1]]);
+  // ОТСЕВ НЕВЫПОЛНИМЫХ ЦЕПОЧЕК: порядок номеров может через дорожку с широкой полосой
+  // связать дорожки разных каналов и потребовать невозможного (нижняя дорожка верхнего
+  // канала ниже верхней дорожки нижнего). Минимально достижимая позиция считается вперёд
+  // по номерам; пара, которую полоса нижней дорожки не вмещает, отбрасывается — физически
+  // такие дорожки и так в разных каналах. Остаток выполним, и прогоны ниже не качаются.
+  const minPos = [...lo];
+  const feasible: Array<[number, number]> = [];
+  for (const [a, b] of pairs) {
+    if (minPos[a] + gap > hi[b] + EPS) continue;
+    minPos[b] = Math.max(minPos[b], minPos[a] + gap);
+    feasible.push([a, b]);
+  }
   const x = desired.map((d, i) => clamp(d, lo[i], hi[i]));
   for (let it = 0; it < 16; it++) {
     let changed = false;
-    for (const [a, b] of pairs) {
+    for (const [a, b] of feasible) {
       const need = x[a] + gap;
       if (x[b] < need - 1e-6) { x[b] = Math.min(need, hi[b]); changed = true; }
     }
-    for (let k = pairs.length - 1; k >= 0; k--) {
-      const [a, b] = pairs[k];
+    for (let k = feasible.length - 1; k >= 0; k--) {
+      const [a, b] = feasible[k];
       const need = x[b] - gap;
       if (x[a] > need + 1e-6) { x[a] = Math.max(need, lo[a]); changed = true; }
     }
     if (!changed) break;
+  }
+  if (__zDebug.trace && M.some((sg) => sg.members.some((m) => m.id.startsWith(__zDebug.trace)))) {
+    zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${feasible.map(([a, b]) => `${a}>${b}`).join(",")}`);
   }
   return { lanes: x.map(half), gap };
 }
@@ -504,11 +523,13 @@ export interface ZRoutesResult {
 export function zRoutes(params: {
   groups: ReadonlyArray<{ id: string; source: string; target: string }>;
   ports: ReadonlyMap<string, PortPair>;
+  /** общие плеча концов (ports.ts, PORT_SHARE): id группы на конце s / t */
+  shares?: ReadonlyMap<string, { s?: string; t?: string }>;
   obstacles: ReadonlyArray<NodeRect>;
   rectOf: (id: string) => NodeRect | undefined;
   hardOf?: (groupId: string) => ReadonlyArray<NodeRect>;
 }): ZRoutesResult {
-  const { groups, ports, obstacles, rectOf, hardOf } = params;
+  const { groups, ports, shares, obstacles, rectOf, hardOf } = params;
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -535,6 +556,8 @@ export function zRoutes(params: {
       x: NaN, colLo: NaN, colHi: NaN, lanes: [], slots: [], adjU: true, adjD: true,
       cand: null, cands: [], exclude, hard,
       uNode: sIsU ? g.source : g.target, dNode: sIsU ? g.target : g.source, enable: null,
+      shareU: sIsU ? shares?.get(g.id)?.s : shares?.get(g.id)?.t,
+      shareD: sIsU ? shares?.get(g.id)?.t : shares?.get(g.id)?.s,
     };
     // ПРЯМАЯ: порты в одной колонне — дорожка не нужна, достаточно чистого отрезка
     if (Math.abs(uAlong - dAlong) <= EPS) {
@@ -671,6 +694,13 @@ export function zRoutes(params: {
 
   // ── сегменты раздачи по ориентациям ─────────────────────────────────────────────
   // Ориентации o принадлежат дорожки o-связей и колонны ZZ связей поперечной ориентации.
+  // Ключ общего плеча у дорожки: дорожка в канале, соседнем с общим концом, — часть
+  // ствола (Z — единственная дорожка, у ZZ — ближняя к концу).
+  const shareKeyOf = (e: ZEdge, idx: number): string | undefined => {
+    if (e.kind === "z") return (e.adjU && e.shareU) || (e.adjD && e.shareD) || undefined;
+    if (idx === 0) return e.adjU ? e.shareU : undefined;
+    return e.adjD ? e.shareD : undefined;
+  };
   const segsOf = (o: Orient): Seg[] => {
     const out: Seg[] = [];
     for (const e of edges) {
@@ -679,18 +709,21 @@ export function zRoutes(params: {
       if (e.orient === o) {
         if (e.kind === "z") {
           out.push({
-            edge: e, orient: o, idx: 0, verts: [{ along: e.uAlong, dir: "up" }, { along: e.dAlong, dir: "down" }],
+            edge: e, members: [e], share: shareKeyOf(e, 0), orient: o, idx: 0,
+            verts: [{ along: e.uAlong, dir: "up" }, { along: e.dAlong, dir: "down" }],
             lo: Math.min(e.uAlong, e.dAlong), hi: Math.max(e.uAlong, e.dAlong),
             bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0],
           });
         } else {
           out.push({
-            edge: e, orient: o, idx: 0, verts: [{ along: e.uAlong, dir: "up" }, { along: e.x, dir: "down" }],
+            edge: e, members: [e], share: shareKeyOf(e, 0), orient: o, idx: 0,
+            verts: [{ along: e.uAlong, dir: "up" }, { along: e.x, dir: "down" }],
             lo: Math.min(e.uAlong, e.x), hi: Math.max(e.uAlong, e.x),
             bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0],
           });
           out.push({
-            edge: e, orient: o, idx: 1, verts: [{ along: e.x, dir: "up" }, { along: e.dAlong, dir: "down" }],
+            edge: e, members: [e], share: shareKeyOf(e, 1), orient: o, idx: 1,
+            verts: [{ along: e.x, dir: "up" }, { along: e.dAlong, dir: "down" }],
             lo: Math.min(e.x, e.dAlong), hi: Math.max(e.x, e.dAlong),
             bandLo: c.bands[1][0], bandHi: c.bands[1][1], slot: e.slots[1], lane: e.lanes[1],
           });
@@ -700,10 +733,49 @@ export function zRoutes(params: {
         // дорожками; вертикали на концах уходят к портовым рядам (вверх, если ряд выше)
         const l0 = e.lanes[0], l1 = e.lanes[1];
         out.push({
-          edge: e, orient: o, idx: 2,
+          edge: e, members: [e], orient: o, idx: 2,
           verts: [{ along: l0, dir: e.uAlong < e.x ? "up" : "down" }, { along: l1, dir: e.dAlong < e.x ? "up" : "down" }],
           lo: Math.min(l0, l1), hi: Math.max(l0, l1), bandLo: e.colLo, bandHi: e.colHi, slot: 0, lane: e.x,
         });
+      }
+    }
+    return mergeShared(out);
+  };
+  // СТВОЛЫ: сегменты одного общего плеча с пересекающимися полосами сливаются в один
+  // (вертикали — объединение, пробег — охват, полоса — пересечение); несовместимые по
+  // полосе члены образуют второй ствол ниже по стволу первого. Части запоминаются, чтобы
+  // вернуть дорожку каждому члену.
+  const partsOf = new Map<Seg, Seg[]>();
+  const mergeShared = (S: Seg[]): Seg[] => {
+    const out: Seg[] = [];
+    const byShare = new Map<string, Seg[]>();
+    for (const sg of S) {
+      if (!sg.share) { out.push(sg); continue; }
+      const arr = byShare.get(sg.share);
+      if (arr) arr.push(sg); else byShare.set(sg.share, [sg]);
+    }
+    for (const arr of byShare.values()) {
+      if (arr.length === 1) { out.push(arr[0]); continue; }
+      arr.sort((p, q) => (p.bandLo + p.bandHi) - (q.bandLo + q.bandHi) || (p.edge.id < q.edge.id ? -1 : 1));
+      const runs: Array<{ seg: Seg; parts: Seg[] }> = [];
+      for (const sg of arr) {
+        const last = runs.length > 0 ? runs[runs.length - 1] : null;
+        if (last && Math.min(last.seg.bandHi, sg.bandHi) - Math.max(last.seg.bandLo, sg.bandLo) >= -EPS) {
+          const c0 = last.seg;
+          last.seg = {
+            ...c0, members: [...c0.members, ...sg.members], verts: [...c0.verts, ...sg.verts],
+            lo: Math.min(c0.lo, sg.lo), hi: Math.max(c0.hi, sg.hi),
+            bandLo: Math.max(c0.bandLo, sg.bandLo), bandHi: Math.min(c0.bandHi, sg.bandHi),
+            lane: (c0.lane * last.parts.length + sg.lane) / (last.parts.length + 1),
+          };
+          last.parts.push(sg);
+          continue;
+        }
+        runs.push({ seg: { ...sg }, parts: [sg] });
+      }
+      for (const r of runs) {
+        if (r.parts.length > 1) partsOf.set(r.seg, r.parts);
+        out.push(r.seg);
       }
     }
     return out;
@@ -722,7 +794,7 @@ export function zRoutes(params: {
     return out;
   };
   const interacts = (a: Seg, b: Seg): boolean =>
-    a.edge !== b.edge &&
+    !a.members.some((m) => b.members.includes(m)) &&
     runOverlap(a, b) > -NUDGE_GAP &&
     Math.min(a.bandHi, b.bandHi) - Math.max(a.bandLo, b.bandLo) >= -EPS;
 
@@ -757,8 +829,10 @@ export function zRoutes(params: {
       M.forEach((s, i) => {
         s.slot = slots[i];
         s.lane = lanes[i];
-        if (s.idx === 2) s.edge.x = s.lane;
-        else { s.edge.lanes[s.idx] = s.lane; s.edge.slots[s.idx] = s.slot; }
+        for (const part of partsOf.get(s) ?? [s]) {
+          if (part.idx === 2) part.edge.x = s.lane;
+          else { part.edge.lanes[part.idx] = s.lane; part.edge.slots[part.idx] = s.slot; }
+        }
       });
       if ((hints || (__zDebug.trace && M.some((s) => s.edge.id.startsWith(__zDebug.trace)))) && m > 1) zlog("comp", o, M.map((s) => `${s.edge.id.slice(0, 8)}#${s.idx}[${s.bandLo.toFixed(0)}..${s.bandHi.toFixed(0)}|${s.lo.toFixed(0)}..${s.hi.toFixed(0)}]s${s.slot}@${s.lane}`).join(" "));
       if (!hints) continue;
@@ -831,6 +905,9 @@ export function zRoutes(params: {
     }
   }
   const TWIN_CROSS_FACTOR = 2;
+  // члены одного общего плеча законно делят стаб и ствол — их наложение не считается
+  const sharesEnd = (a: ZEdge, b: ZEdge): boolean =>
+    (a.shareU !== undefined && a.shareU === b.shareU) || (a.shareD !== undefined && a.shareD === b.shareD);
 
   // Истинная цена сцены по текущему выбору: кресты и наложения между всеми Z-маршрутами,
   // невозможные маршруты (как несколько крестов — они уйдут в A*), крюки ZZ.
@@ -862,7 +939,7 @@ export function zRoutes(params: {
         const ei = builtEdges[i], ej = builtEdges[j];
         const twins = ei !== null && ej !== null && twinOf.get(ei) === ej;
         cost += c * CAND_CROSS_COST * (twins ? TWIN_CROSS_FACTOR : 1); costParts.cr += c;
-        if (overlapping(built[i], built[j])) {
+        if (!(ei !== null && ej !== null && sharesEnd(ei, ej)) && overlapping(built[i], built[j])) {
           cost += OVERLAP_COST_Z; costParts.ov++;
           if (__zDebug.on) costParts.ovPairs.push(`${builtIds[i]}~${builtIds[j]}`);
         }
@@ -943,7 +1020,7 @@ export function zRoutes(params: {
     for (let j = i + 1; j < ids.length; j++) {
       const A = built.get(ids[i]), B = built.get(ids[j]);
       if (!A || !B || dropped.has(ids[i]) || dropped.has(ids[j])) continue;
-      if (!overlapping(A.pts, B.pts)) continue;
+      if (sharesEnd(A.edge, B.edge) || !overlapping(A.pts, B.pts)) continue;
       const sa = slotOf(A.edge), sb = slotOf(B.edge);
       const loser = sa > sb || (sa === sb && ids[i] > ids[j]) ? ids[i] : ids[j];
       zlog(loser.slice(0, 8), "DROP overlap with", (loser === ids[i] ? ids[j] : ids[i]).slice(0, 8));
