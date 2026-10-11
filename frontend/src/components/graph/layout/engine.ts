@@ -13,6 +13,7 @@
 // перезаписывают ELK-результат, но сам прогон ELK пропускается.
 import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
+import { edgeText } from "../text";
 import { flowSpacing } from "./flowGaps";
 import { pickLevelForm } from "./levelForm";
 import { assignEdgeHandles } from "./level";
@@ -80,9 +81,18 @@ export type LevelLayout = {
 export async function layoutLevel(
   allNodes: Array<{ id: string; savedPos?: { x: number; y: number } | null }>,
   edges: LayoutEdge[],
+  // Ф3 эпика «стрелки без жёстких хэндлов»: реальные габариты узлов и плашки подписей
+  // (inline) — ELK резервирует под них место в слоях и зазорах, как Mermaid; без них —
+  // NODE_W×NODE_H и рёбра без подписей (превью, тесты)
+  opts?: {
+    sizes?: ReadonlyMap<string, { w: number; h: number }>;
+    labelBoxes?: ReadonlyMap<string, { w: number; h: number }>;
+  },
 ): Promise<LevelLayout> {
   const idSet = new Set(allNodes.map((n) => n.id));
   const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
+  const sizeOf = (id: string): { w: number; h: number } => opts?.sizes?.get(id) ?? { w: NODE_W, h: NODE_H };
+  const labelOf = (id: string): { w: number; h: number } | undefined => opts?.labelBoxes?.get(id);
 
   // A/B-ПЕРЕОПРЕДЕЛЕНИЕ ОПЦИЙ ELK (перф-эпик 2026-08-20): глобал __archmapElkOverride
   // подменяет/дополняет layoutOptions (алгоритм/зазоры). Выставляют только мокап-раннер
@@ -92,7 +102,10 @@ export async function layoutLevel(
   const override = ovG.__archmapElkOverride;
 
   // Проверяем кэш ELK (оптимизация 2026-07-21)
-  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, inner);
+  // габариты и плашки — в сигнатуре кэша: тот же граф с другими размерами — другая раскладка
+  const dims = allNodes.map((n) => { const z = sizeOf(n.id); return `${n.id}:${Math.round(z.w)}x${Math.round(z.h)}`; }).join(",")
+    + "|" + inner.map((e) => { const l = labelOf(e.id); return l ? `${e.id}:${Math.round(l.w)}x${Math.round(l.h)}` : ""; }).join(",");
+  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, inner) + "|" + dims;
   let elkPositions = elkCache.get(sig);
 
   if (!elkPositions) {
@@ -124,11 +137,18 @@ export async function layoutLevel(
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
         "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
         "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
+        "elk.spacing.edgeLabel": "6",
         ...formOpts,
         ...override,
       },
-      children: allNodes.map((n) => ({ id: n.id, width: NODE_W, height: NODE_H })),
-      edges: inner.map((e) => ({ id: e.id, sources: [e.source_id], targets: [e.target_id] })),
+      children: allNodes.map((n) => { const z = sizeOf(n.id); return { id: n.id, width: z.w, height: z.h }; }),
+      edges: inner.map((e) => {
+        const l = labelOf(e.id);
+        return {
+          id: e.id, sources: [e.source_id], targets: [e.target_id],
+          ...(l ? { labels: [{ text: edgeText(e), width: l.w, height: l.h, layoutOptions: { "elk.edgeLabels.inline": "true" } }] } : {}),
+        };
+      }),
     });
 
     elkPositions = new Map<string, { x: number; y: number }>();

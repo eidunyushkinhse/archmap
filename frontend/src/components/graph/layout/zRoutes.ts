@@ -59,6 +59,7 @@
 import type { EdgePoint } from "../../../types";
 import { cleanup, pathCrossesRects, type EdgeSide, type NodeRect } from "../edgePath";
 import type { PortPair } from "./ports";
+import type { Size } from "./labelBox";
 import { NUDGE_GAP } from "./channelNudge";
 
 const EPS = 0.5;
@@ -75,6 +76,8 @@ export const LANE_GAP_MIN = 8;
 export const LANE_CONFLICT_TOL = 4;
 /** Вес конфликта против одного креста при выборе порядка дорожек (ELK CONFLICT_PENALTY). */
 export const LANE_CONFLICT_PENALTY = 16;
+/** Запас вокруг плашки на дорожке-носителе подписи (Ф3): с каждой стороны поперёк и вдоль. */
+export const LABEL_LANE_PAD = 4;
 
 /** Ориентация дорожки: "v" — ось потока вертикальная (дорожка горизонтальна), "h" — наоборот. */
 type Orient = "v" | "h";
@@ -122,6 +125,7 @@ interface Seg {
   bandHi: number;
   slot: number;            // номер дорожки в канале (0 — ближе к U)
   lane: number;
+  thick: number;           // толщина поперёк под плашку подписи (Ф3): 0 — дорожка без подписи
 }
 
 // Вариант маршрута связи: Z (одна дорожка в интервале band) либо ZZ (две дорожки и
@@ -158,6 +162,7 @@ interface ZEdge {
   cands: Cand[];
   exclude: NodeRect[];
   hard: ReadonlyArray<NodeRect>;
+  label?: Size;            // габарит плашки подписи (Ф3): дорожка-носитель резервирует толщину
   uNode: string;           // узел конца U / D (ключи портов)
   dNode: string;
   shareU?: string;         // общее плечо на конце U / D (прототип, заход 4)
@@ -450,27 +455,60 @@ function distribute(
   if (Number.isFinite(cLo) && Number.isFinite(cHi) && cLo <= cHi) center = (cLo + cHi) / 2;
   else center = natural.reduce((acc, v) => acc + v, 0) / m;
   const lo = M.map((s) => s.bandLo), hi = M.map((s) => s.bandHi);
+  // ТОЛЩИНА ПОД ПОДПИСЬ (Ф3): дорожка-носитель плашки занимает поперёк полосу толщиной
+  // thick (плашка + запас с обеих сторон). Зазор пары дорожек — не меньше полусуммы их
+  // толщин (линия соседа не ближе запаса к краю плашки), от тел — полоса сужается так,
+  // чтобы край плашки держал запас от тела (клиренс Z_CLEAR уже в полосе). Канал, который
+  // стопку с толщинами не вмещает, теряет толщины от самой широкой, пока стопка не
+  // влезет: плашки лягут впритык к соседям, но дорожки не сольются.
+  const thick = M.map((s) => s.thick);
+  const pairGap = (i: number, j: number): number => Math.max(gap, (thick[i] + thick[j]) / 2);
+  const edgeShrink = (i: number): number => Math.max(0, thick[i] / 2 - Z_CLEAR);
+  if (Number.isFinite(cLo) && Number.isFinite(cHi) && cLo <= cHi) {
+    const bySlot = M.map((_, i) => i).sort((a, b) => slots[a] - slots[b]);
+    const need = (): number => {
+      let n = edgeShrink(bySlot[0]) + edgeShrink(bySlot[bySlot.length - 1]);
+      for (let k = 1; k < bySlot.length; k++) {
+        if (slots[bySlot[k - 1]] !== slots[bySlot[k]]) n += pairGap(bySlot[k - 1], bySlot[k]);
+      }
+      return n;
+    };
+    while (need() > cHi - cLo + EPS) {
+      let widest = -1;
+      for (let i = 0; i < m; i++) if (thick[i] > 0 && (widest < 0 || thick[i] > thick[widest])) widest = i;
+      if (widest < 0) break;
+      thick[widest] = 0;
+    }
+  }
+  M.forEach((_, i) => {
+    if (thick[i] <= 0) return;
+    const sh = edgeShrink(i);
+    if (hi[i] - lo[i] < 2 * sh + EPS) { thick[i] = 0; return; }
+    lo[i] += sh; hi[i] -= sh;
+  });
   // желаемая позиция: дорожки — стопка равным шагом вокруг середины канала; колонна ZZ —
   // её стартовая колонна (колонны одного компонента раскиданы по сцене, стопочный сдвиг
   // по номеру уносил колонну за стаб соседа и заставлял петлю обходить лишнюю связь)
   const desired = M.map((s, i) => clamp(s.idx === 2 ? natural[i] : center + (slots[i] - (K - 1) / 2) * gap, lo[i], hi[i]));
   M.forEach((s, i) => {
+    const g = Math.max(gap, thick[i] / 2);
     for (const f of fixed) {
       if (f.edge === s.edge || runOverlap(f, s) <= EPS) continue;
       const roomAbove = f.pos - lo[i], roomBelow = hi[i] - f.pos;
-      const canAbove = roomAbove >= gap - EPS, canBelow = roomBelow >= gap - EPS;
+      const canAbove = roomAbove >= g - EPS, canBelow = roomBelow >= g - EPS;
       let above: boolean;
       if (canAbove && canBelow) above = desired[i] <= f.pos;
       else if (canAbove !== canBelow) above = canAbove;
       else above = roomAbove >= roomBelow;
-      if (above) hi[i] = Math.min(hi[i], f.pos - gap); else lo[i] = Math.max(lo[i], f.pos + gap);
+      if (above) hi[i] = Math.min(hi[i], f.pos - g); else lo[i] = Math.max(lo[i], f.pos + g);
     }
   });
-  const pairs: Array<[number, number]> = [];
+  const pairs: Array<[number, number, number]> = [];   // [верхняя, нижняя, зазор]
   for (let i = 0; i < m; i++) {
     for (let j = i + 1; j < m; j++) {
       if (!interacts(M[i], M[j]) || slots[i] === slots[j]) continue;
-      pairs.push(slots[i] < slots[j] ? [i, j] : [j, i]);
+      const gp = pairGap(i, j);
+      pairs.push(slots[i] < slots[j] ? [i, j, gp] : [j, i, gp]);
     }
   }
   pairs.sort((p, q) => slots[p[0]] - slots[q[0]] || slots[p[1]] - slots[q[1]]);
@@ -480,28 +518,28 @@ function distribute(
   // по номерам; пара, которую полоса нижней дорожки не вмещает, отбрасывается — физически
   // такие дорожки и так в разных каналах. Остаток выполним, и прогоны ниже не качаются.
   const minPos = [...lo];
-  const feasible: Array<[number, number]> = [];
-  for (const [a, b] of pairs) {
-    if (minPos[a] + gap > hi[b] + EPS) continue;
-    minPos[b] = Math.max(minPos[b], minPos[a] + gap);
-    feasible.push([a, b]);
+  const feasible: Array<[number, number, number]> = [];
+  for (const [a, b, gp] of pairs) {
+    if (minPos[a] + gp > hi[b] + EPS) continue;
+    minPos[b] = Math.max(minPos[b], minPos[a] + gp);
+    feasible.push([a, b, gp]);
   }
   const x = desired.map((d, i) => clamp(d, lo[i], hi[i]));
   for (let it = 0; it < 16; it++) {
     let changed = false;
-    for (const [a, b] of feasible) {
-      const need = x[a] + gap;
+    for (const [a, b, gp] of feasible) {
+      const need = x[a] + gp;
       if (x[b] < need - 1e-6) { x[b] = Math.min(need, hi[b]); changed = true; }
     }
     for (let k = feasible.length - 1; k >= 0; k--) {
-      const [a, b] = feasible[k];
-      const need = x[b] - gap;
+      const [a, b, gp] = feasible[k];
+      const need = x[b] - gp;
       if (x[a] > need + 1e-6) { x[a] = Math.max(need, lo[a]); changed = true; }
     }
     if (!changed) break;
   }
   if (__zDebug.trace && M.some((sg) => sg.members.some((m) => m.id.startsWith(__zDebug.trace)))) {
-    zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${feasible.map(([a, b]) => `${a}>${b}`).join(",")}`);
+    zlog("dist", `gap=${gap.toFixed(1)} center=${center.toFixed(1)} K=${K}`, M.map((sg, i) => `${sg.edge.id.slice(0, 8)}#${sg.idx} s${slots[i]} lo=${lo[i].toFixed(0)} hi=${hi[i].toFixed(0)} d=${desired[i].toFixed(0)} x=${x[i].toFixed(0)}`).join(" "), `pairs=${feasible.map(([a, b, gp]) => `${a}>${b}:${gp.toFixed(0)}`).join(",")}`);
   }
   return { lanes: x.map(half), gap };
 }
@@ -536,8 +574,10 @@ export function zRoutes(params: {
   hardOf?: (groupId: string) => ReadonlyArray<NodeRect>;
   /** чужие плашки подписей: сквозь них Z не ходит, но просветы они не раздувают */
   softOf?: (groupId: string) => ReadonlyArray<NodeRect>;
+  /** габарит плашки подписи связи (Ф3): дорожка-носитель получает толщину под неё */
+  labelBoxOf?: (groupId: string) => Size | undefined;
 }): ZRoutesResult {
-  const { groups, ports, shares, obstacles, rectOf, hardOf, softOf } = params;
+  const { groups, ports, shares, obstacles, rectOf, hardOf, softOf, labelBoxOf } = params;
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -573,7 +613,7 @@ export function zRoutes(params: {
     const edge: ZEdge = {
       id: g.id, orient: o, sIsU, kind: "z", uAlong, dAlong, uAcross, dAcross,
       x: NaN, colLo: NaN, colHi: NaN, lanes: [], slots: [], adjU: true, adjD: true,
-      cand: null, cands: [], exclude, hard,
+      cand: null, cands: [], exclude, hard, label: labelBoxOf?.(g.id),
       uNode: sIsU ? g.source : g.target, dNode: sIsU ? g.target : g.source, enable: null,
       shareU: sIsU ? shares?.get(g.id)?.s : shares?.get(g.id)?.t,
       shareD: sIsU ? shares?.get(g.id)?.t : shares?.get(g.id)?.s,
@@ -718,31 +758,48 @@ export function zRoutes(params: {
     if (idx === 0) return e.adjU ? e.shareU : undefined;
     return e.adjD ? e.shareD : undefined;
   };
+  // ДОРОЖКА-НОСИТЕЛЬ ПОДПИСИ (Ф3): самая длинная личная (не общее плечо) дорожка связи,
+  // на которой плашка помещается вдоль, резервирует поперёк толщину плашки с запасом —
+  // соседние дорожки раздвигаются, и подпись не ложится на чужую линию. Короткие
+  // дорожки и стволы толщины не получают (плашка найдёт личную ветвь, E27/E50).
+  const laneThick = (e: ZEdge): [number, number] => {
+    if (!e.label) return [0, 0];
+    const along = (e.orient === "v" ? e.label.w : e.label.h) + 2 * LABEL_LANE_PAD;
+    const across = (e.orient === "v" ? e.label.h : e.label.w) + 2 * LABEL_LANE_PAD;
+    const run0 = e.kind === "z" ? Math.abs(e.uAlong - e.dAlong) : Math.abs(e.uAlong - e.x);
+    const run1 = e.kind === "zz" ? Math.abs(e.x - e.dAlong) : 0;
+    const ok0 = run0 >= along && !shareKeyOf(e, 0);
+    const ok1 = e.kind === "zz" && run1 >= along && !shareKeyOf(e, 1);
+    if (ok0 && (!ok1 || run0 >= run1)) return [across, 0];
+    if (ok1) return [0, across];
+    return [0, 0];
+  };
   const segsOf = (o: Orient): Seg[] => {
     const out: Seg[] = [];
     for (const e of edges) {
       const c = e.cand;
       if (!c) continue;
       if (e.orient === o) {
+        const [t0, t1] = laneThick(e);
         if (e.kind === "z") {
           out.push({
             edge: e, members: [e], share: shareKeyOf(e, 0), orient: o, idx: 0,
             verts: [{ along: e.uAlong, dir: "up" }, { along: e.dAlong, dir: "down" }],
             lo: Math.min(e.uAlong, e.dAlong), hi: Math.max(e.uAlong, e.dAlong),
-            bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0],
+            bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0], thick: t0,
           });
         } else {
           out.push({
             edge: e, members: [e], share: shareKeyOf(e, 0), orient: o, idx: 0,
             verts: [{ along: e.uAlong, dir: "up" }, { along: e.x, dir: "down" }],
             lo: Math.min(e.uAlong, e.x), hi: Math.max(e.uAlong, e.x),
-            bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0],
+            bandLo: c.bands[0][0], bandHi: c.bands[0][1], slot: e.slots[0], lane: e.lanes[0], thick: t0,
           });
           out.push({
             edge: e, members: [e], share: shareKeyOf(e, 1), orient: o, idx: 1,
             verts: [{ along: e.x, dir: "up" }, { along: e.dAlong, dir: "down" }],
             lo: Math.min(e.x, e.dAlong), hi: Math.max(e.x, e.dAlong),
-            bandLo: c.bands[1][0], bandHi: c.bands[1][1], slot: e.slots[1], lane: e.lanes[1],
+            bandLo: c.bands[1][0], bandHi: c.bands[1][1], slot: e.slots[1], lane: e.lanes[1], thick: t1,
           });
         }
       } else if (e.kind === "zz") {
@@ -752,7 +809,7 @@ export function zRoutes(params: {
         out.push({
           edge: e, members: [e], orient: o, idx: 2,
           verts: [{ along: l0, dir: e.uAlong < e.x ? "up" : "down" }, { along: l1, dir: e.dAlong < e.x ? "up" : "down" }],
-          lo: Math.min(l0, l1), hi: Math.max(l0, l1), bandLo: e.colLo, bandHi: e.colHi, slot: 0, lane: e.x,
+          lo: Math.min(l0, l1), hi: Math.max(l0, l1), bandLo: e.colLo, bandHi: e.colHi, slot: 0, lane: e.x, thick: 0,
         });
       }
     }
@@ -783,7 +840,7 @@ export function zRoutes(params: {
             ...c0, members: [...c0.members, ...sg.members], verts: [...c0.verts, ...sg.verts],
             lo: Math.min(c0.lo, sg.lo), hi: Math.max(c0.hi, sg.hi),
             bandLo: Math.max(c0.bandLo, sg.bandLo), bandHi: Math.min(c0.bandHi, sg.bandHi),
-            lane: (c0.lane * last.parts.length + sg.lane) / (last.parts.length + 1),
+            lane: (c0.lane * last.parts.length + sg.lane) / (last.parts.length + 1), thick: 0,
           };
           last.parts.push(sg);
           continue;

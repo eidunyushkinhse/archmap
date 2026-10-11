@@ -235,6 +235,9 @@ export function buildAutoRoutes(params: {
   // каждый переход границы ЧУЖОЙ плашки (своя не отталкивает — online-плашка лежит на
   // собственной линии по построению).
   labelObstacles?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
+  // ГАБАРИТ ПЛАШКИ ПОДПИСИ связи (Ф3): дорожка-носитель в zRoutes резервирует под неё
+  // толщину в канале, чтобы подпись не легла на соседнюю линию.
+  labelBoxOf?: (groupId: string) => { w: number; h: number } | undefined;
   // ЭКСПЕРИМЕНТ г1 (Ф4-II эпика «глубокая оптимизация роутера»): набор групп, чьи порты
   // идут в решётку ДОПОЛНИТЕЛЬНО к портам роутируемых. Скоупенный вызов (T4-мини-проход)
   // иначе ищет на БЕДНОЙ сетке — свернуть можно только на линии своих портов, отсюда
@@ -248,7 +251,7 @@ export function buildAutoRoutes(params: {
   // юнит-тесты).
   budget?: RouteBudget;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, gridHintGroups, budget } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, gridHintGroups, budget, labelBoxOf } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -314,7 +317,7 @@ export function buildAutoRoutes(params: {
   let keys = new Map<string, { s?: number; t?: number }>();
   let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides });
   let ports = pr.ports;
-  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf });
+  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
   const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
     if (a.size !== b.size) return false;
     for (const [id, k] of a) {
@@ -329,7 +332,7 @@ export function buildAutoRoutes(params: {
     keys = next;
     pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys });
     ports = pr.ports;
-    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf });
+    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
   }
   const routes = new Map<string, EdgePoint[]>();
   const fixedIds = new Set<string>();

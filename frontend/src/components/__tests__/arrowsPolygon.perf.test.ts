@@ -497,6 +497,22 @@ describe.skipIf(!dir)("полигон стрелок (эпик «без жёст
       writeFileSync(join(svgDir, `${scene}-${variant}.svg`), svgOf(sc, routes, lrects, `${scene} · ${variant}`));
       if (__zDebug.on) {
         const nameOf = new Map(sc.groups.map((g) => [g.id.slice(0, 8), `${sc.names.get(g.source) ?? "?"} → ${sc.names.get(g.target) ?? "?"}`]));
+        // РЕЗЫ ПЛАШЕК (Ф3): какая чужая линия проходит сквозь какую плашку — для разбора руками
+        const cutsOut: string[] = [];
+        const segCuts = (a: EdgePoint, b: EdgePoint, r: Rect): boolean => {
+          const eps = 0.5;
+          const xlo = Math.min(a.x, b.x), xhi = Math.max(a.x, b.x), ylo = Math.min(a.y, b.y), yhi = Math.max(a.y, b.y);
+          return xhi > r.x + eps && xlo < r.x + r.w - eps && yhi > r.y + eps && ylo < r.y + r.h - eps;
+        };
+        for (const [gid, l] of labels) {
+          for (const [rid, pts] of routes) {
+            if (rid === gid) continue;
+            let hit = false;
+            for (let i = 1; i < pts.length && !hit; i++) if (segCuts(pts[i - 1], pts[i], l.rect)) hit = true;
+            if (hit) cutsOut.push(`${nameOf.get(gid.slice(0, 8)) ?? gid} [${Math.round(l.rect.x)},${Math.round(l.rect.y)} ${Math.round(l.rect.w)}×${Math.round(l.rect.h)}] ⟵ ${nameOf.get(rid.slice(0, 8)) ?? rid}`);
+          }
+        }
+        writeFileSync(join(svgDir, `${scene}-${variant}.cuts.txt`), cutsOut.join("\n") + "\n");
         writeFileSync(join(svgDir, `${scene}-${variant}.zlog.txt`), __zDebug.lines.map((l) => {
           const id = l.split(" ")[0];
           return `${nameOf.get(id) ?? id} | ${l.slice(id.length + 1)}`;

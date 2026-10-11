@@ -516,7 +516,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Раскладка позиций/хэндлов — всегда ELK level-конвейер. Контекстный движок
   // (звезда) удалён 2026-07-30: все схемы рендерит один level-конвейер.
   mark("проекция+группировка");
-  const baseLayout = await layoutLevel(allNodeInfos, layoutEdges);
+  // Ф3: ELK получает реальные габариты узлов и плашки подписей (inline) — место под
+  // подписи резервирует сама раскладка, как у Mermaid
+  const elkLabelBoxes = new Map<string, { w: number; h: number }>();
+  for (const g of groupArr) {
+    if (isFrameEnd(g)) continue;
+    const m = edgeLabelMeta(g);
+    if (m) elkLabelBoxes.set(g.members.length === 1 ? g.members[0].id : g.id, metaLabelBox(m));
+  }
+  const baseLayout = await layoutLevel(allNodeInfos, layoutEdges, {
+    sizes: new Map(sizes ? Object.entries(sizes) : []),
+    labelBoxes: elkLabelBoxes,
+  });
   mark("ELK уровня");
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
@@ -854,12 +865,19 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const budget = createRouteBudget({
     nodes: displayIds.length, edges: groupArr.length, config: input.routeBudget,
   });
+  const groupById = new Map(groupArr.map((g) => [g.id, g] as const));
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
     // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
     budget,
+    // Ф3: дорожка-носитель подписи резервирует толщину плашки в канале
+    labelBoxOf: (gid) => {
+      const g = groupById.get(gid);
+      const m = g ? edgeLabelMeta(g) : null;
+      return m ? metaLabelBox(m) : undefined;
+    },
   });
   autoRoutes = ar.routes;
   mark("роутер: порты+Z+A*+rip-up (проход 1)");

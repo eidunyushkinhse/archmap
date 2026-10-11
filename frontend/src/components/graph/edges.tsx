@@ -281,12 +281,6 @@ function WrappedLabelEdge({
     fontSize: 11,
     color: "#374151",
     lineHeight: 1.4,
-    // T5: вынесенная плашка получает лёгкий halo — белая кайма отделяет текст от линий
-    // под ним, и выноска не сливается с «паутиной» (online-плашка лежит на своей линии,
-    // ей halo не нужен)
-    ...(labelPlacement?.mode === "leader"
-      ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.18)" }
-      : null),
     // Плашка ВЫДЕЛЕННОЙ стрелки — над соседними плашками (в тесноте они ложатся друг
     // на друга — выбранную не прочитать). Работает внутри stacking context
     // edgelabel-renderer (z:1) — над узлами не поднимает. Панельное индиго-выделение
@@ -309,21 +303,8 @@ function WrappedLabelEdge({
           ? { ...style, strokeDasharray: 1, ...(drawDelay > 0 ? { animationDelay: `${drawDelay}ms` } : null) }
           : style}
       />
-      {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
-          она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с
-          точкой на стрелке (anchor). Ведём поводок ДО ЦЕНТРА плашки: непрозрачный фон
-          плашки сам прячет хвост. Прежний leaderEnd (обрезка до края бокса, A15) резал
-          по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
-          оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
-      {labelPlacement?.mode === "leader" && !drawing && (
-        <path
-          className={"lg-edge-leader" + (selected ? " lg-label--selected" : "")}
-          d={`M ${labelPlacement.anchor.x},${labelPlacement.anchor.y} L ${labelPlacement.center.x},${labelPlacement.center.y}`}
-          // T5 «читаемые пучки»: поводок заметнее (1.5px, темнее) — тонкий 1px-пунктир
-          // в гуще линий терялся, и вынесенная плашка читалась как «текст ни о чём»
-          style={{ stroke: "#6b7280", strokeWidth: 1.5, strokeDasharray: "4 3", fill: "none", pointerEvents: "none" }}
-        />
-      )}
+      {/* Выноски и поводки сняты в Ф3 эпика «стрелки без жёстких хэндлов»: плашка
+          всегда лежит на своей линии (E50/E51), место под неё резервирует раскладка. */}
       {drawing ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>

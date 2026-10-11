@@ -9,8 +9,9 @@ const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({
   index: 0, x1, y1, x2, y2, orient: Math.abs(y1 - y2) <= Math.abs(x1 - x2) ? "h" : "v",
 });
 
-// Размещение плашек (A6, R2): online без взаимных наложений, иначе leader. Проверяем
-// инварианты через метрики A0 (countLabelOverlaps / countLabelsUnderNodes), не точные коорд.
+// Размещение плашек (A6, R2): online без взаимных наложений; с Ф3 — только online (выносок
+// нет). Проверяем инварианты через метрики A0 (countLabelOverlaps / countLabelsUnderNodes),
+// не точные координаты.
 
 const poly = (...pairs: [number, number][]): EdgePoint[] =>
   pairs.map(([x, y]) => ({ x, y }));
@@ -53,102 +54,118 @@ describe("placeLabels — развод наложений (R2)", () => {
   });
 });
 
-describe("placeLabels — выноска (leader)", () => {
-  it("ребро без допустимых интервалов (всё совпавшее плечо) → leader", () => {
+// Ф3 эпика «стрелки без жёстких хэндлов»: выносок и поводков нет — плашка ВСЕГДА на своей
+// линии (E50/E51). Пустые кандидаты не уводят плашку с линии, а спускают её по лестнице
+// запасов: чистые интервалы → без вычета крестов (loose) → уникальные участки (минус
+// слитые плечи) → середина пути.
+describe("placeLabels — пустые кандидаты: плашка остаётся на линии (Ф3)", () => {
+  it("ребро без допустимых интервалов → всё равно online, центр на линии", () => {
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
     ];
     const [p] = placeLabels(labels);
-    expect(p.mode).toBe("leader");
+    expect(p.mode).toBe("online");
+    expect(p.center.y).toBe(0);
+    expect(p.center.x).toBeGreaterThanOrEqual(0);
+    expect(p.center.x).toBeLessThanOrEqual(200);
+    expect(p.anchor).toEqual(p.center);     // якорь и конец поводка — та же точка
+    expect(p.leaderEnd).toEqual(p.center);
   });
 
-  it("leader не садится под узел (R2): итог без плашек под узлами", () => {
-    const node: NodeRect = { x: -40, y: -20, w: 80, h: 40 }; // у якоря (0,0..200,0) середина (100,0) свободна
+  it("узел на линии (R2): плашка сдвигается вдоль линии мимо узла, итог без плашек под узлами", () => {
+    const node: NodeRect = { x: 70, y: -20, w: 60, h: 40 }; // накрывает середину (100,0)
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
     ];
     const ps = placeLabels(labels, [node]);
+    expect(ps[0].center.y).toBe(0);
     expect(countLabelsUnderNodes(rects(ps), [node])).toBe(0);
   });
 
-  it("якорь выноски НЕ садится на слитое плечо, уезжает в уникальную зону (A14)", () => {
-    // Путь: ствол [0,150] слит с соседом (shared), уникальный хвост [150,200]. Плашке на
-    // линии места нет (candidates пуст — так labelCandidates отдаёт короткий хвост,
-    // упирающийся в узел). Желаемая доля — середина (arc 100), она НА слитом стволе:
-    // якорь выноски обязан уехать в уникальный хвост [150,200].
+  it("слитое плечо (R4): плашка уезжает в уникальный хвост, а не на ствол (A14)", () => {
+    // ствол [0,150] слит с соседом, уникальный хвост [150,200]; желаемая середина (100) —
+    // на стволе, плашке туда нельзя
     const labels: LabelInput[] = [
-      {
-        id: "A", path: poly([0, 0], [200, 0]),
-        candidates: [],             // инлайн-мест нет → выноска
-        shared: [{ s: 0, e: 150 }], // ствол слит — якорю туда нельзя
-        box: box(60, 16),
-      },
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], shared: [{ s: 0, e: 150 }], box: box(60, 16) },
     ];
     const [p] = placeLabels(labels);
-    expect(p.mode).toBe("leader");
-    expect(p.anchor.x).toBeGreaterThan(150); // якорь в уникальном хвосте, не на стволе
-    expect(p.anchor.x).toBeLessThanOrEqual(200);
+    expect(p.mode).toBe("online");
+    expect(p.center.x).toBeGreaterThan(150);
+    expect(p.center.x).toBeLessThanOrEqual(200);
   });
 
-  it("без shared якорь остаётся у желаемой доли (обратная совместимость)", () => {
+  it("без shared — середина пути", () => {
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
     ];
     const [p] = placeLabels(labels);
-    expect(p.mode).toBe("leader");
-    expect(p.anchor.x).toBeCloseTo(100, 0); // середина, как раньше
+    expect(p.center.x).toBeCloseTo(100, 0);
+  });
+
+  it("в полной тесноте (плиты во всю ширину) плашка всё равно размещается на линии", () => {
+    const top: NodeRect = { x: -100, y: -46, w: 400, h: 40 };
+    const bot: NodeRect = { x: -100, y: 6, w: 400, h: 200 };
+    const labels: LabelInput[] = [
+      { id: "L", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
+    ];
+    const ps = placeLabels(labels, [top, bot]);
+    expect(ps).toHaveLength(1);
+    expect(ps[0].mode).toBe("online");
+    expect(ps[0].center.y).toBe(0);
+    expect(Number.isFinite(ps[0].center.x)).toBe(true);
   });
 });
 
-describe("placeLabels — качество выноски (A15)", () => {
-  it("плашка-выноска не садится на ЧУЖОЕ плечо стрелки", () => {
-    // A: горизонтальное ребро, плашке на линии места нет (candidates []) → выноска у якоря (100,0).
-    // B: вертикальное плечо ровно через x=100 (вся высота) — выноска A не должна на него лечь.
+describe("placeLabels — лестница запасов и чужие плечи (E52, Ф3)", () => {
+  it("желаемое место — центр самого ДЛИННОГО чистого интервала", () => {
+    // крест чужой линии вырезал середину: чистые [0,66] и [134,200]; при равной длине —
+    // первый, центр 33
+    const labels: LabelInput[] = [
+      {
+        id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16),
+        candidates: [{ s: 0, e: 66 }, { s: 134, e: 200 }], loose: [{ s: 0, e: 200 }],
+      },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeCloseTo(33, 0);
+  });
+
+  it("чистых нет → запасной интервал loose (без вычета крестов)", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16), candidates: [], loose: [{ s: 150, e: 200 }] },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeCloseTo(175, 0);
+  });
+
+  it("нет ни чистых, ни loose → центр самого ДЛИННОГО уникального участка (минус слитые плечи)", () => {
+    // shared [60,100]; уникальные [0,60] (60px) и [100,200] (100px) → центр длинного = 150
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], shared: [{ s: 60, e: 100 }], box: box(60, 16) },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeCloseTo(150, 0);
+  });
+
+  it("чужое плечо — мягкий конфликт: при пустых кандидатах плашка уходит с него вдоль линии", () => {
+    // B — вертикальное плечо через x=100 во всю высоту; A без кандидатов метит в середину
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
     ];
     const edgeSegs = new Map<string, Segment[]>([
       ["A", [seg(0, 0, 200, 0)]],
-      ["B", [seg(100, -200, 100, 200)]], // плечо соседа поперёк якоря
+      ["B", [seg(100, -200, 100, 200)]],
     ]);
     const [p] = placeLabels(labels, [], edgeSegs);
-    expect(p.mode).toBe("leader");
+    expect(p.mode).toBe("online");
+    expect(p.center.y).toBe(0);
     const boxRect = rectFromCenter(p.center.x, p.center.y, p.box.w, p.box.h);
-    const bLeg: NodeRect = { x: 96, y: -200, w: 8, h: 400 }; // плечо B с запасом
-    expect(rectsOverlap(boxRect, bLeg)).toBe(false); // плашка ушла с плеча соседа
-  });
-
-  it("якорь — в центре самого ДЛИННОГО уникального плеча (не ближайшего к середине)", () => {
-    // shared [60,100]; уникальные [0,60] (60px) и [100,200] (100px). Якорь → центр длинного = 150.
-    const labels: LabelInput[] = [
-      {
-        id: "A", path: poly([0, 0], [200, 0]),
-        candidates: [], shared: [{ s: 60, e: 100 }], box: box(60, 16),
-      },
-    ];
-    const [p] = placeLabels(labels);
-    expect(p.mode).toBe("leader");
-    expect(p.anchor.x).toBeCloseTo(150, 0);
-  });
-
-  it("конец поводка обрезан до края плашки (не прячется под ней)", () => {
-    const labels: LabelInput[] = [
-      { id: "A", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
-    ];
-    const [p] = placeLabels(labels);
-    expect(p.mode).toBe("leader");
-    // leaderEnd лежит на отрезке anchor→center, но НЕ в центре (иначе пунктир под плашкой)
-    const dAnchorEnd = Math.hypot(p.leaderEnd.x - p.anchor.x, p.leaderEnd.y - p.anchor.y);
-    const dAnchorCenter = Math.hypot(p.center.x - p.anchor.x, p.center.y - p.anchor.y);
-    expect(dAnchorEnd).toBeLessThan(dAnchorCenter);          // конец ближе к якорю, чем центр
-    expect(dAnchorEnd).toBeGreaterThan(0);                   // поводок не нулевой
-    // и leaderEnd на границе бокса: |center - leaderEnd| ≈ пол-высоты (вынос по нормали к линии)
-    const dEndCenter = Math.hypot(p.center.x - p.leaderEnd.x, p.center.y - p.leaderEnd.y);
-    expect(dEndCenter).toBeCloseTo(p.box.h / 2, 0);
+    const bLeg: NodeRect = { x: 96, y: -200, w: 8, h: 400 };
+    expect(rectsOverlap(boxRect, bLeg)).toBe(false);
   });
 });
 
-describe("segCrossesRect — геометрия поводка", () => {
+describe("segCrossesRect — геометрия (метрика «сквозь плашку»)", () => {
   const r: NodeRect = { x: 40, y: -10, w: 20, h: 20 };
   it("сквозь прямоугольник → true", () => {
     expect(segCrossesRect({ x: 0, y: 0 }, { x: 100, y: 0 }, r)).toBe(true);
@@ -162,38 +179,6 @@ describe("segCrossesRect — геометрия поводка", () => {
   it("старт на границе с уходом прочь → false, старт внутри → true", () => {
     expect(segCrossesRect({ x: 60, y: 0 }, { x: 100, y: 0 }, r)).toBe(false);
     expect(segCrossesRect({ x: 50, y: 0 }, { x: 100, y: 0 }, r)).toBe(true);
-  });
-});
-
-describe("placeLabels — поводок и узлы (мягкое избегание)", () => {
-  it("поводок обходит узел: чистое направление выигрывает у более близкого с нырком", () => {
-    // Якорь (100,0) зажат в щели: узел A вплотную сверху, глубокий B вплотную снизу.
-    // Все ближние кандидаты заняты боксом; первый чистый боксом — НАД A, но его поводок
-    // ныряет сквозь A (по-старому победил бы он). Чистая альтернатива — вбок по щели.
-    const A: NodeRect = { x: 70, y: -46, w: 60, h: 40 };
-    const B: NodeRect = { x: 70, y: 6, w: 60, h: 200 };
-    const labels: LabelInput[] = [
-      { id: "L", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
-    ];
-    const [p] = placeLabels(labels, [A, B]);
-    expect(p.mode).toBe("leader");
-    expect(segCrossesRect(p.anchor, p.center, A)).toBe(false);
-    expect(segCrossesRect(p.anchor, p.center, B)).toBe(false);
-  });
-
-  it("в полной тесноте нырок допустим: плашка всё равно размещается", () => {
-    // Две плиты во всю ширину со щелью 12px < высоты плашки: ЛЮБОЙ кандидат-бокс задевает
-    // плиту (ovHard>0), чистых мест нет вовсе — штраф поводка не должен отвергать насмерть.
-    const top: NodeRect = { x: -100, y: -46, w: 400, h: 40 };
-    const bot: NodeRect = { x: -100, y: 6, w: 400, h: 200 };
-    const labels: LabelInput[] = [
-      { id: "L", path: poly([0, 0], [200, 0]), candidates: [], box: box(60, 16) },
-    ];
-    const ps = placeLabels(labels, [top, bot]);
-    expect(ps).toHaveLength(1);
-    expect(ps[0].mode).toBe("leader");
-    expect(Number.isFinite(ps[0].center.x)).toBe(true);
-    expect(Number.isFinite(ps[0].center.y)).toBe(true);
   });
 });
 
@@ -221,15 +206,27 @@ describe("placeLabels — починка (Б3б, E40 v2)", () => {
     { x: -400, y: 20, w: 900, h: 380 },
   ];
 
-  it("режущую плашку уводит с линии (режущих стрелок становится 0)", () => {
+  it("режущую плашку уводит ВДОЛЬ линии (режущих стрелок становится 0, плашка на линии)", () => {
+    // поперечная чужая стрелка через x=100 режет плашку в середине; уступить можно вдоль
+    const across = new Map<string, Segment[]>([["X", [seg(100, -500, 100, 500)]]]);
+    const cutAcross = (r: NodeRect): boolean => segCrossesRect({ x: 100, y: -500 }, { x: 100, y: 500 }, r);
     const keepRect = rectFromCenter(100, 0, 60, 16);
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16), keepRect },
     ];
-    const [p] = placeLabels(labels, [], cutter, [], { repair: true });
+    const [p] = placeLabels(labels, [], across, [], { repair: true });
     expect(p).toBeDefined();
-    expect(cut(keepRect)).toBe(true); // прежнее место резалось…
-    expect(cut(rectFromCenter(p.center.x, p.center.y, p.box.w, p.box.h))).toBe(false); // …новое нет
+    expect(cutAcross(keepRect)).toBe(true); // прежнее место резалось…
+    expect(cutAcross(rectFromCenter(p.center.x, p.center.y, p.box.w, p.box.h))).toBe(false); // …новое нет
+    expect(p.center.y).toBe(0); // …и осталось на линии (Ф3)
+  });
+
+  it("стрелка вдоль всей линии: уступить на линии некуда → ОТКАЗ (плашки нет в результате)", () => {
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), candidates: [{ s: 0, e: 200 }], box: box(60, 16),
+        keepRect: rectFromCenter(100, 0, 60, 16) },
+    ];
+    expect(placeLabels(labels, [], cutter, [], { repair: true })).toEqual([]);
   });
 
   it("уступить некуда (коридор между телами) → ОТКАЗ, плашки нет в результате", () => {

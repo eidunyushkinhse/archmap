@@ -1,77 +1,64 @@
-// Размещение плашек подписей без взаимных наложений (эпик стрелок, фаза A6 — R2-критичное)
-// + выноска-leader как fallback. Чистая функция.
+// Размещение плашек подписей НА ЛИНИИ без взаимных наложений (эпик стрелок, фаза A6 —
+// R2-критичное; Ф3 эпика «стрелки без жёстких хэндлов» — выноски сняты). Чистая функция.
 //
-// Вход: по каждому ребру маршрут, допустимые arc-интервалы из A5 (где плашку ставить МОЖНО —
-// уже без совпавших плеч R4 и зон под узлами R2-узлы) и габариты плашки. Выход: для каждой
-// плашки выбранная позиция центра и режим — online (на линии) либо leader (вынесена сбоку,
-// когда на линии чисто не встаёт). Гарантия по построению: online-плашка ставится ТОЛЬКО на
-// место без наложений на уже размещённые плашки и узлы (R2); если такого места нет — выноска.
+// Вход: по каждому ребру маршрут, допустимые arc-интервалы из A5 (где плашку ставить
+// МОЖНО — без совпавших плеч R4, зон под узлами R2 и мест, где чужая линия пересекает
+// путь, Ф3), запасные интервалы loose (то же без вычета крестов) и габариты плашки.
+// Выход: центр плашки — ВСЕГДА точка своей линии (как у Mermaid: место под подпись
+// резервирует раскладка — ELK с подписями inline, толщина дорожки в канале E91 — а не
+// бегство плашки на поводке). Чистого места нет — плашка садится на наименее плохое
+// место линии по ключу E52; выноски-leader и поводки (A7.3/A15) удалены в Ф3.
 //
-// Алгоритм: жадный best-fit. Для каждой плашки генерим кандидатов — online (выборка точек по
-// интервалам, отсортированы к желаемому label_t) и leader (отступы у якоря по 8 направлениям ×
-// рост магнитуды). Рёбра обрабатываем от самых стеснённых (меньше online-кандидатов) к свободным.
-//
-// ВЫНОСКА (A15, качество): якорь выноски ставим в ЦЕНТР самого длинного уникального плеча ребра
-// (опознавательный отрезок), а позицию плашки выбираем с учётом ЧУЖИХ плеч стрелок как препятствий
-// (не только узлов) + минимума пересечений поводка с чужими стрелками. Так плашка не ложится на
-// соседнее плечо, а пунктир ведёт в середину «своего» отрезка и не прячется под плашкой (его конец
-// обрезается до края плашки в edges.tsx). См. ARROWS_ANALYSIS §5, §6 (A6) + arrows-routing-epic A15.
-//
-// ПОВОДОК И УЗЛЫ (2026-07-15): поводок по возможности не ныряет под узлы (узлы рендерятся поверх
-// слоя рёбер — скрытый участок пунктира рвёт связь «плашка↔стрелка»). Штраф МЯГКИЙ, компонент
-// nodeCross в ключе выбора: чистое направление выигрывает даже дальнее, в полной тесноте нырок
-// допустим (плашка размещается всегда).
+// Алгоритм: жадный best-fit. Для каждой плашки генерим кандидатов — выборку точек по
+// чистым интервалам, отсортированную к желаемой позиции (центр самого длинного чистого
+// интервала; ручной label_t — если задан); при пустоте — по loose, затем по уникальным
+// участкам (весь путь минус слитые плечи), затем — середина пути. Рёбра обрабатываем от
+// самых стеснённых (меньше чистых кандидатов) к свободным.
 import type { EdgePoint } from "../../../types";
 import { axisSegHitsRect, pointAtFraction, type NodeRect, type Segment } from "../edgePath";
-import { rectFromCenter, rectsOverlap, segCrossesRect } from "./arrowMetrics";
+import { rectFromCenter, rectsOverlap } from "./arrowMetrics";
 import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
 import type { Size } from "./labelBox";
 
 const EPS = 0.5;
 const LEG_T = 4; // полутолщина плеча стрелки как препятствия (px) — плашка должна явно отойти
-// Направления отступа выноски: оси первыми (ближе к перпендикуляру плеча), затем диагонали —
-// чтобы в тесноте плашка нашла открытое место, не залезая на узлы/чужие плечи.
-const LEADER_DIRS: ReadonlyArray<readonly [number, number]> = [
-  [0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, -1], [-1, 1], [1, 1],
-];
 
 export interface LabelInput {
   id: string;
   path: EdgePoint[];
-  candidates: Interval[]; // допустимые arc-интервалы для ПЛАШКИ (из labelCandidates / A5): без
-                          // слитых плеч (R4) и без зон под узлами (R2)
+  candidates: Interval[]; // ЧИСТЫЕ arc-интервалы для ПЛАШКИ (labelCandidates / A5 минус кресты
+                          // чужих линий, Ф3): без слитых плеч (R4), зон под узлами (R2) и мест,
+                          // где чужая линия режет путь
+  loose?: Interval[];     // те же интервалы БЕЗ вычета крестов — запас на тесноту
   box: Size;
-  preferredT?: number;    // желаемая доля arc-length 0..1 (ручной label_t); по умолч. 0.5
-  shared?: Interval[];    // слитые с другими рёбрами плечи (R4) — куда ЯКОРЬ выноски ставить
-                          // нельзя (иначе поводок указывает в коллинеарность, стрелку не отличить)
+  preferredT?: number;    // желаемая доля arc-length 0..1 (ручной label_t); по умолч. — центр
+                          // самого длинного чистого интервала
+  shared?: Interval[];    // слитые с другими рёбрами плечи (R4) — последний запас: уникальные участки
   // РЕЖИМ ПОЧИНКИ (Б3б, E40 v2): прямоугольник ПРЕЖНЕГО места плашки. Если чистого
   // места не нашлось, плашка остаётся там, где была, — и её прежний прямоугольник
   // обязан остаться препятствием для следующих (E53), иначе сосед сядет на неё.
   keepRect?: NodeRect;
 }
 
-// arc-середина самого ДЛИННОГО уникального (не слитого) участка ребра — самый заметный отрезок,
-// принадлежащий только этой стрелке; на него и указывает поводок. null — уникальных участков нет.
-function longestUniqueArc(unique: Interval[]): number | null {
+// Самый длинный интервал набора (ничья — первый); null — набор пуст.
+function longest(ivs: ReadonlyArray<Interval>): Interval | null {
   let best: Interval | null = null;
-  for (const iv of unique) if (!best || iv.e - iv.s > best.e - best.s) best = iv;
-  return best ? (best.s + best.e) / 2 : null;
+  for (const iv of ivs) if (!best || iv.e - iv.s > best.e - best.s) best = iv;
+  return best;
 }
 
 export interface Placement {
   id: string;
+  /** Режим плашки. С Ф3 — всегда "online"; "leader" остался в типе для прежних снимков. */
   mode: "online" | "leader";
-  center: EdgePoint; // центр плашки
-  anchor: EdgePoint; // точка на линии, к которой плашка относится (для поводка-выноски);
-                     // для online совпадает с center (поводок не рисуется)
+  center: EdgePoint; // центр плашки — точка на линии
+  anchor: EdgePoint; // точка на линии, к которой плашка относится; с Ф3 совпадает с center
   box: Size;         // габариты плашки
-  leaderEnd: EdgePoint; // конец поводка у КРАЯ плашки (anchor→leaderEnd; не прячется под плашкой).
-                        // для online == center (поводок не рисуется)
+  leaderEnd: EdgePoint; // с Ф3 совпадает с center (поводков нет)
 }
 
 interface Cand {
   center: EdgePoint;
-  leader: boolean;
 }
 
 export interface PlaceOptions {
@@ -98,7 +85,7 @@ export interface PlaceOptions {
 
 // Точки-кандидаты вдоль интервалов: кламп желаемого, середина и концы каждого интервала,
 // плюс шаги через step. Дедуп и сортировка по близости к желаемой arc-позиции.
-function sampleArcs(intervals: Interval[], preferredArc: number, step: number): number[] {
+function sampleArcs(intervals: ReadonlyArray<Interval>, preferredArc: number, step: number): number[] {
   const arcs: number[] = [];
   for (const iv of intervals) {
     arcs.push(Math.max(iv.s, Math.min(preferredArc, iv.e)), (iv.s + iv.e) / 2, iv.s, iv.e);
@@ -111,24 +98,10 @@ function sampleArcs(intervals: Interval[], preferredArc: number, step: number): 
   return uniq.sort((x, y) => Math.abs(x - preferredArc) - Math.abs(y - preferredArc));
 }
 
-// Кандидаты-выноски: центр плашки отступает от якоря по 8 направлениям × рост магнитуды (ближние
-// первыми). Ось пути заранее не знаем — перебор направлений покрывает и перпендикуляр, и обход
-// узловой «стены», когда плашка не влезает рядом с коротким уникальным плечом.
-function leaderCands(anchor: EdgePoint, box: Size): Cand[] {
-  const out: Cand[] = [];
-  const base = Math.max(box.h, 16) + 6;
-  for (const mag of [base, base + 24, base + 48, base + 72, base + 96, base + 120]) {
-    for (const [dx, dy] of LEADER_DIRS) {
-      out.push({ center: { x: anchor.x + dx * mag, y: anchor.y + dy * mag }, leader: true });
-    }
-  }
-  return out;
-}
-
 // Ключ выбора места (E52) + компонент починки: [жёсткие наложения, РЕЗ НАСКВОЗЬ,
-// чужие плечи в полосе, online<leader, поводок под узлами, кресты поводка, индекс].
-type Key = [number, number, number, number, number, number, number];
-const KEY_LEN = 7;
+// чужие плечи в полосе, индекс].
+type Key = [number, number, number, number];
+const KEY_LEN = 4;
 
 // Сколько ЧУЖИХ СТРЕЛОК режет прямоугольник r насквозь — предикатом T4 (axisSegHitsRect,
 // edgePath) и с той же гранулярностью, что метрика «сквозь чужие плашки»: пара
@@ -170,150 +143,81 @@ function legRects(segs: Segment[]): NodeRect[] {
   });
 }
 
-// Параметр t∈[0,1] на отрезке a→b, где он ВХОДИТ в прямоугольник с центром c и габаритами box
-// (Лианг-Барски). <0 — отрезок не входит в прямоугольник (или a уже внутри). Нужен, чтобы обрезать
-// поводок до края плашки: рисуем a→(точка при t).
-function boxEntryParam(a: EdgePoint, c: EdgePoint, box: Size): number {
-  const dx = c.x - a.x, dy = c.y - a.y;
-  const hw = box.w / 2, hh = box.h / 2;
-  const p = [-dx, dx, -dy, dy];
-  const q = [a.x - (c.x - hw), (c.x + hw) - a.x, a.y - (c.y - hh), (c.y + hh) - a.y];
-  let t0 = 0, t1 = 1;
-  for (let i = 0; i < 4; i++) {
-    if (Math.abs(p[i]) < 1e-9) { if (q[i] < 0) return -1; continue; }
-    const r = q[i] / p[i];
-    if (p[i] < 0) { if (r > t1) return -1; if (r > t0) t0 = r; }
-    else { if (r < t0) return -1; if (r < t1) t1 = r; }
-  }
-  return t0;
-}
-
-// Точка обрезки поводка: вход отрезка anchor→center в прямоугольник плашки. Если вход некорректен
-// (центр совпал/якорь внутри) — сам center (вырожденный поводок, edges.tsx нарисует короткий).
-function leaderEndPoint(anchor: EdgePoint, center: EdgePoint, box: Size): EdgePoint {
-  const t = boxEntryParam(anchor, center, box);
-  if (t <= 0 || t >= 1) return center;
-  return { x: anchor.x + (center.x - anchor.x) * t, y: anchor.y + (center.y - anchor.y) * t };
-}
-
-// Строго ли пересекаются отрезки ab и cd (без учёта простого касания концами).
-function segsCross(a: EdgePoint, b: EdgePoint, c: EdgePoint, d: EdgePoint): boolean {
-  const o = (p: EdgePoint, q: EdgePoint, r: EdgePoint) =>
-    Math.sign((q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x));
-  const o1 = o(a, b, c), o2 = o(a, b, d), o3 = o(c, d, a), o4 = o(c, d, b);
-  return o1 !== o2 && o3 !== o4 && o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0;
-}
-
-// Сколько ЧУЖИХ плеч пересёк бы поводок anchor→end. Меньше — чище читается выноска.
-function connectorCrossings(anchor: EdgePoint, end: EdgePoint, segs: Segment[]): number {
-  let n = 0;
-  for (const s of segs) {
-    if (segsCross(anchor, end, { x: s.x1, y: s.y1 }, { x: s.x2, y: s.y2 })) n++;
-  }
-  return n;
-}
-
-// Сколько прямоугольников rects пересёк бы поводок anchor→end. Узлы рисуются ПОВЕРХ слоя
-// рёбер — участок пунктира под узлом невидим, связь «плашка↔стрелка» на глаз рвётся.
-function rectCrossings(anchor: EdgePoint, end: EdgePoint, rects: NodeRect[]): number {
-  let n = 0;
-  for (const r of rects) if (segCrossesRect(anchor, end, r)) n++;
-  return n;
-}
-
 export function placeLabels(
   labels: LabelInput[],
   nodes: NodeRect[] = [],
   edgeSegs: ReadonlyMap<string, Segment[]> = new Map(),
   // Добавочные жёсткие препятствия ТОЛЬКО для наложений плашки (ovHard) — живой драг
   // подкладывает сюда плашки незатронутых рёбер (эмуляция placedRects финального гриди).
-  // В штрафе поводка (nodeCross) НЕ участвуют — иначе live-скоринг разошёлся бы с
-  // финальным, где ранее размещённые плашки в nodeCross тоже не входят.
   obstacles: NodeRect[] = [],
   opts?: PlaceOptions,
 ): Placement[] {
-  // плечи каждого ребра как препятствия + сырые сегменты для оценки пересечений поводка
+  // плечи каждого ребра как препятствия
   const legRectsById = new Map<string, NodeRect[]>();
   for (const [id, segs] of edgeSegs) legRectsById.set(id, legRects(segs));
 
   // подготовка кандидатов по каждому ребру
   const prepared = labels.map((l) => {
     const total = edgeArcLength(l.path);
-    const prefT = Math.max(0, Math.min(1, l.preferredT ?? 0.5));
-    const preferredArc = prefT * total;
-    // candidates — интервалы для ЦЕНТРА плашки (A5 уже учёл габариты: Минковский у узлов,
-    // раздутые слитые плечи R4) — добавочная эрозия не нужна
-    const onlineArcs = sampleArcs(l.candidates, preferredArc, Math.max(l.box.w, 24));
     const toPt = (a: number): EdgePoint => pointAtFraction(l.path, total > 0 ? a / total : 0);
-    const online: Cand[] = onlineArcs.map((a) => ({ center: toPt(a), leader: false }));
-    // Якорь выноски — в центр самого длинного УНИКАЛЬНОГО плеча (весь путь минус слитые плечи R4).
-    // Узлы тут НЕ вычитаем: якорь — точка на линии, плашку от неё отводит отступ выноски.
     const unique = subtractIntervals({ s: 0, e: total }, l.shared ?? []);
-    const anchorArc = longestUniqueArc(unique) ?? preferredArc;
-    const anchor = toPt(anchorArc);
-    const cands: Cand[] = [...online, ...leaderCands(anchor, l.box)];
-    return { id: l.id, box: l.box, cands, onlineCount: online.length, anchor, keepRect: l.keepRect };
+    // ЖЕЛАЕМАЯ ПОЗИЦИЯ: ручной label_t, иначе центр самого длинного чистого интервала —
+    // самый заметный личный отрезок без чужих линий; дальше по лестнице запасов
+    const clean = l.candidates;
+    const loose = l.loose ?? clean;
+    const pick = longest(clean) ?? longest(loose) ?? longest(unique);
+    const preferredArc = l.preferredT !== undefined
+      ? Math.max(0, Math.min(1, l.preferredT)) * total
+      : pick ? (pick.s + pick.e) / 2 : total / 2;
+    // ЛЕСТНИЦА ЗАПАСОВ: чистые интервалы → без вычета крестов → уникальные участки →
+    // середина пути. Плашка всегда на линии (Ф3), выноски нет.
+    const step = Math.max(l.box.w, 24);
+    let arcs = sampleArcs(clean, preferredArc, step);
+    if (arcs.length === 0) arcs = sampleArcs(loose, preferredArc, step);
+    if (arcs.length === 0) arcs = sampleArcs(unique, preferredArc, step);
+    if (arcs.length === 0) arcs = [preferredArc];
+    const cands: Cand[] = arcs.map((a) => ({ center: toPt(a) }));
+    return { id: l.id, box: l.box, cands, cleanCount: sampleArcs(clean, preferredArc, step).length, keepRect: l.keepRect };
   });
 
-  // самые стеснённые (мало online-кандидатов) — первыми; тай-брейк по id для детерминизма
+  // самые стеснённые (мало чистых кандидатов) — первыми; тай-брейк по id для детерминизма
   const order = [...prepared].sort(
-    (a, b) => a.onlineCount - b.onlineCount || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+    (a, b) => a.cleanCount - b.cleanCount || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
 
   const placedRects: NodeRect[] = [...nodes, ...obstacles]; // узлы + внешние препятствия + уже размещённые плашки
   const chosen = new Map<string, Placement>();
   for (const L of order) {
-    // чужие плечи (все рёбра, кроме своего) — препятствия для ПЛАШКИ и помеха для поводка
+    // чужие плечи (все рёбра, кроме своего) — препятствия для ПЛАШКИ; те же плечи ПО
+    // ВЛАДЕЛЬЦАМ — режим починки считает режущие СТРЕЛКИ, а не сегменты (пара «стрелка ×
+    // плашка» = единица метрики «сквозь чужие плашки»)
     const otherLegRects: NodeRect[] = [];
-    const otherSegs: Segment[] = [];
-    // те же чужие плечи, но ПО ВЛАДЕЛЬЦАМ — режим починки считает режущие СТРЕЛКИ, а не
-    // сегменты (пара «стрелка × плашка» = единица метрики «сквозь чужие плашки»)
     const otherSegsById = new Map<string, Segment[]>();
     for (const [id, segs] of edgeSegs) {
       if (id === L.id) continue;
-      otherSegs.push(...segs);
       otherSegsById.set(id, segs);
       const rs = legRectsById.get(id);
       if (rs) otherLegRects.push(...rs);
     }
-    // ключ выбора: [жёсткие наложения (узлы+плашки), мягкие (чужие плечи), online<leader,
-    // поводок под узлами, пересечения поводка со стрелками, индекс-предпочтение]. Чужие
-    // плечи — МЯГКИЙ конфликт для ВСЕХ кандидатов (жалоба «плашка под стрелкой»: раньше
-    // online их не проверял и садился прямо под чужую линию): плашка сначала ищет чистое
-    // место вдоль СВОЕЙ линии, затем чистую выноску, и лишь при полном отсутствии мест
-    // мирится с чужим плечом. Поводок под узлами (жалоба 2026-07-15: пунктир ныряет под
-    // узел и связь «плашка↔стрелка» теряется) — тоже МЯГКИЙ штраф: чистое направление
-    // выигрывает даже дальнее/диагональное, но в полной тесноте нырок допустим; весом
-    // выше крестов с чужими стрелками (перекрестье видно, исчезновение под узлом — нет).
+    // ключ выбора: [жёсткие наложения (узлы+плашки), рез насквозь (только починка), мягкие
+    // (чужие плечи в полосе), индекс-предпочтение]. Чужие плечи — МЯГКИЙ конфликт: плашка
+    // сначала ищет чистое место вдоль СВОЕЙ линии и лишь при полном отсутствии мест
+    // мирится с чужим плечом.
     let best = -1;
-    let bestKey: Key = [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, Infinity];
+    let bestKey: Key = [Infinity, Infinity, Infinity, Infinity];
     for (let k = 0; k < L.cands.length; k++) {
       const c = L.cands[k];
       const ovHard = overlapCount(c.center, L.box, placedRects);
-      // ПОЧИНКА (Б3б): жёсткие наложения и линии НАСКВОЗЬ — вето кандидата, а не штраф.
-      // Порядок проверок — от дешёвой к дорогой: сквозной тест гоняет все чужие плечи.
       const ovLegs = overlapCount(c.center, L.box, otherLegRects);
       // ПОЧИНКА (Б3б): число ЧУЖИХ СТРЕЛОК, режущих плашку насквозь — то самое, что
       // считает T4 (и метрика «сквозь чужие плашки»). В обычном режиме не считается.
       const cutN = opts?.repair ? cutCount(rectFromCenter(c.center.x, c.center.y, L.box.w, L.box.h), otherSegsById) : 0;
-      let cross = 0, nodeCross = 0;
-      if (c.leader) {
-        // хвост leaderEnd→center лежит под боксом плашки, чистоту бокса держит ovHard —
-        // оцениваем видимую часть поводка anchor→leaderEnd (как и cross)
-        const end = leaderEndPoint(L.anchor, c.center, L.box);
-        cross = connectorCrossings(L.anchor, end, otherSegs);
-        nodeCross = rectCrossings(L.anchor, end, nodes);
-      }
-      // Ключ выбора E52; в режиме починки между жёсткими наложениями и полосой плеч
-      // встаёт РЕЗ НАСКВОЗЬ (в обычном режиме компонент всегда 0 и на порядок не влияет).
-      const key: Key = [ovHard, cutN, ovLegs, c.leader ? 1 : 0, nodeCross, cross, k];
+      const key: Key = [ovHard, cutN, ovLegs, k];
       for (let d = 0; d < KEY_LEN; d++) {
         if (key[d] < bestKey[d]) { bestKey = key; best = k; break; }
         if (key[d] > bestKey[d]) break;
       }
     }
-    // ПОЧИНКА (Б3б): чистого места нет — плашка остаётся на прежнем; её прежний
-    // прямоугольник всё равно занят и обязан отталкивать следующих (E53).
     // ПОЧИНКА (Б3б): переезд принимается, только если он ДЕЙСТВИТЕЛЬНО УСТУПАЕТ линии —
     // режущих стрелок стало строго меньше, а жёстких наложений не прибавилось (иначе
     // плашка сбегала бы из-под стрелки под узел, а это по E52 хуже). Не принят — плашка
@@ -324,14 +228,7 @@ export function placeLabels(
     }
     const c = L.cands[best];
     placedRects.push(rectFromCenter(c.center.x, c.center.y, L.box.w, L.box.h));
-    // online: плашка на линии, якорь = её центр (поводок не нужен). leader: плашка вынесена
-    // сбоку, якорь = центр уникального плеча (от него рисуем поводок в edges.tsx).
-    const anchor = c.leader ? L.anchor : c.center;
-    chosen.set(L.id, {
-      id: L.id, mode: c.leader ? "leader" : "online",
-      center: c.center, anchor, box: L.box,
-      leaderEnd: c.leader ? leaderEndPoint(anchor, c.center, L.box) : c.center,
-    });
+    chosen.set(L.id, { id: L.id, mode: "online", center: c.center, anchor: c.center, box: L.box, leaderEnd: c.center });
   }
 
   // chosen заполнен для каждой плашки в цикле выше (в режиме починки — только для тех,

@@ -7,11 +7,13 @@
 // Модель плашки: прямоугольник box, ЦЕНТРИРОВАННЫЙ на точке пути-якоре. Плашка не задевает
 // узел ⇔ якорь вне прямоугольника узла, раздутого на пол-плашки (Минковский). См. ANALYSIS §5.
 import type { EdgePoint } from "../../../types";
-import { cleanup, type NodeRect } from "../edgePath";
+import { cleanup, type NodeRect, type Segment } from "../edgePath";
 import { mergeIntervals, subtractIntervals, edgeArcLength, type Interval } from "./coincidentLegs";
 import type { Size } from "./labelBox";
 
 const EPS = 0.5;
+/** Запас вокруг креста чужой линии: плашка не должна упираться краем в неё (= полоса плеча). */
+const CROSS_PAD = 4;
 
 // arc-интервалы ломаной, где её точка лежит СТРОГО внутри прямоугольника rect.
 // Путь ортогонален (после cleanup), идём по сегментам с накоплением arc-length.
@@ -84,4 +86,38 @@ export function labelCandidates(
     ...nodeBlockedIntervals(pts, nodes, box),
   ]);
   return subtractIntervals({ s: 0, e: total }, blocked);
+}
+
+// arc-интервалы пути, где плашку перерезала бы ЧУЖАЯ линия (Ф3): перпендикулярный крест
+// чужого сегмента с сегментом пути запрещает зону вокруг точки креста шириной в
+// протяжённость плашки вдоль сегмента (ширина на горизонтальном, высота на вертикальном)
+// плюс запас. Касание концами и коллинеарность — не крест (коллинеарность — дело R4).
+export function crossingBlockedIntervals(pts: EdgePoint[], others: ReadonlyArray<Segment>, box: Size): Interval[] {
+  const c = cleanup(pts);
+  const out: Interval[] = [];
+  let arc = 0;
+  for (let i = 0; i < c.length - 1; i++) {
+    const p = c[i], q = c[i + 1];
+    const dx = q.x - p.x, dy = q.y - p.y;
+    const len = Math.abs(dx) + Math.abs(dy);
+    if (len <= EPS) continue;
+    const horiz = Math.abs(dy) <= Math.abs(dx);
+    const ext = horiz ? box.w : box.h;
+    const lo = horiz ? Math.min(p.x, q.x) : Math.min(p.y, q.y);
+    const hi = horiz ? Math.max(p.x, q.x) : Math.max(p.y, q.y);
+    for (const sg of others) {
+      if ((sg.orient === "h") === horiz) continue;
+      // координата креста вдоль нашего сегмента и его положение поперёк
+      const at = horiz ? sg.x1 : sg.y1;
+      const across = horiz ? p.y : p.x;
+      const sLo = horiz ? Math.min(sg.y1, sg.y2) : Math.min(sg.x1, sg.x2);
+      const sHi = horiz ? Math.max(sg.y1, sg.y2) : Math.max(sg.x1, sg.x2);
+      if (at <= lo + EPS || at >= hi - EPS) continue;
+      if (across <= sLo + EPS || across >= sHi - EPS) continue;
+      const a = arc + Math.abs(at - (horiz ? p.x : p.y));
+      out.push({ s: a - ext / 2 - CROSS_PAD, e: a + ext / 2 + CROSS_PAD });
+    }
+    arc += len;
+  }
+  return mergeIntervals(out);
 }
