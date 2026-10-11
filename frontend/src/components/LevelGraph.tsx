@@ -45,7 +45,6 @@ import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
 import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
-import { trunkHitAt } from "./graph/trunkHit";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
@@ -144,7 +143,7 @@ interface LevelGraphProps {
   // Drill-навигация и деталька (двойной клик по узлу/гостю/пустому холсту): onDrillDown,
   // onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection. Состав — LevelDrillCallbacks.
   drill: LevelDrillCallbacks;
-  // Колбэки создания и инспекции связей: onEdgesChoice, onTrunkChoice, onCreateEdge,
+  // Колбэки создания и инспекции связей: onEdgesChoice, onCreateEdge,
   // onConnectInto, onExitUp. НАМЕРЕННО НЕ `edges` (так зовётся дата-проп AppEdge[]).
   edgeCallbacks: LevelEdgeCallbacks;
   // Запросы удаления узлов с канваса (клавиатура → подтверждение в родителе):
@@ -206,7 +205,7 @@ function LevelGraphInner({
     fitOnExpand = false, schemaView = "all", edgeLabelsHidden: edgeLabelsHiddenMode,
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection } = drill;
-  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onTrunkChoice, onReconnectFrameEnd } = edgeCallbacks;
+  const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
   const { onDropNode, dragShape } = drop ?? {};
   const { history: historyProp, onUndo, onRedo } = undo ?? {};
@@ -682,17 +681,17 @@ function LevelGraphInner({
   // нестабильными (новые функции каждый рендер); будь они зависимостями сборки,
   // массив rfNodes пересоздавался бы на каждый рендер родителя и сбрасывал выделение/
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
-  // Инспекция связей (openEdgeMembers/openTrunkMembers) вынесена в useLevelEdgeChoice
-  // (Фаза 3б) — оба колбэка кормят cbRef ниже.
-  const { openEdgeMembers, openTrunkMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, onTrunkChoice });
+  // Инспекция связей (openEdgeMembers) вынесена в useLevelEdgeChoice (Фаза 3б) —
+  // колбэк кормит cbRef ниже.
+  const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice });
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, openTrunkMembers, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers };
   });
   // Ленивая читалка колбэков для сборки: обработчики в data собранных объектов зовут
   // getCb() в момент клика (не при сборке) — объект может пережить несколько прогонов
@@ -1077,31 +1076,17 @@ function LevelGraphInner({
     },
     []
   );
-  // По связи: сперва хит-тест ОБЩЕГО ПЛЕЧА (E80) — клик в точке легального ствола
-  // ≥2 отрисованных связей открывает модалку ствола с направлением; иначе прежний
-  // путь плашки (openEdgeMembers → одна связь сразу в панель, несколько — выбор
-  // участника, см. MapEditorPage). Клик по плашке сюда не попадает — она адресует свою
-  // связь однозначно (E57).
+  // По связи: тот же путь, что у плашки (openEdgeMembers → одна связь сразу в панель,
+  // несколько членов пучка — выбор участника, см. MapEditorPage). У каждой связи своя
+  // линия (E25 v3), поэтому клик по линии адресует ровно один пучок; клик по плашке
+  // сюда не попадает — она адресует свою связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
-    (e: MouseEvent, rfEdge: RFEdge) => {
+    (_e: MouseEvent, rfEdge: RFEdge) => {
       if (!canInspectEdges) return;
-      const dataOf = (re: RFEdge): WrappedEdgeData | undefined => re.data as WrappedEdgeData | undefined;
-      const pt = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-      const ortho = rfEdges
-        .map((re) => ({ id: re.id, pts: dataOf(re)?.autoRoute ?? [] }))
-        .filter((re) => re.pts.length >= 2);
-      const hit = trunkHitAt(ortho, rfEdge.id, pt);
-      if (hit) {
-        const flat = hit.memberIds.flatMap((gid) => {
-          const re = rfEdges.find((x) => x.id === gid);
-          return re ? dataOf(re)?.memberIds ?? [] : [];
-        });
-        if (cbRef.current.openTrunkMembers(hit.kind, flat)) return;
-      }
-      const memberIds = dataOf(rfEdge)?.memberIds ?? [];
+      const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
       cbRef.current.openEdgeMembers(memberIds);
     },
-    [canInspectEdges, rfEdges, screenToFlowPosition]
+    [canInspectEdges]
   );
 
   // «Показать на схеме» (locate): центрирование холста на цели + короткая подсветка.

@@ -66,7 +66,7 @@ vi.mock("../useSchemaAlerts", () => ({
 }));
 // Выбор связи: модалка не нужна.
 vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
-  useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), onTrunkChoice: vi.fn(), choiceModal: null }),
+  useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), choiceModal: null }),
 }));
 
 // Тяжёлые/условные потомки — заглушки. Холст ловит пропсы: undo/redo-диспетчеры

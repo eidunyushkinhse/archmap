@@ -44,7 +44,7 @@ vi.mock("../useSchemaAlerts", () => ({
   PENDING_PROCESS_KEY: "archmap.pendingProcess",
 }));
 vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
-  useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), onTrunkChoice: vi.fn(), choiceModal: null }),
+  useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), choiceModal: null }),
 }));
 const levelGraphProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
 vi.mock("../../components/LevelGraph", () => ({

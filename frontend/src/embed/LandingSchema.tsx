@@ -100,13 +100,12 @@ export default function LandingSchema({ scene }: { scene: LandingScene }) {
       selectedEdge ? { kind: "edge", id: selectedEdge.id } : null,
     [selectedEdge],
   );
-  const { onEdgesChoice, onTrunkChoice, choiceModal } = useEdgeChoice({
+  const { onEdgesChoice, choiceModal } = useEdgeChoice({
     resolveEdge, labelOf, onPick: setSelectedEdge,
   });
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,
-    onTrunkChoice,
-  }), [onEdgesChoice, onTrunkChoice]);
+  }), [onEdgesChoice]);
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: noop,
     onEditNode: noop,

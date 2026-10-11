@@ -13,14 +13,15 @@
 // воспроизводится». Date.now/Math.random в конвейере запрещены; performance.now живёт
 // только в счётчиках-диагностике (prepMs/floodMs) и ни на одно РЕШЕНИЕ не влияет.
 //
-// ДВА КОНТУРА (переработка по ревью 6.2 — «отключить сварку при исчерпании»
-// неисполнимо: сварка отрабатывает ВНУТРИ прохода-1, а больше половины работ горит
-// позже, в T4):
+// ДВА КОНТУРА (переработка по ревью 6.2 — «отключить стадию при исчерпании»
+// неисполнимо постфактум: стадия к тому времени уже отработала, а больше половины
+// работ горит позже, в T4):
 //   • РЕАКТИВНЫЙ — ступени на естественных границах конвейера В ПОРЯДКЕ ИСПОЛНЕНИЯ:
 //     потолок на вызов A* (внутри прохода-1, orthoRoute.CALL_EXPANSION_CAP) → пропуск
-//     rip-up (граница внутри routeAll) → пропуск сварки (граница перед weldTrunks) →
-//     пропуск T4 (граница перед мини-проходом). Ступень, неосуществимая в своей точке,
-//     в реестр не входит (P13).
+//     rip-up (граница внутри routeAll) → пропуск T4 (граница перед мини-проходом).
+//     Ступень, неосуществимая в своей точке, в реестр не входит (P13). Ступень
+//     «пропуск сварки стволов» снята вместе со сваркой (Ф2 эпика «стрелки без
+//     жёстких хэндлов», 2026-10-11).
 //   • АПРИОРНЫЙ — прогноз работ по размеру сцены ДО старта стадий: заведомо неподъёмная
 //     сцена включает ступени с самого начала, не сжигая бюджет до первой границы.
 //
@@ -69,10 +70,9 @@ export const ROUTE_BUDGET_BY_CLASS: Record<SceneClass, number> = {
 // ДОЛИ БЮДЖЕТА, НА КОТОРЫХ ВКЛЮЧАЮТСЯ СТУПЕНИ. Порядок долей = порядок конвейера:
 // чем позже точка, тем позже она сдаётся. Смысл: rip-up — самая дорогая стадия
 // (51–64% экспансий эталонов) и самая «улучшающая, но не обязательная», поэтому она
-// уступает первой; сварка косметична (E78/E79 — слитые стволы); T4 — читаемость
-// подписей, последнее, чем платим, потому что его цена уже почти вся впереди.
+// уступает первой; T4 — читаемость подписей, последнее, чем платим, потому что его
+// цена уже почти вся впереди.
 export const BUDGET_SKIP_RIPUP_SHARE = 0.5;
-export const BUDGET_SKIP_WELD_SHARE = 0.7;
 export const BUDGET_SKIP_T4_SHARE = 0.85;
 
 // АПРИОРНОЕ УЖЕСТОЧЕНИЕ ПОТОЛКА ВЫЗОВА: сцена, чей прогноз не влезает в лимит класса,
@@ -117,7 +117,6 @@ export interface RouteBudgetConfig {
   byClass: Record<SceneClass, number>;
   callCap: number;
   skipRipupShare: number;
-  skipWeldShare: number;
   skipT4Share: number;
   aprioriCapDivisor: number;
   expPerEdge: number;
@@ -128,7 +127,6 @@ export const DEFAULT_ROUTE_BUDGET: RouteBudgetConfig = {
   byClass: ROUTE_BUDGET_BY_CLASS,
   callCap: CALL_EXPANSION_CAP,
   skipRipupShare: BUDGET_SKIP_RIPUP_SHARE,
-  skipWeldShare: BUDGET_SKIP_WELD_SHARE,
   skipT4Share: BUDGET_SKIP_T4_SHARE,
   aprioriCapDivisor: BUDGET_APRIORI_CAP_DIVISOR,
   expPerEdge: EXP_PER_EDGE,
@@ -139,8 +137,6 @@ export const DEFAULT_ROUTE_BUDGET: RouteBudgetConfig = {
 export interface BudgetDegraded {
   /** rip-up не гонялся (routeAll) */
   ripup: boolean;
-  /** сварка стволов не гонялась (buildAutoRoutes) */
-  weld: boolean;
   /** T4-мини-проход не гонялся (pipeline) */
   t4: boolean;
   /** сколько вызовов A* доигрывались гриди-фолбэком потолка */
@@ -167,8 +163,6 @@ export interface RouteBudget {
   spent(): number;
   /** РЕШЕНИЕ ступени «пропустить rip-up» (оно же — фиксация факта) */
   takeRipup(): boolean;
-  /** РЕШЕНИЕ ступени «пропустить сварку» */
-  takeWeld(): boolean;
   /** РЕШЕНИЕ ступени «пропустить T4» */
   takeT4(): boolean;
   /** Итог прогона: null — ни одна ступень не срабатывала (обычный случай). */
@@ -192,7 +186,7 @@ export function createRouteBudget(params: {
   const callCap = apriori ? Math.max(1, Math.floor(cfg.callCap / cfg.aprioriCapDivisor)) : cfg.callCap;
   const expAtStart = __routeCounters.expansions;
   const greedyAtStart = __routeCounters.budgetGreedyCalls;
-  const fired: { ripup: boolean; weld: boolean; t4: boolean } = { ripup: false, weld: false, t4: false };
+  const fired: { ripup: boolean; t4: boolean } = { ripup: false, t4: false };
   const spent = (): number => __routeCounters.expansions - expAtStart;
   // Априорный контур включает ступень безусловно; реактивный — по доле израсходованного.
   const over = (share: number): boolean => apriori || spent() > share * limit;
@@ -203,11 +197,10 @@ export function createRouteBudget(params: {
     // за прогон дважды (проход 1 и T4-мини-проход), и второе решение не должно стирать
     // факт первой сработавшей ступени.
     takeRipup: () => { const v = over(cfg.skipRipupShare); if (v) fired.ripup = true; return v; },
-    takeWeld: () => { const v = over(cfg.skipWeldShare); if (v) fired.weld = true; return v; },
     takeT4: () => { const v = over(cfg.skipT4Share); if (v) fired.t4 = true; return v; },
     result: () => {
       const greedyCalls = __routeCounters.budgetGreedyCalls - greedyAtStart;
-      if (!fired.ripup && !fired.weld && !fired.t4 && greedyCalls === 0) return null;
+      if (!fired.ripup && !fired.t4 && greedyCalls === 0) return null;
       return { ...fired, greedyCalls };
     },
   };

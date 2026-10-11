@@ -140,7 +140,7 @@ export default function EmbeddedSchemaBlock({
       selectedEdge ? { kind: "edge", id: selectedEdge.id } : null,
     [selectedEdge],
   );
-  const { onEdgesChoice, onTrunkChoice, choiceModal } = useEdgeChoice({
+  const { onEdgesChoice, choiceModal } = useEdgeChoice({
     resolveEdge, labelOf, onPick: setSelectedEdge,
   });
 
@@ -160,7 +160,7 @@ export default function EmbeddedSchemaBlock({
     fitOnLoad: true,
     fitOnExpand: true,
     // Инспекция связей в read-only просмотре (двойной клик по стрелке): подсветка
-    // полного пути + модалка выбора при общем плече.
+    // полного пути + модалка выбора у пучка из нескольких связей.
     edgesInspectable: true,
     schemaView,
   }), [schemaView, persistence]);
@@ -177,8 +177,7 @@ export default function EmbeddedSchemaBlock({
 
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,
-    onTrunkChoice,
-  }), [onEdgesChoice, onTrunkChoice]);
+  }), [onEdgesChoice]);
 
   return (
     <div>

@@ -65,7 +65,6 @@ export interface TestCb {
   expandLocalContainer: (id: string) => void;
   collapseContainer: (id: string) => void;
   openEdgeMembers: (ids: string[]) => void;
-  openTrunkMembers: (kind: "out" | "in", ids: string[]) => boolean;
   commitLayout: (
     patch: Record<string, Partial<ViewLayoutPayload> | null>,
     origin?: CommitOrigin,

@@ -641,7 +641,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Выбор связи (общая оркестрация с просмотром — useEdgeChoice): модалки выбора
   // и резолв группы рёбер там; семантика «выбрать» здесь — открыть инспектор
   // (inspectEdge), «дозаписать связь» (архитектор) — EdgeQuickCreate.
-  const { onEdgesChoice, onTrunkChoice, choiceModal } = useEdgeChoice({
+  const { onEdgesChoice, choiceModal } = useEdgeChoice({
     resolveEdge: findLevelEdge,
     labelOf: findNodeLabel,
     onPick: inspectEdge,
@@ -671,12 +671,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,
-    onTrunkChoice,
     onCreateEdge: (s, t, sh, th, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceHandle: sh, targetHandle: th, sourceName: sn, targetName: tn }),
     onConnectInto: (s, cid, cn, sh, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceHandle: sh, sourceName: sn }),
     onExitUp: (s, sh, sn) => setOutPicker({ sourceId: s, sourceHandle: sh, sourceName: sn }),
     onReconnectFrameEnd: handleFrameEndReconnected,
-  }), [onEdgesChoice, onTrunkChoice, handleFrameEndReconnected]);
+  }), [onEdgesChoice, handleFrameEndReconnected]);
 
   const deleteCallbacks = useMemo<LevelDeleteCallbacks>(() => ({
     onRequestDeleteNode: setPendingDelete,

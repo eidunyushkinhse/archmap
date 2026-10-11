@@ -87,7 +87,7 @@ describe("ROUTER_VERSION — сторож контракта роутера", ()
     const reg = collectRouterConstants();
     // семьи из карты «модуль → константы» (шапка routerVersion.ts)
     for (const prefix of [
-      "orthoRoute.", "routeAll.", "weldTrunks.", "autoRoutes.",
+      "orthoRoute.", "routeAll.", "ports.", "autoRoutes.",
       "channelNudge.", "frames.", "labelBox.", "constants.", "routerVersion.",
     ]) {
       expect(Object.keys(reg).some((k) => k.startsWith(prefix)), `нет констант семьи ${prefix}`).toBe(true);

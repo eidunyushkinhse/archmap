@@ -413,7 +413,7 @@ type Row = { scene: string; variant: string; nodes: number; edges: number; quali
 const PORT_ORDER: ReadonlyArray<keyof PortMetrics> = ["sharedPorts", "minPortGap", "flowSideShare", "leaders", "labelsOffRoute", "detourMean", "detourMax"];
 
 function reportMd(rows: Row[]): string {
-  const cols = [...METRIC_ORDER.filter((k) => k !== "illegalOverlapPx" && k !== "overlapPx"), "overlapPx"] as Array<keyof QualityMetrics>;
+  const cols = [...METRIC_ORDER.filter((k) => k !== "overlapPx"), "overlapPx"] as Array<keyof QualityMetrics>;
   const head = ["сцена", "вариант", "узлы/рёбра", ...cols, ...PORT_ORDER, "порт≠ELK ср/макс", "портов как у ELK"];
   const out = [`| ${head.join(" | ")} |`, `|${head.map(() => "---").join("|")}|`];
   for (const r of rows) {

@@ -779,7 +779,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
 
   // КАНДИДАТЫ РОУТИНГА — рёбра с позиционированными концами, ДО применения скоупа:
-  // это знаменатель порога отказа авто-скоупа и область его замыкания по стволам.
+  // это знаменатель порога отказа авто-скоупа.
   const routeCandidates = new Set<string>();
   for (const g of groupArr) {
     if (!hasGeometry(g.source) || !hasGeometry(g.target)) continue;
@@ -862,7 +862,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     budget,
   });
   autoRoutes = ar.routes;
-  mark("роутер: A*+rip-up+слоты+сварка (проход 1)");
+  mark("роутер: порты+A*+rip-up (проход 1)");
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
@@ -917,11 +917,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     .map(realRectOf)
     .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
 
-  // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
-  // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
+  // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи
+  // РАЗНЫХ рёбер собираются в «каналы», упорядочиваются по подходам маршрутов и
   // разводятся равными зазорами вокруг исходной линии (канон GD'09 ordered nudging).
-  // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
-  // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
+  // Порты каналу двигать нельзя (их раздаёт ports.ts). Чистый пост-проход на финальных
   // маршрутах.
   // СКОУП (E84, компромисс 3): замороженные плечи идут в канал ПИНАМИ — живые
   // разводятся ОТ их фактических линий. Двигать их наравне со всеми и возвращать
@@ -946,20 +945,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       if (!rt || rt.length < 4) continue;
       // СКОУП (E84): замороженные НЕ полируются. Их результат всё равно вернула бы
       // страховка, но промежуточная полировка отравляла бы КОНТЕКСТ ОЦЕНКИ живых
-      // соседей (others/fellowRoutes ниже читают segsById/polished) — они мерились бы
-      // против линии, которой на сцене не будет. Сегменты замороженных при этом
-      // остаются в segsById и потому видны живым как препятствие и стволовой контекст.
+      // соседей (others ниже читает segsById) — они мерились бы против линии, которой
+      // на сцене не будет. Сегменты замороженных при этом остаются в segsById и потому
+      // видны живым как препятствие.
       if (frozenRoutes.has(g.id)) continue;
       const others: PlacedSeg[] = [];
-      const fellowRoutes: EdgePoint[][] = []; // стволовой контекст оценки (E25 v2)
       for (const [id, s] of segsById) {
         if (id === g.id) continue;
         others.push(...s);
-        const r = polished.get(id) ?? autoRoutes.get(id);
-        if (r) fellowRoutes.push(r);
       }
-      const own = { starts: [rt[0]], ends: [rt[rt.length - 1]] };
-      const str = straightenJogs(rt, jogObstacles, others, 200, 40, undefined, own, fellowRoutes);
+      const str = straightenJogs(rt, jogObstacles, others, 200, 40);
       if (str.length !== rt.length) {
         polished.set(g.id, str);
         segsById.set(g.id, toPlacedSegs(str));
@@ -1161,8 +1156,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
         gridHintGroups: T4_FULL_GRID_HINTS ? groupArr : undefined,
-        // Тот же бюджет: внутри мини-прохода живут СВОИ rip-up и сварка, и их ступени
-        // (P13 №2 и №3) обязаны действовать здесь так же, как в проходе 1.
+        // Тот же бюджет: внутри мини-прохода живёт СВОЙ rip-up, и его ступень
+        // (P13 №2) обязана действовать здесь так же, как в проходе 1.
         budget,
       });
       let changed = false;

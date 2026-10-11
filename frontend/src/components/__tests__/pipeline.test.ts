@@ -624,7 +624,7 @@ describe("кэш маршрутов вида: сверка routeSig ДО ста�
   }
 
   const CACHE_MARK = "стадии качества стрелок: кэш-хит по routeSig";
-  const ROUTER_MARK = "роутер: A*+rip-up+слоты+сварка (проход 1)";
+  const ROUTER_MARK = "роутер: порты+A*+rip-up (проход 1)";
 
   it("кэш-хит по sig: стадии качества НЕ исполняются, результат идентичен полному прогону", async () => {
     const A = await computeViewLayout({ ...levelInput(), sizes: measured });
@@ -753,7 +753,7 @@ describe("состав сцены: раскрытия, ждущие детей (
       childrenLazyLoad: true,
     });
     expect(marks).not.toContain(PENDING_MARK);
-    expect(marks).toContain("роутер: A*+rip-up+слоты+сварка (проход 1)");
+    expect(marks).toContain("роутер: порты+A*+rip-up (проход 1)");
     expect(out.layout.autoRoutes).toBeDefined();
     expect(out.authoritative).toBe(true);
   });
@@ -1142,11 +1142,11 @@ describe("T4-мини-проход: только слой плашек (E40 v3)"
     };
   }
 
-  // Форс-бюджет ТОЛЬКО на ступень «пропуск T4» (P13 №4): доли rip-up и сварки подняты
-  // выше единицы (не срабатывают никогда), доля T4 — ноль. Так получается прогон, у
+  // Форс-бюджет ТОЛЬКО на ступень «пропуск T4» (P13 №4): доля rip-up поднята выше
+  // единицы (не срабатывает никогда), доля T4 — ноль. Так получается прогон, у
   // которого весь T4-блок не исполнялся ВООБЩЕ, — эталон «маршруты до T4».
   const FORCE_T4_ONLY: RouteBudgetConfig = {
-    ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipWeldShare: 10, skipT4Share: 0,
+    ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipT4Share: 0,
   };
 
   // Стабильная сериализация маршрутов: сравнение прогонов побитово.

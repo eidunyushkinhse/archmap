@@ -17,6 +17,9 @@
 // нужен существующий хэндл, чтобы нарисовать ребро, а концы линии рендер берёт из
 // самого маршрута (edges.tsx, точка роутера главная).
 //
+// Общих плеч (стволов вееров, E25 v2) и их сварки (E78/E79) здесь больше нет: с портом
+// на связь общих точек стыковки не бывает, и каждая связь едет своей линией (Ф2).
+//
 // Стабы наружу входят в маршрут ПО ПОСТРОЕНИЮ (V2.1, направленные порты роутера) — прежний
 // пост-патч ensureOutwardStubs здесь умер: он приклеивал развороты на 180° («шпильки»),
 // когда A*-маршрут выходил из хэндла не по нормали. Геометрия, по которой размещаются
@@ -28,7 +31,6 @@ import { NODE_W, NODE_H, hid } from "../constants";
 import type { EdgeGroup } from "../types";
 import { routeAll, type EdgeTerminal } from "./routeAll";
 import { assignPorts } from "./ports";
-import { weldTrunks } from "./weldTrunks";
 import type { RouteBudget } from "./routeBudget";
 
 const EPS = 0.5;
@@ -218,10 +220,6 @@ export function buildAutoRoutes(params: {
   // каждый переход границы ЧУЖОЙ плашки (своя не отталкивает — online-плашка лежит на
   // собственной линии по построению).
   labelObstacles?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
-  // СВАРКА СТВОЛОВ (Ф2, E78): по умолчанию включена; живой драг передаёт false —
-  // сварка не гоняется живьём (E62), доворот на отпускании прячет drawIn (E64).
-  // С портом на связь общих точек стыковки нет, и сварке нечего сливать (снимается в Ф2).
-  weld?: boolean;
   // ЭКСПЕРИМЕНТ г1 (Ф4-II эпика «глубокая оптимизация роутера»): набор групп, чьи порты
   // идут в решётку ДОПОЛНИТЕЛЬНО к портам роутируемых. Скоупенный вызов (T4-мини-проход)
   // иначе ищет на БЕДНОЙ сетке — свернуть можно только на линии своих портов, отсюда
@@ -230,12 +228,12 @@ export function buildAutoRoutes(params: {
   // включении — за замером (см. журнал Ф4-II в docs/plan-router-deep-opt.md).
   gridHintGroups?: EdgeGroup[];
   // БЮДЖЕТ РАБОТ (Ф5 эпика router-opt, спека perf.md P12/P13) — ПАРАМЕТРОМ, не
-  // синглтоном. Здесь он решает ступень «пропустить сварку» и едет дальше в routeAll
-  // (потолок вызова A* + ступень «пропустить rip-up»). Не задан — бюджета нет,
-  // поведение прежнее байт-в-байт (фазз-полигон, живой драг, юнит-тесты).
+  // синглтоном. Едет в routeAll (потолок вызова A* + ступень «пропустить rip-up»).
+  // Не задан — бюджета нет, поведение прежнее байт-в-байт (фазз-полигон, живой драг,
+  // юнит-тесты).
   budget?: RouteBudget;
 }): AutoRoutesResult {
-  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, weld, gridHintGroups, budget } = params;
+  const { groups, routableIds, positions, displayIds, sizes, frames, frameEndpoints, prev, labelObstacles, gridHintGroups, budget } = params;
   // тела всех отображаемых узлов — препятствия
   const rects = new Map<string, NodeRect>();
   for (const id of displayIds) {
@@ -265,11 +263,9 @@ export function buildAutoRoutes(params: {
   }
   const { ports } = assignPorts({ groups, rects: dockRects, frameIds, prevSides });
 
-  // тела узлов + плашки раскрытых рамок — общий набор препятствий терминалов и сварки
+  // тела узлов + плашки раскрытых рамок — препятствия терминалов
   const framePlaques = (frames ?? []).map((f) => f.plaque);
   const obstacleBodies = [...rects.values(), ...framePlaques];
-  // пер-рёберный штраф среды — сварка оценивает кандидатов той же средой, что роутер
-  const extraById = new Map<string, (x1: number, y1: number, x2: number, y2: number) => number>();
   // ИНДЕКС ГРАНЕЙ ПЛАШЕК — ОДИН на вызов, а не на ребро: своя плашка отсеивается по gid
   // прямо в счёте хода (А1). Без плашек (проход 1) индекса нет и путь прежний.
   const labelFaces = labelObstacles ? buildLabelFaceIndex(labelObstacles) : null;
@@ -324,7 +320,6 @@ export function buildAutoRoutes(params: {
             return n;
           }
         : undefined;
-    if (extraMoveCost) extraById.set(g.id, extraMoveCost);
     terminals.push({
       id: g.id,
       start: pp.s.point, end: pp.t.point,
@@ -385,24 +380,5 @@ export function buildAutoRoutes(params: {
     });
   }
 
-  // СВАРКА СТВОЛОВ (Ф2 префиксы E78 + Ф3 суффиксы E79): followers вееров перенимают
-  // префиксы/суффиксы собратьев через изломы, где это строго выигрывает по «чернилам
-  // с бонусом слияния» без новой грязи. С портом на связь общих точек нет, и группы
-  // сварки вырождаются в одиночки — стадия остаётся до её снятия в Ф2.
-  // СТУПЕНЬ ДЕГРАДАЦИИ «ПРОПУСК СВАРКИ» (P13, ступень 3). Точка осуществимости — ровно
-  // здесь: сварка ещё не начиналась, а путь `weld === false` в дереве уже есть (живой
-  // драг, E62) и заведомо валиден.
-  const skipWeld = weld !== false && (budget?.takeWeld() ?? false);
-  if (weld !== false && !skipWeld) {
-    weldTrunks({
-      routes,
-      routableIds,
-      preplaced,
-      obstacles: obstacleBodies,
-      extraOf: (id) => extraById.get(id),
-      endSideOf: (id) => ports.get(id)?.t.side,
-      startSideOf: (id) => ports.get(id)?.s.side,
-    });
-  }
   return { routes, handles };
 }

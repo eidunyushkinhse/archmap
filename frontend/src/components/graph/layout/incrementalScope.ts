@@ -60,14 +60,6 @@ export const SCOPE_FULL_RECALC_SHARE = 0.6;
 /** Квант «узел не двигался» — тот же 0.5px, что у EPS роутера и валидации prev (E36). */
 const MOVE_EPS = 0.5;
 
-/**
- * Ключ порта для ЗАМЫКАНИЯ ПО СТВОЛАМ. Тот же квант (·2 с округлением), что у
- * `weldTrunks.portKey`: рёбра, которые сварка считает членами одного веера, обязаны
- * попадать в скоуп ВМЕСТЕ — иначе перепроложенный лидер уедет, а followers останутся
- * висеть кусками бывшего общего ствола.
- */
-const portKey = (p: EdgePoint): string => `${Math.round(p.x * 2)}|${Math.round(p.y * 2)}`;
-
 export interface IncrementalScopeParams {
   // финальные позиции ТЕКУЩЕГО прогона (после инвариантов/A10/рамок — дальше по
   // конвейеру позиции не меняются)
@@ -80,7 +72,7 @@ export interface IncrementalScopeParams {
   // мастер-рёбра сцены
   groups: readonly EdgeGroup[];
   // рёбра, которые вообще можно проложить (оба конца имеют геометрию) — знаменатель
-  // порога отказа и область замыкания
+  // порога отказа
   candidates: ReadonlySet<string>;
   // финальные маршруты прошлого прогона
   prevRoutes: ReadonlyMap<string, EdgePoint[]>;
@@ -177,38 +169,10 @@ export function computeIncrementalScope(p: IncrementalScopeParams): Set<string> 
     if (pathCrossesRects(pr, dirtyRects)) scope.add(g.id);
   }
 
-  // ── 4. ЗАМЫКАНИЕ ПО СТВОЛАМ (ревью 4.2) ─────────────────────────────────────────
-  // По ПОРТАМ PREV-СНИМКА, ДО прокладки: рёбра, делящие prev-p0 или prev-pN с ребром
-  // скоупа, входят в скоуп вместе с ним. Иначе сварка (E78/E79) перепрокладывает лидера
-  // веера, а followers остаются висеть перенятыми кусками его бывшего ствола.
-  const byPort = new Map<string, string[]>();
-  const portsOf = new Map<string, string[]>();
-  for (const g of groups) {
-    if (!candidates.has(g.id)) continue;
-    const pr = prevRoutes.get(g.id);
-    if (!pr || pr.length < 2) continue;
-    const keys = [portKey(pr[0]), portKey(pr[pr.length - 1])];
-    portsOf.set(g.id, keys);
-    for (const k of keys) {
-      const arr = byPort.get(k);
-      if (arr) arr.push(g.id); else byPort.set(k, [g.id]);
-    }
-  }
-  // фикспойнт обходом в ширину: очередь — рёбра, чьи порты ещё не раскрыты
-  const queue = [...scope];
-  for (let i = 0; i < queue.length; i++) {
-    const keys = portsOf.get(queue[i]);
-    if (!keys) continue;
-    for (const k of keys) {
-      for (const other of byPort.get(k) ?? []) {
-        if (scope.has(other)) continue;
-        scope.add(other);
-        queue.push(other);
-      }
-    }
-  }
+  // (Прежний шаг 4 — замыкание скоупа по общим prev-портам вееров — снят в Ф2 эпика
+  // «стрелки без жёстких хэндлов»: с портом на связь общих портов нет.)
 
-  // ── 5. ПОРОГ ОТКАЗА ─────────────────────────────────────────────────────────────
+  // ── 4. ПОРОГ ОТКАЗА ─────────────────────────────────────────────────────────────
   if (stats) { stats.changedNodes = changed.size; stats.rawScope = scope.size; }
   // порог считаем ДО проверки пустоты: 0 > 0.6·N ложно, порядок безразличен
   if (scope.size > SCOPE_FULL_RECALC_SHARE * candidates.size) return null;

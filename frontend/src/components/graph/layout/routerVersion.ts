@@ -9,7 +9,7 @@
 //
 // КАК ЗАКРЫТО. Не дисциплиной («не забудь бампнуть»), а МЕХАНИКОЙ:
 //   1. collectRouterConstants() собирает ВСЕ значения, влияющие на геометрию маршрутов
-//      и плашек (роутер, набор, сварка, мост домена, нуджинг, джоги, рамочная плашка,
+//      и плашек (роутер, набор, порты, мост домена, нуджинг, джоги, рамочная плашка,
 //      модель габаритов подписи);
 //   2. hashRouterConstants() сворачивает их в хэш;
 //   3. CONSTANTS_HASH_BY_VERSION хранит ИСТОРИЮ пар «версия → хэш»;
@@ -28,7 +28,7 @@
 //      значит меняет и объединённый хэш, без всякой дисциплины.
 //      ОХВАТ ДОВЕСКА, ЧЕСТНО (уточнён 2026-08-22, Н3 внешнего аудита): golden считается
 //      по ПУТИ buildAutoRoutes → routeAll и покрывает его ЦЕЛИКОМ — порты, A*, rip-up,
-//      слоты, сварка, штрафы рамок/плашек И СПРЯМЛЕНИЕ ДЖОГОВ (straightenJogs зовётся
+//      штрафы рамок/плашек И СПРЯМЛЕНИЕ ДЖОГОВ (straightenJogs зовётся
 //      блоком T3 внутри routeAll: правка джогов роняет сторожа механически). Не покрыты
 //      стадии КОНВЕЙЕРА поверх роутера: канальный нуджинг, повторное спрямление джогов
 //      по финальной геометрии, размещение плашек и T4-оркестрация — полигон зовёт
@@ -54,12 +54,9 @@ import {
   EPS as ORTHO_EPS,
 } from "./orthoRoute";
 import {
-  DEFAULT_CROSS_COST, OVERLAP_COST, ROUTE_STICKINESS, PORT_CONFLICT_COST,
+  DEFAULT_CROSS_COST, OVERLAP_COST, ROUTE_STICKINESS,
   JOG_MAX, JOG_CLEAR, LINE_CLEAR,
 } from "./routeAll";
-import {
-  MERGE_GAIN, WELD_STRETCH, WELD_STRETCH_SLACK, WELD_K, WELD_ITER_CAP, WELD_EPS,
-} from "./weldTrunks";
 import { FRAME_CROSS_COST, LABEL_CROSS_COST, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
 import {
   PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
@@ -80,7 +77,7 @@ import {
 import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
 import {
   ROUTE_BUDGET_BY_CLASS, TYPICAL_NODES, TYPICAL_EDGES,
-  BUDGET_SKIP_RIPUP_SHARE, BUDGET_SKIP_WELD_SHARE, BUDGET_SKIP_T4_SHARE,
+  BUDGET_SKIP_RIPUP_SHARE, BUDGET_SKIP_T4_SHARE,
   BUDGET_APRIORI_CAP_DIVISOR, EXP_PER_EDGE, EXP_PER_NODE,
 } from "./routeBudget";
 import { CALL_EXPANSION_CAP } from "./orthoRoute";
@@ -90,7 +87,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 9;
+export const ROUTER_VERSION = 10;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -137,17 +134,9 @@ export function collectRouterConstants(): Record<string, unknown> {
     "routeAll.DEFAULT_CROSS_COST": DEFAULT_CROSS_COST,
     "routeAll.OVERLAP_COST": OVERLAP_COST,
     "routeAll.ROUTE_STICKINESS": ROUTE_STICKINESS,
-    "routeAll.PORT_CONFLICT_COST": PORT_CONFLICT_COST,
     "routeAll.JOG_MAX": JOG_MAX,
     "routeAll.JOG_CLEAR": JOG_CLEAR,
     "routeAll.LINE_CLEAR": LINE_CLEAR,
-    // --- сварка стволов вееров (weldTrunks) ---
-    "weldTrunks.MERGE_GAIN": MERGE_GAIN,
-    "weldTrunks.WELD_STRETCH": WELD_STRETCH,
-    "weldTrunks.WELD_STRETCH_SLACK": WELD_STRETCH_SLACK,
-    "weldTrunks.WELD_K": WELD_K,
-    "weldTrunks.WELD_ITER_CAP": WELD_ITER_CAP,
-    "weldTrunks.WELD_EPS": WELD_EPS,
     // --- порт на связь (ports, Ф1 эпика «стрелки без жёстких хэндлов»): сторона,
     // порядок и шаг точек стыковки — геометрия концов каждого маршрута ---
     "ports.PORT_MARGIN": PORT_MARGIN,
@@ -206,7 +195,6 @@ export function collectRouterConstants(): Record<string, unknown> {
     "routeBudget.TYPICAL_NODES": TYPICAL_NODES,
     "routeBudget.TYPICAL_EDGES": TYPICAL_EDGES,
     "routeBudget.BUDGET_SKIP_RIPUP_SHARE": BUDGET_SKIP_RIPUP_SHARE,
-    "routeBudget.BUDGET_SKIP_WELD_SHARE": BUDGET_SKIP_WELD_SHARE,
     "routeBudget.BUDGET_SKIP_T4_SHARE": BUDGET_SKIP_T4_SHARE,
     "routeBudget.BUDGET_APRIORI_CAP_DIVISOR": BUDGET_APRIORI_CAP_DIVISOR,
     "routeBudget.EXP_PER_EDGE": EXP_PER_EDGE,
@@ -261,6 +249,15 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v10 — Ф2 эпика «стрелки без жёстких хэндлов» (2026-10-11), заход первый: СНЯТИЕ
+  // СТВОЛОВ. С портом на связь (v9) общих точек стыковки нет, и вся механика общих плеч
+  // осталась без причины: стволовой контекст оценки (E25 v2), сварка вееров
+  // (weldTrunks, E78/E79), группы-стволы канала (E30 v2), портовый штраф парковки
+  // (PORT_CONFLICT_COST), замыкание скоупа по стволам (E84) и ступень бюджета «пропуск
+  // сварки» удалены. МАРШРУТЫ НЕ ИЗМЕНИЛИСЬ НИ НА ПИКСЕЛЬ: при уникальных портах ни одна
+  // из снятых веток не срабатывала (golden фазз-полигона байт-в-байт прежний). Из
+  // реестра ушли восемь констант — контракт другой, записи v9 честно инвалидируются.
+  10: "8c5e67f2cecd0572",
   // v9 — Ф1 эпика «стрелки без жёстких хэндлов» (docs/plan-arrows-ports.md,
   // 2026-10-10): ПОРТ НА СВЯЗЬ. Точку стыковки каждого конца выбирает ports.ts до
   // A* (сторона по оси потока, порядок по дальнему концу, равный шаг с полями у узла,
