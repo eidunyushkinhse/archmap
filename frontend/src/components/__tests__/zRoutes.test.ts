@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { zRoutes, Z_CLEAR, LANE_GAP_MIN } from "../graph/layout/zRoutes";
+import { zRoutes, Z_CLEAR, LANE_GAP_MIN, LABEL_PAD } from "../graph/layout/zRoutes";
 import { assignPorts, PORT_SHARE } from "../graph/layout/ports";
 import { NUDGE_GAP } from "../graph/layout/channelNudge";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
@@ -16,16 +16,19 @@ const g = (id: string, source: string, target: string) => ({ id, source, target 
 // share: false — без общих плеч (E95): механика дорожек «порт на связь» в чистом виде
 function run(rects: Map<string, NodeRect>, groups: Array<{ id: string; source: string; target: string }>, opts?: {
   obstacles?: NodeRect[]; hard?: NodeRect[]; share?: boolean;
+  labels?: Record<string, { w: number; h: number }>; // Ф3: габариты плашек подписей по id групп
 }) {
   const was = PORT_SHARE.on;
   if (opts?.share === false) PORT_SHARE.on = false;
   try {
-    const { ports, shares } = assignPorts({ groups, rects });
+    const labelBoxOf = opts?.labels ? (id: string) => opts.labels?.[id] : undefined;
+    const { ports, shares } = assignPorts({ groups, rects, labelBoxOf });
     const obstacles = opts?.obstacles ?? [...rects.values()];
     return zRoutes({
       groups, ports, shares, obstacles,
       rectOf: (id) => rects.get(id),
       hardOf: opts?.hard ? () => opts.hard ?? [] : undefined,
+      labelBoxOf,
     });
   } finally {
     PORT_SHARE.on = was;
@@ -291,5 +294,60 @@ describe("zRoutes — ребро через слой (ZZ) и ключи порт
     expect(hb[1].y).toBeLessThan(300);                       // дорожка в верхнем канале
     expect(pk2.get("hb")).toEqual({ t: 895 });
     expect(pk2.has("mc")).toBe(false);
+  });
+});
+
+// Ф3: НОСИТЕЛЬ ПОДПИСИ (E96) — плашка на отрезке вдоль потока, роутер отдаёт якорь.
+describe("zRoutes — носитель подписи (Ф3, E96)", () => {
+  const LBL = { w: 120, h: 38 };
+
+  it("одиночная связь вниз: якорь — на стабе перед целью, в слоте длиной плашки с запасом", () => {
+    // B под A с перекрытием по x — ось потока "v" (E8), стыковка низ → верх
+    const rects = new Map([["A", R(0, 0)], ["B", R(100, 400)]]);
+    const z = run(rects, [g("e", "A", "B")], { labels: { e: LBL } });
+    const pts = z.routes.get("e")!;
+    const a = z.labelAnchors.get("e")!;
+    expect(a).toBeDefined();
+    expect(a.x).toBe(pts[pts.length - 1].x);                   // на колонне стаба цели
+    expect(a.y).toBeLessThan(400);                             // над верхней гранью B
+    expect(a.y).toBeCloseTo(400 - (LBL.h + 2 * LABEL_PAD) / 2, 0); // середина слота у цели
+    expect(laneY(pts)).toBeLessThanOrEqual(400 - LBL.h - 2 * LABEL_PAD); // дорожка оставила стабу длину слота
+  });
+
+  it("веер хаба: у каждого ребёнка свой стаб-носитель, дорожки хаба над слотами, якоря у целей", () => {
+    const hub = R(600, 0);
+    const kids = ["k0", "k1", "k2"];
+    const rects = new Map<string, NodeRect>([["H", hub]]);
+    kids.forEach((id, i) => rects.set(id, R(i * 450, 400)));
+    const z = run(rects, kids.map((id) => g(`e-${id}`, "H", id)), {
+      labels: Object.fromEntries(kids.map((id) => [`e-${id}`, LBL])),
+    });
+    for (const id of kids) {
+      const a = z.labelAnchors.get(`e-${id}`);
+      expect(a, `якорь у ${id}`).toBeDefined();
+      expect(a!.y).toBeGreaterThan(400 - LBL.h - 2 * LABEL_PAD);
+      expect(a!.y).toBeLessThan(400);
+    }
+    // ни одна дорожка хаба не проходит через чужой слот: все дорожки выше слотов
+    for (const id of kids) expect(laneY(z.routes.get(`e-${id}`)!)).toBeLessThanOrEqual(400 - LBL.h - 2 * LABEL_PAD);
+  });
+
+  it("тесная сторона цели (порты ближе полуширины плашки): стаб у цели не годится, носитель — стаб у истока", () => {
+    // два истока над одной целью (все пары перекрываются по x — ось "v"); плашки шире,
+    // чем шаг под плашки может развести на стороне в 190 px (E86 v2 отступает к равному
+    // шагу 57 px < 340/2 + 4) — стаб у цели занят соседом; у истоков по одному порту,
+    // слот у истока свободен
+    const WIDE = { w: 340, h: 38 };
+    const rects = new Map([["A", R(0, 0)], ["B", R(200, 0)], ["T", R(100, 400)]]);
+    const z = run(rects, [g("a", "A", "T"), g("b", "B", "T")], { labels: { a: WIDE, b: WIDE } });
+    const pa = z.routes.get("a")!, aa = z.labelAnchors.get("a")!;
+    expect(aa).toBeDefined();
+    expect(aa.x).toBe(pa[0].x);                                 // на колонне стаба истока
+    expect(aa.y).toBeCloseTo(100 + (WIDE.h + 2 * LABEL_PAD) / 2, 0); // слот сразу под истоком
+  });
+
+  it("без подписи якоря нет", () => {
+    const rects = new Map([["A", R(0, 0)], ["B", R(100, 400)]]);
+    expect(run(rects, [g("e", "A", "B")]).labelAnchors.size).toBe(0);
   });
 });

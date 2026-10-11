@@ -52,7 +52,7 @@ import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { metaLabelBox } from "./labelBox";
-import { pathCrossesRects } from "../edgePath";
+import { pathCrossesRects, arcFractionAtPoint } from "../edgePath";
 import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
 
@@ -996,11 +996,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // она превращала прямые маршруты в необъяснимые объезды (жалоба: стрелка при свободном
   // прямом коридоре идёт полкой сверху/снизу) и дестабилизировала живое превью драга.
   // Маршрут — только у роутера; невлезающая подпись решается leader-выноской.
+  // Ф3: желаемая позиция плашки — якорь роутера (слот носителя подписи), доля дуги по
+  // ФИНАЛЬНОМУ маршруту (пост-стадии могли сдвинуть линию — проекция это переживает)
+  const anchorT = (g: EdgeGroup): number | undefined => {
+    const a = ar.labelAnchors.get(g.id);
+    const pts = autoRoutes?.get(g.id);
+    return a && pts ? arcFractionAtPoint(a, pts) : undefined;
+  };
   labelPlacements = buildLabelPlacements({
     routes: autoRoutes,
     groups: groupArr,
     labelMeta: edgeLabelMeta,
-    preferredT: () => undefined,
+    preferredT: anchorT,
     nodeRects,
   });
   mark("плашки подписей (проход 1)");
@@ -1097,7 +1104,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         routes: autoRoutes,
         groups: groupArr,
         labelMeta: edgeLabelMeta,
-        preferredT: () => undefined,
+        preferredT: anchorT,
         nodeRects,
         obstacleRects: others,
         repair: { only: victims, keepRectOf: rects },
@@ -1203,7 +1210,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           routes: autoRoutes,
           groups: groupArr,
           labelMeta: edgeLabelMeta,
-          preferredT: () => undefined,
+          preferredT: anchorT,
           nodeRects,
         });
         // ФИНАЛЬНАЯ ПОЧИНКА (Б3б). Гриди выше — ИСТОЧНИК ПРАВДЫ размещения, и он честно

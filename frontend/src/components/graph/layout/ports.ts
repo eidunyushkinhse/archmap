@@ -140,6 +140,37 @@ function pointOnSide(r: NodeRect, side: EdgeSide, along: number): EdgePoint {
   }
 }
 const half = (v: number): number => Math.round(v * 2) / 2;
+/** Запас между краем плашки на стабе и линией соседнего порта, px (= LABEL_PAD роутера Z). */
+export const LABEL_PORT_PAD = 4;
+
+/**
+ * Позиции k портов на отрезке [lo, hi] (R4, Ф3): равный шаг (hi − lo)/(k + 1), но зазор
+ * между соседями не меньше, чем нужно плашке подписи на стабе любого из них (полуширина
+ * плашки с запасом): так подпись, лежащая на личном стабе, не ложится на линию соседнего
+ * порта. Стопка с такими зазорами центрируется на отрезке. Если она в отрезок не влезает —
+ * равный шаг как есть: частичное раздвигание плашкам всё равно не помогает, а порты у
+ * самых краёв стороны упираются стабами в соседей.
+ */
+export const PORT_LABEL_SPACING = { on: true };
+export function labelAwareSpacing(thick: ReadonlyArray<number>, lo: number, hi: number): number[] {
+  const k = thick.length;
+  if (k === 0) return [];
+  const step = (hi - lo) / (k + 1);
+  const even = thick.map((_, i) => lo + step * (i + 1));
+  if (k === 1 || !PORT_LABEL_SPACING.on || thick.every((t) => t <= 0)) return even;
+  const gaps: number[] = [];
+  for (let i = 0; i + 1 < k; i++) gaps.push(Math.max(step, Math.max(thick[i], thick[i + 1]) / 2 + LABEL_PORT_PAD));
+  const total = gaps.reduce((a, g) => a + g, 0);
+  const room = hi - lo;
+  if (total > room + 1e-6) return even;
+  const out: number[] = [];
+  let pos = lo + (room - total) / 2;
+  for (let i = 0; i < k; i++) {
+    out.push(pos);
+    if (i + 1 < k) pos += gaps[i];
+  }
+  return out;
+}
 
 /**
  * Порты всех связей уровня: сторона по R2, порядок по R3, позиции по R4.
@@ -156,8 +187,14 @@ export function assignPorts(params: {
   prevSides?: ReadonlyMap<string, { s: EdgeSide; t: EdgeSide }>;
   axis?: FlowAxis;
   keys?: ReadonlyMap<string, { s?: number; t?: number }>;
+  /**
+   * Габарит плашки подписи связи (Ф3): порты стороны раздвигаются так, чтобы плашка на
+   * стабе личного порта не задевала линии соседних портов (ELK ставит порты туда, куда
+   * просят inline-подписи). Без подписей — равный шаг (R4).
+   */
+  labelBoxOf?: (groupId: string) => { w: number; h: number } | undefined;
 }): { ports: Map<string, PortPair>; axis: FlowAxis; shares: Map<string, { s?: string; t?: string }> } {
-  const { groups, rects, frameIds, prevSides, keys } = params;
+  const { groups, rects, frameIds, prevSides, keys, labelBoxOf } = params;
   const pairs: Array<{ a: NodeRect; b: NodeRect }> = [];
   for (const g of groups) {
     const a = rects.get(g.source), b = rects.get(g.target);
@@ -264,7 +301,7 @@ export function assignPorts(params: {
   }
 
   // Слоты сторон: концы одного общего плеча — один слот (ключ — среднее ключей членов).
-  interface Slot { far: number; tie: string; setters: Array<(p: EdgePoint) => void>; keys: Set<string> }
+  interface Slot { far: number; tie: string; setters: Array<(p: EdgePoint) => void>; keys: Set<string>; thick: number }
   const slotsBySide = new Map<string, Slot[]>();
   for (const [sideKey, rec] of bySide) {
     const slots: Slot[] = [];
@@ -272,13 +309,18 @@ export function assignPorts(params: {
     for (const e of rec.entries) {
       if (e.fixedAlong !== undefined) { e.set(pointOnSide(rec.rect, rec.side, e.fixedAlong)); continue; }
       if (e.share) {
+        // общий стаб плашку не несёт (подписи членов — на личных участках): толщина 0
         const sl = slotByShare.get(e.share);
         if (sl) { sl.far += e.far; sl.setters.push(e.set); sl.keys.add(e.key); if (e.tie < sl.tie) sl.tie = e.tie; continue; }
-        const fresh: Slot = { far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]) };
+        const fresh: Slot = { far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]), thick: 0 };
         slotByShare.set(e.share, fresh); slots.push(fresh);
         continue;
       }
-      slots.push({ far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]) });
+      // поперечный размер плашки на стабе этой стороны: у стороны top/bottom стаб
+      // вертикален — поперёк ширина плашки, у left/right — высота
+      const lab = labelBoxOf?.(e.key.slice(0, e.key.lastIndexOf(":")));
+      const thick = lab ? (isVerticalSide(rec.side) ? lab.w : lab.h) : 0;
+      slots.push({ far: e.far, tie: e.tie, setters: [e.set], keys: new Set([e.key]), thick });
     }
     for (const sl of slots) sl.far /= sl.setters.length;
     slotsBySide.set(sideKey, slots);
@@ -335,8 +377,7 @@ export function assignPorts(params: {
         along = slots.map((_, i) => lo + step * (i + 1));
       }
     } else {
-      const step = (hi - lo) / (k + 1);
-      along = slots.map((_, i) => lo + step * (i + 1));
+      along = labelAwareSpacing(slots.map((sl) => sl.thick), lo, hi);
     }
     slots.forEach((sl, i) => { const pt = pointOnSide(rect, side, half(along[i])); for (const set of sl.setters) set({ ...pt }); });
   }

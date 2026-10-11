@@ -136,6 +136,11 @@ export async function layoutLevel(
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
         "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
+        // Ф3: слой подписей ELK (inline-плашки) отстоит от соседних слоёв на зазор
+        // «ребро–узел», а не на межслойный шаг узлов — иначе каждая подпись раздвигала
+        // слои на два шага (как у эталона полигона)
+        "elk.layered.spacing.edgeNodeBetweenLayers": String(sp.edgeNodeGap),
+        "elk.layered.spacing.edgeEdgeBetweenLayers": String(sp.edgeEdgeGap),
         "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
         "elk.spacing.edgeLabel": "6",
         ...formOpts,

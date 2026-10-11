@@ -294,3 +294,26 @@ export function distToPolyline(p: EdgePoint, pts: ReadonlyArray<EdgePoint>): num
   }
   return best;
 }
+
+/**
+ * Доля длины ломаной (0..1), на которой лежит ближайшая к p точка ломаной (Ф3: якорь
+ * подписи роутера → желаемая доля для размещения плашки). Пустая/нулевая ломаная — 0.5.
+ */
+export function arcFractionAtPoint(p: EdgePoint, pts: ReadonlyArray<EdgePoint>): number {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  if (total <= 0) return 0.5;
+  let best = Infinity, bestArc = 0, arc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (len * len)));
+      const d = Math.hypot(a.x + t * dx - p.x, a.y + t * dy - p.y);
+      if (d < best) { best = d; bestArc = arc + t * len; }
+    }
+    arc += len;
+  }
+  return bestArc / total;
+}

@@ -40,8 +40,8 @@ import {
 } from "../graph/layout/routeQualityMetrics";
 import { cleanup } from "../graph/edgePath";
 import { NODE_W, NODE_H } from "../graph/constants";
-import { __zDebug } from "../graph/layout/zRoutes";
-import { PORT_SHARE } from "../graph/layout/ports";
+import { __zDebug, LABEL_HOSTS } from "../graph/layout/zRoutes";
+import { PORT_SHARE, PORT_LABEL_SPACING } from "../graph/layout/ports";
 import type { EdgePoint } from "../../types";
 
 const dir = process.env.ARCHMAP_ARROWS_POLYGON;
@@ -50,6 +50,10 @@ __zDebug.on = process.env.ARCHMAP_Z_DEBUG === "1";
 __zDebug.trace = process.env.ARCHMAP_Z_TRACE ?? "";
 // общие плеча включены по умолчанию (E95); ARCHMAP_SHARE=0 — сравнение со «своей дорожкой»
 PORT_SHARE.on = process.env.ARCHMAP_SHARE !== "0";
+// Ф3: носители подписей и шаг портов под плашки — ARCHMAP_LABELS=0 даёт поведение Ф2
+LABEL_HOSTS.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_HOSTS !== "0";
+PORT_LABEL_SPACING.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_PORTS !== "0";
+if (process.env.ARCHMAP_LABEL_COST !== undefined) LABEL_HOSTS.lostCost = Number(process.env.ARCHMAP_LABEL_COST);
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {

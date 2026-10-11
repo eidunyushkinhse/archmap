@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  orthogonalPointsForHandles, ensureOutwardStubs, segments, cleanup, pathCrossesRects, pointAtFraction, type NodeRect,
+  orthogonalPointsForHandles, ensureOutwardStubs, segments, cleanup, pathCrossesRects, pointAtFraction, type NodeRect, arcFractionAtPoint,
 } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
 
@@ -192,3 +192,18 @@ describe("pointAtFraction — точка по доле arc-length", () => {
   });
 });
 
+describe("arcFractionAtPoint — доля дуги ближайшей точки (Ф3: якорь подписи → preferredT)", () => {
+  const z = [P(0, 0), P(100, 0), P(100, 100), P(200, 100)]; // длина 300
+  it("точка на ломаной → её доля", () => {
+    expect(arcFractionAtPoint(P(100, 50), z)).toBeCloseTo(150 / 300, 6);
+    expect(arcFractionAtPoint(P(150, 100), z)).toBeCloseTo(250 / 300, 6);
+  });
+  it("точка в стороне → доля ближайшей точки ломаной; концы — 0 и 1", () => {
+    expect(arcFractionAtPoint(P(50, -40), z)).toBeCloseTo(50 / 300, 6);
+    expect(arcFractionAtPoint(P(-30, 0), z)).toBe(0);
+    expect(arcFractionAtPoint(P(260, 100), z)).toBe(1);
+  });
+  it("вырожденная ломаная → 0.5", () => {
+    expect(arcFractionAtPoint(P(0, 0), [P(5, 5)])).toBe(0.5);
+  });
+});

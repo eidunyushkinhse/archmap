@@ -1199,14 +1199,22 @@ describe("T4-мини-проход: только слой плашек (E40 v3)"
     expect(routesSig(layout)).toBe(routesSig(skipped.layout));
   });
 
-  it("дефолт: плашка всё равно уступает (слой Б3б жив) — размещение отличается от пропуска T4", async () => {
+  it("дефолт: слой Б3б исполняется; уступившие плашки (если есть) видны снаружи", async () => {
+    // С Ф3 эпика «стрелки без жёстких хэндлов» первый проход размещения САМ вычитает кресты
+    // чужих линий из кандидатов (E50 v2) и садит плашку на носитель роутера (E96): починке
+    // остаются только плашки, которым уступать некуда, — уступок может не быть вовсе.
+    // Слой жив (диагностика есть, конфликты посчитаны); если уступки были — при пропуске
+    // всего блока плашки стоят иначе.
     const { layout, diag } = await runWithDiag(computeViewLayout, denseInput());
-    expect(diag!.labelFirst.moved, "ни одна плашка не уступила — слой Б3б мёртв").toBeGreaterThan(0);
-    // Уступка видна снаружи: при пропуске всего блока плашки стоят иначе.
-    const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
-    const labels = (l: LayoutResult): string =>
-      JSON.stringify([...(l.labelPlacements ?? new Map())].sort((p, q) => p[0].localeCompare(q[0])));
-    expect(labels(layout)).not.toBe(labels(skipped.layout));
+    expect(diag, "T4-диагностика не пришла: мини-проход не исполнялся").not.toBeNull();
+    expect(diag!.labelFirst.conflicts).toBeGreaterThan(0);
+    expect(diag!.labelFirst.moved).toBeGreaterThanOrEqual(0);
+    if (diag!.labelFirst.moved > 0) {
+      const skipped = await computeViewLayout(denseInput({ routeBudget: FORCE_T4_ONLY }));
+      const labels = (l: LayoutResult): string =>
+        JSON.stringify([...(l.labelPlacements ?? new Map())].sort((p, q) => p[0].localeCompare(q[0])));
+      expect(labels(layout)).not.toBe(labels(skipped.layout));
+    }
   });
 
   it("T4_REROUTE=true — прежний путь жив: перепрокладка и финальная починка отрабатывают", async () => {

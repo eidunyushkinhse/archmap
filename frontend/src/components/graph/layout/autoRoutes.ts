@@ -194,6 +194,8 @@ export interface AutoRoutesResult {
   fixedIds: Set<string>;
   // Связи, проложенные A* в этом вызове (в т.ч. нероутируемые, чей prev не пересел).
   routedIds: Set<string>;
+  // Якоря подписей Z-маршрутов (Ф3): точка слота, зарезервированного роутером под плашку.
+  labelAnchors: Map<string, EdgePoint>;
 }
 
 export function buildAutoRoutes(params: {
@@ -315,7 +317,7 @@ export function buildAutoRoutes(params: {
   // связи, давно ставшей Z, и ломало порядок стороны; качелей «ключ есть / ключа нет»
   // больше нет — длинный Z отдаёт липкий ключ по своему порту (zRoutes, E85).
   let keys = new Map<string, { s?: number; t?: number }>();
-  let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides });
+  let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, labelBoxOf });
   let ports = pr.ports;
   let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
   const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
@@ -330,7 +332,7 @@ export function buildAutoRoutes(params: {
     const next = new Map(z.portKeys);
     if (sameKeys(next, keys)) break;
     keys = next;
-    pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys });
+    pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys, labelBoxOf });
     ports = pr.ports;
     z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf, labelBoxOf });
   }
@@ -447,7 +449,9 @@ export function buildAutoRoutes(params: {
       targetHandle: hid(g.target, pp.t.side, 1),
     });
   }
-  return { routes, handles, fixedIds, routedIds };
+  const labelAnchors = new Map<string, EdgePoint>();
+  for (const [id, pt] of z.labelAnchors) if (routes.has(id)) labelAnchors.set(id, pt);
+  return { routes, handles, fixedIds, routedIds, labelAnchors };
 }
 
 // ПЕРЕСАД prev-МАРШРУТА НА УЕХАВШИЕ ПОРТЫ (R9, E90). Равный шаг связывает все связи
