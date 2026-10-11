@@ -61,6 +61,9 @@ import {
   MERGE_GAIN, WELD_STRETCH, WELD_STRETCH_SLACK, WELD_K, WELD_ITER_CAP, WELD_EPS,
 } from "./weldTrunks";
 import { FRAME_CROSS_COST, LABEL_CROSS_COST, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
+import {
+  PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
+} from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
 import {
   NUDGE_GAP, NUDGE_GAP_LADDER, NUDGE_CLEAR, EPS as NUDGE_EPS,
@@ -87,7 +90,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 8;
+export const ROUTER_VERSION = 9;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -145,6 +148,14 @@ export function collectRouterConstants(): Record<string, unknown> {
     "weldTrunks.WELD_K": WELD_K,
     "weldTrunks.WELD_ITER_CAP": WELD_ITER_CAP,
     "weldTrunks.WELD_EPS": WELD_EPS,
+    // --- порт на связь (ports, Ф1 эпика «стрелки без жёстких хэндлов»): сторона,
+    // порядок и шаг точек стыковки — геометрия концов каждого маршрута ---
+    "ports.PORT_MARGIN": PORT_MARGIN,
+    "ports.FRAME_PORT_GAP": FRAME_PORT_GAP,
+    "ports.SIDE_HYSTERESIS": SIDE_HYSTERESIS,
+    "ports.AXIS_FLIP_SHARE": AXIS_FLIP_SHARE,
+    "ports.AXIS_OVERLAP_SHARE": AXIS_OVERLAP_SHARE,
+    "ports.AXIS_DECISIVE_RATIO": AXIS_DECISIVE_RATIO,
     // --- мост домена (autoRoutes) ---
     "autoRoutes.FRAME_CROSS_COST": FRAME_CROSS_COST,
     "autoRoutes.LABEL_CROSS_COST": LABEL_CROSS_COST,
@@ -250,6 +261,15 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v9 — Ф1 эпика «стрелки без жёстких хэндлов» (docs/plan-arrows-ports.md,
+  // 2026-10-10): ПОРТ НА СВЯЗЬ. Точку стыковки каждого конца выбирает ports.ts до
+  // A* (сторона по оси потока, порядок по дальнему концу, равный шаг с полями у узла,
+  // проекция с зазором у рамки); 12 слотов, рельсы встречных пар, раздача слотов и
+  // выбор стороны A*-поиском сняты. Реестр вырос на шесть констант портов, И ГЕОМЕТРИЯ
+  // ИЗМЕНИЛАСЬ ПОВСЕМЕСТНО (концы всех маршрутов — другие точки; golden фазз-полигона
+  // перегенерирован целиком). Записи кэша v8 несут слотовую геометрию — их инвалидация
+  // и есть смысл бампа.
+  9: "99c0ead93bc469e1",
   // v1 — состояние на конец Ф1 эпика router-opt (правки А1/А3а/А4/А2.1 были
   // байт-в-байт и ни одной константы не тронули).
   1: "046fda3d91037385",

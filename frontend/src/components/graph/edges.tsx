@@ -97,29 +97,17 @@ export function projectLabelOntoRoute(lp: LabelPlacement, route: EdgePoint[]): L
   };
 }
 
-// «ШОВ V2.2b»: концы маршрута переснимаются с ЖИВЫХ хэндлов (s/t), концевые сегменты
-// выпрямляются по ОСИ ХЭНДЛА (внешней нормали стороны), крайний излом наследует
-// перпендикулярную координату живого конца. Мьютирует и возвращает raw (свежая копия).
-//
-// Фикс петель при драге (2026-07-22): ось выпрямления берётся из СТОРОНЫ ХЭНДЛА, а НЕ из
-// ориентации интерполированного сегмента. При драге интерполяция может поставить первый
-// сегмент «боком» к хэндлу (напр. вертикальным при правом хэндле); выпрямление по его же
-// ориентации направило бы сегмент ВНУТРЬ/вдоль края узла, и ensureOutwardStubs вставил бы
-// крюк-петлю, чтобы вывести наружу (жалоба: петли на изломах перед диагональными плечами).
-// Выпрямление по оси хэндла гарантирует чистый выход наружу → ensureOutwardStubs no-op,
-// петли нет. В покое роутер и так кладёт концевой сегмент по оси хэндла — поведение то же.
-export function seamRoute(
-  raw: EdgePoint[], s: EdgePoint, t: EdgePoint, sSide: EdgeSide, tSide: EdgeSide,
-): EdgePoint[] {
-  if (raw.length >= 3) {
-    const headHoriz = sSide === "left" || sSide === "right";
-    const tailHoriz = tSide === "left" || tSide === "right";
-    if (headHoriz) raw[1].y = s.y; else raw[1].x = s.x;
-    if (tailHoriz) raw[raw.length - 2].y = t.y; else raw[raw.length - 2].x = t.x;
-  }
-  raw[0] = s;
-  raw[raw.length - 1] = t;
-  return raw;
+// Сторона узла по направлению КОНЦЕВОГО сегмента маршрута: концы маршрута — порты
+// роутера (layout/ports.ts), стаб выходит из порта по внешней нормали стороны. Вырожденный
+// концевой сегмент (интерполяция драга схлопнула стаб) — сторона хэндла React Flow.
+export function sideFromStub(pts: EdgePoint[], atStart: boolean, fallback: Position): EdgeSide {
+  const a = atStart ? pts[0] : pts[pts.length - 1];
+  const b = atStart ? pts[1] : pts[pts.length - 2];
+  if (!a || !b) return sideOf(fallback);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return sideOf(fallback);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "bottom" : "top";
 }
 
 function WrappedLabelEdge({
@@ -202,18 +190,17 @@ function WrappedLabelEdge({
     labelY = nY;
   } else {
     // Обычное level-ребро: авто-маршрут роутера, иначе smoothstep.
-    const s: EdgePoint = { x: sourceX, y: sourceY };
-    const t: EdgePoint = { x: targetX, y: targetY };
     if (d?.autoRoute && d.autoRoute.length >= 2) {
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
-      // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
-      // интерьерные изломы берём из снимка. ШОВ (V2.2b, seamRoute): концевые сегменты
-      // выпрямляются по оси живого хэндла — без этого микро-сдвиг хэндла лечился стаб-патчем
-      // и давал шпильку 1-2px у узла, а при драге — петли (см. seamRoute).
-      const sSide = sideOf(sourcePosition);
-      const tSide = sideOf(targetPosition);
-      const raw = seamRoute(d.autoRoute.map((p) => ({ x: p.x, y: p.y })), s, t, sSide, tSide);
+      // КОНЦЫ — ПОРТЫ РОУТЕРА (Ф1 эпика «стрелки без жёстких хэндлов»): линия рисуется
+      // ровно от точки, которую выбрал роутер (своя у каждой связи, layout/ports.ts);
+      // координаты живых хэндлов React Flow для концов больше не используются — прежний
+      // «шов V2.2b» (пересъём концов с хэндлов, E81) снят вместе с 12 слотами. При драге
+      // концы едут с узлом интерполяцией снимка (useLiveDragHandles), а не хэндлом.
+      const raw = d.autoRoute.map((p) => ({ x: p.x, y: p.y }));
+      const sSide = sideFromStub(raw, true, sourcePosition);
+      const tSide = sideFromStub(raw, false, targetPosition);
       // страховка направления выхода: minAlong=2, НЕ полный стаб — авто-маршрут кладёт
       // стабы по построению и легально укорачивает их в тесноте (clampStub); пере-стаб
       // полной длиной ломал разведённые плечи (см. комментарий у ensureOutwardStubs)

@@ -175,6 +175,8 @@ async function elkLayout(base: Scene, dirn: Dir): Promise<{
       "elk.layered.spacing.edgeNodeBetweenLayers": String(sp.edgeNodeGap),
       "elk.layered.spacing.edgeEdgeBetweenLayers": String(sp.edgeEdgeGap),
       "elk.spacing.edgeLabel": "6",
+      // поле портов от углов — как PORT_MARGIN у нас и portsSurrounding=12 у Mermaid
+      "elk.spacing.portsSurrounding": "[top=10,left=10,bottom=10,right=10]",
       "elk.padding": "[top=30,left=30,bottom=30,right=30]",
     },
     children: top,
