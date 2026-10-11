@@ -102,6 +102,7 @@ interface SideEntry {
   far: number;            // координата дальнего конца вдоль стороны (порядок R3)
   tie: string;            // тай-брейк
   share?: string;         // id общего плеча: концы с одним id делят одну точку стороны
+  fixedAlong?: number;    // сближенная пара: порт стоит здесь, вне равного шага
   set: (p: EdgePoint) => void;
 }
 
@@ -114,6 +115,16 @@ interface SideEntry {
  * — отправление. Флаг включает полигон; в проде пока выключено.
  */
 export const PORT_SHARE = { on: false };
+
+/**
+ * СБЛИЖЕННАЯ ПАРА: зазор между стыкуемыми сторонами меньше этого — Z не помещается
+ * (две полосы клиренса и дорожка), и порты обеих сторон выравниваются в общую колонну
+ * внутри пересечения сторон: связь — прямая. Иначе A* рисует микрозигзаг на дюжине px.
+ * = 2·Z_CLEAR + NUDGE_GAP.
+ */
+export const CLOSE_PAIR_GAP = 38;
+/** Минимальное пересечение сторон вдоль, при котором есть куда поставить общую колонну. */
+const CLOSE_PAIR_OVERLAP = 2 * PORT_MARGIN;
 
 // координата вдоль стороны и её диапазон
 function sideSpan(r: NodeRect, side: EdgeSide): { start: number; len: number } {
@@ -187,6 +198,20 @@ export function assignPorts(params: {
   // режется любой связью, выходящей из того же борта между её ветвями), связь — в
   // бо́льшую корзину (не меньше двух), при равенстве — отправление; корзины, где после
   // выбора остался один, распускаются.
+  // СБЛИЖЕННЫЕ ПАРЫ: общая колонна портов — середина пересечения сторон (в пределах полей)
+  const closeAlong = new Map<string, number>();
+  for (const it of items) {
+    if (it.g.source === it.g.target) continue;
+    const vertical = isVerticalSide(it.sides.s);
+    if (vertical !== isVerticalSide(it.sides.t)) continue;
+    const gap = vertical ? gapV(it.a, it.b) : gapH(it.a, it.b);
+    if (gap < 0 || gap >= CLOSE_PAIR_GAP) continue;
+    const sa = sideSpan(it.a, it.sides.s), sb = sideSpan(it.b, it.sides.t);
+    const lo = Math.max(sa.start + PORT_MARGIN, sb.start + PORT_MARGIN);
+    const hi = Math.min(sa.start + sa.len - PORT_MARGIN, sb.start + sb.len - PORT_MARGIN);
+    if (hi - lo < CLOSE_PAIR_OVERLAP - 2 * PORT_MARGIN) continue;
+    closeAlong.set(it.g.id, half((lo + hi) / 2));
+  }
   const shares = new Map<string, { s?: string; t?: string }>();
   if (PORT_SHARE.on) {
     const bucket = new Map<string, number>();
@@ -197,7 +222,8 @@ export function assignPorts(params: {
     const keyS = (it: typeof items[number]): string => `${it.g.source}|${it.sides.s}|out|${wing(it.sides.s, it.a, it.b)}`;
     const keyT = (it: typeof items[number]): string => `${it.g.target}|${it.sides.t}|in|${wing(it.sides.t, it.b, it.a)}`;
     const eligible = (it: typeof items[number]): boolean =>
-      it.g.source !== it.g.target && !(frameIds?.has(it.g.source) ?? false) && !(frameIds?.has(it.g.target) ?? false);
+      it.g.source !== it.g.target && !closeAlong.has(it.g.id) &&
+      !(frameIds?.has(it.g.source) ?? false) && !(frameIds?.has(it.g.target) ?? false);
     for (const it of items) {
       if (!eligible(it)) continue;
       bucket.set(keyS(it), (bucket.get(keyS(it)) ?? 0) + 1);
@@ -231,8 +257,9 @@ export function assignPorts(params: {
     const alongOf = (side: EdgeSide, p: EdgePoint): number => (isVerticalSide(side) ? p.x : p.y);
     const k = keys?.get(g.id);
     const sh = shares.get(g.id);
-    push(g.source, a, sides.s, { key: `${g.id}:s`, far: k?.s ?? alongOf(sides.s, cb), tie: `${g.id}:s`, share: sh?.s, set: (p) => { pair.s.point = p; } });
-    push(g.target, b, sides.t, { key: `${g.id}:t`, far: k?.t ?? alongOf(sides.t, ca), tie: `${g.id}:t`, share: sh?.t, set: (p) => { pair.t.point = p; } });
+    const fixedAlong = closeAlong.get(g.id);
+    push(g.source, a, sides.s, { key: `${g.id}:s`, far: k?.s ?? alongOf(sides.s, cb), tie: `${g.id}:s`, share: sh?.s, fixedAlong, set: (p) => { pair.s.point = p; } });
+    push(g.target, b, sides.t, { key: `${g.id}:t`, far: k?.t ?? alongOf(sides.t, ca), tie: `${g.id}:t`, share: sh?.t, fixedAlong, set: (p) => { pair.t.point = p; } });
   }
 
   // Слоты сторон: концы одного общего плеча — один слот (ключ — среднее ключей членов).
@@ -242,6 +269,7 @@ export function assignPorts(params: {
     const slots: Slot[] = [];
     const slotByShare = new Map<string, Slot>();
     for (const e of rec.entries) {
+      if (e.fixedAlong !== undefined) { e.set(pointOnSide(rec.rect, rec.side, e.fixedAlong)); continue; }
       if (e.share) {
         const sl = slotByShare.get(e.share);
         if (sl) { sl.far += e.far; sl.setters.push(e.set); sl.keys.add(e.key); if (e.tie < sl.tie) sl.tie = e.tie; continue; }

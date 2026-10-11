@@ -302,8 +302,9 @@ export function buildAutoRoutes(params: {
   // не нужен (результат тот же).
   const hardOf = (gid: string): NodeRect[] => {
     const g = groupById.get(gid);
-    return g ? [...foreignRectsOf(g), ...foreignLabelRectsOf(gid)] : [];
+    return g ? foreignRectsOf(g) : [];
   };
+  const softOf = (gid: string): NodeRect[] => foreignLabelRectsOf(gid);
   // Итерация до согласия ключей и портов (не больше трёх кругов): ключи считаются по
   // маршрутам ТЕКУЩИХ портов, а порты следующего круга могут изменить выбор варианта.
   // Ключи круга ЗАМЕНЯЮТ прежние: конец без ключа сортируется по умолчанию (центр
@@ -313,7 +314,7 @@ export function buildAutoRoutes(params: {
   let keys = new Map<string, { s?: number; t?: number }>();
   let pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides });
   let ports = pr.ports;
-  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
+  let z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf });
   const sameKeys = (a: ReadonlyMap<string, { s?: number; t?: number }>, b: ReadonlyMap<string, { s?: number; t?: number }>): boolean => {
     if (a.size !== b.size) return false;
     for (const [id, k] of a) {
@@ -328,7 +329,7 @@ export function buildAutoRoutes(params: {
     keys = next;
     pr = assignPorts({ groups, rects: dockRects, frameIds, prevSides, keys });
     ports = pr.ports;
-    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf });
+    z = zRoutes({ groups, ports, shares: pr.shares, obstacles: obstacleBodies, rectOf: (id) => dockRects.get(id), hardOf, softOf });
   }
   const routes = new Map<string, EdgePoint[]>();
   const fixedIds = new Set<string>();

@@ -198,8 +198,18 @@ describe("zRoutes — чистота и отказ", () => {
     for (let i = 1; i < six.length; i++) expect(six[i] - six[i - 1]).toBeGreaterThanOrEqual(LANE_GAP_MIN - 0.5);
   });
 
-  it("узлы вплотную по оси потока: Z невозможен", () => {
+  it("узлы вплотную по оси потока: порты выровнены в общую колонну, связь — прямая", () => {
+    // зазор 10 px < CLOSE_PAIR_GAP: ports.ts ставит оба порта в середину пересечения сторон
     const rects = new Map([["A", R(0, 0)], ["B", R(40, 110)]]);
+    const { routes } = run(rects, [g("e", "A", "B")]);
+    const e = routes.get("e")!;
+    expect(e).toHaveLength(2);
+    expect(e[0].x).toBe(e[1].x);
+    expect(e[0].x).toBeGreaterThanOrEqual(50);
+    expect(e[0].x).toBeLessThanOrEqual(180);
+  });
+  it("узлы вплотную без пересечения сторон: ни Z, ни прямой", () => {
+    const rects = new Map([["A", R(0, 0)], ["B", R(260, 110)]]);
     const { routes } = run(rects, [g("e", "A", "B")]);
     expect(routes.has("e")).toBe(false);
   });

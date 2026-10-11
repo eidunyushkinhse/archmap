@@ -243,6 +243,7 @@ function laneIntervals(
 function freeColumns(
   o: Orient, uAcross: number, dAcross: number,
   obstacles: ReadonlyArray<NodeRect>, exclude: ReadonlyArray<NodeRect>, hard: ReadonlyArray<NodeRect>,
+  soft: ReadonlyArray<NodeRect> = [],
 ): Array<[number, number]> {
   const busy: Array<[number, number]> = [];
   const add = (r: NodeRect, pad: number): void => {
@@ -252,7 +253,10 @@ function freeColumns(
     busy.push([a0 - pad, a1 + pad]);
   };
   for (const r of obstacles) if (!exclude.some((e) => sameRect(e, r))) add(r, Z_CLEAR);
-  for (const r of hard) add(r, 0);
+  // граница чужой рамки — не тело, но колонна вплотную к пунктиру читается как её часть;
+  // чужие плашки просветы не раздувают (раздутые, они съедали просветы у узлов целиком)
+  for (const r of hard) add(r, Z_CLEAR);
+  for (const r of soft) add(r, 0);
   busy.sort((p, q) => p[0] - q[0]);
   const out: Array<[number, number]> = [];
   let cur = -Infinity;
@@ -438,17 +442,18 @@ function distribute(
   if (K > 1 && cLo <= cHi && (K - 1) * gap > cHi - cLo) gap = Math.max(LANE_GAP_MIN, (cHi - cLo) / (K - 1));
   // середина стопки: пересечение полос; при пустом или бесконечном пересечении — среднее
   // «естественных» мест (середина своей полосы, у колонны — стартовая колонна)
+  const natural = M.map((s) => {
+    if (s.idx === 2) return s.edge.cand?.x ?? s.lane;
+    return Number.isFinite(s.bandLo) && Number.isFinite(s.bandHi) ? (s.bandLo + s.bandHi) / 2 : s.lane;
+  });
   let center: number;
   if (Number.isFinite(cLo) && Number.isFinite(cHi) && cLo <= cHi) center = (cLo + cHi) / 2;
-  else {
-    const natural = M.map((s) => {
-      if (s.idx === 2) return s.edge.cand?.x ?? s.lane;
-      return Number.isFinite(s.bandLo) && Number.isFinite(s.bandHi) ? (s.bandLo + s.bandHi) / 2 : s.lane;
-    });
-    center = natural.reduce((acc, v) => acc + v, 0) / m;
-  }
+  else center = natural.reduce((acc, v) => acc + v, 0) / m;
   const lo = M.map((s) => s.bandLo), hi = M.map((s) => s.bandHi);
-  const desired = M.map((_, i) => clamp(center + (slots[i] - (K - 1) / 2) * gap, lo[i], hi[i]));
+  // желаемая позиция: дорожки — стопка равным шагом вокруг середины канала; колонна ZZ —
+  // её стартовая колонна (колонны одного компонента раскиданы по сцене, стопочный сдвиг
+  // по номеру уносил колонну за стаб соседа и заставлял петлю обходить лишнюю связь)
+  const desired = M.map((s, i) => clamp(s.idx === 2 ? natural[i] : center + (slots[i] - (K - 1) / 2) * gap, lo[i], hi[i]));
   M.forEach((s, i) => {
     for (const f of fixed) {
       if (f.edge === s.edge || runOverlap(f, s) <= EPS) continue;
@@ -527,9 +532,12 @@ export function zRoutes(params: {
   shares?: ReadonlyMap<string, { s?: string; t?: string }>;
   obstacles: ReadonlyArray<NodeRect>;
   rectOf: (id: string) => NodeRect | undefined;
+  /** границы ЧУЖИХ рамок связи: сквозь них Z не ходит, колонна ZZ держит от них клиренс */
   hardOf?: (groupId: string) => ReadonlyArray<NodeRect>;
+  /** чужие плашки подписей: сквозь них Z не ходит, но просветы они не раздувают */
+  softOf?: (groupId: string) => ReadonlyArray<NodeRect>;
 }): ZRoutesResult {
-  const { groups, ports, shares, obstacles, rectOf, hardOf } = params;
+  const { groups, ports, shares, obstacles, rectOf, hardOf, softOf } = params;
   const routes = new Map<string, EdgePoint[]>();
   const portKeys = new Map<string, { s?: number; t?: number }>();
   const hintXs = new Set<number>(), hintYs = new Set<number>();
@@ -547,10 +555,21 @@ export function zRoutes(params: {
     const D = sIsU ? pp.t.point : pp.s.point;
     const uAlong = alongOf(o, U), dAlong = alongOf(o, D);
     const uAcross = acrossOf(o, U), dAcross = acrossOf(o, D);
-    if (dAcross - uAcross < 2 * Z_CLEAR - EPS) continue; // узлы вплотную/перекрыты — не Z
     const exclude = [rectOf(g.source), rectOf(g.target)].filter((r): r is NodeRect => !!r);
-    const hard = hardOf?.(g.id) ?? [];
+    const frames = hardOf?.(g.id) ?? [];
+    const hard = [...frames, ...(softOf?.(g.id) ?? [])];
     const bodies = obstacles.filter((r) => !exclude.some((e) => sameRect(e, r)));
+    // ПРЯМАЯ: порты в одной колонне — дорожка не нужна, достаточно чистого отрезка (и
+    // клиренс Z ей не нужен: сближенная пара с выровненными портами — именно этот случай)
+    if (Math.abs(uAlong - dAlong) <= EPS && dAcross - uAcross > EPS) {
+      const straight = [{ ...pp.s.point }, { ...pp.t.point }];
+      if (!pathCrossesRects(straight, [...bodies, ...hard])) {
+        routes.set(g.id, straight);
+        straights.push({ orient: o, along: uAlong, lo: uAcross, hi: dAcross });
+      }
+      continue;
+    }
+    if (dAcross - uAcross < 2 * Z_CLEAR - EPS) continue; // узлы вплотную/перекрыты — не Z
     const edge: ZEdge = {
       id: g.id, orient: o, sIsU, kind: "z", uAlong, dAlong, uAcross, dAcross,
       x: NaN, colLo: NaN, colHi: NaN, lanes: [], slots: [], adjU: true, adjD: true,
@@ -559,15 +578,6 @@ export function zRoutes(params: {
       shareU: sIsU ? shares?.get(g.id)?.s : shares?.get(g.id)?.t,
       shareD: sIsU ? shares?.get(g.id)?.t : shares?.get(g.id)?.s,
     };
-    // ПРЯМАЯ: порты в одной колонне — дорожка не нужна, достаточно чистого отрезка
-    if (Math.abs(uAlong - dAlong) <= EPS) {
-      const straight = [{ ...pp.s.point }, { ...pp.t.point }];
-      if (!pathCrossesRects(straight, [...bodies, ...hard])) {
-        routes.set(g.id, straight);
-        straights.push({ orient: o, along: uAlong, lo: uAcross, hi: dAcross });
-      }
-      continue;
-    }
     const cands: Cand[] = [];
     // СОСЕДСТВО дорожки с концом: между границей конца и дорожкой на её пробеге нет ряда
     // тел (иначе дорожка лежит за рядом узлов — «длинная» вертикаль сквозь соседний
@@ -611,8 +621,10 @@ export function zRoutes(params: {
     // середина между портами, зажатая в ближайший кусок полосы.
     const mid = (uAlong + dAlong) / 2;
     const holes: Array<[number, number]> = [[uAlong - Z_CLEAR, uAlong + Z_CLEAR], [dAlong - Z_CLEAR, dAlong + Z_CLEAR]];
-    freeColumns(o, uAcross, dAcross, obstacles, exclude, hard).forEach(([a, b], k) => {
-      const lo = a + Z_CLEAR, hi = b - Z_CLEAR;
+    // просветы уже с клиренсом от тел (freeColumns) — второй отступ отнимал у коридора
+    // между двумя телами 24 px и сжимал шаг строк до минимума
+    freeColumns(o, uAcross, dAcross, obstacles, exclude, frames, softOf?.(g.id) ?? []).forEach(([a, b], k) => {
+      const lo = a, hi = b;
       if (lo > hi + EPS) return;
       const pieces = subtractHoles([lo, hi], holes);
       if (pieces.length === 0) return;
@@ -622,11 +634,15 @@ export function zRoutes(params: {
         const d = pref < pc[0] ? pc[0] - pref : pref > pc[1] ? pref - pc[1] : 0;
         if (d < bestDist) { bestDist = d; piece = pc; }
       }
-      const x = half(clamp(pref, piece[0], piece[1]));
-      if (!Number.isFinite(x)) return;
+      // округление до полпикселя не должно вытолкнуть колонну за край просвета (дробные
+      // позиции ELK): край — это раздутое тело, и интервалы дорожек там пусты
+      let x = half(clamp(pref, piece[0], piece[1]));
+      if (x < piece[0]) x += 0.5;
+      if (x > piece[1]) x -= 0.5;
+      if (!Number.isFinite(x) || x < piece[0] || x > piece[1]) return;
       const i1 = laneIntervals(o, uAlong, x, uAcross, dAcross, obstacles, exclude, hard);
       const i2 = laneIntervals(o, x, dAlong, uAcross, dAcross, obstacles, exclude, hard);
-      if (i1.length === 0 || i2.length === 0) return;
+      if (i1.length === 0 || i2.length === 0) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, `i1=${i1.length}`, `i2=${i2.length}`); return; }
       // Дорожки ZZ лежат в РАЗНЫХ каналах: между ними ряд тел, который колонна обходит
       // (общий канал — дело Z). Когда колонна порта свободна, интервал одной дорожки
       // тянется через несколько каналов и накрывает интервал другой — тогда он режется
@@ -636,9 +652,9 @@ export function zRoutes(params: {
       if (b1[1] > b2[0] - LANE_GAP_MIN) {
         const p1 = subtractHoles(b1, bodyRows(Math.min(x, dAlong), Math.max(x, dAlong)));
         const p2 = subtractHoles(b2, bodyRows(Math.min(uAlong, x), Math.max(uAlong, x)));
-        if (p1.length === 0 || p2.length === 0) return;
+        if (p1.length === 0 || p2.length === 0) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "split empty"); return; }
         b1 = p1[0]; b2 = p2[p2.length - 1];
-        if (b1[1] > b2[0] - LANE_GAP_MIN) return;
+        if (b1[1] > b2[0] - LANE_GAP_MIN) { zlog(g.id.slice(0, 8), "zz-skip", `x=${x}`, "same channel after split"); return; }
       }
       const [b1Lo, b1Hi] = b1, [b2Lo, b2Hi] = b2;
       cands.push({
@@ -689,6 +705,7 @@ export function zRoutes(params: {
     }
     edge.cands = cands;
     edges.push(edge);
+    if (__zDebug.on) zlog(g.id.slice(0, 8), "free", freeColumns(o, uAcross, dAcross, obstacles, exclude, frames, softOf?.(g.id) ?? []).map(([a, b]) => `${a.toFixed(0)}..${b.toFixed(0)}`).join(" "), "hard", hard.map((r) => `[${r.x.toFixed(0)},${r.y.toFixed(0)} ${r.w.toFixed(0)}x${r.h.toFixed(0)}]`).join(""));
     zlog(g.id.slice(0, 8), "cands", cands.map((c) => `${c.kind}${c.bands.map((b) => `[${b[0].toFixed(0)}..${b[1].toFixed(0)}]`).join("")}${c.kind === "zz" ? `x${c.x}(${c.colLo.toFixed(0)}..${c.colHi.toFixed(0)})` : ""}`).join(" "));
   }
 

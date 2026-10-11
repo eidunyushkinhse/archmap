@@ -60,6 +60,7 @@ import {
 import { FRAME_CROSS_COST, LABEL_CROSS_COST, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
 import {
   PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
+  CLOSE_PAIR_GAP,
 } from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
 import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY } from "./zRoutes";
@@ -88,7 +89,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 13;
+export const ROUTER_VERSION = 14;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -146,6 +147,7 @@ export function collectRouterConstants(): Record<string, unknown> {
     "ports.AXIS_FLIP_SHARE": AXIS_FLIP_SHARE,
     "ports.AXIS_OVERLAP_SHARE": AXIS_OVERLAP_SHARE,
     "ports.AXIS_DECISIVE_RATIO": AXIS_DECISIVE_RATIO,
+    "ports.CLOSE_PAIR_GAP": CLOSE_PAIR_GAP,
     // --- своя дорожка (zRoutes, Ф2 эпика «стрелки без жёстких хэндлов»): клиренс
     // дорожек, дно сжатия шага, конфликт слитых стабов — геометрия Z-маршрутов ---
     "zRoutes.Z_CLEAR": Z_CLEAR,
@@ -256,6 +258,13 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v14 — Ф2, заход 4 (2026-10-11), по находкам пользователя на картинках: СБЛИЖЕННЫЕ
+  // ПАРЫ (зазор < CLOSE_PAIR_GAP) — порты в общей колонне, связь прямая без клиренса
+  // (реестр +1 константа); просветы для колонн ZZ без двойного клиренса (коридор между
+  // двумя телами снова вмещает две строки с шагом 14), рамки раздуваются, плашки нет;
+  // колонна снэпится внутрь просвета после округления; желаемая позиция колонны — её
+  // стартовая колонна, а не стопочный сдвиг. Геометрия изменилась (golden перегенерирован).
+  14: "9ea62e2d50d54279",
   // v13 — Ф2, заход 4 (2026-10-11): ОТСЕВ НЕВЫПОЛНИМЫХ ЦЕПОЧЕК в раздаче дорожек —
   // порядок номеров, связавший через дорожку с широкой полосой дорожки разных каналов,
   // больше не качает прогоны (слипание дорожек канала на одной линии). Прототип ОБЩИХ
