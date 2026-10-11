@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { buildAutoRoutes, reseatRoute } from "../graph/layout/autoRoutes";
+import { PORT_SHARE } from "../graph/layout/ports";
 import { NUDGE_GAP } from "../graph/layout/channelNudge";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import { NODE_W, NODE_H, hid } from "../graph/constants";
@@ -172,6 +173,9 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
 });
 
 describe("buildAutoRoutes — порт на связь (Ф1 эпика «стрелки без жёстких хэндлов»)", () => {
+  // механика «порт на связь» без общих плеч (E95 выключен на время describe)
+  beforeEach(() => { PORT_SHARE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; });
   // веер трёх исходящих из H вправо + одно входящее в H справа: у каждой связи своя точка
   const positions = new Map([
     ["H", { x: 0, y: 300 }],
@@ -404,6 +408,9 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
 });
 
 describe("buildAutoRoutes — своя дорожка (Ф2, R5) и пересад портов (R9)", () => {
+  // дорожки «порт на связь» в чистом виде: общие плеча (E95) выключены на время describe
+  beforeEach(() => { PORT_SHARE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; });
   it("веер хаба: Z-маршруты с дорожками канала, зафиксированы для пост-стадий", () => {
     const positions = new Map([
       ["H", { x: 1000, y: 0 }], ["A", { x: 0, y: 300 }], ["B", { x: 500, y: 300 }], ["C", { x: 1000, y: 300 }],
@@ -462,5 +469,24 @@ describe("buildAutoRoutes — своя дорожка (Ф2, R5) и переса�
     expect(reseatRoute(route, pp(300), bodies)).toBeNull();              // второй сегмент вырождается
     expect(reseatRoute(route, pp(350), bodies)).toBeNull();              // второй сегмент переламывается
     expect(reseatRoute([{ x: 95, y: 100 }, { x: 95, y: 400 }], pp(120), bodies)).toBeNull(); // прямая
+  });
+});
+
+describe("buildAutoRoutes — общие плеча (E95)", () => {
+  it("веер хаба: связи одного крыла делят порт и дорожку, связь другого крыла — своя; все Z заморожены", () => {
+    const positions = new Map([
+      ["H", { x: 1000, y: 0 }], ["A", { x: 0, y: 300 }], ["B", { x: 500, y: 300 }], ["C", { x: 1000, y: 300 }],
+    ]);
+    const groups = [group("a", "H", "A"), group("b", "H", "B"), group("c", "H", "C")];
+    const out = buildAutoRoutes({ groups, routableIds: new Set(["a", "b", "c"]), positions, displayIds: [...positions.keys()] });
+    expect(out.routedIds.size).toBe(0);
+    expect([...out.fixedIds].sort()).toEqual(["a", "b", "c"]);
+    const a = out.routes.get("a")!, b = out.routes.get("b")!, c = out.routes.get("c")!;
+    expect(a[0]).toEqual(b[0]);          // общий порт левого крыла
+    expect(a[1].y).toBe(b[1].y);         // общая дорожка (ствол)
+    expect(c[0]).not.toEqual(a[0]);      // правое крыло — свой порт
+    expect(a[2].x).not.toBe(b[2].x);     // ветви свои
+    // хэндлы по-прежнему — сторона, не порт
+    expect(out.handles.get("a")!.sourceHandle).toBe(out.handles.get("b")!.sourceHandle);
   });
 });

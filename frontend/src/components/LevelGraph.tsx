@@ -22,6 +22,10 @@ import "./LevelGraph.css";
 import { UndoIcon, RedoIcon, RelayoutIcon, EdgeLabelsIcon } from "../ui/icons";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
+import { distToPolyline } from "./graph/edgePath";
+
+/** Допуск попадания двойного клика в линию соседней связи (общее плечо, E95), px холста. */
+const SHARED_HIT_TOL = 4;
 import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
 import type {
@@ -1077,16 +1081,25 @@ function LevelGraphInner({
     []
   );
   // По связи: тот же путь, что у плашки (openEdgeMembers → одна связь сразу в панель,
-  // несколько членов пучка — выбор участника, см. MapEditorPage). У каждой связи своя
-  // линия (E25 v3), поэтому клик по линии адресует ровно один пучок; клик по плашке
+  // несколько членов — выбор участника, см. MapEditorPage). ОБЩЕЕ ПЛЕЧО (E95): клик по
+  // стволу неоднозначен — адресуются ВСЕ связи, чьи линии проходят через точку клика (не
+  // только верхняя в DOM); на личном участке линии это ровно один пучок. Клик по плашке
   // сюда не попадает — она адресует свою связь однозначно (E57).
   const handleEdgeDoubleClick = useCallback(
-    (_e: MouseEvent, rfEdge: RFEdge) => {
+    (e: MouseEvent, rfEdge: RFEdge) => {
       if (!canInspectEdges) return;
-      const memberIds = (rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
-      cbRef.current.openEdgeMembers(memberIds);
+      const members = new Set<string>((rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? []);
+      const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      for (const other of getEdges()) {
+        if (other.id === rfEdge.id) continue;
+        const d = other.data as WrappedEdgeData | undefined;
+        const route = d?.autoRoute;
+        if (!route || route.length < 2 || distToPolyline(p, route) > SHARED_HIT_TOL) continue;
+        for (const id of d?.memberIds ?? []) members.add(id);
+      }
+      cbRef.current.openEdgeMembers([...members]);
     },
-    [canInspectEdges]
+    [canInspectEdges, screenToFlowPosition, getEdges]
   );
 
   // «Показать на схеме» (locate): центрирование холста на цели + короткая подсветка.
@@ -1578,6 +1591,7 @@ function LevelGraphInner({
 
 // useReactFlow (screenToFlowPosition для дропа шаблонов) требует контекст
 // ReactFlowProvider выше самого <ReactFlow>, поэтому оборачиваем им внутренний компонент.
+
 export default function LevelGraph(props: LevelGraphProps) {
   return (
     <ReactFlowProvider>

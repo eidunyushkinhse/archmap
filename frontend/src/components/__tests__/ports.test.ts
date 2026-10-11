@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { assignPorts, flowAxisOf, sidesFor, PORT_MARGIN, FRAME_PORT_GAP } from "../graph/layout/ports";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { assignPorts, flowAxisOf, sidesFor, PORT_MARGIN, FRAME_PORT_GAP, PORT_SHARE } from "../graph/layout/ports";
 import type { NodeRect } from "../graph/edgePath";
 
 // Порт на связь (эпик «стрелки без жёстких хэндлов», Ф1): сторона по оси потока (R2),
@@ -59,7 +59,10 @@ describe("sidesFor — стороны пары (R2)", () => {
   });
 });
 
-describe("assignPorts — порядок и шаг (R3, R4)", () => {
+describe("assignPorts — порядок и шаг (R3, R4) без общих плеч", () => {
+  // механика «порт на связь» (Ф1) в чистом виде: плеча (E95) выключены
+  beforeEach(() => { PORT_SHARE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; });
   it("веер из пяти связей: у каждой своя точка, равный шаг с полями, порядок по дальнему концу", () => {
     const hub = R(1000, 0);
     const rects = new Map<string, NodeRect>([["H", hub]]);
@@ -121,5 +124,61 @@ describe("assignPorts — порядок и шаг (R3, R4)", () => {
     const rects = new Map<string, NodeRect>([["A", R(0, 0)]]);
     const { ports } = assignPorts({ groups: [g("e", "A", "ghost")], rects });
     expect(ports.size).toBe(0);
+  });
+});
+
+describe("assignPorts — общие плеча (E95)", () => {
+  it("веер хаба делится по крыльям: концы одного крыла — одна точка, крылья разные, слоты по среднему ключу", () => {
+    const hub = R(1000, 0);                                // центр x = 1095
+    const rects = new Map<string, NodeRect>([["H", hub]]);
+    const ids = ["k0", "k1", "k2", "k3", "k4"];
+    const xs = [2000, 0, 1500, 500, 1000];                 // k1, k3 — левое крыло; k0, k2, k4 — правое
+    ids.forEach((id, i) => rects.set(id, R(xs[i], 220)));
+    const { ports, shares } = assignPorts({ groups: ids.map((id) => g(`e-${id}`, "H", id)), rects });
+    const sx = (id: string) => ports.get(`e-${id}`)!.s.point.x;
+    expect(sx("k1")).toBe(sx("k3"));
+    expect(sx("k0")).toBe(sx("k2"));
+    expect(sx("k2")).toBe(sx("k4"));
+    expect(sx("k1")).toBeLessThan(sx("k0"));
+    // два слота на стороне: равный шаг (190 − 20) / 3
+    const step = (190 - 2 * PORT_MARGIN) / 3;
+    expect(Math.abs(sx("k1") - (1000 + PORT_MARGIN + step))).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(sx("k0") - (1000 + PORT_MARGIN + 2 * step))).toBeLessThanOrEqual(0.5);
+    for (const id of ids) expect(shares.get(`e-${id}`)?.s).toBeDefined();
+    // входы детей — свои, по центру верхней стороны
+    expect(ports.get("e-k1")!.t).toEqual({ side: "top", point: { x: 95, y: 220 } });
+  });
+
+  it("связь делит плечо не больше чем на одном конце: где группа больше, при равенстве — отправление", () => {
+    // A → B и D → B приходят в B слева (крыло прибытия из двух); у A исходящие в левое
+    // крыло — A → C и A → F (двое), A → B из A уходит в правое крыло одна
+    const rects = new Map<string, NodeRect>([
+      ["A", R(0, 0)], ["D", R(100, 0)], ["B", R(300, 300)], ["C", R(-400, 300)], ["F", R(-200, 300)],
+    ]);
+    const groups = [g("ab", "A", "B"), g("db", "D", "B"), g("ac", "A", "C"), g("af", "A", "F")];
+    const { ports, shares } = assignPorts({ groups, rects });
+    expect(shares.get("ab")).toEqual({ t: expect.any(String) });
+    expect(shares.get("db")).toEqual({ t: shares.get("ab")!.t });
+    expect(shares.get("ac")).toEqual({ s: expect.any(String) });
+    expect(shares.get("af")).toEqual({ s: shares.get("ac")!.s });
+    expect(ports.get("ab")!.t.point).toEqual(ports.get("db")!.t.point);     // общий порт прибытия у B
+    expect(ports.get("ac")!.s.point).toEqual(ports.get("af")!.s.point);     // общий порт отправления у A
+    expect(ports.get("ab")!.s.point).not.toEqual(ports.get("ac")!.s.point); // свой порт у A → B
+    // группа из одного распускается: у D только одна исходящая
+    expect(shares.get("db")!.s).toBeUndefined();
+  });
+
+  it("сближенная пара: порты в общей колонне внутри пересечения сторон, плеча не делит", () => {
+    const rects = new Map<string, NodeRect>([["A", R(0, 0)], ["B", R(40, 110)], ["C", R(-100, 600)], ["E", R(-300, 600)]]);
+    const { ports, shares } = assignPorts({ groups: [g("ab", "A", "B"), g("ac", "A", "C"), g("ae", "A", "E")], rects });
+    const ab = ports.get("ab")!;
+    expect(ab.s.point.x).toBe(ab.t.point.x);
+    expect(ab.s.point.x).toBe(115);                // середина пересечения [50, 180] сторон
+    expect(ab.s.point.y).toBe(100);
+    expect(ab.t.point.y).toBe(110);
+    expect(shares.has("ab")).toBe(false);
+    // остальные концы нижней стороны A распределены без неё (двое в левое крыло — один слот)
+    expect(ports.get("ac")!.s.point).toEqual(ports.get("ae")!.s.point);
+    expect(ports.get("ac")!.s.point.x).not.toBe(115);
   });
 });

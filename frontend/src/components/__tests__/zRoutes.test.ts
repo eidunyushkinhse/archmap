@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { zRoutes, Z_CLEAR, LANE_GAP_MIN } from "../graph/layout/zRoutes";
-import { assignPorts } from "../graph/layout/ports";
+import { assignPorts, PORT_SHARE } from "../graph/layout/ports";
 import { NUDGE_GAP } from "../graph/layout/channelNudge";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
@@ -13,16 +13,23 @@ const R = (x: number, y: number, w = 190, h = 100): NodeRect => ({ x, y, w, h })
 const g = (id: string, source: string, target: string) => ({ id, source, target });
 
 // сцена: прямоугольники + группы → порты (ports.ts) → Z
+// share: false — без общих плеч (E95): механика дорожек «порт на связь» в чистом виде
 function run(rects: Map<string, NodeRect>, groups: Array<{ id: string; source: string; target: string }>, opts?: {
-  obstacles?: NodeRect[]; hard?: NodeRect[];
+  obstacles?: NodeRect[]; hard?: NodeRect[]; share?: boolean;
 }) {
-  const { ports } = assignPorts({ groups, rects });
-  const obstacles = opts?.obstacles ?? [...rects.values()];
-  return zRoutes({
-    groups, ports, obstacles,
-    rectOf: (id) => rects.get(id),
-    hardOf: opts?.hard ? () => opts.hard ?? [] : undefined,
-  });
+  const was = PORT_SHARE.on;
+  if (opts?.share === false) PORT_SHARE.on = false;
+  try {
+    const { ports, shares } = assignPorts({ groups, rects });
+    const obstacles = opts?.obstacles ?? [...rects.values()];
+    return zRoutes({
+      groups, ports, shares, obstacles,
+      rectOf: (id) => rects.get(id),
+      hardOf: opts?.hard ? () => opts.hard ?? [] : undefined,
+    });
+  } finally {
+    PORT_SHARE.on = was;
+  }
 }
 const laneY = (pts: EdgePoint[]): number => pts[1].y;      // дорожка Z при оси "v": y второй точки
 const laneX = (pts: EdgePoint[]): number => pts[1].x;
@@ -45,7 +52,7 @@ const crosses = (a: EdgePoint[], b: EdgePoint[]): number => {
 describe("zRoutes — форма маршрута", () => {
   it("две связи хаба к детям слева-снизу: Z из четырёх точек, дорожки в канале с шагом NUDGE_GAP", () => {
     const rects = new Map([["H", R(1000, 0)], ["A", R(0, 300)], ["B", R(500, 300)]]);
-    const { routes } = run(rects, [g("a", "H", "A"), g("b", "H", "B")]);
+    const { routes } = run(rects, [g("a", "H", "A"), g("b", "H", "B")], { share: false });
     const a = routes.get("a")!, b = routes.get("b")!;
     expect(a).toHaveLength(4);
     expect(b).toHaveLength(4);
@@ -73,6 +80,22 @@ describe("zRoutes — форма маршрута", () => {
     expect(laneY(routes.get("b")!)).toBe(200);
   });
 
+  it("общее плечо (E95): две связи хаба в одно крыло делят порт, стаб и дорожку, ветви свои, крестов нет", () => {
+    const rects = new Map([["H", R(1000, 0)], ["A", R(0, 300)], ["B", R(500, 300)]]);
+    const { routes } = run(rects, [g("a", "H", "A"), g("b", "H", "B")]);
+    const a = routes.get("a")!, b = routes.get("b")!;
+    expect(a).toHaveLength(4);
+    expect(b).toHaveLength(4);
+    expect(a[0]).toEqual(b[0]);                       // один порт
+    expect(laneY(a)).toBe(laneY(b));                  // одна дорожка — ствол
+    expect(a[2].x).not.toBe(b[2].x);                  // ветви в своих колоннах
+    expect(a[3].x).toBe(95);
+    expect(b[3].x).toBe(595);
+    expect(crosses(a, b)).toBe(0);
+    expect(laneY(a)).toBeGreaterThanOrEqual(100 + Z_CLEAR);
+    expect(laneY(a)).toBeLessThanOrEqual(300 - Z_CLEAR);
+  });
+
   it("порты в одной колонне — прямая из двух точек", () => {
     const rects = new Map([["A", R(0, 0)], ["B", R(0, 300)]]);
     const { routes } = run(rects, [g("e", "A", "B")]);
@@ -83,7 +106,7 @@ describe("zRoutes — форма маршрута", () => {
     // B и C правее A в одной колонне, по вертикали вровень/внахлёст с A — ось "h";
     // пробеги их дорожек (по y) перекрываются — две дорожки в одном канале
     const rects = new Map([["A", R(0, 0)], ["B", R(800, 20)], ["C", R(800, 110)]]);
-    const { routes } = run(rects, [g("b", "A", "B"), g("c", "A", "C")]);
+    const { routes } = run(rects, [g("b", "A", "B"), g("c", "A", "C")], { share: false });
     const b = routes.get("b")!, c = routes.get("c")!;
     expect(b[0].x).toBe(190);                 // правая грань A
     expect(b[1].y).toBe(b[0].y);              // стаб горизонтальный
@@ -187,7 +210,7 @@ describe("zRoutes — чистота и отказ", () => {
       const kids = ["A", "B", "C", "D", "E", "F"].slice(0, n);
       const rects = new Map<string, NodeRect>([["H", R(3000, 0)]]);
       kids.forEach((id, i) => rects.set(id, R(i * 500, 160)));
-      const { routes } = run(rects, kids.map((id) => g(id.toLowerCase(), "H", id)));
+      const { routes } = run(rects, kids.map((id) => g(id.toLowerCase(), "H", id)), { share: false });
       return kids.map((id) => routes.get(id.toLowerCase())).filter((p): p is EdgePoint[] => !!p).map(laneY).sort((p, q) => p - q);
     };
     const five = scene(5);

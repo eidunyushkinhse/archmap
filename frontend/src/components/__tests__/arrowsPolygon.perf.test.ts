@@ -48,8 +48,8 @@ const dir = process.env.ARCHMAP_ARROWS_POLYGON;
 // след выбора Z-вариантов роутера (разбор крестов): ARCHMAP_Z_DEBUG=1
 __zDebug.on = process.env.ARCHMAP_Z_DEBUG === "1";
 __zDebug.trace = process.env.ARCHMAP_Z_TRACE ?? "";
-// общие плеча (прототип захода 4): ARCHMAP_SHARE=1
-PORT_SHARE.on = process.env.ARCHMAP_SHARE === "1";
+// общие плеча включены по умолчанию (E95); ARCHMAP_SHARE=0 — сравнение со «своей дорожкой»
+PORT_SHARE.on = process.env.ARCHMAP_SHARE !== "0";
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {
@@ -224,6 +224,7 @@ interface PortMetrics {
   flowSideShare: number;  // доля концов на сторонах оси потока (DOWN: top/bottom)
   leaders: number;        // подписей на выноске
   labelsOffRoute: number; // подписей, центр которых дальше 2px от своей линии
+  overlapIllegal: number; // px наложений вне общих плеч (E95): общий стаб/ствол от общего узла законен
   detourMean: number;     // средняя длина маршрута / манхэттен между центрами
   detourMax: number;
 }
@@ -285,6 +286,53 @@ function portMetrics(sc: Scene, routes: Map<string, EdgePoint[]>, labels: Map<st
       if (gap > 1) minPortGap = Math.min(minPortGap, gap);
     }
   }
+  // НЕЗАКОННЫЕ НАЛОЖЕНИЯ: коллинеарные участки ближе 8 px с общим пробегом, не являющиеся
+  // общим плечом (E95) — общим префиксом двух ломаных от порта их общего узла
+  let overlapIllegal = 0;
+  const rl = [...routes].filter(([gid, pts]) => pts.length >= 2 && sc.groups.some((x) => x.id === gid));
+  const gOf = (gid: string) => sc.groups.find((x) => x.id === gid)!;
+  const segsOf = (pts: EdgePoint[]) => pts.slice(1).map((q, i) => [pts[i], q] as const);
+  const horiz = (sg: readonly [EdgePoint, EdgePoint]) => Math.abs(sg[0].y - sg[1].y) < 0.5;
+  // пара СТАБОВ (крайние сегменты) меряется строгим EPS, как в E90: соседние порты одной
+  // стороны легально стоят теснее зазора дорожек
+  const ovLen = (a: readonly [EdgePoint, EdgePoint], b: readonly [EdgePoint, EdgePoint], stubs: boolean): number => {
+    if (horiz(a) !== horiz(b)) return 0;
+    const h = horiz(a);
+    if (Math.abs((h ? a[0].y : a[0].x) - (h ? b[0].y : b[0].x)) >= (stubs ? 0.5 : 8)) return 0;
+    const c = (q: EdgePoint) => (h ? q.x : q.y);
+    const lo = Math.max(Math.min(c(a[0]), c(a[1])), Math.min(c(b[0]), c(b[1])));
+    const hi = Math.min(Math.max(c(a[0]), c(a[1])), Math.max(c(b[0]), c(b[1])));
+    return hi - lo > 0.5 ? hi - lo : 0;
+  };
+  const samePt = (p: EdgePoint, q: EdgePoint) => Math.abs(p.x - q.x) < 0.5 && Math.abs(p.y - q.y) < 0.5;
+  const prefixLen = (a: EdgePoint[], b: EdgePoint[]): number => {
+    if (!samePt(a[0], b[0])) return 0;
+    let len = 0, i = 1;
+    while (i < a.length && i < b.length && samePt(a[i], b[i])) { len += Math.hypot(a[i].x - a[i - 1].x, a[i].y - a[i - 1].y); i++; }
+    if (i < a.length && i < b.length) {
+      const o = a[i - 1], qa = a[i], qb = b[i];
+      const dir = (q: EdgePoint) => `${Math.sign(q.x - o.x)},${Math.sign(q.y - o.y)}`;
+      if (dir(qa) === dir(qb)) len += Math.min(Math.hypot(qa.x - o.x, qa.y - o.y), Math.hypot(qb.x - o.x, qb.y - o.y));
+    }
+    return len;
+  };
+  for (let i = 0; i < rl.length; i++) {
+    for (let k = i + 1; k < rl.length; k++) {
+      const [ga, pa] = rl[i], [gb, pb] = rl[k];
+      let ov = 0;
+      const sA = segsOf(pa), sB = segsOf(pb);
+      sA.forEach((sa, ia) => sB.forEach((sb, ib) => {
+        const stubs = (ia === 0 || ia === sA.length - 1) && (ib === 0 || ib === sB.length - 1);
+        ov += ovLen(sa, sb, stubs);
+      }));
+      if (ov <= 0) continue;
+      const A = gOf(ga), B = gOf(gb);
+      let legal = 0;
+      if (A.source === B.source) legal = Math.max(legal, prefixLen(pa, pb));
+      if (A.target === B.target) legal = Math.max(legal, prefixLen([...pa].reverse(), [...pb].reverse()));
+      overlapIllegal += Math.max(0, ov - legal);
+    }
+  }
   let leaders = 0, labelsOffRoute = 0;
   for (const [gid, l] of labels) {
     if (l.leader) leaders++;
@@ -306,7 +354,7 @@ function portMetrics(sc: Scene, routes: Map<string, EdgePoint[]>, labels: Map<st
   return {
     endpoints, sharedPorts, minPortGap: Number.isFinite(minPortGap) ? Math.round(minPortGap * 10) / 10 : 0,
     flowSideShare: endpoints ? Math.round((flow / endpoints) * 100) / 100 : 0,
-    leaders, labelsOffRoute,
+    leaders, labelsOffRoute, overlapIllegal: Math.round(overlapIllegal),
     detourMean: detN ? Math.round((detSum / detN) * 100) / 100 : 0, detourMax: Math.round(detMax * 100) / 100,
   };
 }
@@ -417,7 +465,7 @@ function movedPositions(sc: Scene): Map<string, EdgePoint> {
 
 type Row = { scene: string; variant: string; nodes: number; edges: number; quality: QualityMetrics; ports: PortMetrics; vsElk?: ReturnType<typeof vsElk> };
 
-const PORT_ORDER: ReadonlyArray<keyof PortMetrics> = ["sharedPorts", "minPortGap", "flowSideShare", "leaders", "labelsOffRoute", "detourMean", "detourMax"];
+const PORT_ORDER: ReadonlyArray<keyof PortMetrics> = ["sharedPorts", "minPortGap", "flowSideShare", "leaders", "labelsOffRoute", "overlapIllegal", "detourMean", "detourMax"];
 
 function reportMd(rows: Row[]): string {
   const cols = [...METRIC_ORDER.filter((k) => k !== "overlapPx"), "overlapPx"] as Array<keyof QualityMetrics>;
