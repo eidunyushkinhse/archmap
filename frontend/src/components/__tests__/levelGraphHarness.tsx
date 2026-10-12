@@ -27,6 +27,7 @@ import { useEffect, useState, useCallback, type ReactNode } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Node as AppNode, AncestorRef, ViewLayoutPayload } from "../../types";
 import type { QuickConnectHandlers } from "../graph/types";
+import type { RehangHandlers } from "../graph/ReconnectContext";
 import type { CommitOrigin } from "../graph/interaction/persistGuard";
 import type { PipelineOutput } from "../graph/layout/pipeline";
 
@@ -111,6 +112,7 @@ export function resetHarness(): void {
   captured.getCb = undefined;
   assembleCalls.length = 0;
   rfProps.current = {};
+  rehangProps.current = null;
   templateDropMock.dropPreview = null;
   templateDropMock.dropTargetFrame = null;
   rfHandles.setNodes = undefined;
@@ -391,6 +393,16 @@ export const boundariesMock = { LevelBoundary: MockNull, AlignmentGuides: MockNu
 export const quickConnectPreviewMock = { default: MockNull };
 export const edgeJumpMock = {
   EdgeJumpProvider: ({ children }: { children?: ReactNode }): ReactNode => <>{children}</>,
+};
+// Обработчики перевеса, отданные холстом в ReconnectProvider (Ф5): ручка на ребре зовёт
+// их через контекст, а не пропсы ReactFlow — тест зовёт их отсюда.
+export const rehangProps: { current: RehangHandlers | null } = { current: null };
+export const reconnectContextMock = {
+  ReconnectProvider: ({ handlers, children }: { handlers: RehangHandlers; children?: ReactNode }): ReactNode => {
+    useEffect(() => { rehangProps.current = handlers; });
+    return <>{children}</>;
+  },
+  useRehang: (): RehangHandlers | null => rehangProps.current,
 };
 
 // ---------------------------------------------------------------------------

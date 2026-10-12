@@ -1,14 +1,17 @@
-// Флаг reconnectable у RF-рёбер (эпик «связи, упирающиеся в рамку»).
+// Признак перевеса data.reconnectEnds у RF-рёбер (эпик «связи, упирающиеся в рамку»;
+// Ф5 эпика стрелок: ручку рисует само ребро на точке роутера, флаг reconnectable RF
+// больше не используется).
 //
-// Ручной слой геометрии стрелок удалён (edge.md E1) и `reconnectable:false` стоит у
-// ВСЕХ рёбер — кроме одного исключения: конец, упёршийся в рамку, тянуть можно.
-// Флаг важен сам по себе: без него React Flow вообще не начнёт жест, и проверки
-// холста (levelGraph.reconnect.test.tsx) никогда не позовутся.
+// Ручной слой геометрии стрелок удалён (edge.md E1) и ручек нет НИ У КОГО — кроме
+// одного исключения: конец, упёршийся в рамку, тянуть можно. Признак важен сам по
+// себе: без него ребро не нарисует ручку, и правила холста (levelGraph.reconnect.test.tsx)
+// никогда не позовутся.
 import { describe, it, expect, vi } from "vitest";
 import { assembleRfGraph } from "../graph/assembleRf";
 import type { LayoutResult } from "../graph/layout/pipeline";
 import type { Edge as AppEdge } from "../../types";
 import type { AssembleCallbacks } from "../graph/assembleRf";
+import type { WrappedEdgeData } from "../graph/types";
 
 const edge = (id: string, s: string, t: string): AppEdge =>
   ({ id, label: null, technology: null, source_id: s, target_id: t, created_at: "" } as AppEdge);
@@ -47,24 +50,24 @@ function build(frameEnds: string[], over: { isArchitect?: boolean; isReadOnly?: 
     schemaView: "all",
     getCb: cb,
   });
-  return new Map(nextEdges.map((e) => [e.id, e.reconnectable]));
+  return new Map(nextEdges.map((e) => [e.id, (e.data as WrappedEdgeData).reconnectEnds]));
 }
 
-describe("assembleRfGraph — reconnectable только у конца-в-рамку", () => {
+describe("assembleRfGraph — ручка перевеса (reconnectEnds) только у конца-в-рамку", () => {
   it("тянется ровно тот конец, что упёрся в рамку", () => {
     const r = build(["F", "F2"]);
     expect(r.get("gToFrame")).toBe("target");   // рамка — цель
     expect(r.get("gFromFrame")).toBe("source"); // рамка — источник
-    expect(r.get("gBoth")).toBe(true);          // обе стороны — рамки
-    expect(r.get("gPlain")).toBe(false);        // обычная связь неприкосновенна (E1)
+    expect(r.get("gBoth")).toBe("both");        // обе стороны — рамки
+    expect(r.get("gPlain")).toBeUndefined();    // обычная связь неприкосновенна (E1)
   });
 
   it("рамка, в которую никто не упирается, ничего не разрешает", () => {
-    expect(build([]).get("gToFrame")).toBe(false);
+    expect(build([]).get("gToFrame")).toBeUndefined();
   });
 
   it("наблюдателю и в read-only жест недоступен", () => {
-    expect(build(["F"], { isArchitect: false }).get("gToFrame")).toBe(false);
-    expect(build(["F"], { isReadOnly: true }).get("gToFrame")).toBe(false);
+    expect(build(["F"], { isArchitect: false }).get("gToFrame")).toBeUndefined();
+    expect(build(["F"], { isReadOnly: true }).get("gToFrame")).toBeUndefined();
   });
 });

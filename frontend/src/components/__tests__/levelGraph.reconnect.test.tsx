@@ -6,10 +6,10 @@
 // Промах не должен ни писать в БД, ни оставлять связь с одним концом — поэтому
 // «не позвал колбэк» здесь такое же важное утверждение, как «позвал».
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { Edge as RFEdge, Connection } from "@xyflow/react";
-import { resetHarness, pipeline, rfProps, edgeConnectMock } from "./levelGraphHarness";
+import { resetHarness, pipeline, rehangProps, edgeConnectMock } from "./levelGraphHarness";
 import { renderGraph } from "./levelGraphRender";
 import type { FrameRect } from "../graph/layout/frames";
+import type { RehangEdge, RehangEnd } from "../graph/ReconnectContext";
 
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
 vi.mock("../../api/nodes", async () => (await import("./levelGraphHarness")).apiNodesMock);
@@ -32,6 +32,7 @@ vi.mock("../graph/interaction/useTemplateDrop", async () => (await import("./lev
 vi.mock("../graph/interaction/useAlignmentGuides", async () => (await import("./levelGraphHarness")).useAlignmentGuidesMock);
 vi.mock("../graph/interaction/useHistory", async () => (await import("./levelGraphHarness")).useHistoryMock);
 vi.mock("../graph/interaction/useEdgeConnect", async () => (await import("./levelGraphHarness")).useEdgeConnectMock);
+vi.mock("../graph/ReconnectContext", async () => (await import("./levelGraphHarness")).reconnectContextMock);
 
 // Рамка раскрытого контейнера F с единственным ребёнком K внутри.
 function frame(id: string, members: string[]): FrameRect {
@@ -43,12 +44,17 @@ function frame(id: string, members: string[]): FrameRect {
   };
 }
 
-// Ребро «X → рамка F» так, как его собирает assembleRf: id группы, реальные связи в data.
-const edgeToFrame = (memberIds: string[]): RFEdge =>
-  ({ id: "g", source: "X", target: "F", data: { memberIds } } as RFEdge);
+// Ребро «X → рамка F» глазами ручки перевеса (RehangAnchor): концы, служебные хэндлы,
+// реальные связи группы.
+const edgeToFrame = (memberIds: string[]): RehangEdge =>
+  ({ id: "g", source: "X", target: "F", sourceHandle: null, targetHandle: null, memberIds });
 
-const reconnect = (oldEdge: RFEdge, conn: Connection) =>
-  (rfProps.current.onReconnect as (e: RFEdge, c: Connection) => void)(oldEdge, conn);
+// Ручка на ребре зовёт правила холста через ReconnectProvider (Ф5): конец end ребра
+// отпущен на узле toNodeId.
+const reconnect = (edge: RehangEdge, end: RehangEnd, toNodeId: string) =>
+  rehangProps.current?.reconnect(edge, end, toNodeId);
+const isValid = (edge: RehangEdge, end: RehangEnd, toNodeId: string) =>
+  rehangProps.current?.isValidTarget(edge, end, toNodeId);
 
 describe("LevelGraph — перепривязка конца-в-рамку", () => {
   beforeEach(() => {
@@ -66,7 +72,8 @@ describe("LevelGraph — перепривязка конца-в-рамку", () 
     });
     expect(props.edgeCallbacks.onReconnectFrameEnd).toBe(onReconnectFrameEnd);
 
-    reconnect(edgeToFrame(["e1", "e2"]), { source: "X", target: "K", sourceHandle: null, targetHandle: null });
+    expect(isValid(edgeToFrame(["e1"]), "target", "K")).toBe(true);
+    reconnect(edgeToFrame(["e1", "e2"]), "target", "K");
 
     expect(onReconnectFrameEnd).toHaveBeenCalledWith(["e1", "e2"], "target", "F", "K");
   });
@@ -76,7 +83,8 @@ describe("LevelGraph — перепривязка конца-в-рамку", () 
     await renderGraph({ edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd } });
 
     // Z есть на уровне, но членом рамки F не является
-    reconnect(edgeToFrame(["e1"]), { source: "X", target: "Z", sourceHandle: null, targetHandle: null });
+    expect(isValid(edgeToFrame(["e1"]), "target", "Z")).toBe(false);
+    reconnect(edgeToFrame(["e1"]), "target", "Z");
 
     expect(onReconnectFrameEnd).not.toHaveBeenCalled();
   });
@@ -86,7 +94,8 @@ describe("LevelGraph — перепривязка конца-в-рамку", () 
     pipeline.result.layout.frameEnds = []; // связь ни во что не упирается
     await renderGraph({ edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd } });
 
-    reconnect(edgeToFrame(["e1"]), { source: "X", target: "K", sourceHandle: null, targetHandle: null });
+    expect(isValid(edgeToFrame(["e1"]), "target", "K")).toBe(false);
+    reconnect(edgeToFrame(["e1"]), "target", "K");
 
     expect(onReconnectFrameEnd).not.toHaveBeenCalled();
   });
@@ -98,27 +107,30 @@ describe("LevelGraph — перепривязка конца-в-рамку", () 
       edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd },
     });
 
-    reconnect(edgeToFrame(["e1"]), { source: "X", target: "K", sourceHandle: null, targetHandle: null });
+    expect(isValid(edgeToFrame(["e1"]), "target", "K")).toBe(false);
+    reconnect(edgeToFrame(["e1"]), "target", "K");
 
     expect(onReconnectFrameEnd).not.toHaveBeenCalled();
   });
 
-  it("начало и конец перевеса уходят в поток протягивания — он гасит «Новую связь»", async () => {
-    // RF зовёт для перевеса общие onConnectStart/onConnectEnd; метку перевеса ставят
-    // onReconnectStart/End (регресс: перевес открывал ещё и окно «Новая связь»,
-    // поведение самой метки — useEdgeConnect.reconnect.test.ts).
+  it("начало и конец перевеса ставят метку потоку протягивания — он гасит «Новую связь»", async () => {
+    // Жест ручки идёт через общие onConnectStart/onConnectEnd холста; метку перевеса
+    // ставят onStart/onEnd провайдера (регресс: перевес открывал ещё и окно «Новая
+    // связь», поведение самой метки — useEdgeConnect.reconnect.test.ts).
     await renderGraph({ edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd: vi.fn() } });
 
-    expect(rfProps.current.onReconnectStart).toBe(edgeConnectMock.handleReconnectStart);
-    expect(rfProps.current.onReconnectEnd).toBe(edgeConnectMock.handleReconnectEnd);
-    expect(rfProps.current.onConnectEnd).toBe(edgeConnectMock.handleConnectEnd);
+    rehangProps.current?.onStart();
+    expect(edgeConnectMock.handleReconnectStart).toHaveBeenCalledTimes(1);
+    rehangProps.current?.onEnd();
+    expect(edgeConnectMock.handleReconnectEnd).toHaveBeenCalledTimes(1);
   });
 
-  it("оба конца не изменились — не жест перепривязки", async () => {
+  it("конец отпущен на втором конце той же связи — не связь (сам на себя)", async () => {
     const onReconnectFrameEnd = vi.fn();
     await renderGraph({ edgeCallbacks: { onEdgesChoice: vi.fn(), onReconnectFrameEnd } });
 
-    reconnect(edgeToFrame(["e1"]), { source: "X", target: "F", sourceHandle: null, targetHandle: null });
+    expect(isValid(edgeToFrame(["e1"]), "target", "X")).toBe(false);
+    reconnect(edgeToFrame(["e1"]), "target", "X");
 
     expect(onReconnectFrameEnd).not.toHaveBeenCalled();
   });

@@ -60,8 +60,9 @@
    измеряется: он цель защёлки конца стрелки и старт превью-линии. */
 
 /* Защёлка: конец протягиваемой связи попал в радиус хэндла листа (RF вешает
-   .connectingto) — синяя точка в центре стороны показывает, куда прицепится конец. */
-.lg-canvas .react-flow__handle.connectingto::after {
+   .connectingto, а .valid — когда isValidConnection цель приняла: у зон входа и рамок
+   точку не показываем) — синяя точка в центре стороны показывает, куда прицепится конец. */
+.lg-canvas .react-flow__handle.connectingto.valid::after {
   content: "";
   position: absolute;
   left: 50%;
@@ -75,38 +76,40 @@
   pointer-events: none;
 }
 
-/* КОНЕЦ-В-РАМКУ: намёк «этот конец можно схватить» (эпик «связи, упирающиеся в
-   рамку», перепривязка — edge.md E1a). React Flow рисует у реконнектабельного конца
-   невидимый круг-ручку .react-flow__edgeupdater (r = reconnectRadius, атрибуты
-   fill/stroke = transparent — CSS их перебивает). Подсвечиваем ТОЛЬКО ту ручку, что
-   под курсором: у рамки 12 точек стыковки, но хватать можно ровно этот конец.
-   Ручка есть только у связей-в-рамку (у остальных reconnectable:false, и RF её не
-   рендерит), поэтому отдельного гейта на архитектора здесь не нужно — флаг уже
-   выставлен с ним (assembleRf).
-
-   ГЕОМЕТРИЯ ручки задаётся ЗДЕСЬ, а не пропом RF: свой радиус React Flow заодно
-   использует как СДВИГ круга наружу вдоль нормали стороны (shiftX/shiftY), из-за чего
-   ручка вставала рядом с рамкой, а не на ней. Поэтому reconnectRadius={0} (сдвиг
-   исчезает, центр садится ровно в точку стыковки), а размер возвращаем через CSS —
-   SVG2 geometry property `r`. Размеры повторяют дот хэндла узла: тело 9px + кайма
-   2px = 13px; обводка шириной 2 идёт по кругу r=5.5, закрывая 4.5…6.5, поэтому
-   видимое тело — те же 9px. Прозрачная заливка в покое хит-тест не отменяет
-   (pointer-events: all у RF), так что область захвата = сам хэндл. */
+/* РУЧКА ПЕРЕВЕСА конца-в-рамку (edge.md E1a, CV20b; Ф5 эпика «стрелки без жёстких
+   хэндлов»): рисует само ребро (RehangAnchor) РОВНО на точке роутера — там, где линия
+   упирается в рамку. Группа .lg-rehang = видимая точка .react-flow__edgeupdater (класс
+   RF оставлен: его знает тур) + прозрачный круг захвата .lg-rehang-hit пошире. Точка
+   прозрачна в покое и загорается синим под курсором: намёк «этот конец можно схватить».
+   Геометрия точки — как у прежнего дота хэндла: тело 9px + кайма 2px (r 5.5, обводка 2
+   закрывает 4.5…6.5). Ручки есть только у концов-в-рамку, гейт на роль — в assembleRf. */
+.lg-canvas .lg-rehang {
+  cursor: grab;
+}
+.lg-canvas .lg-rehang circle {
+  pointer-events: all;
+}
 .lg-canvas .react-flow__edgeupdater {
-  r: 5.5px;
   fill: transparent;
   stroke: transparent;
   stroke-width: 2;
-  cursor: grab;
   transition: fill 0.08s ease, stroke 0.08s ease;
 }
-.lg-canvas .react-flow__edgeupdater:hover {
+.lg-canvas .lg-rehang-hit {
+  fill: transparent;
+  stroke: none;
+}
+.lg-canvas .lg-rehang:hover .react-flow__edgeupdater {
   fill: #2563eb;
   stroke: rgba(255, 255, 255, 0.7);
 }
-/* Пока конец тащат, курсор — «схвачено» (RF держит класс .updating на самом ребре). */
-.lg-canvas .react-flow__edgeupdater:active {
+.lg-canvas .lg-rehang:active {
   cursor: grabbing;
+}
+/* Допустимая цель перевеса под курсором (член рамки; класс вешает RehangAnchor) —
+   синее свечение по силуэту, как у выделенного узла. */
+.lg-canvas--rehanging .react-flow__node.lg-rehang-target > * {
+  filter: drop-shadow(0 0 2px #2563eb) drop-shadow(0 0 7px rgba(37, 99, 235, 0.65));
 }
 
 /* Во время протягивания новой связи зону входа подсвечиваем ТОЛЬКО у узла-сервиса с

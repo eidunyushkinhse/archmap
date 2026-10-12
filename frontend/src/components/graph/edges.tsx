@@ -1,7 +1,7 @@
 // Кастомный тип ребра с HTML-лейблом (поддерживает перенос) и реестр edgeTypes.
 // Геометрия стрелки целиком авто (ручной слой изломов/хэндлов/драга плашки удалён
 // 2026-07-09): линия — авто-маршрут роутера либо smoothstep, плашка — авто-размещение.
-import { useCallback, useEffect, useRef, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -18,6 +18,8 @@ import { ensureOutwardStubs, cleanup, segments, type EdgeSide } from "./edgePath
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
 import { JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
+import RehangAnchor from "./RehangAnchor";
+import type { RehangEdge } from "./ReconnectContext";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
 function sideOf(p: Position): EdgeSide {
@@ -112,6 +114,7 @@ export function sideFromStub(pts: EdgePoint[], atStart: boolean, fallback: Posit
 
 function WrappedLabelEdge({
   id,
+  source, target, sourceHandleId, targetHandleId,
   sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
   data,
@@ -122,6 +125,12 @@ function WrappedLabelEdge({
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
   const loop = d?.loop;
+  // Идёт ПЕРЕВЕС конца этого ребра (ручка RehangAnchor): плашка скрыта, линия
+  // приглушена — новый путь показывает превью-линия холста от неподвижного конца.
+  const [rehanging, setRehanging] = useState(false);
+  // Концы линии для ручек перевеса (edge.md E1a): точки роутера — концы ломаной;
+  // без маршрута — служебные хэндлы RF. null — контекст-схема (ручек там нет).
+  let anchorPts: { s: EdgePoint; t: EdgePoint } | null = null;
   // Идёт анимированная ОТРИСОВКА (после раскрытия/сворачивания, useLayoutAnimation):
   // линия рисуется штрихом от source к target (pathLength=1 нормализует длину пути,
   // keyframes lg-edge-draw гонит stroke-dashoffset 1→0), а наконечник, плашка,
@@ -209,6 +218,7 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
+      anchorPts = { s: pts[0], t: pts[pts.length - 1] };
     } else {
       // Нет авто-маршрута (живой драг до пересчёта и т.п.) — авто-smoothstep.
       [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -216,8 +226,21 @@ function WrappedLabelEdge({
         targetX, targetY, targetPosition,
         borderRadius: 12,
       });
+      anchorPts = { s: { x: sourceX, y: sourceY }, t: { x: targetX, y: targetY } };
     }
   }
+
+  // Ручки перевеса (Ф5 эпика «стрелки без жёстких хэндлов»): у конца, упёршегося в
+  // рамку (data.reconnectEnds из assembleRf), на самой точке роутера. Не во время
+  // отрисовки/перевеса и не у приглушённого ребра.
+  const ends = d?.reconnectEnds;
+  const rehangEdge: RehangEdge | null = ends && d
+    ? {
+      id, source, target,
+      sourceHandle: sourceHandleId ?? null, targetHandle: targetHandleId ?? null,
+      memberIds: d.memberIds,
+    }
+    : null;
 
   // Позиция плашки: авто-размещение (R2+R4, labelPlacement — посчитано на раскладке
   // без наложений), иначе центр из веток выше. Руками плашка не двигается.
@@ -301,11 +324,21 @@ function WrappedLabelEdge({
         {...(drawing ? { pathLength: 1 } : null)}
         style={drawing
           ? { ...style, strokeDasharray: 1, ...(drawDelay > 0 ? { animationDelay: `${drawDelay}ms` } : null) }
-          : style}
+          : rehanging ? { ...style, opacity: 0.3 } : style}
       />
+      {rehangEdge && anchorPts && !drawing && !rehanging && !d?.dimmed && (
+        <>
+          {(ends === "source" || ends === "both") && (
+            <RehangAnchor edge={rehangEdge} end="source" x={anchorPts.s.x} y={anchorPts.s.y} onActive={setRehanging} />
+          )}
+          {(ends === "target" || ends === "both") && (
+            <RehangAnchor edge={rehangEdge} end="target" x={anchorPts.t.x} y={anchorPts.t.y} onActive={setRehanging} />
+          )}
+        </>
+      )}
       {/* Выноски и поводки сняты в Ф3 эпика «стрелки без жёстких хэндлов»: плашка
           всегда лежит на своей линии (E50/E51), место под неё резервирует раскладка. */}
-      {drawing ? null : items && items.length > 0 ? (
+      {drawing || rehanging ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
           {/* data-lg-edge: адрес плашки для императивного панельного выделения (LevelGraph) */}

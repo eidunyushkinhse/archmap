@@ -81,6 +81,10 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // pathLength=1 + stroke-dashoffset), маркер-наконечник и плашка скрыты до конца
   // отрисовки. Флаг ставит и снимает оркестратор анимации по таймеру drawSpanMs.
   drawIn?: boolean;
+  // какие концы можно перевесить (edge.md E1a: конец, упёршийся в рамку, — на узел
+  // внутри неё); ручку на точке роутера рисует само ребро (RehangAnchor). Нет поля —
+  // ручек нет (обычные концы, read-only, контекст).
+  reconnectEnds?: "source" | "target" | "both";
   // Ф5, каскад отрисовки: задержка старта волны этого ребра (animation-delay, мс).
   // Ставится markDrawIn только при DRAW_CASCADE и только ненулевая (нормальная
   // форма для реконсиляции); fill-mode both держит линию пустой до старта волны.

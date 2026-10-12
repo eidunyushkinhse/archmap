@@ -14,7 +14,6 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
-  type Connection,
   type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -50,6 +49,7 @@ import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
+import { ReconnectProvider, type RehangEdge, type RehangEnd, type RehangHandlers } from "./graph/ReconnectContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
@@ -625,32 +625,31 @@ function LevelGraphInner({
     [rfNodes],
   );
 
-  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку»). Тянуть можно
-  // только конец, упёршийся в рамку (сборка помечает такие рёбра reconnectable), и
-  // только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные, кому связь может
-  // принадлежать «точнее». Промах мимо такого узла = жест отменён: ничего не пишем,
-  // рендер идёт из прежней раскладки, и конец возвращается на рамку (связь никогда не
-  // остаётся с одним концом).
-  const handleReconnect = useCallback((oldEdge: RFEdge, conn: Connection) => {
+  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку», edge.md E1a). Тянуть
+  // можно только конец, упёршийся в рамку (сборка помечает такие рёбра
+  // data.reconnectEnds), и только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные,
+  // кому связь может принадлежать «точнее». Промах мимо такого узла = жест отменён:
+  // ничего не пишем, рендер идёт из прежней раскладки, и конец возвращается на рамку
+  // (связь никогда не остаётся с одним концом). Ручку рисует само ребро на точке
+  // роутера (RehangAnchor, Ф5) и зовёт эти правила через ReconnectProvider.
+  const isValidRehangTarget = useCallback((edge: RehangEdge, end: RehangEnd, nodeId: string): boolean => {
     // читаем ПОСЛЕДНЮЮ раскладку через ref: колбэк живёт дольше одного прогона
     const l = layoutLatestRef.current;
-    if (!l || !canStructure) return;
+    if (!l || !canStructure) return false;
+    const frameId = end === "source" ? edge.source : edge.target;
+    if (!l.frameEnds.includes(frameId)) return false;
+    const other = end === "source" ? edge.target : edge.source;
+    if (nodeId === other) return false; // сам на себя — не связь
     const frames = [...l.guestFrames, ...(l.levelFrame ? [l.levelFrame] : [])];
-    const frameEnds = new Set(l.frameEnds);
-    // тянули тот конец, что изменился; второй остаётся как был
-    const end: "source" | "target" | null =
-      conn.source !== oldEdge.source ? "source" : conn.target !== oldEdge.target ? "target" : null;
-    if (!end) return;
-    const frameId = end === "source" ? oldEdge.source : oldEdge.target;
-    const toNodeId = end === "source" ? conn.source : conn.target;
-    if (!frameEnds.has(frameId) || !toNodeId) return;
-    if (conn.source === conn.target) return; // сам на себя — не связь
     const frame = frames.find((f) => f.id === frameId);
-    if (!frame || !frame.memberIds.has(toNodeId)) return; // цель вне рамки — промах
-    const memberIds = (oldEdge.data as WrappedEdgeData | undefined)?.memberIds ?? [];
-    if (memberIds.length === 0) return;
-    onReconnectFrameEnd?.(memberIds, end, frameId, toNodeId);
-  }, [canStructure, onReconnectFrameEnd]);
+    return frame != null && frame.memberIds.has(nodeId); // цель вне рамки — промах
+  }, [canStructure]);
+  const reconnectFrameEnd = useCallback((edge: RehangEdge, end: RehangEnd, toNodeId: string) => {
+    if (!isValidRehangTarget(edge, end, toNodeId)) return;
+    if (edge.memberIds.length === 0) return;
+    const frameId = end === "source" ? edge.source : edge.target;
+    onReconnectFrameEnd?.(edge.memberIds, end, frameId, toNodeId);
+  }, [isValidRehangTarget, onReconnectFrameEnd]);
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
@@ -663,6 +662,18 @@ function LevelGraphInner({
     onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
     onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
   });
+
+  // Идёт перевес конца (ручка на ребре): класс холста прячет стрелки-глифы протяжки и
+  // включает подсветку допустимой цели. Метка перевеса для потока протяжки — та же,
+  // что ставила RF-ручка (handleReconnectStart/End: иначе отпускание конца на узле
+  // открывало бы ещё и окно «Новая связь»).
+  const [rehanging, setRehanging] = useState(false);
+  const rehangHandlers = useMemo<RehangHandlers>(() => ({
+    isValidTarget: isValidRehangTarget,
+    reconnect: reconnectFrameEnd,
+    onStart: () => { handleReconnectStart(); setRehanging(true); },
+    onEnd: () => { handleReconnectEnd(); setRehanging(false); },
+  }), [isValidRehangTarget, reconnectFrameEnd, handleReconnectStart, handleReconnectEnd]);
 
   // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
   // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
@@ -1211,6 +1222,8 @@ function LevelGraphInner({
         "lg-canvas" +
         (isArchitect && !isReadOnly ? " lg-canvas--editable" : "") +
         (connecting ? " lg-canvas--connecting" : "") +
+        // перевес конца связи: глифы протяжки спрятаны, цель под курсором подсвечена
+        (rehanging ? " lg-canvas--rehanging" : "") +
         // окно анимации раскрытия/сворачивания: CSS-transition на узлах и рамках
         (animActive ? " lg-canvas--anim" : "") +
         (labelsHidden ? " lg-canvas--nolabels" : "") +
@@ -1400,6 +1413,8 @@ function LevelGraphInner({
           даёт второй проход рендера всех рёбер посреди окна); снятие — на unmask/свопе,
           батчем с проявлением. */}
       <EdgeJumpProvider enabled paused={dragging || jumpsPaused}>
+      {/* Правила перевеса конца-в-рамку для ручек на рёбрах (RehangAnchor, E1a). */}
+      <ReconnectProvider handlers={rehangHandlers}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
@@ -1422,19 +1437,9 @@ function LevelGraphInner({
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
-        // Перепривязка конца-в-рамку (см. handleReconnect): единственный ручной жест
-        // над геометрией связи; остальные рёбра помечены reconnectable:false.
-        onReconnect={handleReconnect}
-        // RF ведёт перевес тем же протягиванием и зовёт для него общие onConnectStart/
-        // onConnectEnd: метка перевеса гасит в useEdgeConnect поток НОВОЙ связи (иначе
-        // отпускание конца на узле открывало ещё и окно «Новая связь»).
-        onReconnectStart={handleReconnectStart}
-        onReconnectEnd={handleReconnectEnd}
-        // 0 — не «нулевая зона захвата», а отказ от собственного СДВИГА RF: свой
-        // радиус он использует и как смещение круга-ручки наружу, отчего ручка
-        // вставала рядом с рамкой. Размер ручки задаёт CSS (см. LevelGraph.css,
-        // .react-flow__edgeupdater) — там же она подгоняется под дот хэндла узла.
-        reconnectRadius={0}
+        // Перевес конца-в-рамку (единственный ручной жест над геометрией связи) RF не
+        // ведёт: его ручки стояли у служебного хэндла центра стороны. Ручку на точке
+        // роутера рисует ребро (RehangAnchor), правила — ReconnectProvider ниже.
         isValidConnection={isValidNewConnection}
         // прощающий радиус защёлки конца на хэндл центра стороны листа (дроп чуть за
         // краем узла всё равно связывает); к зонам входа конец не защёлкивается
@@ -1590,6 +1595,7 @@ function LevelGraphInner({
           </ViewportPortal>
         )}
       </ReactFlow>
+      </ReconnectProvider>
       </EdgeJumpProvider>
     </div>
   );

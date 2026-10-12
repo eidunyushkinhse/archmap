@@ -7,7 +7,7 @@
 Данные (БД): `Edge {id, label?, technology?, channel?, source_id, target_id}` — связь
 направленная, может соединять узлы с разных уровней иерархии (сквозная).
 Код: `graph/layout/{orthoRoute,routeAll,autoRoutes,channelNudge,coincidentLegs,railPairs,labelBox,labelIntervals,labelLayout,placeLabels,widenForLabels,separateForLabels,context}.ts`,
-`graph/{edgePath,edgeJumps,text}.ts`, `graph/{edges,EdgeJumpContext,ConnectionLine,QuickConnectPreview}.tsx`,
+`graph/{edgePath,edgeJumps,text}.ts`, `graph/{edges,EdgeJumpContext,ConnectionLine,QuickConnectPreview,RehangAnchor,ReconnectContext}.tsx`,
 `graph/interaction/{useEdgeConnect,quickConnect,useLiveDragHandles}.ts`.
 Единицы: px в координатах графа; стоимости роутера — px-эквиваленты.
 
@@ -20,17 +20,27 @@
 - **E1a.** ЕДИНСТВЕННОЕ ИСКЛЮЧЕНИЕ (2026-08-11, эпик «связи, упирающиеся в рамку»):
   конец, упёршийся В РАМКУ, можно отцепить и прицепить к узлу ВНУТРИ неё — иначе
   связь, доставшуюся контейнеру, нечем уточнить до его ребёнка. Правила:
-  тянется только этот конец (`reconnectable` = "source"/"target"/true по тому, какие
-  концы — рамки); цель обязана быть ЧЛЕНОМ той же рамки; промах = жест отменён,
+  тянется только этот конец (`data.reconnectEnds` = "source"/"target"/"both" по тому,
+  какие концы — рамки); цель обязана быть ЧЛЕНОМ той же рамки; промах = жест отменён,
   конец возвращается на рамку (связь никогда не остаётся с одним концом, ср. «связь не
   исчезает»); у мастер-стрелки переезжают ВСЕ её члены (они и слились потому, что
   делят пару концов); жест гейтится архитектором и не работает в read-only.
-  Записывается через обычный `PATCH /edges/{id}` с undo/redo. Перевес — НЕ новая
-  связь (фикс 2026-10-05): React Flow ведёт его тем же протягиванием и зовёт общие
-  onConnectStart/onConnectEnd, поэтому метка перевеса (onReconnectStart/End) гасит
-  поток создания связи (E73) целиком — ни окна «Новая связь», ни выбора потомка, ни
-  плитки «вне уровня», ни подсветки зон входа (canvas.md CV21).
-  [тест: assembleRf.reconnect.test.ts (флаг), levelGraph.reconnect.test.tsx (склейка),
+  Записывается через обычный `PATCH /edges/{id}` с undo/redo.
+  РУЧКА — НА ТОЧКЕ РОУТЕРА (v2, Ф5 эпика «стрелки без жёстких хэндлов», 2026-10-12):
+  её рисует само ребро (`RehangAnchor` из edges.tsx) в конце своей ломаной — там, где
+  линия упирается в рамку (порт роутера: проекция дальнего конца, E7 v2), а не React
+  Flow у служебного хэндла центра стороны (до Ф5 ручка и линия расходились до
+  полстороны рамки). Жест ведёт тот же `XYHandle.onPointerDown` (@xyflow/system), что
+  и RF-ручка: превью-линия с наконечником (E76), автопан, общие onConnectStart/
+  onConnectEnd холста; правила цели и запись — через `ReconnectProvider` холста.
+  Цель: защёлка на хэндл центра стороны узла-члена (радиус 30) ИЛИ дроп на его ТЕЛО
+  (elementFromPoint по отпусканию, если защёлки не было); допустимая цель под курсором
+  подсвечивается (canvas.md CV21). Перевес — НЕ новая связь (фикс 2026-10-05): жест
+  идёт через общие onConnectStart/onConnectEnd, поэтому метка перевеса
+  (onStart/onEnd провайдера → useEdgeConnect) гасит поток создания связи (E73) целиком
+  — ни окна «Новая связь», ни выбора потомка, ни плитки «вне уровня», ни подсветки зон
+  входа. [тест: assembleRf.reconnect.test.ts (признак), levelGraph.reconnect.test.tsx
+  (правила цели и склейка), rehangAnchor.test.ts (новый конец, узел под точкой),
   useEdgeConnect.reconnect.test.ts (перевес не создаёт связь)]
 - **E2.** Мастер-стрелка: все связи одного направления между парой отображаемых
   сущностей сливаются в одну группу (id `merge:<src>-><tgt>`); синтетическая, без

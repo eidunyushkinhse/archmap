@@ -264,6 +264,13 @@ export function assembleRfGraph(params: {
     // Авто-маршрут (R1+R3): edges.tsx рисует его ортоломаной с минимумом пересечений.
     const ar = autoRoutes?.get(g.id);
     if (ar) data.autoRoute = ar;
+    // Перевес конца (edge.md E1a): реконнект умер вместе с ручным слоем стрелок
+    // (2026-07-09) и вернулся ТОЧЕЧНО 2026-08-11 — тянуть можно только конец, упёршийся
+    // в рамку, и только на узел внутри неё (проверку цели делает холст). Ручку рисует
+    // само ребро на точке роутера (RehangAnchor, Ф5), а не React Flow у хэндла, поэтому
+    // признак — в data, а не reconnectable. Остальная геометрия связи автоматическая.
+    const ends = srcFrame && tgtFrame ? "both" : srcFrame ? "source" : tgtFrame ? "target" : undefined;
+    if (ends) data.reconnectEnds = ends;
     // Авто-размещение плашки (R2+R4): центр/якорь/режим. edges.tsx ставит плашку в
     // center, а в режиме leader рисует поводок center↔anchor.
     const lp = labelPlacements?.get(g.id);
@@ -290,11 +297,6 @@ export function assembleRfGraph(params: {
         ...(est === "deprecated" ? { strokeDasharray: "6 4" } : null),
         ...(eDimmed ? { opacity: 0.12 } : null),
       },
-      // Реконнект концов умер вместе с ручным слоем стрелок (2026-07-09) и вернулся
-      // ТОЧЕЧНО 2026-08-11: тянуть можно только конец, упёршийся в рамку, — и только
-      // на узел внутри неё (проверку цели делает холст). Остальная геометрия связи
-      // по-прежнему целиком автоматическая.
-      reconnectable: srcFrame && tgtFrame ? true : srcFrame ? "source" : tgtFrame ? "target" : false,
     };
   });
 
