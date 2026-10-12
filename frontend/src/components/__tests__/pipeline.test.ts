@@ -162,6 +162,40 @@ describe("computeViewLayout — композиция конвейера уров
     expect(sig(r1.layout)).toBe(sig(r2.layout));
   });
 
+  it("Ф4б: на свежей сцене дети раскрытого локала стоят блоком внутри компактной рамки, контейнер засевается углом bbox детей", async () => {
+    const b1 = { ...appNode("B1"), parent_id: "B" } as AppNode;
+    const b2 = { ...appNode("B2"), parent_id: "B" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      viewLayout: {},
+      edges: [edge("eAB1", "A", "B1", "к ребёнку"), edge("eB1B2", "B1", "B2", "внутри"), edge("eGA", "G", "A")],
+      endpoints: [
+        ghost("G", []),
+        { ...ghost("B1", [a("P"), a("B")]), is_external: false },
+        { ...ghost("B2", [a("P"), a("B")]), is_external: false },
+      ],
+      expanded: new Set(["B"]),
+      localChildren: { B: [b1, b2] },
+    }));
+    const frame = out.layout.guestFrames.find((f) => f.id === "B")!;
+    expect(frame).toBeDefined();
+    const pos = out.layout.positions;
+    const inside = (id: string): boolean => {
+      const p = pos.get(id)!;
+      return p.x >= frame.rect.x && p.y >= frame.rect.y
+        && p.x + NODE_W <= frame.rect.x + frame.rect.w && p.y + NODE_H <= frame.rect.y + frame.rect.h;
+    };
+    expect(inside("B1") && inside("B2")).toBe(true);
+    // рамка компактна: дети стоят вплотную (мини-раскладка), а не разбросаны по потоку уровня
+    expect(frame.rect.w).toBeLessThanOrEqual(2 * NODE_W + 132 + 2 * 30);
+    expect(frame.rect.h).toBeLessThanOrEqual(2 * NODE_H + 220 + 2 * 30 + 30);
+    // чужой локал A — вне рамки
+    expect(inside("A")).toBe(false);
+    // контейнер B засеян позицией = левый-верх bbox детей (C6)
+    const seeds = out.intents.flatMap((i) => i.seeds);
+    const sB = seeds.find((s) => s.id === "B");
+    expect(sB).toEqual({ id: "B", x: Math.min(pos.get("B1")!.x, pos.get("B2")!.x), y: Math.min(pos.get("B1")!.y, pos.get("B2")!.y) });
+  });
+
   it("две связи одного направления сливаются в мастер-группу merge:", async () => {
     const inp = levelInput({
       edges: [edge("e1", "A", "B", "раз"), edge("e2", "A", "B", "два")],

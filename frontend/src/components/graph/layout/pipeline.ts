@@ -41,6 +41,7 @@ import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
 import { guestLayerSides } from "./guestLayers";
+import { buildLocalBlocks } from "./localBlocks";
 // T4_FULL_GRID_HINTS (экспериментальный флаг г1, Ф4-II) и T4_REROUTE (перепрокладка в
 // T4, E40 v3) — читаются здесь, а объявлены в autoRoutes.ts, чтобы входить в реестр
 // сторожа контракта роутера (Н2 внешнего аудита: routerVersion.ts не имеет права
@@ -532,14 +533,37 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const guestLayers = guestLayerSides({
     entities, localIds: new Set(nodes.map((n) => n.id)), frameEndIds: frameIds, groups: groupArr, ancestorIds,
   });
-  const baseLayout = await layoutLevel(allNodeInfos, layoutEdges, {
-    sizes: new Map(sizes ? Object.entries(sizes) : []),
+  // СВЕЖАЯ СЦЕНА — ни один локал не владеет позицией (первое открытие уровня,
+  // «Переразложить»): координаты ELK и есть координаты экрана. На владеемой сцене
+  // позиция ELK новичка — в системе координат, которой на экране нет.
+  const freshScene = nodes.length > 0 && nodes.every((n) => !ownedPositions[n.id]);
+  // Ф4б (шаг 3): на свежей сцене дети раскрытых локалов — БЛОКОМ: мини-раскладка детей
+  // (та же, что у спавна на владеемых сценах), контейнер идёт в раскладку уровня одним
+  // узлом размера своей рамки, дети ставятся внутрь. Плоский ELK разбрасывал их по
+  // слоям вперемешку с соседями, и рамка растягивалась на полсцены. На владеемой сцене
+  // детей кладёт спавн (ниже) — блоков нет.
+  const blocks = freshScene && absorbed.size > 0
+    ? await buildLocalBlocks({ absorbed, localChildren, layoutEdges })
+    : null;
+  const elkNodeInfos = blocks
+    ? [...allNodeInfos.filter((n) => !blocks.blockOf.has(n.id)), ...blocks.top.map((b) => ({ id: b.id, savedPos: null }))]
+    : allNodeInfos;
+  const elkSizes = new Map<string, { w: number; h: number }>(sizes ? Object.entries(sizes) : []);
+  if (blocks) for (const b of blocks.top) elkSizes.set(b.id, b.frame);
+  const baseLayout = await layoutLevel(elkNodeInfos, blocks ? blocks.liftEdges(layoutEdges) : layoutEdges, {
+    sizes: elkSizes,
     labelBoxes: elkLabelBoxes,
     guestLayers,
   });
   mark("ELK уровня");
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
+  // позиции контейнеров-блоков (C6: левый-верх bbox детей) — для засева владения ниже
+  let blockOrigins: Map<string, { x: number; y: number }> | null = null;
+  if (blocks) {
+    blockOrigins = blocks.place(positions);
+    edgeHandles = assignEdgeHandles(allNodeInfos, layoutEdges, positions);
+  }
   // ПУСТОЙ УРОВЕНЬ: рамка контейнера рисуется всегда, но членов у неё нет — их роль
   // играет синтетический бокс «как под один узел» (frames.ts). Он существует ТОЛЬКО
   // для геометрии рамок: в displayIds/entities/засев/роутер не попадает, узлом не
@@ -570,12 +594,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
   mark("спавн детей");
 
-  // СВЕЖАЯ СЦЕНА — ни один локал не владеет позицией (первое открытие уровня,
-  // «Переразложить»): координаты ELK и есть координаты экрана, кольцо следует за ними
-  // (Ф4б, шаг 2). На владеемой сцене позиция ELK новичка — в системе координат, которой
-  // на экране нет: кольцо ставит его по якорю (прежняя модель; единое правило сторон
-  // новичка — шаг 5 плана).
-  const freshScene = nodes.length > 0 && nodes.every((n) => !ownedPositions[n.id]);
+  // На свежей сцене кольцо следует за ELK (Ф4б, шаг 2); на владеемой ставит новичка по
+  // якорю (прежняя модель; единое правило сторон новичка — шаг 5 плана).
   const og = placeGhostsOnRings({
     nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
     followElk: freshScene,
@@ -707,6 +727,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     ownedPositions,
     (id) => positions.get(id),
   );
+  // Контейнеры-блоки свежей сцены (Ф4б, шаг 3): их позиция — левый-верх bbox детей,
+  // как закрепляет own-on-expand (C6); без неё спавн новых детей на уже владеемой
+  // сцене не знал бы, откуда стартовать.
+  if (blockOrigins) {
+    for (const [cid, o] of blockOrigins) {
+      if (!ownedPositions[cid]) seeds.push({ id: cid, pos_x: o.x, pos_y: o.y });
+    }
+  }
   if (seeds.length > 0) {
     intents.push({
       kind: "seed-positions",

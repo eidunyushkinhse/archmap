@@ -59,8 +59,14 @@ if (process.env.ARCHMAP_LABEL_COST !== undefined) LABEL_HOSTS.lostCost = Number(
 // видит пользователь по «Переразложить». ARCHMAP_ENGINE_DIR=RIGHT|DOWN переопределяет
 // направление ELK уровня.
 const ENGINE_DIR: "DOWN" | "RIGHT" = process.env.ARCHMAP_ENGINE_DIR === "RIGHT" ? "RIGHT" : process.env.ARCHMAP_ENGINE_DIR === "DOWN" ? "DOWN" : LEVEL_DIRECTION;
-if (process.env.ARCHMAP_ENGINE_DIR) {
-  (globalThis as unknown as { __archmapElkOverride?: Record<string, string> }).__archmapElkOverride = { "elk.direction": ENGINE_DIR };
+// ARCHMAP_ELK_OVERRIDE='{"elk.layered.nodePlacement.strategy":"NETWORK_SIMPLEX"}' — любые
+// опции ELK уровня поверх дефолтов движка (A/B стратегий раскладки на тех же сценах)
+const elkOverrideEnv = process.env.ARCHMAP_ELK_OVERRIDE ? JSON.parse(process.env.ARCHMAP_ELK_OVERRIDE) as Record<string, string> : {};
+if (process.env.ARCHMAP_ENGINE_DIR || Object.keys(elkOverrideEnv).length > 0) {
+  (globalThis as unknown as { __archmapElkOverride?: Record<string, string> }).__archmapElkOverride = {
+    ...(process.env.ARCHMAP_ENGINE_DIR ? { "elk.direction": ENGINE_DIR } : {}),
+    ...elkOverrideEnv,
+  };
 }
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map

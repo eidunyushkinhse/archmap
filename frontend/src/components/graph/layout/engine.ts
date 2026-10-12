@@ -24,6 +24,18 @@ import type { GuestLayer } from "./guestLayers";
  * выводит ось потока из геометрии узлов сам (ports.ts, E8).
  */
 export const LEVEL_DIRECTION: FlowDirection = "DOWN";
+
+/**
+ * СТРАТЕГИЯ РАССТАНОВКИ УЗЛОВ ВНУТРИ СЛОЯ (Ф4б, 2026-10-12): network simplex вместо
+ * дефолтного Brandes–Köpf. BK выравнивает узел по одному (медианному) соседу и на
+ * сценах полигона уводил хаб (Kafka) в край ряда — три длинных плеча и лишние кресты;
+ * NS минимизирует взвешенную сумму отклонений рёбер и ставит хаб под центром масс
+ * соседей. Замер auto DOWN (кресты/резы, длина): корень 1/1 → 0/0, система 2/0 → 1/0
+ * (18.4k → 16.7k px), система с рамкой 4/0 → 3/2, каталог 0/0 (3774 → 3558). Одна из
+ * стратегий меню Mermaid (elk.nodePlacementStrategy). Та же — в мини-раскладке блоков и
+ * спавна детей (spawnChildren).
+ */
+export const NODE_PLACEMENT = "NETWORK_SIMPLEX";
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
 
@@ -153,6 +165,7 @@ export async function layoutLevel(
       layoutOptions: {
         "elk.algorithm": "layered",
         "elk.direction": LEVEL_DIRECTION,
+        "elk.layered.nodePlacement.strategy": NODE_PLACEMENT,
         "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
