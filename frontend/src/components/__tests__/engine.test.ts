@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getElk, layoutLevel, __clearElkCacheForTests } from "../graph/layout/engine";
+import type { GuestLayer } from "../graph/layout/guestLayers";
 import type { LayoutEdge } from "../../types";
 
 // Спайк Фазы 4 (шаг 4.0): убеждаемся, что ELK поднимается в main-thread под jsdom
@@ -74,5 +75,38 @@ describe("форма уровня — всегда layered DOWN (R10, N30 сня
     __clearElkCacheForTests();
     const b = await layoutLevel(starNodes, starEdges);
     expect([...a.positions.entries()]).toEqual([...b.positions.entries()]);
+  });
+});
+
+describe("крайние слои гостей (Ф4б, guestLayers)", () => {
+  // цепочка локалов L1→L2→L3; гость-источник Gs → L3 (без ограничения ELK ставил бы его
+  // во второй ряд), гость-приёмник L1 → Gt; Gs2 связан только с Gs (гость→гость внутри
+  // одного крайнего слоя — ELK не отдаётся) и с L2
+  const nodes = [{ id: "L1" }, { id: "L2" }, { id: "L3" }, { id: "Gs" }, { id: "Gs2" }, { id: "Gt" }];
+  const edges = [
+    edge("e1", "L1", "L2"), edge("e2", "L2", "L3"), edge("e3", "Gs", "L3"),
+    edge("e4", "L1", "Gt"), edge("e5", "Gs", "Gs2"), edge("e6", "Gs2", "L2"),
+  ];
+  const guestLayers = new Map<string, GuestLayer>([["Gs", "first"], ["Gs2", "first"], ["Gt", "last"]]);
+
+  it("источники — слоем выше всех локалов, приёмники — ниже; поток локалов не тронут", async () => {
+    __clearElkCacheForTests();
+    const res = await layoutLevel(nodes, edges, { guestLayers });
+    const y = (id: string): number => res.positions.get(id)!.y;
+    const localYs = ["L1", "L2", "L3"].map(y);
+    expect(y("Gs")).toBeLessThan(Math.min(...localYs));
+    expect(y("Gs2")).toBeLessThan(Math.min(...localYs));
+    expect(y("Gt")).toBeGreaterThan(Math.max(...localYs));
+    expect(y("L1")).toBeLessThan(y("L2"));
+    expect(y("L2")).toBeLessThan(y("L3"));
+  });
+
+  it("контроль: без ограничений гость-источник к третьему ряду встаёт ВНУТРЬ потока", async () => {
+    __clearElkCacheForTests();
+    const res = await layoutLevel(
+      [{ id: "L1" }, { id: "L2" }, { id: "L3" }, { id: "Gs" }],
+      [edge("e1", "L1", "L2"), edge("e2", "L2", "L3"), edge("e3", "Gs", "L3")],
+    );
+    expect(res.positions.get("Gs")!.y).toBeGreaterThan(res.positions.get("L1")!.y);
   });
 });

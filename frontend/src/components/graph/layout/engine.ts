@@ -15,6 +15,7 @@ import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText } from "../text";
 import { flowSpacing, type FlowDirection } from "./flowGaps";
+import type { GuestLayer } from "./guestLayers";
 
 /**
  * НАПРАВЛЕНИЕ автораскладки уровня (R10 плана эпика «стрелки без жёстких хэндлов»,
@@ -94,12 +95,28 @@ export async function layoutLevel(
   opts?: {
     sizes?: ReadonlyMap<string, { w: number; h: number }>;
     labelBoxes?: ReadonlyMap<string, { w: number; h: number }>;
+    // Ф4б (шаг 1): крайние слои ELK для гостей — источники в отдельный слой ПЕРЕД
+    // первым рядом локалов, приёмники — ПОСЛЕ последнего (guestLayers.ts); узлы без
+    // записи — обычные. Без гостей (карта пуста) ограничений нет вовсе.
+    guestLayers?: ReadonlyMap<string, GuestLayer>;
   },
 ): Promise<LevelLayout> {
   const idSet = new Set(allNodes.map((n) => n.id));
   const inner = edges.filter((e) => idSet.has(e.source_id) && idSet.has(e.target_id));
   const sizeOf = (id: string): { w: number; h: number } => opts?.sizes?.get(id) ?? { w: NODE_W, h: NODE_H };
   const labelOf = (id: string): { w: number; h: number } | undefined => opts?.labelBoxes?.get(id);
+  const layerOf = (id: string): GuestLayer | undefined => opts?.guestLayers?.get(id);
+  const constrained = allNodes.some((n) => layerOf(n.id) !== undefined);
+  // Ф4б: связи гость→гость ELK не отдаём, кроме «источник → приёмник» через всю схему:
+  // внутри одного крайнего слоя ELK их не принимает (in-layer ребро — исключение
+  // UnsupportedConfigurationException), а обратную (приёмник → источник) разворачивал
+  // бы cycle breaker. Такие связи ведёт роутер по финальным позициям, как и все прочие.
+  const elkEdges = constrained
+    ? inner.filter((e) => {
+      const s = layerOf(e.source_id), t = layerOf(e.target_id);
+      return s === undefined || t === undefined || (s === "first" && t === "last");
+    })
+    : inner;
 
   // A/B-ПЕРЕОПРЕДЕЛЕНИЕ ОПЦИЙ ELK (перф-эпик 2026-08-20): глобал __archmapElkOverride
   // подменяет/дополняет layoutOptions (алгоритм/зазоры). Выставляют только мокап-раннер
@@ -111,8 +128,10 @@ export async function layoutLevel(
   // Проверяем кэш ELK (оптимизация 2026-07-21)
   // габариты и плашки — в сигнатуре кэша: тот же граф с другими размерами — другая раскладка
   const dims = allNodes.map((n) => { const z = sizeOf(n.id); return `${n.id}:${Math.round(z.w)}x${Math.round(z.h)}`; }).join(",")
-    + "|" + inner.map((e) => { const l = labelOf(e.id); return l ? `${e.id}:${Math.round(l.w)}x${Math.round(l.h)}` : ""; }).join(",");
-  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, inner) + "|" + dims;
+    + "|" + elkEdges.map((e) => { const l = labelOf(e.id); return l ? `${e.id}:${Math.round(l.w)}x${Math.round(l.h)}` : ""; }).join(",")
+    // крайние слои гостей — в сигнатуре: тот же граф с другой стороной гостя — другая раскладка
+    + "|guest:" + allNodes.flatMap((n) => { const l = layerOf(n.id); return l ? [`${n.id}:${l}`] : []; }).join(",");
+  const sig = (override ? JSON.stringify(override) + "|" : "") + elkSignature(allNodes, elkEdges) + "|" + dims;
   let elkPositions = elkCache.get(sig);
 
   if (!elkPositions) {
@@ -121,7 +140,7 @@ export async function layoutLevel(
     // линий и плашек (flowGaps; были статические 60/10/10 — пачке из 4 плеч с
     // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
     // рёбрами ELK смыкал до 32px независимо от nodeNode)
-    const sp = flowSpacing(inner, LEVEL_DIRECTION);
+    const sp = flowSpacing(elkEdges, LEVEL_DIRECTION);
     // ФОРМА — ВСЕГДА layered (R10 плана эпика «стрелки без жёстких хэндлов», Ф4,
     // 2026-10-12): прежнее правило N30 «звёзды — force» снято. С портом на связь и
     // подписями inline layered DOWN рисует звезду как поток Mermaid (полигон: корень
@@ -147,8 +166,17 @@ export async function layoutLevel(
         "elk.spacing.edgeLabel": "6",
         ...override,
       },
-      children: allNodes.map((n) => { const z = sizeOf(n.id); return { id: n.id, width: z.w, height: z.h }; }),
-      edges: inner.map((e) => {
+      // Ф4б: гости — в отдельные крайние слои (источники перед первым рядом локалов,
+      // приёмники за последним), как вложенная коробка ELK: гость снаружи рамки уровня
+      children: allNodes.map((n) => {
+        const z = sizeOf(n.id);
+        const l = layerOf(n.id);
+        return {
+          id: n.id, width: z.w, height: z.h,
+          ...(l ? { layoutOptions: { "elk.layered.layering.layerConstraint": l === "first" ? "FIRST_SEPARATE" : "LAST_SEPARATE" } } : {}),
+        };
+      }),
+      edges: elkEdges.map((e) => {
         const l = labelOf(e.id);
         return {
           id: e.id, sources: [e.source_id], targets: [e.target_id],

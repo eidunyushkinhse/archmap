@@ -16,6 +16,21 @@
 //
 // enforceFramesKeepOut остаётся страховочной сеткой (ручные позиции, рост рамки за ручным
 // гостем); на авто-гостях после этого прохода он обязан быть no-op.
+//
+// КОЛЬЦО СЛЕДУЕТ ЗА ELK (Ф4б эпика «стрелки без жёстких хэндлов», шаг 2; решение
+// пользователя 2026-10-12 — один движок с едиными правилами вместо compound-режима ELK
+// рядом с кольцом). На СВЕЖЕЙ сцене (ни один локал не владеет позицией: первое открытие
+// уровня, «Переразложить») координаты ELK и есть координаты экрана, а гости уже стоят в
+// крайних слоях (guestLayers.ts) — за первым/последним рядом локалов, как вложенная
+// коробка ELK. Кольцо тогда НЕ пересчитывает место с нуля по якорям: сторона и
+// координата вдоль неё берутся из позиции ELK, а поперёк гость лишь ВЫДВИГАЕТСЯ на поле
+// рамки, если ELK поставил его ближе зазора keep-out; стоящий снаружи не трогается (зазор
+// под подписи между гостем и рядом локалов зарезервирован самой раскладкой). Гости разных
+// слоёв ELK (цепочка гость→гость) стоят друг над другом и вдоль стороны не разводятся —
+// раздвижка PAV идёт только внутри кластера, пересекающегося поперёк. На ВЛАДЕЕМОЙ сцене
+// позиция ELK новичка — в системе координат, которой на экране нет: работает прежняя
+// модель якорей (пробные маршруты по сторонам); единое правило сторон для новичка —
+// шаг 5 плана.
 import { NODE_W, NODE_H, KEEPOUT_GAP } from "../constants";
 import { computeFrames } from "./frames";
 import { nativeByDepth, memberDepth } from "./keepGhostsOut";
@@ -54,8 +69,11 @@ export function placeGhostsOnRings(params: {
   /** цепочки над детьми раскрытых ЛОКАЛОВ — модель рамок обязана видеть их кольца
       (иначе кольцо гостя не совпадает с нарисованной границей, см. enforceFramesKeepOut) */
   localFrames?: { id: string; ancestors: AncestorRef[] }[];
+  /** Ф4б: свежая сцена — гости стоят в крайних слоях ELK, кольцо следует за их позициями
+      (сторона и координата вдоль — из ELK, поперёк — выдвижение на поле рамки) */
+  followElk?: boolean;
 }): RingPlacementResult | null {
-  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded, localFrames } = params;
+  const { nodes, entities, ancestorIds, levelPositions, layoutEdges, positions, expanded, localFrames, followElk } = params;
   if (nodes.length === 0 || ancestorIds.length === 0) return null;
 
   const localIds = nodes.map((n) => n.id);
@@ -174,6 +192,12 @@ export function placeGhostsOnRings(params: {
     }
     return [...set];
   };
+  // есть ли у группы хоть одна связь наружу (с локалом или другим гостем): позиция ELK
+  // такой группы осмысленна; изолят ELK пакует отдельной компонентой — ему якорная модель
+  const connectedAny = (ids: string[]): boolean => {
+    const idset = new Set(ids);
+    return layoutEdges.some((e) => idset.has(e.source_id) !== idset.has(e.target_id));
+  };
   // направление потока группы: источник (→ лево) vs приёмник (→ право), запасной критерий
   const flowSide = (ids: string[]): EdgeSide => {
     let left = 0, right = 0;
@@ -213,8 +237,10 @@ export function placeGhostsOnRings(params: {
     };
     const ringCx = (ring.minX + ring.maxX) / 2, ringCy = (ring.minY + ring.maxY) / 2;
 
-    // выбор стороны для каждой группы слоя + желаемый центр вдоль стороны
-    interface Placed { g: Group; bbox: Rect; side: EdgeSide; along: number }
+    // выбор стороны для каждой группы слоя + желаемый центр вдоль стороны; gap — зазор
+    // поперёк между кольцом и группой (0 — группа садится на кольцо; >0 — её поставил
+    // ELK дальше, и позицию поперёк сохраняем, Ф4б)
+    interface Placed { g: Group; bbox: Rect; side: EdgeSide; along: number; gap: number }
     const buckets: Record<EdgeSide, Placed[]> = { left: [], right: [], top: [], bottom: [] };
     for (const g of layer) {
       // внешний прямоугольник группы: гостевая рамка (если группа — рамка) либо bbox узлов
@@ -222,6 +248,20 @@ export function placeGhostsOnRings(params: {
       if (!bbox) continue;
       const bw = bbox.maxX - bbox.minX, bh = bbox.maxY - bbox.minY;
       const connected = connectedLocal(g.ids);
+      if (followElk && connectedAny(g.ids)) {
+        // КОЛЬЦО СЛЕДУЕТ ЗА ELK: сторона — где группа уже снаружи кольца дальше всего
+        // (или где выход наружу ближе всего, если ELK поставил её внутрь зазора),
+        // вдоль стороны — координата ELK, поперёк — зазор ELK либо 0 (выдвижение)
+        const gapOf: Record<EdgeSide, number> = {
+          top: ring.minY - bbox.maxY, bottom: bbox.minY - ring.maxY,
+          left: ring.minX - bbox.maxX, right: bbox.minX - ring.maxX,
+        };
+        const side = (["top", "bottom", "left", "right"] as const)
+          .reduce<EdgeSide>((b, s) => (gapOf[s] > gapOf[b] ? s : b), "top");
+        const along = side === "left" || side === "right" ? (bbox.minY + bbox.maxY) / 2 : (bbox.minX + bbox.maxX) / 2;
+        buckets[side].push({ g, bbox, side, along, gap: Math.max(0, gapOf[side]) });
+        continue;
+      }
       let ax = 0, ay = 0, cnt = 0;
       for (const lid of connected) {
         const p = positions.get(lid);
@@ -249,7 +289,7 @@ export function placeGhostsOnRings(params: {
         if (c < bestCross) { bestCross = c; bestSide = side; }
       }
       const along = bestSide === "left" || bestSide === "right" ? anchorY : anchorX;
-      buckets[bestSide].push({ g, bbox, side: bestSide, along });
+      buckets[bestSide].push({ g, bbox, side: bestSide, along, gap: 0 });
     }
 
     // Внутренняя раскладка детей раскрытой гостевой рамки (D1): вместо жёсткого переноса
@@ -343,24 +383,49 @@ export function placeGhostsOnRings(params: {
           if (nb) it.bbox = nb;
         }
       }
-      const half = items.map((it) =>
-        axis === "y" ? (it.bbox.maxY - it.bbox.minY) / 2 : (it.bbox.maxX - it.bbox.minX) / 2);
-      const centers = spread1DSized(items.map((it) => it.along), half, SHELF_GAP);
-      items.forEach((it, i) => {
+      // координата поперёк (minX для left/right, minY для top/bottom): кольцо + зазор ELK
+      const crossMin = (it: Placed): number => {
         const bw = it.bbox.maxX - it.bbox.minX, bh = it.bbox.maxY - it.bbox.minY;
-        // целевой верхний-левый угол bbox: фикс по стороне кольца, центр по оси раздвижки
-        let targetMinX: number, targetMinY: number;
-        if (it.side === "left")        { targetMinX = ring.minX - bw; targetMinY = centers[i] - bh / 2; }
-        else if (it.side === "right")  { targetMinX = ring.maxX;      targetMinY = centers[i] - bh / 2; }
-        else if (it.side === "top")    { targetMinX = centers[i] - bw / 2; targetMinY = ring.minY - bh; }
-        else                            { targetMinX = centers[i] - bw / 2; targetMinY = ring.maxY; }
-        const dx = targetMinX - it.bbox.minX, dy = targetMinY - it.bbox.minY;
-        for (const id of it.g.ids) {
-          const p = positions.get(id);
-          if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
-          placedOutside.add(id);
+        switch (it.side) {
+          case "left":   return ring.minX - it.gap - bw;
+          case "right":  return ring.maxX + it.gap;
+          case "top":    return ring.minY - it.gap - bh;
+          default:       return ring.maxY + it.gap;
         }
-      });
+      };
+      const crossSize = (it: Placed): number =>
+        axis === "y" ? it.bbox.maxX - it.bbox.minX : it.bbox.maxY - it.bbox.minY;
+      // КЛАСТЕРЫ ПО ПЕРЕСЕЧЕНИЮ ПОПЕРЁК: раздвигаем вдоль стороны только тех, кто может
+      // столкнуться. Без зазоров ELK (якорная модель) все на кольце — один кластер, как
+      // прежде; гости разных слоёв ELK (цепочка гость→гость) стоят друг над другом и вдоль
+      // стороны не разводятся.
+      const byCross = [...items].sort((p, q) => crossMin(p) - crossMin(q));
+      const clusters: Placed[][] = [];
+      let clusterEnd = -Infinity;
+      for (const it of byCross) {
+        const lo = crossMin(it);
+        if (clusters.length === 0 || lo >= clusterEnd - 1e-6) { clusters.push([it]); clusterEnd = lo + crossSize(it); }
+        else { clusters[clusters.length - 1].push(it); clusterEnd = Math.max(clusterEnd, lo + crossSize(it)); }
+      }
+      for (const cluster of clusters) {
+        // порядок вдоль стороны — по желаемой позиции (PAV требует монотонный вход)
+        cluster.sort((p, q) => (p.along - q.along) || (p.g.key < q.g.key ? -1 : p.g.key > q.g.key ? 1 : 0));
+        const half = cluster.map((it) =>
+          axis === "y" ? (it.bbox.maxY - it.bbox.minY) / 2 : (it.bbox.maxX - it.bbox.minX) / 2);
+        const centers = spread1DSized(cluster.map((it) => it.along), half, SHELF_GAP);
+        cluster.forEach((it, i) => {
+          const bw = it.bbox.maxX - it.bbox.minX, bh = it.bbox.maxY - it.bbox.minY;
+          // целевой верхний-левый угол bbox: поперёк — кольцо (+ зазор ELK), вдоль — центр раздвижки
+          const targetMinX = axis === "y" ? crossMin(it) : centers[i] - bw / 2;
+          const targetMinY = axis === "y" ? centers[i] - bh / 2 : crossMin(it);
+          const dx = targetMinX - it.bbox.minX, dy = targetMinY - it.bbox.minY;
+          for (const id of it.g.ids) {
+            const p = positions.get(id);
+            if (p) positions.set(id, { x: p.x + dx, y: p.y + dy });
+            placedOutside.add(id);
+          }
+        });
+      }
     };
     settle(buckets.left, "y");
     settle(buckets.right, "y");

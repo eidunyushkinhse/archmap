@@ -40,6 +40,7 @@ import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
+import { guestLayerSides } from "./guestLayers";
 // T4_FULL_GRID_HINTS (экспериментальный флаг г1, Ф4-II) и T4_REROUTE (перепрокладка в
 // T4, E40 v3) — читаются здесь, а объявлены в autoRoutes.ts, чтобы входить в реестр
 // сторожа контракта роутера (Н2 внешнего аудита: routerVersion.ts не имеет права
@@ -524,9 +525,17 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     const m = edgeLabelMeta(g);
     if (m) elkLabelBoxes.set(g.members.length === 1 ? g.members[0].id : g.id, metaLabelBox(m));
   }
+  // Ф4б (шаг 1): гости — в крайние слои ELK: источники отдельным слоем перед первым
+  // рядом локалов, приёмники за последним (позиция вложенной коробки ELK); кольцо ниже
+  // лишь выдвигает их на поле рамки. Сторона — по связям со стороной уровня (локалы и
+  // рамки-концы).
+  const guestLayers = guestLayerSides({
+    entities, localIds: new Set(nodes.map((n) => n.id)), frameEndIds: frameIds, groups: groupArr, ancestorIds,
+  });
   const baseLayout = await layoutLevel(allNodeInfos, layoutEdges, {
     sizes: new Map(sizes ? Object.entries(sizes) : []),
     labelBoxes: elkLabelBoxes,
+    guestLayers,
   });
   mark("ELK уровня");
   const positions = baseLayout.positions;
@@ -561,8 +570,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
   mark("спавн детей");
 
+  // СВЕЖАЯ СЦЕНА — ни один локал не владеет позицией (первое открытие уровня,
+  // «Переразложить»): координаты ELK и есть координаты экрана, кольцо следует за ними
+  // (Ф4б, шаг 2). На владеемой сцене позиция ELK новичка — в системе координат, которой
+  // на экране нет: кольцо ставит его по якорю (прежняя модель; единое правило сторон
+  // новичка — шаг 5 плана).
+  const freshScene = nodes.length > 0 && nodes.every((n) => !ownedPositions[n.id]);
   const og = placeGhostsOnRings({
     nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
+    followElk: freshScene,
   });
 
   // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок

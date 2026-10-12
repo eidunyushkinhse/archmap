@@ -111,6 +111,18 @@ describe("computeViewLayout — композиция конвейера уров
     expect(seeds.map((s) => s.id).sort()).toEqual(["A", "B", "D", "G"]);
   });
 
+  it("Ф4б: на свежей сцене гость-источник стоит над всеми локалами, приёмник — под ними", async () => {
+    // viewLayout пуст → свежая сцена: гости в крайних слоях ELK, кольцо следует за ELK
+    const out = await computeViewLayout(levelInput({
+      viewLayout: {},
+      edges: [edge("eAB", "A", "B", "зов"), edge("eGA", "G", "A"), edge("eBH", "B", "H")],
+    }));
+    const pos = out.layout.positions;
+    const ys = ["A", "B"].map((id) => pos.get(id)!.y);
+    expect(pos.get("G")!.y + NODE_H).toBeLessThan(Math.min(...ys));   // источник G — над схемой
+    expect(pos.get("D")!.y).toBeGreaterThan(Math.max(...ys) + NODE_H); // приёмник (контейнер D) — под ней
+  });
+
   it("стабильность: добавление узла и связи не двигает владеемых локалов", async () => {
     const first = await computeViewLayout(levelInput());
     const posA = first.layout.positions.get("A");
