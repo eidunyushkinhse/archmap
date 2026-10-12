@@ -369,6 +369,20 @@
   marker-end: url(#lg-linked-arrow) !important;
 }
 
+/* ДАЛЬНИЙ РЕЖИМ (zoom < FAR_ZOOM, атрибут data-far ставит handleViewportChange; CV2 v2):
+   предел отдаления снят до 0.05, и на сильном отдалении линия 1.5px холста таяла бы
+   до долей экранного пикселя — держим экранную толщину штриха (vector-effect:
+   non-scaling-stroke: 1.5px на экране при любом зуме ниже порога; при обычном зуме
+   линия как прежде, масштабируется). Сетка точек на таком отдалении сливалась в серую
+   муть (шаг 16 × zoom < 6px) — прячем. */
+.lg-canvas[data-far] .react-flow__edge-path,
+.lg-canvas[data-far] .react-flow__connectionline path {
+  vector-effect: non-scaling-stroke;
+}
+.lg-canvas[data-far] .react-flow__background {
+  display: none;
+}
+
 /* Плашки подписей — ПОВЕРХ линий стрелок (жалоба «плашка под стрелкой»).
    RF поднимает svg ребра до z:1, когда его конец — ребёнок compound-рамки (после
    раскрытия контейнеров это почти все рёбра), а edgelabel-renderer живёт на z:auto —

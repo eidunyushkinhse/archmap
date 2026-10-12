@@ -86,6 +86,13 @@ const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 // идентичный вид. maxZoom 1.0 — не раздувать разреженные схемы (1–2 узла) крупнее
 // натурального размера, но и не мельчить (прежние 0.85 оставляли схемы «мелко»).
 const SCHEMA_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0 };
+// ПРЕДЕЛ ОТДАЛЕНИЯ (CV2 v2, решение пользователя 2026-10-12): дефолтные 0.5 React Flow
+// упирались на больших уровнях — ни колесом, ни «Центрировать» (fitView тоже не
+// опускается ниже minZoom) всю схему было не увидеть. 0.05 — узел 190 px становится
+// ~10 px: даже уровень на 6000 px умещается в окно с запасом. Ниже FAR_ZOOM холст в
+// дальнем режиме (см. handleViewportChange).
+const MIN_ZOOM = 0.05;
+const FAR_ZOOM = 0.4;
 // Тихое окно авто-центрирования: фит стартует, когда после последнего RF-коммита
 // прошло не меньше FIT_QUIET_MS (анимация не бьётся о коммиты), но не дольше
 // FIT_ATTEMPTS попыток по 140ms (не откладываем вечно при непрерывных изменениях).
@@ -1144,9 +1151,21 @@ function LevelGraphInner({
   // прежним аккуратным 1px, при отдалении растёт физически ровно настолько, чтобы на
   // экране оставаться ~1px. Пишем императивно (не через стейт) — зум не должен
   // ре-рендерить граф; квант 0.25px гасит дёрганье стилей на каждом тике колеса.
+  // ДАЛЬНИЙ РЕЖИМ (решение пользователя 2026-10-12 — предел отдаления снят): ниже
+  // FAR_ZOOM холст получает атрибут data-far — линии стрелок держат экранную толщину
+  // (vector-effect), а сетка точек прячется (на отдалении она сливалась в серую муть).
+  // Тоже императивно, по тому же тику вьюпорта. Атрибут, а не класс: className корня
+  // пишет React на каждом рендере и стёр бы класс, поставленный мимо него.
   const canvasRef = useRef<HTMLDivElement>(null);
   const frameBwRef = useRef(0);
+  const farRef = useRef(false);
   const handleViewportChange = useCallback((vp: Viewport) => {
+    const far = vp.zoom < FAR_ZOOM;
+    if (far !== farRef.current) {
+      farRef.current = far;
+      if (far) canvasRef.current?.setAttribute("data-far", "1");
+      else canvasRef.current?.removeAttribute("data-far");
+    }
     const bw = Math.round(Math.max(1, 1 / vp.zoom) * 4) / 4;
     if (bw === frameBwRef.current) return;
     frameBwRef.current = bw;
@@ -1492,6 +1511,8 @@ function LevelGraphInner({
         // толщина рамок компенсирует отдаление (см. handleViewportChange выше);
         // колбэк ловит и колесо/пан, и программные fitView/setViewport
         onViewportChange={handleViewportChange}
+        // предел отдаления снят до MIN_ZOOM (CV2 v2); приближение — дефолт RF (2)
+        minZoom={MIN_ZOOM}
         proOptions={{ hideAttribution: true }}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />

@@ -10,7 +10,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render } from "@testing-library/react";
 import LevelGraph from "../LevelGraph";
 import type { Node as AppNode } from "../../types";
-import { resetHarness, rf, settle, pipeline } from "./levelGraphHarness";
+import { resetHarness, rf, rfProps, settle, pipeline } from "./levelGraphHarness";
 import { baseProps, type LevelGraphProps } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
@@ -120,5 +120,12 @@ describe("LevelGraph orchestration: авто-центрирование стра
     await runFit();
 
     expect(rf.fitView).not.toHaveBeenCalled();
+  });
+
+  it("предел отдаления снят: minZoom 0.05 у холста (CV2 v2), приближение — дефолт RF", async () => {
+    render(<LevelGraph {...base} />);
+    await runFit();
+    expect(rfProps.current.minZoom).toBe(0.05);
+    expect(rfProps.current.maxZoom).toBeUndefined();
   });
 });
