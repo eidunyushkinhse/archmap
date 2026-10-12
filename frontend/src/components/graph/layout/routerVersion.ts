@@ -74,7 +74,7 @@ import {
   FRAME_PLAQUE_BASE_W, FRAME_PLAQUE_CHAR_W,
 } from "./frames";
 import {
-  LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, metaLabelBox,
+  LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, LABEL_END, metaLabelBox,
 } from "./labelBox";
 import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
 import {
@@ -89,7 +89,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 17;
+export const ROUTER_VERSION = 18;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -165,6 +165,7 @@ export function collectRouterConstants(): Record<string, unknown> {
     // --- носители подписей (Ф3, E96): запас слота, предел смещения ради плашки, цена
     // потерянного носителя в спуске — двигают дорожки, колонны и выбор вариантов ---
     "zRoutes.LABEL_PAD": LABEL_PAD,
+    "labelBox.LABEL_END.clear": LABEL_END.clear,
     "zRoutes.LABEL_SHIFT_TOL": LABEL_SHIFT_TOL,
     "zRoutes.LABEL_HOSTS.lostCost": LABEL_HOSTS.lostCost,
     // --- мост домена (autoRoutes) ---
@@ -271,6 +272,12 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v18 — Ф5 эпика «стрелки без жёстких хэндлов» (2026-10-12, решение пользователя):
+  // ОТСТУП ПЛАШКИ ОТ КОНЦА СТРЕЛКИ (labelBox.LABEL_END.clear = 24, E96 v2 / E50 v3):
+  // слот стаба-носителя отодвинут от узла к дорожке, насколько позволяет полоса, желаемое
+  // место плашки без носителя — не ближе отступа к концу пути. Новая константа реестра;
+  // golden фазз-полигона не дрогнул (его сцены без подписей).
+  18: "1e4ca4811241c379",
   // v17 — Ф4 эпика «стрелки без жёстких хэндлов» (2026-10-12): СНЭП ПОЧТИ ВЫРОВНЕННОЙ
   // ПАРЫ (ports.PORT_SNAP, E86 v3): порты пары, разошедшиеся вдоль меньше чем на 16 px,
   // встают в общую колонну — прямая вместо Z с микроступенькой у порта. Реестр +1

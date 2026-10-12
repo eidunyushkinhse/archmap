@@ -41,6 +41,7 @@ import {
 import { cleanup } from "../graph/edgePath";
 import { NODE_W, NODE_H } from "../graph/constants";
 import { __zDebug, LABEL_HOSTS } from "../graph/layout/zRoutes";
+import { LABEL_END } from "../graph/layout/labelBox";
 import { LEVEL_DIRECTION } from "../graph/layout/engine";
 import { PORT_SHARE, PORT_LABEL_SPACING } from "../graph/layout/ports";
 import type { EdgePoint } from "../../types";
@@ -55,6 +56,8 @@ PORT_SHARE.on = process.env.ARCHMAP_SHARE !== "0";
 LABEL_HOSTS.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_HOSTS !== "0";
 PORT_LABEL_SPACING.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_PORTS !== "0";
 if (process.env.ARCHMAP_LABEL_COST !== undefined) LABEL_HOSTS.lostCost = Number(process.env.ARCHMAP_LABEL_COST);
+// ARCHMAP_LABEL_CLEAR=<px> — отступ плашки от конца стрелки (Ф5, LABEL_END.clear; 0 — поведение до Ф5)
+if (process.env.ARCHMAP_LABEL_CLEAR !== undefined) LABEL_END.clear = Number(process.env.ARCHMAP_LABEL_CLEAR);
 // Ф4: вариант auto — автораскладка самого движка (engine.ts, кольца гостей): то, что
 // видит пользователь по «Переразложить». ARCHMAP_ENGINE_DIR=RIGHT|DOWN переопределяет
 // направление ELK уровня.

@@ -3,6 +3,7 @@ import { placeLabels, type LabelInput, type Placement } from "../graph/layout/pl
 import { rectFromCenter, rectsOverlap, countLabelOverlaps, countLabelsUnderNodes, segCrossesRect } from "../graph/layout/arrowMetrics";
 import type { NodeRect, Segment } from "../graph/edgePath";
 import type { EdgePoint } from "../../types";
+import { LABEL_END } from "../graph/layout/labelBox";
 
 // сегмент-плечо стрелки для edgeSegs (препятствие выноске)
 const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({
@@ -117,9 +118,11 @@ describe("placeLabels — пустые кандидаты: плашка оста
 });
 
 describe("placeLabels — лестница запасов и чужие плечи (E52, Ф3)", () => {
-  it("желаемое место — центр самого ДЛИННОГО чистого интервала", () => {
+  it("желаемое место — центр самого ДЛИННОГО чистого интервала, с отступом от конца пути (Ф5)", () => {
     // крест чужой линии вырезал середину: чистые [0,66] и [134,200]; при равной длине —
-    // первый, центр 33
+    // первый. Его центр 33 положил бы плашку (60 px) в 3 px от узла-истока — хвост
+    // стрелки под плашкой; желаемое место сдвигается так, чтобы ближний край плашки
+    // отстоял от конца пути на LABEL_END.clear: центр 24 + 30 = 54 (интервал позволяет)
     const labels: LabelInput[] = [
       {
         id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16),
@@ -127,7 +130,36 @@ describe("placeLabels — лестница запасов и чужие плеч
       },
     ];
     const [p] = placeLabels(labels);
-    expect(p.center.x).toBeCloseTo(33, 0);
+    expect(p.center.x).toBeCloseTo(LABEL_END.clear + 30, 0);
+  });
+
+  it("чистый интервал у конца короче отступа — плашка уходит от конца, насколько интервал позволяет", () => {
+    // чистые позиции центра только [160,200]; желаемое с отступом — 146, ближайшая чистая — 160
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16), candidates: [{ s: 160, e: 200 }] },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeCloseTo(160, 0);
+  });
+
+  it("якорь носителя вплотную к узлу → плашка отодвигается на отступ, если там чисто (Ф5)", () => {
+    // якорь роутера на стабе у цели: центр в 23 px от конца (слот плашки 38 + 2·4); с
+    // отступом ближний край плашки — в LABEL_END.clear от узла: центр 200 − 24 − 30 = 146
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16), candidates: [{ s: 30, e: 200 }], preferredT: 177 / 200 },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeCloseTo(200 - LABEL_END.clear - 30, 0);
+  });
+
+  it("место с отступом режет чужая линия → плашка остаётся у якоря (вплотную), как раньше", () => {
+    // крест чужой линии вырезал [120,170] из чистых: с отступом (146) там грязно, ближайшее
+    // чистое к желаемому — 170; якорь 177 остаётся в чистой зоне [170,200]
+    const labels: LabelInput[] = [
+      { id: "A", path: poly([0, 0], [200, 0]), box: box(60, 16), candidates: [{ s: 30, e: 120 }, { s: 170, e: 200 }], preferredT: 177 / 200 },
+    ];
+    const [p] = placeLabels(labels);
+    expect(p.center.x).toBeGreaterThanOrEqual(170);
   });
 
   it("чистых нет → запасной интервал loose (без вычета крестов)", () => {
@@ -139,7 +171,8 @@ describe("placeLabels — лестница запасов и чужие плеч
   });
 
   it("нет ни чистых, ни loose → центр самого ДЛИННОГО уникального участка (минус слитые плечи)", () => {
-    // shared [60,100]; уникальные [0,60] (60px) и [100,200] (100px) → центр длинного = 150
+    // shared [60,100]; уникальные [0,60] (60px) и [100,200] (100px) → центр длинного = 150.
+    // Запасные лестницы идут от исходной позиции: отступ от конца (Ф5) — только у чистых
     const labels: LabelInput[] = [
       { id: "A", path: poly([0, 0], [200, 0]), candidates: [], shared: [{ s: 60, e: 100 }], box: box(60, 16) },
     ];

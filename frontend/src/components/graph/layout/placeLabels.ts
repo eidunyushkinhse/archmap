@@ -18,7 +18,7 @@ import type { EdgePoint } from "../../../types";
 import { axisSegHitsRect, pointAtFraction, type NodeRect, type Segment } from "../edgePath";
 import { rectFromCenter, rectsOverlap } from "./arrowMetrics";
 import { edgeArcLength, subtractIntervals, type Interval } from "./coincidentLegs";
-import type { Size } from "./labelBox";
+import { LABEL_END, type Size } from "./labelBox";
 
 const EPS = 0.5;
 const LEG_T = 4; // полутолщина плеча стрелки как препятствия (px) — плашка должна явно отойти
@@ -45,6 +45,29 @@ function longest(ivs: ReadonlyArray<Interval>): Interval | null {
   let best: Interval | null = null;
   for (const iv of ivs) if (!best || iv.e - iv.s > best.e - best.s) best = iv;
   return best;
+}
+
+// Протяжённость плашки вдоль концевого сегмента пути (первого или последнего): на
+// горизонтальном — ширина, на вертикальном — высота.
+function endExtent(path: EdgePoint[], box: Size, atStart: boolean): number {
+  const a = atStart ? path[0] : path[path.length - 1];
+  const b = atStart ? path[1] : path[path.length - 2];
+  if (!a || !b) return Math.max(box.w, box.h);
+  return Math.abs(b.y - a.y) <= Math.abs(b.x - a.x) ? box.w : box.h;
+}
+
+// ОТСТУП ОТ КОНЦОВ СТРЕЛКИ (Ф5, LABEL_END.clear, решение пользователя 2026-10-12): желаемая
+// arc-позиция сдвигается от конца пути так, чтобы ближний к узлу край плашки отстоял от
+// границы узла на LABEL_END.clear — хвост и наконечник стрелки остаются видны, а не
+// прячутся под плашкой. Якорь носителя на стабе (E96) стоит вплотную к узлу — его
+// сдвигаем, центр длинного интервала посреди пути — нет. Путь короче двух отступов —
+// позиция как есть. Применяется ТОЛЬКО к чистым кандидатам: отступ берётся, когда на
+// линии там нет чужих линий; запасные лестницы (loose/unique) идут от исходной позиции.
+function endCleared(arc: number, total: number, path: EdgePoint[], box: Size): number {
+  const lo = LABEL_END.clear + endExtent(path, box, true) / 2;
+  const hi = total - LABEL_END.clear - endExtent(path, box, false) / 2;
+  if (lo > hi) return arc;
+  return Math.max(lo, Math.min(arc, hi));
 }
 
 export interface Placement {
@@ -169,15 +192,17 @@ export function placeLabels(
     const preferredArc = l.preferredT !== undefined
       ? Math.max(0, Math.min(1, l.preferredT)) * total
       : pick ? (pick.s + pick.e) / 2 : total / 2;
-    // ЛЕСТНИЦА ЗАПАСОВ: чистые интервалы → без вычета крестов → уникальные участки →
-    // середина пути. Плашка всегда на линии (Ф3), выноски нет.
+    // ЛЕСТНИЦА ЗАПАСОВ: чистые интервалы (желаемое место — с отступом от концов, Ф5) →
+    // без вычета крестов → уникальные участки → середина пути. Плашка всегда на линии
+    // (Ф3), выноски нет.
     const step = Math.max(l.box.w, 24);
-    let arcs = sampleArcs(clean, preferredArc, step);
+    const clearedArc = endCleared(preferredArc, total, l.path, l.box);
+    let arcs = sampleArcs(clean, clearedArc, step);
     if (arcs.length === 0) arcs = sampleArcs(loose, preferredArc, step);
     if (arcs.length === 0) arcs = sampleArcs(unique, preferredArc, step);
     if (arcs.length === 0) arcs = [preferredArc];
     const cands: Cand[] = arcs.map((a) => ({ center: toPt(a) }));
-    return { id: l.id, box: l.box, cands, cleanCount: sampleArcs(clean, preferredArc, step).length, keepRect: l.keepRect };
+    return { id: l.id, box: l.box, cands, cleanCount: sampleArcs(clean, clearedArc, step).length, keepRect: l.keepRect };
   });
 
   // самые стеснённые (мало чистых кандидатов) — первыми; тай-брейк по id для детерминизма
