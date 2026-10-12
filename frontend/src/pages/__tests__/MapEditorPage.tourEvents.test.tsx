@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
-import { onTourEvent, requestTourLevel, type TourBusEvent } from "../../components/tour/tourBus";
+import { onTourEvent, requestTourFocus, requestTourLevel, type TourBusEvent } from "../../components/tour/tourBus";
 import type { Edge, Node } from "../../types";
 
 function render(ui: ReactElement) {
@@ -117,6 +117,17 @@ describe("MapEditorPage — события тура", () => {
     events.length = 0;
     act(() => requestTourLevel(null));
     await waitFor(() => expect(events).toContainEqual({ type: "level", levelId: null }));
+  });
+
+  it("тур просит камеру — к объекту и ко всему слою: locate холста без вспышки, новый токен на каждый запрос", async () => {
+    render(<MapEditorPage {...props} />);
+    await screen.findByTestId("level-graph");
+    act(() => requestTourFocus({ kind: "node", id: "s1" }));
+    await waitFor(() => expect(levelGraphProps.current?.locate).toMatchObject({ kind: "node", ids: ["s1"], flash: false }));
+    const first = (levelGraphProps.current?.locate as { token: number }).token;
+    act(() => requestTourFocus({ kind: "level" }));
+    await waitFor(() => expect(levelGraphProps.current?.locate).toMatchObject({ kind: "level", ids: [], flash: false }));
+    expect((levelGraphProps.current?.locate as { token: number }).token).toBeGreaterThan(first);
   });
 
   it("создана связь — «edge-created» с её концами", async () => {

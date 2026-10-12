@@ -85,6 +85,9 @@ export default function TourLayer(props: Props) {
   const motion = props.motion ?? restingFrame(view);
   const hasCard = view.phase === "center" || view.phase === "spot" || view.phase === "docked";
   if (!host || (!hasCard && motion.opacity <= 0)) return null;
+  // После наблюдения за раскрытием (шаг с watchMs) порядок такой: затемнение и камера к
+  // цели, потом карточка — когда вырез доехал до цели.
+  const cardNow = hasCard && (view.phase !== "spot" || !props.step.watchMs || motion.settled);
   const [w, h] = vp.split("x").map(Number);
   // Клики держит только затемнение с целью или по центру; пока цель грузится, затемнение
   // (если было) лишь держится на экране и нажатиям не мешает.
@@ -100,9 +103,11 @@ export default function TourLayer(props: Props) {
       )}
       {/* Демонстрация жеста (шаг «Перевесьте связь»): когда вырезы доехали до цели */}
       {view.phase === "spot" && view.demo && motion.settled && (
-        <TourDemo key={props.stepKey} demo={view.demo} width={w} height={h} />
+        // свой ключ: перехватчик рядом тоже ключуется шагом — одинаковые ключи у соседей
+        // React считает ошибкой (предупреждение в консоли на шагах с демонстрацией)
+        <TourDemo key={`demo|${props.stepKey}`} demo={view.demo} width={w} height={h} />
       )}
-      {hasCard && (
+      {cardNow && (
         <Card key={`${props.stepKey}|${view.phase}`} {...props} viewport={{ w, h }} moved={host !== view.host} />
       )}
     </div>,

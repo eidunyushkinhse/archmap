@@ -13,10 +13,10 @@ import {
 import { fetchMe, getCanCreateProject, getMe, subscribeMe } from "../../api/auth";
 import { nodesApi } from "../../api/nodes";
 import { projectsApi } from "../../api/projects";
-import { onTourEvent, requestTourLevel, type TourBusEvent } from "./tourBus";
+import { onTourEvent, requestTourFocus, requestTourLevel, type TourBusEvent } from "./tourBus";
 import {
-  availability, canGoBack, expandTarget, onScreen, reduceTour, screenHash, startState, stepTexts, stepTotal,
-  treeExpandTarget,
+  availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
+  stepTotal, treeExpandTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
@@ -40,6 +40,21 @@ const REVEAL_TRIES = 3;
  *  монтируется: столько держим прежний кадр шага, прежде чем ждать её как новую или
  *  убирать зону. Вырез и карточка не дёргаются. */
 const HOLD_MS = 120;
+
+const rfNodeSel = (id: string) => `.react-flow__node[data-id="${id}"]`;
+
+// Шаг «Проведите связь»: стрелки протяжки на объекте-источнике видны без наведения
+// (tour.css по атрибуту; на холсте они появляются только на ховере узла, а человек,
+// который этого ещё не знает, тянул бы за пустое место). Атрибут держится на одном
+// узле: ушли с шага или узел сменился — снимается.
+const ARROWS_ATTR = "data-tour-arrows";
+let arrowsEl: Element | null = null;
+function markArrows(el: Element | null): void {
+  if (el === arrowsEl) return;
+  arrowsEl?.removeAttribute(ARROWS_ATTR);
+  arrowsEl = el;
+  el?.setAttribute(ARROWS_ATTR, "");
+}
 
 export default function DemoTour() {
   const me = useSyncExternalStore(subscribeMe, getMe);
@@ -255,11 +270,15 @@ function TourRuntime({ userId }: { userId: string }) {
   // паузе, он никуда не уводит.
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
-  // раскрытый узел засчитан; treeClosed — ветка дерева была свёрнутой на этом шаге.
-  const doneForRef = useRef({ mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0 });
+  // раскрытый узел засчитан, камера отведена ко всему слою (fit) и подведена к цели
+  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге.
+  const freshEntry = () => ({
+    mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0, fit: false, focus: false,
+  });
+  const doneForRef = useRef(freshEntry());
   useLayoutEffect(() => {
     enteredAtRef.current = performance.now();
-    doneForRef.current = { mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0 };
+    doneForRef.current = freshEntry();
   }, [state.step, running]);
   useEffect(() => {
     if (!running || navForRef.current === state.step) return;
@@ -309,13 +328,32 @@ function TourRuntime({ userId }: { userId: string }) {
       const dialog = topDialog();
       const screenOk = onScreen(step.screen, rt, st, en);
       let next: TourView;
+      const done = doneForRef.current;
+      // Наблюдение (watchMs, идя вперёд — после лупы): камера отъезжает ко всему слою,
+      // затемнения и карточки нет, пока идёт раскрытие; по истечении — обычный вход.
+      const watching = !!step.watchMs && st.dir === 1 && screenOk && !dialog
+        && now - enteredAtRef.current < step.watchMs;
+      if (watching && !done.fit) {
+        done.fit = true;
+        requestTourFocus({ kind: "level" });
+      }
       if (step.kind === "start" || step.kind === "end") {
         next = { ...HIDDEN_VIEW, phase: "center", host: dialog ?? document.body };
+      } else if (watching) {
+        next = { ...HIDDEN_VIEW, phase: "watch", host: document.body };
       } else {
+        // Камера к объекту шага (focus): один раз, когда он уже на холсте; после
+        // наблюдения — сразу по его концу, вместе с затемнением.
+        if (step.focus && screenOk && !dialog && !done.focus) {
+          const id = focusTarget(st, en);
+          if (id && document.querySelector(rfNodeSel(id))) {
+            done.focus = true;
+            requestTourFocus({ kind: "node", id });
+          }
+        }
         const tctx = { yarProjectId: en.yarProjectId, yarObjects: en.yarObjects, vars: st.vars };
         const res = screenOk && step.target ? resolveTarget(step.target, tctx) : null;
         // Цель есть, но не видна (за краем холста, ниже сгиба страницы) — подводим к ней.
-        const done = doneForRef.current;
         if (!res && screenOk && step.target && !dialog && done.reveals < REVEAL_TRIES && now - done.revealAt > REVEAL_EVERY_MS) {
           const hidden = hiddenTarget(step.target, tctx);
           if (hidden) {
@@ -353,6 +391,9 @@ function TourRuntime({ userId }: { userId: string }) {
         }
         if (next.phase === "spot" && next !== held) lastSpot = { step: st.step, view: next, at: now };
       }
+      // Шаг «Проведите связь»: стрелки протяжки на объекте-источнике видны сразу.
+      const arrowsId = screenOk && step.target?.kind === "handles" ? st.vars.peerId ?? null : null;
+      markArrows(arrowsId ? document.querySelector(rfNodeSel(arrowsId)) : null);
       // Режим оболочки («Объекты»/«Процессы») — один раз на вход в шаг.
       if (step.mode && screenOk && !doneForRef.current.mode) {
         const tab = document.querySelector<HTMLElement>(`[data-tour="mode-${step.mode}"]`);
@@ -402,6 +443,7 @@ function TourRuntime({ userId }: { userId: string }) {
     raf = requestAnimationFrame(frame);
     return () => {
       cancelAnimationFrame(raf);
+      markArrows(null);
       // Тур закрыт — кадр прохода снят: новый проход («Обучение») начинает с пустого
       // слоя, а не с карточки и затемнения шага, на котором вышли.
       setView(NO_FRAME);

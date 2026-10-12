@@ -108,6 +108,8 @@ export function motionTarget(step: string, view: TourView): MotionTarget {
       return { key: "pending", shade: null, holes: null };
     case "docked":
       return { key: "docked", shade: 0, holes: null };
+    case "watch":
+      return { key: "watch", shade: 0, holes: null };
     case "hidden":
       return { key: "hidden", shade: 0, holes: null };
   }

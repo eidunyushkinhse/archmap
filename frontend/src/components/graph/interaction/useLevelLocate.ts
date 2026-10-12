@@ -5,7 +5,9 @@
 // появится на холсте, после чего по token фиксирует обработку (повторно не дёргает).
 //
 // Поведение: одиночный узел → setCenter (zoom 1.2, крупнее обычного fitView — привлечь
-// внимание); связь/группа → fitBounds по bbox целей. Связь ищем по id И по членству в
+// внимание); связь/группа → fitBounds по bbox целей; весь слой (kind "level") → fitView,
+// как «Центрировать», но с анимацией (обучающий тур отводит камеру после раскрытия
+// лупой). flash: false — без вспышки (тур подсвечивает цель своей рамкой). Связь ищем по id И по членству в
 // пучке (мастер-стрелка merge:* несёт сырые id в memberIds); связь, скрытую проекцией
 // (конец = раскрытый контейнер, E6/C19), фокусируем по КОНЦАМ — их представители на
 // холсте: узел либо рамка (id рамки = id узла, C3). Подсветка — императивно по data-id
@@ -32,7 +34,12 @@ interface UseLevelLocateArgs {
   getInternalNode: ReactFlowInstance["getInternalNode"];
   setCenter: ViewportHelperFunctions["setCenter"];
   fitBounds: ViewportHelperFunctions["fitBounds"];
+  fitView: ReactFlowInstance["fitView"];
 }
+
+/** Вписать весь слой: те же поля и предел, что у «Центрировать» (SCHEMA_FIT_OPTIONS
+ *  LevelGraph), плюс анимация — камера отъезжает, а не прыгает. */
+export const LEVEL_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0, duration: 300 };
 
 export function useLevelLocate({
   locate,
@@ -41,12 +48,21 @@ export function useLevelLocate({
   getInternalNode,
   setCenter,
   fitBounds,
+  fitView,
 }: UseLevelLocateArgs): void {
   // Дедуп по token: повторный тот же запрос (та же цель, тот же token) не центрирует
   // дважды при пере-раскладке. MapEditorPage инкрементит token на каждый клик.
   const locateHandledRef = useRef(0);
   useEffect(() => {
     if (!locate || locate.token === locateHandledRef.current) return;
+
+    // Весь слой: ждём, пока на холсте появятся узлы, и вписываем их с анимацией.
+    if (locate.kind === "level") {
+      if (rfNodes.length === 0) return;
+      locateHandledRef.current = locate.token;
+      void fitView(LEVEL_FIT_OPTIONS);
+      return;
+    }
 
     // Абсолютный прямоугольник узла по id (позиция графа + измеренный размер).
     const rectOf = (id: string): { x: number; y: number; w: number; h: number } | null => {
@@ -113,6 +129,7 @@ export function useLevelLocate({
 
     // Подсветка — прямо на DOM-элементах xyflow (узлы и рёбра несут data-id), чтобы не
     // ввязывать пересборку rfNodes из async-раскладки. Класс снимаем по таймеру.
+    if (locate.flash === false) return;
     const sel = flashSelectors.join(",");
     const raf = requestAnimationFrame(() => {
       const els = sel ? Array.from(document.querySelectorAll(sel)) : [];
@@ -122,5 +139,5 @@ export function useLevelLocate({
       }, 2200);
     });
     return () => cancelAnimationFrame(raf);
-  }, [locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds]);
+  }, [locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds, fitView]);
 }

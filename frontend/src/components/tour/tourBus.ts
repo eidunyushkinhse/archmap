@@ -44,3 +44,21 @@ export function onTourLevelRequest(listener: LevelListener): () => void {
   levelListeners.add(listener);
   return () => { levelListeners.delete(listener); };
 }
+
+// ── Обратная команда: тур ведёт камеру холста ───────────────────────────────
+// Лупа на объекте мелкая, когда слой отдалён (тачпадом в неё трудно попасть) — на входе
+// в шаг тур просит показать объект крупно; после раскрытия лупой — отвести камеру ко
+// всему слою, чтобы было видно, к чему привело нажатие. Редактор исполняет это тем же
+// locate, что и «Показать на схеме», без вспышки.
+export type TourFocus = { kind: "node"; id: string } | { kind: "level" };
+type FocusListener = (focus: TourFocus) => void;
+const focusListeners = new Set<FocusListener>();
+
+export function requestTourFocus(focus: TourFocus): void {
+  for (const listener of focusListeners) listener(focus);
+}
+
+export function onTourFocusRequest(listener: FocusListener): () => void {
+  focusListeners.add(listener);
+  return () => { focusListeners.delete(listener); };
+}

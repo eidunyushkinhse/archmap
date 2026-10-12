@@ -1,8 +1,11 @@
-// Шаги «Проведите связь» и «Перевесьте связь»: какие хэндлы подсветить. Те же, что
-// выберет сам рендерер для связи «второй объект → система» (или для перевешенной
-// связи «второй объект → сервис внутри системы»), — пара считается заранее ТЕМ ЖЕ
-// роутером стрелок (buildAutoRoutes: порты всех сторон и слотов, A*, выбор стороны),
-// который конвейер раскладки зовёт для настоящих рёбер. Входы роутера — те же, что
+// Шаги «Проведите связь» и «Перевесьте связь»: откуда тянуть и куда класть. Сторону
+// берём ту, что выберет сам рендерер для связи «второй объект → система» (или для
+// перевешенной связи «второй объект → сервис внутри системы»), — пара считается
+// заранее ТЕМ ЖЕ роутером стрелок (buildAutoRoutes: порты всех сторон, A*, выбор
+// стороны), который конвейер раскладки зовёт для настоящих рёбер. Откуда тянуть —
+// стрелка-глиф этой стороны у источника (связь) или ручка конца на рамке (перевес);
+// куда класть — сам объект-цель: холст принимает конец на его теле, а ладонь-демо
+// кладёт его на границу объекта, в центр стороны, куда роутер проведёт связь. Входы роутера — те же, что
 // у конвейера: позиции узлов уровня в координатах потока и их замеренные габариты
 // (снимаются с DOM React Flow). Роутер не дал пары — запасной вариант: стороны,
 // смотрящие друг на друга по геометрии (autoHandles, прежний движок хэндлов).
@@ -13,7 +16,7 @@ import { autoHandles } from "../graph/layout/level";
 import type { EdgeGroup } from "../graph/types";
 import type { Edge } from "../../types";
 import type { RehangDemo, Side } from "./tourDemo";
-import { padHole, union, type Rect } from "./tourGeometry";
+import { padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { Resolved } from "./tourTargets";
 
 export type Box = { x: number; y: number; w: number; h: number };
@@ -95,22 +98,38 @@ function scenePair(
   return hit.pair;
 }
 
-/**
- * Видимая часть хэндла стороны: стрелка-глиф протяжки (.lg-side-arrow, Ф5 эпика «стрелки
- * без жёстких хэндлов») — сам хэндл React Flow невидимая 2-px точка. У инертных
- * хэндлов (рамка, read-only) глифа нет — остаётся сам хэндл.
- */
-function handleGlyph(flow: Element, handleId: string): Element | null {
-  const handle = flow.querySelector(`.react-flow__handle[data-handleid="${handleId}"]`);
-  return handle?.querySelector(".lg-side-arrow") ?? handle;
+/** Хэндл стороны React Flow: невидимая 2-px точка в центре стороны — туда защёлкивается
+ *  конец связи, там она и упрётся в объект. */
+function handleEl(flow: Element, handleId: string): Element | null {
+  return flow.querySelector(`.react-flow__handle[data-handleid="${handleId}"]`);
 }
+
+/** Видимая часть хэндла: стрелка-глиф протяжки (.lg-side-arrow, Ф5 эпика «стрелки без
+ *  жёстких хэндлов»); у инертных хэндлов (рамка, read-only) глифа нет — сам хэндл. */
+const glyphOf = (handle: Element): Element => handle.querySelector(".lg-side-arrow") ?? handle;
 
 const rectOf = (el: Element): Rect => {
   const r = el.getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 };
 
-/** Цель шага «Проведите связь»: по стрелке протяжки на каждом из двух объектов. */
+const centerOf = (el: Element): { x: number; y: number } => {
+  const r = rectOf(el);
+  return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+};
+
+/** Масштаб холста по узлу: его ширина на экране против ширины в координатах потока. */
+function zoomOf(el: HTMLElement): number {
+  const box = flowBox(el);
+  return box && box.w > 0 ? rectOf(el).w / box.w : 1;
+}
+
+/**
+ * Цель шага «Проведите связь»: стрелка-глиф у стороны объекта-источника, откуда роутер
+ * поведёт связь (круглый вырез с пульсом), и весь объект-цель (зона: холст принимает
+ * конец на его теле). Плюс демонстрация: ладонь берёт стрелку и везёт конец на границу
+ * цели — в центр стороны, куда роутер проведёт связь (tourDemo.ts).
+ */
 export function resolveHandlePair(peerId: string, systemId: string): Resolved | null {
   const peerEl = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${peerId}"]`);
   const sysEl = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${systemId}"]`);
@@ -118,13 +137,21 @@ export function resolveHandlePair(peerId: string, systemId: string): Resolved | 
   if (!peerEl || !sysEl || !flow || !flow.contains(sysEl)) return null;
   const pair = scenePair(flow, peerId, systemId);
   if (!pair) return null;
-  const { sourceHandle, targetHandle } = pair;
-  const src = handleGlyph(flow, sourceHandle), tgt = handleGlyph(flow, targetHandle);
-  if (!src || !tgt) return null;
-  const holes = [padHole(rectOf(src), "dot"), padHole(rectOf(tgt), "dot")];
-  const nodes = [rectOf(peerEl), rectOf(sysEl)];
-  const around = union([...nodes, ...holes]) ?? holes[0];
-  return { elements: [src, tgt], holes, anchor: around, avoid: [around] };
+  const srcHandle = handleEl(flow, pair.sourceHandle), tgtHandle = handleEl(flow, pair.targetHandle);
+  if (!srcHandle || !tgtHandle) return null;
+  const glyph = glyphOf(srcHandle);
+  const dot = padHole(rectOf(glyph), "dot");
+  const zone: Hole = { ...padHole(rectOf(sysEl), "rect"), quiet: true };
+  const around = union([rectOf(peerEl), dot, zone]) ?? dot;
+  const fixedSide = handleSide(pair.sourceHandle), dropSide = handleSide(pair.targetHandle);
+  const demo: RehangDemo | undefined = fixedSide && dropSide ? {
+    grab: centerOf(glyph), drop: centerOf(tgtHandle), dropSide,
+    fixed: centerOf(srcHandle), fixedSide, headAtFixed: false, zoom: zoomOf(peerEl),
+  } : undefined;
+  return {
+    elements: [glyph, sysEl], holes: [dot, zone], anchor: around, avoid: [around],
+    ...(demo ? { demo } : {}),
+  };
 }
 
 // Концы ребра холста: React Flow подписывает ребро «Edge from <source> to <target>».
@@ -164,7 +191,7 @@ function nearestSide(p: { x: number; y: number }, r: Rect): Side {
  */
 function rehangDemo(
   edgeEl: Element, peerEl: HTMLElement | null, frameIsTarget: boolean,
-  grab: { x: number; y: number }, dropEl: Element, dropHandle: string,
+  grab: { x: number; y: number }, dropHandleEl: Element, dropHandle: string,
 ): RehangDemo | null {
   const dropSide = handleSide(dropHandle);
   const path = edgeEl.querySelector("path.react-flow__edge-path") ?? edgeEl.querySelector("path");
@@ -174,10 +201,10 @@ function rehangDemo(
   const peer = rectOf(peerEl);
   const zoom = peerBox.w > 0 ? peer.w / peerBox.w : 1;
   const fixed = { x: peer.x + (end.x - peerBox.x) * zoom, y: peer.y + (end.y - peerBox.y) * zoom };
-  const dot = rectOf(dropEl);
   return {
     grab,
-    drop: { x: dot.x + dot.w / 2, y: dot.y + dot.h / 2 },
+    // на границу объекта: центр стороны, куда защёлкнется и где упрётся конец
+    drop: centerOf(dropHandleEl),
     dropSide,
     fixed,
     fixedSide: nearestSide(fixed, peer),
@@ -188,10 +215,10 @@ function rehangDemo(
 
 /**
  * Цель шага «Перевесьте связь»: конец стрелки, упёршийся в рамку системы (ручка
- * перепривязки React Flow на её границе), и ОДНА точка на дочернем объекте — та, куда
- * роутер провёл бы эту связь, будь её конец уже на нём (тот же расчёт, что у пары на
- * шаге «Проведите связь»). Холст перевес и так принимает у точки на краю. Плюс
- * геометрия демонстрации: ладонь переносит конец с рамки на эту точку (tourDemo.ts).
+ * перевеса на её границе; вырез с пульсом), и весь дочерний объект (зона: холст
+ * принимает конец на его теле). Плюс демонстрация: ладонь переносит конец с рамки на
+ * границу объекта — в центр стороны, куда роутер провёл бы связь, будь её конец уже на
+ * нём (тот же расчёт, что у пары на шаге «Проведите связь»; tourDemo.ts).
  */
 export function resolveRehang(systemId: string, childId: string): Resolved | null {
   const frameEl = document.querySelector(`.react-flow__node[data-id="${systemId}"]`);
@@ -217,18 +244,18 @@ export function resolveRehang(systemId: string, childId: string): Resolved | nul
     const pair = frameIsTarget ? scenePair(flow, ends.source, childId) : scenePair(flow, childId, ends.target);
     if (!pair) return null;
     const dropHandle = frameIsTarget ? pair.targetHandle : pair.sourceHandle;
-    const handle = handleGlyph(flow, dropHandle);
+    const handle = handleEl(flow, dropHandle);
     if (!handle) return null;
     const endHole = padHole({ x: cx - 10, y: cy - 10, w: 20, h: 20 }, "rect");
-    const dot = padHole(rectOf(handle), "dot");
-    const around = union([endHole, dot, rectOf(childEl)]) ?? endHole;
+    const zone: Hole = { ...padHole(rectOf(childEl), "rect"), quiet: true };
+    const around = union([endHole, zone]) ?? endHole;
     // Карточке лучше не закрывать и саму связь со вторым объектом: её тянут.
     const peerId = frameIsTarget ? ends.source : ends.target;
     const peerEl = flow.querySelector<HTMLElement>(`.react-flow__node[data-id="${peerId}"]`);
     const soft = [rectOf(edgeEl), ...(peerEl ? [rectOf(peerEl)] : [])];
     const demo = rehangDemo(edgeEl, peerEl, frameIsTarget, { x: cx, y: cy }, handle, dropHandle);
     return {
-      elements: [updater, handle], holes: [endHole, dot], anchor: around, avoid: [around], soft,
+      elements: [updater, childEl], holes: [endHole, zone], anchor: around, avoid: [around], soft,
       ...(demo ? { demo } : {}),
     };
   }

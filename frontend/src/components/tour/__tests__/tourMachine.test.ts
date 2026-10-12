@@ -3,7 +3,7 @@
 // созданных объектов и их подстановка, короткий проход при уже созданном проекте.
 import { describe, it, expect } from "vitest";
 import {
-  availability, canGoBack, expandTarget, onScreen, parseTourState, reduceTour, screenHash, startState,
+  availability, canGoBack, expandTarget, focusTarget, onScreen, parseTourState, reduceTour, screenHash, startState,
   stepTexts, stepTotal, treeExpandTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
@@ -71,6 +71,12 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(expandTarget(at("expand-service"), ENV)).toBe("c0de-03");
     expect(expandTarget(at("expand-own", { vars: OWN_VARS }), ENV)).toBe("s1");
     expect(expandTarget(at("drag"), ENV)).toBeNull();
+    // камера к объекту — на шагах с лупой (focus): тот же объект, что раскрывают
+    expect(focusTarget(at("expand-system"), ENV)).toBe("c0de-02");
+    expect(focusTarget(at("expand-service"), ENV)).toBe("c0de-03");
+    expect(focusTarget(at("expand-own", { vars: OWN_VARS }), ENV)).toBe("s1");
+    expect(focusTarget(at("drag"), ENV)).toBeNull();
+    expect(focusTarget(at("inside", { vars: OWN_VARS }), ENV)).toBeNull();
   });
 
   it("дерево: раскрыл «Сервис заказов» — открой «Оркестратор заказа»; его страница — документация", () => {
@@ -239,7 +245,7 @@ describe("тур — свой проект", () => {
   it("имена созданных объектов подставляются в именительном падеже", () => {
     const vars = { ...OWN_VARS, childName: "Касса" };
     expect(stepTexts(STEPS.connect, vars).action)
-      .toBe("Протяните стрелку от объекта «Банк» на объект «Платёжный шлюз».");
+      .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Сервис» в рамку «Платёжный шлюз».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Система «Платёжный шлюз» стала контейнером.")).toBe(true);

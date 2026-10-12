@@ -284,6 +284,21 @@ export function expandTarget(state: TourState, env: TourEnv): string | null {
   }
 }
 
+/** Какой объект шаг просит показать крупно на входе (focus; null — не просит): цель
+ *  шага на холсте — объект «Ярмарки» по имени или система своего проекта. */
+export function focusTarget(state: TourState, env: TourEnv): string | null {
+  const step = STEPS[state.step];
+  if (!step.focus || !step.target) return null;
+  switch (step.target.kind) {
+    case "yar-node":
+      return env.yarObjects?.get(step.target.name) ?? null;
+    case "system-part":
+      return state.vars.systemId ?? null;
+    default:
+      return null;
+  }
+}
+
 /** Чью ветку шаг ждёт раскрытой в дереве слева (null — шаг не про дерево). */
 export function treeExpandTarget(state: TourState, env: TourEnv): string | null {
   return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;

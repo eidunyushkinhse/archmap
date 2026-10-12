@@ -175,6 +175,32 @@ describe("LevelGraph orchestration: locate (показать на схеме)", 
     );
   });
 
+  it("весь слой (kind level): fitView с анимацией, как «Центрировать»; ждёт узлы на холсте", async () => {
+    const locate: Locate = { kind: "level", ids: [], token: 1, flash: false };
+    await renderGraph({ locate });
+    expect(rf.fitView).not.toHaveBeenCalled(); // узлов ещё нет — ждём
+    await setRfNodes([rfNode("n1", 0, 0), rfNode("n2", 400, 0)]);
+    expect(rf.fitView).toHaveBeenCalledWith({ padding: 0.1, maxZoom: 1.0, duration: 300 });
+    expect(rf.setCenter).not.toHaveBeenCalled();
+    expect(rf.fitBounds).not.toHaveBeenCalled();
+    // дедуп по token: пере-раскладка не вписывает повторно
+    await setRfNodes([rfNode("n1", 10, 0), rfNode("n2", 400, 0)]);
+    expect(rf.fitView).toHaveBeenCalledOnce();
+  });
+
+  it("flash: false — центрирование есть, вспышки нет (тур подсвечивает цель сам)", async () => {
+    const el = document.createElement("div");
+    el.className = "react-flow__node";
+    el.setAttribute("data-id", "n1");
+    document.body.appendChild(el);
+    const locate: Locate = { kind: "node", ids: ["n1"], token: 1, flash: false };
+    await renderGraph({ locate });
+    await setRfNodes([rfNode("n1", 0, 0)]);
+    expect(rf.setCenter).toHaveBeenCalledOnce();
+    await flushRaf();
+    expect(el.classList.contains("lg-locate-flash")).toBe(false);
+  });
+
   it("flash-подсветка: класс lg-locate-flash добавляется и снимается по таймеру", async () => {
     const el = document.createElement("div");
     el.className = "react-flow__node";

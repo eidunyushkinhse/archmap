@@ -4,8 +4,9 @@ import type { Hole, Rect } from "./tourGeometry";
 
 export interface TourView {
   /** hidden — открыто чужое окно; pending — цель ещё грузится; center — приветствие и
-   *  финал; spot — цель найдена; docked — пользователь не на экране шага */
-  phase: "hidden" | "pending" | "center" | "spot" | "docked";
+   *  финал; spot — цель найдена; docked — пользователь не на экране шага; watch —
+   *  человек смотрит, к чему привело его действие: без затемнения и карточки */
+  phase: "hidden" | "pending" | "center" | "spot" | "docked" | "watch";
   /** куда рисовать: открытый модальный <dialog> (остальное под ним инертно) или body */
   host: HTMLElement | null;
   holes: Hole[];

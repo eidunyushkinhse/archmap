@@ -4,6 +4,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import TourLayer from "../TourLayer";
+import { shownHole } from "../tourMotion";
 import { markExitToPill } from "../tourStore";
 import { STEPS, type StepId } from "../tourSteps";
 import type { TourView } from "../tourView";
@@ -137,6 +138,40 @@ describe("TourLayer", () => {
     renderLayer("drag", view({ phase: "docked" }));
     expect(screen.getByRole("dialog", { name: "Объекты можно двигать" })).toHaveClass("tour-card--docked");
     expect(document.querySelector("[data-tour-blocker]")).toBeNull();
+  });
+
+  it("наблюдение за раскрытием (watch): ни карточки, ни затемнения, ни перехватчика", () => {
+    renderLayer("inside", view({ phase: "watch" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[data-tour-blocker]")).toBeNull();
+    expect(document.querySelector("[data-tour-layer] .tour-shade")).toBeNull();
+  });
+
+  it("шаг после наблюдения: карточка ждёт, пока вырез доедет до цели", () => {
+    const step = STEPS.inside;
+    const v = view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] });
+    const layer = (settled: boolean) => (
+      <TourLayer
+        view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled }} stepKey="inside" step={step}
+        texts={{ title: step.title, body: step.body }} count="Шаг 25 из 25" canBack
+        onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
+      />
+    );
+    const { rerender } = render(layer(false));
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    rerender(layer(true));
+    expect(screen.getByRole("dialog", { name: step.title })).toBeInTheDocument();
+    // у обычного шага карточка не ждёт
+    const plain = STEPS["context-edge"];
+    render(
+      <TourLayer
+        view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled: false }} stepKey="context-edge" step={plain}
+        texts={{ title: plain.title, body: plain.body }} count="Шаг 23 из 25" canBack
+        onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("dialog", { name: plain.title })).toBeInTheDocument();
   });
 
   it("цель ещё грузится или открыто чужое окно — ничего не рисуем", () => {

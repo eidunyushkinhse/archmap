@@ -31,7 +31,7 @@ vi.mock("../../../api/nodes", () => ({
 }));
 
 import DemoTour from "../DemoTour";
-import { emitTourEvent } from "../tourBus";
+import { emitTourEvent, onTourFocusRequest, type TourFocus } from "../tourBus";
 import { getTourPaused, requestTourRestart, requestTourResume, tourKey } from "../tourStore";
 
 const KEY = tourKey(GUEST.id);
@@ -52,6 +52,17 @@ function place(el: HTMLElement, rect: { x: number; y: number; w: number; h: numb
     x: rect.x, y: rect.y, left: rect.x, top: rect.y, width: rect.w, height: rect.h,
     right: rect.x + rect.w, bottom: rect.y + rect.h, toJSON: () => ({}),
   });
+}
+
+/** Узел холста React Flow с прямоугольником на экране. */
+function rfNode(id: string, rect = { x: 100, y: 100, w: 160, h: 80 }, parent: Element = document.body): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "react-flow__node react-flow__node-block";
+  el.setAttribute("data-id", id);
+  el.setAttribute("data-tour", "probe-node");
+  place(el, rect);
+  parent.appendChild(el);
+  return el;
 }
 
 function goHash(hash: string) {
@@ -207,6 +218,41 @@ describe("DemoTour", () => {
     view.unmount();
   });
 
+  it("шаг «Проведите связь»: стрелки протяжки объекта-источника видны без наведения, пока шаг не сделан", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "connect", variant: "full", dir: 1,
+      vars: { ownProjectId: OWN, systemId: "s1", systemName: "Касса", peerId: "p1", peerName: "Банк" },
+    }));
+    const flow = target("probe-flow");
+    flow.className = "react-flow";
+    const peer = rfNode("p1", { x: 100, y: 100, w: 160, h: 80 }, flow);
+    const sys = rfNode("s1", { x: 500, y: 100, w: 160, h: 80 }, flow);
+    const view = render(<DemoTour />);
+    await waitFor(() => expect(peer).toHaveAttribute("data-tour-arrows"));
+    expect(sys).not.toHaveAttribute("data-tour-arrows");
+    act(() => emitTourEvent({ type: "edge-created", id: "e1", sourceId: "p1", targetId: "s1" }));
+    await waitFor(() => expect(peer).not.toHaveAttribute("data-tour-arrows"));
+    view.unmount();
+  });
+
+  it("шаг с лупой: тур просит камеру к объекту, один раз на вход в шаг", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "expand-own", variant: "full", dir: 1,
+      vars: { ownProjectId: OWN, systemId: "s1", systemName: "Касса", peerId: "p1", peerName: "Банк" },
+    }));
+    const asks: TourFocus[] = [];
+    const off = onTourFocusRequest((f) => { asks.push(f); });
+    rfNode("s1");
+    const view = render(<DemoTour />);
+    await waitFor(() => expect(asks).toEqual([{ kind: "node", id: "s1" }]));
+    await act(async () => { await new Promise((r) => setTimeout(r, 120)); });
+    expect(asks).toHaveLength(1);
+    off();
+    view.unmount();
+  });
+
   it("цели нет на экране — после паузы карточка сбоку без затемнения", async () => {
     window.location.hash = `/p/${OWN}`;
     localStorage.setItem(KEY, JSON.stringify({
@@ -331,6 +377,36 @@ describe("DemoTour — плавные переходы", () => {
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toBeNull();
     await tick(100);
     expect(screen.getByRole("dialog", { name: "Добро пожаловать в ArchMap" })).toBeInTheDocument();
+  });
+
+  it("после лупы — наблюдение: камера ко всему слою, без затемнения и карточки; потом затемнение, вырез и карточка — когда вырез доехал", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "inside", variant: "full", dir: 1,
+      vars: { ownProjectId: OWN, systemId: "s1", systemName: "Касса", peerId: "p1", peerName: "Банк", childId: "c1", childName: "Касса API" },
+    }));
+    const asks: TourFocus[] = [];
+    const off = onTourFocusRequest((f) => { asks.push(f); });
+    // связь «Банк → Касса API» и сервис внутри раскрытой рамки
+    const edge = target("probe-edge", { x: 300, y: 140, w: 200, h: 4 });
+    edge.className = "react-flow__edge";
+    edge.setAttribute("aria-label", "Edge from p1 to c1");
+    rfNode("c1", { x: 500, y: 100, w: 160, h: 80 });
+    render(<DemoTour />);
+    await tick(200);
+    expect(asks).toEqual([{ kind: "level" }]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).toBeNull();
+    await tick(1300);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // наблюдение кончилось: затемнение и вырез едут к цели, карточки ещё нет
+    await tick(200);
+    expect(document.querySelector("[data-tour-layer] .tour-ring")).not.toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await tick(600);
+    expect(screen.getByRole("dialog", { name: "Вот куда ведёт связь на самом деле" })).toBeInTheDocument();
+    expect(asks).toEqual([{ kind: "level" }]); // у шага нет focus — к объекту не ведём
+    off();
   });
 
   it("без анимаций (prefers-reduced-motion) — вырез на новой цели в ближайшем кадре", async () => {

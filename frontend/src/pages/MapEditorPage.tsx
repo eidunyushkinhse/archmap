@@ -48,7 +48,7 @@ import TourHelpButton from "../components/tour/TourHelpButton";
 import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
-import { emitTourEvent, onTourLevelRequest } from "../components/tour/tourBus";
+import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../components/tour/tourBus";
 
 interface Props {
   projectId: string;
@@ -276,6 +276,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // ── Навигация из дерева объектов ─────────────────────────────────
   // Счётчик токенов locate: пульс пере-триггерится на каждый новый запрос.
   const locateSeq = useRef(1);
+
+  // Обучающий тур ведёт камеру: к объекту шага крупно (лупа мелкая на отдалённом холсте)
+  // или ко всему слою (показать, к чему привело раскрытие) — тем же locate, что
+  // «Показать на схеме», без вспышки: цель тур подсвечивает сам (tourBus).
+  useEffect(() => onTourFocusRequest((f) => {
+    setLocate(f.kind === "level"
+      ? { kind: "level", ids: [], token: ++locateSeq.current, flash: false }
+      : { kind: "node", ids: [f.id], token: ++locateSeq.current, flash: false });
+  }), []);
 
   // Алерты схемы — в интерфейсе «Рекомендации» (кнопка в рейле холста, архитектор).
   const { alerts, loaded: alertsLoaded, reload: reloadAlerts } = useSchemaAlerts(isArchitect);

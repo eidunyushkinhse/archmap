@@ -1123,7 +1123,7 @@ function LevelGraphInner({
   // «Показать на схеме» (locate): центрирование холста на цели + короткая подсветка.
   // Эффект самодостаточен (ждёт появления цели, дедуп по token) — вынесен в
   // useLevelLocate (Фаза 3б); RF-API передаётся из useReactFlow этого компонента.
-  useLevelLocate({ locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds });
+  useLevelLocate({ locate, rfNodes, rfEdges, getInternalNode, setCenter, fitBounds, fitView });
 
   // УСТОЙЧИВАЯ подсветка связанного по двойному клику (П5/П6): узел/связь, открытая в
   // правой панели, подсвечена, пока открыта. Эффект самодостаточен — вынесен в
