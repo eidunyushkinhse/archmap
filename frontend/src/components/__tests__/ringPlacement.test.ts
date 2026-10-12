@@ -27,25 +27,43 @@ function edge(id: string, source_id: string, target_id: string): LayoutEdge {
 }
 const node = (id: string) => ({ id });
 
-describe("placeGhostsOnRings — сторона по потоку", () => {
-  it("источник → слева от уровня, приёмник → справа", () => {
-    const positions = new Map([["L", { x: 0, y: 0 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }]]);
+describe("placeGhostsOnRings — сторона по потоку (новичок на владеемой сцене, Ф4б шаг 5)", () => {
+  it("поток сверху вниз (La → Lb колонкой): источник → над схемой, приёмник → под ней", () => {
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 300 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }],
+    ]);
     const res = placeGhostsOnRings({
-      nodes: [node("L")],
+      nodes: [node("La"), node("Lb")],
       entities: [leaf("Gs", [a("D")]), leaf("Gt", [a("E")])],
       ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
-      layoutEdges: [edge("e1", "Gs", "L"), edge("e2", "L", "Gt")], positions,
+      layoutEdges: [edge("e0", "La", "Lb"), edge("e1", "Gs", "La"), edge("e2", "Lb", "Gt")], positions,
     });
     expect(res).not.toBeNull();
-    expect(positions.get("Gs")!.x).toBeLessThan(0);          // источник слева
-    expect(positions.get("Gt")!.x).toBeGreaterThan(NODE_W);  // приёмник справа
+    expect(positions.get("Gs")!.y).toBeLessThan(0);                // источник сверху
+    expect(positions.get("Gt")!.y).toBeGreaterThan(300 + NODE_H);  // приёмник снизу
     expect(res!.placedOutside.has("Gs")).toBe(true);
     expect(res!.placedOutside.has("Gt")).toBe(true);
   });
 
-  it("связь к среднему узлу ряда: горизонталь сквозь соседей → гость уходит ВВЕРХ", () => {
-    // La(0,0) Lb(300,0) Lc(600,0); гость связан со средним Lb. Лево/право увели бы стрелку
-    // сквозь La/Lc; верх (вертикаль к Lb) чист → гость над рамкой, по центру над связью.
+  it("схема, переставленная в ряд слева направо (ось потока горизонтальна): источник слева, приёмник справа", () => {
+    // локалы La → Lb стоят в один ряд: ось потока «h» → гости по бокам, у проекции якоря
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 400, y: 0 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }],
+    ]);
+    placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: [leaf("Gs", []), leaf("Gt", [])], // корневые листы: группа = сам узел
+      ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
+      layoutEdges: [edge("e0", "La", "Lb"), edge("e1", "Gs", "La"), edge("e2", "Lb", "Gt")], positions,
+    });
+    expect(positions.get("Gs")!.x).toBeLessThan(0);               // источник слева
+    expect(positions.get("Gt")!.x).toBeGreaterThan(400 + NODE_W); // приёмник справа
+    expect(positions.get("Gs")!.y).toBe(0);                       // у проекции якоря La
+  });
+
+  it("без связей между локалами (потока нет): ближайшая к якорю сторона — над рамкой, по центру над связью", () => {
+    // La(0,0) Lb(300,0) Lc(600,0) без рёбер между собой → оси потока нет; якорь — центр Lb,
+    // ближайшая сторона кольца — верх (108 px против 453 до боковых) → G над Lb.
     const positions = new Map([
       ["La", { x: 0, y: 0 }], ["Lb", { x: 300, y: 0 }], ["Lc", { x: 600, y: 0 }], ["G", { x: 5, y: 5 }],
     ]);

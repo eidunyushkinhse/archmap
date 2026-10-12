@@ -594,11 +594,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
   mark("спавн детей");
 
-  // На свежей сцене кольцо следует за ELK (Ф4б, шаг 2); на владеемой ставит новичка по
-  // якорю (прежняя модель; единое правило сторон новичка — шаг 5 плана).
+  // На свежей сцене кольцо следует за ELK (Ф4б, шаг 2); на владеемой ставит новичка тем
+  // же правилом сторон, что у потока (шаг 5): роль — та же карта, что дала крайние слои.
   const og = placeGhostsOnRings({
     nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
-    followElk: freshScene,
+    followElk: freshScene, guestLayers,
   });
 
   // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
