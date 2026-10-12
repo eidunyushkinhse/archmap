@@ -50,3 +50,18 @@ describe("flowSpacing", () => {
     expect(flowSpacing([tall]).edgeNodeGap).toBe(48);
   });
 });
+
+describe("flowSpacing — направление DOWN (Ф4 эпика «стрелки без жёстких хэндлов»)", () => {
+  it("поперёк потока — ширина плашки: коридор слоя и резерв у узла считаются по ширине", () => {
+    const e = edge("события изменения товаров"); // двухстрочная: высота 38, ширина заметно больше
+    const right = flowSpacing([e], "RIGHT"), down = flowSpacing([e], "DOWN");
+    expect(down.nodeGap).toBeGreaterThan(right.nodeGap);
+    expect(down.edgeNodeGap).toBeGreaterThanOrEqual(right.edgeNodeGap);
+    expect(down.edgeNodeGap).toBeLessThanOrEqual(48);
+  });
+  it("зазор слоя подписей между слоями — по высоте плашки в обоих направлениях", () => {
+    const e = edge("события изменения товаров");
+    expect(flowSpacing([e], "DOWN").edgeNodeLayerGap).toBe(flowSpacing([e], "RIGHT").edgeNodeLayerGap);
+    expect(flowSpacing([e], "RIGHT").edgeNodeLayerGap).toBe(NUDGE_CLEAR + 19);
+  });
+});

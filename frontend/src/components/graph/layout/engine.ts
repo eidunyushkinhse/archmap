@@ -14,8 +14,15 @@
 import type ELK from "elkjs/lib/elk.bundled.js";
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText } from "../text";
-import { flowSpacing } from "./flowGaps";
-import { pickLevelForm } from "./levelForm";
+import { flowSpacing, type FlowDirection } from "./flowGaps";
+
+/**
+ * НАПРАВЛЕНИЕ автораскладки уровня (R10 плана эпика «стрелки без жёстких хэндлов»,
+ * решение пользователя 2026-10-11, Ф4): слои сверху вниз, как у Mermaid/ELK по
+ * умолчанию. До Ф4 — RIGHT (≈ dagre LR). Направление нигде не хранится: роутер
+ * выводит ось потока из геометрии узлов сам (ports.ts, E8).
+ */
+export const LEVEL_DIRECTION: FlowDirection = "DOWN";
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
 
@@ -114,24 +121,19 @@ export async function layoutLevel(
     // линий и плашек (flowGaps; были статические 60/10/10 — пачке из 4 плеч с
     // подписью физически не хватало высоты, а узлы с пробегающими сквозь слой
     // рёбрами ELK смыкал до 32px независимо от nodeNode)
-    const sp = flowSpacing(inner);
-    // ФОРМА ПО ТОПОЛОГИИ СЦЕНЫ (N30, перф-эпик Ф4): звёзды — force, потоки —
-    // layered. Форма — чистая функция тех же входов, что и сигнатура кэша
-    // (ids + пары рёбер), поэтому кэш корректен без формы в ключе.
-    // Набор опций force — БУКВАЛЬНО замеренный мокапами Ф1 микс: базовые
-    // layered-ключи + два поверх (лишние layered-ключи force игнорирует, но
-    // сравнимость «мокап = прод» держится байт-в-байт; менять — только с
-    // новым замером). Детерминизм — дефолтный randomSeed=1 ELK (тест-замок
-    // в engine.test.ts).
-    const formOpts: Record<string, string> = pickLevelForm(inner) === "force"
-      ? { "elk.algorithm": "org.eclipse.elk.force", "elk.spacing.nodeNode": "80" }
-      : {};
+    const sp = flowSpacing(inner, LEVEL_DIRECTION);
+    // ФОРМА — ВСЕГДА layered (R10 плана эпика «стрелки без жёстких хэндлов», Ф4,
+    // 2026-10-12): прежнее правило N30 «звёзды — force» снято. С портом на связь и
+    // подписями inline layered DOWN рисует звезду как поток Mermaid (полигон: корень
+    // «Ярмарки» 1 крест, 7.2k px линий), а force с подписями-объектами раскладки
+    // разъезжался на 3000 px (23k px линий). Детерминизм layered — тест-замок в
+    // engine.test.ts.
     const elk = await getElk();
     const res = await elk.layout({
       id: "root",
       layoutOptions: {
         "elk.algorithm": "layered",
-        "elk.direction": "RIGHT",
+        "elk.direction": LEVEL_DIRECTION,
         "elk.layered.spacing.nodeNodeBetweenLayers": "120", // ≈ dagre ranksep
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
@@ -139,11 +141,10 @@ export async function layoutLevel(
         // Ф3: слой подписей ELK (inline-плашки) отстоит от соседних слоёв на зазор
         // «ребро–узел», а не на межслойный шаг узлов — иначе каждая подпись раздвигала
         // слои на два шага (как у эталона полигона)
-        "elk.layered.spacing.edgeNodeBetweenLayers": String(sp.edgeNodeGap),
+        "elk.layered.spacing.edgeNodeBetweenLayers": String(sp.edgeNodeLayerGap),
         "elk.layered.spacing.edgeEdgeBetweenLayers": String(sp.edgeEdgeGap),
         "elk.padding": "[top=30,left=30,bottom=30,right=30]", // ≈ dagre marginx/y
         "elk.spacing.edgeLabel": "6",
-        ...formOpts,
         ...override,
       },
       children: allNodes.map((n) => { const z = sizeOf(n.id); return { id: n.id, width: z.w, height: z.h }; }),

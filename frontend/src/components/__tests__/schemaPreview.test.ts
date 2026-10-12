@@ -52,17 +52,18 @@ describe("resolvePoints — раскладка превью", () => {
 // Основной путь превью (с 2026-07-22) — ELK layered через layoutLevel, тот же движок,
 // что и холст. resolvePoints выше — синхронный фолбэк на случай недоступности ELK.
 describe("resolvePointsElk — раскладка превью движком холста (ELK)", () => {
-  it("цепочка без сохранённых позиций раскладывается ELK слева-направо (не окружность)", async () => {
+  it("цепочка без сохранённых позиций раскладывается ELK сверху вниз (не окружность)", async () => {
     const raw = [node("a", null, null), node("b", null, null), node("c", null, null)];
     const edges: ProjectPreview["edges"] = [
       { source: "a", target: "b" },
       { source: "b", target: "c" },
     ];
     const pts = await resolvePointsElk(raw, edges);
-    // ELK layered RIGHT: ранги слева-направо → x растёт вдоль цепочки (кейс HelixMon:
-    // раньше при отсутствии позиций была декоративная окружность).
-    expect(pts[0].x).toBeLessThan(pts[1].x);
-    expect(pts[1].x).toBeLessThan(pts[2].x);
+    // ELK layered DOWN (Ф4 эпика «стрелки без жёстких хэндлов»): ранги сверху вниз →
+    // y растёт вдоль цепочки (кейс HelixMon: раньше при отсутствии позиций была
+    // декоративная окружность).
+    expect(pts[0].y).toBeLessThan(pts[1].y);
+    expect(pts[1].y).toBeLessThan(pts[2].y);
     const uniq = new Set(pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`));
     expect(uniq.size).toBe(3);
   });

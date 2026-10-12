@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { buildAutoRoutes, reseatRoute } from "../graph/layout/autoRoutes";
-import { PORT_SHARE } from "../graph/layout/ports";
+import { PORT_SHARE, PORT_SNAP_RULE } from "../graph/layout/ports";
 import { NUDGE_GAP } from "../graph/layout/channelNudge";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import { NODE_W, NODE_H, hid } from "../graph/constants";
@@ -174,8 +174,9 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
 
 describe("buildAutoRoutes — порт на связь (Ф1 эпика «стрелки без жёстких хэндлов»)", () => {
   // механика «порт на связь» без общих плеч (E95 выключен на время describe)
-  beforeEach(() => { PORT_SHARE.on = false; });
-  afterEach(() => { PORT_SHARE.on = true; });
+  // равный шаг R4 в чистом виде: общие плеча (E95) и снэп почти выровненных пар (E86 v3) выключены
+  beforeEach(() => { PORT_SHARE.on = false; PORT_SNAP_RULE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; PORT_SNAP_RULE.on = true; });
   // веер трёх исходящих из H вправо + одно входящее в H справа: у каждой связи своя точка
   const positions = new Map([
     ["H", { x: 0, y: 300 }],
@@ -409,8 +410,9 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
 
 describe("buildAutoRoutes — своя дорожка (Ф2, R5) и пересад портов (R9)", () => {
   // дорожки «порт на связь» в чистом виде: общие плеча (E95) выключены на время describe
-  beforeEach(() => { PORT_SHARE.on = false; });
-  afterEach(() => { PORT_SHARE.on = true; });
+  // равный шаг R4 в чистом виде: общие плеча (E95) и снэп почти выровненных пар (E86 v3) выключены
+  beforeEach(() => { PORT_SHARE.on = false; PORT_SNAP_RULE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; PORT_SNAP_RULE.on = true; });
   it("веер хаба: Z-маршруты с дорожками канала, зафиксированы для пост-стадий", () => {
     const positions = new Map([
       ["H", { x: 1000, y: 0 }], ["A", { x: 0, y: 300 }], ["B", { x: 500, y: 300 }], ["C", { x: 1000, y: 300 }],

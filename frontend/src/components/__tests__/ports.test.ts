@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { assignPorts, flowAxisOf, sidesFor, PORT_MARGIN, FRAME_PORT_GAP, PORT_SHARE } from "../graph/layout/ports";
+import { assignPorts, flowAxisOf, sidesFor, PORT_MARGIN, FRAME_PORT_GAP, PORT_SHARE, labelAwareSpacing, LABEL_PORT_PAD, PORT_SNAP } from "../graph/layout/ports";
 import type { NodeRect } from "../graph/edgePath";
 
 // Порт на связь (эпик «стрелки без жёстких хэндлов», Ф1): сторона по оси потока (R2),
@@ -180,5 +180,57 @@ describe("assignPorts — общие плеча (E95)", () => {
     // остальные концы нижней стороны A распределены без неё (двое в левое крыло — один слот)
     expect(ports.get("ac")!.s.point).toEqual(ports.get("ae")!.s.point);
     expect(ports.get("ac")!.s.point.x).not.toBe(115);
+  });
+});
+
+// Ф4 (R7, E86 v3): почти выровненная пара встаёт в общую колонну — прямая без микроступеньки
+describe("assignPorts — снэп почти выровненной пары (PORT_SNAP)", () => {
+  it("пара с расхождением портов меньше PORT_SNAP: оба порта в одной колонне (середина)", () => {
+    // B под A со сдвигом 10 px: единственные порты обеих сторон — центры, разошедшиеся на 10
+    const rects = new Map<string, NodeRect>([["A", R(0, 0)], ["B", R(10, 400)]]);
+    const { ports } = assignPorts({ groups: [g("e", "A", "B")], rects });
+    const pp = ports.get("e")!;
+    expect(pp.s.point.x).toBe(pp.t.point.x);
+    expect(pp.s.point.x).toBeCloseTo((95 + 105) / 2, 0);
+  });
+  it("расхождение больше PORT_SNAP — порты остаются на своих слотах", () => {
+    const rects = new Map<string, NodeRect>([["A", R(0, 0)], ["B", R(PORT_SNAP + 10, 400)]]);
+    const { ports } = assignPorts({ groups: [g("e", "A", "B")], rects });
+    const pp = ports.get("e")!;
+    expect(pp.s.point.x).toBe(95);
+    expect(pp.t.point.x).toBe(PORT_SNAP + 10 + 95);
+  });
+  it("снэп не ставит порт ближе 8 px к соседнему порту стороны", () => {
+    // у A два выхода вниз (к B и к C), слоты в 57 px; пара A→B разошлась на 12 px — снэп
+    // сдвинул бы порт A на 6 px, соседний слот далеко → снэп есть; у C второй порт
+    const rects = new Map<string, NodeRect>([["A", R(0, 0)], ["B", R(-60, 400)], ["C", R(300, 400)]]);
+    const { ports } = assignPorts({ groups: [g("ab", "A", "B"), g("ac", "A", "C")], rects });
+    const ab = ports.get("ab")!, ac = ports.get("ac")!;
+    expect(Math.abs(ab.s.point.x - ac.s.point.x)).toBeGreaterThanOrEqual(8);
+  });
+});
+
+// Ф3 (E86 v2): шаг портов стороны учитывает плашки подписей на стабах
+describe("labelAwareSpacing — шаг портов под плашки (E86 v2)", () => {
+  it("без плашек — равный шаг", () => {
+    expect(labelAwareSpacing([0, 0, 0], 10, 170)).toEqual([50, 90, 130]);
+  });
+  it("две плашки шире шага раздвигают порты на полуширину плашки с запасом, стопка центрирована", () => {
+    const out = labelAwareSpacing([120, 60], 10, 170);
+    expect(out[1] - out[0]).toBeCloseTo(120 / 2 + LABEL_PORT_PAD, 6);
+    expect((out[0] + out[1]) / 2).toBeCloseTo(90, 6);
+  });
+  it("стопка не влезает в сторону — равный шаг как есть (без частичного раздвигания)", () => {
+    expect(labelAwareSpacing([200, 200, 200, 200], 10, 170)).toEqual([42, 74, 106, 138]);
+  });
+  it("assignPorts: два подписанных выхода одной стороны стоят дальше друг от друга, чем без подписей", () => {
+    // дети перекрывают хаб по x — ось потока "v" (E8), оба выхода на нижней стороне H
+    const rects = new Map<string, NodeRect>([["H", R(0, 0)], ["a", R(-100, 400)], ["b", R(100, 400)]]);
+    const groups = [g("ea", "H", "a"), g("eb", "H", "b")];
+    const plain = assignPorts({ groups, rects }).ports;
+    const labeled = assignPorts({ groups, rects, labelBoxOf: () => ({ w: 120, h: 38 }) }).ports;
+    const gap = (ps: Map<string, { s: { point: { x: number } } }>) => Math.abs(ps.get("ea")!.s.point.x - ps.get("eb")!.s.point.x);
+    expect(gap(labeled)).toBeGreaterThan(gap(plain));
+    expect(gap(labeled)).toBeCloseTo(120 / 2 + LABEL_PORT_PAD, 0);
   });
 });

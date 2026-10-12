@@ -5,8 +5,8 @@
 // Сетка игнорировала связи между детьми (соседство в решётке случайно — рёбра
 // бежали лабиринтом через зазоры 40px) и подписи (плашки 150–250px не влезали
 // в такие зазоры физически — треть уходила в выноски). Теперь дети + рёбра
-// МЕЖДУ ними раскладываются локальным `elk.layered` (direction RIGHT, как
-// уровень): связанные встают в поток, изолированные — упаковкой компонент ELK.
+// МЕЖДУ ними раскладываются локальным `elk.layered` (направление — как у уровня,
+// LEVEL_DIRECTION): связанные встают в поток, изолированные — упаковкой компонент ELK.
 // Bbox результата сдвигается левым-верхним углом к закреплённой позиции
 // контейнера (own-on-expand, C6) — якорь раскрытия не меняется; единственный
 // ребёнок садится ровно на место контейнера (bbox из одного узла).
@@ -25,7 +25,7 @@
 // дети (без владеемой позиции).
 import { NODE_W, NODE_H } from "../constants";
 import { edgeText, wrapLabel } from "../text";
-import { getElk } from "./engine";
+import { getElk, LEVEL_DIRECTION } from "./engine";
 import { flowSpacing } from "./flowGaps";
 import { wrappedLabelBoxSize } from "./labelBox";
 import type { AncestorRef, LayoutEdge, LevelPos, Node as AppNode } from "../../../types";
@@ -109,27 +109,30 @@ export async function spawnFreshChildren(params: {
       innerEdges.push(e);
     }
     // Спейсинги от фактических wrapped-габаритов плашек внутренних рёбер:
-    // межслойный зазор вмещает p75 ширин (горизонтальные плечи потока несут
-    // текст); вертикаль — единый расчёт коридоров flowSpacing (клиренсы
-    // нуджинга + максимум высот плашек + резерв под пачку параллельных плеч;
-    // edgeNode/edgeEdge держат коридоры с пробегающими сквозь слой рёбрами,
-    // которые ELK иначе смыкает до 32px независимо от nodeNode).
-    const widths = innerEdges
-      .map((e) => wrappedLabelBoxSize(wrapLabel(edgeText(e))).w)
+    // межслойный зазор вмещает p75 размеров плашек ВДОЛЬ потока (ширин при RIGHT,
+    // высот при DOWN: плашка лежит на стабе у цели, E96); поперёк — единый расчёт
+    // коридоров flowSpacing (клиренсы нуджинга + максимум поперечных размеров плашек
+    // + резерв под пачку параллельных плеч; edgeNode/edgeEdge держат коридоры с
+    // пробегающими сквозь слой рёбрами, которые ELK иначе смыкает до 32px
+    // независимо от nodeNode).
+    const alongs = innerEdges
+      .map((e) => { const b = wrappedLabelBoxSize(wrapLabel(edgeText(e))); return LEVEL_DIRECTION === "DOWN" ? b.h : b.w; })
       .sort((a, b) => a - b);
-    const p75w = widths.length ? widths[Math.min(widths.length - 1, Math.floor(widths.length * 0.75))] : 0;
+    const p75 = alongs.length ? alongs[Math.min(alongs.length - 1, Math.floor(alongs.length * 0.75))] : 0;
     const layerGap = Math.min(SPAWN_LAYER_GAP_MAX,
-      Math.max(SPAWN_LAYER_GAP_MIN, Math.ceil(p75w) + 2 * SPAWN_LABEL_CLEAR));
-    const sp = flowSpacing(innerEdges);
+      Math.max(SPAWN_LAYER_GAP_MIN, Math.ceil(p75) + 2 * SPAWN_LABEL_CLEAR));
+    const sp = flowSpacing(innerEdges, LEVEL_DIRECTION);
     const res = await elk.layout({
       id: `spawn-${cid}`,
       layoutOptions: {
         "elk.algorithm": "layered",
-        "elk.direction": "RIGHT",
+        "elk.direction": LEVEL_DIRECTION,
         "elk.layered.spacing.nodeNodeBetweenLayers": String(layerGap),
         "elk.spacing.nodeNode": String(sp.nodeGap),
         "elk.spacing.edgeNode": String(sp.edgeNodeGap),
         "elk.spacing.edgeEdge": String(sp.edgeEdgeGap),
+        "elk.layered.spacing.edgeNodeBetweenLayers": String(sp.edgeNodeLayerGap),
+        "elk.layered.spacing.edgeEdgeBetweenLayers": String(sp.edgeEdgeGap),
         "elk.separateConnectedComponents": "true",
         "elk.spacing.componentComponent": String(SPAWN_COMPONENT_GAP),
         // Анти-ватман: длинную архитектурную цепочку (лента 6+ слоёв, полигон Ф1:

@@ -46,28 +46,29 @@ describe("ELK spike (шаг 4.0)", () => {
     const asyncRes = await layoutLevel(nodes, edges);
     expect(asyncRes.positions.has("a")).toBe(true);
     expect(asyncRes.positions.has("b")).toBe(true);
-    // a→b раскладывается ELK слева направо (LR) → autoHandles right/left
+    // a→b раскладывается ELK сверху вниз (DOWN, Ф4 эпика «стрелки без жёстких
+    // хэндлов») → b ниже a, фолбэк-хэндлы bottom/top
+    expect(asyncRes.positions.get("b")!.y).toBeGreaterThan(asyncRes.positions.get("a")!.y);
     expect(asyncRes.edgeHandles.get("e1")).toEqual({
-      sourceHandle: "a--right--1",
-      targetHandle: "b--left--1",
+      sourceHandle: "a--bottom--1",
+      targetHandle: "b--top--1",
     });
   });
 });
 
-describe("форма уровня N30 (перф-эпик Ф4)", () => {
+describe("форма уровня — всегда layered DOWN (R10, N30 снят)", () => {
   const starNodes = [{ id: "hub" }, { id: "l1" }, { id: "l2" }, { id: "l3" }, { id: "l4" }, { id: "l5" }];
   const starEdges = ["l1", "l2", "l3", "l4", "l5"].map((l, i) => edge(`e${i}`, "hub", l));
 
-  it("звезда раскладывается force: листья по обе стороны хаба (layered посадил бы всех правее)", async () => {
+  it("звезда раскладывается потоком: все листья в слое ниже хаба (force снят в Ф4)", async () => {
     __clearElkCacheForTests();
     const res = await layoutLevel(starNodes, starEdges);
     const hub = res.positions.get("hub")!;
-    const xs = ["l1", "l2", "l3", "l4", "l5"].map((l) => res.positions.get(l)!.x);
-    expect(Math.min(...xs)).toBeLessThan(hub.x);
-    expect(Math.max(...xs)).toBeGreaterThan(hub.x);
+    const ys = ["l1", "l2", "l3", "l4", "l5"].map((l) => res.positions.get(l)!.y);
+    for (const y of ys) expect(y).toBeGreaterThan(hub.y);
   });
 
-  it("ЗАМОК ДЕТЕРМИНИЗМА: два живых прогона force (кэш сброшен) — позиции идентичны", async () => {
+  it("ЗАМОК ДЕТЕРМИНИЗМА: два живых прогона (кэш сброшен) — позиции идентичны", async () => {
     __clearElkCacheForTests();
     const a = await layoutLevel(starNodes, starEdges);
     __clearElkCacheForTests();

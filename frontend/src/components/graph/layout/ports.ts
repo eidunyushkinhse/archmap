@@ -126,6 +126,17 @@ export const PORT_SHARE = { on: true };
 export const CLOSE_PAIR_GAP = 38;
 /** Минимальное пересечение сторон вдоль, при котором есть куда поставить общую колонну. */
 const CLOSE_PAIR_OVERLAP = 2 * PORT_MARGIN;
+/**
+ * СНЭП ПОЧТИ ВЫРОВНЕННОЙ ПАРЫ (R7 плана эпика «стрелки без жёстких хэндлов», Ф4): порты
+ * пары на противоположных сторонах оси, разошедшиеся вдоль меньше чем на столько px,
+ * встают в общую колонну (середина) — связь становится прямой вместо Z с микроступенькой
+ * у порта. Mermaid/ELK такие пары выпрямляют самой раскладкой.
+ */
+export const PORT_SNAP = 16;
+/** Минимальный зазор снэпнутого порта до соседних портов стороны (= клиренс Z). */
+const PORT_SNAP_GAP = 12;
+/** Выключатель снэпа для тестов «порт на связь в чистом виде» (равный шаг R4). */
+export const PORT_SNAP_RULE = { on: true };
 
 // координата вдоль стороны и её диапазон
 function sideSpan(r: NodeRect, side: EdgeSide): { start: number; len: number } {
@@ -381,5 +392,64 @@ export function assignPorts(params: {
     }
     slots.forEach((sl, i) => { const pt = pointOnSide(rect, side, half(along[i])); for (const set of sl.setters) set({ ...pt }); });
   }
+  if (PORT_SNAP_RULE.on) snapNearAligned(items.map((it) => ({ g: it.g, a: it.a, b: it.b })), ports, shares, closeAlong, frameIds);
   return { ports, axis, shares };
+}
+
+// Снэп почти выровненных пар (PORT_SNAP): оба конца — личные слоты (не общее плечо, не
+// сближенная пара, не рамка), стороны — противоположные одной оси; новая колонна лежит в
+// полях обеих сторон и не ближе PORT_SNAP_GAP к любому другому порту этих сторон. Обход в
+// порядке id групп (детерминизм); занятость сторон обновляется по ходу.
+function snapNearAligned(
+  items: ReadonlyArray<{ g: { id: string; source: string; target: string }; a: NodeRect; b: NodeRect }>,
+  ports: Map<string, PortPair>,
+  shares: ReadonlyMap<string, { s?: string; t?: string }>,
+  closeAlong: ReadonlyMap<string, number>,
+  frameIds?: ReadonlySet<string>,
+): void {
+  const alongOf = (side: EdgeSide, p: EdgePoint): number => (isVerticalSide(side) ? p.x : p.y);
+  // занятые along по сторонам узлов: все концы всех пар
+  const taken = new Map<string, Array<{ gid: string; along: number }>>();
+  const keyOf = (node: string, side: EdgeSide): string => `${node}|${side}`;
+  for (const [gid, pp] of ports) {
+    const g = items.find((it) => it.g.id === gid)?.g;
+    if (!g) continue;
+    for (const [node, end] of [[g.source, pp.s], [g.target, pp.t]] as const) {
+      const k = keyOf(node, end.side);
+      const arr = taken.get(k);
+      const rec = { gid, along: alongOf(end.side, end.point) };
+      if (arr) arr.push(rec); else taken.set(k, [rec]);
+    }
+  }
+  const opposite = (s: EdgeSide, t: EdgeSide): boolean =>
+    (s === "bottom" && t === "top") || (s === "top" && t === "bottom") || (s === "right" && t === "left") || (s === "left" && t === "right");
+  for (const it of [...items].sort((p, q) => (p.g.id < q.g.id ? -1 : p.g.id > q.g.id ? 1 : 0))) {
+    const g = it.g;
+    const pp = ports.get(g.id);
+    if (!pp || g.source === g.target || closeAlong.has(g.id)) continue;
+    if (frameIds?.has(g.source) || frameIds?.has(g.target)) continue;
+    const sh = shares.get(g.id);
+    if (sh?.s !== undefined || sh?.t !== undefined) continue;
+    if (!opposite(pp.s.side, pp.t.side)) continue;
+    const aS = alongOf(pp.s.side, pp.s.point), aT = alongOf(pp.t.side, pp.t.point);
+    const d = Math.abs(aS - aT);
+    if (d <= 0.5 || d > PORT_SNAP) continue;
+    const mid = half((aS + aT) / 2);
+    // поля обеих сторон
+    const okRange = (r: NodeRect, side: EdgeSide): boolean => {
+      const { start, len } = sideSpan(r, side);
+      const margin = Math.min(PORT_MARGIN, len / 4);
+      return mid >= start + margin - 0.5 && mid <= start + len - margin + 0.5;
+    };
+    if (!okRange(it.a, pp.s.side) || !okRange(it.b, pp.t.side)) continue;
+    // соседние порты сторон
+    const clear = (node: string, side: EdgeSide): boolean =>
+      !(taken.get(keyOf(node, side)) ?? []).some((r) => r.gid !== g.id && Math.abs(r.along - mid) < PORT_SNAP_GAP);
+    if (!clear(g.source, pp.s.side) || !clear(g.target, pp.t.side)) continue;
+    pp.s.point = pointOnSide(it.a, pp.s.side, mid);
+    pp.t.point = pointOnSide(it.b, pp.t.side, mid);
+    for (const [node, side] of [[g.source, pp.s.side], [g.target, pp.t.side]] as const) {
+      for (const r of taken.get(keyOf(node, side)) ?? []) if (r.gid === g.id) r.along = mid;
+    }
+  }
 }

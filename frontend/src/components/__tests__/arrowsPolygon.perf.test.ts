@@ -41,6 +41,7 @@ import {
 import { cleanup } from "../graph/edgePath";
 import { NODE_W, NODE_H } from "../graph/constants";
 import { __zDebug, LABEL_HOSTS } from "../graph/layout/zRoutes";
+import { LEVEL_DIRECTION } from "../graph/layout/engine";
 import { PORT_SHARE, PORT_LABEL_SPACING } from "../graph/layout/ports";
 import type { EdgePoint } from "../../types";
 
@@ -54,6 +55,13 @@ PORT_SHARE.on = process.env.ARCHMAP_SHARE !== "0";
 LABEL_HOSTS.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_HOSTS !== "0";
 PORT_LABEL_SPACING.on = process.env.ARCHMAP_LABELS !== "0" && process.env.ARCHMAP_LABEL_PORTS !== "0";
 if (process.env.ARCHMAP_LABEL_COST !== undefined) LABEL_HOSTS.lostCost = Number(process.env.ARCHMAP_LABEL_COST);
+// Ф4: вариант auto — автораскладка самого движка (engine.ts, кольца гостей): то, что
+// видит пользователь по «Переразложить». ARCHMAP_ENGINE_DIR=RIGHT|DOWN переопределяет
+// направление ELK уровня.
+const ENGINE_DIR: "DOWN" | "RIGHT" = process.env.ARCHMAP_ENGINE_DIR === "RIGHT" ? "RIGHT" : process.env.ARCHMAP_ENGINE_DIR === "DOWN" ? "DOWN" : LEVEL_DIRECTION;
+if (process.env.ARCHMAP_ENGINE_DIR) {
+  (globalThis as unknown as { __archmapElkOverride?: Record<string, string> }).__archmapElkOverride = { "elk.direction": ENGINE_DIR };
+}
 
 // обратное преобразование сериализации зонда: {__set:[…]} → Set, {__map:[…]} → Map
 function revive(_k: string, v: unknown): unknown {
@@ -549,6 +557,13 @@ describe.skipIf(!dir)("полигон стрелок (эпик «без жёст
         groups: scNow.groups.map((g) => `${scNow.names.get(g.source) ?? g.source.slice(0, 8)} → ${scNow.names.get(g.target) ?? g.target.slice(0, 8)}`),
       }, null, 2));
       emit(scene, "now", scNow, scNow.routes, scNow.labels, "RIGHT");
+      // auto: автораскладка движка без сохранённых позиций (свежий уровень / «Переразложить»)
+      {
+        const inpA = stripPrev({ ...input, viewLayout: {} });
+        const outA = await computeViewLayout(inpA);
+        const scA = sceneOf(inpA, outA);
+        emit(scene, "auto", scA, scA.routes, scA.labels, ENGINE_DIR);
+      }
       // elk-down / elk-right: позиции ELK с габаритами и подписями, стрелки наши
       for (const dirn of ["DOWN", "RIGHT"] as const) {
         const elk = await elkLayout(scNow, dirn);

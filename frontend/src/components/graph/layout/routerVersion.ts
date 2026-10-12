@@ -60,7 +60,7 @@ import {
 import { FRAME_CROSS_COST, LABEL_CROSS_COST, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
 import {
   PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
-  CLOSE_PAIR_GAP, LABEL_PORT_PAD,
+  CLOSE_PAIR_GAP, LABEL_PORT_PAD, PORT_SNAP,
 } from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
 import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY, LABEL_PAD, LABEL_SHIFT_TOL, LABEL_HOSTS } from "./zRoutes";
@@ -89,7 +89,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 16;
+export const ROUTER_VERSION = 17;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -154,6 +154,8 @@ export function collectRouterConstants(): Record<string, unknown> {
     "ports.CLOSE_PAIR_GAP": CLOSE_PAIR_GAP,
     // шаг портов под плашки (Ф3, E86 v2): запас между краем плашки на стабе и соседним портом
     "ports.LABEL_PORT_PAD": LABEL_PORT_PAD,
+    // снэп почти выровненной пары в общую колонну (Ф4, R7, E86 v3)
+    "ports.PORT_SNAP": PORT_SNAP,
     // --- своя дорожка (zRoutes, Ф2 эпика «стрелки без жёстких хэндлов»): клиренс
     // дорожек, дно сжатия шага, конфликт слитых стабов — геометрия Z-маршрутов ---
     "zRoutes.Z_CLEAR": Z_CLEAR,
@@ -269,6 +271,12 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v17 — Ф4 эпика «стрелки без жёстких хэндлов» (2026-10-12): СНЭП ПОЧТИ ВЫРОВНЕННОЙ
+  // ПАРЫ (ports.PORT_SNAP, E86 v3): порты пары, разошедшиеся вдоль меньше чем на 16 px,
+  // встают в общую колонну — прямая вместо Z с микроступенькой у порта. Реестр +1
+  // константа, геометрия изменилась (golden перегенерирован). Направление автораскладки
+  // DOWN и снятие формы N30 — вне контракта роутера (позиции — вход).
+  17: "28ff35b038b44f4a",
   // v16 — Ф3 эпика «стрелки без жёстких хэндлов» (2026-10-11): ПОДПИСИ ВНУТРИ РАСКЛАДКИ.
   // Носитель подписи у Z-маршрута (стаб у цели/истока, колонна ZZ, дорожка — E96): слот
   // выталкивает чужие дорожки, толщина разводит стабы и колонны, потерянный носитель —
