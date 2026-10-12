@@ -15,19 +15,6 @@
         узел; ладонь кладёт конец на глиф ребёнка, а не на его тело; сквозной прогон
         тура на демо-стенде :5174 не делался. Правки даст пользователь отдельно,
         после закрытия эпика.
-- [ ] (2026-10-11, пользователь) ОБНОВИТЬ MERMAID ДО 12.x. Сейчас frontend тянет
-        mermaid ^11.15.0 (flowchart раскладывает dagre-d3-es). С 12.0.0 flowchart по
-        умолчанию раскладывается ELK layered (тот же elkjs, что у холста; dagre —
-        только директивой `layout: dagre`), подписи — объекты раскладки, порт на связь
-        (разбор в docs/archive/plan-arrows-ports.md). Точки касания: ленивый синглтон
-        mermaidLoader.ts (initialize: securityLevel strict, maxTextSize/maxEdges),
-        MermaidRenderer/FlowchartDoc(s), docShared, dbErDiagram, DbStructureSection,
-        BrokerChannelsSection, docValidate (mermaid.parse), ProcessImportModal /
-        ProcessWorkspace / sequence/layout.ts, usePanZoom; тесты mermaidLimits,
-        mermaidRemarks, docValidate, docOverlayContract, DocsAgentModal, NodePage,
-        ProjectShell. Проверить: один elkjs в бандле (не два), размер ленивого чанка,
-        строгий securityLevel и лимиты не потерялись, схемы логики и ER демо-проекта
-        «Ярмарка» рендерятся без регрессий, flowchart без директивы раскладывается ELK.
 - [ ] (2026-09-01, идея пользователя, ПРОРАБОТАНА груммингом) UI: ИНДИКАТОР ГРЯЗИ
         СТРЕЛОК ВМЕСТО ТОСТА P15 — кликабельный индикатор над схемой с
         автоматическим мониторингом грязи.

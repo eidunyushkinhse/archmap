@@ -17,7 +17,7 @@
     "@xyflow/system": "0.0.76",
     "elkjs": "^0.11.1",
     "js-yaml": "^5.2.1",
-    "mermaid": "^11.15.0",
+    "mermaid": "^12.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "swagger-ui-dist": "^5.32.8"
@@ -26,6 +26,9 @@
   "overrides": {
     "openapi-typescript": {
       "typescript": "$typescript"
+    },
+    "mermaid": {
+      "elkjs": "$elkjs"
     }
   },
   "devDependencies": {
