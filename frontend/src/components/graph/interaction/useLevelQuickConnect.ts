@@ -28,15 +28,8 @@ interface UseLevelQuickConnectArgs {
   resolveTarget: (id: string) => ConnectTarget;
   // имя отображаемого узла по id (для заголовков модалок создания связи)
   displayNameOf: (id: string) => string | undefined;
-  onCreateEdge?: (
-    sourceId: string, targetId: string,
-    sourceHandle: string | null, targetHandle: string | null,
-    sourceName?: string, targetName?: string,
-  ) => void;
-  onConnectInto?: (
-    sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null, sourceName?: string,
-  ) => void;
+  onCreateEdge?: (sourceId: string, targetId: string, sourceName?: string, targetName?: string) => void;
+  onConnectInto?: (sourceId: string, containerId: string, containerName: string, sourceName?: string) => void;
 }
 
 export interface LevelQuickConnect {
@@ -53,8 +46,8 @@ export function useLevelQuickConnect({
   onCreateEdge,
   onConnectInto,
 }: UseLevelQuickConnectArgs): LevelQuickConnect {
-  // Активное наведение: источник + хэндл + сторона/доля (для расчёта цели).
-  const [qc, setQc] = useState<{ sourceId: string; sourceHandle: string; side: EdgeSide; frac: number } | null>(null);
+  // Активное наведение: источник + сторона/доля (для расчёта цели).
+  const [qc, setQc] = useState<{ sourceId: string; side: EdgeSide; frac: number } | null>(null);
   // Кандидат-цель для текущего qc — из геометрии узлов уровня (фикс. размер NODE_W×NODE_H).
   // Позиции — абсолютные: дети compound-рамок несут относительные координаты (R4).
   const qcCandidate = useMemo(() => {
@@ -88,7 +81,7 @@ export function useLevelQuickConnect({
     displayNameOfRef.current = displayNameOf;
   });
   const quickConnectHandlers = useMemo<QuickConnectHandlers>(() => ({
-    enter: (sourceId, sourceHandle, side, frac) => setQc({ sourceId, sourceHandle, side, frac }),
+    enter: (sourceId, side, frac) => setQc({ sourceId, side, frac }),
     leave: () => setQc(null),
     activate: () => {
       const q = qcRef.current, c = qcCandidateRef.current;
@@ -100,15 +93,10 @@ export function useLevelQuickConnect({
       // промежуточный объект рождала бы алерт intermediate_edges (баг 2026-07-16).
       const target = resolveTargetRef.current(c.targetId);
       if (target && target.kind === "into") {
-        onConnectIntoRef.current?.(
-          q.sourceId, c.targetId, target.name, q.sourceHandle, nameOf(q.sourceId),
-        );
+        onConnectIntoRef.current?.(q.sourceId, c.targetId, target.name, nameOf(q.sourceId));
         return;
       }
-      onCreateEdgeRef.current?.(
-        q.sourceId, c.targetId, q.sourceHandle, c.targetHandle,
-        nameOf(q.sourceId), nameOf(c.targetId),
-      );
+      onCreateEdgeRef.current?.(q.sourceId, c.targetId, nameOf(q.sourceId), nameOf(c.targetId));
     },
   }), []);
 

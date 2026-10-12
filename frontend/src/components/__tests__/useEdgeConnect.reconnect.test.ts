@@ -75,7 +75,7 @@ describe("useEdgeConnect — перевес конца не создаёт но�
     expect(result.current.connecting).toBe(true);
     act(() => { result.current.handleConnectEnd(mouseUp()); });
     expect(onCreate).toHaveBeenCalledTimes(1);
-    expect(onCreate).toHaveBeenCalledWith("X", "K", "X--right--0", null);
+    expect(onCreate).toHaveBeenCalledWith("X", "K");
   });
 
   it("новая связь на хэндл по-прежнему создаётся ровно один раз", () => {
@@ -88,6 +88,6 @@ describe("useEdgeConnect — перевес конца не создаёт но�
       result.current.handleConnectEnd(mouseUp());
     });
     expect(onCreate).toHaveBeenCalledTimes(1);
-    expect(onCreate).toHaveBeenCalledWith("X", "K", "X--right--0", "K--left--0");
+    expect(onCreate).toHaveBeenCalledWith("X", "K");
   });
 });

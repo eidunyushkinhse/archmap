@@ -89,16 +89,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // сигнала удалённый внутри рамки объект остаётся нарисованным (находка 2026-08-09).
   const [childrenRev, setChildrenRev] = useState(0);
   const [intoPicker, setIntoPicker] = useState<{
-    sourceId: string; containerId: string; containerName: string;
-    sourceHandle: string | null; sourceName?: string;
+    sourceId: string; containerId: string; containerName: string; sourceName?: string;
   } | null>(null);
-  const [outPicker, setOutPicker] = useState<{
-    sourceId: string; sourceHandle: string | null; sourceName?: string;
-  } | null>(null);
+  const [outPicker, setOutPicker] = useState<{ sourceId: string; sourceName?: string } | null>(null);
   const [edgeQuick, setEdgeQuick] = useState<{
-    sourceId: string; targetId: string;
-    sourceHandle: string | null; targetHandle: string | null;
-    sourceName?: string; targetName?: string;
+    sourceId: string; targetId: string; sourceName?: string; targetName?: string;
   } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Node | null>(null);
   const [pendingMultiDelete, setPendingMultiDelete] = useState<Node[] | null>(null);
@@ -646,7 +641,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     labelOf: findNodeLabel,
     onPick: inspectEdge,
     onAddFromChoice: isArchitect
-      ? (rep) => setEdgeQuick({ sourceId: rep.source_id, targetId: rep.target_id, sourceHandle: null, targetHandle: null })
+      ? (rep) => setEdgeQuick({ sourceId: rep.source_id, targetId: rep.target_id })
       : undefined,
   });
 
@@ -671,9 +666,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({
     onEdgesChoice,
-    onCreateEdge: (s, t, sh, th, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceHandle: sh, targetHandle: th, sourceName: sn, targetName: tn }),
-    onConnectInto: (s, cid, cn, sh, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceHandle: sh, sourceName: sn }),
-    onExitUp: (s, sh, sn) => setOutPicker({ sourceId: s, sourceHandle: sh, sourceName: sn }),
+    onCreateEdge: (s, t, sn, tn) => setEdgeQuick({ sourceId: s, targetId: t, sourceName: sn, targetName: tn }),
+    onConnectInto: (s, cid, cn, sn) => setIntoPicker({ sourceId: s, containerId: cid, containerName: cn, sourceName: sn }),
+    onExitUp: (s, sn) => setOutPicker({ sourceId: s, sourceName: sn }),
     onReconnectFrameEnd: handleFrameEndReconnected,
   }), [onEdgesChoice, handleFrameEndReconnected]);
 

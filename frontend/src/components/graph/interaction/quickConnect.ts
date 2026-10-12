@@ -12,7 +12,7 @@
 // настоящие порты связи поставит роутер (edge.md E7 v2), превью лишь показывает, КОГО
 // предлагают связать. Чистый модуль без React — под юнит-тесты. Геометрия в
 // координатах графа уровня.
-import { NODE_W, NODE_H, hid } from "../constants";
+import { NODE_W, NODE_H } from "../constants";
 import { orthogonalPointsForHandles, type EdgeSide } from "../edgePath";
 import type { EdgePoint } from "../../../types";
 
@@ -25,7 +25,6 @@ export interface QcResult {
   sourceSide: EdgeSide;
   targetPoint: EdgePoint;
   targetSide: EdgeSide;
-  targetHandle: string;       // служебный хэндл стороны цели (hid), центр стороны
   points: EdgePoint[];        // готовый ортогональный путь превью (дефолтные изломы)
 }
 
@@ -114,7 +113,6 @@ export function findQuickConnectTarget(
     sourceSide,
     targetPoint,
     targetSide,
-    targetHandle: hid(best.id, targetSide),
     points,
   };
 }

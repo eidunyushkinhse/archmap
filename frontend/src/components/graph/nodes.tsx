@@ -126,7 +126,7 @@ function NodeHandles({
                 type="button"
                 className="nodrag lg-side-arrow"
                 aria-label="Создать связь"
-                onMouseEnter={() => quickConnect.enter(nodeId, id, side as EdgeSide, 0.5)}
+                onMouseEnter={() => quickConnect.enter(nodeId, side as EdgeSide, 0.5)}
                 onMouseLeave={() => quickConnect.leave()}
                 // stopPropagation: клик по глифу — быстрая связь, а не click-connect RF
                 // (он и так выключен: connectOnClick={false} в LevelGraph)

@@ -360,9 +360,9 @@ export interface EdgeConnectParams {
   isArchitect: boolean;
   disabled: boolean;
   resolveTarget: (nodeId: string) => { kind: "direct" } | { kind: "into"; name: string } | null;
-  onCreate?: (s: string, t: string, sh: string | null, th: string | null) => void;
-  onInto?: (s: string, cid: string, cname: string, sh: string | null) => void;
-  onExitUp?: (s: string, sh: string | null) => void;
+  onCreate?: (s: string, t: string) => void;
+  onInto?: (s: string, cid: string, cname: string) => void;
+  onExitUp?: (s: string) => void;
 }
 export const edgeConnectMock = {
   connecting: false,

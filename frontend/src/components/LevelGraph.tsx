@@ -658,9 +658,9 @@ function LevelGraphInner({
     handleReconnectStart, handleReconnectEnd,
   } = useEdgeConnect({
     isArchitect, disabled: !canStructure, resolveTarget,
-    onCreate: (s, t, sh, th) => onCreateEdge?.(s, t, sh, th, displayNameOf(s), displayNameOf(t)),
-    onInto: (s, cid, cname, sh) => onConnectInto?.(s, cid, cname, sh, displayNameOf(s)),
-    onExitUp: (s, sh) => onExitUp?.(s, sh, displayNameOf(s)),
+    onCreate: (s, t) => onCreateEdge?.(s, t, displayNameOf(s), displayNameOf(t)),
+    onInto: (s, cid, cname) => onConnectInto?.(s, cid, cname, displayNameOf(s)),
+    onExitUp: (s) => onExitUp?.(s, displayNameOf(s)),
   });
 
   // Идёт перевес конца (ручка на ребре): класс холста прячет стрелки-глифы протяжки и
