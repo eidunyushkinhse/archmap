@@ -6,8 +6,8 @@ import type { NodeRect } from "../graph/edgePath";
 import type { EdgeGroup } from "../graph/types";
 import type { LayoutEdge, EdgePoint } from "../../types";
 
-// Мост раскладки плашек (A7.2): по авто-маршрутам строит размещение без наложений (R2),
-// с выноской-leader там, где на линии не встаёт. Проверяем инварианты через метрики A0.
+// Мост раскладки плашек (A7.2): по авто-маршрутам строит размещение без наложений (R2);
+// с Ф3 плашка всегда на своей линии (выносок нет). Проверяем инварианты через метрики A0.
 
 const edge = (id: string, label?: string): LayoutEdge => ({ id, source_id: "s", target_id: "t", label } as LayoutEdge);
 const group = (id: string, members: LayoutEdge[]): EdgeGroup => ({ id, source: "s", target: "t", members });
@@ -55,16 +55,38 @@ describe("buildLabelPlacements — R2 без наложений", () => {
   });
 });
 
-describe("buildLabelPlacements — выноска", () => {
-  it("маршрут целиком под узлом → leader (плашка снесена с линии)", () => {
-    // путь короткий и весь накрыт большим узлом-препятствием → на линии чисто не встаёт
+describe("buildLabelPlacements — плашка всегда на линии (Ф3, E50/E51)", () => {
+  it("маршрут целиком под узлом → выноски нет, плашка остаётся на линии", () => {
+    // путь короткий и весь накрыт большим узлом-препятствием: чистого места нет, но
+    // плашка всё равно ложится на свою линию (место под неё резервирует раскладка)
     const routes = new Map([["g1", poly([0, 0], [40, 0])]]);
     const node: NodeRect = { x: -120, y: -80, w: 280, h: 160 };
     const out = buildLabelPlacements({
       routes, groups: [group("g1", [edge("g1", "под узлом")])],
       labelMeta: () => meta("под узлом"), preferredT: () => undefined, nodeRects: [node],
     });
-    expect(out.get("g1")!.mode).toBe("leader");
+    const p = out.get("g1")!;
+    expect(p.mode).toBe("online");
+    expect(p.center.y).toBeCloseTo(0, 0);
+    expect(p.center.x).toBeGreaterThanOrEqual(0);
+    expect(p.center.x).toBeLessThanOrEqual(40);
+  });
+
+  it("крест чужой линии вычитается из кандидатов: плашка не ложится на место пересечения", () => {
+    const routes = new Map([
+      ["g1", poly([0, 0], [220, 0])],        // подписанная
+      ["g2", poly([110, -120], [110, 120])], // чужая режет её посередине
+    ]);
+    const groups = [group("g1", [edge("g1", "жертва")]), group("g2", [edge("g2")])];
+    const out = buildLabelPlacements({
+      routes, groups,
+      labelMeta: (g) => (g.id === "g1" ? meta("жертва") : null),
+      preferredT: () => undefined, nodeRects: [],
+    });
+    const p = out.get("g1")!;
+    const box = labelBoxSize("жертва");
+    expect(p.center.y).toBeCloseTo(0, 0);
+    expect(Math.abs(p.center.x - 110)).toBeGreaterThan(box.w / 2); // крест вне плашки
   });
 });
 

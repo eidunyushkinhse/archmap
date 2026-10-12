@@ -53,10 +53,12 @@ function edge(id: string, source_id: string, target_id: string, label: string | 
 
 // Сцена с ПОЛНЫМИ замерами: без них авто-режим P10 роняет стадии качества (и вместе с
 // ними бюджет), а гейт авторитетности (v) не проверить — он и так был бы false.
+// Q перегораживает прямую A → B: с Ф2 (своя дорожка) связи с чистым Z идут без A*, а
+// бюджет считает экспансии A* — сцене нужна хотя бы одна связь без Z.
 const SZ = { w: 220, h: 96 };
 function budgetInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
   return {
-    nodes: [appNode("A"), appNode("B"), appNode("C")],
+    nodes: [appNode("A"), appNode("B"), appNode("C"), appNode("Q")],
     endpoints: [ghost("G", []), ghost("H", [a("D")])],
     edges: [
       edge("eAB", "A", "B", "зов"), edge("eBC", "B", "C", "поток"),
@@ -65,13 +67,13 @@ function budgetInput(overrides: Partial<PipelineInput> = {}): PipelineInput {
     ],
     containerId: "P",
     viewLayout: {
-      A: { x: 0, y: 0 }, B: { x: 400, y: 0 }, C: { x: 200, y: 300 },
+      A: { x: 0, y: 0 }, B: { x: 500, y: 0 }, C: { x: 200, y: 300 }, Q: { x: 250, y: -20 },
       G: { x: -400, y: 0 }, D: { x: 800, y: 200 },
     },
     ancestorIds: ["P"],
     expanded: new Set(),
     localChildren: {},
-    sizes: { A: SZ, B: SZ, C: SZ, G: SZ, D: SZ },
+    sizes: { A: SZ, B: SZ, C: SZ, Q: SZ, G: SZ, D: SZ },
     edgeQuality: "full",
     ...overrides,
   };
@@ -88,13 +90,13 @@ function routesSig(l: { autoRoutes?: Map<string, Pt[]>; edgeHandles: Map<string,
   return `${routes.join("\n")}\n--\n${handles.join("\n")}`;
 }
 
-// Форс-бюджет: лимит настолько мал, что ЛЮБОЙ прогон стадий его перебирает, и все три
+// Форс-бюджет: лимит настолько мал, что ЛЮБОЙ прогон стадий его перебирает, и обе
 // реактивные ступени включаются на своих границах.
 const FORCE_ALL: RouteBudgetConfig = { ...DEFAULT_ROUTE_BUDGET, byClass: { typical: 1, limit: 1, overload: 1 } };
-// Форс-бюджет ТОЛЬКО на T4: доли ripup/weld подняты выше единицы (не срабатывают
+// Форс-бюджет ТОЛЬКО на T4: доля ripup поднята выше единицы (не срабатывает
 // никогда), доля T4 — ноль (срабатывает сразу, как только потрачена хоть одна экспансия).
 const FORCE_T4_ONLY: RouteBudgetConfig = {
-  ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipWeldShare: 10, skipT4Share: 0,
+  ...DEFAULT_ROUTE_BUDGET, skipRipupShare: 10, skipT4Share: 0,
 };
 
 // Трасса стадий конвейера: тот же хук, которым живёт scripts/replay-prof.ts.
@@ -112,7 +114,7 @@ describe("бюджет работ роутера — реактивный кон
     expect(routesSig(two.layout)).toBe(routesSig(one.layout));
     expect(two.budgetDegraded).toEqual(one.budgetDegraded);
     // И сами ступени — те, что предписаны реактивным контуром на этих порогах.
-    expect(one.budgetDegraded).toEqual({ ripup: true, weld: true, t4: true, greedyCalls: 0 });
+    expect(one.budgetDegraded).toEqual({ ripup: true, t4: true, greedyCalls: 0 });
   });
 
   it("(ii) ступень «пропуск T4» реально пропускает мини-проход (трасса стадий)", async () => {
@@ -122,14 +124,13 @@ describe("бюджет работ роутера — реактивный кон
     const before = marks.length; // ДЛИНА, не ссылка: marks — тот же массив, что пишет хук
 
     const cut = await computeViewLayout(budgetInput({ routeBudget: FORCE_T4_ONLY }));
-    expect(cut.budgetDegraded).toEqual({ ripup: false, weld: false, t4: true, greedyCalls: 0 });
+    expect(cut.budgetDegraded).toEqual({ ripup: false, t4: true, greedyCalls: 0 });
     const after = marks.slice(before);
     expect(after).toContain("T4 мини-проход: ПРОПУЩЕН (ступень бюджета работ, P13)");
     expect(after).not.toContain("T4 мини-проход (плашки-препятствия)");
-    // Ступень «пропуск T4» — ОДНА: rip-up и сварка на своих порогах не сработали,
-    // значит их запись осталась ложной (таблица «точка × ступень» соблюдена).
+    // Ступень «пропуск T4» — ОДНА: rip-up на своём пороге не сработал, значит его
+    // запись осталась ложной (таблица «точка × ступень» соблюдена).
     expect(cut.budgetDegraded?.ripup).toBe(false);
-    expect(cut.budgetDegraded?.weld).toBe(false);
   });
 
   it("(v) прогон со ступенью НЕ авторитетен (в кэш маршрутов вида не идёт)", async () => {
@@ -152,10 +153,9 @@ describe("бюджет работ роутера — априорный конт
     expect(b.apriori).toBe(true);
     expect(b.spent()).toBe(0);
     expect(b.takeRipup()).toBe(true);
-    expect(b.takeWeld()).toBe(true);
     expect(b.takeT4()).toBe(true);
     expect(b.callCap).toBe(Math.floor(CALL_EXPANSION_CAP / DEFAULT_ROUTE_BUDGET.aprioriCapDivisor));
-    expect(b.result()).toEqual({ ripup: true, weld: true, t4: true, greedyCalls: 0 });
+    expect(b.result()).toEqual({ ripup: true, t4: true, greedyCalls: 0 });
   });
 
   it("класс сцены и лимит берутся по P1", () => {

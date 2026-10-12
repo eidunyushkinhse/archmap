@@ -36,13 +36,9 @@ export function baseProps(): LevelGraphProps {
     },
     edgeCallbacks: {
       onEdgesChoice: vi.fn<(e: AppEdge[]) => void>(),
-      onCreateEdge: vi.fn<
-        (s: string, t: string, sh: string | null, th: string | null, sn?: string, tn?: string) => void
-      >(),
-      onConnectInto: vi.fn<
-        (s: string, cid: string, cname: string, sh: string | null, sn?: string) => void
-      >(),
-      onExitUp: vi.fn<(s: string, sh: string | null, sn?: string) => void>(),
+      onCreateEdge: vi.fn<(s: string, t: string, sn?: string, tn?: string) => void>(),
+      onConnectInto: vi.fn<(s: string, cid: string, cname: string, sn?: string) => void>(),
+      onExitUp: vi.fn<(s: string, sn?: string) => void>(),
     },
     persistence: {
       onLayoutChanged: vi.fn<(items: Record<string, unknown>) => void>(),

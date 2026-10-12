@@ -50,7 +50,7 @@ export function pickHandlePair(
   } catch {
     // роутер не справился — ниже запасной вариант
   }
-  return autoHandles(sourceId, targetId, positions, 0, 1);
+  return autoHandles(sourceId, targetId, positions);
 }
 
 // Позиция узла в координатах потока: React Flow ставит узлу transform
@@ -95,12 +95,22 @@ function scenePair(
   return hit.pair;
 }
 
+/**
+ * Видимая часть хэндла стороны: стрелка-глиф протяжки (.lg-side-arrow, Ф5 эпика «стрелки
+ * без жёстких хэндлов») — сам хэндл React Flow невидимая 2-px точка. У инертных
+ * хэндлов (рамка, read-only) глифа нет — остаётся сам хэндл.
+ */
+function handleGlyph(flow: Element, handleId: string): Element | null {
+  const handle = flow.querySelector(`.react-flow__handle[data-handleid="${handleId}"]`);
+  return handle?.querySelector(".lg-side-arrow") ?? handle;
+}
+
 const rectOf = (el: Element): Rect => {
   const r = el.getBoundingClientRect();
   return { x: r.left, y: r.top, w: r.width, h: r.height };
 };
 
-/** Цель шага «Проведите связь»: по точке на каждом из двух объектов. */
+/** Цель шага «Проведите связь»: по стрелке протяжки на каждом из двух объектов. */
 export function resolveHandlePair(peerId: string, systemId: string): Resolved | null {
   const peerEl = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${peerId}"]`);
   const sysEl = document.querySelector<HTMLElement>(`.react-flow__node[data-id="${systemId}"]`);
@@ -109,8 +119,7 @@ export function resolveHandlePair(peerId: string, systemId: string): Resolved | 
   const pair = scenePair(flow, peerId, systemId);
   if (!pair) return null;
   const { sourceHandle, targetHandle } = pair;
-  const handleEl = (h: string) => flow.querySelector(`.react-flow__handle[data-handleid="${h}"]`);
-  const src = handleEl(sourceHandle), tgt = handleEl(targetHandle);
+  const src = handleGlyph(flow, sourceHandle), tgt = handleGlyph(flow, targetHandle);
   if (!src || !tgt) return null;
   const holes = [padHole(rectOf(src), "dot"), padHole(rectOf(tgt), "dot")];
   const nodes = [rectOf(peerEl), rectOf(sysEl)];
@@ -208,7 +217,7 @@ export function resolveRehang(systemId: string, childId: string): Resolved | nul
     const pair = frameIsTarget ? scenePair(flow, ends.source, childId) : scenePair(flow, childId, ends.target);
     if (!pair) return null;
     const dropHandle = frameIsTarget ? pair.targetHandle : pair.sourceHandle;
-    const handle = flow.querySelector(`.react-flow__handle[data-handleid="${dropHandle}"]`);
+    const handle = handleGlyph(flow, dropHandle);
     if (!handle) return null;
     const endHole = padHole({ x: cx - 10, y: cy - 10, w: 20, h: 20 }, "rect");
     const dot = padHole(rectOf(handle), "dot");

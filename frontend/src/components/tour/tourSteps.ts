@@ -250,8 +250,9 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     id: "connect", kind: "act", n: 17, screen: OWN_MAP, target: { kind: "handles" },
     title: "Проведите связь",
     body: "Стрелка идёт от того, кто вызывает, к тому, кого вызывают.",
-    // Прототип: «от точки на «Покупателе» к точке на «Моей системе»».
-    action: "Протяните стрелку от точки на объекте «{peer}» к точке на объекте «{system}».",
+    // Прототип: «от точки на «Покупателе» к точке на «Моей системе»»; точек стыковки
+    // больше нет (Ф5 эпика стрелок) — тянут за стрелку у объекта, бросают на объект.
+    action: "Протяните стрелку от объекта «{peer}» на объект «{system}».",
   },
   "context-diagram": {
     id: "context-diagram", kind: "info", n: 18, screen: OWN_MAP, target: { kind: "context-diagram" },
@@ -276,7 +277,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     title: "Перевесьте связь на сервис",
     // Прототип: «„Моя система“ стала контейнером» — глагол согласован с именем.
     body: "Система «{system}» стала контейнером. Контейнер является абстракцией и не может быть связан с внешним объектом.",
-    action: "Потяните конец стрелки с рамки к точке на объекте «{child}».",
+    action: "Потяните конец стрелки с рамки на объект «{child}».",
   },
   "go-up": {
     id: "go-up", kind: "act", n: 22, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },

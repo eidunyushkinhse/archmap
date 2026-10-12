@@ -1,7 +1,7 @@
 // Кастомный тип ребра с HTML-лейблом (поддерживает перенос) и реестр edgeTypes.
 // Геометрия стрелки целиком авто (ручной слой изломов/хэндлов/драга плашки удалён
 // 2026-07-09): линия — авто-маршрут роутера либо smoothstep, плашка — авто-размещение.
-import { useCallback, useEffect, useRef, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   BaseEdge,
   EdgeLabelRenderer,
@@ -18,6 +18,8 @@ import { ensureOutwardStubs, cleanup, segments, type EdgeSide } from "./edgePath
 import { buildPathWithJumps } from "./edgeJumps";
 import { useEdgeJumps } from "./EdgeJumpContext";
 import { JUMP_RADIUS, EDGE_CORNER_RADIUS } from "./constants";
+import RehangAnchor from "./RehangAnchor";
+import type { RehangEdge } from "./ReconnectContext";
 
 // Position (сторона хэндла) → сторона для хэндл-ориентированного маршрута грипов.
 function sideOf(p: Position): EdgeSide {
@@ -97,33 +99,22 @@ export function projectLabelOntoRoute(lp: LabelPlacement, route: EdgePoint[]): L
   };
 }
 
-// «ШОВ V2.2b»: концы маршрута переснимаются с ЖИВЫХ хэндлов (s/t), концевые сегменты
-// выпрямляются по ОСИ ХЭНДЛА (внешней нормали стороны), крайний излом наследует
-// перпендикулярную координату живого конца. Мьютирует и возвращает raw (свежая копия).
-//
-// Фикс петель при драге (2026-07-22): ось выпрямления берётся из СТОРОНЫ ХЭНДЛА, а НЕ из
-// ориентации интерполированного сегмента. При драге интерполяция может поставить первый
-// сегмент «боком» к хэндлу (напр. вертикальным при правом хэндле); выпрямление по его же
-// ориентации направило бы сегмент ВНУТРЬ/вдоль края узла, и ensureOutwardStubs вставил бы
-// крюк-петлю, чтобы вывести наружу (жалоба: петли на изломах перед диагональными плечами).
-// Выпрямление по оси хэндла гарантирует чистый выход наружу → ensureOutwardStubs no-op,
-// петли нет. В покое роутер и так кладёт концевой сегмент по оси хэндла — поведение то же.
-export function seamRoute(
-  raw: EdgePoint[], s: EdgePoint, t: EdgePoint, sSide: EdgeSide, tSide: EdgeSide,
-): EdgePoint[] {
-  if (raw.length >= 3) {
-    const headHoriz = sSide === "left" || sSide === "right";
-    const tailHoriz = tSide === "left" || tSide === "right";
-    if (headHoriz) raw[1].y = s.y; else raw[1].x = s.x;
-    if (tailHoriz) raw[raw.length - 2].y = t.y; else raw[raw.length - 2].x = t.x;
-  }
-  raw[0] = s;
-  raw[raw.length - 1] = t;
-  return raw;
+// Сторона узла по направлению КОНЦЕВОГО сегмента маршрута: концы маршрута — порты
+// роутера (layout/ports.ts), стаб выходит из порта по внешней нормали стороны. Вырожденный
+// концевой сегмент (интерполяция драга схлопнула стаб) — сторона хэндла React Flow.
+export function sideFromStub(pts: EdgePoint[], atStart: boolean, fallback: Position): EdgeSide {
+  const a = atStart ? pts[0] : pts[pts.length - 1];
+  const b = atStart ? pts[1] : pts[pts.length - 2];
+  if (!a || !b) return sideOf(fallback);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return sideOf(fallback);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "bottom" : "top";
 }
 
 function WrappedLabelEdge({
   id,
+  source, target, sourceHandleId, targetHandleId,
   sourceX, sourceY, targetX, targetY,
   sourcePosition, targetPosition,
   data,
@@ -134,6 +125,12 @@ function WrappedLabelEdge({
   const d = data as WrappedEdgeData | undefined;
   const shelf = d?.shelf;
   const loop = d?.loop;
+  // Идёт ПЕРЕВЕС конца этого ребра (ручка RehangAnchor): плашка скрыта, линия
+  // приглушена — новый путь показывает превью-линия холста от неподвижного конца.
+  const [rehanging, setRehanging] = useState(false);
+  // Концы линии для ручек перевеса (edge.md E1a): точки роутера — концы ломаной;
+  // без маршрута — служебные хэндлы RF. null — контекст-схема (ручек там нет).
+  let anchorPts: { s: EdgePoint; t: EdgePoint } | null = null;
   // Идёт анимированная ОТРИСОВКА (после раскрытия/сворачивания, useLayoutAnimation):
   // линия рисуется штрихом от source к target (pathLength=1 нормализует длину пути,
   // keyframes lg-edge-draw гонит stroke-dashoffset 1→0), а наконечник, плашка,
@@ -202,18 +199,17 @@ function WrappedLabelEdge({
     labelY = nY;
   } else {
     // Обычное level-ребро: авто-маршрут роутера, иначе smoothstep.
-    const s: EdgePoint = { x: sourceX, y: sourceY };
-    const t: EdgePoint = { x: targetX, y: targetY };
     if (d?.autoRoute && d.autoRoute.length >= 2) {
       // Авто-маршрут (эпик стрелок A7.1, R1+R3): ортоломаная посчитана на раскладке
       // глобальным роутером (минимум пересечений с другими стрелками + жёсткий обход узлов).
-      // Концы переснимаем с ЖИВЫХ хэндлов (s/t) — линия держится узла при его сдвиге;
-      // интерьерные изломы берём из снимка. ШОВ (V2.2b, seamRoute): концевые сегменты
-      // выпрямляются по оси живого хэндла — без этого микро-сдвиг хэндла лечился стаб-патчем
-      // и давал шпильку 1-2px у узла, а при драге — петли (см. seamRoute).
-      const sSide = sideOf(sourcePosition);
-      const tSide = sideOf(targetPosition);
-      const raw = seamRoute(d.autoRoute.map((p) => ({ x: p.x, y: p.y })), s, t, sSide, tSide);
+      // КОНЦЫ — ПОРТЫ РОУТЕРА (Ф1 эпика «стрелки без жёстких хэндлов»): линия рисуется
+      // ровно от точки, которую выбрал роутер (своя у каждой связи, layout/ports.ts);
+      // координаты живых хэндлов React Flow для концов больше не используются — прежний
+      // «шов V2.2b» (пересъём концов с хэндлов, E81) снят вместе с 12 слотами. При драге
+      // концы едут с узлом интерполяцией снимка (useLiveDragHandles), а не хэндлом.
+      const raw = d.autoRoute.map((p) => ({ x: p.x, y: p.y }));
+      const sSide = sideFromStub(raw, true, sourcePosition);
+      const tSide = sideFromStub(raw, false, targetPosition);
       // страховка направления выхода: minAlong=2, НЕ полный стаб — авто-маршрут кладёт
       // стабы по построению и легально укорачивает их в тесноте (clampStub); пере-стаб
       // полной длиной ломал разведённые плечи (см. комментарий у ensureOutwardStubs)
@@ -222,6 +218,7 @@ function WrappedLabelEdge({
       const mid = pathMidpoint(pts);
       labelX = mid.x;
       labelY = mid.y;
+      anchorPts = { s: pts[0], t: pts[pts.length - 1] };
     } else {
       // Нет авто-маршрута (живой драг до пересчёта и т.п.) — авто-smoothstep.
       [edgePath, labelX, labelY] = getSmoothStepPath({
@@ -229,8 +226,21 @@ function WrappedLabelEdge({
         targetX, targetY, targetPosition,
         borderRadius: 12,
       });
+      anchorPts = { s: { x: sourceX, y: sourceY }, t: { x: targetX, y: targetY } };
     }
   }
+
+  // Ручки перевеса (Ф5 эпика «стрелки без жёстких хэндлов»): у конца, упёршегося в
+  // рамку (data.reconnectEnds из assembleRf), на самой точке роутера. Не во время
+  // отрисовки/перевеса и не у приглушённого ребра.
+  const ends = d?.reconnectEnds;
+  const rehangEdge: RehangEdge | null = ends && d
+    ? {
+      id, source, target,
+      sourceHandle: sourceHandleId ?? null, targetHandle: targetHandleId ?? null,
+      memberIds: d.memberIds,
+    }
+    : null;
 
   // Позиция плашки: авто-размещение (R2+R4, labelPlacement — посчитано на раскладке
   // без наложений), иначе центр из веток выше. Руками плашка не двигается.
@@ -294,12 +304,6 @@ function WrappedLabelEdge({
     fontSize: 11,
     color: "#374151",
     lineHeight: 1.4,
-    // T5: вынесенная плашка получает лёгкий halo — белая кайма отделяет текст от линий
-    // под ним, и выноска не сливается с «паутиной» (online-плашка лежит на своей линии,
-    // ей halo не нужен)
-    ...(labelPlacement?.mode === "leader"
-      ? { boxShadow: "0 0 0 2px rgba(255,255,255,0.9), 0 1px 4px rgba(15,23,42,0.18)" }
-      : null),
     // Плашка ВЫДЕЛЕННОЙ стрелки — над соседними плашками (в тесноте они ложатся друг
     // на друга — выбранную не прочитать). Работает внутри stacking context
     // edgelabel-renderer (z:1) — над узлами не поднимает. Панельное индиго-выделение
@@ -320,24 +324,21 @@ function WrappedLabelEdge({
         {...(drawing ? { pathLength: 1 } : null)}
         style={drawing
           ? { ...style, strokeDasharray: 1, ...(drawDelay > 0 ? { animationDelay: `${drawDelay}ms` } : null) }
-          : style}
+          : rehanging ? { ...style, opacity: 0.3 } : style}
       />
-      {/* Поводок-выноска (R2-fallback): плашку нельзя поставить на линию без наложения —
-          она вынесена сбоку (labelPlacement.center), а пунктирный поводок связывает её с
-          точкой на стрелке (anchor). Ведём поводок ДО ЦЕНТРА плашки: непрозрачный фон
-          плашки сам прячет хвост. Прежний leaderEnd (обрезка до края бокса, A15) резал
-          по ОЦЕНЁННОМУ labelBoxSize-боксу — при других шрифтах реальная плашка уже
-          оценки, и пунктир обрывался, не доходя до неё (жалоба 2026-07-09). */}
-      {labelPlacement?.mode === "leader" && !drawing && (
-        <path
-          className={"lg-edge-leader" + (selected ? " lg-label--selected" : "")}
-          d={`M ${labelPlacement.anchor.x},${labelPlacement.anchor.y} L ${labelPlacement.center.x},${labelPlacement.center.y}`}
-          // T5 «читаемые пучки»: поводок заметнее (1.5px, темнее) — тонкий 1px-пунктир
-          // в гуще линий терялся, и вынесенная плашка читалась как «текст ни о чём»
-          style={{ stroke: "#6b7280", strokeWidth: 1.5, strokeDasharray: "4 3", fill: "none", pointerEvents: "none" }}
-        />
+      {rehangEdge && anchorPts && !drawing && !rehanging && !d?.dimmed && (
+        <>
+          {(ends === "source" || ends === "both") && (
+            <RehangAnchor edge={rehangEdge} end="source" x={anchorPts.s.x} y={anchorPts.s.y} onActive={setRehanging} />
+          )}
+          {(ends === "target" || ends === "both") && (
+            <RehangAnchor edge={rehangEdge} end="target" x={anchorPts.t.x} y={anchorPts.t.y} onActive={setRehanging} />
+          )}
+        </>
       )}
-      {drawing ? null : items && items.length > 0 ? (
+      {/* Выноски и поводки сняты в Ф3 эпика «стрелки без жёстких хэндлов»: плашка
+          всегда лежит на своей линии (E50/E51), место под неё резервирует раскладка. */}
+      {drawing || rehanging ? null : items && items.length > 0 ? (
         // Мастер-стрелка: буллет-список текстов слитых связей
         <EdgeLabelRenderer>
           {/* data-lg-edge: адрес плашки для императивного панельного выделения (LevelGraph) */}

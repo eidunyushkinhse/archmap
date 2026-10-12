@@ -45,14 +45,12 @@ const input = JSON.parse(readFileSync(inputFile, "utf8"), revive) as PipelineInp
 interface Snap {
   calls: number; exp: number; mc: number;
   ripCalls: number; ripExp: number;
-  weldTails: number; weldCalls: number; weldExp: number;
   retries: number; chainOk: number; chainNull: number;
   prepMs: number; floodMs: number; failed: number;
 }
 const snap = (): Snap => ({
   calls: rc.routePortsCalls, exp: rc.expansions, mc: rc.moveCostCalls,
   ripCalls: rc.ripupCalls, ripExp: rc.ripupExpansions,
-  weldTails: rc.weldTails, weldCalls: rc.weldCalls, weldExp: rc.weldExpansions,
   retries: rc.marginRetries, chainOk: rc.marginChainOk, chainNull: rc.marginChainNull,
   prepMs: rc.prepMs, floodMs: rc.floodMs, failed: rc.failedExpansions,
 });
@@ -77,10 +75,9 @@ traceG.__ARCHMAP_TRACE = (stage, msSpent) => {
   const parts = [`${Math.round(msSpent).toString().padStart(7)}мс  ${stage.padEnd(48)}`];
   parts.push(`A*=${d.calls} exp=${M(d.exp)} mc=${M(d.mc)}`);
   if (d.ripCalls || d.ripExp) parts.push(`| rip-up ${d.ripCalls}/${M(d.ripExp)}`);
-  if (d.weldTails || d.weldCalls) parts.push(`| сварка ${d.weldTails}хв ${d.weldCalls}выз/${M(d.weldExp)}`);
   if (d.calls) {
-    const first = d.calls - d.ripCalls - d.weldCalls;
-    const firstExp = d.exp - d.ripExp - d.weldExp;
+    const first = d.calls - d.ripCalls;
+    const firstExp = d.exp - d.ripExp;
     parts.push(`| проход-1 ${first}/${M(firstExp)}`);
   }
   if (d.retries) parts.push(`| ретраи ${d.retries} (цепочек ok=${d.chainOk} null=${d.chainNull})`);
@@ -130,15 +127,14 @@ for (const d of t4) {
 if (t4.length === 0) console.error("T4-diag: мини-проход не запускался (грязных рёбер нет либо стадии качества пропущены)");
 
 // ── итоговые счётчики ───────────────────────────────────────────────────────────
-const first = rc.routePortsCalls - rc.ripupCalls - rc.weldCalls;
-const firstExp = rc.expansions - rc.ripupExpansions - rc.weldExpansions;
+const first = rc.routePortsCalls - rc.ripupCalls;
+const firstExp = rc.expansions - rc.ripupExpansions;
 console.error(
   `счётчики: A* ${rc.routePortsCalls} вызовов, экспансий ${M(rc.expansions)},` +
   ` moveCost ${M(rc.moveCostCalls)}, failed ${M(rc.failedExpansions)}`,
 );
 console.error(
-  `  фазы: проход-1 ${first}/${M(firstExp)} · rip-up ${rc.ripupCalls}/${M(rc.ripupExpansions)}` +
-  ` · сварка ${rc.weldTails}хв ${rc.weldCalls}выз/${M(rc.weldExpansions)}`,
+  `  фазы: проход-1 ${first}/${M(firstExp)} · rip-up ${rc.ripupCalls}/${M(rc.ripupExpansions)}`,
 );
 console.error(`  подготовка: prepareGrid ${ms(rc.prepMs)}, flood-fill ${ms(rc.floodMs)}`);
 console.error(

@@ -9,7 +9,7 @@
 //
 // КАК ЗАКРЫТО. Не дисциплиной («не забудь бампнуть»), а МЕХАНИКОЙ:
 //   1. collectRouterConstants() собирает ВСЕ значения, влияющие на геометрию маршрутов
-//      и плашек (роутер, набор, сварка, мост домена, нуджинг, джоги, рамочная плашка,
+//      и плашек (роутер, набор, порты, мост домена, нуджинг, джоги, рамочная плашка,
 //      модель габаритов подписи);
 //   2. hashRouterConstants() сворачивает их в хэш;
 //   3. CONSTANTS_HASH_BY_VERSION хранит ИСТОРИЮ пар «версия → хэш»;
@@ -28,7 +28,7 @@
 //      значит меняет и объединённый хэш, без всякой дисциплины.
 //      ОХВАТ ДОВЕСКА, ЧЕСТНО (уточнён 2026-08-22, Н3 внешнего аудита): golden считается
 //      по ПУТИ buildAutoRoutes → routeAll и покрывает его ЦЕЛИКОМ — порты, A*, rip-up,
-//      слоты, сварка, штрафы рамок/плашек И СПРЯМЛЕНИЕ ДЖОГОВ (straightenJogs зовётся
+//      штрафы рамок/плашек И СПРЯМЛЕНИЕ ДЖОГОВ (straightenJogs зовётся
 //      блоком T3 внутри routeAll: правка джогов роняет сторожа механически). Не покрыты
 //      стадии КОНВЕЙЕРА поверх роутера: канальный нуджинг, повторное спрямление джогов
 //      по финальной геометрии, размещение плашек и T4-оркестрация — полигон зовёт
@@ -54,14 +54,16 @@ import {
   EPS as ORTHO_EPS,
 } from "./orthoRoute";
 import {
-  DEFAULT_CROSS_COST, OVERLAP_COST, ROUTE_STICKINESS, PORT_CONFLICT_COST,
+  DEFAULT_CROSS_COST, OVERLAP_COST, ROUTE_STICKINESS,
   JOG_MAX, JOG_CLEAR, LINE_CLEAR,
 } from "./routeAll";
-import {
-  MERGE_GAIN, WELD_STRETCH, WELD_STRETCH_SLACK, WELD_K, WELD_ITER_CAP, WELD_EPS,
-} from "./weldTrunks";
 import { FRAME_CROSS_COST, LABEL_CROSS_COST, T4_FULL_GRID_HINTS, T4_REROUTE } from "./autoRoutes";
+import {
+  PORT_MARGIN, FRAME_PORT_GAP, SIDE_HYSTERESIS, AXIS_FLIP_SHARE, AXIS_OVERLAP_SHARE, AXIS_DECISIVE_RATIO,
+  CLOSE_PAIR_GAP, LABEL_PORT_PAD, PORT_SNAP,
+} from "./ports";
 import { ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE } from "./incrementalScope";
+import { Z_CLEAR, LANE_GAP_MIN, LANE_CONFLICT_TOL, LANE_CONFLICT_PENALTY, LABEL_PAD, LABEL_SHIFT_TOL, LABEL_HOSTS } from "./zRoutes";
 import {
   NUDGE_GAP, NUDGE_GAP_LADDER, NUDGE_CLEAR, EPS as NUDGE_EPS,
   OVERLAP_MIN as NUDGE_OVERLAP_MIN, NEAR_OVERLAP_MIN as NUDGE_NEAR_OVERLAP_MIN,
@@ -72,12 +74,12 @@ import {
   FRAME_PLAQUE_BASE_W, FRAME_PLAQUE_CHAR_W,
 } from "./frames";
 import {
-  LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, metaLabelBox,
+  LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, LABEL_END, metaLabelBox,
 } from "./labelBox";
 import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
 import {
   ROUTE_BUDGET_BY_CLASS, TYPICAL_NODES, TYPICAL_EDGES,
-  BUDGET_SKIP_RIPUP_SHARE, BUDGET_SKIP_WELD_SHARE, BUDGET_SKIP_T4_SHARE,
+  BUDGET_SKIP_RIPUP_SHARE, BUDGET_SKIP_T4_SHARE,
   BUDGET_APRIORI_CAP_DIVISOR, EXP_PER_EDGE, EXP_PER_NODE,
 } from "./routeBudget";
 import { CALL_EXPANSION_CAP } from "./orthoRoute";
@@ -87,7 +89,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 8;
+export const ROUTER_VERSION = 18;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -105,11 +107,15 @@ export const ROUTER_VERSION = 8;
  * T4-мини-прохода ушла ПЕРЕПРОКЛАДКА РЁБЕР вместе с доводкой нуджинга и финальной
  * починкой — стадия чинит только слой плашек. Маршруты сцены другие (грязные рёбра
  * остаются как есть), состав и позиции плашек другие.
+ * 5 — Ф3 эпика «стрелки без жёстких хэндлов» (2026-10-11): РАЗМЕЩЕНИЕ ПЛАШЕК ТОЛЬКО НА
+ * ЛИНИИ — выноски и поводки сняты (E51), кресты чужих линий вычитаются из кандидатов,
+ * желаемая позиция — якорь носителя роутера (E96), T4-починка идёт с теми же якорями;
+ * ELK получает габариты узлов и плашки inline (автораскладка другая).
  * Правки целиком лежат ВНЕ охвата фазз-полигона (размещение плашек, T4-оркестрация и
  * канальный нуджинг — стадии конвейера, а полигон зовёт buildAutoRoutes напрямую, минуя
  * pipeline) — золото не дрогнуло, сторожит ручной слой.
  */
-export const ROUTER_ALGO_REV = 4;
+export const ROUTER_ALGO_REV = 5;
 
 // Зонды формул, у которых нет отдельной именованной константы: изменение ЛЮБОГО их
 // внутреннего параметра (высота строки, ширина переноса wrapLabel, модель мастера)
@@ -134,17 +140,34 @@ export function collectRouterConstants(): Record<string, unknown> {
     "routeAll.DEFAULT_CROSS_COST": DEFAULT_CROSS_COST,
     "routeAll.OVERLAP_COST": OVERLAP_COST,
     "routeAll.ROUTE_STICKINESS": ROUTE_STICKINESS,
-    "routeAll.PORT_CONFLICT_COST": PORT_CONFLICT_COST,
     "routeAll.JOG_MAX": JOG_MAX,
     "routeAll.JOG_CLEAR": JOG_CLEAR,
     "routeAll.LINE_CLEAR": LINE_CLEAR,
-    // --- сварка стволов вееров (weldTrunks) ---
-    "weldTrunks.MERGE_GAIN": MERGE_GAIN,
-    "weldTrunks.WELD_STRETCH": WELD_STRETCH,
-    "weldTrunks.WELD_STRETCH_SLACK": WELD_STRETCH_SLACK,
-    "weldTrunks.WELD_K": WELD_K,
-    "weldTrunks.WELD_ITER_CAP": WELD_ITER_CAP,
-    "weldTrunks.WELD_EPS": WELD_EPS,
+    // --- порт на связь (ports, Ф1 эпика «стрелки без жёстких хэндлов»): сторона,
+    // порядок и шаг точек стыковки — геометрия концов каждого маршрута ---
+    "ports.PORT_MARGIN": PORT_MARGIN,
+    "ports.FRAME_PORT_GAP": FRAME_PORT_GAP,
+    "ports.SIDE_HYSTERESIS": SIDE_HYSTERESIS,
+    "ports.AXIS_FLIP_SHARE": AXIS_FLIP_SHARE,
+    "ports.AXIS_OVERLAP_SHARE": AXIS_OVERLAP_SHARE,
+    "ports.AXIS_DECISIVE_RATIO": AXIS_DECISIVE_RATIO,
+    "ports.CLOSE_PAIR_GAP": CLOSE_PAIR_GAP,
+    // шаг портов под плашки (Ф3, E86 v2): запас между краем плашки на стабе и соседним портом
+    "ports.LABEL_PORT_PAD": LABEL_PORT_PAD,
+    // снэп почти выровненной пары в общую колонну (Ф4, R7, E86 v3)
+    "ports.PORT_SNAP": PORT_SNAP,
+    // --- своя дорожка (zRoutes, Ф2 эпика «стрелки без жёстких хэндлов»): клиренс
+    // дорожек, дно сжатия шага, конфликт слитых стабов — геометрия Z-маршрутов ---
+    "zRoutes.Z_CLEAR": Z_CLEAR,
+    "zRoutes.LANE_GAP_MIN": LANE_GAP_MIN,
+    "zRoutes.LANE_CONFLICT_TOL": LANE_CONFLICT_TOL,
+    "zRoutes.LANE_CONFLICT_PENALTY": LANE_CONFLICT_PENALTY,
+    // --- носители подписей (Ф3, E96): запас слота, предел смещения ради плашки, цена
+    // потерянного носителя в спуске — двигают дорожки, колонны и выбор вариантов ---
+    "zRoutes.LABEL_PAD": LABEL_PAD,
+    "labelBox.LABEL_END.clear": LABEL_END.clear,
+    "zRoutes.LABEL_SHIFT_TOL": LABEL_SHIFT_TOL,
+    "zRoutes.LABEL_HOSTS.lostCost": LABEL_HOSTS.lostCost,
     // --- мост домена (autoRoutes) ---
     "autoRoutes.FRAME_CROSS_COST": FRAME_CROSS_COST,
     "autoRoutes.LABEL_CROSS_COST": LABEL_CROSS_COST,
@@ -195,7 +218,6 @@ export function collectRouterConstants(): Record<string, unknown> {
     "routeBudget.TYPICAL_NODES": TYPICAL_NODES,
     "routeBudget.TYPICAL_EDGES": TYPICAL_EDGES,
     "routeBudget.BUDGET_SKIP_RIPUP_SHARE": BUDGET_SKIP_RIPUP_SHARE,
-    "routeBudget.BUDGET_SKIP_WELD_SHARE": BUDGET_SKIP_WELD_SHARE,
     "routeBudget.BUDGET_SKIP_T4_SHARE": BUDGET_SKIP_T4_SHARE,
     "routeBudget.BUDGET_APRIORI_CAP_DIVISOR": BUDGET_APRIORI_CAP_DIVISOR,
     "routeBudget.EXP_PER_EDGE": EXP_PER_EDGE,
@@ -250,6 +272,78 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v18 — Ф5 эпика «стрелки без жёстких хэндлов» (2026-10-12, решение пользователя):
+  // ОТСТУП ПЛАШКИ ОТ КОНЦА СТРЕЛКИ (labelBox.LABEL_END.clear = 24, E96 v2 / E50 v3):
+  // слот стаба-носителя отодвинут от узла к дорожке, насколько позволяет полоса, желаемое
+  // место плашки без носителя — не ближе отступа к концу пути. Новая константа реестра;
+  // golden фазз-полигона не дрогнул (его сцены без подписей).
+  18: "1e4ca4811241c379",
+  // v17 — Ф4 эпика «стрелки без жёстких хэндлов» (2026-10-12): СНЭП ПОЧТИ ВЫРОВНЕННОЙ
+  // ПАРЫ (ports.PORT_SNAP, E86 v3): порты пары, разошедшиеся вдоль меньше чем на 16 px,
+  // встают в общую колонну — прямая вместо Z с микроступенькой у порта. Реестр +1
+  // константа, геометрия изменилась (golden перегенерирован). Направление автораскладки
+  // DOWN и снятие формы N30 — вне контракта роутера (позиции — вход).
+  17: "28ff35b038b44f4a",
+  // v16 — Ф3 эпика «стрелки без жёстких хэндлов» (2026-10-11): ПОДПИСИ ВНУТРИ РАСКЛАДКИ.
+  // Носитель подписи у Z-маршрута (стаб у цели/истока, колонна ZZ, дорожка — E96): слот
+  // выталкивает чужие дорожки, толщина разводит стабы и колонны, потерянный носитель —
+  // полкреста в цене сцены, носитель — переменная спуска; шаг портов учитывает плашки
+  // (E86 v2); ZZ-вариант на каждый кусок просвета, тела соседнего ряда просвет не
+  // занимают, кресты сцены считаются по точкам (ствол — один крест). Реестр +4
+  // константы, ROUTER_ALGO_REV 5 (размещение плашек без выносок, якоря носителей),
+  // геометрия изменилась (golden перегенерирован).
+  16: "ba375111f89f8a11",
+  // v15 — Ф2, заход 4 (2026-10-11): ОБЩИЕ ПЛЕЧА ВКЛЮЧЕНЫ (E95, ports.PORT_SHARE по
+  // умолчанию): концы одного направления и крыла делят порт, стаб и первую дорожку.
+  // Реестр констант без изменений, геометрия изменилась повсеместно (golden
+  // перегенерирован).
+  15: "33a7eabadfe6d2ca",
+  // v14 — Ф2, заход 4 (2026-10-11), по находкам пользователя на картинках: СБЛИЖЕННЫЕ
+  // ПАРЫ (зазор < CLOSE_PAIR_GAP) — порты в общей колонне, связь прямая без клиренса
+  // (реестр +1 константа); просветы для колонн ZZ без двойного клиренса (коридор между
+  // двумя телами снова вмещает две строки с шагом 14), рамки раздуваются, плашки нет;
+  // колонна снэпится внутрь просвета после округления; желаемая позиция колонны — её
+  // стартовая колонна, а не стопочный сдвиг. Геометрия изменилась (golden перегенерирован).
+  14: "9ea62e2d50d54279",
+  // v13 — Ф2, заход 4 (2026-10-11): ОТСЕВ НЕВЫПОЛНИМЫХ ЦЕПОЧЕК в раздаче дорожек —
+  // порядок номеров, связавший через дорожку с широкой полосой дорожки разных каналов,
+  // больше не качает прогоны (слипание дорожек канала на одной линии). Прототип ОБЩИХ
+  // ПЛЕЧ (ports.PORT_SHARE, выключен) геометрию прода не меняет. Реестр констант без
+  // изменений, геометрия сдвинулась точечно (golden перегенерирован).
+  13: "3739ecff09401d03",
+  // v12 — Ф2 эпика «стрелки без жёстких хэндлов», заход 3 (2026-10-11): ДОВОДКА СВОЕЙ
+  // ДОРОЖКИ. Колонны ZZ раздаются как дорожки поперечного канала (вложенные встречные
+  // пары), раздача проекционными прогонами со стабами соседей как границами полосы
+  // (сбросов Z по наложению не осталось), тай-брейки порядка по положению полос и
+  // портов, старт длинного Z у дальнего конца, ключи портов липкие/разрешающие и
+  // заменяются по кругам, встречные пары ходят парой и их взаимный крест стоит вдвое.
+  // Реестр констант не менялся, ГЕОМЕТРИЯ ИЗМЕНИЛАСЬ (golden перегенерирован).
+  12: "6ce04037ffff41df",
+  // v11 — Ф2 эпика «стрелки без жёстких хэндлов», заход 2 (2026-10-11): СВОЯ ДОРОЖКА.
+  // Связи с портами на противоположных сторонах оси получают Z-маршрут с дорожками
+  // канала, упорядоченными по крестам (zRoutes.ts, калька OrthogonalRoutingGenerator
+  // ELK); A* остаётся для связей без чистого Z и видит Z предпроложенным контекстом;
+  // prev нероутируемых связей пересаживается на уехавшие порты (R9). Реестр вырос на
+  // четыре константы Z, И ГЕОМЕТРИЯ ИЗМЕНИЛАСЬ ПОВСЕМЕСТНО (golden перегенерирован).
+  11: "a8fda4837eef36ab",
+  // v10 — Ф2 эпика «стрелки без жёстких хэндлов» (2026-10-11), заход первый: СНЯТИЕ
+  // СТВОЛОВ. С портом на связь (v9) общих точек стыковки нет, и вся механика общих плеч
+  // осталась без причины: стволовой контекст оценки (E25 v2), сварка вееров
+  // (weldTrunks, E78/E79), группы-стволы канала (E30 v2), портовый штраф парковки
+  // (PORT_CONFLICT_COST), замыкание скоупа по стволам (E84) и ступень бюджета «пропуск
+  // сварки» удалены. МАРШРУТЫ НЕ ИЗМЕНИЛИСЬ НИ НА ПИКСЕЛЬ: при уникальных портах ни одна
+  // из снятых веток не срабатывала (golden фазз-полигона байт-в-байт прежний). Из
+  // реестра ушли восемь констант — контракт другой, записи v9 честно инвалидируются.
+  10: "8c5e67f2cecd0572",
+  // v9 — Ф1 эпика «стрелки без жёстких хэндлов» (docs/plan-arrows-ports.md,
+  // 2026-10-10): ПОРТ НА СВЯЗЬ. Точку стыковки каждого конца выбирает ports.ts до
+  // A* (сторона по оси потока, порядок по дальнему концу, равный шаг с полями у узла,
+  // проекция с зазором у рамки); 12 слотов, рельсы встречных пар, раздача слотов и
+  // выбор стороны A*-поиском сняты. Реестр вырос на шесть констант портов, И ГЕОМЕТРИЯ
+  // ИЗМЕНИЛАСЬ ПОВСЕМЕСТНО (концы всех маршрутов — другие точки; golden фазз-полигона
+  // перегенерирован целиком). Записи кэша v8 несут слотовую геометрию — их инвалидация
+  // и есть смысл бампа.
+  9: "99c0ead93bc469e1",
   // v1 — состояние на конец Ф1 эпика router-opt (правки А1/А3а/А4/А2.1 были
   // байт-в-байт и ни одной константы не тронули).
   1: "046fda3d91037385",

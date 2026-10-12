@@ -1,16 +1,14 @@
 // Оркестрационные тесты выбора связи (edge choice) LevelGraphInner (Фаза 3а).
-// Фиксируют контракт инспекции связей через cbRef (openEdgeMembers/openTrunkMembers):
+// Фиксируют контракт инспекции связей через cbRef (openEdgeMembers):
 //   • openEdgeMembers(id связей) → onEdgesChoice с найденными связями (даже ОДНА связь
 //     открывает «Выберите связь» — оттуда доступна дозапись новой); неизвестные id
-//     фильтруются; пусто → onEdgesChoice НЕ зовётся;
-//   • openTrunkMembers(kind, id) → onTrunkChoice(kind, связи) только при ≥2 найденных
-//     связях ОБЩЕГО ПЛЕЧА (иначе вырожденный ствол → false, обычная детализация) и при
-//     заданном onTrunkChoice.
+//     фильтруются; пусто → onEdgesChoice НЕ зовётся.
+// (Второй колбэк — модалка «общего плеча» E80 — снят вместе со стволами, 2026-10-11.)
 // RF/конвейер замоканы; колбэки оркестрации — через getCb.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { Edge as AppEdge } from "../../types";
 import { resetHarness } from "./levelGraphHarness";
-import { renderGraph, getCb, baseProps } from "./levelGraphRender";
+import { renderGraph, getCb } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -48,7 +46,7 @@ function edge(id: string, over: Partial<AppEdge> = {}): AppEdge {
   } as AppEdge;
 }
 
-describe("LevelGraph orchestration: выбор связи (edges choice / trunk)", () => {
+describe("LevelGraph orchestration: выбор связи (edges choice)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetHarness();
@@ -79,36 +77,6 @@ describe("LevelGraph orchestration: выбор связи (edges choice / trunk)
     const { props } = await renderGraph({ edges: [edge("e1")] });
 
     getCb().openEdgeMembers(["missing"]);
-    expect(props.edgeCallbacks.onEdgesChoice).not.toHaveBeenCalled();
-  });
-
-  it("openTrunkMembers: ≥2 связей общего плеча → onTrunkChoice(kind, связи), возврат true", async () => {
-    const onTrunkChoice = vi.fn<(kind: "out" | "in", edges: AppEdge[]) => void>();
-    const e1 = edge("e1");
-    const e2 = edge("e2");
-    const { props } = await renderGraph({ edges: [e1, e2], edgeCallbacks: { ...baseProps().edgeCallbacks, onTrunkChoice } });
-    void props;
-
-    const handled = getCb().openTrunkMembers("out", ["e1", "e2"]);
-    expect(handled).toBe(true);
-    expect(onTrunkChoice).toHaveBeenCalledWith("out", [e1, e2]);
-  });
-
-  it("openTrunkMembers: вырожденный ствол (<2 связей) → false, onTrunkChoice НЕ зовётся", async () => {
-    const onTrunkChoice = vi.fn<(kind: "out" | "in", edges: AppEdge[]) => void>();
-    await renderGraph({ edges: [edge("e1")], edgeCallbacks: { ...baseProps().edgeCallbacks, onTrunkChoice } });
-
-    const handled = getCb().openTrunkMembers("in", ["e1"]);
-    expect(handled).toBe(false);
-    expect(onTrunkChoice).not.toHaveBeenCalled();
-  });
-
-  it("openTrunkMembers: без onTrunkChoice → false (даже при ≥2 связях)", async () => {
-    // onTrunkChoice не передан (базовые пропсы его не задают).
-    const { props } = await renderGraph({ edges: [edge("e1"), edge("e2")] });
-
-    const handled = getCb().openTrunkMembers("out", ["e1", "e2"]);
-    expect(handled).toBe(false);
     expect(props.edgeCallbacks.onEdgesChoice).not.toHaveBeenCalled();
   });
 });

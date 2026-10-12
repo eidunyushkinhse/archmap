@@ -1,16 +1,18 @@
-// Создание связи протягиванием новой стрелки от хэндла узла A.
+// Создание связи протягиванием новой стрелки от стрелки-глифа у стороны узла A
+// (хэндл React Flow в центре стороны ведёт жест; точек стыковки на узле нет — порты
+// поставит роутер, Ф5 эпика «стрелки без жёстких хэндлов»).
 //
 // Жест (только архитектор, при разрешённой правке). Куда отпустил конец:
-//   • на ХЭНДЛ любого узла (защёлка в радиусе connectionRadius — onConnect) → прямая
-//       связь к ЭТОМУ узлу, даже если у него есть дети (явно целились в его хэндл);
-//   • на ТЕЛО узла С ДЕТЬМИ (мимо хэндлов — onConnectEnd) — это «зона входа»:
-//       открываем выбор его потомка (поиск скоупится поддеревом) → связь A→потомок
-//       (станет сквозной);
-//   • на ТЕЛО ЛИСТОВОГО узла → прямая связь (прощаем непопадание в хэндл);
+//   • на ТЕЛО ЛИСТОВОГО узла → прямая связь; защёлка на его хэндл центра стороны в
+//       радиусе connectionRadius (onConnect) даёт то же самое — она лишь прощает дроп
+//       чуть за краем узла;
+//   • на ТЕЛО узла С ДЕТЬМИ (onConnectEnd) — это «зона входа»: открываем выбор его
+//       потомка (поиск скоупится поддеревом) → связь A→потомок (станет сквозной). К
+//       хэндлам такого узла конец НЕ защёлкивается (isValidNewConnection): прямая связь
+//       в промежуточный объект — алерт-кейс, а «явно целиться в точку» теперь некуда;
 //   • на пустой холст → стрелка просто исчезает.
 //
-// Хэндл выигрывает у «зоны входа»: его обрабатывает onConnect ещё до onConnectEnd
-// (madeRef глушит дубль).
+// Защёлка на хэндл обрабатывается в onConnect ещё до onConnectEnd (madeRef глушит дубль).
 //
 // ПЕРЕПРИВЯЗКА конца-в-рамку (edge.md E1a) — НЕ новая связь. React Flow ведёт её тем
 // же жестом протягивания и зовёт для неё ОБЩИЕ onConnectStart/onConnectEnd (а вместо
@@ -32,22 +34,15 @@ interface Params {
   disabled: boolean;
   // классификация узла-цели по его id (строит вызывающий по rfNodes)
   resolveTarget: (nodeId: string) => ConnectTarget;
-  // лист/хэндл: создать связь sourceId→targetId. Хэндлы берём из жеста: при дропе
-  // на ХЭНДЛ известны оба (sourceHandle+targetHandle), при дропе на ТЕЛО листа —
-  // только исходный (targetHandle=null → дефолт).
-  onCreate?: (
-    sourceId: string, targetId: string,
-    sourceHandle: string | null, targetHandle: string | null,
-  ) => void;
+  // лист: создать связь sourceId→targetId (хэндлов жеста связь не несёт — точки
+  // стыковки ставит роутер)
+  onCreate?: (sourceId: string, targetId: string) => void;
   // узел с детьми: открыть выбор потомка контейнера containerId как дальнего конца
-  // межуровневой связи; sourceHandle — хэндл, из которого тянули (дальний — дефолт)
-  onInto?: (
-    sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null,
-  ) => void;
+  // межуровневой связи
+  onInto?: (sourceId: string, containerId: string, containerName: string) => void;
   // конец отпущен на плитку «вне уровня» (элемент с data-exit-up): открыть выбор
   // дальнего конца из всей схемы (узла, которого нет на текущем холсте).
-  onExitUp?: (sourceId: string, sourceHandle: string | null) => void;
+  onExitUp?: (sourceId: string) => void;
 }
 
 // Координаты точки отпускания (мышь или тач).
@@ -66,9 +61,6 @@ export function useEdgeConnect({
   const enabled = isArchitect && !disabled;
   // id узла, от которого начато протягивание (null — протягивания нет)
   const sourceRef = useRef<string | null>(null);
-  // хэндл, из которого начато протягивание (для дропа на тело/в зону входа, где
-  // целевого хэндла нет — а исходный известен из onConnectStart)
-  const sourceHandleRef = useRef<string | null>(null);
   // в текущем протягивании конец защёлкнулся на хэндл (onConnect уже создал связь) —
   // тогда onConnectEnd не должен трактовать дроп ещё и как «зону входа»
   const madeRef = useRef(false);
@@ -175,7 +167,6 @@ export function useEdgeConnect({
       if (reconnectRef.current) return;
       if (!enabled || !params.nodeId) return;
       sourceRef.current = params.nodeId;
-      sourceHandleRef.current = params.handleId ?? null;
       madeRef.current = false;
       setConnecting(true);
       document.addEventListener("pointermove", handlePointerMove);
@@ -187,20 +178,23 @@ export function useEdgeConnect({
   const handleConnect = useCallback(
     (conn: Connection) => {
       madeRef.current = true; // глушим «зону входа» в onConnectEnd даже при петле
-      const { source, target, sourceHandle, targetHandle } = conn;
+      const { source, target } = conn;
       if (!enabled || !source || !target || source === target) return;
-      // дроп на хэндл — оба конца известны, оба хэндла из жеста
-      onCreate?.(source, target, sourceHandle ?? null, targetHandle ?? null);
+      onCreate?.(source, target);
     },
     [enabled, onCreate],
   );
 
   // Разрешённость НОВОЙ связи: нужна, чтобы onConnect защёлкивался на хэндл и
-  // подсвечивал валидную цель.
+  // подсвечивал валидную цель. Защёлка — только к ЛИСТУ: у «зоны входа» (узел с
+  // детьми) и рамки конец не защёлкивается, иначе дроп у центра стороны контейнера
+  // давал бы прямую связь в него, а дроп в тело — выбор потомка (лотерея по месту
+  // отпускания; с одним хэндлом на сторону прежнее «явно целились в хэндл» исчезло).
   const isValidNewConnection = useCallback(
     (conn: Connection | RFEdge) =>
-      enabled && conn.source != null && conn.target != null && conn.source !== conn.target,
-    [enabled],
+      enabled && conn.source != null && conn.target != null && conn.source !== conn.target
+      && resolveTarget(conn.target)?.kind === "direct",
+    [enabled, resolveTarget],
   );
 
   const handleConnectEnd = useCallback(
@@ -215,9 +209,7 @@ export function useEdgeConnect({
       setConnecting(false);
       const source = sourceRef.current;
       sourceRef.current = null;
-      const sourceHandle = sourceHandleRef.current;
-      sourceHandleRef.current = null;
-      if (made || reconnect) return; // хэндл уже обработан в onConnect / это был перевес
+      if (made || reconnect) return; // защёлка уже обработана в onConnect / это был перевес
       if (!enabled || !source) return;
 
       // Цель определяем по узлу ПОД КУРСОРОМ (надёжнее радиуса хэндлов — «бросай
@@ -229,7 +221,7 @@ export function useEdgeConnect({
       // Отпустили на плитку «вне уровня» — выбор дальнего конца из всей схемы.
       // Плитка перекрывает узлы (она выше по z-index), поэтому проверяем её первой.
       if (el?.closest("[data-exit-up]")) {
-        onExitUp?.(source, sourceHandle);
+        onExitUp?.(source);
         return;
       }
       const nodeEl = el?.closest<HTMLElement>(".react-flow__node");
@@ -239,12 +231,11 @@ export function useEdgeConnect({
       const info = resolveTarget(targetId);
       if (!info) return;
       if (info.kind === "into") {
-        // межуровневая: исходный хэндл сохраняем, дальний — дефолт (выберется потомок)
-        onInto?.(source, targetId, info.name, sourceHandle);
+        // межуровневая: дальний конец выберется потомком в модалке
+        onInto?.(source, targetId, info.name);
       } else {
         if (targetId === source) return; // петля сам-на-себя — игнор
-        // дроп на тело листа: исходный хэндл известен, целевой — дефолт
-        onCreate?.(source, targetId, sourceHandle, null);
+        onCreate?.(source, targetId); // дроп на тело листа
       }
     },
     [enabled, resolveTarget, onCreate, onInto, onExitUp, stopTracking],

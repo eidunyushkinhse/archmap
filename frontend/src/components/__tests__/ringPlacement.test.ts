@@ -27,25 +27,43 @@ function edge(id: string, source_id: string, target_id: string): LayoutEdge {
 }
 const node = (id: string) => ({ id });
 
-describe("placeGhostsOnRings — сторона по потоку", () => {
-  it("источник → слева от уровня, приёмник → справа", () => {
-    const positions = new Map([["L", { x: 0, y: 0 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }]]);
+describe("placeGhostsOnRings — сторона по потоку (новичок на владеемой сцене, Ф4б шаг 5)", () => {
+  it("поток сверху вниз (La → Lb колонкой): источник → над схемой, приёмник → под ней", () => {
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 0, y: 300 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }],
+    ]);
     const res = placeGhostsOnRings({
-      nodes: [node("L")],
+      nodes: [node("La"), node("Lb")],
       entities: [leaf("Gs", [a("D")]), leaf("Gt", [a("E")])],
       ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
-      layoutEdges: [edge("e1", "Gs", "L"), edge("e2", "L", "Gt")], positions,
+      layoutEdges: [edge("e0", "La", "Lb"), edge("e1", "Gs", "La"), edge("e2", "Lb", "Gt")], positions,
     });
     expect(res).not.toBeNull();
-    expect(positions.get("Gs")!.x).toBeLessThan(0);          // источник слева
-    expect(positions.get("Gt")!.x).toBeGreaterThan(NODE_W);  // приёмник справа
+    expect(positions.get("Gs")!.y).toBeLessThan(0);                // источник сверху
+    expect(positions.get("Gt")!.y).toBeGreaterThan(300 + NODE_H);  // приёмник снизу
     expect(res!.placedOutside.has("Gs")).toBe(true);
     expect(res!.placedOutside.has("Gt")).toBe(true);
   });
 
-  it("связь к среднему узлу ряда: горизонталь сквозь соседей → гость уходит ВВЕРХ", () => {
-    // La(0,0) Lb(300,0) Lc(600,0); гость связан со средним Lb. Лево/право увели бы стрелку
-    // сквозь La/Lc; верх (вертикаль к Lb) чист → гость над рамкой, по центру над связью.
+  it("схема, переставленная в ряд слева направо (ось потока горизонтальна): источник слева, приёмник справа", () => {
+    // локалы La → Lb стоят в один ряд: ось потока «h» → гости по бокам, у проекции якоря
+    const positions = new Map([
+      ["La", { x: 0, y: 0 }], ["Lb", { x: 400, y: 0 }], ["Gs", { x: 5, y: 5 }], ["Gt", { x: 9, y: 9 }],
+    ]);
+    placeGhostsOnRings({
+      nodes: [node("La"), node("Lb")],
+      entities: [leaf("Gs", []), leaf("Gt", [])], // корневые листы: группа = сам узел
+      ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
+      layoutEdges: [edge("e0", "La", "Lb"), edge("e1", "Gs", "La"), edge("e2", "Lb", "Gt")], positions,
+    });
+    expect(positions.get("Gs")!.x).toBeLessThan(0);               // источник слева
+    expect(positions.get("Gt")!.x).toBeGreaterThan(400 + NODE_W); // приёмник справа
+    expect(positions.get("Gs")!.y).toBe(0);                       // у проекции якоря La
+  });
+
+  it("без связей между локалами (потока нет): ближайшая к якорю сторона — над рамкой, по центру над связью", () => {
+    // La(0,0) Lb(300,0) Lc(600,0) без рёбер между собой → оси потока нет; якорь — центр Lb,
+    // ближайшая сторона кольца — верх (108 px против 453 до боковых) → G над Lb.
     const positions = new Map([
       ["La", { x: 0, y: 0 }], ["Lb", { x: 300, y: 0 }], ["Lc", { x: 600, y: 0 }], ["G", { x: 5, y: 5 }],
     ]);
@@ -321,5 +339,69 @@ describe("placeGhostsOnRings — вырожденные входы", () => {
       nodes: [node("L")], entities: [leaf("G", [a("D")])], ancestorIds: [], levelPositions: {}, expanded: new Set(),
       layoutEdges: [], positions: new Map([["L", { x: 0, y: 0 }]]),
     })).toBeNull();
+  });
+});
+
+describe("placeGhostsOnRings — кольцо следует за ELK (Ф4б, свежая сцена)", () => {
+  // Локал L(0,0), родная рамка A без колец: pad 30 → кольцо = рамка + 28: верх y = −58,
+  // низ y = 100 + 30 + 30 (полоса подписи) + 28 = 188, лево x = −58, право x = 248.
+  // Гости — корневые листы (без предков): их группа — они сами, bbox = тело узла.
+  const run = (
+    positions: Map<string, { x: number; y: number }>,
+    edges: LayoutEdge[],
+    ents: DisplayExternal[],
+  ) => placeGhostsOnRings({
+    nodes: [node("L")], entities: ents, ancestorIds: ["A"], levelPositions: {}, expanded: new Set(),
+    layoutEdges: edges, positions, followElk: true,
+  });
+
+  it("гость крайнего слоя ELK над кольцом остаётся на позиции ELK (сторона top, x и y как у ELK)", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: -300 }]]);
+    const res = run(positions, [edge("e", "G", "L")], [leaf("G", [])]);
+    expect(res).not.toBeNull();
+    expect(positions.get("G")).toEqual({ x: 40, y: -300 });
+    expect(res!.placedOutside.has("G")).toBe(true);
+  });
+
+  it("гость, поставленный ELK внутрь зазора keep-out, выдвигается на поле рамки по ближайшей стороне, x сохраняется", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: -120 }]]);
+    run(positions, [edge("e", "G", "L")], [leaf("G", [])]);
+    // верх кольца −58 → узел высотой 100 садится на y = −158
+    expect(positions.get("G")).toEqual({ x: 40, y: -158 });
+  });
+
+  it("гости двух слоёв ELK друг над другом (цепочка гость→гость) вдоль стороны не разводятся", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G1", { x: 0, y: -300 }], ["G2", { x: 0, y: -520 }]]);
+    const res = run(positions, [edge("e1", "G1", "L"), edge("e2", "G2", "G1")], [leaf("G1", []), leaf("G2", [])]);
+    expect(res).not.toBeNull();
+    expect(positions.get("G1")).toEqual({ x: 0, y: -300 });
+    expect(positions.get("G2")).toEqual({ x: 0, y: -520 });
+  });
+
+  it("два выдвинутых гостя одного слоя с наложением вдоль стороны разводятся PAV на кольце", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G1", { x: 0, y: -120 }], ["G2", { x: 60, y: -120 }]]);
+    run(positions, [edge("e1", "G1", "L"), edge("e2", "G2", "L")], [leaf("G1", []), leaf("G2", [])]);
+    const p1 = positions.get("G1")!, p2 = positions.get("G2")!;
+    expect(p1.y).toBe(-158);
+    expect(p2.y).toBe(-158);
+    expect(Math.abs(p2.x - p1.x)).toBeGreaterThanOrEqual(NODE_W + 28 - 1e-6);
+  });
+
+  it("после колец, следующих за ELK, enforceFramesKeepOut — no-op; стоящий снаружи приёмник не тронут", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 40, y: -120 }], ["T", { x: 40, y: 500 }]]);
+    const ents = [leaf("G", []), leaf("T", [])];
+    const edges = [edge("e1", "G", "L"), edge("e2", "L", "T")];
+    run(positions, edges, ents);
+    expect(positions.get("T")).toEqual({ x: 40, y: 500 });
+    const enf = enforceFramesKeepOut({ nodes: [node("L")], entities: ents, ancestorIds: ["A"], layoutEdges: edges, positions });
+    expect(enf).toBeNull();
+  });
+
+  it("изолят (ни одной связи наружу) ставится якорной моделью: позиции ELK не доверяем", () => {
+    const positions = new Map([["L", { x: 0, y: 0 }], ["G", { x: 5000, y: 5000 }]]);
+    run(positions, [], [leaf("G", [])]);
+    const p = positions.get("G")!;
+    expect(Math.abs(p.x)).toBeLessThan(1000);
+    expect(Math.abs(p.y)).toBeLessThan(1000);
   });
 });

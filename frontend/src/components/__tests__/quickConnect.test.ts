@@ -11,7 +11,7 @@ describe("findQuickConnectTarget", () => {
     const res = findQuickConnectTarget("S", "right", 0.5, SRC, [right]);
     expect(res?.targetId).toBe("R");
     expect(res?.targetSide).toBe("left");
-    expect(res?.targetHandle.startsWith("R--left--")).toBe(true);
+    expect(res?.targetPoint).toEqual({ x: right.x, y: NODE_H / 2 });
   });
 
   it("узел слишком далеко справа — не предлагаем (никаких километровых стрелок)", () => {

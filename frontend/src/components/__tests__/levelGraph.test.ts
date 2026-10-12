@@ -49,7 +49,7 @@ describe("autoHandles", () => {
       ["s", { x: 0, y: 0 }],
       ["t", { x: 300, y: 10 }],
     ]);
-    expect(autoHandles("s", "t", positions, 0, 1)).toEqual({
+    expect(autoHandles("s", "t", positions)).toEqual({
       sourceHandle: "s--right--1",
       targetHandle: "t--left--1",
     });
@@ -60,7 +60,7 @@ describe("autoHandles", () => {
       ["s", { x: 300, y: 0 }],
       ["t", { x: 0, y: 0 }],
     ]);
-    expect(autoHandles("s", "t", positions, 0, 1)).toEqual({
+    expect(autoHandles("s", "t", positions)).toEqual({
       sourceHandle: "s--left--1",
       targetHandle: "t--right--1",
     });
@@ -71,25 +71,25 @@ describe("autoHandles", () => {
       ["s", { x: 0, y: 0 }],
       ["t", { x: 5, y: 300 }],
     ]);
-    expect(autoHandles("s", "t", positions, 0, 1)).toEqual({
+    expect(autoHandles("s", "t", positions)).toEqual({
       sourceHandle: "s--bottom--1",
       targetHandle: "t--top--1",
     });
   });
 
-  it("две параллельные связи разводятся по краям (offset 0 и 2)", () => {
+  it("слотов нет: любая связь пары — хэндл центра стороны (Ф5, один хэндл на сторону)", () => {
     const positions = new Map([
       ["s", { x: 0, y: 0 }],
       ["t", { x: 300, y: 0 }],
     ]);
-    expect(autoHandles("s", "t", positions, 0, 2).sourceHandle).toBe("s--right--0");
-    expect(autoHandles("s", "t", positions, 1, 2).sourceHandle).toBe("s--right--2");
+    expect(autoHandles("s", "t", positions).sourceHandle).toBe("s--right--1");
+    expect(autoHandles("t", "s", positions).sourceHandle).toBe("t--left--1");
   });
 
   it("отсутствующая позиция трактуется как (0,0)", () => {
     const positions = new Map<string, { x: number; y: number }>();
     // оба в (0,0): dx=dy=0 → |dx|>=|dy| → right/left
-    expect(autoHandles("s", "t", positions, 0, 1)).toEqual({
+    expect(autoHandles("s", "t", positions)).toEqual({
       sourceHandle: "s--right--1",
       targetHandle: "t--left--1",
     });
@@ -168,6 +168,21 @@ describe("projectGhosts", () => {
     expect(r.ghostToEffective.get("g1")).toBe("g1");
     expect(r.entities[0]).toMatchObject({ kind: "leaf", id: "g1" });
     expect(r.emergedFrom.get("g1")).toBe("B");
+  });
+
+  it("гость — и конец связи сам по себе, и свёрнутый дом других гостей: КОНТЕЙНЕР независимо от порядка реестра", () => {
+    // Уровень T; S — контейнер чужой ветки: связь прямо в S (S — лист реестра с детьми)
+    // и связь в его ребёнка c1 (сворачивается в контейнер S). Побеждает контейнер: у него
+    // лупа, раскрытие покажет c1, а связь в S упрётся в гостевую рамку (C19 v2).
+    const child = ghost("c1", [{ id: "S", name: "S", is_external: false }]);
+    const self = { ...ghost("S", []), has_children: true, child_count: 1 };
+    for (const order of [[self, child], [child, self]]) {
+      const r = projectGhosts(order, ["T"], new Set());
+      expect(r.entities).toHaveLength(1);
+      expect(r.entities[0]).toMatchObject({ kind: "container", id: "S" });
+      expect(r.ghostToEffective.get("c1")).toBe("S");
+      expect(r.ghostToEffective.get("S")).toBe("S");
+    }
   });
 
   it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {

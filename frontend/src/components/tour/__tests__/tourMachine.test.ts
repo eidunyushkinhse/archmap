@@ -239,11 +239,11 @@ describe("тур — свой проект", () => {
   it("имена созданных объектов подставляются в именительном падеже", () => {
     const vars = { ...OWN_VARS, childName: "Касса" };
     expect(stepTexts(STEPS.connect, vars).action)
-      .toBe("Протяните стрелку от точки на объекте «Банк» к точке на объекте «Платёжный шлюз».");
+      .toBe("Протяните стрелку от объекта «Банк» на объект «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Сервис» в рамку «Платёжный шлюз».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Система «Платёжный шлюз» стала контейнером.")).toBe(true);
-    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки к точке на объекте «Касса».");
+    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
       .toBe("Связь теперь ведёт прямо к сервису «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
     expect(stepTexts(STEPS["context-edge"], vars).body)

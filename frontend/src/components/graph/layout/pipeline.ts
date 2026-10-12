@@ -40,6 +40,8 @@ import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
 import { spawnFreshChildren } from "./spawnChildren";
+import { guestLayerSides } from "./guestLayers";
+import { buildLocalBlocks } from "./localBlocks";
 // T4_FULL_GRID_HINTS (экспериментальный флаг г1, Ф4-II) и T4_REROUTE (перепрокладка в
 // T4, E40 v3) — читаются здесь, а объявлены в autoRoutes.ts, чтобы входить в реестр
 // сторожа контракта роутера (Н2 внешнего аудита: routerVersion.ts не имеет права
@@ -52,7 +54,7 @@ import { nudgeChannels } from "./channelNudge";
 import { straightenJogs, toPlacedSegs, type PlacedSeg } from "./routeAll";
 import { buildLabelPlacements, type LabelPlacement } from "./labelLayout";
 import { metaLabelBox } from "./labelBox";
-import { pathCrossesRects } from "../edgePath";
+import { pathCrossesRects, arcFractionAtPoint } from "../edgePath";
 import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
 
@@ -416,21 +418,25 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   };
   for (const n of rawNodes) expandLocal(n, []);
 
-  // КОНТЕЙНЕРЫ, НАРИСОВАННЫЕ РАМКОЙ. Их два рода, и связь «прямо в такой контейнер»
-  // у обоих упирается в границу его рамки вместо того, чтобы пропасть:
+  // КОНТЕЙНЕРЫ, НАРИСОВАННЫЕ РАМКОЙ. Их три рода, и связь «прямо в такой контейнер»
+  // у всех упирается в границу его рамки вместо того, чтобы пропасть (C19):
   //  • поглощённые раскрытием локалы (absorbed) — не-нативная рамка внутри уровня;
   //  • САМ КОНТЕЙНЕР УРОВНЯ — его рамка это внешнее кольцо breadcrumb. Это и есть
   //    двойник кейса «раскрытый контейнер», увиденный ИЗНУТРИ: на уровне miss-cluster
-  //    его собственные 6 связей раньше исчезали, а соседи оставались висеть без стрелок.
-  const frameIds = new Set<string>(absorbed);
-  if (containerId !== null) frameIds.add(containerId);
+  //    его собственные 6 связей раньше исчезали, а соседи оставались висеть без стрелок;
+  //  • раскрытые ГОСТЕВЫЕ контейнеры, из-под которых проекция вывела сущность
+  //    (guestFrameIds ниже — известны только после projectGhosts).
+  // localFrameIds — первые два рода: они же «сторона уровня» для подъёма концов и для
+  // крайних слоёв гостей; гостевая рамка стороной уровня не является.
+  const localFrameIds = new Set<string>(absorbed);
+  if (containerId !== null) localFrameIds.add(containerId);
 
   // ПРОЕКЦИЯ, половина 1 (R2): подъём концов сырых рёбер к ближайшему локальному
   // предку уровня; концы вне поддерева остаются гостями.
   // localIds — отображаемые локалы: конец внутри РАСКРЫТОГО контейнера поднимается
   // не к нему, а к его видимому потомку (симметрия со сворачиванием гостей).
   const { edges: liftedEdges, ghosts } = liftEdgesToLevel({
-    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds,
+    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds: localFrameIds,
   });
 
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
@@ -442,8 +448,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // id в RF ломал драг: «фантомный» узел поверх рамки). Гость-лист, чей id —
   // контейнер, уже отображаемый рамкой (поглощён локальным раскрытием либо
   // раскрытый гость, из-под которого проекция вывела другую сущность), узлом не
-  // становится; ребро с таким концом отсеет группировка по displayedIds — связь
-  // скрыта, как у раскрытого локала (алерт intermediate_edges её подсвечивает).
+  // становится. Поглощённый локал уже рамка-конец (localFrameIds); раскрытый
+  // ГОСТЬ-рамка становится ею здесь (guestFrameIds, Ф5 эпика стрелок 2026-10-12):
+  // связь «прямо в него» видна и стыкуется с границей гостевой рамки, как у
+  // локальной (C19), а её конец можно перевесить на члена рамки (E1a). До того связь
+  // отсеивала группировка по displayedIds — она исчезала с холста при раскрытии.
   // Гость-контейнер, раскрытый «вхолостую» (глубоких концов нет, рамки нет),
   // остаётся узлом — иначе связь пропала бы без замены.
   const emergesFrom = (cid: string): boolean =>
@@ -452,9 +461,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         e.id !== cid &&
         (e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors).some((x) => x.id === cid),
     );
-  const entities = entitiesRaw.filter(
-    (e) => !(e.kind === "leaf" && (absorbed.has(e.id) || (expanded.has(e.id) && emergesFrom(e.id)))),
-  );
+  const guestFrameIds = new Set<string>();
+  const entities = entitiesRaw.filter((e) => {
+    if (e.kind !== "leaf") return true;
+    if (absorbed.has(e.id)) return false;
+    if (expanded.has(e.id) && emergesFrom(e.id)) { guestFrameIds.add(e.id); return false; }
+    return true;
+  });
+  // Все рамки-концы уровня: локальные (поглощённые + контейнер уровня) и гостевые.
+  const frameIds = new Set<string>([...localFrameIds, ...guestFrameIds]);
   const remap = (id: string) => ghostToEffective.get(id) ?? id;
   // Рёбра с концами, переадресованными на отображаемые сущности. Геометрии на
   // рёбрах нет (ручной слой удалён 2026-07-09) — всю её назначает авто-раскладка.
@@ -516,10 +531,52 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // Раскладка позиций/хэндлов — всегда ELK level-конвейер. Контекстный движок
   // (звезда) удалён 2026-07-30: все схемы рендерит один level-конвейер.
   mark("проекция+группировка");
-  const baseLayout = await layoutLevel(allNodeInfos, layoutEdges);
+  // Ф3: ELK получает реальные габариты узлов и плашки подписей (inline) — место под
+  // подписи резервирует сама раскладка, как у Mermaid
+  const elkLabelBoxes = new Map<string, { w: number; h: number }>();
+  for (const g of groupArr) {
+    if (isFrameEnd(g)) continue;
+    const m = edgeLabelMeta(g);
+    if (m) elkLabelBoxes.set(g.members.length === 1 ? g.members[0].id : g.id, metaLabelBox(m));
+  }
+  // Ф4б (шаг 1): гости — в крайние слои ELK: источники отдельным слоем перед первым
+  // рядом локалов, приёмники за последним (позиция вложенной коробки ELK); кольцо ниже
+  // лишь выдвигает их на поле рамки. Сторона — по связям со стороной уровня (локалы и
+  // рамки-концы).
+  const guestLayers = guestLayerSides({
+    entities, localIds: new Set(nodes.map((n) => n.id)), frameEndIds: localFrameIds, groups: groupArr, ancestorIds,
+  });
+  // СВЕЖАЯ СЦЕНА — ни один локал не владеет позицией (первое открытие уровня,
+  // «Переразложить»): координаты ELK и есть координаты экрана. На владеемой сцене
+  // позиция ELK новичка — в системе координат, которой на экране нет.
+  const freshScene = nodes.length > 0 && nodes.every((n) => !ownedPositions[n.id]);
+  // Ф4б (шаг 3): на свежей сцене дети раскрытых локалов — БЛОКОМ: мини-раскладка детей
+  // (та же, что у спавна на владеемых сценах), контейнер идёт в раскладку уровня одним
+  // узлом размера своей рамки, дети ставятся внутрь. Плоский ELK разбрасывал их по
+  // слоям вперемешку с соседями, и рамка растягивалась на полсцены. На владеемой сцене
+  // детей кладёт спавн (ниже) — блоков нет.
+  const blocks = freshScene && absorbed.size > 0
+    ? await buildLocalBlocks({ absorbed, localChildren, layoutEdges })
+    : null;
+  const elkNodeInfos = blocks
+    ? [...allNodeInfos.filter((n) => !blocks.blockOf.has(n.id)), ...blocks.top.map((b) => ({ id: b.id, savedPos: null }))]
+    : allNodeInfos;
+  const elkSizes = new Map<string, { w: number; h: number }>(sizes ? Object.entries(sizes) : []);
+  if (blocks) for (const b of blocks.top) elkSizes.set(b.id, b.frame);
+  const baseLayout = await layoutLevel(elkNodeInfos, blocks ? blocks.liftEdges(layoutEdges) : layoutEdges, {
+    sizes: elkSizes,
+    labelBoxes: elkLabelBoxes,
+    guestLayers,
+  });
   mark("ELK уровня");
   const positions = baseLayout.positions;
   let edgeHandles = baseLayout.edgeHandles;
+  // позиции контейнеров-блоков (C6: левый-верх bbox детей) — для засева владения ниже
+  let blockOrigins: Map<string, { x: number; y: number }> | null = null;
+  if (blocks) {
+    blockOrigins = blocks.place(positions);
+    edgeHandles = assignEdgeHandles(allNodeInfos, layoutEdges, positions);
+  }
   // ПУСТОЙ УРОВЕНЬ: рамка контейнера рисуется всегда, но членов у неё нет — их роль
   // играет синтетический бокс «как под один узел» (frames.ts). Он существует ТОЛЬКО
   // для геометрии рамок: в displayIds/entities/засев/роутер не попадает, узлом не
@@ -550,8 +607,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   await spawnFreshChildren({ localFrames, ownedPositions, layoutEdges, positions, localChildren });
   mark("спавн детей");
 
+  // На свежей сцене кольцо следует за ELK (Ф4б, шаг 2); на владеемой ставит новичка тем
+  // же правилом сторон, что у потока (шаг 5): роль — та же карта, что дала крайние слои.
   const og = placeGhostsOnRings({
     nodes: framedNodes, entities, ancestorIds, levelPositions: ownedPositions, layoutEdges, positions, expanded, localFrames,
+    followElk: freshScene, guestLayers,
   });
 
   // РАЗВЕДЕНИЕ ГОСТЕЙ МЕЖДУ СОБОЙ (Ф4.3): при раскрытии вложенной гостевой рамки новичок
@@ -680,6 +740,14 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     ownedPositions,
     (id) => positions.get(id),
   );
+  // Контейнеры-блоки свежей сцены (Ф4б, шаг 3): их позиция — левый-верх bbox детей,
+  // как закрепляет own-on-expand (C6); без неё спавн новых детей на уже владеемой
+  // сцене не знал бы, откуда стартовать.
+  if (blockOrigins) {
+    for (const [cid, o] of blockOrigins) {
+      if (!ownedPositions[cid]) seeds.push({ id: cid, pos_x: o.x, pos_y: o.y });
+    }
+  }
   if (seeds.length > 0) {
     intents.push({
       kind: "seed-positions",
@@ -779,7 +847,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const hasGeometry = (id: string): boolean => !!positions.get(id) || frameEndpoints.has(id);
 
   // КАНДИДАТЫ РОУТИНГА — рёбра с позиционированными концами, ДО применения скоупа:
-  // это знаменатель порога отказа авто-скоупа и область его замыкания по стволам.
+  // это знаменатель порога отказа авто-скоупа.
   const routeCandidates = new Set<string>();
   for (const g of groupArr) {
     if (!hasGeometry(g.source) || !hasGeometry(g.target)) continue;
@@ -854,15 +922,22 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   const budget = createRouteBudget({
     nodes: displayIds.length, edges: groupArr.length, config: input.routeBudget,
   });
+  const groupById = new Map(groupArr.map((g) => [g.id, g] as const));
   const ar = buildAutoRoutes({
     groups: groupArr, routableIds, positions,
     displayIds, sizes: sizeMap, frames: routerFrames, frameEndpoints,
     // гистерезис: финальные маршруты/хэндлы прошлого прогона (если вызывающий дал)
     prev: prevRoutes && prevEdgeHandles ? { routes: prevRoutes, handles: prevEdgeHandles } : undefined,
     budget,
+    // Ф3: дорожка-носитель подписи резервирует толщину плашки в канале
+    labelBoxOf: (gid) => {
+      const g = groupById.get(gid);
+      const m = g ? edgeLabelMeta(g) : null;
+      return m ? metaLabelBox(m) : undefined;
+    },
   });
   autoRoutes = ar.routes;
-  mark("роутер: A*+rip-up+слоты+сварка (проход 1)");
+  mark("роутер: порты+Z+A*+rip-up (проход 1)");
   // СКОУП: buildAutoRoutes вернул маршруты только заскоупленных рёбер; незаскоупленные
   // (инцидентные прочим узлам) берём из prevRoutes — они зафиксированы как preplaced и
   // сохраняют прежнюю геометрию (иначе потеряли бы маршрут и отвалились на smoothstep).
@@ -889,13 +964,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // (fixedIds), полировка джогов их пропускает. restoreFrozen оставлен СТРАХОВКОЙ и
   // обязан быть no-op — сколько ему пришлось чинить, считает frozenDrift (хук
   // __ARCHMAP_FROZEN_DIAG в конце стадий; инвариант — нули).
+  // С Ф2 (своя дорожка) заморожены и Z-маршруты ЛЮБОГО прогона (ar.fixedIds): их
+  // дорожки уже разведены каналом, нуджинг держит их пинами, а связи без Z встают
+  // рядом. Нероутируемая связь, чей prev не пересел и которую роутер проложил сам
+  // (ar.routedIds), не замораживается.
   const frozenRoutes = new Map<string, EdgePoint[]>();
-  if (scoped) {
-    for (const g of groupArr) {
-      if (routableIds.has(g.id)) continue;
-      const rt = autoRoutes.get(g.id);
-      if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
-    }
+  for (const g of groupArr) {
+    const frozen = ar.fixedIds.has(g.id) || (scoped && !routableIds.has(g.id) && !ar.routedIds.has(g.id));
+    if (!frozen) continue;
+    const rt = autoRoutes.get(g.id);
+    if (rt) frozenRoutes.set(g.id, rt.map((p) => ({ x: p.x, y: p.y })));
   }
   const frozenIds: ReadonlySet<string> = new Set(frozenRoutes.keys());
   const frozenDrift = { nudge: 0, jogs: 0, t4: 0 };
@@ -917,11 +995,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     .map(realRectOf)
     .filter((r): r is { x: number; y: number; w: number; h: number } => r != null);
 
-  // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи из
-  // РАЗНЫХ хэндлов собираются в «каналы», упорядочиваются по подходам маршрутов и
+  // КАНАЛЬНЫЙ NUDGING (V2.3, замена точечного A13): все коллинеарно наложенные плечи
+  // РАЗНЫХ рёбер собираются в «каналы», упорядочиваются по подходам маршрутов и
   // разводятся равными зазорами вокруг исходной линии (канон GD'09 ordered nudging).
-  // Стволы из ОДНОГО хэндла остаются слитыми (Т4). Рельсы встречных пар (A11) остаются —
-  // это раздача ПОРТОВ, каналу порты двигать нельзя. Чистый пост-проход на финальных
+  // Порты каналу двигать нельзя (их раздаёт ports.ts). Чистый пост-проход на финальных
   // маршрутах.
   // СКОУП (E84, компромисс 3): замороженные плечи идут в канал ПИНАМИ — живые
   // разводятся ОТ их фактических линий. Двигать их наравне со всеми и возвращать
@@ -946,20 +1023,16 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
       if (!rt || rt.length < 4) continue;
       // СКОУП (E84): замороженные НЕ полируются. Их результат всё равно вернула бы
       // страховка, но промежуточная полировка отравляла бы КОНТЕКСТ ОЦЕНКИ живых
-      // соседей (others/fellowRoutes ниже читают segsById/polished) — они мерились бы
-      // против линии, которой на сцене не будет. Сегменты замороженных при этом
-      // остаются в segsById и потому видны живым как препятствие и стволовой контекст.
+      // соседей (others ниже читает segsById) — они мерились бы против линии, которой
+      // на сцене не будет. Сегменты замороженных при этом остаются в segsById и потому
+      // видны живым как препятствие.
       if (frozenRoutes.has(g.id)) continue;
       const others: PlacedSeg[] = [];
-      const fellowRoutes: EdgePoint[][] = []; // стволовой контекст оценки (E25 v2)
       for (const [id, s] of segsById) {
         if (id === g.id) continue;
         others.push(...s);
-        const r = polished.get(id) ?? autoRoutes.get(id);
-        if (r) fellowRoutes.push(r);
       }
-      const own = { starts: [rt[0]], ends: [rt[rt.length - 1]] };
-      const str = straightenJogs(rt, jogObstacles, others, 200, 40, undefined, own, fellowRoutes);
+      const str = straightenJogs(rt, jogObstacles, others, 200, 40);
       if (str.length !== rt.length) {
         polished.set(g.id, str);
         segsById.set(g.id, toPlacedSegs(str));
@@ -980,11 +1053,18 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // она превращала прямые маршруты в необъяснимые объезды (жалоба: стрелка при свободном
   // прямом коридоре идёт полкой сверху/снизу) и дестабилизировала живое превью драга.
   // Маршрут — только у роутера; невлезающая подпись решается leader-выноской.
+  // Ф3: желаемая позиция плашки — якорь роутера (слот носителя подписи), доля дуги по
+  // ФИНАЛЬНОМУ маршруту (пост-стадии могли сдвинуть линию — проекция это переживает)
+  const anchorT = (g: EdgeGroup): number | undefined => {
+    const a = ar.labelAnchors.get(g.id);
+    const pts = autoRoutes?.get(g.id);
+    return a && pts ? arcFractionAtPoint(a, pts) : undefined;
+  };
   labelPlacements = buildLabelPlacements({
     routes: autoRoutes,
     groups: groupArr,
     labelMeta: edgeLabelMeta,
-    preferredT: () => undefined,
+    preferredT: anchorT,
     nodeRects,
   });
   mark("плашки подписей (проход 1)");
@@ -1081,7 +1161,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         routes: autoRoutes,
         groups: groupArr,
         labelMeta: edgeLabelMeta,
-        preferredT: () => undefined,
+        preferredT: anchorT,
         nodeRects,
         obstacleRects: others,
         repair: { only: victims, keepRectOf: rects },
@@ -1161,8 +1241,8 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         prev: { routes: autoRoutes, handles: edgeHandles },
         labelObstacles: labelRectOf,
         gridHintGroups: T4_FULL_GRID_HINTS ? groupArr : undefined,
-        // Тот же бюджет: внутри мини-прохода живут СВОИ rip-up и сварка, и их ступени
-        // (P13 №2 и №3) обязаны действовать здесь так же, как в проходе 1.
+        // Тот же бюджет: внутри мини-прохода живёт СВОЙ rip-up, и его ступень
+        // (P13 №2) обязана действовать здесь так же, как в проходе 1.
         budget,
       });
       let changed = false;
@@ -1187,7 +1267,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
           routes: autoRoutes,
           groups: groupArr,
           labelMeta: edgeLabelMeta,
-          preferredT: () => undefined,
+          preferredT: anchorT,
           nodeRects,
         });
         // ФИНАЛЬНАЯ ПОЧИНКА (Б3б). Гриди выше — ИСТОЧНИК ПРАВДЫ размещения, и он честно

@@ -81,6 +81,10 @@ export interface WrappedEdgeData extends Record<string, unknown> {
   // pathLength=1 + stroke-dashoffset), маркер-наконечник и плашка скрыты до конца
   // отрисовки. Флаг ставит и снимает оркестратор анимации по таймеру drawSpanMs.
   drawIn?: boolean;
+  // какие концы можно перевесить (edge.md E1a: конец, упёршийся в рамку, — на узел
+  // внутри неё); ручку на точке роутера рисует само ребро (RehangAnchor). Нет поля —
+  // ручек нет (обычные концы, read-only, контекст).
+  reconnectEnds?: "source" | "target" | "both";
   // Ф5, каскад отрисовки: задержка старта волны этого ребра (animation-delay, мс).
   // Ставится markDrawIn только при DRAW_CASCADE и только ненулевая (нормальная
   // форма для реконсиляции); fill-mode both держит линию пустой до старта волны.
@@ -89,12 +93,12 @@ export interface WrappedEdgeData extends Record<string, unknown> {
 
 export interface NodeColors { bg: string; border: string; text: string }
 
-// Колбэки «быстрой связи» (стрелка-кнопка у хэндла). enter — навели курсор на стрелку
-// хэндла (side+frac), система подбирает цель и рисует превью; leave — увели курсор (превью
+// Колбэки «быстрой связи» (стрелка-глиф у стороны узла). enter — навели курсор на стрелку
+// стороны (side+frac), система подбирает цель и рисует превью; leave — увели курсор (превью
 // гаснет); activate — клик по стрелке (создать предложенную связь через модалку). Стабильны
 // (useCallback в LevelGraph) — кладём в data узлов, не пересобирая раскладку на каждый ховер.
 export interface QuickConnectHandlers {
-  enter: (sourceId: string, sourceHandle: string, side: EdgeSide, frac: number) => void;
+  enter: (sourceId: string, side: EdgeSide, frac: number) => void;
   leave: () => void;
   activate: () => void;
 }
@@ -260,28 +264,20 @@ export interface LevelDrillCallbacks {
 }
 
 // Колбэки создания и инспекции связей. onEdgesChoice обязателен (даже одиночная связь
-// открывает «Выберите связь»); остальные — по контексту (жесты протягивания, общее плечо).
+// открывает «Выберите связь»); остальные — по контексту (жесты протягивания).
 // НАМЕРЕННО НЕ `edges`: так зовётся дата-проп AppEdge[] самого LevelGraph.
 export interface LevelEdgeCallbacks {
   // Клик по описанию связи (одиночной или мастер-стрелке) — список для выбора.
   onEdgesChoice: (edges: AppEdge[]) => void;
-  // ОБЩЕЕ ПЛЕЧО (E80): двойной клик в точке легального ствола ≥2 связей — модалка с направлением.
-  onTrunkChoice?: (kind: "out" | "in", edges: AppEdge[]) => void;
-  // Протянули стрелку на ЛИСТОВОЙ узел/хэндл — создать связь. Имена концов едут С ЖЕСТОМ
+  // Протянули стрелку на ЛИСТОВОЙ узел — создать связь. Имена концов едут С ЖЕСТОМ
   // (дети раскрытых ЛОКАЛЬНЫХ контейнеров известны только холсту — родитель их не резолвит).
-  onCreateEdge?: (
-    sourceId: string, targetId: string,
-    sourceHandle: string | null, targetHandle: string | null,
-    sourceName?: string, targetName?: string,
-  ) => void;
+  // Хэндлов жеста связь не несёт: точки стыковки ставит роутер (edge.md E7 v2).
+  onCreateEdge?: (sourceId: string, targetId: string, sourceName?: string, targetName?: string) => void;
   // Протянули стрелку на узел С ДЕТЬМИ (containerId) — открыть выбор его потомка как
   // дальнего конца межуровневой связи.
-  onConnectInto?: (
-    sourceId: string, containerId: string, containerName: string,
-    sourceHandle: string | null, sourceName?: string,
-  ) => void;
+  onConnectInto?: (sourceId: string, containerId: string, containerName: string, sourceName?: string) => void;
   // Конец стрелки отпустили на плитку «вне уровня» — выбор дальнего конца из всей схемы.
-  onExitUp?: (sourceId: string, sourceHandle: string | null, sourceName?: string) => void;
+  onExitUp?: (sourceId: string, sourceName?: string) => void;
   // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку»): единственное
   // исключение из «геометрия связи целиком автоматическая» (edge.md E1) — тянется
   // только тот конец, что упёрся в рамку, и только на узел ВНУТРИ неё. Холст уже

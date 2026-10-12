@@ -50,7 +50,13 @@ export function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], ex
       foundPos - 1 >= lcaPos + 1 ? anc[foundPos - 1].id : null;
 
     ghostToEffective.set(g.id, displayed.id);
-    if (!entities.has(displayed.id)) entities.set(displayed.id, displayed);
+    // Один id может прийти дважды: гость-контейнер сам конец связи (лист реестра) И
+    // свёрнутый дом других гостей (контейнер). Побеждает КОНТЕЙНЕР независимо от
+    // порядка реестра: у него есть лупа (раскрытие покажет связанных детей, а связь
+    // «прямо в него» упрётся в рамку — container.md C19 v2); лист с детьми лупы не
+    // имеет, и до 2026-10-12 вид узла зависел от порядка записей реестра.
+    const prev = entities.get(displayed.id);
+    if (!prev || (prev.kind === "leaf" && displayed.kind === "container")) entities.set(displayed.id, displayed);
     if (emerged) emergedFrom.set(displayed.id, emerged);
   }
 

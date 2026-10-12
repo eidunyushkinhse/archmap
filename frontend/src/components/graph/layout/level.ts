@@ -4,11 +4,13 @@
 import { hid } from "../constants";
 import type { LayoutEdge } from "../../../types";
 
-/** Авто-назначение хэндлов ребру по относительным позициям узлов */
+/** Авто-назначение хэндлов ребру по относительным позициям узлов: стороны, смотрящие
+ * друг на друга по доминантной оси; хэндл — центр стороны (слотов нет, Ф5 эпика
+ * «стрелки без жёстких хэндлов»). ФОЛБЭК для ребра, которое роутер не посчитал
+ * (бюджет, контекст): концы такого ребра RF рисует smoothstep от этих хэндлов. */
 export function autoHandles(
   srcId: string, tgtId: string,
   positions: Map<string, { x: number; y: number }>,
-  parallelIdx: number, parallelTotal: number,
 ): { sourceHandle: string; targetHandle: string } {
   const srcP = positions.get(srcId) ?? { x: 0, y: 0 };
   const tgtP = positions.get(tgtId) ?? { x: 0, y: 0 };
@@ -24,13 +26,9 @@ export function autoHandles(
     tgtSide = dy >= 0 ? "top"    : "bottom";
   }
 
-  // 1 ребро → центр (idx=1); 2 → края (0,2); 3 → все три (0,1,2)
-  const idxMap = parallelTotal === 1 ? [1] : parallelTotal === 2 ? [0, 2] : [0, 1, 2];
-  const hi = idxMap[parallelIdx % 3];
-
   return {
-    sourceHandle: hid(srcId, srcSide, hi),
-    targetHandle: hid(tgtId, tgtSide, hi),
+    sourceHandle: hid(srcId, srcSide),
+    targetHandle: hid(tgtId, tgtSide),
   };
 }
 
@@ -46,25 +44,10 @@ export function assignEdgeHandles(
   positions: Map<string, { x: number; y: number }>,
 ): Map<string, { sourceHandle: string; targetHandle: string }> {
   const idSet = new Set(allNodes.map((n) => n.id));
-
-  const pairGroups = new Map<string, LayoutEdge[]>();
-  for (const e of edges) {
-    const key = [e.source_id, e.target_id].sort().join("|");
-    let group = pairGroups.get(key);
-    if (!group) { group = []; pairGroups.set(key, group); }
-    group.push(e);
-  }
-  const pairInfo = new Map<string, { idx: number; total: number }>();
-  for (const [, group] of pairGroups) {
-    group.forEach((e, i) => pairInfo.set(e.id, { idx: i, total: group.length }));
-  }
-
   const edgeHandles = new Map<string, { sourceHandle: string; targetHandle: string }>();
   for (const e of edges) {
     if (!idSet.has(e.source_id) || !idSet.has(e.target_id)) continue;
-    const { idx, total } = pairInfo.get(e.id) ?? { idx: 0, total: 1 };
-    edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions, idx, total));
+    edgeHandles.set(e.id, autoHandles(e.source_id, e.target_id, positions));
   }
-
   return edgeHandles;
 }

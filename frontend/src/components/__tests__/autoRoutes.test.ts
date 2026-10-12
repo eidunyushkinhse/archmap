@@ -1,12 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { buildAutoRoutes } from "../graph/layout/autoRoutes";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { buildAutoRoutes, reseatRoute } from "../graph/layout/autoRoutes";
+import { PORT_SHARE, PORT_SNAP_RULE } from "../graph/layout/ports";
+import { NUDGE_GAP } from "../graph/layout/channelNudge";
 import { pathCrossesRects, type NodeRect } from "../graph/edgePath";
 import { NODE_W, NODE_H, hid } from "../graph/constants";
 import type { EdgeGroup } from "../graph/types";
 import type { LayoutEdge } from "../../types";
 
 // Посадка роутера в раскладку (A7.1). Проверяем мост группы→терминалы→маршруты:
-// роутятся только routableIds, концы на сторонах узлов, узлы-препятствия обходятся.
+// концы — порты ports.ts (порт на связь, Ф1 эпика «стрелки без жёстких хэндлов»),
+// канонический Z с дорожками канала (Ф2, zRoutes.ts) — для всех связей с геометрией,
+// A* — только для роутируемых связей без чистого Z; узлы-препятствия обходятся.
 
 const edge = (id: string, s: string, t: string): LayoutEdge =>
   ({ id, source_id: s, target_id: t } as LayoutEdge);
@@ -21,29 +25,53 @@ describe("buildAutoRoutes — отбор и терминалы", () => {
   ]);
   const groups = [group("g1", "A", "B")];
 
-  it("роутит только группы из routableIds", () => {
+  it("Z считается для всех связей с геометрией; A* — только для роутируемых без Z", () => {
+    // A → B рядом на одной высоте: прямая — Z, независимо от скоупа
     const none = buildAutoRoutes({
       groups, routableIds: new Set(), positions, displayIds: ["A", "B"],
     });
-    expect(none.routes.size).toBe(0);
-    const one = buildAutoRoutes({
-      groups, routableIds: new Set(["g1"]), positions, displayIds: ["A", "B"],
+    expect(none.routes.has("g1")).toBe(true);
+    expect(none.fixedIds.has("g1")).toBe(true);
+    expect(none.routedIds.size).toBe(0);
+    // C перегородил прямую: Z нет; вне скоупа и без prev связь не прокладывается,
+    // в скоупе — честный A* (routedIds)
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 500, y: 0 }], ["C", { x: 260, y: 20 }]]);
+    const skipped = buildAutoRoutes({
+      groups, routableIds: new Set(), positions: pos, displayIds: ["A", "B", "C"],
     });
-    expect(one.routes.has("g1")).toBe(true);
+    expect(skipped.routes.has("g1")).toBe(false);
+    const routed = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), positions: pos, displayIds: ["A", "B", "C"],
+    });
+    expect(routed.routes.has("g1")).toBe(true);
+    expect(routed.routedIds.has("g1")).toBe(true);
+    expect(routed.fixedIds.has("g1")).toBe(false);
+    expect(pathCrossesRects(routed.routes.get("g1")!, [rectOf({ x: 260, y: 20 })])).toBe(false);
   });
 
-  it("свободное ребро (A8): концы на обращённых сторонах (правый край A → левый край B)", () => {
+  it("узлы рядом на одной высоте: концы на обращённых сторонах (правый край A → левый край B)", () => {
     const out = buildAutoRoutes({
       groups, routableIds: new Set(["g1"]), positions, displayIds: ["A", "B"],
     });
     const r = out.routes.get("g1")!;
-    // дешевле всего прямой ход: правый центр A → левый центр B
+    // единственный порт стороны — её центр; маршрут прямой
     expect(r[0]).toEqual({ x: NODE_W, y: NODE_H / 2 });
     expect(r[r.length - 1]).toEqual({ x: 400, y: NODE_H / 2 });
-    // выбранная сторона отдана как хэндл
+    expect(r.length).toBe(2);
+    // выбранная сторона отдана хэндлом её центра
     expect(out.handles.get("g1")).toEqual({ sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) });
   });
 
+  it("узел далеко внизу и вбок: стороны оси потока (низ A → верх B), а не боковые", () => {
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 900, y: 300 }]]);
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g1"]), positions: pos, displayIds: ["A", "B"],
+    });
+    const r = out.routes.get("g1")!;
+    expect(r[0]).toEqual({ x: NODE_W / 2, y: NODE_H });
+    expect(r[r.length - 1]).toEqual({ x: 900 + NODE_W / 2, y: 300 });
+    expect(out.handles.get("g1")).toEqual({ sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) });
+  });
 });
 
 describe("buildAutoRoutes — обход узла-препятствия", () => {
@@ -116,7 +144,7 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
   const frameRect = { x: 450, y: 20, w: 260, h: 260 };
   const frame = { id: "F", rect: frameRect, plaque: { x: 460, y: 250, w: 100, h: 22 }, memberIds: new Set(["C"]) };
 
-  it("конец-рамка стыкуется с ГРАНИЦЕЙ её прямоугольника, а не с центром", () => {
+  it("конец-рамка стыкуется с ГРАНИЦЕЙ её прямоугольника: порт — проекция дальнего конца", () => {
     const out = buildAutoRoutes({
       groups: [group("gF", "A", "F")], routableIds: new Set(["gF"]),
       positions, displayIds: ["A", "C"], frames: [frame],
@@ -124,12 +152,11 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
     });
     const r = out.routes.get("gF")!;
     const end = r[r.length - 1];
-    // конец на левой грани рамки (ближайшей к A), в створе её высоты
+    // конец на левой грани рамки (ближайшей к A), на высоте центра A (проекция, R4)
     expect(end.x).toBeCloseTo(frameRect.x, 1);
-    expect(end.y).toBeGreaterThanOrEqual(frameRect.y);
-    expect(end.y).toBeLessThanOrEqual(frameRect.y + frameRect.h);
+    expect(end.y).toBeCloseTo(100 + NODE_H / 2, 1);
     // хэндл выдан по рамке — RF состыкует стрелку там же
-    expect(out.handles.get("gF")?.targetHandle.startsWith("F--left--")).toBe(true);
+    expect(out.handles.get("gF")?.targetHandle).toBe(hid("F", "left", 1));
   });
 
   it("рамка-конец НЕ становится телом-препятствием: чужой маршрут внутрь неё не меняется", () => {
@@ -145,8 +172,12 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
   });
 });
 
-describe("buildAutoRoutes — раздача слотов портов (V2.4c)", () => {
-  // три исходящих из H вправо + одно входящее в H справа: вход и выход не делят слот
+describe("buildAutoRoutes — порт на связь (Ф1 эпика «стрелки без жёстких хэндлов»)", () => {
+  // механика «порт на связь» без общих плеч (E95 выключен на время describe)
+  // равный шаг R4 в чистом виде: общие плеча (E95) и снэп почти выровненных пар (E86 v3) выключены
+  beforeEach(() => { PORT_SHARE.on = false; PORT_SNAP_RULE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; PORT_SNAP_RULE.on = true; });
+  // веер трёх исходящих из H вправо + одно входящее в H справа: у каждой связи своя точка
   const positions = new Map([
     ["H", { x: 0, y: 300 }],
     ["T1", { x: 500, y: 0 }],
@@ -159,112 +190,53 @@ describe("buildAutoRoutes — раздача слотов портов (V2.4c)",
     group("in", "S", "H"),
   ];
   const ids = ["o1", "o2", "o3", "in"];
+  const run = () => buildAutoRoutes({
+    groups, routableIds: new Set(ids), positions, displayIds: [...positions.keys()],
+  });
 
-  it("входящее не делит точку стыковки с веером исходящих (Т4)", () => {
-    const out = buildAutoRoutes({
-      groups, routableIds: new Set(ids),
-      positions, displayIds: [...positions.keys()],
+  it("все четыре связи на правой стороне H, точки разные, порядок по дальнему концу", () => {
+    const out = run();
+    const ends = ids.map((id) => {
+      const r = out.routes.get(id)!;
+      return id === "in" ? r[r.length - 1] : r[0];
     });
-    const hOf = (id: string, end: "sourceHandle" | "targetHandle") => out.handles.get(id)![end];
-    // исходящие к прямой/нижней цели — на правой стороне H; o1 (цель сверху) волен
-    // выйти верхом — сторону выбирает A*. Обязательного СЛИЯНИЯ o2/o3 в один слот
-    // больше не фиксируем: T1 разрешает вееру расползтись по свободным слотам, а
-    // прежнее слияние в этой сцене было случайным артефактом rip-up-цепочки, которую
-    // портовый штраф (2026-07-15) убрал вместе с Т4-нарушением в pass1 (выход o1
-    // садился ровно в точку входа in). Бесплатность легитимного ствола держит
-    // соседний тест («прямое ребро едет по собрату без виляний»).
-    const outHandles = ["o1", "o2", "o3"].map((id) => hOf(id, "sourceHandle"));
-    expect(hOf("o2", "sourceHandle").startsWith("H--right--")).toBe(true);
-    expect(hOf("o3", "sourceHandle").startsWith("H--right--")).toBe(true);
-    // вход НЕ делит хэндл ни с одним выходом (Т4): либо другой слот той же стороны
-    // (распределение слотов V2.4c), либо вовсе другая сторона
-    const inHandle = hOf("in", "targetHandle");
-    expect(inHandle.startsWith("H--")).toBe(true);
-    for (const oh of outHandles) expect(inHandle).not.toBe(oh);
-    // и ГЕОМЕТРИЧЕСКИ: точка стыковки входа не совпадает с точкой НИ ОДНОГО выхода
-    // (строже прежней проверки одного ствол-центра)
-    const inRoute = out.routes.get("in")!;
-    const dock = inRoute[inRoute.length - 1];
-    for (const id of ["o1", "o2", "o3"]) {
-      const or = out.routes.get(id)!;
-      expect(Math.abs(dock.x - or[0].x) + Math.abs(dock.y - or[0].y)).toBeGreaterThan(10);
+    for (const p of ends) expect(p.x).toBe(NODE_W);                  // правая грань H
+    expect(new Set(ends.map((p) => p.y)).size).toBe(4);              // общих точек нет
+    // порядок сверху вниз: o1 (цель вверху) < o2, in (цели на высоте H) < o3 (цель внизу)
+    const y = Object.fromEntries(ids.map((id, i) => [id, ends[i].y]));
+    expect(y.o1).toBeLessThan(Math.min(y.o2, y.in));
+    expect(Math.max(y.o2, y.in)).toBeLessThan(y.o3);
+    // равный шаг с полями: 4 порта на стороне 100 → (100 − 20) / 5 = 16
+    const sorted = ends.map((p) => p.y).sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i] - sorted[i - 1]).toBeCloseTo(16, 0);
+    // хэндлы — центр выбранной стороны (одинаковый id у всех четырёх — это сторона, не порт)
+    for (const id of ids) {
+      const h = out.handles.get(id)!;
+      expect(id === "in" ? h.targetHandle : h.sourceHandle).toBe(hid("H", "right", 1));
     }
   });
 
-  it("ствол веера из общего порта БЕСПЛАТЕН: прямое ребро едет по собрату без виляний", () => {
-    // o2 (H → T2 строго вправо) обязано остаться идеальной прямой, хотя целиком совпадает
-    // с первым плечом o3 (общий порт H--right — легитимный ствол Т4). Регрессия штрафа
-    // наложений: без исключения ствола o2 виляло вокруг собственного собрата.
+  it("единственная связь стороны садится в её центр: прямая остаётся прямой", () => {
     const out = buildAutoRoutes({
-      groups, routableIds: new Set(ids),
+      groups: [group("o2", "H", "T2")], routableIds: new Set(["o2"]),
       positions, displayIds: [...positions.keys()],
     });
-    expect(out.routes.get("o2")!.length).toBe(2); // прямая без изломов
-  });
-});
-
-describe("buildAutoRoutes — перенос слота против плашки рамки (E11 × E21)", () => {
-  // Хаб H: три исходящих и один входящий стыкуются на ПРАВОЙ стороне. Раздача слотов
-  // (E11) отдаёт центр большей группе (три выхода), а вход обязан уехать на слот 0 —
-  // но плашка раскрытой рамки F стоит ровно на высоте этого слота, и сдвинутое плечо
-  // легло бы сквозь её текст. Плашка — ЖЁСТКОЕ препятствие (E21), поэтому перенос
-  // отменяется так же, как от чужого тела.
-  // РЕГРЕССИЯ (найдена фазз-полигоном Ф0 эпика «глубокая оптимизация роутера», сид 12,
-  // ребро e12): moveDock проверял только тела — перенос молча протаскивал плечо
-  // сквозь подпись рамки.
-  const positions = new Map([
-    ["H", { x: 700, y: 400 }],
-    ["M", { x: 1010, y: 310 }],   // единственный член рамки F
-    ["T1", { x: 1200, y: 200 }],
-    ["T2", { x: 1200, y: 700 }],
-    ["T3", { x: 1200, y: 900 }],
-    ["S", { x: 1400, y: 500 }],
-  ]);
-  const sizes = new Map([
-    ["H", { w: 200, h: 100 }],
-    ["M", { w: 100, h: 60 }],
-    ["T1", { w: 150, h: 80 }],
-    ["T2", { w: 150, h: 80 }],
-    ["T3", { w: 150, h: 80 }],
-    ["S", { w: 120, h: 100 }],
-  ]);
-  const groups = [
-    group("in", "S", "H"),
-    group("o1", "H", "T1"), group("o2", "H", "T2"), group("o3", "H", "T3"),
-  ];
-  const ids = new Set(groups.map((g) => g.id));
-  // Рамка вокруг M; плашка — её нижняя полоса по формуле E21 (x+10, y+h−30, h=22).
-  // Она лежит на высоте слота 0 правой стороны H (y = 400 + 100·0.25 = 425) и правее H.
-  const frame = {
-    id: "F",
-    rect: { x: 1000, y: 300, w: 130, h: 145 },
-    plaque: { x: 1010, y: 415, w: 62.5, h: 22 },
-    memberIds: new Set(["M"]),
-  };
-  const runWith = (f: typeof frame): ReturnType<typeof buildAutoRoutes> => buildAutoRoutes({
-    groups, routableIds: ids, positions, displayIds: [...positions.keys()], sizes, frames: [f],
+    expect(out.routes.get("o2")).toEqual([{ x: NODE_W, y: 350 }, { x: 500, y: 350 }]);
   });
 
-  it("рамка В СТОРОНЕ: вход уезжает на свой слот — перенос состоялся", () => {
-    // Контроль: та же сцена, рамка унесена вверх. Механика раздачи слотов работает,
-    // и без препятствия вход честно переезжает на слот 0.
-    const out = runWith({
-      ...frame,
-      rect: { x: 1000, y: -600, w: 130, h: 145 },
-      plaque: { x: 1010, y: -485, w: 62.5, h: 22 },
+  it("нероутируемые связи занимают свои порты: порты роутируемых не ложатся на их концы", () => {
+    // o1..o3 заморожены (вне routableIds, идут prev-контекстом), роутится только «in»:
+    // его порт обязан отличаться от точек всех трёх выходов
+    const full = run();
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["in"]), positions, displayIds: [...positions.keys()],
+      prev: { routes: full.routes, handles: full.handles },
     });
-    expect(out.handles.get("in")?.targetHandle).toBe(hid("H", "right", 0));
-    const r = out.routes.get("in")!;
-    expect(r[r.length - 1]).toEqual({ x: 900, y: 425 });
-  });
-
-  it("плашка рамки на пути переноса: перенос ОТМЕНЯЕТСЯ, плечо не режет текст", () => {
-    const out = runWith(frame);
-    // слот 0 недостижим без прохода сквозь плашку — вход остаётся в центре стороны
-    expect(out.handles.get("in")?.targetHandle).toBe(hid("H", "right", 1));
-    const r = out.routes.get("in")!;
-    expect(r[r.length - 1]).toEqual({ x: 900, y: 450 });
-    expect(pathCrossesRects(r, [frame.plaque])).toBe(false);
+    const dock = out.routes.get("in")!.at(-1)!;
+    for (const id of ["o1", "o2", "o3"]) {
+      const o = full.routes.get(id)![0];
+      expect(Math.abs(dock.x - o.x) + Math.abs(dock.y - o.y)).toBeGreaterThan(10);
+    }
   });
 });
 
@@ -299,14 +271,14 @@ describe("buildAutoRoutes — штраф езды по чужой линии (sh
     return total;
   };
 
-  it("вход не седлает линию чужого выхода и не паркуется в его хэндл", () => {
+  it("вход не седлает линию чужого выхода и не паркуется в его точку", () => {
     const out = buildAutoRoutes({
       groups, routableIds: new Set(["out", "in"]),
       positions, displayIds: [...positions.keys()],
     });
     const rOut = out.routes.get("out")!, rIn = out.routes.get("in")!;
     expect(overlapLen(rOut, rIn)).toBeLessThan(30); // без совместной езды (докинг-мелочь ок)
-    expect(out.handles.get("in")!.targetHandle).not.toBe(out.handles.get("out")!.sourceHandle);
+    expect(rIn[rIn.length - 1]).not.toEqual(rOut[0]);
   });
 });
 
@@ -362,27 +334,31 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
     expect(again.handles.get("g1")).toEqual(first.handles.get("g1"));
   });
 
-  it("prev с равноценной, но ДРУГОЙ формой удерживается (нет перекладки на ничьей)", () => {
-    // диагональная пара: ступенек равной стоимости много (та же длина, те же 2 излома);
-    // prev — ступенька с переходом на «неканоничном» x: держим её, а не свежую
-    const diag = new Map([["A", { x: 0, y: 0 }], ["B", { x: 400, y: 300 }]]);
+  it("у связи с чистым Z prev не удерживается: каноническая дорожка посреди канала (R5)", () => {
+    // пара друг под другом со сдвигом: prev — ступенька на «неканоничном» y=173; Z
+    // детерминирован и prev не смотрит — дорожка в середине канала (100..400 → 250)
+    const diag = new Map([["A", { x: 0, y: 0 }], ["B", { x: 60, y: 400 }]]);
     const prevRoute = [
-      { x: NODE_W, y: NODE_H / 2 },        // правый центр A (190,50)
-      { x: 237, y: NODE_H / 2 },
-      { x: 237, y: 350 },                   // y левого центра B
-      { x: 400, y: 350 },
+      { x: NODE_W / 2, y: NODE_H },        // нижний центр A (95,100)
+      { x: NODE_W / 2, y: 173 },
+      { x: 60 + NODE_W / 2, y: 173 },      // x верхнего центра B
+      { x: 60 + NODE_W / 2, y: 400 },
     ];
     const out = buildAutoRoutes({
       ...base, positions: diag,
       prev: {
         routes: new Map([["g1", prevRoute]]),
-        handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
+        handles: new Map([["g1", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) }]]),
       },
     });
-    expect(out.routes.get("g1")).toEqual(prevRoute);
+    expect(out.routes.get("g1")).toEqual([
+      { x: NODE_W / 2, y: NODE_H }, { x: NODE_W / 2, y: 250 }, { x: 60 + NODE_W / 2, y: 250 }, { x: 60 + NODE_W / 2, y: 400 },
+    ]);
+    expect(out.fixedIds.has("g1")).toBe(true);
   });
 
-  it("конец узла ДВИГАЛСЯ (точка хэндла уехала) → prev невалиден, честный пере-роутинг", () => {
+
+  it("конец узла ДВИГАЛСЯ (порт уехал) → prev невалиден, честный пере-роутинг", () => {
     const moved = new Map([["A", { x: 0, y: 40 }], ["B", { x: 400, y: 0 }]]);
     const prevRoute = [{ x: NODE_W, y: NODE_H / 2 }, { x: 400, y: NODE_H / 2 }];
     const out = buildAutoRoutes({
@@ -396,10 +372,10 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
   });
 
   it("на prev надвинулось чужое тело → prev невалиден, маршрут обходит", () => {
-    const prevRoute = [{ x: NODE_W, y: NODE_H / 2 }, { x: 400, y: NODE_H / 2 }];
+    const prevRoute = [{ x: NODE_W, y: NODE_H / 2 }, { x: 600, y: NODE_H / 2 }];
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 600, y: 0 }], ["C", { x: 300, y: 0 }]]); // C сел на прямую
     const out = buildAutoRoutes({
-      ...base, displayIds: ["A", "B", "C"],
-      positions: new Map([...positions, ["C", { x: 250, y: 0 }]]), // C сел на прямую
+      ...base, displayIds: ["A", "B", "C"], positions: pos,
       prev: {
         routes: new Map([["g1", prevRoute]]),
         handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
@@ -407,6 +383,112 @@ describe("buildAutoRoutes — гистерезис (prev, 2026-07-09)", () => {
     });
     const r = out.routes.get("g1")!;
     expect(r).not.toEqual(prevRoute);
-    expect(pathCrossesRects(r, [rectOf({ x: 250, y: 0 })])).toBe(false);
+    expect(pathCrossesRects(r, [rectOf({ x: 300, y: 0 })])).toBe(false);
+  });
+
+  it("прежняя сторона держится в полосе гистерезиса: узел чуть ушёл за край соседа", () => {
+    // Уровень сверху вниз (A → C под ним держит ось). B правее A и чуть ниже (перекрытие
+    // по высоте 10 px): без prev — рядом (боковые стороны); с prev «низ → верх» — режим
+    // по оси потока удерживается
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 400, y: 90 }], ["C", { x: 0, y: 400 }]]);
+    const args = { ...base, groups: [...groups, group("g2", "A", "C")], routableIds: new Set(["g1", "g2"]), positions: pos, displayIds: ["A", "B", "C"] };
+    const fresh = buildAutoRoutes(args);
+    expect(fresh.handles.get("g1")).toEqual({ sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) });
+    const held = buildAutoRoutes({
+      ...args,
+      prev: {
+        routes: new Map(),
+        handles: new Map([
+          ["g1", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) }],
+          ["g2", { sourceHandle: hid("A", "bottom", 1), targetHandle: hid("C", "top", 1) }],
+        ]),
+      },
+    });
+    expect(held.handles.get("g1")).toEqual({ sourceHandle: hid("A", "bottom", 1), targetHandle: hid("B", "top", 1) });
+  });
+});
+
+describe("buildAutoRoutes — своя дорожка (Ф2, R5) и пересад портов (R9)", () => {
+  // дорожки «порт на связь» в чистом виде: общие плеча (E95) выключены на время describe
+  // равный шаг R4 в чистом виде: общие плеча (E95) и снэп почти выровненных пар (E86 v3) выключены
+  beforeEach(() => { PORT_SHARE.on = false; PORT_SNAP_RULE.on = false; });
+  afterEach(() => { PORT_SHARE.on = true; PORT_SNAP_RULE.on = true; });
+  it("веер хаба: Z-маршруты с дорожками канала, зафиксированы для пост-стадий", () => {
+    const positions = new Map([
+      ["H", { x: 1000, y: 0 }], ["A", { x: 0, y: 300 }], ["B", { x: 500, y: 300 }], ["C", { x: 1000, y: 300 }],
+    ]);
+    const groups = [group("a", "H", "A"), group("b", "H", "B"), group("c", "H", "C")];
+    const out = buildAutoRoutes({ groups, routableIds: new Set(["a", "b", "c"]), positions, displayIds: [...positions.keys()] });
+    expect(out.routedIds.size).toBe(0);
+    expect([...out.fixedIds].sort()).toEqual(["a", "b", "c"]);
+    const lanes = ["a", "b", "c"].map((id) => {
+      const r = out.routes.get(id)!;
+      expect(r).toHaveLength(4);
+      return r[1].y;
+    });
+    // три дорожки одного канала: разные, разнесены на кратное шагу
+    expect(new Set(lanes).size).toBe(3);
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) {
+      expect(Math.abs(lanes[i] - lanes[j]) % NUDGE_GAP).toBeCloseTo(0, 5);
+    }
+  });
+
+  it("нероутируемая связь без Z: prev пересаживается на уехавший порт (R9)", () => {
+    // A и B рядом на одной высоте, O между ними перегораживает прямую (Z у g1 нет), prev
+    // g1 — объезд снизу. В прошлом прогоне у правого борта A была одна связь (порт по
+    // центру, y=50); теперь появилась вторая (A → D) — порты борта раздвинулись, и g1, не
+    // попав в скоуп, обязана переехать стабом на свой новый порт.
+    const pos = new Map([["A", { x: 0, y: 0 }], ["B", { x: 600, y: 0 }], ["O", { x: 300, y: -20 }], ["D", { x: 600, y: 60 }]]);
+    const groups = [group("g1", "A", "B"), group("g2", "A", "D")];
+    const prevRoute = [
+      { x: 190, y: 50 }, { x: 210, y: 50 }, { x: 210, y: 100 }, { x: 580, y: 100 }, { x: 580, y: 50 }, { x: 600, y: 50 },
+    ];
+    const out = buildAutoRoutes({
+      groups, routableIds: new Set(["g2"]), positions: pos, displayIds: [...pos.keys()],
+      prev: {
+        routes: new Map([["g1", prevRoute]]),
+        handles: new Map([["g1", { sourceHandle: hid("A", "right", 1), targetHandle: hid("B", "left", 1) }]]),
+      },
+    });
+    const r = out.routes.get("g1")!;
+    expect(out.fixedIds.has("g1")).toBe(true);
+    expect(out.routedIds.has("g1")).toBe(false);
+    expect(r[0].x).toBe(190);
+    expect(r[0].y).toBeLessThan(50);               // порт уехал вверх вдоль борта
+    expect(r[1]).toEqual({ x: 210, y: r[0].y });  // стаб переехал вместе с портом
+    expect(r.slice(2)).toEqual([{ x: 210, y: 100 }, { x: 580, y: 100 }, { x: 580, y: 50 }, { x: 600, y: 50 }]);
+  });
+
+  it("reseatRoute: пересад отказывает, когда стаб не по нормали, порт сменил сторону или второй сегмент ломается", () => {
+    const bodies: NodeRect[] = [];
+    const route = [{ x: 95, y: 100 }, { x: 95, y: 200 }, { x: 300, y: 200 }, { x: 300, y: 400 }];
+    const pp = (sx: number, sSide: "bottom" | "right" = "bottom") => ({
+      s: { side: sSide, point: { x: sx, y: 100 } },
+      t: { side: "top" as const, point: { x: 300, y: 400 } },
+    });
+    expect(reseatRoute(route, pp(120), bodies)?.[0]).toEqual({ x: 120, y: 100 });
+    expect(reseatRoute(route, { ...pp(120), s: { side: "right", point: { x: 190, y: 50 } } }, bodies)).toBeNull(); // сторона другая
+    expect(reseatRoute(route, pp(300), bodies)).toBeNull();              // второй сегмент вырождается
+    expect(reseatRoute(route, pp(350), bodies)).toBeNull();              // второй сегмент переламывается
+    expect(reseatRoute([{ x: 95, y: 100 }, { x: 95, y: 400 }], pp(120), bodies)).toBeNull(); // прямая
+  });
+});
+
+describe("buildAutoRoutes — общие плеча (E95)", () => {
+  it("веер хаба: связи одного крыла делят порт и дорожку, связь другого крыла — своя; все Z заморожены", () => {
+    const positions = new Map([
+      ["H", { x: 1000, y: 0 }], ["A", { x: 0, y: 300 }], ["B", { x: 500, y: 300 }], ["C", { x: 1000, y: 300 }],
+    ]);
+    const groups = [group("a", "H", "A"), group("b", "H", "B"), group("c", "H", "C")];
+    const out = buildAutoRoutes({ groups, routableIds: new Set(["a", "b", "c"]), positions, displayIds: [...positions.keys()] });
+    expect(out.routedIds.size).toBe(0);
+    expect([...out.fixedIds].sort()).toEqual(["a", "b", "c"]);
+    const a = out.routes.get("a")!, b = out.routes.get("b")!, c = out.routes.get("c")!;
+    expect(a[0]).toEqual(b[0]);          // общий порт левого крыла
+    expect(a[1].y).toBe(b[1].y);         // общая дорожка (ствол)
+    expect(c[0]).not.toEqual(a[0]);      // правое крыло — свой порт
+    expect(a[2].x).not.toBe(b[2].x);     // ветви свои
+    // хэндлы по-прежнему — сторона, не порт
+    expect(out.handles.get("a")!.sourceHandle).toBe(out.handles.get("b")!.sourceHandle);
   });
 });

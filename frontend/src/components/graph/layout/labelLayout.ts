@@ -9,9 +9,9 @@
 import type { EdgePoint } from "../../../types";
 import { segments, type NodeRect, type Segment } from "../edgePath";
 import type { EdgeGroup } from "../types";
-import { coincidentLegs } from "./coincidentLegs";
+import { coincidentLegs, subtractIntervals, type Interval } from "./coincidentLegs";
 import { metaLabelBox } from "./labelBox";
-import { labelCandidates } from "./labelIntervals";
+import { crossingBlockedIntervals, labelCandidates } from "./labelIntervals";
 import { placeLabels, type LabelInput } from "./placeLabels";
 
 export interface LabelPlacement {
@@ -53,6 +53,10 @@ export function buildLabelPlacements(params: {
   // Совпавшие плечи (R4) считаем по ВСЕМ маршрутам набора — даже у безымянных рёбер плечо
   // может быть общим, и подпись соседа туда ставить нельзя.
   const shared = coincidentLegs(routes);
+  // Плечи ВСЕХ маршрутов (даже безымянных): кресты чужих линий вычитаются из кандидатов (Ф3),
+  // а их полосы — мягкие препятствия плашке (E52).
+  const edgeSegs = new Map<string, Segment[]>();
+  for (const [id, path] of routes) edgeSegs.set(id, segments(path));
   const inputs: LabelInput[] = [];
   for (const g of groups) {
     if (repair && !repair.only.has(g.id)) continue; // починка трогает только жертв конфликта
@@ -62,18 +66,18 @@ export function buildLabelPlacements(params: {
     if (!meta) continue;
     const box = metaLabelBox(meta);
     const sharedIv = shared.get(g.id) ?? [];
-    const cands = labelCandidates(path, sharedIv, nodeRects, box);
-    // shared отдаём в placeLabels отдельно: candidates исключают и слитые плечи, И зоны под
-    // узлами, а для ЯКОРЯ выноски (точка на линии) узлы не помеха — важно лишь не слитое плечо.
+    // loose — без слитых плеч (R4) и зон под узлами (R2); candidates — ещё и без мест, где
+    // чужая линия режет путь (Ф3): плашка ищет личный отрезок без крестов, loose — запас
+    const loose = labelCandidates(path, sharedIv, nodeRects, box);
+    const otherSegs: Segment[] = [];
+    for (const [id, segs] of edgeSegs) if (id !== g.id) otherSegs.push(...segs);
+    const crossed = crossingBlockedIntervals(path, otherSegs, box);
+    const cands: Interval[] = crossed.length === 0 ? loose : loose.flatMap((iv) => subtractIntervals(iv, crossed));
     inputs.push({
-      id: g.id, path, candidates: cands, box, preferredT: preferredT(g), shared: sharedIv,
+      id: g.id, path, candidates: cands, loose, box, preferredT: preferredT(g), shared: sharedIv,
       keepRect: repair?.keepRectOf.get(g.id),
     });
   }
-  // Плечи ВСЕХ маршрутов (даже безымянных) — препятствия для плашки-выноски и помеха поводку
-  // (A15): плашка не должна ложиться на чужое плечо, а поводок — лишний раз пересекать стрелки.
-  const edgeSegs = new Map<string, Segment[]>();
-  for (const [id, path] of routes) edgeSegs.set(id, segments(path));
   // obstacleRects — отдельным параметром, НЕ подмешивать в nodeRects: узлы участвуют и в
   // штрафе поводка (nodeCross), а внешние препятствия (чужие плашки живого драга) — только
   // в наложениях плашки, как placedRects финального гриди.

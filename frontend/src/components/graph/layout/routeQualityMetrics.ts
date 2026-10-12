@@ -5,14 +5,12 @@
 // «байт-в-байт» для них не работает — нужен ЧИСЛОВОЙ гейт. Здесь чистые функции,
 // считающие по дампу маршрутов те же величины, которыми оперируют спека связи
 // (docs/specs/edge.md) и штрафная математика роутера (routeAll.movePenalty):
-// кресты E23, коллинеарная езда с кредитом легальных стволов E25, изломы и длина,
+// кресты E23, коллинеарная езда E23 (общих плеч нет — вся езда чужая), изломы и длина,
 // проход сквозь тела E19 (обязано быть 0), проход сквозь чужие плашки (остаток T4),
 // портовые конфликты E12, развороты и шпильки (узкие развороты, E15).
 //
 // Модуль НИЧЕГО не знает о роутере и не зависит от его внутренних структур: вход —
-// плоский дамп (см. RouteDump), совместимый с реплей-скриптом атрибуции. Семантику
-// легальности стволов НЕ переписываем — импортируем trunks.ts (единственный
-// нормативный источник E25).
+// плоский дамп (см. RouteDump), совместимый с реплей-скриптом атрибуции.
 //
 // ⚠️ СЫРАЯ геометрия против ОТРИСОВАННОЙ. Здесь меряются ЛОМАНЫЕ РОУТЕРА, а
 // scripts/arrow-metrics.mjs — путь `d` из DOM (после скругления углов
@@ -38,7 +36,6 @@
 // базлайна (его показывает режим одного дампа).
 import type { EdgePoint } from "../../../types";
 import { cleanup } from "../edgePath";
-import { commonPrefix, commonSuffix, pieceLen } from "./trunks";
 
 // Допуск совпадения координат — тот же, что у роутера (routeAll.EPS / edge.md).
 const EPS = 0.5;
@@ -73,10 +70,8 @@ export interface RouteDump {
 export interface QualityMetrics {
   /** Пересечения-«крестики» разных маршрутов, дедуп по точке (E23). */
   crosses: number;
-  /** Суммарная длина коллинеарных наложений пар РАЗНЫХ маршрутов, px. */
+  /** Суммарная длина коллинеарных наложений пар РАЗНЫХ маршрутов, px (E23). */
   overlapPx: number;
-  /** То же за вычетом легальных стволов E25 (общий префикс/суффикс), px. */
-  illegalOverlapPx: number;
   /** Суммарное число изломов по всем маршрутам. */
   bends: number;
   /** Суммарная манхэттенова длина, px. */
@@ -112,7 +107,7 @@ export const MUST_BE_ZERO: ReadonlyArray<keyof QualityMetrics> = ["throughBodies
 
 /** Порядок строк в отчётах (единый для CLI и сравнения). */
 export const METRIC_ORDER: ReadonlyArray<keyof QualityMetrics> = [
-  "crosses", "overlapPx", "illegalOverlapPx", "bends", "totalLen",
+  "crosses", "overlapPx", "bends", "totalLen",
   "throughBodies", "throughLabels", "portConflicts", "reversals", "hairpins",
 ];
 
@@ -120,7 +115,6 @@ export const METRIC_ORDER: ReadonlyArray<keyof QualityMetrics> = [
 export const METRIC_LABELS: Readonly<Record<keyof QualityMetrics, string>> = {
   crosses: "кресты (E23)",
   overlapPx: "езда по чужой линии, px",
-  illegalOverlapPx: "  из них НЕлегальной (E25), px",
   bends: "изломы",
   totalLen: "длина (манхэттен), px",
   throughBodies: "сквозь тела (E19, обязано 0)",
@@ -132,16 +126,14 @@ export const METRIC_LABELS: Readonly<Record<keyof QualityMetrics, string>> = {
 
 // ── внутренняя геометрия ─────────────────────────────────────────────────────
 
-// Осевой сегмент маршрута с его положением на дуге ломаной: нужен и для крестов
-// (перпендикуляры), и для езды (коллинеарность), и для кредита стволов (arc-length).
+// Осевой сегмент маршрута: нужен и для крестов (перпендикуляры), и для езды
+// (коллинеарность).
 interface AxisSeg {
   route: number;   // индекс маршрута в наборе
   horiz: boolean;  // горизонтальный
   c: number;       // постоянная координата (y у горизонтального, x у вертикального)
   lo: number;      // протяжённость вдоль своей оси
   hi: number;
-  from: number;    // варьируемая координата НАЧАЛА сегмента (в порядке хода)
-  arc0: number;    // arc-length начала сегмента от начала ломаной
 }
 
 // Направленное звено (для разворотов/шпилек): семантика segs() из arrow-metrics.mjs —
@@ -187,8 +179,6 @@ function prepare(id: string, raw: EdgePoint[], index: number): PreparedRoute {
         c: horiz ? a.y : a.x,
         lo: horiz ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
         hi: horiz ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
-        from: horiz ? a.x : a.y,
-        arc0: total,
       });
     }
     const s: DirSeg = {
@@ -226,7 +216,7 @@ export function measureQuality(dump: RouteDump): QualityMetrics {
   const labels = dump.labels ?? [];
 
   const m: QualityMetrics = {
-    crosses: 0, overlapPx: 0, illegalOverlapPx: 0, bends: 0, totalLen: 0,
+    crosses: 0, overlapPx: 0, bends: 0, totalLen: 0,
     throughBodies: 0, throughLabels: 0, portConflicts: 0, reversals: 0, hairpins: 0,
   };
 
@@ -262,18 +252,12 @@ export function measureQuality(dump: RouteDump): QualityMetrics {
   }
   m.crosses = crossPts.size;
 
-  // ЕЗДА (E23 OVERLAP) и её нелегальная часть (E25): пара РАЗНЫХ маршрутов —
-  // коллинеарные сегменты на одной линии. Легален только общий НЕПРЕРЫВНЫЙ кусок
-  // от общего порта одной роли: префикс при общем p0, суффикс при общем pN
-  // (длины кусков считает trunks.ts — единственный источник семантики E25).
+  // ЕЗДА (E23 OVERLAP): пара РАЗНЫХ маршрутов — коллинеарные сегменты на одной линии.
+  // Общих плеч нет (E25 v3): любое наложение — чужая линия.
   for (let i = 0; i < routes.length; i++) {
     for (let j = i + 1; j < routes.length; j++) {
       const A = routes[i], B = routes[j];
       if (A.pts.length < 2 || B.pts.length < 2) continue;
-      const a0 = A.pts[0], aN = A.pts[A.pts.length - 1];
-      const b0 = B.pts[0], bN = B.pts[B.pts.length - 1];
-      const prefLen = samePt(a0, b0) ? pieceLen(commonPrefix(A.pts, B.pts)) : 0;
-      const sufLen = samePt(aN, bN) ? pieceLen(commonSuffix(A.pts, B.pts)) : 0;
       for (const s of A.segs) {
         for (const t of B.segs) {
           if (s.horiz !== t.horiz) continue;
@@ -282,14 +266,6 @@ export function measureQuality(dump: RouteDump): QualityMetrics {
           const len = hi - lo;
           if (len <= EPS) continue;
           m.overlapPx += len;
-          // дуга наложения в arc-length маршрута A (геометрия куска у пары общая,
-          // поэтому кредит симметричен: то же окно у B)
-          const d1 = Math.abs(lo - s.from), d2 = Math.abs(hi - s.from);
-          const oa = s.arc0 + Math.min(d1, d2), ob = s.arc0 + Math.max(d1, d2);
-          let free = 0;
-          if (prefLen > EPS) free += Math.max(0, Math.min(ob, prefLen) - oa);
-          if (sufLen > EPS) free += Math.max(0, ob - Math.max(oa, A.total - sufLen));
-          m.illegalOverlapPx += Math.max(0, len - free);
         }
       }
     }

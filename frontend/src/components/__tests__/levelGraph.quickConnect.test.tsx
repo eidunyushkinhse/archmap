@@ -3,10 +3,10 @@
 // геометрии узлов уровня (findQuickConnectTarget уже под юнит-тестами) и строит
 // qcCandidate; activate (клик) создаёт связь через те же колбэк-пропсы, что и ручное
 // протягивание:
-//   • цель-ЛИСТ (блок без детей / гость) → onCreateEdge(source, target, sourceHandle,
-//     targetHandle, sourceName, targetName);
-//   • цель-«зона входа» (контейнер ИЛИ сервис с детьми) → onConnectInto(source,
-//     containerId, containerName, sourceHandle, sourceName) — как дроп в тело;
+//   • цель-ЛИСТ (блок без детей / гость) → onCreateEdge(source, target, sourceName,
+//     targetName) — хэндлов жеста связь не несёт (Ф5: точки ставит роутер);
+//   • цель-«зона входа» (контейнер ИЛИ сервис с детей) → onConnectInto(source,
+//     containerId, containerName, sourceName) — как дроп в тело;
 //   • сервис vs БД: has_children у БД/брокера НЕ делает зону входа (canHaveChildren);
 //   • leave / нет цели в радиусе → activate не создаёт связь; activate одноразов
 //     (гасит qc после клика).
@@ -66,10 +66,10 @@ async function setRfNodes(nodes: RFNode[]): Promise<void> {
     rfHandles.setNodes?.(nodes);
   });
 }
-// Навестись на правый хэндл источника и подтвердить (клик по стрелке-кнопке).
+// Навестись на правую стрелку источника и подтвердить (клик по стрелке-глифу).
 async function enterRight(sourceId: string): Promise<void> {
   await act(async () => {
-    getCb().quickConnect.enter(sourceId, `${sourceId}--right--1`, "right", 0.5);
+    getCb().quickConnect.enter(sourceId, "right", 0.5);
   });
 }
 async function activate(): Promise<void> {
@@ -94,11 +94,8 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    // Хэндл цели подобран напротив источника (left, индекс 1 — центр по Y).
     expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledOnce();
-    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith(
-      "s", "t", "s--right--1", "t--left--1", "Source", "Target",
-    );
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith("s", "t", "Source", "Target");
     expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
@@ -109,9 +106,7 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith(
-      "s", "g", "s--right--1", "g--left--1", "Source", "Ghost",
-    );
+    expect(props.edgeCallbacks.onCreateEdge).toHaveBeenCalledWith("s", "g", "Source", "Ghost");
     expect(props.edgeCallbacks.onConnectInto).not.toHaveBeenCalled();
   });
 
@@ -123,7 +118,7 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await activate();
 
     expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledOnce();
-    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "c", "Cont", "s--right--1", "Source");
+    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "c", "Cont", "Source");
     expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
   });
 
@@ -137,7 +132,7 @@ describe("LevelGraph orchestration: quick-connect (быстрая связь)", 
     await enterRight("s");
     await activate();
 
-    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "big", "Big", "s--right--1", "Source");
+    expect(props.edgeCallbacks.onConnectInto).toHaveBeenCalledWith("s", "big", "Big", "Source");
     expect(props.edgeCallbacks.onCreateEdge).not.toHaveBeenCalled();
   });
 

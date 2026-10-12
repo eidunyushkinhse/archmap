@@ -1,8 +1,8 @@
 // Оркестрация выбора связи по двойному клику (общая для редактора-карты и
 // встроенных блоков просмотра). Инкапсулирует ТО, что одинаково в обеих
 // поверхностях: разрешение группы AppEdge → LevelEdge, решение «одна — сразу
-// выбрать / несколько — модалка», само состояние модалок (обычный выбор и
-// «общее плечо» E80) и их рендер с подписями концов.
+// выбрать / несколько — модалка», само состояние модалки и её рендер с подписями
+// концов. (Модалка «общего плеча» E80 снята 2026-10-11 вместе со стволами.)
 //
 // Что НАМЕРЕННО не здесь — семантика «выбрать связь»: в редакторе это открыть
 // инспектор (selectedObject: node|edge|ghost), во просмотре — только подсветка
@@ -27,8 +27,7 @@ interface UseEdgeChoiceArgs {
 
 interface UseEdgeChoiceResult {
   onEdgesChoice: (group: Edge[]) => void;
-  onTrunkChoice: (kind: "out" | "in", group: Edge[]) => void;
-  /** Готовый к рендеру EdgeChoiceModal (обычный/ствол) или null. */
+  /** Готовый к рендеру EdgeChoiceModal или null. */
   choiceModal: ReactNode;
 }
 
@@ -36,7 +35,6 @@ export function useEdgeChoice({
   resolveEdge, labelOf, onPick, onAddFromChoice,
 }: UseEdgeChoiceArgs): UseEdgeChoiceResult {
   const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
-  const [trunkChoice, setTrunkChoice] = useState<{ kind: "out" | "in"; edges: LevelEdge[] } | null>(null);
 
   const resolveGroup = useCallback(
     (group: Edge[]): LevelEdge[] =>
@@ -50,12 +48,6 @@ export function useEdgeChoice({
     if (les.length === 1) onPick(les[0]);
     else if (les.length > 1) setEdgeChoice(les);
   }, [resolveGroup, onPick]);
-
-  // Общее плечо (E80): ≥2 связей на одном стволе — модалка с направлением ствола.
-  const onTrunkChoice = useCallback((kind: "out" | "in", group: Edge[]) => {
-    const les = resolveGroup(group);
-    if (les.length >= 2) setTrunkChoice({ kind, edges: les });
-  }, [resolveGroup]);
 
   // Подпись конца пучка: если все original-имена совпадают — оно, иначе имя
   // спроецированного представителя (как edgeEndLabel в редакторе). Пустые имена
@@ -79,25 +71,8 @@ export function useEdgeChoice({
         />
       );
     }
-    if (trunkChoice && trunkChoice.edges.length > 0) {
-      const { kind, edges } = trunkChoice;
-      return (
-        <EdgeChoiceModal
-          edges={edges}
-          title="Тут несколько стрелок"
-          subtitle={kind === "out"
-            ? `Они исходят из объекта «${endLabel(edges.map((e) => e.original_source_name), edges[0].source_id)}». Какая вам нужна?`
-            : `Они входят в объект «${endLabel(edges.map((e) => e.original_target_name), edges[0].target_id)}». Какая вам нужна?`}
-          rowDetail={(e) => (kind === "out"
-            ? `➜ ${e.original_target_name || labelOf(e.target_id)}`
-            : `⬅ ${e.original_source_name || labelOf(e.source_id)}`)}
-          onPick={(edge) => { setTrunkChoice(null); onPick(edge); }}
-          onClose={() => setTrunkChoice(null)}
-        />
-      );
-    }
     return null;
-  }, [edgeChoice, trunkChoice, onPick, onAddFromChoice, endLabel, labelOf]);
+  }, [edgeChoice, onPick, onAddFromChoice, endLabel]);
 
-  return { onEdgesChoice, onTrunkChoice, choiceModal };
+  return { onEdgesChoice, choiceModal };
 }

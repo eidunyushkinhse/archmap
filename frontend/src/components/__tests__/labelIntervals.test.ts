@@ -3,8 +3,9 @@ import {
   labelCandidates,
   nodeBlockedIntervals,
   inflateIntervals,
+  crossingBlockedIntervals,
 } from "../graph/layout/labelIntervals";
-import type { NodeRect } from "../graph/edgePath";
+import type { NodeRect, Segment } from "../graph/edgePath";
 import type { Size } from "../graph/layout/labelBox";
 import type { EdgePoint } from "../../types";
 
@@ -59,7 +60,7 @@ describe("labelCandidates — совпавшие плечи (R4)", () => {
     ]);
   });
 
-  it("плашку поставить негде → пустой список (кандидат на leader)", () => {
+  it("плашку поставить негде → пустой список (дальше — лестница запасов placeLabels)", () => {
     const path = poly([0, 0], [100, 0]);
     const shared = [{ s: 0, e: 100 }]; // всё ребро — общее плечо
     expect(labelCandidates(path, shared, [], box)).toEqual([]);
@@ -82,5 +83,34 @@ describe("inflateIntervals", () => {
   it("раздувает каждый интервал на margin с обоих концов", () => {
     const r = inflateIntervals([{ s: 0, e: 100 }, { s: 200, e: 210 }], 10);
     expect(r).toEqual([{ s: -10, e: 110 }, { s: 190, e: 220 }]);
+  });
+});
+
+// Ф3: кресты чужих линий — запретные зоны для плашки (центр ± пол-протяжённости плашки
+// вдоль сегмента ± запас 4): перпендикулярный крест режет, касание концом и параллель — нет.
+describe("crossingBlockedIntervals — кресты чужих линий (Ф3)", () => {
+  const seg = (x1: number, y1: number, x2: number, y2: number): Segment => ({
+    index: 0, x1, y1, x2, y2, orient: Math.abs(y1 - y2) <= Math.abs(x1 - x2) ? "h" : "v",
+  });
+  const path = poly([0, 0], [300, 0]);
+
+  it("вертикальная чужая линия сквозь горизонтальный путь → зона ширины плашки с запасом", () => {
+    expect(crossingBlockedIntervals(path, [seg(100, -50, 100, 50)], box)).toEqual([{ s: 86, e: 114 }]); // 100 ± (10 + 4)
+  });
+
+  it("на вертикальном пути зона — по высоте плашки", () => {
+    const v = poly([0, 0], [0, 300]);
+    expect(crossingBlockedIntervals(v, [seg(-50, 100, 50, 100)], box)).toEqual([{ s: 88, e: 112 }]); // 100 ± (8 + 4)
+  });
+
+  it("параллельная линия, линия мимо и касание концом — не крест", () => {
+    expect(crossingBlockedIntervals(path, [seg(0, 0, 300, 0)], box)).toEqual([]);        // параллель
+    expect(crossingBlockedIntervals(path, [seg(100, 10, 100, 50)], box)).toEqual([]);     // не доходит до y=0
+    expect(crossingBlockedIntervals(path, [seg(0, -50, 0, 50)], box)).toEqual([]);        // через конец пути
+  });
+
+  it("два близких креста сливаются в одну зону", () => {
+    expect(crossingBlockedIntervals(path, [seg(100, -50, 100, 50), seg(120, -50, 120, 50)], box))
+      .toEqual([{ s: 86, e: 134 }]);
   });
 });

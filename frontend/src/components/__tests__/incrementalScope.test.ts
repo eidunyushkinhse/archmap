@@ -2,7 +2,7 @@
 // Чистая функция computeIncrementalScope: дифф финальных позиций против снимка прошлого
 // прогона → множество рёбер, которые обязаны перепроложиться. Здесь проверяются все
 // пять оснований попадания в скоуп (изменившийся конец, отсутствие prev-маршрута, врез
-// в грязную зону, замыкание по стволам, рамки), порог отказа и детерминизм.
+// в грязную зону, рамки), порог отказа и детерминизм.
 import { describe, it, expect } from "vitest";
 import {
   computeIncrementalScope, ROUTE_SCOPE_PAD, SCOPE_FULL_RECALC_SHARE,
@@ -76,8 +76,7 @@ const BASE_GROUPS = [
 const BASE_ROUTES: Routes = {
   // e1 идёт выше старой зоны M (её верх — 150 − 40 = 110) и ниже не задевает новой
   e1: [pt(190, 30), pt(1000, 30)],
-  // e2 — по горизонтали y=455, мимо обоих состояний M (и мимо портов e3: делили бы
-  // порт — приехали бы в скоуп замыканием по стволам, а тест не про него)
+  // e2 — по горизонтали y=455, мимо обоих состояний M
   e2: [pt(190, 455), pt(1000, 455)],
   // e3 — вертикалью x=500 сверху вниз: режет СТАРОЕ тело M (x360..630, y110..290)
   e3: [pt(190, 50), pt(500, 50), pt(500, 450), pt(1000, 450)],
@@ -168,53 +167,6 @@ describe("computeIncrementalScope — основания попадания в �
     expect(computeIncrementalScope(scene({
       now, was: BASE_WAS, groups: BASE_GROUPS, prevRoutes: BASE_ROUTES,
     }))).toBeNull();
-  });
-});
-
-describe("computeIncrementalScope — замыкание по стволам (ревью 4.2)", () => {
-  // Веер из общего порта A: три ребра стартуют в одной точке (190,50) — сварка E78
-  // сшила их в общий ствол. Двинута цель ОДНОГО follower-а.
-  const FAN_NOW: Pos = { A: { x: 0, y: 0 }, B: { x: 900, y: 0 }, C: { x: 900, y: 300 }, D: { x: 900, y: 900 }, ...BAL.pos };
-  const FAN_WAS: Pos = { ...FAN_NOW, D: { x: 900, y: 600 } };
-  const FAN_GROUPS = [group("f1", "A", "B"), group("f2", "A", "C"), group("f3", "A", "D"), ...BAL.groups];
-  const FAN_ROUTES: Routes = {
-    f1: [pt(190, 50), pt(700, 50), pt(900, 50)],
-    f2: [pt(190, 50), pt(700, 50), pt(700, 350), pt(900, 350)],
-    f3: [pt(190, 50), pt(700, 50), pt(700, 650), pt(900, 650)],
-    ...BAL.routes,
-  };
-
-  it("двинута цель одного follower-а → в скоупе ВЕСЬ веер по общему prev-p0", () => {
-    const out = computeIncrementalScope(scene({
-      now: FAN_NOW, was: FAN_WAS, groups: FAN_GROUPS, prevRoutes: FAN_ROUTES,
-    }));
-    expect(ids(out)).toEqual(["f1", "f2", "f3"]);
-  });
-
-  it("замыкание транзитивно: общий вход (prev-pN) тянет дальше по цепочке", () => {
-    // g1 делит с f3 стартовый порт, g2 делит с g1 порт-ЦЕЛЬ — оба обязаны приехать
-    const now: Pos = { ...FAN_NOW, E: { x: 1500, y: 900 } };
-    const was: Pos = { ...FAN_WAS, E: { x: 1500, y: 900 } };
-    const groups = [...FAN_GROUPS, group("g1", "A", "E"), group("g2", "B", "E")];
-    const routes: Routes = {
-      ...FAN_ROUTES,
-      g1: [pt(190, 50), pt(1500, 50), pt(1500, 950)],
-      g2: [pt(1090, 50), pt(1300, 50), pt(1300, 950), pt(1500, 950)],
-    };
-    const out = computeIncrementalScope(scene({ now, was, groups, prevRoutes: routes }));
-    expect(ids(out)).toEqual(["f1", "f2", "f3", "g1", "g2"]);
-  });
-
-  it("порты сравниваются с квантом 0.5px (как portKey сварки)", () => {
-    const routes: Routes = {
-      ...FAN_ROUTES,
-      // f1 стартует на 0.2px в стороне — сварка считает это ТЕМ ЖЕ портом
-      f1: [pt(190.2, 50.1), pt(700, 50), pt(900, 50)],
-    };
-    const out = computeIncrementalScope(scene({
-      now: FAN_NOW, was: FAN_WAS, groups: FAN_GROUPS, prevRoutes: routes,
-    }));
-    expect(ids(out)).toEqual(["f1", "f2", "f3"]);
   });
 });
 
