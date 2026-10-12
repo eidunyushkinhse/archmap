@@ -125,6 +125,10 @@ function TourRuntime({ userId }: { userId: string }) {
   const routeRef = useRef(route);
   const enteredAtRef = useRef(0);
   const routeAtRef = useRef(0);
+  // Когда кончилось наблюдение за раскрытием (watchMs): отсчёт ожидания цели идёт от
+  // него, а не от входа в шаг — иначе наблюдение съедало бы всё льготное время, и шаг,
+  // чья цель дорисовывается, уходил бы в «карточку сбоку».
+  const watchEndAtRef = useRef(0);
   // Последний слой редактора, о котором сообщила шина (проект:слой).
   const lastLevelRef = useRef<string | null>(null);
   // Слой, открытый в редакторе сейчас (undefined — не в редакторе), и слой, на который
@@ -278,6 +282,7 @@ function TourRuntime({ userId }: { userId: string }) {
   const doneForRef = useRef(freshEntry());
   useLayoutEffect(() => {
     enteredAtRef.current = performance.now();
+    watchEndAtRef.current = 0;
     doneForRef.current = freshEntry();
   }, [state.step, running]);
   useEffect(() => {
@@ -337,6 +342,7 @@ function TourRuntime({ userId }: { userId: string }) {
         done.fit = true;
         requestTourFocus({ kind: "level" });
       }
+      if (!watching && done.fit && watchEndAtRef.current === 0) watchEndAtRef.current = now;
       if (step.kind === "start" || step.kind === "end") {
         next = { ...HIDDEN_VIEW, phase: "center", host: dialog ?? document.body };
       } else if (watching) {
@@ -386,7 +392,7 @@ function TourRuntime({ userId }: { userId: string }) {
           // Открыто окно, а цель не в нём: окно работает, тур не мешает.
           next = HIDDEN_VIEW;
         } else {
-          const since = Math.max(enteredAtRef.current, routeAtRef.current, foundAt);
+          const since = Math.max(enteredAtRef.current, routeAtRef.current, foundAt, watchEndAtRef.current);
           next = { ...HIDDEN_VIEW, phase: now - since < GRACE_MS ? "pending" : "docked", host: document.body };
         }
         if (next.phase === "spot" && next !== held) lastSpot = { step: st.step, view: next, at: now };

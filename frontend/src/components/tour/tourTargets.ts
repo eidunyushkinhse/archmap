@@ -52,10 +52,14 @@ function clip(a: Rect, b: Rect): Rect | null {
   return x2 > x1 && y2 > y1 ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : null;
 }
 
-/** Видимая часть элемента: пересечение с окном и с обрезающими предками. */
+/** Видимая часть элемента: пересечение с окном и с обрезающими предками. Прямая
+ *  связь — отрезок нулевой толщины (роутер ведёт линии прямо, эпик стрелок): ей даём
+ *  толщину 1 px, иначе пересечение пусто и цель «не видна». */
 export function visibleRect(el: Element): Rect | null {
   let r: Rect | null = toRect(el.getBoundingClientRect());
   if (r.w <= 0 && r.h <= 0) return null;
+  if (r.w < 1) r = { ...r, x: r.x - 0.5, w: 1 };
+  if (r.h < 1) r = { ...r, y: r.y - 0.5, h: 1 };
   r = clip(r, { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
   for (const c of clippers(el)) {
     if (!r) return null;

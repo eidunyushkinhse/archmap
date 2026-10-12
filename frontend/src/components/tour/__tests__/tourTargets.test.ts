@@ -110,6 +110,19 @@ describe("составные цели", () => {
     expect(resolveTarget({ kind: "yar-tree", name: "Продавец", part: "row" }, CTX)).toBeNull();
   });
 
+  it("прямая связь — отрезок нулевой ширины (роутер ведёт линии прямо): цель находится, вырез с толщиной", () => {
+    const host = el(
+      '<div class="react-flow"><svg><g class="react-flow__edge" data-id="e1" aria-label="Edge from p1 to s1"></g></svg>'
+      + '<div class="react-flow__node" data-id="s1"></div><div class="react-flow__node" data-id="p1"></div></div>',
+    );
+    withRect(host.querySelector(".react-flow__edge")!, { x: 300, y: 100, w: 0, h: 200 });
+    withRect(host.querySelector('[data-id="s1"]')!, { x: 220, y: 20, w: 160, h: 80 });
+    withRect(host.querySelector('[data-id="p1"]')!, { x: 220, y: 300, w: 160, h: 80 });
+    const res = resolveTarget({ kind: "context-edge" }, { ...CTX, vars: { peerId: "p1", systemId: "s1" } });
+    expect(res).not.toBeNull();
+    expect(res!.holes[0]).toEqual({ x: 293.5, y: 94, w: 13, h: 212, shape: "rect" });
+  });
+
   it("диаграмма контекста — один вырез вокруг обоих объектов и связи", () => {
     const host = el(
       '<div class="react-flow__node" data-id="s1"></div><div class="react-flow__node" data-id="p1"></div>'
