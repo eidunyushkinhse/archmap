@@ -92,49 +92,50 @@ function IntoCue() {
   );
 }
 
+// Хэндлы узла (Ф5 эпика «стрелки без жёстких хэндлов»): по одному на сторону, в её
+// центре. Сам хэндл невидим (2-px точка на границе, fixedHandleStyle) — он служебная
+// точка React Flow: id стороны, которым роутер отдаёт ребро для отрисовки, и старт
+// превью-линии протяжки. Точек стыковки на узле нет: концы связей стоят на портах
+// роутера (edge.md E7 v2), и сторона, откуда тянули, на порт не влияет.
+// Видимое приглашение — стрелка-глиф .lg-side-arrow снаружи стороны (CSS: появляется
+// на ховере узла у архитектора). Глиф — одна зона для двух жестов (E72/E75):
+//   • клик — быстрая связь: навёл → превью к соседу в этом направлении, клик → связь;
+//   • протяжка — mousedown всплывает к хэндлу RF, и он ведёт connection-жест; порог
+//     connectionDragThreshold отличает клик от начала протяжки.
 function NodeHandles({
-  nodeId, color, connectableStart = false, quickConnect,
-}: { nodeId: string; color: string; connectableStart?: boolean; quickConnect?: QuickConnectHandlers }) {
+  nodeId, connectableStart = false, quickConnect,
+}: { nodeId: string; connectableStart?: boolean; quickConnect?: QuickConnectHandlers }) {
   return (
     <>
-      {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
-        offsets.map((offset, idx) => (
+      {SIDE_HANDLES.map(({ side, pos }) => {
+        const id = hid(nodeId, side);
+        return (
           <Handle
-            key={hid(nodeId, side, idx)}
-            id={hid(nodeId, side, idx)}
+            key={id}
+            id={id}
             type="source"
             position={pos}
-            // НАЧАТЬ связь с хэндла можно только архитектору (connectableStart) — тогда
-            // хэндлы раскрываются по ховеру и тянут новую стрелку. Иначе хэндл инертен
-            // (курсор не меняется), но остаётся приёмником конца стрелки при reconnect.
+            // НАЧАТЬ связь можно только архитектору (connectableStart) — тогда у хэндла
+            // есть глиф и он тянет новую стрелку. Иначе хэндл инертен, но остаётся
+            // приёмником конца стрелки (защёлка радиуса connectionRadius).
             isConnectableStart={connectableStart}
-            style={fixedHandleStyle(pos, offset)}
+            style={fixedHandleStyle(pos, 0.5)}
           >
-            {/* Видимый круглый дот: рисуется дочерним элементом, чтобы сам хэндл-цель
-                оставался тонкой точкой на границе (см. fixedHandleStyle). Он же — зона
-                наведения (:hover всплывает на родителя). На измерение хэндла не влияет
-                (position:absolute не расширяет getBoundingClientRect родителя). */}
-            <span className="lg-handle-dot" style={{ background: color }} />
-            {/* Прозрачная зона «быстрой связи» поверх стрелки-подсказки хэндла: навёл
-                курсор → система подбирает цель и рисует превью, клик → создаёт связь.
-                pointer-events включаются только на ховере хэндла (CSS), чтобы зоны вокруг
-                каждого хэндла не перехватывали курсор в покое. stopPropagation на
-                pointer/mouse-down — чтобы клик по стрелке не запускал ручное протягивание. */}
             {quickConnect && connectableStart && (
               <button
                 type="button"
-                className="nodrag lg-quick-arrow"
+                className="nodrag lg-side-arrow"
                 aria-label="Создать связь"
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onMouseEnter={() => quickConnect.enter(nodeId, hid(nodeId, side, idx), side as EdgeSide, offset)}
+                onMouseEnter={() => quickConnect.enter(nodeId, id, side as EdgeSide, 0.5)}
                 onMouseLeave={() => quickConnect.leave()}
+                // stopPropagation: клик по глифу — быстрая связь, а не click-connect RF
+                // (он и так выключен: connectOnClick={false} в LevelGraph)
                 onClick={(e) => { e.stopPropagation(); quickConnect.activate(); }}
               />
             )}
           </Handle>
-        ))
-      )}
+        );
+      })}
     </>
   );
 }
@@ -359,7 +360,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
     >
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
       <StatusBadge status={data.appNode.status} border={c.border} />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
+      <NodeHandles nodeId={data.appNode.id} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
@@ -417,7 +418,7 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
     <div style={{ ...nodeContainer, color: c.text, filter: selected ? SELECTED_GLOW : undefined }}>
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed />
       <StatusBadge status={data.appNode.status} border={c.border} />
-      <NodeHandles nodeId={data.appNode.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
+      <NodeHandles nodeId={data.appNode.id} connectableStart={data.connectable} quickConnect={data.quickConnect} />
       {canEnter && (
         <div style={nodeActions}>
           <button
@@ -455,7 +456,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
       <svg width={NODE_W} height={NODE_H} style={{ position: "absolute", inset: 0, pointerEvents: "none", filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.12))" }}>
         <rect x={1} y={1} width={NODE_W - 2} height={NODE_H - 2} rx={8} fill={c.bg} stroke={c.border} strokeWidth={1.5} strokeDasharray="5 3" />
       </svg>
-      <NodeHandles nodeId={data.id} color={c.border} connectableStart={data.connectable} quickConnect={data.quickConnect} />
+      <NodeHandles nodeId={data.id} connectableStart={data.connectable} quickConnect={data.quickConnect} />
       {(data.onEnter || data.onExpand || data.expandLimited) && (
         <div style={nodeActions}>
           {/* «Войти» — навигация на собственный слой контейнера (его компоненты), в
@@ -494,25 +495,24 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
 // ИНТЕРЬЕР рамки прозрачен для мыши (pointerEvents:none) — клики/драг проходят к
 // канве, узлам и рёбрам под ней. Рамка НЕ таскается (запрет движения рамок,
 // 2026-07-08): её rect производен от детей; прежние драг-ручки R4.2 сняты.
-// Точки стыковки на границе рамки (эпик «связи, упирающиеся в рамку»): связь, чей конец —
-// раскрытый контейнер, приходит НА РАМКУ, и RF обязан знать хэндл с этим id — иначе ребро
-// молча не отрисуется. Хэндлы инертны: ни дота, ни быстрой связи, начать связь с рамки
-// нельзя (перепривязка конца — отдельная фаза эпика).
+// Хэндлы на границе рамки (эпик «связи, упирающиеся в рамку»): связь, чей конец —
+// раскрытый контейнер, приходит НА РАМКУ, и RF обязан знать хэндл с этим id — иначе
+// ребро молча не отрисуется. По одному на сторону, инертны: ни глифа, ни быстрой связи,
+// начать связь с рамки нельзя; перевес её конца ведёт ручка на самом ребре
+// (RehangAnchor), а не хэндл.
 function FrameHandles({ nodeId }: { nodeId: string }) {
   return (
     <>
-      {SIDE_HANDLES.flatMap(({ side, pos, offsets }) =>
-        offsets.map((offset, idx) => (
-          <Handle
-            key={hid(nodeId, side, idx)}
-            id={hid(nodeId, side, idx)}
-            type="source"
-            position={pos}
-            isConnectableStart={false}
-            style={{ ...fixedHandleStyle(pos, offset), pointerEvents: "none" }}
-          />
-        ))
-      )}
+      {SIDE_HANDLES.map(({ side, pos }) => (
+        <Handle
+          key={hid(nodeId, side)}
+          id={hid(nodeId, side)}
+          type="source"
+          position={pos}
+          isConnectableStart={false}
+          style={{ ...fixedHandleStyle(pos, 0.5), pointerEvents: "none" }}
+        />
+      ))}
     </>
   );
 }

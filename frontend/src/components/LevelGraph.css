@@ -53,49 +53,26 @@
   cursor: default;
 }
 
-/* Точки контакта (12 хэндлов на узел) скрыты в покое.
-   Показываем только тот хэндл, к которому архитектор сейчас подтягивает конец
-   стрелки: React Flow вешает класс .connectingto на хэндл, попавший в зону
-   активации курсора во время connection/reconnect.
-   Скрываем через opacity (не display/visibility), чтобы хэндл оставался в DOM,
-   измерялся и работал как валидная цель дропа. */
-.lg-canvas .react-flow__handle {
-  opacity: 0;
-  transition: opacity 0.08s ease;
-}
-/* Видимый круглый дот хэндла. Сам хэндл — тонкая точка-цель на линии границы
-   (fixedHandleStyle), а дот рисуем отдельным дочерним элементом и центрируем на ней.
-   opacity наследуется от родителя (правила выше/ниже гасят/показывают хэндл разом).
-   Цвет тела — инлайном (цвет рамки узла). content-box: 9px тело + 2px кайма = тот же
-   визуал, что был у прежнего дота-хэндла. pointer-events:inherit — дот ловит указатель
-   ровно когда хэндл кликабелен (RF включает pointer-events у connectable), а наведение
-   на дот поднимает :hover на родителя. */
-.lg-canvas .lg-handle-dot {
+/* ХЭНДЛЫ (Ф5 эпика «стрелки без жёстких хэндлов»): по одному на сторону — служебная
+   точка React Flow в центре стороны, невидимая (2px, прозрачная: fixedHandleStyle).
+   Точек стыковки на узле нет: концы связей стоят на портах роутера. Видимое
+   приглашение к протяжке — стрелка-глиф .lg-side-arrow ниже. Хэндл остаётся в DOM и
+   измеряется: он цель защёлки конца стрелки и старт превью-линии. */
+
+/* Защёлка: конец протягиваемой связи попал в радиус хэндла листа (RF вешает
+   .connectingto) — синяя точка в центре стороны показывает, куда прицепится конец. */
+.lg-canvas .react-flow__handle.connectingto::after {
+  content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%);
   width: 9px;
   height: 9px;
-  box-sizing: content-box;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.7);
-  pointer-events: inherit;
-}
-.lg-canvas .react-flow__handle.connectingto {
-  opacity: 1;
-}
-/* акцент: мягкое кольцо вокруг дота, к которому сейчас привяжется конец стрелки */
-.lg-canvas .react-flow__handle.connectingto .lg-handle-dot {
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.35);
-}
-
-/* Полная подсветка ОДНОГО хэндла — того, под курсором (то же условие :hover, что и
-   у стрелки-подсказки). Только у архитектора (lg-canvas--editable); невидимый хэндл
-   остаётся валидной целью наведения (opacity не убирает hit-testing). viewer и
-   контекст-схема класс не получают — у них хэндлы всегда скрыты. */
-.lg-canvas--editable .react-flow__handle:hover {
-  opacity: 1;
+  background: #2563eb;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.8), 0 0 0 5px rgba(37, 99, 235, 0.35);
+  pointer-events: none;
 }
 
 /* КОНЕЦ-В-РАМКУ: намёк «этот конец можно схватить» (эпик «связи, упирающиеся в
@@ -132,21 +109,6 @@
   cursor: grabbing;
 }
 
-/* Лёгкий намёк: на ховере узла все ОСТАЛЬНЫЕ хэндлы (не наведённый, не активный
-   конец стрелки) показываются еле заметно — чтобы было видно, где точки контакта.
-   :not(:hover):not(.connectingto) выводит «solid»-состояния из этого правила,
-   поэтому им достаточно перебить базовый opacity:0 — войны специфичностей нет. */
-.lg-canvas--editable .react-flow__node:hover .react-flow__handle:not(:hover):not(.connectingto) {
-  opacity: 0.28;
-}
-
-/* Во время протягивания связи у узла ПОД КУРСОРОМ (lg-into-target вешается из
-   useEdgeConnect) показываем все хэндлы еле заметно — видно точки контакта; акцент
-   (кольцо, opacity 1) остаётся на том, к которому защёлкнётся стрелка (.connectingto). */
-.lg-canvas--connecting .react-flow__node.lg-into-target .react-flow__handle:not(.connectingto) {
-  opacity: 0.28;
-}
-
 /* Во время протягивания новой связи зону входа подсвечиваем ТОЛЬКО у узла-сервиса с
    детьми (data-into), который сейчас ПОД КУРСОРОМ (lg-into-target). Раньше горели ВСЕ
    контейнеры разом; промежуточный вариант (гейт по .connectingto) гас в центре тела,
@@ -176,10 +138,9 @@
   transition: opacity 0.1s ease, border-color 0.1s ease, background-color 0.1s ease, box-shadow 0.1s ease;
 }
 
-/* Рамка «активируется», когда курсор над телом узла, но НЕ в зоне активации хэндла
-   (на узле нет .connectingto) — именно тогда отпускание ведёт ВНУТРЬ (выбор потомка),
-   а не создаёт прямую связь к узлу. В зоне хэндла акцент уходит на сам хэндл, а рамка
-   гаснет до базового состояния. */
+/* Рамка «активируется», когда курсор над телом узла — отпускание ведёт ВНУТРЬ (выбор
+   потомка). К хэндлам зоны входа конец не защёлкивается (isValidNewConnection,
+   Ф5), поэтому гейт :not(:has(.connectingto)) — страховка на случай защёлки. */
 .lg-canvas--connecting .react-flow__node.lg-into-target:not(:has(.react-flow__handle.connectingto)) .lg-into-cue {
   border-color: #2563eb;
   background: rgba(37, 99, 235, 0.16);
@@ -187,7 +148,7 @@
 }
 /* У зоны входа ПОД КУРСОРОМ (lg-into-target) прячем ВЕСЬ контент (форма, текст, кнопки)
    и показываем только знак — узел читается как «лунка для дропа внутрь». Хэндлы НЕ
-   прячем — их подсветка задаётся правилами выше. Пунктирная рамка зоны (правило выше)
+   прячем — они невидимы и остаются целями. Пунктирная рамка зоны (правило выше)
    остаётся и очерчивает область. */
 .lg-canvas--connecting .lg-into-target [data-into] > *:not(.lg-into-cue):not(.react-flow__handle) {
   opacity: 0;
@@ -196,158 +157,97 @@
   opacity: 1;
 }
 
-/* Подсказка «отсюда можно провести связь»: при наведении на хэндл (до начала
-   протягивания) рядом с ним появляется прозрачная голубая стрелка наружу —
-   древко (::before, прямоугольник 4px) + наконечник (::after, треугольник).
-   Только у архитектора (lg-canvas--editable); pointer-events:none — не мешает
-   старту перетаскивания. Направление стрелки — по стороне хэндла. */
-/* Стрелки-подсказки рисуем на ::before/::after ДОТА (а не самого хэндла): хэндл теперь
-   тонкая точка, а геометрия стрелок завязана на 9px-кружок — позиционируем их от дота,
-   чтобы вид остался прежним. */
-.lg-canvas--editable .react-flow__handle .lg-handle-dot::before,
-.lg-canvas--editable .react-flow__handle .lg-handle-dot::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.lg-canvas--editable .react-flow__handle:hover .lg-handle-dot::before,
-.lg-canvas--editable .react-flow__handle:hover .lg-handle-dot::after {
-  opacity: 1;
-}
-/* Во время самого протягивания стрелка-подсказка не нужна (только шумит). */
-.lg-canvas--connecting .react-flow__handle .lg-handle-dot::before,
-.lg-canvas--connecting .react-flow__handle .lg-handle-dot::after {
-  opacity: 0 !important;
-}
-
-/* --- ПРАВО: древко + наконечник вправо --- */
-.lg-canvas--editable .react-flow__handle-right .lg-handle-dot::before {
-  top: 50%;
-  left: 100%;
-  margin-left: 3px;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 4px;
-  background: rgba(37, 99, 235, 0.55);
-}
-.lg-canvas--editable .react-flow__handle-right .lg-handle-dot::after {
-  top: 50%;
-  left: 100%;
-  margin-left: 9px;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 8px solid rgba(37, 99, 235, 0.55);
-}
-
-/* --- ЛЕВО: древко + наконечник влево --- */
-.lg-canvas--editable .react-flow__handle-left .lg-handle-dot::before {
-  top: 50%;
-  right: 100%;
-  margin-right: 3px;
-  transform: translateY(-50%);
-  width: 6px;
-  height: 4px;
-  background: rgba(37, 99, 235, 0.55);
-}
-.lg-canvas--editable .react-flow__handle-left .lg-handle-dot::after {
-  top: 50%;
-  right: 100%;
-  margin-right: 9px;
-  transform: translateY(-50%);
-  width: 0;
-  height: 0;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-right: 8px solid rgba(37, 99, 235, 0.55);
-}
-
-/* --- ВЕРХ: древко + наконечник вверх --- */
-.lg-canvas--editable .react-flow__handle-top .lg-handle-dot::before {
-  left: 50%;
-  bottom: 100%;
-  margin-bottom: 3px;
-  transform: translateX(-50%);
-  width: 4px;
-  height: 6px;
-  background: rgba(37, 99, 235, 0.55);
-}
-.lg-canvas--editable .react-flow__handle-top .lg-handle-dot::after {
-  left: 50%;
-  bottom: 100%;
-  margin-bottom: 9px;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-bottom: 8px solid rgba(37, 99, 235, 0.55);
-}
-
-/* --- НИЗ: древко + наконечник вниз --- */
-.lg-canvas--editable .react-flow__handle-bottom .lg-handle-dot::before {
-  left: 50%;
-  top: 100%;
-  margin-top: 3px;
-  transform: translateX(-50%);
-  width: 4px;
-  height: 6px;
-  background: rgba(37, 99, 235, 0.55);
-}
-.lg-canvas--editable .react-flow__handle-bottom .lg-handle-dot::after {
-  left: 50%;
-  top: 100%;
-  margin-top: 9px;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 8px solid rgba(37, 99, 235, 0.55);
-}
-
-/* Зона «быстрой связи» — прозрачная кнопка-хитбокс поверх стрелки-подсказки хэндла.
-   Навёл на неё курсор → система подбирает цель и рисует превью; клик → создаёт связь.
-   pointer-events выключены в покое (чтобы хитбоксы вокруг каждого хэндла не перехватывали
-   курсор), включаются только пока хэндл под ховером — а так как кнопка ДОЧЕРНЯЯ хэндлу,
-   :hover на хэндле держится, пока курсор над кнопкой, и переход дот→стрелка не рвётся.
-   Хитбокс начинается от центра хэндла (перекрывает зазор до дота) и тянется наружу вдоль
-   стороны — поэтому смещение из дота на стрелку не проваливается в «мёртвую зону». */
-.lg-quick-arrow {
+/* СТРЕЛКА-ГЛИФ ПРОТЯЖКИ .lg-side-arrow (Ф5 эпика «стрелки без жёстких хэндлов»):
+   приглашение «отсюда можно потянуть связь» снаружи каждой стороны узла — древко
+   (::before) и наконечник (::after). Появляется на ховере узла у архитектора
+   (lg-canvas--editable) приглушённо, под курсором — в полную силу; в покое невидима и
+   курсор не ловит. Это одна зона для двух жестов: клик — быстрая связь (превью к соседу
+   в этом направлении, E75), mousedown+движение — протяжка (всплывает к хэндлу RF, он и
+   ведёт жест). Хитбокс начинается от центра хэндла — без зазора с телом узла, иначе
+   :hover узла рвался бы на пути курсора к стрелке и она исчезала бы из-под него. */
+.lg-side-arrow {
   position: absolute;
   margin: 0;
   padding: 0;
   border: none;
   background: transparent;
+  opacity: 0;
   pointer-events: none;
-  z-index: 5; /* поверх дота — в зоне перекрытия курсор попадает на кнопку */
-}
-.lg-canvas--editable .react-flow__handle:hover .lg-quick-arrow {
-  pointer-events: auto;
   cursor: pointer;
+  z-index: 5;
+  transition: opacity 0.12s ease;
 }
-/* Во время ручного протягивания связи быстрые связи не предлагаем — хитбоксы инертны. */
-.lg-canvas--connecting .lg-quick-arrow {
+.lg-canvas--editable .react-flow__node:hover .lg-side-arrow {
+  opacity: 0.55;
+  pointer-events: auto;
+}
+.lg-canvas--editable .react-flow__node:hover .lg-side-arrow:hover {
+  opacity: 1;
+}
+/* Пока тянут связь или перевешивают конец, стрелки не нужны и курсор не ловят. */
+.lg-canvas--connecting .lg-side-arrow,
+.lg-canvas--rehanging .lg-side-arrow {
+  opacity: 0 !important;
   pointer-events: none !important;
 }
-/* Геометрия хитбокса по стороне хэндла: внутренняя кромка у рубежа дота (+4px от центра —
-   лёгкое перекрытие рубежа, чтобы переход дот→стрелка не провалился), наружу 24px вдоль
-   стороны, 18px поперёк. Центр дота (≈10px) остаётся свободным для ручного протягивания. */
-.react-flow__handle-right .lg-quick-arrow {
-  left: calc(50% + 4px); top: 50%; width: 24px; height: 18px; transform: translateY(-50%);
+.lg-side-arrow::before,
+.lg-side-arrow::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
 }
-.react-flow__handle-left .lg-quick-arrow {
-  right: calc(50% + 4px); top: 50%; width: 24px; height: 18px; transform: translateY(-50%);
+.lg-side-arrow::before {
+  background: #2563eb;
 }
-.react-flow__handle-top .lg-quick-arrow {
-  left: 50%; bottom: calc(50% + 4px); width: 18px; height: 24px; transform: translateX(-50%);
+
+/* Геометрия по стороне: хитбокс 26px наружу × 20px поперёк от центра хэндла; древко
+   начинается в 5px от границы узла, наконечник — за ним. */
+.react-flow__handle-right .lg-side-arrow {
+  left: 50%; top: 50%; width: 26px; height: 20px; transform: translateY(-50%);
 }
-.react-flow__handle-bottom .lg-quick-arrow {
-  left: 50%; top: calc(50% + 4px); width: 18px; height: 24px; transform: translateX(-50%);
+.react-flow__handle-right .lg-side-arrow::before {
+  left: 5px; top: 50%; width: 8px; height: 4px; transform: translateY(-50%);
+}
+.react-flow__handle-right .lg-side-arrow::after {
+  left: 13px; top: 50%; transform: translateY(-50%);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-left: 8px solid #2563eb;
+}
+
+.react-flow__handle-left .lg-side-arrow {
+  right: 50%; top: 50%; width: 26px; height: 20px; transform: translateY(-50%);
+}
+.react-flow__handle-left .lg-side-arrow::before {
+  right: 5px; top: 50%; width: 8px; height: 4px; transform: translateY(-50%);
+}
+.react-flow__handle-left .lg-side-arrow::after {
+  right: 13px; top: 50%; transform: translateY(-50%);
+  border-top: 5px solid transparent; border-bottom: 5px solid transparent;
+  border-right: 8px solid #2563eb;
+}
+
+.react-flow__handle-top .lg-side-arrow {
+  left: 50%; bottom: 50%; width: 20px; height: 26px; transform: translateX(-50%);
+}
+.react-flow__handle-top .lg-side-arrow::before {
+  left: 50%; bottom: 5px; width: 4px; height: 8px; transform: translateX(-50%);
+}
+.react-flow__handle-top .lg-side-arrow::after {
+  left: 50%; bottom: 13px; transform: translateX(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-bottom: 8px solid #2563eb;
+}
+
+.react-flow__handle-bottom .lg-side-arrow {
+  left: 50%; top: 50%; width: 20px; height: 26px; transform: translateX(-50%);
+}
+.react-flow__handle-bottom .lg-side-arrow::before {
+  left: 50%; top: 5px; width: 4px; height: 8px; transform: translateX(-50%);
+}
+.react-flow__handle-bottom .lg-side-arrow::after {
+  left: 50%; top: 13px; transform: translateX(-50%);
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 8px solid #2563eb;
 }
 
 /* Плитка «вне уровня»: полоса у верхнего края холста, появляется только при

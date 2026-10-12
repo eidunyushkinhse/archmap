@@ -1,14 +1,17 @@
-// Автоопределение цели для «быстрой связи»: пользователь навёл курсор на стрелку-кнопку,
-// торчащую из хэндла, — система сама подбирает узел С ПОДХОДЯЩЕЙ СТОРОНЫ относительно этого
-// хэндла и относительно НЕДАЛЕКО, чтобы предложить связь без ручного протягивания.
+// Автоопределение цели для «быстрой связи»: пользователь навёл курсор на стрелку-глиф у
+// стороны узла — система сама подбирает узел С ПОДХОДЯЩЕЙ СТОРОНЫ относительно этой
+// стороны и относительно НЕДАЛЕКО, чтобы предложить связь без ручного протягивания.
 //
-// Логика (та, что в drawio/miro): из хэндла «выпускаем коридор» вдоль внешней нормали его
-// стороны. Узел-кандидат должен (1) лежать ВПЕРЕДИ по этому направлению и (2) перекрывать
+// Логика (та, что в drawio/miro): из центра стороны «выпускаем коридор» вдоль её внешней
+// нормали. Узел-кандидат должен (1) лежать ВПЕРЕДИ по этому направлению и (2) перекрывать
 // коридор по перпендикулярной оси — тогда стрелка идёт почти прямо, а не наискось через весь
 // холст. Кандидаты дальше лимита отбрасываем (никаких «километровых» стрелок). Из оставшихся
 // берём лучший по «зазор вдоль + штраф за поперечный сдвиг» (ближе и ровнее — лучше).
 //
-// Чистый модуль без React — под юнит-тесты. Геометрия в координатах графа уровня.
+// Превью — ортогональ от центра стороны источника к центру противоположной стороны цели;
+// настоящие порты связи поставит роутер (edge.md E7 v2), превью лишь показывает, КОГО
+// предлагают связать. Чистый модуль без React — под юнит-тесты. Геометрия в
+// координатах графа уровня.
 import { NODE_W, NODE_H, hid } from "../constants";
 import { orthogonalPointsForHandles, type EdgeSide } from "../edgePath";
 import type { EdgePoint } from "../../../types";
@@ -22,12 +25,9 @@ export interface QcResult {
   sourceSide: EdgeSide;
   targetPoint: EdgePoint;
   targetSide: EdgeSide;
-  targetHandle: string;       // hid(targetId, side, idx) — конкретный хэндл цели
+  targetHandle: string;       // служебный хэндл стороны цели (hid), центр стороны
   points: EdgePoint[];        // готовый ортогональный путь превью (дефолтные изломы)
 }
-
-// Доступные смещения хэндлов вдоль стороны (как SIDE_HANDLES в constants) и их индексы.
-const OFFSETS = [0.25, 0.5, 0.75];
 
 // Предельный зазор «вдоль» направления коридора (в координатах графа): за ним связь не
 // предлагаем. По горизонтали допускаем дальше (узлы обычно растянуты в ряд), по вертикали —
@@ -45,7 +45,7 @@ const OPPOSITE: Record<EdgeSide, EdgeSide> = {
   left: "right", right: "left", top: "bottom", bottom: "top",
 };
 
-// Якорь хэндла стороны side со смещением frac на узле с левым-верхним углом (x,y).
+// Точка стороны side в доле frac её длины на узле с левым-верхним углом (x,y).
 function anchor(x: number, y: number, side: EdgeSide, frac: number): EdgePoint {
   switch (side) {
     case "left":   return { x, y: y + frac * NODE_H };
@@ -55,8 +55,8 @@ function anchor(x: number, y: number, side: EdgeSide, frac: number): EdgePoint {
   }
 }
 
-// Подобрать узел-цель для быстрой связи от хэндла источника. Возвращает null, если
-// подходящего узла рядом с нужной стороны нет.
+// Подобрать узел-цель для быстрой связи от стороны источника (sourceFrac — доля вдоль
+// стороны, у глифа 0.5). Возвращает null, если подходящего узла рядом с нужной стороны нет.
 export function findQuickConnectTarget(
   sourceId: string, sourceSide: EdgeSide, sourceFrac: number,
   sourceNode: QcNode, candidates: QcNode[],
@@ -102,16 +102,8 @@ export function findQuickConnectTarget(
   if (!best) return null;
 
   const targetSide = OPPOSITE[sourceSide];
-  // Хэндл цели: смещение, чья якорная координата ближе всего к перпендикулярной координате
-  // хэндла источника — стрелка входит в цель максимально напротив источника.
-  let bestIdx = 1;
-  let bestDist = Infinity;
-  for (let i = 0; i < OFFSETS.length; i++) {
-    const a = anchor(best.x, best.y, targetSide, OFFSETS[i]);
-    const d = horizontal ? Math.abs(a.y - P.y) : Math.abs(a.x - P.x);
-    if (d < bestDist) { bestDist = d; bestIdx = i; }
-  }
-  const targetPoint = anchor(best.x, best.y, targetSide, OFFSETS[bestIdx]);
+  // Вход в цель — центр противоположной стороны (служебный хэндл; порт поставит роутер).
+  const targetPoint = anchor(best.x, best.y, targetSide, 0.5);
   const points = orthogonalPointsForHandles(
     P.x, P.y, sourceSide, targetPoint.x, targetPoint.y, targetSide,
   );
@@ -122,7 +114,7 @@ export function findQuickConnectTarget(
     sourceSide,
     targetPoint,
     targetSide,
-    targetHandle: hid(best.id, targetSide, bestIdx),
+    targetHandle: hid(best.id, targetSide),
     points,
   };
 }

@@ -48,16 +48,24 @@ export const MIN_NAME_FONT = 9;
 export const MAX_NAME_LINES = 2;
 export const NAME_LINE_HEIGHT = 1.25;
 
-// --- 12 фиксированных точек стыковки (по 3 на каждую сторону) ---
+// --- Хэндлы React Flow: по одному на сторону (Ф5 эпика «стрелки без жёстких хэндлов») ---
+// Точками СТЫКОВКИ хэндлы не являются (концы связей стоят на портах роутера, edge.md
+// E7 v2): хэндл — служебная точка RF в центре стороны (id стороны, которым роутер
+// отдаёт ребро RF для отрисовки; старт превью-линии протяжки) и источник жеста
+// протяжки — видимая стрелка-глиф снаружи стороны (nodes.tsx NodeHandles, LevelGraph.css
+// .lg-side-arrow). Слот в id (`--1`) — наследие трёх точек на сторону (центр был
+// вторым); формат сохранён, чтобы не трогать реестр версии роутера и кэш маршрутов.
 
-export const SIDE_HANDLES: Array<{ side: string; pos: Position; offsets: number[] }> = [
-  { side: "top",    pos: Position.Top,    offsets: [0.25, 0.5, 0.75] },
-  { side: "right",  pos: Position.Right,  offsets: [0.25, 0.5, 0.75] },
-  { side: "bottom", pos: Position.Bottom, offsets: [0.25, 0.5, 0.75] },
-  { side: "left",   pos: Position.Left,   offsets: [0.25, 0.5, 0.75] },
+export const SIDE_HANDLES: Array<{ side: string; pos: Position }> = [
+  { side: "top",    pos: Position.Top },
+  { side: "right",  pos: Position.Right },
+  { side: "bottom", pos: Position.Bottom },
+  { side: "left",   pos: Position.Left },
 ];
 
-export function hid(nodeId: string, side: string, idx: number): string {
+export const HANDLE_SLOT = 1;
+
+export function hid(nodeId: string, side: string, idx: number = HANDLE_SLOT): string {
   return `${nodeId}--${side}--${idx}`;
 }
 
