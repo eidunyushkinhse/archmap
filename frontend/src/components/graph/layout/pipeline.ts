@@ -418,21 +418,25 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   };
   for (const n of rawNodes) expandLocal(n, []);
 
-  // КОНТЕЙНЕРЫ, НАРИСОВАННЫЕ РАМКОЙ. Их два рода, и связь «прямо в такой контейнер»
-  // у обоих упирается в границу его рамки вместо того, чтобы пропасть:
+  // КОНТЕЙНЕРЫ, НАРИСОВАННЫЕ РАМКОЙ. Их три рода, и связь «прямо в такой контейнер»
+  // у всех упирается в границу его рамки вместо того, чтобы пропасть (C19):
   //  • поглощённые раскрытием локалы (absorbed) — не-нативная рамка внутри уровня;
   //  • САМ КОНТЕЙНЕР УРОВНЯ — его рамка это внешнее кольцо breadcrumb. Это и есть
   //    двойник кейса «раскрытый контейнер», увиденный ИЗНУТРИ: на уровне miss-cluster
-  //    его собственные 6 связей раньше исчезали, а соседи оставались висеть без стрелок.
-  const frameIds = new Set<string>(absorbed);
-  if (containerId !== null) frameIds.add(containerId);
+  //    его собственные 6 связей раньше исчезали, а соседи оставались висеть без стрелок;
+  //  • раскрытые ГОСТЕВЫЕ контейнеры, из-под которых проекция вывела сущность
+  //    (guestFrameIds ниже — известны только после projectGhosts).
+  // localFrameIds — первые два рода: они же «сторона уровня» для подъёма концов и для
+  // крайних слоёв гостей; гостевая рамка стороной уровня не является.
+  const localFrameIds = new Set<string>(absorbed);
+  if (containerId !== null) localFrameIds.add(containerId);
 
   // ПРОЕКЦИЯ, половина 1 (R2): подъём концов сырых рёбер к ближайшему локальному
   // предку уровня; концы вне поддерева остаются гостями.
   // localIds — отображаемые локалы: конец внутри РАСКРЫТОГО контейнера поднимается
   // не к нему, а к его видимому потомку (симметрия со сворачиванием гостей).
   const { edges: liftedEdges, ghosts } = liftEdgesToLevel({
-    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds,
+    edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId, frameIds: localFrameIds,
   });
 
   // ПРОЕКЦИЯ, половина 2: сворачиваем гостей к их верхним (неразвёрнутым) контейнерам
@@ -444,8 +448,11 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // id в RF ломал драг: «фантомный» узел поверх рамки). Гость-лист, чей id —
   // контейнер, уже отображаемый рамкой (поглощён локальным раскрытием либо
   // раскрытый гость, из-под которого проекция вывела другую сущность), узлом не
-  // становится; ребро с таким концом отсеет группировка по displayedIds — связь
-  // скрыта, как у раскрытого локала (алерт intermediate_edges её подсвечивает).
+  // становится. Поглощённый локал уже рамка-конец (localFrameIds); раскрытый
+  // ГОСТЬ-рамка становится ею здесь (guestFrameIds, Ф5 эпика стрелок 2026-10-12):
+  // связь «прямо в него» видна и стыкуется с границей гостевой рамки, как у
+  // локальной (C19), а её конец можно перевесить на члена рамки (E1a). До того связь
+  // отсеивала группировка по displayedIds — она исчезала с холста при раскрытии.
   // Гость-контейнер, раскрытый «вхолостую» (глубоких концов нет, рамки нет),
   // остаётся узлом — иначе связь пропала бы без замены.
   const emergesFrom = (cid: string): boolean =>
@@ -454,9 +461,15 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
         e.id !== cid &&
         (e.kind === "leaf" ? (e.ghost.ancestors ?? []) : e.ancestors).some((x) => x.id === cid),
     );
-  const entities = entitiesRaw.filter(
-    (e) => !(e.kind === "leaf" && (absorbed.has(e.id) || (expanded.has(e.id) && emergesFrom(e.id)))),
-  );
+  const guestFrameIds = new Set<string>();
+  const entities = entitiesRaw.filter((e) => {
+    if (e.kind !== "leaf") return true;
+    if (absorbed.has(e.id)) return false;
+    if (expanded.has(e.id) && emergesFrom(e.id)) { guestFrameIds.add(e.id); return false; }
+    return true;
+  });
+  // Все рамки-концы уровня: локальные (поглощённые + контейнер уровня) и гостевые.
+  const frameIds = new Set<string>([...localFrameIds, ...guestFrameIds]);
   const remap = (id: string) => ghostToEffective.get(id) ?? id;
   // Рёбра с концами, переадресованными на отображаемые сущности. Геометрии на
   // рёбрах нет (ручной слой удалён 2026-07-09) — всю её назначает авто-раскладка.
@@ -531,7 +544,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // лишь выдвигает их на поле рамки. Сторона — по связям со стороной уровня (локалы и
   // рамки-концы).
   const guestLayers = guestLayerSides({
-    entities, localIds: new Set(nodes.map((n) => n.id)), frameEndIds: frameIds, groups: groupArr, ancestorIds,
+    entities, localIds: new Set(nodes.map((n) => n.id)), frameEndIds: localFrameIds, groups: groupArr, ancestorIds,
   });
   // СВЕЖАЯ СЦЕНА — ни один локал не владеет позицией (первое открытие уровня,
   // «Переразложить»): координаты ELK и есть координаты экрана. На владеемой сцене

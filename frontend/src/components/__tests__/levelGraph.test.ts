@@ -170,6 +170,21 @@ describe("projectGhosts", () => {
     expect(r.emergedFrom.get("g1")).toBe("B");
   });
 
+  it("гость — и конец связи сам по себе, и свёрнутый дом других гостей: КОНТЕЙНЕР независимо от порядка реестра", () => {
+    // Уровень T; S — контейнер чужой ветки: связь прямо в S (S — лист реестра с детьми)
+    // и связь в его ребёнка c1 (сворачивается в контейнер S). Побеждает контейнер: у него
+    // лупа, раскрытие покажет c1, а связь в S упрётся в гостевую рамку (C19 v2).
+    const child = ghost("c1", [{ id: "S", name: "S", is_external: false }]);
+    const self = { ...ghost("S", []), has_children: true, child_count: 1 };
+    for (const order of [[self, child], [child, self]]) {
+      const r = projectGhosts(order, ["T"], new Set());
+      expect(r.entities).toHaveLength(1);
+      expect(r.entities[0]).toMatchObject({ kind: "container", id: "S" });
+      expect(r.ghostToEffective.get("c1")).toBe("S");
+      expect(r.ghostToEffective.get("S")).toBe("S");
+    }
+  });
+
   it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {
     // напр. лист «БД» под корнем «Объекты мониторинга» (корень-сосед текущей ветки):
     // общего breadcrumb-предка нет, но гость всё равно представлен верхним контейнером.

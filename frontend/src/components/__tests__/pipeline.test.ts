@@ -477,10 +477,12 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.groupArr.map((g) => g.id)).toEqual(["eAB"]);
   });
 
-  it("конец в раскрытый ГОСТЕВОЙ контейнер скрыт, пока его дети отображаются", async () => {
+  it("конец в раскрытый ГОСТЕВОЙ контейнер упирается в его рамку, как у локального (C19 v2)", async () => {
     // G — контейнер чужой ветки (под Q); его ребёнок Gc — тоже конец рёбер.
     // Q и G раскрыты: Gc отображается листом, G — рамкой вокруг него; конец e1
-    // «прямо в G» не должен воскресить G узлом поверх рамки.
+    // «прямо в G» не воскрешает G узлом поверх рамки, а становится КОНЦОМ-РАМКОЙ:
+    // связь видна, стыкуется с границей рамки G и попадает в frameEnds (перевес E1a).
+    // До Ф5 эпика стрелок (2026-10-12) такая связь исчезала с холста при раскрытии.
     const out = await computeViewLayout(levelInput({
       edges: [edge("e1", "A", "G", "в контейнер"), edge("e2", "B", "Gc", "в ребёнка")],
       endpoints: [
@@ -491,7 +493,13 @@ describe("computeViewLayout — композиция конвейера уров
     }));
     expect(out.layout.entities.map((e) => e.id).sort()).toEqual(["Gc"]);
     expect(out.layout.guestFrames.map((f) => f.id).sort()).toEqual(["G", "Q"]);
-    expect(out.layout.groupArr.map((g) => g.id)).toEqual(["e2"]);
+    expect(out.layout.groupArr.map((g) => [g.id, g.source, g.target])).toEqual([["e1", "A", "G"], ["e2", "B", "Gc"]]);
+    expect(out.layout.frameEnds).toEqual(["G"]);
+    // маршрут кончается НА ГРАНИЦЕ гостевой рамки — не в её центре и не внутри
+    const gf = out.layout.guestFrames.find((f) => f.id === "G")!;
+    const route = out.layout.autoRoutes?.get("e1");
+    expect(route?.length ?? 0).toBeGreaterThanOrEqual(2);
+    expect(onRectBorder(route![route!.length - 1], gf.rect)).toBe(true);
   });
 
   it("гость-контейнер, раскрытый «вхолостую» (без глубоких концов), остаётся узлом-концом", async () => {
