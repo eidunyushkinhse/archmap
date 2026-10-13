@@ -39,6 +39,9 @@ GUEST_ACTIVITY_STEP = timedelta(minutes=1)
 
 # Единственное правило пароля: длина. Других требований сложности нет намеренно.
 MIN_PASSWORD_LENGTH = 8
+# Верхний предел — не правило, а потолок bcrypt: длиннее 72 байт bcrypt 5 не хэширует
+# (ValueError → 500, аудит M1). Считаем байты UTF-8: кириллица — два байта на букву.
+MAX_PASSWORD_BYTES = 72
 
 
 def password_problem(password: str) -> str | None:
@@ -46,6 +49,11 @@ def password_problem(password: str) -> str | None:
     роутеры (отдают текст в detail), и серверная команда create-admin (печатает)."""
     if len(password) < MIN_PASSWORD_LENGTH:
         return f"Пароль должен быть не короче {MIN_PASSWORD_LENGTH} символов"
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        return (
+            f"Пароль слишком длинный: не больше {MAX_PASSWORD_BYTES} латинских символов "
+            f"или {MAX_PASSWORD_BYTES // 2} русских букв"
+        )
     return None
 
 
@@ -61,7 +69,11 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    try:
+        return pwd_context.verify(plain, hashed)
+    except ValueError:
+        # Длиннее 72 байт: такой пароль не мог быть сохранён, значит, он неверный.
+        return False
 
 
 def create_access_token(data: dict, expire_minutes: int | None = None) -> str:

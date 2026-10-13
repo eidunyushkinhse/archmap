@@ -271,3 +271,56 @@ def test_смена_пароля_без_токена_401(client):
         "/api/v1/auth/password", json={"old_password": PW, "new_password": "brand-new-pw"}
     )
     assert r.status_code == 401
+
+
+# ── Потолок bcrypt: 72 байта (аудит M1) ───────────────────────────────────────
+# bcrypt 5 бросает ValueError на пароле длиннее 72 байт; без проверки это 500 на входе,
+# регистрации и смене пароля. Считаются байты UTF-8: русская буква — два байта.
+LONG_PW_DETAIL = "Пароль слишком длинный: не больше 72 латинских символов или 36 русских букв"
+
+
+def test_verify_длинного_пароля_просто_неверный():
+    assert verify_password("x" * 100, PW_HASH) is False
+
+
+@pytest.mark.parametrize("password", ["x" * 73, "я" * 37])
+def test_register_пароль_длиннее_72_байт_400(client, db, monkeypatch, password):
+    monkeypatch.setattr(settings, "allow_signup", True)
+    r = client.post("/api/v1/auth/register", json={"username": "bob", "password": password})
+    assert r.status_code == 400
+    assert r.json() == {"detail": LONG_PW_DETAIL}
+    assert db.query(User).count() == 0
+
+
+@pytest.mark.parametrize("password", ["x" * 72, "я" * 36])
+def test_register_пароль_ровно_72_байта_проходит_и_входит(client, db, monkeypatch, password):
+    monkeypatch.setattr(settings, "allow_signup", True)
+    r = client.post("/api/v1/auth/register", json={"username": "bob", "password": password})
+    assert r.status_code == 201
+    assert _login(client, "bob", password).status_code == 200
+
+
+def test_login_с_длинным_паролем_401_а_не_500(client, db):
+    _add_user(db, "alice", role="viewer")
+    r = _login(client, "alice", "x" * 200)
+    assert r.status_code == 401
+    assert r.json() == {"detail": "Неверный логин или пароль"}
+
+
+def test_смена_пароля_длинные_старый_и_новый(client, db):
+    user = _add_user(db, "alice", role="viewer")
+    r = client.post(
+        "/api/v1/auth/password",
+        headers=_bearer(user),
+        json={"old_password": "x" * 100, "new_password": "brand-new-pw"},
+    )
+    assert r.status_code == 400
+    assert r.json() == {"detail": "Неверный текущий пароль"}
+    r = client.post(
+        "/api/v1/auth/password",
+        headers=_bearer(user),
+        json={"old_password": PW, "new_password": "я" * 40},
+    )
+    assert r.status_code == 400
+    assert r.json() == {"detail": LONG_PW_DETAIL}
+    assert _login(client, "alice", PW).status_code == 200
