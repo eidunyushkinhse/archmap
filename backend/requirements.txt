@@ -1,5 +1,5 @@
 # Окружение разработки: рантайм (requirements-prod.txt) + тесты и линтеры.
 -r requirements-prod.txt
-pytest==8.2.2
+pytest==9.1.1
 ruff==0.15.16
 mypy==2.3.0  # dev: статическая типизация

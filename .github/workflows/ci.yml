@@ -69,9 +69,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: mcp/requirements.txt
+          cache-dependency-path: |
+            mcp/requirements.txt
+            mcp/requirements-dev.txt
       - name: Install dependencies
-        run: pip install -r requirements.txt pytest pytest-asyncio ruff mypy
+        # Инструменты гейта — по пинам requirements-dev.txt, как в локальном venv (P-5).
+        run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
       - name: Type check

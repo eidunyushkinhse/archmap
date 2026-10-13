@@ -1,0 +1,8 @@
+# Окружение разработки MCP-сервера: рантайм (requirements.txt) + тесты и линтеры.
+# Пины те же, что у бэкенда (backend/requirements.txt), чтобы гейт pre-commit и CI
+# проверяли одним и тем же инструментом.
+-r requirements.txt
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.15.16
+mypy==2.3.0
