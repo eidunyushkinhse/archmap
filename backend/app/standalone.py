@@ -3,7 +3,7 @@
 На сервере перед бэкендом стоит nginx (deploy/install.sh). В OpenShift его нет:
 снаружи Route, за ним сразу этот модуль, и он делает то же, что делал nginx:
 
-- в API уходят только /api/… и /health; остальное — файлы сборки фронта, а неизвестный
+- в API уходят только /api/…, /health и /ready; остальное — файлы сборки фронта, а неизвестный
   путь отдаёт index.html: маршруты интерфейса живут в браузере. Swagger и openapi.json
   наружу не выставлены;
 - /assets/… кэшируются навсегда (в имени файла хэш сборки), остальное — без кэша;
@@ -38,7 +38,7 @@ def too_large_detail(limit_mb: int) -> str:
 
 
 def is_api_path(path: str) -> bool:
-    return path.startswith("/api/") or path == "/health"
+    return path.startswith("/api/") or path in ("/health", "/ready")
 
 
 def client_address(scope: Scope) -> str:

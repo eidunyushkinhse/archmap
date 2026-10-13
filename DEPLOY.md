@@ -284,7 +284,8 @@ deploy/build-bundle.sh
 ### Повседневное
 
 - Состояние и журнал: `systemctl status archmap`, `journalctl -u archmap -f`.
-- Проверка бэкенда: `curl -s http://127.0.0.1:8000/health` → `{"status":"ok"}`.
+- Проверка бэкенда: `curl -s http://127.0.0.1:8000/health` → `{"status":"ok"}` (процесс жив);
+  `curl -s http://127.0.0.1:8000/ready` → `{"status":"ok"}`, если база отвечает, иначе 503.
 - Восстановить доступ администратору: `sudo archmap-admin create-admin <логин> --reset-password`
   (команда делает пользователя администратором, снимает блокировку и задаёт новый пароль).
 

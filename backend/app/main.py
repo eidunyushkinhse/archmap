@@ -2,13 +2,17 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app import demo
 from app.column_limits import ValueTooLong
 from app.config import settings
+from app.database import get_db
 from app.demo_limits import DEMO_LIMIT_CODE, DemoLimitExceeded
 from app.routers import (
     admin,
@@ -111,4 +115,17 @@ app.include_router(search.router, prefix="/api/v1")
 
 @app.get("/health")
 def health() -> dict:
+    """Процесс жив (liveness). Базу не трогает намеренно: недоступная база — повод не
+    слать запросы (/ready), а не перезапускать процесс по кругу."""
+    return {"status": "ok"}
+
+
+@app.get("/ready", response_model=None)
+def ready(db: Session = Depends(get_db)) -> dict | JSONResponse:
+    """Готов принимать запросы (readiness, ожидание установщика): база отвечает.
+    /health отвечал «ок» и при лежащей базе (аудит P-16)."""
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        return JSONResponse(status_code=503, content={"detail": "База данных недоступна"})
     return {"status": "ok"}

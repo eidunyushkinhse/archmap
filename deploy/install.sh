@@ -154,7 +154,7 @@ if [ "$WITH_SYSTEMD" = 1 ] && [ "$IS_ROOT" = 1 ]; then
 import sys, time, urllib.request
 for _ in range(60):
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/health", timeout=2) as r:
+        with urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[1]}/ready", timeout=2) as r:
             if r.status == 200:
                 sys.exit(0)
     except OSError:
@@ -162,7 +162,7 @@ for _ in range(60):
 sys.exit(1)
 PYEOF
   then
-    die "служба не ответила за минуту: journalctl -u archmap -n 50 --no-pager"
+    die "служба не ответила за минуту или не видит базу (/ready): journalctl -u archmap -n 50 --no-pager"
   fi
   say "Служба отвечает"
 else
@@ -234,6 +234,10 @@ ${tls}
         return 429 '{"detail":"Слишком много попыток входа. Подождите минуту и попробуйте снова."}';
     }
     location = /health {
+        proxy_pass http://archmap_backend;
+        access_log off;
+    }
+    location = /ready {
         proxy_pass http://archmap_backend;
         access_log off;
     }

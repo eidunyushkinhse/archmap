@@ -72,9 +72,11 @@ spec:
               port: http
             periodSeconds: 2
             failureThreshold: 60
+          # Готовность — с базой (/ready: SELECT 1), жизнь — без неё (/health): лежащая
+          # база снимает под с балансировки, но не перезапускает его по кругу.
           readinessProbe:
             httpGet:
-              path: /health
+              path: /ready
               port: http
             periodSeconds: 10
           livenessProbe:
