@@ -2,8 +2,9 @@
 // es-bundle и css грузятся лениво при первом открытии OpenAPI-оверлея (vite кладёт
 // их в отдельные чанки — self-hosted, никаких CDN). try-it-out выключен: ArchMap —
 // карта архитектуры, не API-клиент, кнопок Execute/Authorize быть не должно.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { SwaggerUIBundle } from "swagger-ui-dist";
+import { refuseSwaggerRequest, stripExternalRefs } from "./openapiRefs";
 
 // Модульный синглтон загрузки. При отказе (битый деплой) сбрасывается,
 // чтобы следующее открытие оверлея попробовало снова.
@@ -35,6 +36,8 @@ export default function OpenApiViewer({ spec }: Props) {
   const [state, setState] = useState<"loading" | "ready" | "failed">(
     swaggerReady ? "ready" : "loading",
   );
+  // Внешние $ref — вон до рендера: swagger-ui загрузил бы их из браузера читателя.
+  const safeSpec = useMemo(() => stripExternalRefs(spec).spec, [spec]);
 
   useEffect(() => {
     let alive = true;
@@ -45,12 +48,15 @@ export default function OpenApiViewer({ spec }: Props) {
         node.innerHTML = "";
         SwaggerUI({
           domNode: node,
-          spec,
+          spec: safeSpec,
           presets: [SwaggerUI.presets.apis],
           layout: "BaseLayout",
           docExpansion: "list",
           defaultModelsExpandDepth: -1,
           supportedSubmitMethods: [],
+          requestInterceptor: refuseSwaggerRequest,
+          // Значок валидатора — запрос на validator.swagger.io: наружу ничего не ходит.
+          validatorUrl: null,
         });
         setState("ready");
       })
@@ -62,7 +68,7 @@ export default function OpenApiViewer({ spec }: Props) {
       // Инстанс swagger-ui глобалей не держит — очистки контейнера достаточно
       if (node) node.innerHTML = "";
     };
-  }, [spec]);
+  }, [safeSpec]);
 
   if (state === "failed") return <div className="doc-pvnote">Не удалось загрузить рендерер</div>;
   return (
