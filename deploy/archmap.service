@@ -25,6 +25,31 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+# Ядро, устройства, пространства имён и привилегии службе не нужны (аудит P-14). Оценка —
+# `systemd-analyze security archmap`. Незнакомые старому systemd строки он пропускает с
+# предупреждением в журнале.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+PrivateDevices=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RemoveIPC=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+# Сеть — TCP к клиентам и к базе и сокет PostgreSQL на той же машине
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+# Набор вызовов обычной службы; лишний вызов получает отказ EPERM, а не убивает процесс
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target
