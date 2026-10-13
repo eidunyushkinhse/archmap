@@ -33,7 +33,7 @@ class ProcessParticipant(Base):
         Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False
     )
     node_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Имя НА МОМЕНТ ЗАВЕДЕНИЯ участника в процесс. Пока узел жив, показываем живое
     # имя узла, а это — запасное: удаление узла делает БД-каскад по всему поддереву,

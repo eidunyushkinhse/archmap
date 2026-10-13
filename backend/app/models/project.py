@@ -68,11 +68,11 @@ class Project(Base):
         Integer, nullable=False, default=0, server_default="0"
     )
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # «Кто менял последним» — обновляется вместе с updated_at (touch_project).
     updated_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
     # БД-каскад сносит всю схему проекта при его удалении (ondelete CASCADE на FK

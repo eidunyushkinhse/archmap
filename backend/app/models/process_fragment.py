@@ -22,7 +22,7 @@ class ProcessFragment(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     process_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Вид фрагмента: "alt" | "opt" | "loop" | "par"
     kind: Mapped[str] = mapped_column(String(8), nullable=False)

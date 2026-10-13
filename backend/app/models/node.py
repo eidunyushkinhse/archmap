@@ -35,7 +35,7 @@ class Node(Base):
     role: Mapped[str | None] = mapped_column(String(128), nullable=True)
     technology: Mapped[str | None] = mapped_column(String(128), nullable=True)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True
+        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=True, index=True
     )
     # Логика узла живёт в коллекции именованных схем node_docs (relationship docs
     # ниже); прежнее единственное поле flowchart перенесено туда миграцией.

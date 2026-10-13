@@ -43,7 +43,7 @@ class DbColumn(Base):
     # Внешний ключ КАРТЫ (не БД): ссылка на колонку другой таблицы — из этих ссылок и
     # рисуется ER. SET NULL: снос колонки-цели не должен уносить ссылающуюся колонку.
     references_column_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("db_columns.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("db_columns.id", ondelete="SET NULL"), nullable=True, index=True
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Порядок в таблице (как в DDL) — читаемость важнее алфавита.

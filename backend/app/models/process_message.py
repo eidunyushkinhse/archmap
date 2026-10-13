@@ -23,7 +23,7 @@ class ProcessMessage(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     process_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Позиция сверху-вниз (время)
     order: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -31,16 +31,16 @@ class ProcessMessage(Base):
     # схемы НЕ сносит сообщение, а делает его «повисшим» (valid=false), расхождение
     # со схемой видно, а не происходит тихо (ТЗ §2.2).
     edge_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("edges.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("edges.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Плечо канала: "forward" (вызов) | "return" (ответ)
     leg: Mapped[str] = mapped_column(String(8), nullable=False)
     # Спроецированные отправитель/получатель (участники процесса)
     from_participant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("process_participants.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("process_participants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     to_participant_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("process_participants.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("process_participants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Override подписи; null = дефолт из edge.label + плеча
     caption: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -52,7 +52,7 @@ class ProcessMessage(Base):
     # ON DELETE SET NULL — как у edge_id и по той же причине: удаление схемы НЕ сносит
     # шаг, а делает его непривязанным, и это видно алертом полноты, а не пропадает тихо.
     doc_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("node_docs.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("node_docs.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Версия для optimistic CAS — тот же паттерн, что у Node/NodeDoc.version: PATCH с
     # base_version ≠ текущей → 409, правка от устаревшего шага не затирает чужую

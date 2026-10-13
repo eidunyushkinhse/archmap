@@ -38,7 +38,7 @@ class BusinessProcess(Base):
     # Процесс переживает удаление и становится процессом по всей схеме: расхождение
     # видно, работа цела — симметрично непривязанному участнику и повисшему шагу.
     scope_node_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+        Uuid, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

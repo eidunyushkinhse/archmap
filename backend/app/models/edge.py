@@ -32,10 +32,10 @@ class Edge(Base):
     # бы инвалидации при каждом переименовании канала.
     channel: Mapped[str | None] = mapped_column(String(256), nullable=True)
     source_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     target_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+        Uuid, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Синхронность канала (бизнес-процессы): задаётся явно тумблером в UI связи.
     # null = дефолт (синхронный, в т.ч. легаси); true/false = явный выбор архитектора.
