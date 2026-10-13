@@ -8,7 +8,16 @@ import App from './App.tsx'
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Корневой элемент #root не найден в DOM')
 
-createRoot(rootEl).render(
+// Ошибки рендера — в консоль с компонентным стеком (и пойманные границей ErrorBoundary,
+// и долетевшие до корня): так они видны в журнале браузера на стенде, а не теряются.
+createRoot(rootEl, {
+  onUncaughtError: (error, info) => {
+    console.error('[archmap] ошибка рендера без границы:', error, info.componentStack)
+  },
+  onCaughtError: (error, info) => {
+    console.error('[archmap] ошибка рендера, поймана границей:', error, info.componentStack)
+  },
+}).render(
   <StrictMode>
     <App />
   </StrictMode>,
