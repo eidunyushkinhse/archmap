@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from pathlib import Path
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ from app.config import settings
 from app.database import get_db
 from app.main import app as api
 from app.models.user import User
-from app.standalone import IMMUTABLE, LOGIN_LIMITED_DETAIL, Standalone
+from app.standalone import IMMUTABLE, LOGIN_LIMITED_DETAIL, SECURITY_HEADERS, Standalone
 
 INDEX = b"<!doctype html><title>ArchMap</title>"
 BUNDLE = b"console.log('archmap');" * 200  # больше 1 КБ: такой ответ сжимается
@@ -246,3 +247,30 @@ def test_create_app_без_сборки_фронта_не_стартует(monke
     monkeypatch.setattr(settings, "frontend_dir", str(tmp_path))
     with pytest.raises(RuntimeError, match="index.html"):
         standalone.create_app()
+
+
+# ── Заголовки безопасности (аудит M3, R-4) ──────────────────────────────────
+
+
+@pytest.mark.parametrize("path", ["/", "/p/123", "/assets/index-abc123.js", "/health", "/api/v1/auth/config"])
+def test_заголовки_безопасности_у_каждого_ответа(client, path):
+    res = client.get(path)
+    assert res.status_code == 200
+    for name, value in SECURITY_HEADERS:
+        assert res.headers[name] == value
+
+
+def test_заголовки_безопасности_и_у_отказов(client):
+    # 429/413 отвечает сам standalone, не API — заголовки обязаны быть и там.
+    big = {"content-length": str(65 * 1024 * 1024)}
+    res = client.post("/api/v1/projects/import", headers=big)
+    assert res.status_code == 413
+    assert res.headers["x-content-type-options"] == "nosniff"
+
+
+def test_nginx_серверной_поставки_пишет_те_же_заголовки():
+    # Две поставки — две копии значений: standalone (OpenShift) и render_nginx в
+    # deploy/install.sh (сервер). Расхождение здесь видно сразу.
+    install = (Path(__file__).resolve().parents[2] / "deploy" / "install.sh").read_text()
+    for name, value in SECURITY_HEADERS:
+        assert f'add_header {name} \\"{value}\\" always;' in install, name

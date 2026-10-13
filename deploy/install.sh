@@ -219,13 +219,18 @@ fi
 
 # ── 8. nginx ─────────────────────────────────────────────────────────────────────
 render_nginx() {
-  local listen tls="" redirect=""
+  local listen tls="" redirect="" hsts=""
   if [ -n "$TLS_CERT" ]; then
     listen="listen 443 ssl;"
     tls="    ssl_certificate     $TLS_CERT;
     ssl_certificate_key $TLS_KEY;
     ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_session_cache   shared:archmap_tls:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
 "
+    hsts="
+    add_header Strict-Transport-Security \"max-age=31536000\" always;"
     redirect="server {
     listen 80;
     server_name $SERVER_NAME;
@@ -235,12 +240,24 @@ render_nginx() {
   else
     listen="listen 80;"
   fi
+  # Заголовки безопасности (аудит M3, P-13) — те же, что app/standalone.py SECURITY_HEADERS
+  # (расхождение ловит тест). add_header в location отменяет серверные, поэтому блок
+  # повторяется во всех location со своим add_header.
+  local sec="    add_header X-Content-Type-Options \"nosniff\" always;
+    add_header Referrer-Policy \"same-origin\" always;
+    add_header Permissions-Policy \"camera=(), microphone=(), geolocation=(), payment=(), usb=()\" always;
+    add_header Content-Security-Policy \"frame-ancestors 'none'; base-uri 'self'; object-src 'none'\" always;
+    add_header Content-Security-Policy-Report-Only \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'\" always;$hsts"
+  local sec_loc="    ${sec//$'\n'/$'\n'    }"
   cat <<EOF
 $NGINX_MARK. Перезаписывается только
 # при повторной установке с --server-name; иначе правьте его сами.
 
-# Вход: не больше 10 попыток в минуту с адреса (защита паролей от перебора)
+# Вход: не больше 10 попыток в минуту с адреса (защита паролей от перебора);
+# регистрация и старт песочницы демо — не чаще 3 и 6 в минуту (аудит M3)
 limit_req_zone \$binary_remote_addr zone=archmap_login:10m rate=10r/m;
+limit_req_zone \$binary_remote_addr zone=archmap_signup:10m rate=3r/m;
+limit_req_zone \$binary_remote_addr zone=archmap_demo:10m rate=6r/m;
 
 upstream archmap_backend {
     server 127.0.0.1:$port;
@@ -254,6 +271,8 @@ ${tls}
     root $PREFIX/current/frontend;
     # Ввоз архива проекта принимает до 64 МБ
     client_max_body_size 64m;
+    server_tokens off;
+$sec
 
     gzip on;
     gzip_min_length 1024;
@@ -281,6 +300,22 @@ ${tls}
         default_type application/json;
         return 429 '{"detail":"Слишком много попыток входа. Подождите минуту и попробуйте снова."}';
     }
+    location = /api/v1/auth/register {
+        limit_req zone=archmap_signup burst=3 nodelay;
+        limit_req_status 429;
+        error_page 429 = @archmap_too_often;
+        proxy_pass http://archmap_backend;
+    }
+    location = /api/v1/demo/start {
+        limit_req zone=archmap_demo burst=6 nodelay;
+        limit_req_status 429;
+        error_page 429 = @archmap_too_often;
+        proxy_pass http://archmap_backend;
+    }
+    location @archmap_too_often {
+        default_type application/json;
+        return 429 '{"detail":"Слишком много запросов с вашего адреса. Подождите минуту и попробуйте снова."}';
+    }
     location = /health {
         proxy_pass http://archmap_backend;
         access_log off;
@@ -293,10 +328,12 @@ ${tls}
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+$sec_loc
         try_files \$uri =404;
     }
     location / {
         add_header Cache-Control "no-cache";
+$sec_loc
         try_files \$uri /index.html;
     }
 }
@@ -310,7 +347,11 @@ if [ "$WITH_NGINX" = 1 ]; then
     warn "nginx: $NGINX_CONF написан не установщиком — не перезаписываю"
   else
     mkdir -p "$(dirname "$NGINX_CONF")"
-    render_nginx > "$NGINX_CONF"
+    # Прежний файл — до проверки nginx -t: битый конфиг не должен остаться на диске до
+    # следующего рестарта nginx (тогда упал бы и он)
+    [ "$IS_ROOT" = 1 ] && [ -f "$NGINX_CONF" ] && cp -p "$NGINX_CONF" "$NGINX_CONF.prev"
+    render_nginx > "$NGINX_CONF.new"
+    mv "$NGINX_CONF.new" "$NGINX_CONF"
     say "nginx: записан $NGINX_CONF"
   fi
   if [ "$IS_ROOT" = 1 ]; then
@@ -319,7 +360,14 @@ if [ "$WITH_NGINX" = 1 ]; then
       chcon -R -t httpd_sys_content_t "$REL/frontend"
       say "SELinux: nginx разрешено обращаться к бэкенду и читать $REL/frontend"
     fi
-    nginx -t -q || die "nginx -t нашёл ошибку в конфигурации"
+    if ! nginx -t -q; then
+      if [ -f "$NGINX_CONF.prev" ]; then
+        mv "$NGINX_CONF.prev" "$NGINX_CONF"
+        warn "nginx: вернул прежний $NGINX_CONF"
+      fi
+      die "nginx -t нашёл ошибку в конфигурации"
+    fi
+    rm -f "$NGINX_CONF.prev"
     if systemctl is-active --quiet nginx; then systemctl reload nginx; else systemctl enable --now nginx; fi
     say "nginx перечитал конфигурацию"
   fi

@@ -373,6 +373,18 @@ pg_restore --clean --if-exists -h pg.example.local -U archmap -d archmap archmap
 - На сервере служба работает от непривилегированного пользователя `archmap`, система для
   неё только для чтения.
 - Без TLS пароли и токены идут открытым текстом — так можно только в доверенном тестовом сегменте.
+- Заголовки безопасности у каждого ответа — и в OpenShift (их ставит приложение), и на
+  сервере (их пишет nginx): `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`,
+  `Permissions-Policy` без камеры, микрофона и геолокации, `Content-Security-Policy` с
+  `frame-ancestors 'none'` — ArchMap нельзя встроить в чужую страницу (iframe). Полная
+  политика источников пока в режиме `Content-Security-Policy-Report-Only`: нарушения видны в
+  консоли браузера, но ничего не блокируют. HSTS на сервере nginx ставит в TLS-ветке; в
+  OpenShift HSTS задаётся на Route (аннотация `haproxy.router.openshift.io/hsts_header`).
+- На сервере nginx ограничивает и регистрацию (3 в минуту с адреса), и старт песочницы
+  демо (6 в минуту); версию nginx не называет (`server_tokens off`).
+- Установщик не перезаписывает уже существующий конфиг nginx: заголовки и лимиты новой
+  версии попадут в него при установке с `--server-name` (если конфиг писал установщик) или
+  правкой по образцу `render_nginx` в `deploy/install.sh`.
 
 ## Ограничения
 

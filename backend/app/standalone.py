@@ -9,7 +9,8 @@
 - /assets/… кэшируются навсегда (в имени файла хэш сборки), остальное — без кэша;
 - ответы от 1 КБ сжимаются gzip;
 - запрос больше MAX_REQUEST_MB отклоняется (413);
-- неудачные попытки входа ограничены LOGIN_ATTEMPTS_PER_MINUTE с адреса (429).
+- неудачные попытки входа ограничены LOGIN_ATTEMPTS_PER_MINUTE с адреса (429);
+- у каждого ответа заголовки безопасности SECURITY_HEADERS (их же пишет nginx).
 
 Запуск: uvicorn app.standalone:create_app --factory; каталог сборки — в FRONTEND_DIR.
 """
@@ -31,6 +32,27 @@ LOGIN_PATH = "/api/v1/auth/login"
 # Тот же текст отдавал nginx: форма входа показывает detail из ответа
 LOGIN_LIMITED_DETAIL = "Слишком много попыток входа. Подождите минуту и попробуйте снова."
 IMMUTABLE = "public, max-age=31536000, immutable"
+
+# Заголовки безопасности (аудит M3, R-4): те же значения пишет nginx серверной поставки
+# (render_nginx в deploy/install.sh; расхождение ловит тест). Встраивать ArchMap в чужие
+# страницы нельзя (frame-ancestors), подмены <base> и плагинов нет. Полная политика
+# источников пока только наблюдает (Report-Only): mermaid и swagger вставляют стили, и
+# нарушения сначала надо увидеть в консоли браузера, а не сломать ими страницу. HSTS —
+# забота того, кто держит TLS (Route OpenShift, nginx в TLS-ветке).
+SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
+    ("X-Content-Type-Options", "nosniff"),
+    ("Referrer-Policy", "same-origin"),
+    ("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
+    ("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"),
+    (
+        "Content-Security-Policy-Report-Only",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+        "worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; "
+        "object-src 'none'; form-action 'self'",
+    ),
+)
+_SECURITY_RAW = [(k.lower().encode(), v.encode()) for k, v in SECURITY_HEADERS]
 
 
 def too_large_detail(limit_mb: int) -> str:
@@ -102,7 +124,9 @@ class Standalone:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.api(scope, receive, send)
-        elif is_api_path(scope["path"]):
+            return
+        send = self.with_security_headers(send)
+        if is_api_path(scope["path"]):
             await self.to_api(scope, receive, send)
         else:
             await self.to_frontend(scope, receive, send)
@@ -130,6 +154,17 @@ class Standalone:
                 return
             send = self.count_failure(send, address)
         await self.api(scope, self.limited(receive), send)
+
+    @staticmethod
+    def with_security_headers(send: Send) -> Send:
+        async def sending(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                present = {k.lower() for k, _ in message.get("headers", [])}
+                extra = [(k, v) for k, v in _SECURITY_RAW if k not in present]
+                message = {**message, "headers": [*message.get("headers", []), *extra]}
+            await send(message)
+
+        return sending
 
     def limited(self, receive: Receive) -> Receive:
         """Тело без Content-Length (chunked) считаем по ходу чтения: исключение
