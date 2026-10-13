@@ -3,9 +3,12 @@
 # Запуск от root из распакованной поставки:
 #   sudo ./deploy/install.sh --server-name archmap.example.local [--tls-cert ФАЙЛ --tls-key ФАЙЛ]
 #   sudo ./deploy/install.sh --no-nginx     # обратный прокси настроен отдельно
+#   sudo ./deploy/install.sh --no-systemd   # службу запускаете своим супервизором
+#   sudo ./deploy/install.sh --no-backup    # копию базы перед миграциями сделали сами
 # Первый запуск создаёт /etc/archmap/archmap.env и останавливается: впишите DATABASE_URL
-# и запустите снова. Запуск с новой поставкой — обновление: миграции, переключение
-# /opt/archmap/current на новый релиз, перезапуск службы; настройки и nginx не трогаются.
+# и запустите снова. Запуск с новой поставкой — обновление: копия базы, миграции,
+# переключение /opt/archmap/current на новый релиз, перезапуск службы (не поднялась —
+# возврат прежнего релиза); настройки и nginx не трогаются.
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -18,6 +21,7 @@ UNIT_DIR="${ARCHMAP_UNIT_DIR:-/etc/systemd/system}"
 NGINX_CONF="${ARCHMAP_NGINX_CONF:-/etc/nginx/conf.d/archmap.conf}"
 BIN_DIR="${ARCHMAP_BIN_DIR:-/usr/local/bin}"
 ENV_FILE="$ETC/archmap.env"
+BACKUP_DIR="${ARCHMAP_BACKUP_DIR:-$PREFIX/backups}"
 KEEP_RELEASES=3
 NGINX_MARK="# ArchMap: сгенерировано deploy/install.sh"
 
@@ -30,7 +34,7 @@ die()  { printf '\033[1;31m[archmap] ОШИБКА:\033[0m %s\n' "$*" >&2; exit 1
 [[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] \
   || die "файл VERSION поставки пуст или испорчен («$VERSION»): пересоберите поставку"
 
-SERVER_NAME=""; TLS_CERT=""; TLS_KEY=""; WITH_NGINX=1; WITH_SYSTEMD=1
+SERVER_NAME=""; TLS_CERT=""; TLS_KEY=""; WITH_NGINX=1; WITH_SYSTEMD=1; WITH_BACKUP=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --server-name) SERVER_NAME="${2:?}"; shift 2 ;;
@@ -38,7 +42,8 @@ while [ $# -gt 0 ]; do
     --tls-key) TLS_KEY="${2:?}"; shift 2 ;;
     --no-nginx) WITH_NGINX=0; shift ;;
     --no-systemd) WITH_SYSTEMD=0; shift ;;
-    -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+    --no-backup) WITH_BACKUP=0; shift ;;
+    -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     *) die "неизвестный параметр: $1 (справка: --help)" ;;
   esac
 done
@@ -135,6 +140,18 @@ fi
 # ── 5. База: проверка и миграции ─────────────────────────────────────────────────
 ( cd "$REL/backend" && as_service "${RUNENV[@]}" "$PY" "$REL/deploy/preflight.py" ) \
   || die "база не готова — см. сообщение выше"
+# Копия базы перед миграциями (аудит P-3): откат схемы возможен только из копии. Делает её
+# пользователь службы — тем же входом в базу, что миграции (и по сокету тоже).
+if [ "$WITH_BACKUP" = 1 ]; then
+  mkdir -p "$BACKUP_DIR"
+  chmod 700 "$BACKUP_DIR"
+  [ "$IS_ROOT" = 1 ] && chown "$SVC_USER:$SVC_USER" "$BACKUP_DIR"
+  ( cd "$REL/backend" && as_service "${RUNENV[@]}" "$PY" "$REL/deploy/backup.py" \
+      "$BACKUP_DIR" "$REL/backend/alembic.ini" "$VERSION" ) \
+    || die "копия базы не сделана — см. сообщение выше (без копии: --no-backup)"
+else
+  warn "копия базы перед миграциями не делается (--no-backup)"
+fi
 say "Миграции схемы БД"
 ( cd "$REL/backend" && as_service "${RUNENV[@]}" "$PY" -m alembic upgrade head )
 
