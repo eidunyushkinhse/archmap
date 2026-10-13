@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app import demo
+from app.column_limits import ValueTooLong
 from app.config import settings
 from app.demo_limits import DEMO_LIMIT_CODE, DemoLimitExceeded
 from app.routers import (
@@ -59,6 +60,12 @@ app = FastAPI(
 # CORS-источники задаются в Settings (cors_origins, через запятую) — не хардкод.
 allowed_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 
+
+
+@app.exception_handler(ValueTooLong)
+async def value_too_long(_request: Request, exc: ValueTooLong) -> JSONResponse:
+    """Значение не помещается в колонку (проверка перед записью, app/column_limits.py)."""
+    return JSONResponse(status_code=422, content={"detail": exc.detail})
 
 
 @app.exception_handler(DemoLimitExceeded)
