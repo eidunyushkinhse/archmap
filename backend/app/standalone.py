@@ -26,7 +26,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.config import settings
 from app.main import app as api_app
-from app.rate_limit import AddressLimiter
+from app.rate_limit import AddressLimiter, client_address
 
 LOGIN_PATH = "/api/v1/auth/login"
 # Тот же текст отдавал nginx: форма входа показывает detail из ответа
@@ -61,18 +61,6 @@ def too_large_detail(limit_mb: int) -> str:
 
 def is_api_path(path: str) -> bool:
     return path.startswith("/api/") or path in ("/health", "/ready")
-
-
-def client_address(scope: Scope) -> str:
-    """Адрес человека за Route: последний в X-Forwarded-For. Его дописывает роутер
-    OpenShift, а первые значения присылает клиент и может подделать. Без заголовка —
-    адрес соединения."""
-    forwarded = ",".join(Headers(scope=scope).getlist("x-forwarded-for"))
-    last = forwarded.rsplit(",", 1)[-1].strip()
-    if last:
-        return last
-    client = scope.get("client")
-    return client[0] if client else "unknown"
 
 
 class FrontendFiles(StaticFiles):

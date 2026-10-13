@@ -10,6 +10,25 @@ import threading
 import time
 from collections import deque
 
+from starlette.datastructures import Headers
+from starlette.types import Scope
+
+
+def client_address(scope: Scope) -> str:
+    """Адрес человека для лимитов: последний в X-Forwarded-For — его дописывает наш
+    прокси (nginx серверной поставки, роутер OpenShift), а первые значения присылает
+    клиент и может подделать. Без заголовка — адрес соединения.
+
+    Одна функция на все лимиты (аудит M4, P-17): адрес из соединения (request.client)
+    зависит от доверия uvicorn прокси, и при FORWARDED_ALLOW_IPS=* (образ OpenShift) это
+    ПЕРВЫЙ адрес заголовка — его клиент выбирает сам."""
+    forwarded = ",".join(Headers(scope=scope).getlist("x-forwarded-for"))
+    last = forwarded.rsplit(",", 1)[-1].strip()
+    if last:
+        return last
+    client = scope.get("client")
+    return client[0] if client else "unknown"
+
 
 class AddressLimiter:
     """Сколько событий было с адреса за последние window_seconds секунд."""

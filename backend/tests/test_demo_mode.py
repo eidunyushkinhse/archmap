@@ -160,6 +160,19 @@ def test_старт_отказ_429_по_адресу(client, db, demo_on, monkey
     assert db.query(User).filter(User.is_guest.is_(True)).count() == 2
 
 
+def test_старт_подделанный_первый_адрес_лимит_не_обходит(client, db, demo_on, monkeypatch):
+    # Аудит M4: первые адреса X-Forwarded-For присылает клиент, последний дописывает наш
+    # прокси. Лимит считается по последнему — смена первого его не обходит.
+    monkeypatch.setattr(settings, "demo_start_per_ip_per_hour", 2)
+    for fake in ("1.1.1.1", "2.2.2.2"):
+        res = client.post(START, headers={"X-Forwarded-For": f"{fake}, 9.9.9.9"})
+        assert res.status_code == 200
+    res = client.post(START, headers={"X-Forwarded-For": "3.3.3.3, 9.9.9.9"})
+    assert res.status_code == 429
+    # Другой человек за прокси — свой счётчик.
+    assert client.post(START, headers={"X-Forwarded-For": "8.8.8.8"}).status_code == 200
+
+
 def test_лимит_по_адресу_окно_час():
     lim = AddressLimiter(window_seconds=3600)
     lim.record("1.2.3.4", now=0.0)
