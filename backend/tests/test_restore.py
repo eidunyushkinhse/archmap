@@ -16,6 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import inspect as sa_inspect
 
 import app.models
+from app import tree
 from app.copy_plan import COPY_PLAN
 from app.database import Base
 from app.models.broker_channel import BrokerChannel
@@ -453,3 +454,141 @@ def test_restore_conflict_when_edge_exists(db):
     with pytest.raises(HTTPException) as ei:
         restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
     assert ei.value.status_code == 409
+
+
+# --- Изоляция проектов и целостность снимка (аудит 2026-10: S1, S2, S9) ---------------
+# Снимок приходит от клиента: он может ссылаться на чужие узлы, содержать цикл
+# родителей или дубли имён. До проверки restore писал строки на узлы ДРУГОГО проекта.
+
+
+def _foreign_node(db, name="Чужой"):
+    """Узел в другом проекте (с владельцем, как создаёт POST /projects)."""
+    from conftest import make_project
+
+    other = make_project(db, "Другой проект")
+    n = Node(id=uuid.uuid4(), name=name, project_id=other.id)
+    db.add(n)
+    db.flush()
+    return n
+
+
+def test_restore_rejects_doc_on_foreign_node(db):
+    from app.models.node_doc import NodeDoc
+    from app.schemas.restore import NodeDocSnapshot
+
+    a = _node(db, "A")
+    foreign = _foreign_node(db)
+    db.commit()
+    snap = build_deletion_snapshot(db, a.id)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    snap.node_docs.append(
+        NodeDocSnapshot(id=uuid.uuid4(), node_id=foreign.id, name="INJECTED", content="graph TD")
+    )
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    # Ничего не записано: ни чужой док, ни сам узел (снимок отвергнут целиком).
+    assert db.query(NodeDoc).filter(NodeDoc.node_id == foreign.id).count() == 0
+    assert db.get(Node, a.id) is None
+
+
+def test_restore_rejects_edge_to_foreign_node(db):
+    from app.schemas.restore import EdgeSnapshot
+
+    a = _node(db, "A")
+    foreign = _foreign_node(db)
+    db.commit()
+    snap = build_deletion_snapshot(db, a.id)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    snap.edges.append(EdgeSnapshot(id=uuid.uuid4(), source_id=a.id, target_id=foreign.id))
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    assert db.query(Edge).filter(Edge.target_id == foreign.id).count() == 0
+
+
+def test_restore_rejects_table_on_foreign_node_and_column_of_foreign_table(db):
+    from app.schemas.restore import DbColumnSnapshot, DbTableSnapshot
+
+    a = _node(db, "A")
+    foreign = _foreign_node(db)
+    foreign_table = DbTable(id=uuid.uuid4(), node_id=foreign.id, name="t")
+    db.add(foreign_table)
+    db.commit()
+    snap = build_deletion_snapshot(db, a.id)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    # Таблица на чужом узле
+    bad_table = snap.model_copy(deep=True)
+    bad_table.db_tables.append(DbTableSnapshot(id=uuid.uuid4(), node_id=foreign.id, name="evil"))
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(bad_table, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    # Колонка в чужой таблице
+    bad_col = snap.model_copy(deep=True)
+    bad_col.db_columns.append(DbColumnSnapshot(id=uuid.uuid4(), table_id=foreign_table.id, name="c"))
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(bad_col, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    assert db.query(DbColumn).filter(DbColumn.table_id == foreign_table.id).count() == 0
+
+
+def test_restore_rejects_parent_cycle(db):
+    from app.schemas.restore import DeletionSnapshot, NodeSnapshot
+
+    x, y = uuid.uuid4(), uuid.uuid4()
+    cyclic = DeletionSnapshot(
+        nodes=[NodeSnapshot(id=x, name="X", parent_id=y), NodeSnapshot(id=y, name="Y", parent_id=x)],
+        edges=[],
+    )
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(cyclic, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    self_parent = DeletionSnapshot(nodes=[NodeSnapshot(id=x, name="X", parent_id=x)], edges=[])
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(self_parent, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 422
+    assert db.query(Node).filter(Node.id.in_([x, y])).count() == 0
+
+
+def test_restore_duplicate_doc_name_in_snapshot_409(db):
+    from app.schemas.restore import NodeDocSnapshot
+
+    a = _node(db, "A")
+    db.commit()
+    snap = build_deletion_snapshot(db, a.id)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    for _ in range(2):
+        snap.node_docs.append(NodeDocSnapshot(id=uuid.uuid4(), node_id=a.id, name="Дубль"))
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 409
+    assert db.get(Node, a.id) is None
+
+
+def test_restore_doc_name_taken_on_live_node_409(db):
+    from app.models.node_doc import NodeDoc
+    from app.schemas.restore import NodeDocSnapshot
+
+    a = _node(db, "A")
+    live = _node(db, "Живой")
+    db.flush()
+    db.add(NodeDoc(id=uuid.uuid4(), node_id=live.id, name="Общая", content=""))
+    db.commit()
+    snap = build_deletion_snapshot(db, a.id)
+    delete_node(a.id, db=db, project=ensure_project(db), user=ensure_architect(db))
+    # Док на живой узел СВОЕГО проекта допустим, но имя уже занято → 409, не 500.
+    snap.node_docs.append(NodeDocSnapshot(id=uuid.uuid4(), node_id=live.id, name="Общая"))
+    with pytest.raises(HTTPException) as ei:
+        restore_nodes(snap, db=db, project=ensure_project(db), user=ensure_architect(db))
+    assert ei.value.status_code == 409
+
+
+def test_tree_helpers_survive_parent_cycle(db):
+    """Обходы предков не должны зависать на цикле в данных (страховка на будущее)."""
+    a = _node(db, "A")
+    b = _node(db, "B", a)
+    db.flush()
+    a.parent_id = b.id  # цикл A→B→A прямо в карте (в БД такого не создать через API)
+    all_nodes = {a.id: a, b.id: b}
+    assert [x.id for x in tree.ancestors(all_nodes, a.id)] == [b.id]
+    assert tree.node_depth(all_nodes, a.id) == 1

@@ -166,8 +166,9 @@ def _previews(db: Session, project_ids: list[uuid.UUID]) -> dict[uuid.UUID, Proj
                 break
             path.append(cur)
             par = parent_of.get(cur)
-            if par is None or par not in parent_of:
-                root = cur  # корень дерева (либо родитель вне проекта — обрываемся)
+            if par is None or par not in parent_of or par in path:
+                # корень дерева, родитель вне проекта или цикл в данных — обрываемся
+                root = cur
                 break
             cur = par
         for c in path:

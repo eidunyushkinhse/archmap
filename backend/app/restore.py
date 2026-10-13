@@ -154,6 +154,149 @@ def build_edge_deletion_snapshot(db: Session, edge_id: uuid.UUID) -> DeletionSna
     )
 
 
+class RestoreError(ValueError):
+    """Снимок нельзя восстановить целиком: он ссылается на объекты вне проекта,
+    содержит цикл родителей или дубли имён. Роутер переводит в HTTP: 422 — чужие
+    ссылки и цикл, 409 — дубль имени (как у обычного CRUD)."""
+
+    def __init__(self, detail: str, status: int = 422) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.status = status
+
+
+FOREIGN_REF_DETAIL = "Снимок ссылается на объекты вне проекта — восстановить его нельзя"
+CYCLE_DETAIL = "В снимке цикл родителей — восстановить его нельзя"
+
+
+def _check_no_parent_cycle(snapshot: DeletionSnapshot) -> None:
+    """Цепочка parent_id внутри снимка обязана быть деревом: узел, ссылающийся на себя
+    или на своего потомка, раньше вешал воркер в бесконечном обходе (аудит 2026-10)."""
+    by_id = {n.id: n for n in snapshot.nodes}
+    for n in snapshot.nodes:
+        seen = {n.id}
+        cur = n.parent_id
+        while cur is not None and cur in by_id:
+            if cur in seen:
+                raise RestoreError(CYCLE_DETAIL)
+            seen.add(cur)
+            cur = by_id[cur].parent_id
+
+
+def _check_unique_names(db: Session, snapshot: DeletionSnapshot, live_node_ids: set[uuid.UUID]) -> None:
+    """Дубли имён внутри снимка и против живых строк тех родителей, что уже в проекте:
+    без проверки они упирались бы в уникальный индекс БД и давали 500 вместо 409."""
+    groups: list[tuple[str, list[tuple[tuple, str]]]] = [
+        ("схема логики", [((d.node_id,), d.name) for d in snapshot.node_docs]),
+        ("таблица", [((t.node_id, t.schema_name), t.name) for t in snapshot.db_tables]),
+        ("колонка", [((c.table_id,), c.name) for c in snapshot.db_columns]),
+        ("канал", [((c.node_id, c.group_name), c.name) for c in snapshot.broker_channels]),
+        ("поле канала", [((f.channel_id,), f.name) for f in snapshot.channel_fields]),
+        ("параметр", [((p.node_id,), p.name) for p in snapshot.config_params]),
+    ]
+    for noun, rows in groups:
+        seen: set[tuple] = set()
+        for owner, name in rows:
+            key = (*owner, name)
+            if key in seen:
+                raise RestoreError(f"В снимке повторяется имя ({noun}): «{name}»", 409)
+            seen.add(key)
+    # Живые тёзки у родителей, которые остаются в проекте (сами узлы снимка ещё не
+    # существуют — у них тёзок быть не может).
+    if not live_node_ids:
+        return
+    live_docs = {
+        (nid, name)
+        for nid, name in db.query(NodeDoc.node_id, NodeDoc.name).filter(NodeDoc.node_id.in_(live_node_ids))
+    }
+    for d in snapshot.node_docs:
+        if (d.node_id, d.name) in live_docs:
+            raise RestoreError(f"Схема логики с именем «{d.name}» уже есть у этого объекта", 409)
+    live_tables = {
+        (nid, schema, name)
+        for nid, schema, name in db.query(DbTable.node_id, DbTable.schema_name, DbTable.name).filter(
+            DbTable.node_id.in_(live_node_ids)
+        )
+    }
+    for t in snapshot.db_tables:
+        if (t.node_id, t.schema_name, t.name) in live_tables:
+            raise RestoreError(f"Таблица с именем «{t.name}» уже есть у этого объекта", 409)
+    live_channels = {
+        (nid, group, name)
+        for nid, group, name in db.query(
+            BrokerChannel.node_id, BrokerChannel.group_name, BrokerChannel.name
+        ).filter(BrokerChannel.node_id.in_(live_node_ids))
+    }
+    for c in snapshot.broker_channels:
+        if (c.node_id, c.group_name, c.name) in live_channels:
+            raise RestoreError(f"Канал с именем «{c.name}» уже есть у этого объекта", 409)
+    live_params = {
+        (nid, name)
+        for nid, name in db.query(ConfigParam.node_id, ConfigParam.name).filter(
+            ConfigParam.node_id.in_(live_node_ids)
+        )
+    }
+    for p in snapshot.config_params:
+        if (p.node_id, p.name) in live_params:
+            raise RestoreError(f"Параметр с именем «{p.name}» уже есть у этого объекта", 409)
+
+
+def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
+    """Проверить снимок ДО записи: каждая ссылка (родитель узла, владелец дока/таблицы/
+    канала/параметра, концы рёбер, вид раскладки, таблица колонки, канал поля) ведёт либо
+    внутрь снимка, либо на живую строку ЭТОГО проекта. Снимок приходит от клиента, и без
+    этой проверки редактор одного проекта писал строки на узлы другого (аудит 2026-10,
+    S1). Заодно — цикл родителей (S2) и дубли имён (S9)."""
+    _check_no_parent_cycle(snapshot)
+    ids = {n.id for n in snapshot.nodes}
+
+    # Ссылки на узлы вне снимка — одним запросом по проекту.
+    node_refs: set[uuid.UUID] = set()
+    node_refs.update(n.parent_id for n in snapshot.nodes if n.parent_id is not None)
+    node_refs.update(d.node_id for d in snapshot.node_docs)
+    node_refs.update(t.node_id for t in snapshot.db_tables)
+    node_refs.update(c.node_id for c in snapshot.broker_channels)
+    node_refs.update(p.node_id for p in snapshot.config_params)
+    node_refs.update(e.source_id for e in snapshot.edges)
+    node_refs.update(e.target_id for e in snapshot.edges)
+    node_refs.update(it.view_id for it in snapshot.layout_items if it.view_id is not None)
+    outside = node_refs - ids
+    live_nodes: set[uuid.UUID] = set()
+    if outside:
+        live_nodes = {
+            nid
+            for (nid,) in db.query(Node.id).filter(Node.id.in_(outside), Node.project_id == project_id)
+        }
+        if outside - live_nodes:
+            raise RestoreError(FOREIGN_REF_DETAIL)
+
+    # Таблицы колонок и каналы полей — внутри снимка либо живые у узлов проекта.
+    table_ids = {t.id for t in snapshot.db_tables}
+    column_tables = {c.table_id for c in snapshot.db_columns} - table_ids
+    if column_tables:
+        live_tables = {
+            tid
+            for (tid,) in db.query(DbTable.id)
+            .join(Node, Node.id == DbTable.node_id)
+            .filter(DbTable.id.in_(column_tables), Node.project_id == project_id)
+        }
+        if column_tables - live_tables:
+            raise RestoreError(FOREIGN_REF_DETAIL)
+    channel_ids = {c.id for c in snapshot.broker_channels}
+    field_channels = {f.channel_id for f in snapshot.channel_fields} - channel_ids
+    if field_channels:
+        live_channels = {
+            cid
+            for (cid,) in db.query(BrokerChannel.id)
+            .join(Node, Node.id == BrokerChannel.node_id)
+            .filter(BrokerChannel.id.in_(field_channels), Node.project_id == project_id)
+        }
+        if field_channels - live_channels:
+            raise RestoreError(FOREIGN_REF_DETAIL)
+
+    _check_unique_names(db, snapshot, live_nodes)
+
+
 def restore_from_snapshot(
     db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID
 ) -> None:
@@ -169,13 +312,16 @@ def restore_from_snapshot(
     Строки собираются из ПОЛЕЙ СНИМКА целиком (model_dump), а не перечнем: поле,
     добавленное в снимок, доезжает до строки само.
     """
+    validate_snapshot(db, snapshot, project_id)
     by_id = {n.id: n for n in snapshot.nodes}
 
     def depth(n: NodeSnapshot) -> int:
         d = 0
         cur = n
-        while cur.parent_id is not None and cur.parent_id in by_id:
+        seen = {n.id}  # цикл отсечён валидацией; страховка от зависания на всякий случай
+        while cur.parent_id is not None and cur.parent_id in by_id and cur.parent_id not in seen:
             cur = by_id[cur.parent_id]
+            seen.add(cur.id)
             d += 1
         return d
 
@@ -191,7 +337,7 @@ def restore_from_snapshot(
     for ts in snapshot.db_tables:
         db.add(DbTable(**ts.model_dump()))
     db.flush()
-    _restore_db_columns(db, snapshot)
+    _restore_db_columns(db, snapshot, project_id)
 
     # Структура брокера: каналы до полей (FK channel_id).
     for cs in snapshot.broker_channels:
@@ -215,7 +361,7 @@ def restore_from_snapshot(
     db.commit()
 
 
-def _restore_db_columns(db: Session, snapshot: DeletionSnapshot) -> None:
+def _restore_db_columns(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
     """Колонки таблиц — В ДВА ПРОХОДА из-за ссылки колонка→колонка.
 
     references_column_id — внешний ключ КАРТЫ (ER-связь): его цель лежит в другой
@@ -232,8 +378,17 @@ def _restore_db_columns(db: Session, snapshot: DeletionSnapshot) -> None:
         return
     restored = {cs.id for cs in snapshot.db_columns}
     outside = {target for target in refs.values() if target not in restored}
+    # Цель вне снимка обязана быть живой И принадлежать проекту: ER-ссылка в чужой
+    # проект — та же утечка изоляции, что и чужой node_id (аудит 2026-10, S1).
     alive = (
-        {c for (c,) in db.query(DbColumn.id).filter(DbColumn.id.in_(outside)).all()}
+        {
+            c
+            for (c,) in db.query(DbColumn.id)
+            .join(DbTable, DbTable.id == DbColumn.table_id)
+            .join(Node, Node.id == DbTable.node_id)
+            .filter(DbColumn.id.in_(outside), Node.project_id == project_id)
+            .all()
+        }
         if outside
         else set()
     )

@@ -169,7 +169,12 @@ def restore_nodes(
                 status_code=409, detail="Родитель удалённого узла больше не существует"
             )
     # Восстанавливаем в текущий проект: всем воссоздаваемым узлам/связям проставляем project_id.
-    restore.restore_from_snapshot(db, snapshot, project_id=project.id)
+    try:
+        restore.restore_from_snapshot(db, snapshot, project_id=project.id)
+    except restore.RestoreError as e:
+        # Чужие ссылки/цикл — 422, дубль имени — 409 (см. restore.validate_snapshot).
+        db.rollback()
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
     # Fence видам, чей мир пополнился извне поддерева: родительские виды корней
     # снимка + виды восстановленных строк раскладки вне снимка (гостевые позиции).
     # Виды ВНУТРИ снимка воссозданы заново — их никто не наблюдал, бамп не нужен.

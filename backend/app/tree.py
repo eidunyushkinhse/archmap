@@ -27,10 +27,12 @@ def ancestors(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> list[Ance
     chain: list[AncestorRef] = []
     current = all_nodes.get(node_id)
     parent_id = current.parent_id if current else None
-    while parent_id is not None:
+    seen = {node_id}  # цикл в данных не должен вешать запрос (аудит 2026-10, S2)
+    while parent_id is not None and parent_id not in seen:
         parent = all_nodes.get(parent_id)
         if parent is None:
             break
+        seen.add(parent.id)
         chain.append(AncestorRef(id=parent.id, name=parent.name, is_external=parent.is_external))
         parent_id = parent.parent_id
     chain.reverse()  # корень → непосредственный родитель
@@ -41,8 +43,10 @@ def node_depth(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> int:
     """Глубина узла в дереве (корень = 0)."""
     depth = 0
     current = all_nodes.get(node_id)
-    while current and current.parent_id is not None:
+    seen = {node_id}  # см. ancestors: защита от цикла в данных
+    while current and current.parent_id is not None and current.parent_id not in seen:
         depth += 1
+        seen.add(current.parent_id)
         current = all_nodes.get(current.parent_id)
     return depth
 
