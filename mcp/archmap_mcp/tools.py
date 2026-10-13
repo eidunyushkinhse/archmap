@@ -39,8 +39,11 @@ from __future__ import annotations
 
 import io
 import json as jsonlib
+import os
+import tempfile
 import uuid as uuidlib
 import zipfile
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -343,6 +346,51 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     return f"# Проект «{pname}» — семантический экспорт\n{data.get('content', '')}"
 
 
+# Пределы чтения с диска и из ответа (аудит P-11): файл ввоза больше предела запроса
+# бэкенда (MAX_REQUEST_MB) сервер всё равно отвергнет — незачем тянуть его в память.
+MAX_INPUT_BYTES = 64 * 1024 * 1024
+MAX_MANIFEST_BYTES = 1024 * 1024
+
+
+def _export_target(raw: str, export_dir: str, overwrite: bool) -> Path:
+    """Куда писать архив (аудит P-10): путь задаёт модель, поэтому — только файл .zip,
+    не символическая ссылка (через висячую ссылку перезаписался бы чужой файл) и, если
+    задан ARCHMAP_EXPORT_DIR, только внутри него (относительный путь — от него же)."""
+    path = Path(raw).expanduser()
+    if export_dir:
+        root = Path(export_dir).expanduser().resolve()
+        path = path if path.is_absolute() else root / path
+        if not path.resolve().is_relative_to(root):
+            raise ArchMapError(f"out_path {path}: архив пишется только внутри ARCHMAP_EXPORT_DIR={root}.")
+    if path.suffix.lower() != ".zip":
+        raise ArchMapError(f"out_path {path}: архив проекта пишется в файл .zip.")
+    if path.is_symlink():
+        raise ArchMapError(f"out_path {path} — символическая ссылка; укажите обычный файл.")
+    if path.exists() and not path.is_file():
+        raise ArchMapError(f"out_path {path} — не файл.")
+    if path.exists() and not overwrite:
+        raise ArchMapError(
+            f"Файл {path} уже существует. Перезапись только явным overwrite=true "
+            "или укажите другой out_path."
+        )
+    return path
+
+
+def _write_atomic(path: Path, payload: bytes) -> None:
+    """Через временный файл рядом и os.replace: оборванная запись не оставляет на месте
+    архива огрызок. Права 600 — в архиве весь проект."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".part")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
+        os.replace(tmp, path)
+    except BaseException:
+        with suppress(FileNotFoundError):
+            os.unlink(tmp)
+        raise
+
+
 async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
     """Полный архив знания проекта (zip) — В ФАЙЛ на диске агента.
 
@@ -353,25 +401,23 @@ async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
     оно ASCII-огрызок, истинное имя проекта живёт в манифесте.
     """
     pid, pname = await resolve_project(client, args["project"])
-    path = Path(str(args["out_path"])).expanduser()
-    if path.exists() and not args.get("overwrite"):
-        raise ArchMapError(
-            f"Файл {path} уже существует. Перезапись только явным overwrite=true "
-            "или укажите другой out_path."
-        )
+    path = _export_target(str(args["out_path"]), client.config.export_dir, bool(args.get("overwrite")))
 
     payload = await client.request_bytes("GET", "/export/archive", project_id=pid)
     try:
         with zipfile.ZipFile(io.BytesIO(payload)) as zf:
             names = zf.namelist()
-            manifest_raw = zf.read("manifest.yaml").decode("utf-8") if "manifest.yaml" in names else ""
+            manifest_raw = ""
+            if "manifest.yaml" in names:
+                if zf.getinfo("manifest.yaml").file_size > MAX_MANIFEST_BYTES:
+                    raise ArchMapError(f"Манифест архива проекта «{pname}» больше 1 МБ — это не архив ArchMap.")
+                manifest_raw = zf.read("manifest.yaml").decode("utf-8")
     except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as exc:
         raise ArchMapError(f"ArchMap вернул не архив проекта «{pname}»: {exc}") from exc
     parsed = yaml.safe_load(manifest_raw) if manifest_raw else {}
     manifest: dict[str, Any] = parsed if isinstance(parsed, dict) else {}
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(payload)
+    _write_atomic(path, payload)
     return render.archive_summary(
         manifest, files=len(names), size=len(payload), path=str(path)
     )
@@ -421,6 +467,17 @@ ZIP_MIME = "application/zip"
 INPUT_SUFFIXES = {".yaml": YAML_MIME, ".yml": YAML_MIME, ".zip": ZIP_MIME}
 
 
+def _read_input(path: Path, used: int) -> bytes:
+    """Файл ввоза с диска — с проверкой размера ДО чтения (used — сколько уже набрано)."""
+    size = path.stat().st_size
+    if used + size > MAX_INPUT_BYTES:
+        raise ArchMapError(
+            f"Файл {path}: входы ввоза вместе больше {MAX_INPUT_BYTES // 1024 // 1024} МБ — "
+            "столько ArchMap за один запрос не принимает."
+        )
+    return path.read_bytes()
+
+
 def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
     """Входы единого ввоза → multipart-файлы В ПОРЯДКЕ: сначала files, потом paths.
 
@@ -432,9 +489,12 @@ def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
     через контекст модели base64-ом расточительно.
     """
     out: list[tuple[str, tuple[str, bytes, str]]] = []
+    used = 0
     for i, f in enumerate(args.get("files") or [], 1):
         name = str(f.get("name") or f"вход-{i}.yaml")
-        out.append(("files", (name, str(f.get("content", "")).encode("utf-8"), YAML_MIME)))
+        content = str(f.get("content", "")).encode("utf-8")
+        used += len(content)
+        out.append(("files", (name, content, YAML_MIME)))
     for raw in args.get("paths") or []:
         path = Path(str(raw)).expanduser()
         if not path.is_file():
@@ -444,7 +504,9 @@ def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
             raise ArchMapError(
                 f"Файл {path}: ввозятся только .yaml/.yml (схема C4) и .zip (архив знания)."
             )
-        out.append(("files", (path.name, path.read_bytes(), mime)))
+        data = _read_input(path, used)
+        used += len(data)
+        out.append(("files", (path.name, data, mime)))
     if not out:
         raise ArchMapError(
             "Не передан ни один вход: files — YAML текстом, paths — файлы .yaml/.zip с диска."
@@ -460,6 +522,7 @@ def _archives(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
     пропаж и возвратов, а не мердж архивов; бэкенд такой вход и не примет.
     """
     out: list[tuple[str, tuple[str, bytes, str]]] = []
+    used = 0
     for raw in args.get("paths") or []:
         path = Path(str(raw)).expanduser()
         if not path.is_file():
@@ -469,7 +532,9 @@ def _archives(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
                 f"Файл {path}: к живому проекту догружаются только .zip-архивы знания. "
                 "YAML схемы заливают синком — archmap_sync_preview / archmap_sync_apply."
             )
-        out.append(("files", (path.name, path.read_bytes(), ZIP_MIME)))
+        data = _read_input(path, used)
+        used += len(data)
+        out.append(("files", (path.name, data, ZIP_MIME)))
     if not out:
         raise ArchMapError(
             "Не передан ни один архив: paths — файлы .zip с диска. YAML к живому "
@@ -1102,7 +1167,7 @@ TOOLS: list[dict[str, Any]] = [
                 "project": PROJECT_ARG,
                 "out_path": {
                     "type": "string",
-                    "description": "Куда записать zip (путь на машине агента). Каталоги создаются.",
+                    "description": "Куда записать архив: файл .zip на машине агента (символическая ссылка не годится). Каталоги создаются. Если на сервере задан ARCHMAP_EXPORT_DIR — путь внутри него, относительный считается от него.",
                 },
                 "overwrite": {
                     "type": "boolean",

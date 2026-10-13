@@ -129,3 +129,77 @@ async def test_не_архив_в_ответе_даёт_понятную_оши�
         )
 
     assert not out.exists()  # мусор на диск не кладём
+
+
+# ── Куда пишется архив (аудит P-10) ─────────────────────────────────────────
+
+
+async def test_архив_пишется_только_в_zip(client: ArchMapClient, api: FakeApi, tmp_path: Path) -> None:
+    serve(api, make_archive())
+    out = tmp_path / ".bashrc"
+
+    with pytest.raises(ArchMapError, match=r"\.zip"):
+        await tools.call("archmap_export_archive", {"project": PROJECT_ID, "out_path": str(out)}, client)
+
+    assert not out.exists()
+
+
+async def test_символическая_ссылка_не_перезаписывает_цель(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    # Висячая ссылка: exists() у неё False, и прежняя проверка пропускала запись «сквозь» неё.
+    serve(api, make_archive())
+    target = tmp_path / "чужой.txt"
+    link = tmp_path / "arch.zip"
+    link.symlink_to(target)
+
+    with pytest.raises(ArchMapError, match="символическая ссылка"):
+        await tools.call(
+            "archmap_export_archive",
+            {"project": PROJECT_ID, "out_path": str(link), "overwrite": True},
+            client,
+        )
+
+    assert not target.exists()
+
+
+async def test_архив_пишется_целиком_с_правами_600_без_временных_файлов(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    payload = make_archive()
+    serve(api, payload)
+    out = tmp_path / "arch.zip"
+
+    await tools.call("archmap_export_archive", {"project": PROJECT_ID, "out_path": str(out)}, client)
+
+    assert out.read_bytes() == payload
+    assert out.stat().st_mode & 0o777 == 0o600
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["arch.zip"]
+
+
+async def test_каталог_экспорта_ограничивает_путь(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    serve(api, make_archive())
+    root = tmp_path / "exports"
+    client.config.export_dir = str(root)
+
+    await tools.call("archmap_export_archive", {"project": PROJECT_ID, "out_path": "a/arch.zip"}, client)
+    assert (root / "a" / "arch.zip").is_file()  # относительный — от каталога экспорта
+
+    for outside in (str(tmp_path / "arch.zip"), "../arch.zip"):
+        with pytest.raises(ArchMapError, match="ARCHMAP_EXPORT_DIR"):
+            await tools.call("archmap_export_archive", {"project": PROJECT_ID, "out_path": outside}, client)
+    assert not (tmp_path / "arch.zip").exists()
+
+
+async def test_огромный_манифест_не_читается(client: ArchMapClient, api: FakeApi, tmp_path: Path) -> None:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.yaml", "x" * (tools.MAX_MANIFEST_BYTES + 1))
+    serve(api, buf.getvalue())
+    out = tmp_path / "arch.zip"
+
+    with pytest.raises(ArchMapError, match="Манифест"):
+        await tools.call("archmap_export_archive", {"project": PROJECT_ID, "out_path": str(out)}, client)
+    assert not out.exists()

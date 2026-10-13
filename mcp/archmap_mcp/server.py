@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import traceback
 from typing import Any
 
 import mcp.server.stdio
@@ -21,7 +22,7 @@ from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 SERVER_NAME = "archmap"
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 
 def build_server(client: ArchMapClient) -> Server:  # type: ignore[type-arg]
@@ -40,24 +41,32 @@ def build_server(client: ArchMapClient) -> Server:  # type: ignore[type-arg]
 
     @server.call_tool()  # type: ignore[no-untyped-call, misc]
     async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
-        missing = client.config.missing()
-        if missing:
-            return [
-                types.TextContent(
-                    type="text",
-                    text=(
-                        "ArchMap не настроен: не заданы " + ", ".join(missing) + ". "
-                        "Впишите их в mcp/.env (см. mcp/README.md) и перезапустите клиент."
-                    ),
-                )
-            ]
-        try:
-            text = await tools.call(name, arguments or {}, client)
-        except ArchMapError as exc:
-            return [types.TextContent(type="text", text=str(exc))]
-        return [types.TextContent(type="text", text=text)]
+        return [types.TextContent(type="text", text=await answer(client, name, arguments or {}))]
 
     return server
+
+
+async def answer(client: ArchMapClient, name: str, arguments: dict[str, Any]) -> str:
+    """Текст ответа инструмента — и при успехе, и при отказе: агент читает его как есть."""
+    missing = client.config.missing()
+    if missing:
+        return (
+            "ArchMap не настроен: не заданы " + ", ".join(missing) + ". "
+            "Впишите их в mcp/.env (см. mcp/README.md) и перезапустите клиент."
+        )
+    try:
+        return await tools.call(name, arguments, client)
+    except ArchMapError as exc:
+        return str(exc)
+    except Exception as exc:
+        # Не отказ ArchMap, а сбой самого сервера (неожиданный ответ, ошибка в коде):
+        # голое «'id'» от KeyError модель приняла бы за ответ (аудит P-9). Стек — в
+        # stderr, он уходит в журнал клиента.
+        traceback.print_exc(file=sys.stderr)
+        return (
+            f"Сбой MCP-сервера ArchMap в инструменте {name}: {type(exc).__name__}: {exc}. "
+            "Это не ответ ArchMap; подробности — в журнале MCP-клиента."
+        )
 
 
 async def main() -> None:

@@ -189,3 +189,29 @@ async def test_отказ_на_бинарном_пути_переводится_
         await client.request_bytes("GET", "/export/archive", project_id=PROJECT_ID)
 
     assert "Конфликт версий" in str(exc.value)
+
+
+def test_env_файл_с_bom_и_export(tmp_path) -> None:
+    # Блокнот Windows пишет BOM, shell-привычка — «export» (аудит P-8).
+    from archmap_mcp.client import load_env_file
+
+    env = tmp_path / ".env"
+    env.write_bytes("﻿ARCHMAP_URL=http://a.test\nexport ARCHMAP_USERNAME='arch'\n# x=1\n".encode())
+
+    assert load_env_file(env) == {"ARCHMAP_URL": "http://a.test", "ARCHMAP_USERNAME": "arch"}
+
+
+async def test_сбой_инструмента_отвечает_текстом_а_не_голым_исключением(
+    client: ArchMapClient, monkeypatch
+) -> None:
+    from archmap_mcp import server, tools
+
+    async def broken(_name: str, _args: dict, _client: ArchMapClient) -> str:
+        raise KeyError("id")
+
+    monkeypatch.setattr(tools, "call", broken)
+
+    text = await server.answer(client, "archmap_node", {})
+
+    assert text.startswith("Сбой MCP-сервера ArchMap в инструменте archmap_node: KeyError")
+    assert "не ответ ArchMap" in text

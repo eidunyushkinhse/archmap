@@ -38,8 +38,10 @@ def load_env_file(path: Path) -> dict[str, str]:
     values: dict[str, str] = {}
     if not path.is_file():
         return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
+    # utf-8-sig: Блокнот Windows пишет BOM, и без этого первая строка читалась бы как
+    # «\ufeffARCHMAP_URL». «export KEY=…» — привычка из shell-файлов (аудит P-8).
+    for raw in path.read_text(encoding="utf-8-sig").splitlines():
+        line = raw.strip().removeprefix("export ").strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, _, value = line.partition("=")
@@ -61,6 +63,8 @@ class Config:
         self.base_url = get("ARCHMAP_URL", "http://localhost:8000").rstrip("/")
         self.username = get("ARCHMAP_USERNAME")
         self.password = get("ARCHMAP_PASSWORD")
+        # Каталог, вне которого архив проекта не пишется (пусто — без ограничения).
+        self.export_dir = get("ARCHMAP_EXPORT_DIR")
 
     def missing(self) -> list[str]:
         return [

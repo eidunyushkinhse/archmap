@@ -313,3 +313,23 @@ async def test_заглушки_каналов_по_связям_названы_
         "archmap_import_apply", {"files": [{"name": "a.yaml", "content": "x"}], "name": "Z"}, client
     )
     assert "заглуш" not in out
+
+
+# ── Размер входов с диска (аудит P-11) ──────────────────────────────────────
+
+
+async def test_входы_больше_предела_не_читаются(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Предел проверяется по размеру файла ДО чтения и по сумме входов одного запроса.
+    monkeypatch.setattr(tools, "MAX_INPUT_BYTES", 100)
+    small = tmp_path / "a.yaml"
+    small.write_text("x" * 60)
+    other = tmp_path / "b.yaml"
+    other.write_text("y" * 60)
+    calls = len(api.calls)
+
+    with pytest.raises(ArchMapError, match="больше"):
+        await tools.call("archmap_import_preview", {"paths": [str(small), str(other)]}, client)
+
+    assert len(api.calls) == calls  # до сервера не дошло

@@ -101,8 +101,16 @@ python3 -m venv venv
 
 ## Настройка клиента
 
-Добавьте в конфиг MCP-клиента (для Claude Code — `.mcp.json` в корне проекта,
-для Claude Desktop — `claude_desktop_config.json`):
+Учётка — в файле `mcp/.env` рядом с сервером (он в `.gitignore`):
+
+```bash
+cp mcp/.env.example mcp/.env   # и впишите логин и пароль
+```
+
+**Не кладите пароль в конфиг MCP-клиента.** У Claude Code это `.mcp.json` в корне
+проекта, и он трекается git: пароль уехал бы в репозиторий. В конфиг клиента — только
+запуск сервера (для Claude Code — `.mcp.json`, для Claude Desktop —
+`claude_desktop_config.json`):
 
 ```json
 {
@@ -111,20 +119,21 @@ python3 -m venv venv
       "command": "/абсолютный/путь/mcp/venv/bin/python",
       "args": ["-m", "archmap_mcp.server"],
       "env": {
-        "PYTHONPATH": "/абсолютный/путь/mcp",
-        "ARCHMAP_URL": "http://localhost:8000",
-        "ARCHMAP_USERNAME": "ваш-логин",
-        "ARCHMAP_PASSWORD": "ваш-пароль"
+        "PYTHONPATH": "/абсолютный/путь/mcp"
       }
     }
   }
 }
 ```
 
-Переменные окружения:
+Переменные (в `mcp/.env`; настоящее окружение процесса их переопределяет):
 
 - `ARCHMAP_URL` — адрес бэкенда, по умолчанию `http://localhost:8000`;
-- `ARCHMAP_USERNAME`, `ARCHMAP_PASSWORD` — учётка ArchMap, **обязательны**.
+- `ARCHMAP_USERNAME`, `ARCHMAP_PASSWORD` — учётка ArchMap, **обязательны**;
+- `ARCHMAP_EXPORT_DIR` — необязательно: каталог, вне которого `archmap_export_archive`
+  архив не пишет (относительный `out_path` считается от него). Без неё архив пишется
+  куда скажет агент, но только в файл `.zip`, не через символическую ссылку и без
+  перезаписи без `overwrite=true`.
 
 Токен сервер добывает сам и держит в памяти процесса, перелогиниваясь при
 истечении: выдачи JWT в интерфейсе нет, и просить токен у человека значило бы
