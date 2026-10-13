@@ -9,7 +9,7 @@
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-VERSION="$(cat "$SRC/VERSION")"
+VERSION="$(tr -d '[:space:]' < "$SRC/VERSION" 2>/dev/null || true)"
 # Пути переопределяются окружением — так установку проверяют без root во временном каталоге
 PREFIX="${ARCHMAP_PREFIX:-/opt/archmap}"
 ETC="${ARCHMAP_ETC:-/etc/archmap}"
@@ -24,6 +24,11 @@ NGINX_MARK="# ArchMap: сгенерировано deploy/install.sh"
 say()  { printf '\033[1;36m[archmap]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[archmap] ВНИМАНИЕ:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[archmap] ОШИБКА:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Версия — имя каталога релиза, который ниже удаляется и пересоздаётся: пустой VERSION
+# превратил бы `rm -rf releases/$VERSION` в удаление всех релизов (аудит P-2).
+[[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$ ]] \
+  || die "файл VERSION поставки пуст или испорчен («$VERSION»): пересоберите поставку"
 
 SERVER_NAME=""; TLS_CERT=""; TLS_KEY=""; WITH_NGINX=1; WITH_SYSTEMD=1
 while [ $# -gt 0 ]; do
@@ -140,17 +145,14 @@ mv -T "$PREFIX/current.new" "$PREFIX/current"
 say "Текущий релиз: $VERSION${PREV:+ (был ${PREV#releases/})}"
 
 # ── 7. Служба systemd ────────────────────────────────────────────────────────────
-mkdir -p "$UNIT_DIR"
-sed -e "s|__PREFIX__|$PREFIX|g" -e "s|__ETC__|$ETC|g" -e "s|__USER__|$SVC_USER|g" \
-  "$REL/deploy/archmap.service" > "$UNIT_DIR/archmap.service"
-port="$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import runenv
-print(runenv.read_env(sys.argv[2]).get("ARCHMAP_PORT", "8000"))' "$REL/deploy" "$ENV_FILE")"
-if [ "$WITH_SYSTEMD" = 1 ] && [ "$IS_ROOT" = 1 ]; then
-  systemctl daemon-reload
-  systemctl enable --quiet archmap
-  systemctl restart archmap
-  say "Служба archmap перезапущена, жду ответа на 127.0.0.1:$port…"
-  if ! "$PY" - "$port" <<'PYEOF'
+# Юнит — из каталога релиза: при откате возвращается юнит прежнего релиза.
+render_unit() {
+  sed -e "s|__PREFIX__|$PREFIX|g" -e "s|__ETC__|$ETC|g" -e "s|__USER__|$SVC_USER|g" \
+    "$1/deploy/archmap.service" > "$UNIT_DIR/archmap.service"
+}
+# Служба ответила на /ready (база видна) за минуту
+wait_ready() {
+  "$PY" - "$1" <<'PYEOF'
 import sys, time, urllib.request
 for _ in range(60):
     try:
@@ -161,8 +163,37 @@ for _ in range(60):
         time.sleep(1)
 sys.exit(1)
 PYEOF
-  then
-    die "служба не ответила за минуту или не видит базу (/ready): journalctl -u archmap -n 50 --no-pager"
+}
+# Новый релиз не поднялся — вернуть прежний (аудит P-1): иначе сервис лежал бы до
+# ручного переключения. Схему база уже получила новую: миграции ArchMap аддитивные,
+# прежний код с ней обычно работает; если нет — восстановление базы из копии.
+rollback_release() {
+  if [ -z "$PREV" ] || [ "$PREV" = "releases/$VERSION" ] || [ ! -d "$PREFIX/$PREV" ]; then
+    warn "прежнего релиза нет — откатывать не на что"
+    return 0
+  fi
+  ln -sfn "$PREV" "$PREFIX/current.new"
+  mv -T "$PREFIX/current.new" "$PREFIX/current"
+  render_unit "$PREFIX/$PREV"
+  systemctl daemon-reload
+  if systemctl restart archmap && wait_ready "$port"; then
+    warn "вернул прежний релиз ${PREV#releases/}, он отвечает"
+  else
+    warn "вернул прежний релиз ${PREV#releases/}, но и он не отвечает: проверьте базу и журнал"
+  fi
+}
+mkdir -p "$UNIT_DIR"
+render_unit "$REL"
+port="$("$PY" -c 'import sys; sys.path.insert(0, sys.argv[1]); import runenv
+print(runenv.read_env(sys.argv[2]).get("ARCHMAP_PORT", "8000"))' "$REL/deploy" "$ENV_FILE")"
+if [ "$WITH_SYSTEMD" = 1 ] && [ "$IS_ROOT" = 1 ]; then
+  systemctl daemon-reload
+  systemctl enable --quiet archmap
+  say "Перезапускаю службу archmap, жду ответа на 127.0.0.1:$port…"
+  if ! systemctl restart archmap || ! wait_ready "$port"; then
+    warn "новый релиз $VERSION не ответил за минуту или не видит базу (/ready)"
+    rollback_release
+    die "обновление не удалось, причина — в журнале: journalctl -u archmap -n 50 --no-pager"
   fi
   say "Служба отвечает"
 else
