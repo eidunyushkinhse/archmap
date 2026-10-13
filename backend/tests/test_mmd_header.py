@@ -5,6 +5,10 @@
 бы, что агент честно пишет шапку, а мы её молча не читаем.
 """
 
+import itertools
+import re
+import time
+
 from app.mmd_header import (
     MmdHeader,
     example_mmd,
@@ -156,3 +160,36 @@ def test_валидная_схема_не_меняется() -> None:
     )
 
     assert fix_unpaired_brackets(text) == (text, 0)
+
+
+def test_починка_скобок_линейна_на_враждебном_входе() -> None:
+    # Аудит S3: прежний шаблон на «a-a-a-…» без скобки тратил 11 с на 32 КБ (квадратично);
+    # предел файла 2 МБ давал часы CPU одним запросом. Линейный разбор — миллисекунды.
+    hostile = "a-" * 20000 + "\n" + 'A{"' + "x" * 40000 + "\n" + "-" * 40000
+
+    started = time.perf_counter()
+    assert fix_unpaired_brackets(hostile) == (hostile, 0)
+    assert time.perf_counter() - started < 1.0
+
+
+# Прежний (квадратичный) шаблон — эталон поведения: линейный обязан совпадать с ним
+# на каждом коротком входе, включая серии из одних дефисов и ID с дефисом в начале.
+_OLD_UNPAIRED = re.compile(r'(\b[\w-]+)(?:\{("[^"\n]*")\]|\[("[^"\n]*")\})')
+
+
+def _old_fix(text: str) -> tuple[str, int]:
+    def close(m: re.Match[str]) -> str:
+        if m.group(2) is not None:
+            return f"{m.group(1)}{{{m.group(2)}}}"
+        return f"{m.group(1)}[{m.group(3)}]"
+
+    return _OLD_UNPAIRED.subn(close, text)
+
+
+def test_починка_скобок_совпадает_с_прежним_шаблоном() -> None:
+    alphabet = 'aЯ_- {}["\n'
+    for n in range(1, 5):
+        for chars in itertools.product(alphabet, repeat=n):
+            body = "".join(chars)
+            for text in (body, 'x-' + body + '"]', '-' + body + '"}', body + '{"q"]'):
+                assert fix_unpaired_brackets(text) == _old_fix(text), repr(text)
