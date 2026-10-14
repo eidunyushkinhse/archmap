@@ -125,10 +125,8 @@ export function restingFrame(view: TourView): MotionFrame {
   };
 }
 
-/** Пользователь просит без анимаций: слой переключается мгновенно, как без твина. */
-export function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+// Без анимаций по просьбе пользователя слой переключается мгновенно, как без твина.
+export { prefersReducedMotion } from "../../lib/motion";
 
 /**
  * Аниматор слоя: помнит, что нарисовано, и ведёт это к цели кадра. Время — снаружи

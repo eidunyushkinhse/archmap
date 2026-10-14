@@ -8,6 +8,7 @@ import {
   roundedPath, sceneFrame, sceneTAt, SCENE_EDGE_COLOR, SCENE_NODE_H, SCENE_NODE_W, SCENE_VIEWBOX,
 } from "./loginScene";
 import type { SceneContainer, SceneEdge, SceneFrameBox, SceneService } from "./loginScene";
+import { prefersReducedMotion } from "../../lib/motion";
 
 const FONT = "system-ui, 'Segoe UI', Roboto, sans-serif";
 // Цвета обвязки — как у рамки раскрытого контейнера и плашек подписей на холсте
@@ -16,11 +17,6 @@ const FRAME_STROKE = "#9ca3af";
 const PILL_STROKE = "#e5e7eb";
 const FRAME_TITLE = "#64748b";
 const LABEL_TEXT = "#334155";
-
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function"
-    && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
 
 export default function LoginScenePreview() {
   // Настройку читаем один раз при монтировании: страница входа живёт недолго.
