@@ -49,7 +49,7 @@ import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
-import { ReconnectProvider, type RehangEdge, type RehangEnd, type RehangHandlers } from "./graph/ReconnectContext";
+import { ReconnectProvider } from "./graph/ReconnectContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
@@ -58,6 +58,7 @@ import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
 import { useLevelHistory } from "./graph/interaction/useLevelHistory";
 import { useLevelDragLifecycle } from "./graph/interaction/useLevelDragLifecycle";
+import { useLevelRehang } from "./graph/interaction/useLevelRehang";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
@@ -518,32 +519,6 @@ function LevelGraphInner({
     [rfNodes],
   );
 
-  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку», edge.md E1a). Тянуть
-  // можно только конец, упёршийся в рамку (сборка помечает такие рёбра
-  // data.reconnectEnds), и только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные,
-  // кому связь может принадлежать «точнее». Промах мимо такого узла = жест отменён:
-  // ничего не пишем, рендер идёт из прежней раскладки, и конец возвращается на рамку
-  // (связь никогда не остаётся с одним концом). Ручку рисует само ребро на точке
-  // роутера (RehangAnchor, Ф5) и зовёт эти правила через ReconnectProvider.
-  const isValidRehangTarget = useCallback((edge: RehangEdge, end: RehangEnd, nodeId: string): boolean => {
-    // читаем ПОСЛЕДНЮЮ раскладку через ref: колбэк живёт дольше одного прогона
-    const l = layoutLatestRef.current;
-    if (!l || !canStructure) return false;
-    const frameId = end === "source" ? edge.source : edge.target;
-    if (!l.frameEnds.includes(frameId)) return false;
-    const other = end === "source" ? edge.target : edge.source;
-    if (nodeId === other) return false; // сам на себя — не связь
-    const frames = [...l.guestFrames, ...(l.levelFrame ? [l.levelFrame] : [])];
-    const frame = frames.find((f) => f.id === frameId);
-    return frame != null && frame.memberIds.has(nodeId); // цель вне рамки — промах
-  }, [canStructure]);
-  const reconnectFrameEnd = useCallback((edge: RehangEdge, end: RehangEnd, toNodeId: string) => {
-    if (!isValidRehangTarget(edge, end, toNodeId)) return;
-    if (edge.memberIds.length === 0) return;
-    const frameId = end === "source" ? edge.source : edge.target;
-    onReconnectFrameEnd?.(edge.memberIds, end, frameId, toNodeId);
-  }, [isValidRehangTarget, onReconnectFrameEnd]);
-
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
   const {
@@ -556,17 +531,11 @@ function LevelGraphInner({
     onExitUp: (s) => onExitUp?.(s, displayNameOf(s)),
   });
 
-  // Идёт перевес конца (ручка на ребре): класс холста прячет стрелки-глифы протяжки и
-  // включает подсветку допустимой цели. Метка перевеса для потока протяжки — та же,
-  // что ставила RF-ручка (handleReconnectStart/End: иначе отпускание конца на узле
-  // открывало бы ещё и окно «Новая связь»).
-  const [rehanging, setRehanging] = useState(false);
-  const rehangHandlers = useMemo<RehangHandlers>(() => ({
-    isValidTarget: isValidRehangTarget,
-    reconnect: reconnectFrameEnd,
-    onStart: () => { handleReconnectStart(); setRehanging(true); },
-    onEnd: () => { handleReconnectEnd(); setRehanging(false); },
-  }), [isValidRehangTarget, reconnectFrameEnd, handleReconnectStart, handleReconnectEnd]);
+  // Перепривязка конца-в-рамку (edge.md E1a): правила попадания, перевес и признак
+  // «идёт перевес» для класса холста; ручку рисует ребро (RehangAnchor).
+  const { rehanging, rehangHandlers } = useLevelRehang({
+    layoutLatestRef, canStructure, onReconnectFrameEnd, handleReconnectStart, handleReconnectEnd,
+  });
 
   // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
   // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
