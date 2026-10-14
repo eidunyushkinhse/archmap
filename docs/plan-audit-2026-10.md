@@ -13,7 +13,7 @@
 | 1. Зависимости | **сделана** 2026-10-14 на ветке `chore/deps-2026-10`: шаг 1 (независимые бампы, P-5, P-26), шаг 2 FastAPI 0.143/Starlette 1.8/Pydantic 2.14/uvicorn 0.54 d64e1393, шаг 3 фронт (npm audit 15 → 0) 80570098, шаг 4 lock с хэшами df274b81, Dependabot/.nvmrc ba4bd0a4 | бэкенд 2024 → 2026 (две ступени), фронт `npm audit fix`, lock с хэшами, Dependabot |
 | 2. Устойчивость фронтенда | **сделана** 2026-10-14 на ветке `refactor/frontend-robustness`: п.1 R-1 5b1c9ebc, R-15 565170e0, R-7 863e2c44; п.2 R-9/R-10 55d1429b, R-2/R-23 6a4e5b73; п.3 R-8/R-25 701b432d; п.4 R-11 bde86d4a, R-12…R-14 417d0ab5, R-6 b5085f25; п.5 R-27 1f05a1d4, R-24 74b976c0, R-17 e0822ed7, R-16 7a4ecba2 | ErrorBoundary, ошибки загрузки, 401 вне демо, выкат без F5, хранилище, откаты, буфер обмена |
 | 3. Гейты и CI | **сделана** 2026-10-14: CI (permissions, concurrency, timeout, SHA, build, contract, scripts, аудиты) ecdf5862, покрытие 6b30a8e4, ruff/mypy строже e3db76d7, зонды de359bad, инструменты — коммит «tsx, stop.sh, umask». noUncheckedIndexedAccess — оценён и не включён (см. п.3) | permissions/пины/сборка/дрейф api.gen/аудит/coverage; ruff/mypy строже; зонды полигона |
-| 4. Мёртвый код, дубли, документация | не начата | knip/vulture, хелперы-дубли, устаревшие ссылки, CLAUDE.md/QWEN.md/README MCP |
+| 4. Мёртвый код, дубли, документация | **сделана** 2026-10-14: п.1 bda68bd6; п.2 68ed0ab8; п.3 2b77c0eb ed7e0327 821b7452; п.4 94cc0b38 000e8af8 37ef184e 2edee994 102270b1 4d28584f db4efaf1 6d7aa478 fa3e5cea b7c62bfb c2744207 f9490807 55f6da57 53e299fd 3943d2e6; п.5 bbe9f4d4 04625b4b 1352b3d1 b3667a63 9fc167de 87aad1db 4c3d4c25. Отступления (Q-23/Q-36/Q-37 → фаза 5, F-20/F-21 → фаза 7, Q-24, rect/hash, useLocalPref, иконки) — в тексте пунктов 3 и 4 | knip/vulture, хелперы-дубли, устаревшие ссылки, CLAUDE.md/QWEN.md/README MCP |
 | 5. Структура бэкенда | не начата | семейство фактов на общей базе, domain_types, домен из роутеров, распил import_merge/unified_import |
 | 6. Производительность | не начата | кэш индекса проекта, N+1 импортов, выборки, бандл фронта |
 | 7. Структура фронтенда | не начата | god-компоненты (после страховочных тестов), дубли секций и модалок |
@@ -227,6 +227,11 @@
 3. **Хелперы-дубли бэка (Q-21, Q-23, Q-24, Q-25, Q-36, Q-37, Q-43, Q-44).** `app/text.py`,
    `deps.commit_change`, `ViewLayoutItem.parsed`, dataclass'ы вместо кортежей,
    `app/errors.py`, `StrEnum` ролей, `_graph_for`, `demo_limits.preview_excess`.
+   **Сделано (2026-10-14):** `app/text.py` (Q-21), `DocsApplyResult` (Q-25),
+   `preview_excess` и `_level_graph` (Q-43, Q-44). **Отступления:** `commit_change` (Q-23)
+   и тексты 404/409 с `StrEnum` ролей (Q-36, Q-37) уходят в фазу 5 — они меняют сигнатуры
+   роутеров, которые фаза 5 и так пересобирает (`node_or_404`, `check_cas`, Q-5);
+   `ViewLayoutItem.parsed` (Q-24) не делался — модели не должны зависеть от схем API.
 4. **Дубли фронта с готовыми общими кусками (F-11, F-17, F-19…F-23, F-25, F-27…F-29, F-33, F-34, F-62, F-67).**
    `mergeViewLayout` (+ тест), `ui/useToast<T>` и `useCopiedFlag`, `ui/useDismiss`, `Modal title/subtitle` +
    `DialogFooter` + `ConfirmDialog tone`, `ui/useBusyAction`, словари `SHAPE_LABEL`/`STATUS_ORDER`/`KIND_LABEL`
@@ -234,12 +239,41 @@
    `useLocalPref`, иконки только из `ui/icons`, `api/auth.ts` через общий клиент, `factApi`/`importFamilyApi`,
    `mustGet` вместо 21 `!`-disable, `resetSession(notice)`. Параллельно — третий курсор в `createRemoteSyncTick`
    вместо копии поллинга в ProcessWorkspace (F-24) и единый предел размера файла для drop и «Загрузить файлы…» (F-31).
+   **Сделано (2026-10-14):** `mergeViewLayout` с тестом (F-11), тосты на `useToast`/`useMessageToast`
+   (F-17), `ui/useDismiss` для шести одинаковых всплывающих (F-19), словари `components/nodeTerms`
+   (F-22), `lib/emitter` вместо девяти ручных Set (F-23), общий `startPollLoop` (F-24),
+   `lib/motion` (F-25), `tourGeometry.intersect` вместо копии `clip` (F-27), `ui/pageChrome` (F-28),
+   `CollapseIcon` вместо `RailChevron` (F-29), предел размера файла (F-31), `api.anon` для входа,
+   старта демо и настроек (F-33), `factApi`/`importFamilyApi` (F-34), `lib/mustGet` вместо 20 `!`
+   (F-62), `resetSession` (F-67). **Отступления:**
+   - F-20, F-21 (заголовок и футер модалок, `errText`, `ConfirmDialog tone`, `useBusyAction`) —
+     в фазу 7, к дублям модалок: трогают 13 окон, а автоматы `busy` в них различаются по сути
+     (окно закрывается на успехе или остаётся открытым, проверка до запроса);
+   - «другие механизмы» клика вне (фаза захвата у InfoPopover/ObjectCombobox/тура, `pointerdown`
+     у встроенной схемы, подложки модалок) оставлены: это не копии, а разные решения;
+   - F-27: «геометрия прямоугольников ×8» в движке — отрезки и интервалы роутера с разными типами
+     точек, не одна функция; `graph/layout/rect.ts` не заводился. `lib/hash.ts` тоже: `fnv1a` и
+     `djb2` — разные хэши, и один из них входит в отпечаток `ROUTER_VERSION`;
+   - F-28 `useLocalPref`: предпочтения хранятся по-разному (ключ на проект, JSON, строка,
+     переопределение pendingProc) — общий хук сэкономил бы пару строк ценой абстракции;
+   - F-29: остальные «копии иконок» отличаются от общих толщиной, размером или глифом (три точки
+     в ряд против вертикального кебаба) — объединение меняет вид, решать владельцу.
 5. **Документация (P-7, P-12, P-15, P-27, P-28, P-37, P-38, P-39, P-41, P-31, M6, M17).**
    Переписать «Структура проекта» в CLAUDE.md по факту и синхронизировать QWEN.md;
    README MCP (убрать `target`, «три семьи», абзац про CA, описания аргументов);
    `--no-systemd` в `--help`/DEPLOY.md; поля `Settings` в `.env.example`; журналы и
    ротация в DEPLOY.md; `mock-import.yaml` → `scripts/fixtures/`; относительные пути в
    `.mcp.json`; зафиксировать в spec.md осознанные решения по токену/ролям.
+   **Сделано (2026-10-14):** CLAUDE.md «Стек» и «Структура проекта» по факту, а QWEN.md теперь
+   СОБИРАЕТСЯ из CLAUDE.md скриптом `scripts/agent-docs.py` (`--check` в pre-commit и CI) — отличаются
+   только строки про самого агента, расхождение P-7 больше не накопится; MCP v0.5.2 — `target` у
+   `archmap_docs_prompt` (P-12: README обещал, бэкенд принимал, инструмент не передавал — добавлен в
+   инструмент, а не вычеркнут из README), описания всех 154 аргументов с тестом (P-28), абзац про
+   корпоративный CA (P-27), тексты причин алертов сверяются с панелью (P-38, уже разошлись);
+   `.env.example` со всеми полями Settings (P-39); журналы в DEPLOY.md (P-37); `--no-systemd` (P-15)
+   уже был описан с фазы 0; `scripts/fixtures/mock-import.yaml` (M17); относительные пути в
+   `.mcp.json` и строке статуса (P-31; клиент запускает серверы из корня репозитория); решения по
+   токену и регистрации в spec.md (M6).
 
 ### Фаза 5 — Структура бэкенда (ветками, под 1386 тестами)
 1. **Путь узла (Q-4).** Публичный `NodeIndex` в `node_ref.py`; `routers/nodes` через
@@ -260,6 +294,9 @@
    функции > 150 строк по секционным комментариям; `schemas/alerts|view|transition.py`.
 6. **Тесты (Q-47, Q-48).** `tests/factories.py`; `test_node_ref.py`; прямые тесты
    `apply_sync_plan`; при распиле модулей делить и тесты (Q-49).
+7. **Из фазы 4 (Q-23, Q-36, Q-37).** `deps.commit_change`; тексты 404/409 — константами
+   `app/errors.py`; `StrEnum` ролей — вместе с `domain_types` (п.3), раз роутеры и так
+   пересобираются.
 
 ### Фаза 6 — Производительность
 1. **Индекс проекта (Q-6, Q-20, Q-14).** `app/project_index.py` — LRU по
@@ -309,6 +346,10 @@
 8. **React-мелочи по ходу (F-49…F-56, F-58, F-70, F-71).** `useAsyncResource` везде, где
    async без alive; `useReducer` для файлов пакета; cleanup из ref-колбэков (React 19); CSS
    `:hover` вместо стейта; `key` с version у неуправляемых инпутов; `key` ветвей фрагмента.
+9. **Из фазы 4 (F-20, F-21).** `Modal title/subtitle`, `ui/DialogFooter` с одним порядком кнопок,
+   `ConfirmDialog tone`, `errText` в `ui/styles`, `ui/useBusyAction` — по окну за коммит, с
+   тестом на то, остаётся ли окно открытым после успеха (в этом копии и различаются). Пункт
+   F-62 закрыт в фазе 4 (`lib/mustGet`), решение по `noUncheckedIndexedAccess` — по-прежнему здесь.
 
 Ожидание по фазе: −1500…2000 строк дублей, LevelGraph ≈1150, NodePage ≈450, оболочки
 ProcessCanvas/SequenceDiagram ≈150–300 строк, `eslint-disable` на страницах — 0.
