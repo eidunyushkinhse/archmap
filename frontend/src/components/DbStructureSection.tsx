@@ -342,11 +342,16 @@ function ColumnRow({
       </div>
     );
   }
+  // Поля неуправляемые, версии у колонки нет: ключ — серверное значение (аудит F-55).
+  // Сменилось на сервере (другая сессия, своя запись) — поле пересоздаётся с ним;
+  // отвергнутый ввод остаётся в поле, как у таблиц.
   return (
     <div className="dbs-col">
       <input {...noAutofill("db-structure-section-4")} className="np-field dbs-cname" defaultValue={column.name}
+        key={`n:${column.id}:${column.name}`}
         onBlur={(e) => { if (e.target.value !== column.name) patch({ name: e.target.value }); }} />
       <input {...noAutofill("db-structure-section-5")} className="np-field dbs-ctype" placeholder="тип" defaultValue={column.type}
+        key={`t:${column.id}:${column.type}`}
         onBlur={(e) => { if (e.target.value !== column.type) patch({ type: e.target.value }); }} />
       {/* Подписей «PK» и «NOT NULL» в строках больше нет: их называет шапка, а в
           каждой строке они повторялись столбиком и читались как шум. */}
@@ -365,6 +370,7 @@ function ColumnRow({
       </select>
       <input {...noAutofill("db-structure-section-6")} className="np-field dbs-cdesc" placeholder="смысл значения"
         defaultValue={column.description ?? ""}
+        key={`d:${column.id}:${column.description ?? ""}`}
         onBlur={(e) => {
           if (e.target.value !== (column.description ?? "")) patch({ description: e.target.value });
         }} />

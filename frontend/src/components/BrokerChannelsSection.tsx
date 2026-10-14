@@ -381,11 +381,15 @@ function FieldRow({
       </div>
     );
   }
+  // Поля неуправляемые, версии у поля сообщения нет: ключ — серверное значение (аудит
+  // F-55), как у колонок базы.
   return (
     <div className="bch-field">
       <input {...noAutofill("broker-channels-section-8")} className="np-field bch-fname" defaultValue={field.name}
+        key={`n:${field.id}:${field.name}`}
         onBlur={(e) => { if (e.target.value !== field.name) patch({ name: e.target.value }); }} />
       <input {...noAutofill("broker-channels-section-9")} className="np-field bch-ftype" placeholder="тип" defaultValue={field.type}
+        key={`t:${field.id}:${field.type}`}
         onBlur={(e) => { if (e.target.value !== field.type) patch({ type: e.target.value }); }} />
       {/* Подпись «обяз.» называет шапка — в каждой строке она читалась бы столбиком-шумом. */}
       <input type="checkbox" className="bch-check" checked={field.required}
@@ -395,6 +399,7 @@ function FieldRow({
           перечень значений — это и есть ответ на «что означает это событие». */}
       <input {...noAutofill("broker-channels-section-10")} className="np-field bch-fdesc" placeholder="смысл значения"
         defaultValue={field.description ?? ""}
+        key={`d:${field.id}:${field.description ?? ""}`}
         onBlur={(e) => {
           if (e.target.value !== (field.description ?? "")) patch({ description: e.target.value });
         }} />
