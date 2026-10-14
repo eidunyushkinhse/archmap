@@ -179,3 +179,50 @@ describe("NodeInspector: тогл размещения", () => {
     expect(vi.mocked(nodesApi.update).mock.calls[0][1].is_external).toBe(true);
   });
 });
+
+describe("NodeInspector: правка текстовых полей", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("имя по blur — PATCH всего узла, в историю узел ДО правки, следующая правка от новой версии", async () => {
+    const first = makeNode({ name: "Hosts", version: 4 });
+    const second = makeNode({ name: "Hosts", role: "агент", version: 5 });
+    vi.mocked(nodesApi.update).mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    const before = makeNode();
+    setup(before);
+
+    const имя = screen.getByDisplayValue("Monitored Hosts");
+    await userEvent.clear(имя);
+    await userEvent.type(имя, "Hosts");
+    await userEvent.tab();
+    await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(first, false, before));
+    const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
+    expect(payload).toMatchObject({ name: "Hosts", base_version: 3, shape: "person", status: "existing" });
+
+    await userEvent.type(screen.getByPlaceholderText("сервис, БД, брокер…"), "агент");
+    await userEvent.tab();
+    await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(second, false, first));
+    expect(vi.mocked(nodesApi.update).mock.calls[1][1]).toMatchObject({ role: "агент", base_version: 4 });
+  });
+
+  it("пустое имя по blur откатывается без запроса", async () => {
+    setup(makeNode());
+    const имя = screen.getByDisplayValue("Monitored Hosts");
+    await userEvent.clear(имя);
+    await userEvent.tab();
+    expect(screen.getByDisplayValue("Monitored Hosts")).toBeInTheDocument();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("409 — поля подтянуты с сервера, плашка, в историю ничего", async () => {
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(409, "conflict"));
+    vi.mocked(nodesApi.get).mockResolvedValue(makeNode({ role: "чужая роль", version: 7 }));
+    setup(makeNode());
+
+    await userEvent.type(screen.getByPlaceholderText("сервис, БД, брокер…"), "моя роль");
+    await userEvent.tab();
+
+    expect(await screen.findByText(/изменён в другой сессии/)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("чужая роль")).toBeInTheDocument();
+    expect(cb.onNodeSaved).not.toHaveBeenCalled();
+  });
+});
