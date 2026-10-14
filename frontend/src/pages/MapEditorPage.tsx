@@ -32,6 +32,7 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
+import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
@@ -228,14 +229,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       setLoadError({ error: e, retry });
       return undefined;
     }
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const path: AncestorRef[] = [];
-    let cur: Node | undefined = byId.get(level);
-    while (cur) {
-      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
-    return path;
+    return chainTo(all, level).map(ancestorRef);
   }
 
   // Начальная загрузка: breadcrumb по nodeId + граф уровня
@@ -401,13 +395,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     if (onLevel) { setSelectedObject({ kind: "node", node: onLevel }); return; }
     const all = await nodesApi.getAll();
     if (seq !== inspectSeq.current) return;
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const node = byId.get(id);
+    const node = all.find((n) => n.id === id);
     if (!node) return;
-    const chain: Node[] = [];
-    for (let p = node.parent_id ? byId.get(node.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
-      chain.unshift(p);
-    }
+    const chain = chainTo(all, node.parent_id);
     if (currentParentId === null || chain.some((a) => a.id === currentParentId)) {
       setSelectedObject({ kind: "node", node });
       return;
@@ -417,7 +407,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       ghost: {
         id: node.id, name: node.name, role: node.role, technology: node.technology, is_external: node.is_external,
         shape: node.shape, status: node.status, node_depth: chain.length, has_children: node.has_children,
-        child_count: node.child_count, ancestors: chain.map((a) => ({ id: a.id, name: a.name, is_external: a.is_external })),
+        child_count: node.child_count, ancestors: chain.map(ancestorRef),
         is_ghost: true,
       },
     });

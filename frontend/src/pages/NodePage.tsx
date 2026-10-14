@@ -11,6 +11,7 @@ import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
 import { usePersistenceHost } from "./usePersistenceHost";
+import { ancestorRef, chainTo } from "./ancestorPath";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useRemoteSync } from "./useRemoteSync";
@@ -85,14 +86,7 @@ async function loadNodePage(id: string): Promise<{ node: Node; ancestors: Ancest
     nodesApi.getAll(),
     nodesApi.getEdges(id),
   ]);
-  const byId = new Map(all.map((x) => [x.id, x]));
-  const ancestors: AncestorRef[] = [];
-  let cur = node.parent_id ? byId.get(node.parent_id) : undefined;
-  while (cur) {
-    ancestors.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-  }
-  return { node, ancestors, edges };
+  return { node, ancestors: chainTo(all, node.parent_id).map(ancestorRef), edges };
 }
 
 export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
