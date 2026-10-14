@@ -11,6 +11,7 @@ import BrandLink from "../ui/BrandLink";
 import ConfirmDialog from "../ui/ConfirmDialog";
 import { PlusIcon } from "../ui/icons";
 import "../ui/chrome.css";
+import { useMessageToast } from "./useToast";
 
 /**
  * Экран «Пользователи» (#/admin/users, только администратор): таблица учёток и
@@ -37,7 +38,9 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
   const [dialog, setDialog] = useState<Dialog>(null);
   const [busy, setBusy] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Тост результата действия: таймер с очисткой и продлением (раньше — setTimeout без
+  // очистки, аудит F-17).
+  const [toast, flash] = useMessageToast(2600);
 
   const reload = useCallback(async () => {
     try {
@@ -55,11 +58,6 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- первичная загрузка списка при маунте (reload асинхронно кладёт ответ в стейт)
   useEffect(() => { void reload(); }, [reload]);
-
-  function flash(msg: string) {
-    setToast(msg);
-    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
-  }
 
   function closeDialog() {
     setDialog(null);

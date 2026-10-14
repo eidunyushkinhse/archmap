@@ -31,6 +31,7 @@ import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText, copyTextOrShow } from "../../lib/copyText";
+import { useToast } from "../../pages/useToast";
 
 // Группы превью — в порядке «что сделаем → что уже есть → расхождение». Подписи
 // русские и говорят действием, а не кодом: человек читает их, а не Literal бэка.
@@ -110,7 +111,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   const [rawReport, setRawReport] = useState<ReconImportReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [remarksCopied, setRemarksCopied] = useState(false);
+  const [remarksCopied, flashRemarksCopied] = useToast(2000);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
   const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
@@ -163,8 +164,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
       "а не удаляй из перечня:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {
-      setRemarksCopied(true);
-      setTimeout(() => setRemarksCopied(false), 2000);
+      flashRemarksCopied();
       // Замечания ушли агенту — вернётся исправленная версия, и лежащий в панели
       // файл устареет. Спрашиваем сразу, пока пользователь здесь.
       setAskedFor(pkg.files);

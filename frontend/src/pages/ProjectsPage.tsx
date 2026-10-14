@@ -11,6 +11,7 @@ import ProjectCard from "../components/project/ProjectCard";
 import AccountMenu from "../components/users/AccountMenu";
 import { LogoMark, PlusIcon } from "../ui/icons";
 import { noAutofill } from "../ui/noAutofill";
+import { useMessageToast } from "./useToast";
 
 /**
  * Лендинг «Проекты»: сетка карточек со схемой-превью, метаданными и меню ⋯.
@@ -48,7 +49,9 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
   const [tab, setTab] = useState<Tab>("active");
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Тост результата действия: таймер с очисткой и продлением (раньше — setTimeout без
+  // очистки, аудит F-17).
+  const [toast, flash] = useMessageToast(2600);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,11 +72,6 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- первичная загрузка списков при маунте (reload асинхронно тянет проекты и кладёт в стейт)
   useEffect(() => { void reload(); }, [reload]);
-
-  function flash(msg: string) {
-    setToast(msg);
-    window.setTimeout(() => setToast((t) => (t === msg ? null : t)), 2600);
-  }
 
   const list = tab === "active" ? active : archived;
   const q = query.trim().toLowerCase();

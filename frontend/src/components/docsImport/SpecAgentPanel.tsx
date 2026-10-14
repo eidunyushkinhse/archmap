@@ -17,6 +17,7 @@ import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./age
 import AgentPackageInput from "./AgentPackageInput";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { copyTextOrShow } from "../../lib/copyText";
+import { useToast } from "../../pages/useToast";
 
 interface Props {
   // Узел, для которого агент готовит спеку (скоуп превью и применения).
@@ -32,7 +33,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
   const [rawReport, setRawReport] = useState<DocsImportReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [remarksCopied, setRemarksCopied] = useState(false);
+  const [remarksCopied, flashRemarksCopied] = useToast(2000);
   const seqRef = useRef(0);
 
   const report = pkg.hasContent ? rawReport : null;
@@ -78,8 +79,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
       "Исправь пакет и сообщи, какие файлы изменились:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {
-      setRemarksCopied(true);
-      setTimeout(() => setRemarksCopied(false), 2000);
+      flashRemarksCopied();
       // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
       // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
       setAskedFor(pkg.files);

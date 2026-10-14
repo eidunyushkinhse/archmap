@@ -29,6 +29,7 @@ import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyTextOrShow } from "../../lib/copyText";
 import { DOC_KIND_LABEL, DOC_KIND_ORDER } from "../nodeTerms";
+import { useToast } from "../../pages/useToast";
 
 // Режим панели. «doc» несёт имя схемы, которую обновляет пакет.
 export type DocsAgentPanelMode =
@@ -88,7 +89,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
   // по ссылке — паттерн importSummary.forDocs): чужому отчёту не показываются.
   const [mmdRes, setMmdRes] = useState<{ forReport: DocsImportReport; check: MermaidCheck } | null>(null);
   const [applying, setApplying] = useState(false);
-  const [remarksCopied, setRemarksCopied] = useState(false);
+  const [remarksCopied, flashRemarksCopied] = useToast(2000);
   // Правки строк превью (модалка): ключ — ФАЙЛ-источник (одна схема = один файл
   // .mmd). Уезжают на бэк отдельным полем overrides: манифеста, текст которого
   // раньше переписывался ради правки вида, больше нет (docs/plan-docs-mmd.md).
@@ -229,8 +230,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
       "НЕ удаляй пометки: удаление прячет факт, а не исправляет его:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {
-      setRemarksCopied(true);
-      setTimeout(() => setRemarksCopied(false), 2000);
+      flashRemarksCopied();
       // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
       // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
       setAskedFor(pkg.files);

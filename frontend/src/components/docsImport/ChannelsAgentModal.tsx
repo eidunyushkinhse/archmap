@@ -27,6 +27,7 @@ import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText, copyTextOrShow } from "../../lib/copyText";
+import { useToast } from "../../pages/useToast";
 
 interface Props {
   // Объект, из окна которого открыта дозаливка: к нему уезжают каналы без адреса.
@@ -43,7 +44,7 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
   const [overwrite, setOverwrite] = useState(false);
   const [checking, setChecking] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [remarksCopied, setRemarksCopied] = useState(false);
+  const [remarksCopied, flashRemarksCopied] = useToast(2000);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
   const drop = useFileDrop({ onFiles: pkg.pickFiles, disabled: pkg.files.length >= MAX_FILES });
@@ -98,8 +99,7 @@ export default function ChannelsAgentModal({ nodeId, nodeName, onClose, onApplie
       "а не удаляй из пакета:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {
-      setRemarksCopied(true);
-      setTimeout(() => setRemarksCopied(false), 2000);
+      flashRemarksCopied();
       // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в
       // панели пакет устареет. Спрашиваем сразу, пока пользователь здесь.
       setAskedFor(pkg.files);
