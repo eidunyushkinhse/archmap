@@ -37,15 +37,18 @@ export default function NodeSearchPicker({
   // (clear) сам же зануляет локально — поэтому зеркалящего value→selected эффекта нет.
   useEffect(() => {
     if (!query.trim()) return;
+    // Ответ устаревшего запроса не применяем (аудит F-53): набрали дальше — прежний
+    // поиск, ответивший позже свежего, перетёр бы его результаты.
+    let alive = true;
     const timer = setTimeout(async () => {
       try {
         const data = await nodesApi.search(query);
-        setResults(data);
+        if (alive) setResults(data);
       } catch {
-        setResults([]);
+        if (alive) setResults([]);
       }
     }, 300);
-    return () => clearTimeout(timer);
+    return () => { alive = false; clearTimeout(timer); };
   }, [query]);
 
   // Что показываем в дропдауне: при пустом query — ничего (производное, не стейт).
