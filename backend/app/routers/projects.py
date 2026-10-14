@@ -71,8 +71,9 @@ from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.sync_apply import apply_sync_plan
 from app.sync_plan import SyncPolicies, plan_for
 from app.unified_apply import apply_unified_plan, parse_decisions
-from app.unified_import import UnifiedImportError, build_unified_plan, preview_from_plan
+from app.unified_import import UnifiedImportError, build_unified_plan
 from app.unified_into import apply_into_plan, build_into_plan, into_preview
+from app.unified_preview import preview_from_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
