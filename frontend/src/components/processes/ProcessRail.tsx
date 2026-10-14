@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ProcessListItem } from "../../types";
+import { CollapseIcon } from "../../ui/icons";
 import { IcoFlow, IcoPlus } from "./icons";
 import { pillStyle, pluralMessages, processBadge } from "./processBadge";
 import { BPT } from "./tokens";
@@ -22,25 +23,6 @@ interface Props {
   isArchitect: boolean;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
-}
-
-// Шеврон сворачивания: один значок (двойная стрелка), повёрнут в сторону действия.
-function RailChevron({ dir }: { dir: "left" | "right" }) {
-  return (
-    <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
-      {dir === "left" ? (
-        <>
-          <path d="M11 17 L6 12 L11 7" />
-          <path d="M17 17 L12 12 L17 7" />
-        </>
-      ) : (
-        <>
-          <path d="M13 17 L18 12 L13 7" />
-          <path d="M7 17 L12 12 L7 7" />
-        </>
-      )}
-    </svg>
-  );
 }
 
 export default function ProcessRail({
@@ -79,7 +61,7 @@ export default function ProcessRail({
           <IcoPlus s={16} />
         </button>
         <button onClick={onToggle} title="Развернуть список процессов" style={{ ...railToggle, marginTop: "auto" }}>
-          <RailChevron dir="right" />
+          <CollapseIcon size={15} dir="right" />
         </button>
       </aside>
     );
@@ -177,7 +159,7 @@ export default function ProcessRail({
       </div>
 
       <button onClick={onToggle} title="Свернуть в рейл" style={{ ...railToggle, alignSelf: "flex-end", margin: "4px 12px 10px 0" }}>
-        <RailChevron dir="left" />
+        <CollapseIcon size={15} dir="left" />
       </button>
     </aside>
   );

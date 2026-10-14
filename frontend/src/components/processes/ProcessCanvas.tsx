@@ -57,7 +57,8 @@ interface MessageSnapshot {
   doc_id: string | null;
 }
 
-// Глиф «галочка» для тумблера «Готово» (в icons.tsx чека нет).
+// Глиф «галочка» для тумблера «Готово». Тоньше CheckIcon из ui/icons (тот — для мелких
+// статусов 12–14 px), в пару к соседней IcoEdit.
 function IcoCheck({ s = 15 }: { s?: number }) {
   return (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
