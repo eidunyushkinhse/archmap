@@ -3,7 +3,7 @@
 // файлы пакета), активный файл для редактора, загрузка с диска / вставкой
 // текста / удаление. Имя — идентичность: повторная загрузка файла с тем же
 // именем замещает старый (не плодим дубли).
-import { useState } from "react";
+import { useReducer, useState } from "react";
 import type { DocsFile } from "../../api/docsImport";
 import { fileTooBigMessage } from "../demo/demoLimits";
 import { bytesLimitText, MAX_FILE_BYTES } from "./useFileDrop";
@@ -39,28 +39,63 @@ export interface DocsFilesApi {
   sizeError: string | null;
 }
 
+// Файлы и активный файл — одно состояние (аудит F-50): добавление делает активным
+// последний файл в ТОМ ЖЕ переходе, а не вызовом setState изнутри апдейтера списка
+// (в StrictMode апдейтер выполняется дважды и обязан быть чистым).
+interface FilesState {
+  files: DocsFile[];
+  // Индекс активного файла как его выставили; к границам прижимается при чтении.
+  active: number;
+}
+type FilesAction =
+  | { type: "add"; added: DocsFile[] }
+  | { type: "remove"; i: number }
+  | { type: "text"; i: number; content: string }
+  | { type: "active"; i: number }
+  | { type: "reset" };
+
+const clampActive = (st: FilesState) => Math.min(st.active, st.files.length - 1);
+
+function filesReducer(st: FilesState, a: FilesAction): FilesState {
+  switch (a.type) {
+    case "add": {
+      const merged = [...st.files];
+      for (const f of a.added) {
+        const at = merged.findIndex((x) => x.name === f.name);
+        if (at >= 0) merged[at] = f;
+        else merged.push(f);
+      }
+      const files = merged.slice(0, MAX_FILES);
+      return { files, active: files.length - 1 };
+    }
+    case "remove": {
+      const active = clampActive(st);
+      return {
+        files: st.files.filter((_, k) => k !== a.i),
+        active: Math.max(0, active - (a.i <= active ? 1 : 0)),
+      };
+    }
+    case "text":
+      return { ...st, files: st.files.map((f, k) => (k === a.i ? { ...f, content: a.content } : f)) };
+    case "active":
+      return { ...st, active: a.i };
+    case "reset":
+      return { files: [], active: 0 };
+  }
+}
+
 export function useDocsFiles(): DocsFilesApi {
-  const [files, setFiles] = useState<DocsFile[]>([]);
-  const [activeRaw, setActiveRaw] = useState(0);
+  const [state, dispatch] = useReducer(filesReducer, { files: [], active: 0 });
   const [sizeError, setSizeError] = useState<string | null>(null);
 
-  const active = Math.min(activeRaw, files.length - 1);
+  const { files } = state;
+  const active = clampActive(state);
   const nonEmpty = files.filter((f) => f.content.trim() !== "");
   const hasContent = nonEmpty.length > 0;
 
   function addFiles(added: DocsFile[]) {
     if (!added.length) return;
-    setFiles((prev) => {
-      const merged = [...prev];
-      for (const f of added) {
-        const at = merged.findIndex((x) => x.name === f.name);
-        if (at >= 0) merged[at] = f;
-        else merged.push(f);
-      }
-      const next = merged.slice(0, MAX_FILES);
-      setActiveRaw(next.length - 1);
-      return next;
-    });
+    dispatch({ type: "add", added });
   }
 
   function pickFiles(list: ArrayLike<File> | null) {
@@ -96,21 +131,19 @@ export function useDocsFiles(): DocsFilesApi {
   }
 
   function removeFile(i: number) {
-    setFiles((prev) => prev.filter((_, k) => k !== i));
-    setActiveRaw(Math.max(0, active - (i <= active ? 1 : 0)));
+    dispatch({ type: "remove", i });
   }
 
   function setText(i: number, content: string) {
-    setFiles((prev) => prev.map((f, k) => (k === i ? { ...f, content } : f)));
+    dispatch({ type: "text", i, content });
   }
 
   function setActive(i: number) {
-    setActiveRaw(i);
+    dispatch({ type: "active", i });
   }
 
   function reset() {
-    setFiles([]);
-    setActiveRaw(0);
+    dispatch({ type: "reset" });
     setSizeError(null);
   }
 
