@@ -3,7 +3,7 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
@@ -110,34 +110,47 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
 
-  const reload = useCallback(() => {
+  // Номер последнего чтения процесса (аудит F-49): применяется только ответ последнего
+  // начатого — поздний ответ раннего чтения не перетирает свежее. Оптимистичная правка
+  // (порядок, подпись, рамка, ветви) — тоже «новее» любого чтения в полёте: её ставит
+  // setOptimistic, и ответ, выпущенный до неё, не вернёт на экран прежний порядок.
+  const loadSeqRef = useRef(0);
+  const fetchDetail = useCallback((after?: () => void) => {
+    const seq = ++loadSeqRef.current;
     processesApi
       .get(id)
-      .then((d) => { setDetail(d); onChanged(); })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
-  }, [id, onChanged]);
+      .then((d) => {
+        if (seq === loadSeqRef.current) setDetail(d);
+        after?.();
+      })
+      .catch((e: unknown) => {
+        if (seq === loadSeqRef.current) setError(e instanceof Error ? e.message : "Не удалось загрузить процесс");
+      });
+  }, [id]);
+  const setOptimistic = useCallback((d: ProcessDetail) => {
+    loadSeqRef.current++;
+    setDetail(d);
+  }, []);
+
+  // Перечитать после своей правки и сообщить воркспейсу «мы изменили» (список рейла).
+  const reload = useCallback(() => fetchDetail(onChanged), [fetchDetail, onChanged]);
 
   // Чужая правка (Д9): поллинг воркспейса заметил рост process_rev — перечитываем
   // процесс. Без onChanged: список рейла воркспейс уже перечитал сам, а сигналить
-  // «мы изменили» о чужой правке незачем. 0 — стартовое значение счётчика (маунт).
+  // «мы изменили» о чужой правке незачем. Значение счётчика на маунте чужой правкой не
+  // считается: процесс прочитает первичная загрузка (иначе ремаунт читал его дважды).
+  const seenSyncRev = useRef(syncRev);
   useEffect(() => {
-    if (!syncRev) return;
-    processesApi
-      .get(id)
-      .then(setDetail)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
-  }, [syncRev, id]);
+    if (syncRev === seenSyncRev.current) return;
+    seenSyncRev.current = syncRev;
+    fetchDetail();
+  }, [syncRev, fetchDetail]);
 
   // Первичная загрузка. Смену процесса воркспейс делает через key-remount (свежее
   // состояние оверлеев/истории), поэтому id за время жизни компонента не меняется —
-  // [id] здесь эквивалентно «только маунт». Без синхронного setState в эффекте:
-  // setDetail только в .then; начальный fetch без onChanged (изменений ещё нет).
-  useEffect(() => {
-    processesApi
-      .get(id)
-      .then(setDetail)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить процесс"));
-  }, [id]);
+  // [id] здесь эквивалентно «только маунт». setDetail — только в ответе чтения;
+  // начальный fetch без onChanged (изменений ещё нет).
+  useEffect(() => { fetchDetail(); }, [fetchDetail]);
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
@@ -266,7 +279,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     // и без этого шапки мигнули бы на прежние места до прихода ответа). reload() после
     // API подтвердит порядок; ошибка — перечитает истинное состояние (БД не менялась).
     const orderById = new Map<string, number>(ids.map((pid, i) => [pid, i]));
-    setDetail({
+    setOptimistic({
       ...detail,
       participants: detail.participants.map((p) => ({
         ...p,
@@ -294,7 +307,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     // на прежний порядок между отпусканием и ответом API (onRootUp синхронно
     // сбрасывает состояние жеста).
     const orderById = new Map(ids.map((mid, i) => [mid, i]));
-    setDetail({
+    setOptimistic({
       ...detail,
       messages: detail.messages.map((m) => ({ ...m, order: orderById.get(m.id) ?? m.order })),
     });
@@ -576,7 +589,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     setMsgEdit(null);
     if (next === m.caption) return; // ничего не меняли — не мусорим в истории
     const prev = m.caption;
-    setDetail({
+    setOptimistic({
       ...detail,
       messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
     });
@@ -700,7 +713,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const next = { from_order: sorted[fromRow].order, to_order: sorted[toRow].order };
     const prev = { from_order: frag.from_order, to_order: frag.to_order };
     // Оптимистично: рамка остаётся на новом месте, не мигая обратно до ответа.
-    setDetail({
+    setOptimistic({
       ...detail,
       fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
     });
@@ -724,7 +737,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     // возрастающих границ, а новая ветвь не обязана быть последней.
     const next = orderedBranches(branches);
     const prev = frag.branches.map((b) => ({ start_order: b.start_order, guard: b.guard }));
-    setDetail({
+    setOptimistic({
       ...detail,
       fragments: detail.fragments.map((x) =>
         x.id === fid ? { ...x, branches: next.map((b) => ({ start_order: b.start_order, guard: b.guard ?? null })) } : x,
