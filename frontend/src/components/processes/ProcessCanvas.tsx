@@ -4,7 +4,7 @@
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
 import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
@@ -952,34 +952,18 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
         {/* Самосообщение: ввод подписи внутренней операции */}
         {selfMsg && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setSelfMsg(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  Рефлексивное сообщение · {partById[selfMsg]?.name ?? selfMsg}
-                </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Действие участника над самим собой (без связи в C4) — внутренняя операция.
-                </div>
-                <input
-                  {...noAutofill("process-canvas-1")}
-                  value={selfCaption}
-                  onChange={(e) => setSelfCaption(e.target.value)}
-                  placeholder="напр. валидация заказа"
-                  style={fragInput}
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === "Enter") void createSelfMessage(selfMsg, selfCaption); }}
-                />
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setSelfMsg(null)}>Отмена</button>
-                  <button className="bp-btn-primary" onClick={() => void createSelfMessage(selfMsg, selfCaption)}>
-                    Добавить
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
+          <PromptCard
+            title={`Рефлексивное сообщение · ${partById[selfMsg]?.name ?? selfMsg}`}
+            hint="Действие участника над самим собой (без связи в C4) — внутренняя операция."
+            autofillKey="process-canvas-1"
+            value={selfCaption}
+            onChange={setSelfCaption}
+            placeholder="напр. валидация заказа"
+            inputStyle={fragInput}
+            submitLabel="Добавить"
+            onSubmit={() => void createSelfMessage(selfMsg, selfCaption)}
+            onCancel={() => setSelfMsg(null)}
+          />
         )}
 
         {/* Карточка шага — свой модуль: у неё появилось состояние (каталог схем,
@@ -1050,90 +1034,52 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
         {/* Ветвь «иначе»: условие + снятие ветви */}
         {branchEdit && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setBranchEdit(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  {branchEdit.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
-                </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  {branchEdit.index == null
-                    ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
-                    : `Ветка ${branchEdit.index + 2} у этого alt`}
-                </div>
-                <input
-                  {...noAutofill("process-canvas-2")}
-                  className="bp-input"
-                  value={branchGuard}
-                  onChange={(e) => setBranchGuard(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void saveBranch(); }}
-                  placeholder="условие ветки, напр. «отказ»"
-                  autoFocus
-                />
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  {branchEdit.index != null && (
-                    <button
-                      className="bp-btn-ghost"
-                      style={{ marginRight: "auto", color: "#dc2626" }}
-                      onClick={() => {
-                        const { fid, index } = branchEdit;
-                        const frag = fragById.get(fid);
-                        setBranchEdit(null);
-                        if (frag) void patchBranches(fid, frag.branches.filter((_, k) => k !== index));
-                      }}
-                    >
-                      Убрать ветку
-                    </button>
-                  )}
-                  <button className="bp-btn-ghost" onClick={() => setBranchEdit(null)}>Отмена</button>
-                  <button className="bp-btn-primary" onClick={() => void saveBranch()}>
-                    {branchEdit.index == null ? "Добавить" : "Сохранить"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
+          <PromptCard
+            title={branchEdit.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
+            hint={branchEdit.index == null
+              ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
+              : `Ветка ${branchEdit.index + 2} у этого alt`}
+            autofillKey="process-canvas-2"
+            value={branchGuard}
+            onChange={setBranchGuard}
+            placeholder="условие ветки, напр. «отказ»"
+            inputClassName="bp-input"
+            submitLabel={branchEdit.index == null ? "Добавить" : "Сохранить"}
+            onSubmit={() => void saveBranch()}
+            onCancel={() => setBranchEdit(null)}
+            extra={branchEdit.index != null && (
+              <button
+                className="bp-btn-ghost"
+                style={{ marginRight: "auto", color: "#dc2626" }}
+                onClick={() => {
+                  const { fid, index } = branchEdit;
+                  const frag = fragById.get(fid);
+                  setBranchEdit(null);
+                  if (frag) void patchBranches(fid, frag.branches.filter((_, k) => k !== index));
+                }}
+              >
+                Убрать ветку
+              </button>
+            )}
+          />
         )}
 
         {/* Фрагмент: ввод условия для ВЫБРАННОГО диапазона */}
         {pendingFrag && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setPendingFrag(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>
-                  Фрагмент «{pendingFrag.kind}»
-                </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  {pendingFrag.fromRow === pendingFrag.toRow
-                    ? `Сообщение ${pendingFrag.fromRow + 1}`
-                    : `Сообщения ${pendingFrag.fromRow + 1}–${pendingFrag.toRow + 1}`}
-                  {" "}· условие (показывается у рамки)
-                </div>
-                <input
-                  {...noAutofill("process-canvas-3")}
-                  value={fragGuard}
-                  onChange={(e) => setFragGuard(e.target.value)}
-                  placeholder="напр. оплата прошла"
-                  style={fragInput}
-                  autoFocus
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard);
-                  }}
-                />
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setPendingFrag(null)}>Отмена</button>
-                  <button
-                    className="bp-btn-primary"
-                    onClick={() => void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard)}
-                  >
-                    Добавить
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
+          <PromptCard
+            title={`Фрагмент «${pendingFrag.kind}»`}
+            hint={`${pendingFrag.fromRow === pendingFrag.toRow
+              ? `Сообщение ${pendingFrag.fromRow + 1}`
+              : `Сообщения ${pendingFrag.fromRow + 1}–${pendingFrag.toRow + 1}`} · условие (показывается у рамки)`}
+            autofillKey="process-canvas-3"
+            value={fragGuard}
+            onChange={setFragGuard}
+            placeholder="напр. оплата прошла"
+            inputStyle={fragInput}
+            submitLabel="Добавить"
+            onSubmit={() => void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard)}
+            onCancel={() => setPendingFrag(null)}
+          />
         )}
 
         {/* Подтверждение удаления фрагмента (клик по его шапке) */}
@@ -1281,6 +1227,54 @@ const fragHintBar: CSSProperties = {
   color: "#92591a",
   whiteSpace: "nowrap",
 };
+// Карточка «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
+// фрагмента (аудит F-2: три копии одной разметки). Enter — то же, что основная кнопка;
+// extra — кнопка слева от «Отмена» (у ветки — «Убрать ветку»).
+function PromptCard({
+  title, hint, autofillKey, value, onChange, placeholder, inputStyle, inputClassName,
+  submitLabel, onSubmit, onCancel, extra,
+}: {
+  title: string;
+  hint: string;
+  autofillKey: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  inputStyle?: CSSProperties;
+  inputClassName?: string;
+  submitLabel: string;
+  onSubmit: () => void;
+  onCancel: () => void;
+  extra?: ReactNode;
+}) {
+  return (
+    <>
+      <div style={overlayDim} onClick={onCancel} />
+      <div style={overlayCenter}>
+        <div style={confirmCard}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 4 }}>{title}</div>
+          <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>{hint}</div>
+          <input
+            {...noAutofill(autofillKey)}
+            className={inputClassName}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
+            style={inputStyle}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+            {extra}
+            <button className="bp-btn-ghost" onClick={onCancel}>Отмена</button>
+            <button className="bp-btn-primary" onClick={onSubmit}>{submitLabel}</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 const overlayDim: CSSProperties = { position: "fixed", inset: 0, background: "rgba(15,23,42,.06)", zIndex: 50 };
 const overlayCenter: CSSProperties = {
   position: "fixed",
