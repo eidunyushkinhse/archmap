@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query, Session
 
 from app.models.project import Project
+from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
 
 
@@ -93,3 +94,34 @@ def bump_process_rev(db: Session, project: Project) -> None:
         {Project.process_rev: Project.process_rev + 1}, synchronize_session=False
     )
     db.expire(project, ["process_rev"])
+
+
+def reset_view_layout(db: Session, project: Project, container_id: uuid.UUID | None) -> None:
+    """Сбрасывает ручной layout вида в авто (own-on-first-render, Ф2):
+    удаляем строки view_layout этого вида — позиции локалов/гостей/контейнеров
+    и геометрию пучков разом (R3: единое хранилище). Строки с флагом expanded
+    СОХРАНЯЕМ без координат: раскрытия переживают сброс (решение 2026-08-05 —
+    «Переразложить» расставляет видимые узлы на авто-позиции, но контейнеры не
+    сворачивает; до фикса раскрытия держались лишь эфемерно в сессии и терялись
+    при перезагрузке). После сброса уровень выглядит как при первом открытии
+    (ELK + кольца + авто-маршруты + пере-засев владения) с сохранёнными
+    раскрытиями. Скоуп строго по виду: соседние уровни и другие виды нетронуты.
+    Коммит — на вызывающей стороне."""
+    view_filter = (
+        ViewLayoutItem.view_id.is_(None)
+        if container_id is None
+        else ViewLayoutItem.view_id == container_id
+    )
+    for it in (
+        db.query(ViewLayoutItem)
+        .filter(ViewLayoutItem.project_id == project.id, view_filter)
+        .all()
+    ):
+        if isinstance(it.payload, dict) and it.payload.get("expanded") is True:
+            it.payload = {"expanded": True}
+        else:
+            db.delete(it)
+    # relayout меняет мир вида: fence должен отсечь отставшие батчи (например,
+    # дроп драга из сессии, не видевшей перераскладку), поллинг — увидеть сброс
+    bump_view_version(db, project.id, container_id)
+    bump_graph_rev(db, project)

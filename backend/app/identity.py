@@ -268,3 +268,36 @@ def compare_identity(a: list[str], b: list[str]) -> str:
         return "unknown"
     ta, tb = _by_type(a), _by_type(b)
     return "same" if ta[t] & tb[t] else "different"
+
+
+class AnchorError(ValueError):
+    """Блок source формы не годится в якорь; текст — для человека в форме."""
+
+
+def parse_source_patch(raw: dict[str, str | None] | None) -> str | None:
+    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
+
+    Отказ — AnchorError с текстом принятого пояснения (docs/plan-anchor-ux.md,
+    раздел «Как заполнять»): вид якоря один на объект, путь живёт только при
+    репозитории, а адреса сред якорем не бывают. Роутер отдаёт его 422 в общем
+    формате {"detail": "…"} — поэтому не pydantic-валидатором схемы: список ошибок
+    pydantic человеку в форме не показать."""
+    if raw is None:
+        return None
+    src = SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
+    if src.empty:
+        return None  # объект без значимых полей — та же очистка, что и null
+    if src.repo and src.host:
+        raise AnchorError("Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости")
+    if src.path and not src.repo:
+        raise AnchorError("Путь задаётся вместе с репозиторием")
+    norm = normalized(src)
+    if src.host and not norm.host:
+        raise AnchorError(
+            "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
+            "а не продукту — укажите имя, под которым продукт называет зависимость, "
+            "как в docker-compose или в имени k8s Service"
+        )
+    if src.repo and not norm.repo:
+        raise AnchorError("Репозиторий в виде github.com/org/repo или адрес клона целиком")
+    return canonical_key(src)

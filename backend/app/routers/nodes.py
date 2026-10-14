@@ -16,10 +16,8 @@ from app.deps import (
     scoped_node,
     touch_project,
 )
-from app.graph_queries import build_graph, project_has_status_info
-from app.models.broker_channel import BrokerChannel
+from app.graph_queries import build_graph, external_edges, project_has_status_info
 from app.models.business_process import BusinessProcess
-from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.process_participant import ProcessParticipant
@@ -50,6 +48,7 @@ from app.view_state import (
     bump_meta_rev,
     bump_view_version,
     current_version,
+    reset_view_layout,
 )
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
@@ -334,41 +333,12 @@ def get_alerts(
 
 
 def _source_ref_of(raw: dict | None) -> str | None:
-    """Блок source из PATCH → канонический ключ якоря (или None — очистка).
-
-    Отказы 422 с текстами принятого пояснения (docs/plan-anchor-ux.md, раздел
-    «Как заполнять»): вид якоря один на объект, путь живёт только при
-    репозитории, а адреса сред якорем не бывают. Валидация здесь, а не
-    pydantic-валидатором схемы, ради общего формата ошибки {"detail": "…"} —
-    список ошибок pydantic человеку в форме не показать."""
-    if raw is None:
-        return None
-    src = identity.SourceRef(repo=raw.get("repo"), path=raw.get("path"), host=raw.get("host"))
-    if src.empty:
-        return None  # объект без значимых полей — та же очистка, что и null
-    if src.repo and src.host:
-        raise HTTPException(
-            status_code=422,
-            detail="Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости",
-        )
-    if src.path and not src.repo:
-        raise HTTPException(status_code=422, detail="Путь задаётся вместе с репозиторием")
-    norm = identity.normalized(src)
-    if src.host and not norm.host:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
-                "а не продукту — укажите имя, под которым продукт называет зависимость, "
-                "как в docker-compose или в имени k8s Service"
-            ),
-        )
-    if src.repo and not norm.repo:
-        raise HTTPException(
-            status_code=422,
-            detail="Репозиторий в виде github.com/org/repo или адрес клона целиком",
-        )
-    return identity.canonical_key(src)
+    """Блок source из PATCH → канонический ключ якоря; отказ — 422 с текстом
+    принятого пояснения (identity.parse_source_patch)."""
+    try:
+        return identity.parse_source_patch(raw)
+    except identity.AnchorError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
 
 
 @router.post("/anchor-preview", response_model=AnchorPreviewOut)
@@ -410,44 +380,6 @@ def get_node(
     return node
 
 
-def validate_shape_change(db: Session, node: Node, new_shape: str) -> str | None:
-    """Причина, по которой форму узла менять нельзя, либо None. Чистая проверка, без HTTP.
-
-    Оба запрета — про то, чем узел УЖЕ владеет и чего новая форма держать не умеет:
-
-      • ДЕТИ. Вкладывать объекты можно только в сервис (спека node.md N4, зеркало
-        фронтового canHaveChildren): сменив форму контейнеру, мы оставили бы
-        поддерево у формы, которая ни детей не показывает, ни внутрь не пускает.
-      • СТРУКТУРА БД. Таблицы — «контракт» узла-базы (routers/db_docs.py), и страница
-        рендерит их ТОЛЬКО у shape=database. Правка прошла бы, а структура исчезла из
-        интерфейса, оставшись в БД: применённое-но-невидимое хуже честного отказа.
-      • КАНАЛЫ БРОКЕРА. Ровно тот же довод у shape=broker (routers/broker_channels.py):
-        каналы рендерятся только у брокера, и CRUD их брокером же и ограничивает —
-        запрет здесь замыкает правило с другой стороны.
-
-    Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
-    показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
-    с предупреждением и без кнопок добавления, то есть унести его есть чем.
-    """
-    if new_shape not in reparent.CONTAINER_SHAPES:
-        has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
-        if has_children:
-            return (
-                "У узла есть вложенные объекты — тип «Сервис» единственный, "
-                "который может их иметь"
-            )
-    if node.shape == "database" and new_shape != "database":
-        has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
-        if has_tables:
-            return "У узла описана структура БД — сначала перенесите или удалите её"
-    if node.shape == "broker" and new_shape != "broker":
-        has_channels = (
-            db.query(BrokerChannel.id).filter(BrokerChannel.node_id == node.id).first()
-            is not None
-        )
-        if has_channels:
-            return "У узла описаны каналы брокера — сначала перенесите или удалите их"
-    return None
 
 
 @router.patch("/{node_id}", response_model=NodeResponse)
@@ -483,7 +415,7 @@ def update_node(
         # детей и чем он владеет. Проверяем ДО присваивания (узел ещё в исходном
         # состоянии — старая форма нужна самой проверке).
         if "shape" in data and data["shape"] != node.shape:
-            reason = validate_shape_change(db, node, data["shape"])
+            reason = reparent.validate_shape_change(db, node, data["shape"])
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
@@ -627,34 +559,7 @@ def get_node_edges(
     if not node:
         raise HTTPException(status_code=404, detail="Узел не найден")
 
-    subtree = tree.collect_subtree_ids_db(db, node_id)
-    edges = (
-        db.query(Edge)
-        .filter(Edge.source_id.in_(subtree) | Edge.target_id.in_(subtree))
-        .all()
-    )
-    names = {n.id: n.name for n in db.query(Node).filter(Node.project_id == project.id).all()}
-
-    result: list[NodeEdgeInfo] = []
-    for e in edges:
-        s_in = e.source_id in subtree
-        t_in = e.target_id in subtree
-        if s_in == t_in:
-            # Оба конца внутри поддерева (внутренняя связь) — не показываем
-            continue
-        outgoing = s_in  # источник в поддереве → связь уходит наружу
-        other_id = e.target_id if outgoing else e.source_id
-        result.append(
-            NodeEdgeInfo(
-                id=e.id,
-                label=e.label,
-                technology=e.technology,
-                direction="outgoing" if outgoing else "incoming",
-                other_node_id=other_id,
-                other_node_name=names.get(other_id, "неизвестный узел"),
-            )
-        )
-    return result
+    return external_edges(db, project.id, node_id)
 
 
 @router.get("/{node_id}/graph", response_model=GraphResponse)
@@ -729,37 +634,6 @@ def get_node_processes(
 
 
 
-def _clear_level_layout(
-    db: Session, container_id: uuid.UUID | None, project: Project
-) -> None:
-    """Сбрасывает ручной layout вида в авто (own-on-first-render, Ф2):
-    удаляем строки view_layout этого вида — позиции локалов/гостей/контейнеров
-    и геометрию пучков разом (R3: единое хранилище). Строки с флагом expanded
-    СОХРАНЯЕМ без координат: раскрытия переживают сброс (решение 2026-08-05 —
-    «Переразложить» расставляет видимые узлы на авто-позиции, но контейнеры не
-    сворачивает; до фикса раскрытия держались лишь эфемерно в сессии и терялись
-    при перезагрузке). После сброса уровень выглядит как при первом открытии
-    (ELK + кольца + авто-маршруты + пере-засев владения) с сохранёнными
-    раскрытиями. Скоуп строго по виду: соседние уровни и другие виды нетронуты."""
-    view_filter = (
-        ViewLayoutItem.view_id.is_(None)
-        if container_id is None
-        else ViewLayoutItem.view_id == container_id
-    )
-    for it in (
-        db.query(ViewLayoutItem)
-        .filter(ViewLayoutItem.project_id == project.id, view_filter)
-        .all()
-    ):
-        if isinstance(it.payload, dict) and it.payload.get("expanded") is True:
-            it.payload = {"expanded": True}
-        else:
-            db.delete(it)
-    # relayout меняет мир вида: fence должен отсечь отставшие батчи (например,
-    # дроп драга из сессии, не видевшей перераскладку), поллинг — увидеть сброс
-    bump_view_version(db, project.id, container_id)
-    bump_graph_rev(db, project)
-    db.commit()
 
 
 @router.post("/relayout", status_code=status.HTTP_204_NO_CONTENT)
@@ -769,7 +643,8 @@ def relayout_root_level(
     _: User = Depends(require_project_editor),
 ) -> None:
     """«Переразложить» корневой уровень: позиции корневых узлов → авто (ELK)."""
-    _clear_level_layout(db, None, project)
+    reset_view_layout(db, project, None)
+    db.commit()
 
 
 @router.post(
@@ -785,7 +660,8 @@ def relayout_level(
     """«Переразложить уровень»: весь ручной layout уровня container_id → авто."""
     if not scoped_node(db, container_id, project):
         raise HTTPException(status_code=404, detail="Уровень не найден")
-    _clear_level_layout(db, container_id, project)
+    reset_view_layout(db, project, container_id)
+    db.commit()
 
 
 @router.post(
@@ -803,4 +679,5 @@ def relayout_context(
     виды (другие страницы, уровни редактора) нетронуты."""
     if not scoped_node(db, node_id, project):
         raise HTTPException(status_code=404, detail="Узел не найден")
-    _clear_level_layout(db, node_id, project)
+    reset_view_layout(db, project, node_id)
+    db.commit()

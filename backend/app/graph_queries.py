@@ -21,6 +21,7 @@ from app.schemas.node import (
     GhostNodeResponse,
     GraphEdgeResponse,
     GraphResponse,
+    NodeEdgeInfo,
     ViewLayoutPayload,
 )
 
@@ -171,3 +172,38 @@ def build_graph(
         layout=layout,
         has_status_info=project_has_status_info(db, project_id),
     )
+
+
+def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> list[NodeEdgeInfo]:
+    """Внешние связи поддерева узла (он сам + потомки любой глубины) — те, что
+    исчезнут при удалении узла: ровно один конец внутри поддерева, другой снаружи.
+    Чисто внутренние связи ветки не включаем — они уходят вместе с самой веткой.
+    Направление и имя соседа — относительно поддерева (внешний конец)."""
+    subtree = tree.collect_subtree_ids_db(db, node_id)
+    edges = (
+        db.query(Edge)
+        .filter(Edge.source_id.in_(subtree) | Edge.target_id.in_(subtree))
+        .all()
+    )
+    names = {n.id: n.name for n in db.query(Node).filter(Node.project_id == project_id).all()}
+
+    result: list[NodeEdgeInfo] = []
+    for e in edges:
+        s_in = e.source_id in subtree
+        t_in = e.target_id in subtree
+        if s_in == t_in:
+            # Оба конца внутри поддерева (внутренняя связь) — не показываем
+            continue
+        outgoing = s_in  # источник в поддереве → связь уходит наружу
+        other_id = e.target_id if outgoing else e.source_id
+        result.append(
+            NodeEdgeInfo(
+                id=e.id,
+                label=e.label,
+                technology=e.technology,
+                direction="outgoing" if outgoing else "incoming",
+                other_node_id=other_id,
+                other_node_name=names.get(other_id, "неизвестный узел"),
+            )
+        )
+    return result
