@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import yaml
 from sqlalchemy.orm import Session
@@ -846,9 +846,17 @@ def build_docs_plan(
     return plan
 
 
-def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int, int]:
-    """Записать действия плана: (создано доков, перезаписано доков, спек записано,
-    заполнено заглушек). Заполнение идёт тем же путём, что перезапись (та же строка
+class DocsApplyResult(NamedTuple):
+    """Итог записи плана доков (аудит Q-25: был безымянный 4-кортеж)."""
+
+    created: int  # создано доков
+    updated: int  # перезаписано доков
+    specs: int  # спек записано
+    filled: int  # заполнено заглушек
+
+
+def apply_docs_plan(db: Session, plan: DocsPlan) -> DocsApplyResult:
+    """Записать действия плана. Заполнение идёт тем же путём, что перезапись (та же строка
     БД, тот же бамп CAS-версии), но считается ОТДЕЛЬНО: перезапись трогает работу,
     заполнение — пустой слот.
     Вызывать только при пустых errors; skip/unchanged не трогаются. Бампы
@@ -890,4 +898,4 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> tuple[int, int, int, int]:
         node.openapi_spec = spec.content
         node.version += 1
         specs += 1
-    return created, updated, specs, filled
+    return DocsApplyResult(created, updated, specs, filled)

@@ -299,14 +299,14 @@ def docs_import_apply(
     report = _report(plan)
     if plan.errors:
         return report  # applied=False — фронт показывает ошибки
-    created, updated, specs, filled = apply_docs_plan(db, plan)
-    if created or updated or specs or filled:
+    done = apply_docs_plan(db, plan)
+    if any(done):
         bump_meta_rev(db, project)  # доки/спеки — мета узла: поллинг страницы увидит
     touch_project(db, project, user.id)
     db.commit()
     report.applied = True
-    report.created_docs = created
-    report.filled_docs = filled
-    report.updated_docs = updated
-    report.specs_written = specs
+    report.created_docs = done.created
+    report.filled_docs = done.filled
+    report.updated_docs = done.updated
+    report.specs_written = done.specs
     return report
