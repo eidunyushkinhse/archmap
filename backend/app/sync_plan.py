@@ -25,6 +25,8 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 import uuid
 from dataclasses import dataclass, field
 
+from sqlalchemy.orm import Session
+
 from app.identity import basis_of_key, compare_identity
 from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
@@ -412,3 +414,14 @@ def build_sync_plan(
     m.collect_missing()
     m.walk_edges(parsed)
     return m.plan
+
+
+def plan_for(
+    db: Session, project_id: uuid.UUID, parsed: ParsedImport, policies: SyncPolicies
+) -> SyncPlan:
+    """План синка живого проекта: узлы и связи проекта из БД против прогона.
+    Превью и применение зовут одно и то же — применение план ПЕРЕСЧИТЫВАЕТ, а не
+    берёт клиентский."""
+    nodes = db.query(Node).filter(Node.project_id == project_id).all()
+    edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+    return build_sync_plan(nodes, edges, parsed, policies)
