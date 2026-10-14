@@ -76,24 +76,34 @@ export function startPollLoop(
 ): () => void {
   let disposed = false;
   let running = false;
+  // Тик запросили, пока шёл предыдущий (фокус окна посреди интервального тика): он
+  // ОДИН раз пойдёт сразу следом. Раньше такой запрос терялся, и чужая правка, сделанная
+  // во время идущего тика, доезжала только через интервал (гонку поймал тест NodePage
+  // под нагрузкой: стартовый тик ещё летел, когда пришёл фокус).
+  let again = false;
   let failures = 0;
   let timer = 0;
   const run = async (): Promise<void> => {
-    if (running) return;
+    if (running) {
+      again = true;
+      return;
+    }
     running = true;
-    let result: RemoteSyncTick;
     try {
-      result = await tick();
+      do {
+        again = false;
+        const result = await tick();
+        if (disposed) return;
+        if (result === "offline") {
+          failures += 1;
+          if (failures >= OFFLINE_AFTER) setOffline(true);
+        } else if (result !== "skipped") {
+          failures = 0;
+          setOffline(false);
+        }
+      } while (again && !disposed);
     } finally {
       running = false;
-    }
-    if (disposed || result === "skipped") return;
-    if (result === "offline") {
-      failures += 1;
-      if (failures >= OFFLINE_AFTER) setOffline(true);
-    } else {
-      failures = 0;
-      setOffline(false);
     }
   };
   const loop = async (): Promise<void> => {
