@@ -3,12 +3,18 @@
 # Бэкенд: Dependabot правит requirements*.txt, но НЕ перегенерирует requirements-prod.lock
 # (поставка ставится из него с хэшами) — его PR упадёт на tests/test_requirements_lock.py,
 # lock перегенерировать по шапке requirements-prod.txt и докоммитить в тот же PR.
+# Мажоры не предлагаются: их план ведёт отдельными задачами (TypeScript 7, vitest 5, mcp 2,
+# actions новых мажоров) — PR мажора без подготовки только шумит. Обновления
+# безопасности Dependabot присылает и для игнорируемых версий.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       actions:
         patterns: ["*"]
@@ -18,6 +24,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # SQLAlchemy 2.1 — отдельное решение (план аудита, фаза 1): меняет поведение ORM
+      - dependency-name: "sqlalchemy"
+        versions: [">=2.1"]
+      # Инструменты гейта бэкенда и MCP поднимаются вместе одним коммитом — один ruff/mypy
+      - dependency-name: "ruff"
+      - dependency-name: "mypy"
     groups:
       backend:
         patterns: ["*"]
@@ -28,6 +43,11 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "ruff"
+      - dependency-name: "mypy"
     groups:
       mcp:
         patterns: ["*"]
@@ -38,6 +58,13 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # elkjs закреплён одной копией на холст и mermaid (override в package.json); 0.12
+      # меняет раскладку — только вместе с проверкой рендера схем
+      - dependency-name: "elkjs"
+        versions: [">=0.12"]
     groups:
       frontend:
         patterns: ["*"]

@@ -153,4 +153,4 @@ jobs:
         with:
           python-version: "3.12"
       - name: ruff (скрипты поставки)
-        run: pip install ruff==0.15.16 && ruff check --config backend/pyproject.toml deploy/
+        run: pip install ruff==0.17.0 && ruff check --config backend/pyproject.toml deploy/
