@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
+from app import yaml_io
 from app.docs_pkg import spec_check
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
@@ -101,7 +102,7 @@ def _candidates(content: str) -> list[str]:
 
 def _load(text: str) -> object:
     try:
-        return yaml.safe_load(text)
+        return yaml_io.safe_load(text)
     except yaml.YAMLError:
         return None
 

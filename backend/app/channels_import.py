@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
+from app import yaml_io
 from app.data_import import NODE_HEADER
 from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.broker_channel import BrokerChannel
@@ -216,7 +217,7 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
     """Разобрать файл пакета. None — файл не про каналы (пусть его смотрит другой
     разборщик: в пакете рядом лежат и схемы логики, и спеки, и структура БД)."""
     try:
-        doc = yaml.safe_load(content)
+        doc = yaml_io.safe_load(content)
     except yaml.YAMLError:
         return None
     if not isinstance(doc, dict) or "channels" not in doc:

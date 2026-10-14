@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
+from app import yaml_io
 from app.archive_export import ARCHIVE_FORMAT
 
 # Капы распаковки: архив приходит от пользователя, и zip умеет быть бомбой.
@@ -85,7 +86,7 @@ def _read_zip(payload: bytes) -> _Archive:
     if raw is None:
         raise ArchiveError("В архиве нет manifest.yaml — это не архив ArchMap")
     try:
-        manifest = yaml.safe_load(raw)
+        manifest = yaml_io.safe_load(raw)
     except yaml.YAMLError as e:
         raise ArchiveError("manifest.yaml не разбирается как YAML") from e
     if not isinstance(manifest, dict) or "archmap-archive" not in manifest:

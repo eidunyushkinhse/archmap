@@ -8,6 +8,7 @@ from dataclasses import dataclass
 
 import yaml
 
+from app import yaml_io
 from app.domain_types import NodeDocKind
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 
@@ -121,7 +122,7 @@ def pkg_from_mmd(
 def spec_check(content: str) -> tuple[bool, bool, str | None]:
     """(валидный YAML, похоже на OpenAPI, версия OAS) — серверное зеркало docValidate."""
     try:
-        doc = yaml.safe_load(content)
+        doc = yaml_io.safe_load(content)
     except yaml.YAMLError:
         return False, False, None
     if not isinstance(doc, dict):

@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
+from app import yaml_io
 from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
@@ -100,7 +101,7 @@ def parse_data_file(content: str) -> ParsedData | None:
     """Разобрать файл пакета. None — файл не про данные (пусть его смотрит другой
     разборщик: в пакете рядом лежат и спеки, и схемы логики)."""
     try:
-        doc = yaml.safe_load(content)
+        doc = yaml_io.safe_load(content)
     except yaml.YAMLError:
         return None
     # `access` по-прежнему делает файл НАШИМ (иначе пакет по старому промпту, где кроме

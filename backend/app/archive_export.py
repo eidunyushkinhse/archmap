@@ -24,9 +24,9 @@ import zipfile
 from collections import Counter
 from collections.abc import Callable
 
-import yaml
 from sqlalchemy.orm import Session, undefer
 
+from app import yaml_io
 from app.export import build_export_ordered
 from app.mmd_header import render_header, strip_header
 from app.models.broker_channel import BrokerChannel
@@ -49,7 +49,7 @@ _NODE_COMMENT = "# archmap-node: {path}\n"
 def _yaml(doc: dict) -> str:
     """Единые настройки дампа: без сортировки ключей (порядок осознанный),
     юникод как есть — файлы читает человек, а не только парсер."""
-    return yaml.safe_dump(doc, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    return yaml_io.safe_dump(doc, allow_unicode=True, sort_keys=False, default_flow_style=False)
 
 
 def render_doc_mmd(doc: NodeDoc, node_path: str) -> str:

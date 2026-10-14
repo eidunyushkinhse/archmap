@@ -28,6 +28,7 @@ from difflib import SequenceMatcher
 import yaml
 from sqlalchemy.orm import Session
 
+from app import yaml_io
 from app.domain_types import NODE_SHAPES, NODE_STATUSES, NodeShape, NodeStatus, pick
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
@@ -106,7 +107,7 @@ _NODES_LINE_RE = re.compile(r"^nodes:[ \t]*$", re.MULTILINE)
 def _load_doc(content: str) -> tuple[dict | None, list[str]]:
     """yaml.safe_load + проверка «словарь с nodes». Ошибки — человеческим списком."""
     try:
-        doc = yaml.safe_load(content)
+        doc = yaml_io.safe_load(content)
     except yaml.YAMLError as e:
         # Диагноз без лечения слабую модель не чинит: на замечание «ошибка в строке 29»
         # она добросовестно перепечатывает документ с той же ошибкой (полевой QA
