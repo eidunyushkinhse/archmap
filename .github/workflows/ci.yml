@@ -46,8 +46,8 @@ jobs:
         run: npx tsc -b
       - name: Lint
         run: npx eslint .
-      - name: Tests
-        run: npx vitest run
+      - name: Tests и покрытие (пороги — vite.config.ts)
+        run: npx vitest run --coverage --coverage.reporter=text-summary
       - name: Build (приложение и живая схема лендинга)
         run: npm run build && npm run build:embed
       - name: Audit (только то, что едет в браузер)
@@ -73,8 +73,8 @@ jobs:
         run: ruff check .
       - name: Type check
         run: mypy app/
-      - name: Tests
-        run: python -m pytest -q
+      - name: Tests и покрытие (порог — pyproject.toml)
+        run: python -m pytest -q --cov --cov-report=term
       - name: Audit поставки (пока предупреждением)
         # Сначала наблюдаем, потом делаем блокирующим (аудит P-20): находка без исправления
         # у апстрима не должна красить main.

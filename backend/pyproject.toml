@@ -23,3 +23,12 @@ plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 # Цель проверки — пакет app (миграции Alembic автогенерированы, не типизируем).
 files = ["app"]
+
+# Покрытие (аудит M12): CI гоняет python -m pytest --cov, порог — ratchet чуть ниже факта
+# (замер 2026-10-14: 96 %). Покрытие выросло — подними порог; упало — тесты к новому коду.
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 95
+skip_covered = true
