@@ -246,9 +246,18 @@ def get_root_graph(
             meta_rev=project.meta_rev,
             has_status_info=project_has_status_info(db, project.id),
         )
+    return _level_graph(db, project, local_nodes, None, version)
+
+
+def _level_graph(
+    db: Session, project: Project, local_nodes: list[Node], container_id: uuid.UUID | None,
+    version: int,
+) -> GraphResponse:
+    """Граф уровня по его узлам и курсоры клиента — общий хвост корня и уровня узла
+    (аудит Q-44)."""
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = build_graph(local_nodes, None, all_nodes, all_edges, db, project.id)
+    graph = build_graph(local_nodes, container_id, all_nodes, all_edges, db, project.id)
     graph.version = version
     graph.graph_rev = project.graph_rev
     graph.meta_rev = project.meta_rev
@@ -682,13 +691,7 @@ def get_node_graph(
     # У контейнера без детей своих связей может быть сколько угодно, и на его уровне
     # они рисуются упирающимися в рамку: если не отдать их сюда, пользователь войдёт
     # в узел и увидит пустой холст вместо содержимого «как оно есть».
-    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
-    all_edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    graph = build_graph(local_nodes, node_id, all_nodes, all_edges, db, project.id)
-    graph.version = version
-    graph.graph_rev = project.graph_rev
-    graph.meta_rev = project.meta_rev
-    return graph
+    return _level_graph(db, project, local_nodes, node_id, version)
 
 
 @router.get("/{node_id}/context-graph", response_model=GraphResponse)

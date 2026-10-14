@@ -456,6 +456,14 @@ def dry_run_excess(
     return find_excess(after, before) if after is not None else None
 
 
+def preview_excess(
+    db: Session, project_id: uuid.UUID | None, apply: Callable[[], uuid.UUID | None]
+) -> DemoExcess | None:
+    """Превышение для ответа превью (dry_run_excess + excess_out) — общий вход трёх
+    превью ввоза (аудит Q-44)."""
+    return excess_out(dry_run_excess(db, project_id, apply))
+
+
 def excess_out(excess: Excess | None) -> DemoExcess | None:
     """Превышение в контракт превью."""
     if excess is None:

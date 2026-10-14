@@ -372,7 +372,7 @@ async def import_unified_preview(
             project, _ = apply_unified_plan(db, plan, {}, "Превью", None, user.id)
             return project.id
 
-        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, None, _try))
+        out.demo_excess = demo_limits.preview_excess(db, None, _try)
     return out
 
 
@@ -454,7 +454,7 @@ async def import_archive_preview(
             apply_into_plan(db, project, into, {})
             return pid
 
-        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, pid, _try))
+        out.demo_excess = demo_limits.preview_excess(db, pid, _try)
     return out
 
 
@@ -599,7 +599,7 @@ def sync_preview(
             apply_sync_plan(db, project, merged, plan)
             return pid
 
-        out.demo_excess = demo_limits.excess_out(demo_limits.dry_run_excess(db, pid, _try))
+        out.demo_excess = demo_limits.preview_excess(db, pid, _try)
     return out
 
 
