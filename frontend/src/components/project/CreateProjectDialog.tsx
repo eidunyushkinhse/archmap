@@ -11,8 +11,8 @@ import PromptCopyButton from "../docsImport/PromptCopyButton";
 import ImportPane from "./ImportPane";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
-import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
-import type { Answer, Answers } from "./remainder";
+import { UnfixableFold, toDecisions, useRemainderAnswers } from "./remainder";
+import type { Answer } from "./remainder";
 import "./createProject.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { CopyFailed, copyText } from "../../lib/copyText";
@@ -58,12 +58,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [docNames, setDocNames] = useState<(string | null)[]>([]);
   // Архивные входы той же панели (.zip из «Экспорт проекта (zip)»).
   const [archives, setArchives] = useState<File[]>([]);
-  // Решения пользователя по спорам содержимого: id спора → «cand:<i>» | «all».
-  const [resolutions, setResolutions] = useState<Record<string, string>>({});
-  // Ответы на остальные вопросы разбора остатка (Ф-E): поля, концы связей,
-  // дорисованные связи, склейки. Живут рядом с резолюциями и так же переживают
-  // перезапрос превью — id вопроса детерминирован между превью и применением.
-  const [answers, setAnswers] = useState<Answers>({});
   // Сводка dry-run привязана к входам, для которых получена: устаревший ответ не
   // показываем и не засчитываем в готовность кнопки.
   const [preview, setPreview] = useState<
@@ -142,33 +136,11 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     : null;
   // Демо-стенд: проект из этих входов не поместится в пределы (считает сервер).
   const excess = fresh?.demo_excess ?? null;
-  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
-  // стабильность бандла архивов ниже (лишние ре-рендеры панели).
-  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
-  // Резолюции ПЕРЕЖИВАЮТ перезапрос: id спора стабилен при неизменном составе входов,
-  // и правка YAML-текста не должна стирать выбор по архивным спорам. Протухшие
-  // (спора больше нет) отбрасываем ПРИ РЕНДЕРЕ — паттерн «adjusting state when props
-  // change», а не зеркалящим эффектом.
-  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
-    setResolutions(Object.fromEntries(
-      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
-    ));
-  }
-  // Вопросы разбора остатка — производное от свежего превью, а не состояние.
-  const questions = useMemo(
-    () => (fresh === null ? [] : buildQuestions({
-      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder,
-    })),
-    [fresh],
-  );
-  // Ответы протухают тем же правилом, что и резолюции: правка YAML пересчитывает
-  // превью, и вопроса с этим id может больше не быть. Чистка ПРИ РЕНДЕРЕ (та же
-  // «adjusting state when props change»); без протухших pruneAnswers возвращает
-  // ту же ссылку, поэтому цикла setState нет.
-  if (fresh !== null) {
-    const живые = pruneAnswers(answers, questions);
-    if (живые !== answers) setAnswers(живые);
-  }
+  // Разбор остатка (Ф-E): решения по спорам содержимого (id спора → «cand:<i>» |
+  // «all») и ответы на остальные вопросы — поля, концы связей, дорисованные связи,
+  // склейки. Переживают перезапрос превью: правка YAML-текста не стирает выбор по
+  // архивным спорам, id вопроса детерминирован между превью и применением.
+  const { questions, answers, setAnswers, resolutions, setResolutions } = useRemainderAnswers(fresh);
   // П3: единственный вход и он архив — «копия одного архива», имя и описание берутся
   // из манифеста, поля не рендерятся вовсе.
   const fromManifest = fresh?.name_source === "manifest";
@@ -188,7 +160,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     onResolve: (id: string, choice: string) =>
       setResolutions((cur) => ({ ...cur, [id]: choice })),
     unfixable: fresh?.remainder.unfixable ?? [],
-  }), [questions, answers, resolutions, fresh]);
+  }), [questions, answers, setAnswers, resolutions, setResolutions, fresh]);
 
   const canSubmit =
     importish

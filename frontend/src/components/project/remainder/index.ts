@@ -18,4 +18,5 @@ export type {
   Question, QuestionKind, Resolutions, Summary,
 } from "./questions";
 export { humanValue, splitErrorLine } from "./questionText";
+export { useRemainderAnswers } from "./useRemainderAnswers";
 export type { QuestionMode } from "./questionText";

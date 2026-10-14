@@ -23,10 +23,10 @@ import {
 } from "../docsImport/agentModalShared";
 import { statusState } from "./importRemarks";
 import {
-  BulkBox, RemainderBlock, StatusLine, UnfixableFold, buildQuestions, bulkAnswers,
-  hasMineDisputes, pruneAnswers, splitErrorLine, toDecisions,
+  BulkBox, RemainderBlock, StatusLine, UnfixableFold, bulkAnswers,
+  hasMineDisputes, splitErrorLine, toDecisions, useRemainderAnswers,
 } from "./remainder";
-import type { Answer, Answers } from "./remainder";
+import type { Answer } from "./remainder";
 import { anchorKind, basisLabel } from "../anchor/anchorText";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
@@ -112,10 +112,6 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
     { forFiles: File[]; key: number; res: IntoPreviewOut } | null
   >(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [resolutions, setResolutions] = useState<Record<string, string>>({});
-  // Ответы на остальные вопросы разбора остатка (Ф-E) — рядом с резолюциями и по
-  // тем же правилам: переживают перезапрос превью, протухшие отбрасываются.
-  const [answers, setAnswers] = useState<Answers>({});
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   // Отчёт применения показываем В ОКНЕ: замечания догрузки (промахи адресов,
@@ -156,29 +152,11 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   const checking = files.length > 0 && fresh === null && !tooBig;
   // Демо-стенд: после догрузки проект выйдет за предел (считает сервер в превью).
   const excess = fresh?.demo_excess ?? null;
-  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
-  // стабильность зависимых мемо ниже.
-  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
-  // Резолюции ПЕРЕЖИВАЮТ перезапрос превью (в том числе после 409): id спора
-  // стабилен, пока состав входов и живое знание те же. Протухшие отбрасываем ПРИ
-  // РЕНДЕРЕ — паттерн «adjusting state when props change», а не зеркалящим эффектом.
-  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
-    setResolutions(Object.fromEntries(
-      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
-    ));
-  }
-  // Вопросы разбора — производное от свежего превью. Сноска о связи в контейнер
-  // здесь говорит «после догрузки»: проект уже создан (mode).
-  const questions = useMemo(
-    () => (fresh === null ? [] : buildQuestions({
-      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder, mode: "into",
-    })),
-    [fresh],
-  );
-  if (fresh !== null) {
-    const живые = pruneAnswers(answers, questions);
-    if (живые !== answers) setAnswers(живые);
-  }
+  // Разбор остатка (Ф-E): резолюции споров и ответы на остальные вопросы переживают
+  // перезапрос превью, в том числе после 409. Сноска о связи в контейнер здесь
+  // говорит «после догрузки»: проект уже создан (mode).
+  const { questions, answers, setAnswers, resolutions, setResolutions } =
+    useRemainderAnswers(fresh, "into");
   // Массовые действия имеют смысл только там, где спорят С ЖИВЫМ: спор двух архивов
   // между собой «моим» не разрешить.
   const withMine = hasMineDisputes(questions);
