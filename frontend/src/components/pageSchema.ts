@@ -3,7 +3,22 @@
 // MapEditorPage / useLevelSchema, чтобы жили в одном месте и были
 // покрыты тестами (pageSchema.test.ts).
 
-import type { GhostNode, GraphResponse, LevelEdge, Node } from "../types";
+import type { GhostNode, GraphResponse, LevelEdge, Node, ViewLayout, ViewLayoutPayload } from "../types";
+
+// Зеркало раскладки вида после onLayoutChanged холста: патч поверх зеркала, null —
+// удалить строку (сброс объекта в авто-геометрию). Порядок ключей прежний, новые —
+// в конце. Пересборка через fromEntries — без динамического delete. Одна реализация
+// на все страницы со схемой и живую схему лендинга (аудит F-11: было четыре копии в
+// двух идиомах).
+export function mergeViewLayout(
+  prev: ViewLayout,
+  items: Record<string, ViewLayoutPayload | null>,
+): ViewLayout {
+  return Object.fromEntries(
+    Object.entries({ ...prev, ...items })
+      .filter((e): e is [string, ViewLayoutPayload] => e[1] !== null),
+  );
+}
 
 // Данные схемы страницы = ответ context-graph + СВОИ правки меты, влитые точечно.
 // Схема держит свой снимок графа (фетч при монтировании), а свойства страницы правятся

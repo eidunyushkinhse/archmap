@@ -2,6 +2,7 @@
 // уровня, предикаты пустого состояния, формулы высот блоков.
 import { describe, it, expect } from "vitest";
 import {
+  mergeViewLayout,
   toLevelEdges,
   outerGuests,
   hasNoNeighbors,
@@ -177,5 +178,23 @@ describe("withOwnEdits", () => {
     const out = withOwnEdits(g, full({ name: "Новое имя", version: 2 }));
     expect(out.nodes[1]).toBe(сосед);
     expect(g.nodes[0]).toMatchObject({ name: "Сервис оплаты" });
+  });
+});
+
+describe("mergeViewLayout", () => {
+  const prev = { a: { x: 1, y: 2 }, b: { x: 3, y: 4, expanded: true }, c: { x: 5, y: 6 } };
+
+  it("патч поверх зеркала: правит, добавляет, null удаляет строку", () => {
+    const next = mergeViewLayout(prev, { b: { x: 9, y: 9 }, c: null, d: { x: 0, y: 0 } });
+    expect(next).toEqual({ a: { x: 1, y: 2 }, b: { x: 9, y: 9 }, d: { x: 0, y: 0 } });
+    // Порядок ключей прежний, новые — в конце (раскладка обходит зеркало по порядку).
+    expect(Object.keys(next)).toEqual(["a", "b", "d"]);
+  });
+
+  it("не мутирует зеркало и не тянет удалённое из прежних строк", () => {
+    const snapshot = structuredClone(prev);
+    const next = mergeViewLayout(prev, { a: null, z: null });
+    expect(prev).toEqual(snapshot);
+    expect(next).toEqual({ b: prev.b, c: prev.c });
   });
 });

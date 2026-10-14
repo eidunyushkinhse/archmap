@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import LevelGraph from "../components/LevelGraph";
-import { toLevelEdges } from "../components/pageSchema";
+import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import type {
   LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps,
@@ -67,12 +67,8 @@ export default function LandingSchema({ scene }: { scene: LandingScene }) {
     });
   }, []);
 
-  // merge поверх зеркала; null-патч — удалить строку (как handleLayoutChanged страницы объекта)
   const onLayoutChanged = useCallback((items: Record<string, ViewLayoutPayload | null>) => {
-    setLayout((cur) => Object.fromEntries(
-      Object.entries({ ...cur, ...items })
-        .filter((e): e is [string, ViewLayoutPayload] => e[1] !== null),
-    ));
+    setLayout((cur) => mergeViewLayout(cur, items));
   }, []);
   const persistence = useMemo<LevelPersistenceProps>(() => ({ onLayoutChanged }), [onLayoutChanged]);
 

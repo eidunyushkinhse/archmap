@@ -33,7 +33,7 @@ import type {
 import { useRemoteSync } from "./useRemoteSync";
 import { useMessageToast, useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
-import { toLevelEdges } from "../components/pageSchema";
+import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
 import ObjectInspector, { type Selected } from "../components/inspector/ObjectInspector";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
@@ -606,21 +606,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк зеркала раскладки: plain-function, бандл persistence (Фаза 3д) пересобирается с ним — поведение идентично прежней прямой передаче пропа.
   function handleLayoutChanged(items: Record<string, ViewLayoutPayload | null>) {
-    setViewLayout((prev) => {
-      // Пересобираем объект без оператора delete: сначала фильтруем удаляемые
-      // ключи (null в items), затем применяем ненулевые обновления
-      const removed = new Set(
-        Object.entries(items).filter(([, p]) => p === null).map(([k]) => k),
-      );
-      const next: ViewLayout = {};
-      for (const [k, v] of Object.entries(prev)) {
-        if (!removed.has(k)) next[k] = v;
-      }
-      for (const [k, p] of Object.entries(items)) {
-        if (p !== null) next[k] = p;
-      }
-      return next;
-    });
+    setViewLayout((prev) => mergeViewLayout(prev, items));
   }
 
   function handleEdgeDeleted(id: string, snapshot?: DeletionSnapshot) {

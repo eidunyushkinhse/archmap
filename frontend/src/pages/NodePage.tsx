@@ -36,7 +36,7 @@ import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
 import type { DocStage } from "../components/inspector/OpenApiPane";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
-import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
+import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 import { noAutofill } from "../ui/noAutofill";
@@ -1394,16 +1394,7 @@ function SchemaSection({
   // nodes/endpoints/edges те же, конвейер раскладки не перезапускается.
   const handleLayoutChanged = useCallback(
     (items: Record<string, ViewLayoutPayload | null>) => {
-      setGraph((g) => {
-        if (!g) return g;
-        // merge поверх зеркала; null-патч — удалить строку (сброс объекта в
-        // авто-геометрию). Пересборка через fromEntries — без динамического delete.
-        const layout = Object.fromEntries(
-          Object.entries({ ...g.layout, ...items })
-            .filter((e): e is [string, ViewLayoutPayload] => e[1] !== null),
-        );
-        return { ...g, layout };
-      });
+      setGraph((g) => (g ? { ...g, layout: mergeViewLayout(g.layout, items) } : g));
     },
     [],
   );

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { GhostNode, Node, Edge, ViewLayout, ViewLayoutPayload } from "../types";
 import { nodesApi } from "../api/nodes";
 import type { ViewMetaState } from "../components/graph/types";
-import { toLevelEdges } from "../components/pageSchema";
+import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 
 interface Args {
   containerId: string | null;
@@ -81,11 +81,7 @@ export function useLevelSchema({ containerId }: Args) {
   // назад в исходную» гасился бы дедупом о протухшее зеркало). null-патч — удалить
   // строку (сброс объекта в авто-геометрию). По образу SchemaSection (NodePage).
   const mergeLayout = useCallback((items: Record<string, ViewLayoutPayload | null>) => {
-    setViewLayout((prev) => {
-      const merged = Object.entries({ ...prev, ...items })
-        .filter((e): e is [string, ViewLayoutPayload] => e[1] !== null);
-      return Object.fromEntries(merged);
-    });
+    setViewLayout((prev) => mergeViewLayout(prev, items));
   }, []);
 
   return {
