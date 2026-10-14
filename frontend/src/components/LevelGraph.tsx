@@ -56,8 +56,7 @@ import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
-import { useHistory } from "./graph/interaction/useHistory";
-import type { History } from "./graph/interaction/useHistory";
+import { useLevelHistory } from "./graph/interaction/useLevelHistory";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
@@ -428,51 +427,11 @@ function LevelGraphInner({
   // и drop-шаблона).
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
-  // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). На основном канвасе её поднимают в
-  // страницу-хозяин (туда же кладутся структурные команды и дисптчеры с кросс-уровневым
-  // редиректом); ownHistory — фолбэк для страниц (EmbeddedSchemaBlock), где истории не нужно.
-  const ownHistory = useHistory();
-  const baseHistory = historyProp ?? ownHistory;
-  // Команды этого канваса (перемещения) ШТАМПУЕМ текущим containerId,
-  // чтобы кросс-уровневый Undo знал, на какой уровень вернуть пользователя перед откатом.
-  // Адаптер оборачивает только push; остальные методы — как есть.
-  const history = useMemo<History>(
-    () => ({
-      ...baseHistory,
-      push: (cmd) => baseHistory.push({ ...cmd, level: containerId ?? null }),
-    }),
-    [baseHistory, containerId],
-  );
-  // Клавиши/кнопки зовут дисптчеры из MapEditorPage (кросс-уровневый редирект). В контекст-
-  // модалке дисптчеров нет — там Undo/Redo и так не показываются. Мемоизируем, чтобы не
-  // пересоздавать слушатель клавиш на каждый рендер. Undo/Redo — ручной жест: изменённые
-  // пересчётом стрелки перерисовываются анимированно (noteGesture).
-  const runUndo = useMemo(
-    () => () => { noteGesture(); (onUndo ?? history.undo)(); },
-    [onUndo, history, noteGesture],
-  );
-  const runRedo = useMemo(
-    () => () => { noteGesture(); (onRedo ?? history.redo)(); },
-    [onRedo, history, noteGesture],
-  );
-
-  // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
-  // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а
-  // Ctrl+Z жмут и без выбранного узла (фокус на body). Только архитектор и не контекст
-  // (read-only). В полях ввода не перехватываем — там нативная отмена текста.
-  useEffect(() => {
-    if (!isArchitect || !canArrange) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const t = document.activeElement as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const key = e.key.toLowerCase();
-      if (key === "z" && !e.shiftKey) { e.preventDefault(); runUndo(); }
-      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); runRedo(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isArchitect, canArrange, runUndo, runRedo]);
+  // История Undo/Redo: адаптер со штампом уровня, запуск отмены/повтора и глобальные
+  // клавиши (только архитектор и не контекст — read-only).
+  const { history, runUndo, runRedo } = useLevelHistory({
+    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: isArchitect && canArrange,
+  });
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
