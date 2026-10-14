@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import get_args
+from typing import Any, get_args
 
 import httpx
 import pytest
@@ -234,6 +234,42 @@ async def test_промпт_доков_проносит_вариант(client: A
         "archmap_docs_prompt", {"project": "Ярмарка", "variant": "skeptic"}, client
     )
     assert api.calls[-1].url.params["variant"] == "skeptic"
+
+
+async def test_промпт_доков_проносит_одну_точку_входа(client: ArchMapClient, api: FakeApi) -> None:
+    # Сценарий «задокументировать монолит»: после разведки каждую заглушку описывают
+    # отдельным прогоном — target с её именем (аудит P-12: README его обещал, а
+    # инструмент не передавал).
+    api.get("/docs-import/prompt", {"prompt": "одна схема"})
+
+    await tools.call(
+        "archmap_docs_prompt",
+        {"project": "Ярмарка", "node_id": "n1", "target": "Пересчёт остатков"},
+        client,
+    )
+    params = api.calls[-1].url.params
+    assert params["target"] == "Пересчёт остатков"
+    assert params["node_id"] == "n1"
+
+
+def test_у_каждого_аргумента_есть_описание() -> None:
+    # Агент выбирает аргументы по описанию: голый {"type": "boolean"} у флага синка
+    # не говорит, что он включает (аудит P-28 — было 75 таких аргументов).
+    missing: list[str] = []
+
+    def walk(where: str, schema: dict[str, Any]) -> None:
+        for key, arg in (schema.get("properties") or {}).items():
+            if not arg.get("description"):
+                missing.append(f"{where}.{key}")
+            if arg.get("type") == "object":
+                walk(f"{where}.{key}", arg)
+            items = arg.get("items")
+            if isinstance(items, dict) and items.get("type") == "object":
+                walk(f"{where}.{key}[]", items)
+
+    for tool in tools.TOOLS:
+        walk(tool["name"], tool["schema"])
+    assert missing == []
 
 
 async def test_варианты_промпта_те_же_что_у_бэкенда() -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 from conftest import FakeApi, backend
 
@@ -148,11 +148,35 @@ def test_порядок_и_заголовки_повторяют_панель() 
 def test_причины_пишутся_словами_а_не_кодами() -> None:
     out = render.alerts(validated_payload())
     assert "„orders.stat“ — колонки нет в таблице" in out
-    assert "„order.created“ — имя неоднозначно — укажите „Брокер / канал“" in out
+    assert "„order.created“ — имя неоднозначно, укажите „Брокер / канал“" in out
     assert "„TIMEOUT“ — параметра нет в конфигурации объекта" in out
     assert "unknown_column" not in out and "ambiguous" not in out
     # Связь с брокером: обе причины — разные фразы починки.
     assert "Сервис заказов → Kafka: канал не указан" in out
+
+
+def panel_reasons(const: str) -> dict[str, str]:
+    """Словарь причин панели (REF_REASON / CHANNEL_REASON) — ключ → текст."""
+    block = re.search(
+        rf"const {const}[^=]*= \{{(.*?)\}};", PANEL.read_text(encoding="utf-8"), re.S
+    )
+    assert block, f"в панели нет {const}"
+    return dict(re.findall(r'(\w+): "([^"]+)"', block.group(1)))
+
+
+def test_тексты_причин_те_же_что_в_панели() -> None:
+    # Аудит P-38: тексты причин уже разъехались («— укажите» против «, укажите»),
+    # и ни один тест этого не видел. Ключи сверяются с контрактом бэкенда — новая
+    # причина без текста печаталась бы агенту кодом.
+    schemas = backend("schemas.node")
+    for mine, const, alert in (
+        (render.DATA_REASON, "REF_REASON", schemas.UnresolvedDataRefAlert),
+        (render.CHANNEL_REASON, "CHANNEL_REASON", schemas.UnresolvedChannelRefAlert),
+    ):
+        assert set(mine) == set(get_args(alert.model_fields["reason"].annotation))
+        assert mine == panel_reasons(const)
+    panel = " ".join(PANEL.read_text(encoding="utf-8").split())
+    assert render.CONFIG_REASON in panel
 
 
 def test_строки_называют_имена_и_детали() -> None:

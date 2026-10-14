@@ -449,8 +449,9 @@ async def t_import_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_docs_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, _ = await resolve_project(client, args["project"])
     params: dict[str, Any] = {"include": args.get("include", "both")}
-    if args.get("node_id"):
-        params["node_id"] = args["node_id"]
+    for key in ("node_id", "target"):
+        if args.get(key):
+            params[key] = args[key]
     _variant(args, params)
     data = await client.request("GET", "/docs-import/prompt", project_id=pid, params=params)
     return str(data["prompt"])
@@ -994,10 +995,47 @@ SOURCE_ARG = {
         "по имени внутри контейнера)."
     ),
     "properties": {
-        "repo": {"type": "string"},
-        "path": {"type": "string"},
-        "host": {"type": "string"},
+        "repo": {"type": "string", "description": "Репозиторий: «github.com/org/repo» или адрес клона."},
+        "path": {"type": "string", "description": "Каталог компонента внутри репозитория: «src/api». Только вместе с repo."},
+        "host": {"type": "string", "description": "Имя зависимости без порта и схемы: «postgres». Не вместе с repo."},
     },
+}
+
+NODE_ID_ARG = {"type": "string", "description": "id объекта (из archmap_schema, archmap_search или archmap_node)."}
+SUBTREE_ARG = {"type": "string", "description": "id объекта: показать только его поддерево."}
+PROCESS_ID_ARG = {"type": "string", "description": "id процесса (из archmap_processes без process_id)."}
+SHAPE_ARG = {
+    "type": "string",
+    "enum": ["service", "database", "broker", "person"],
+    "description": "Форма C4: service — сервис, database — база, broker — брокер, person — человек (только корневой).",
+}
+STATUS_ARG = {
+    "type": "string",
+    "enum": ["existing", "planned", "deprecated"],
+    "description": "Жизненный цикл: existing — есть, planned — планируется, deprecated — выводится.",
+}
+EXTERNAL_ARG = {"type": "boolean", "description": "Внешний объект: чужая система за границей продукта."}
+SYNC_ARG = {"type": "boolean", "description": "Связь синхронная (вызов с ответом). false — событие: у асинхронного канала нет ответного плеча."}
+DOCS_ONLY_ARG = {
+    "type": "string",
+    "enum": ["logic", "api"],
+    "description": "Взять из пакета только схемы логики (logic) или только OpenAPI-спеки (api). Без него — всё.",
+}
+DOCS_OVERWRITE_ARG = {
+    "type": "boolean",
+    "description": "Перезаписывать занятые слоты (схему с тем же именем, уже заполненную спеку). По умолчанию false.",
+}
+DOCS_SCOPE_ARG = {"type": "string", "description": "Ограничить область этим объектом: адреса файлов ищутся в его поддереве."}
+FACTS_NODE_ARG = {"type": "string", "description": "Объект-адресат записей без адреса в файле."}
+RECON_NODE_ARG = {"type": "string", "description": "Объект-адресат строк перечня без строки «node:»."}
+# Политики синка (app/sync_plan.SyncPolicies): все выключены по умолчанию — самый
+# осторожный режим. Превью и применение получают одни и те же флаги.
+SYNC_POLICY_ARGS = {
+    "update_descriptions": {"type": "boolean", "description": "Перезаписывать описания объектов прозой прогона (описание могли выправить руками)."},
+    "update_names": {"type": "boolean", "description": "Переименовывать объекты по прогону. Переименование видно в плане и без флага."},
+    "sync_components": {"type": "boolean", "description": "Синхронизировать и слой компонентов (третий уровень C4); без флага — только системы и контейнеры."},
+    "mark_missing_deprecated": {"type": "boolean", "description": "Пропавшим из прогона объектам ставить статус deprecated. Удаления нет никогда."},
+    "restore_returned": {"type": "boolean", "description": "Снимать deprecated с объектов, которые снова появились в прогоне (пометку мог поставить человек)."},
 }
 
 FILES_ARG = {
@@ -1005,7 +1043,10 @@ FILES_ARG = {
     "description": "Файлы прогона агента: [{name, content}].",
     "items": {
         "type": "object",
-        "properties": {"name": {"type": "string"}, "content": {"type": "string"}},
+        "properties": {
+            "name": {"type": "string", "description": "Имя файла — им файл называют замечания превью."},
+            "content": {"type": "string", "description": "Текст файла целиком."},
+        },
         "required": ["name", "content"],
     },
 }
@@ -1040,7 +1081,7 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Архитектура проекта: дерево объектов и все связи. node_id — показать только поддерево этого объекта.",
         "schema": {
             "type": "object",
-            "properties": {"project": PROJECT_ARG, "node_id": {"type": "string"}},
+            "properties": {"project": PROJECT_ARG, "node_id": SUBTREE_ARG},
             "required": ["project"],
         },
         "handler": t_schema,
@@ -1056,7 +1097,7 @@ TOOLS: list[dict[str, Any]] = [
                     "type": "string",
                     "description": "Строка лога, текст ошибки или ключевые слова — целиком.",
                 },
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "description": "Сколько находок вернуть: по умолчанию 20, не больше 100."},
                 "kinds": {
                     "type": "array",
                     "items": {"type": "string", "enum": SEARCH_KINDS},
@@ -1074,9 +1115,9 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "node_id": {"type": "string"},
-                "include_docs": {"type": "boolean"},
-                "include_spec": {"type": "boolean"},
+                "node_id": NODE_ID_ARG,
+                "include_docs": {"type": "boolean", "description": "Вернуть тексты всех схем логики целиком (для одной схемы дешевле archmap_doc)."},
+                "include_spec": {"type": "boolean", "description": "Вернуть OpenAPI-спеку объекта целиком."},
             },
             "required": ["project", "node_id"],
         },
@@ -1087,7 +1128,10 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Одна схема логики целиком по doc_id (из archmap_search, archmap_node или шага archmap_processes): путь объекта, имя, вид, эндпоинт, «не описана» у заглушки разведки, в каких процессах схема документирует шаги, и полный текст mermaid. Когда нужна одна схема, это дешевле archmap_node с include_docs.",
         "schema": {
             "type": "object",
-            "properties": {"project": PROJECT_ARG, "doc_id": {"type": "string"}},
+            "properties": {
+                "project": PROJECT_ARG,
+                "doc_id": {"type": "string", "description": "id схемы логики (из archmap_search, archmap_node или шага процесса)."},
+            },
             "required": ["project", "doc_id"],
         },
         "handler": t_doc,
@@ -1107,7 +1151,10 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Бизнес-процессы проекта: без process_id — список (область и число шагов), с ним — участники, шаги сценария и фрагменты. У каждого шага видно, чем он задокументирован (схема логики с путём объекта) либо что привязки нет, а также его id и version — вход archmap_step_docs и archmap_bind_step.",
         "schema": {
             "type": "object",
-            "properties": {"project": PROJECT_ARG, "process_id": {"type": "string"}},
+            "properties": {
+                "project": PROJECT_ARG,
+                "process_id": {"type": "string", "description": "id процесса: без него — список процессов."},
+            },
             "required": ["project"],
         },
         "handler": t_processes,
@@ -1119,7 +1166,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "process_id": {"type": "string"},
+                "process_id": PROCESS_ID_ARG,
                 "message_id": {"type": "string", "description": "Шаг процесса (id из archmap_processes)."},
             },
             "required": ["project", "process_id", "message_id"],
@@ -1133,7 +1180,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "process_id": {"type": "string"},
+                "process_id": PROCESS_ID_ARG,
                 "message_id": {"type": "string", "description": "Шаг процесса (id из archmap_processes)."},
                 "doc_id": {
                     "type": ["string", "null"],
@@ -1153,7 +1200,7 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Схема проекта в YAML формата ArchMap (семантика без раскладки) — то, что подают обратно на импорт и синк. node_id — только поддерево. Это СРЕЗ для чтения: схемы логики, спеки, таблицы, каналы, конфигурация и процессы в него не входят — полное знание проекта выгружает archmap_export_archive.",
         "schema": {
             "type": "object",
-            "properties": {"project": PROJECT_ARG, "node_id": {"type": "string"}},
+            "properties": {"project": PROJECT_ARG, "node_id": SUBTREE_ARG},
             "required": ["project"],
         },
         "handler": t_export,
@@ -1195,13 +1242,21 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "archmap_docs_prompt",
-        "description": "ПРАВИЛА ФОРМАТА: как оформить схемы логики (.mmd с шапкой «%% archmap-name») и OpenAPI-спеки для дозаливки. include: logic | api | both. variant — строительный промпт (по умолчанию), оркестраторный с аудитом скептика (нужны субагенты) или один аудит.",
+        "description": "ПРАВИЛА ФОРМАТА: как оформить схемы логики (.mmd с шапкой «%% archmap-name») и OpenAPI-спеки для дозаливки. include: logic | api | both. target — одна точка входа за прогон (после разведки: имя заглушки). variant — строительный промпт (по умолчанию), оркестраторный с аудитом скептика (нужны субагенты) или один аудит.",
         "schema": {
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
                 "node_id": {"type": "string", "description": "Объект, для которого готовим доки."},
-                "include": {"type": "string", "enum": ["logic", "api", "both"]},
+                "include": {
+                    "type": "string",
+                    "enum": ["logic", "api", "both"],
+                    "description": "Что описывать: logic — схемы логики, api — OpenAPI-спеки, both — то и другое (по умолчанию).",
+                },
+                "target": {
+                    "type": "string",
+                    "description": "Описать ОДНУ точку входа: имя заглушки разведки (воркер) или «METHOD /путь» (операция). Для крупных сервисов — по точке за прогон.",
+                },
                 "variant": VARIANT_ARG,
             },
             "required": ["project"],
@@ -1224,7 +1279,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Имя нового проекта. Можно опустить только при единственном входе-архиве."},
-                "description": {"type": "string"},
+                "description": {"type": "string", "description": "Описание нового проекта."},
                 "files": FILES_ARG,
                 "paths": PATHS_ARG,
                 "resolutions": RESOLUTIONS_ARG,
@@ -1266,11 +1321,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "update_descriptions": {"type": "boolean"},
-                "update_names": {"type": "boolean"},
-                "sync_components": {"type": "boolean"},
-                "mark_missing_deprecated": {"type": "boolean"},
-                "restore_returned": {"type": "boolean"},
+                **SYNC_POLICY_ARGS,
             },
             "required": ["project", "files"],
         },
@@ -1284,11 +1335,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "update_descriptions": {"type": "boolean"},
-                "update_names": {"type": "boolean"},
-                "sync_components": {"type": "boolean"},
-                "mark_missing_deprecated": {"type": "boolean"},
-                "restore_returned": {"type": "boolean"},
+                **SYNC_POLICY_ARGS,
                 "base_graph_rev": {
                     "type": "integer",
                     "description": "Курсор схемы из превью: если схему успели изменить, применение отклонится.",
@@ -1306,9 +1353,9 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "overwrite": {"type": "boolean", "description": "Перезаписывать занятые слоты."},
-                "only": {"type": "string", "enum": ["logic", "api"]},
-                "node_id": {"type": "string", "description": "Ограничить область этим объектом."},
+                "overwrite": DOCS_OVERWRITE_ARG,
+                "only": DOCS_ONLY_ARG,
+                "node_id": DOCS_SCOPE_ARG,
             },
             "required": ["project", "files"],
         },
@@ -1322,9 +1369,9 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "overwrite": {"type": "boolean"},
-                "only": {"type": "string", "enum": ["logic", "api"]},
-                "node_id": {"type": "string"},
+                "overwrite": DOCS_OVERWRITE_ARG,
+                "only": DOCS_ONLY_ARG,
+                "node_id": DOCS_SCOPE_ARG,
             },
             "required": ["project", "files"],
         },
@@ -1338,8 +1385,8 @@ TOOLS: list[dict[str, Any]] = [
             "перечень — оглавление, а не документация. Сценарий целиком: archmap_recon_prompt → "
             "агент читает код и пишет перечень в формате промпта → archmap_recon_preview → "
             "archmap_recon_apply (строки лягут ЗАГЛУШКАМИ — схемами логики с пустым телом) → "
-            "дальше каждую точку входа описывают адресно через archmap_docs_prompt с node_id и "
-            "archmap_docs_preview/apply. Без разведки задание «опиши логику сервиса» безадресно, "
+            "дальше каждую точку входа описывают адресно: archmap_docs_prompt с node_id и target "
+            "(имя заглушки) → archmap_docs_preview/apply. Без разведки задание «опиши логику сервиса» безадресно, "
             "и модель сама решает, где остановиться (полевой факт: 13 схем на 201 точку входа). "
             "variant — строительный промпт (по умолчанию), оркестраторный с двумя прогонами, "
             "объединением и аудитом скептика (нужны субагенты) или один аудит."
@@ -1371,7 +1418,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "node_id": {"type": "string", "description": "Объект-адресат перечня."},
+                "node_id": RECON_NODE_ARG,
             },
             "required": ["project", "files"],
         },
@@ -1390,7 +1437,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
-                "node_id": {"type": "string"},
+                "node_id": RECON_NODE_ARG,
             },
             "required": ["project", "files"],
         },
@@ -1435,7 +1482,7 @@ TOOLS: list[dict[str, Any]] = [
                 "family": FAMILY_ARG,
                 "files": FILES_ARG,
                 "overwrite": OVERWRITE_ARG,
-                "node_id": {"type": "string", "description": "Объект-адресат записей без адреса."},
+                "node_id": FACTS_NODE_ARG,
             },
             "required": ["project", "family", "files"],
         },
@@ -1454,7 +1501,7 @@ TOOLS: list[dict[str, Any]] = [
                 "family": FAMILY_ARG,
                 "files": FILES_ARG,
                 "overwrite": OVERWRITE_ARG,
-                "node_id": {"type": "string"},
+                "node_id": FACTS_NODE_ARG,
             },
             "required": ["project", "family", "files"],
         },
@@ -1467,14 +1514,14 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "name": {"type": "string"},
-                "description": {"type": "string"},
+                "name": {"type": "string", "description": "Имя объекта."},
+                "description": {"type": "string", "description": "Что делает объект — одна-две фразы."},
                 "role": {"type": "string", "description": "Роль: «сервис», «БД», «брокер»."},
                 "technology": {"type": "string", "description": "Технология: Python, Kafka, Redis."},
-                "parent_id": {"type": "string"},
-                "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
-                "is_external": {"type": "boolean"},
-                "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
+                "parent_id": {"type": "string", "description": "id объекта-родителя; без него — корневой уровень."},
+                "shape": SHAPE_ARG,
+                "is_external": EXTERNAL_ARG,
+                "status": STATUS_ARG,
                 "source": SOURCE_ARG,
             },
             "required": ["project", "name"],
@@ -1488,14 +1535,14 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "node_id": {"type": "string"},
-                "name": {"type": "string"},
-                "description": {"type": "string"},
-                "role": {"type": "string"},
-                "technology": {"type": "string"},
-                "shape": {"type": "string", "enum": ["service", "database", "broker", "person"]},
-                "status": {"type": "string", "enum": ["existing", "planned", "deprecated"]},
-                "is_external": {"type": "boolean"},
+                "node_id": NODE_ID_ARG,
+                "name": {"type": "string", "description": "Новое имя."},
+                "description": {"type": "string", "description": "Новое описание."},
+                "role": {"type": "string", "description": "Роль: «сервис», «БД», «брокер»."},
+                "technology": {"type": "string", "description": "Технология: Python, Kafka, Redis."},
+                "shape": SHAPE_ARG,
+                "status": STATUS_ARG,
+                "is_external": EXTERNAL_ARG,
                 "source": SOURCE_ARG,
             },
             "required": ["project", "node_id"],
@@ -1509,11 +1556,11 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "source_id": {"type": "string"},
-                "target_id": {"type": "string"},
+                "source_id": {"type": "string", "description": "id объекта — инициатора вызова."},
+                "target_id": {"type": "string", "description": "id объекта, которого вызывают."},
                 "label": {"type": "string", "description": "Что передаётся: «создать заказ»."},
                 "technology": {"type": "string", "description": "REST, gRPC, Kafka."},
-                "is_synchronous": {"type": "boolean"},
+                "is_synchronous": SYNC_ARG,
             },
             "required": ["project", "source_id", "target_id"],
         },
@@ -1526,10 +1573,10 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
-                "edge_id": {"type": "string"},
-                "label": {"type": "string"},
-                "technology": {"type": "string"},
-                "is_synchronous": {"type": "boolean"},
+                "edge_id": {"type": "string", "description": "id связи (из archmap_schema или archmap_node)."},
+                "label": {"type": "string", "description": "Что передаётся: «создать заказ»."},
+                "technology": {"type": "string", "description": "REST, gRPC, Kafka."},
+                "is_synchronous": SYNC_ARG,
             },
             "required": ["project", "edge_id"],
         },
