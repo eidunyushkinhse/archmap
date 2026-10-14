@@ -21,8 +21,9 @@ from difflib import SequenceMatcher
 from typing import NamedTuple
 
 import yaml
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app import tree
 from app.data_refs import (
     CHANNEL_MODES,
     CONFIG_MODES,
@@ -34,10 +35,11 @@ from app.data_refs import (
     resolve_data_refs,
 )
 from app.domain_types import NodeDocKind
-from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
+from app.mmd_header import fix_unpaired_brackets, looks_like_mermaid, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.node_ref import NodeIndex, qualified_node_hits
+from app.schemas.docs_import import DocsOnly
 from app.text import loose_name
 
 # Кап предупреждений о нерезолвящихся пометках данных на весь план: замечания
@@ -857,3 +859,148 @@ def apply_docs_plan(db: Session, plan: DocsPlan) -> DocsApplyResult:
         node.version += 1
         specs += 1
     return DocsApplyResult(created, updated, specs, filled)
+
+
+# ── Каталоги для промпта и разбор загруженных файлов (аудит Q-38: жили в роутере) ──
+
+def prompt_name_catalogs(
+    db: Session, project_id: uuid.UUID, slice_ids: set[uuid.UUID] | None = None
+) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
+    """Каталоги имён для промпта: «путь узла → таблицы», «путь узла → каналы» и «путь
+    узла → параметры конфигурации» (последний — ТОЛЬКО по узлам среза slice_ids: резолв
+    «зависит от:» смотрит на владельца схемы, чужие ручки в перечне были бы ловушкой).
+
+    Имя пишется так, как его видит РЕЗОЛВЕР пометок: у таблицы с разделом и у канала
+    с группой — «группа.имя». Каталог по всему проекту (а не по срезу node_id):
+    пометка адресует любую базу и любой брокер проекта, и урезанный перечень отправил
+    бы агента чинить верные имена (находка №1 docs/qa-zulip-brokers.md).
+    """
+    tables, channels, params, node_paths = catalog_for_project(db, project_id)
+    table_catalog: dict[str, list[str]] = {}
+    for t in tables:
+        path = node_paths.get(t.node_id)
+        if path is not None:
+            table_catalog.setdefault(path, []).append(
+                f"{t.schema_name}.{t.name}" if t.schema_name else t.name
+            )
+    channel_catalog: dict[str, list[str]] = {}
+    for c in channels:
+        path = node_paths.get(c.node_id)
+        if path is not None:
+            channel_catalog.setdefault(path, []).append(
+                f"{c.group_name}.{c.name}" if c.group_name else c.name
+            )
+    param_catalog: dict[str, list[str]] = {}
+    for node_id, names in params.items():
+        if slice_ids is not None and node_id not in slice_ids:
+            continue
+        path = node_paths.get(node_id)
+        if path is not None and names:
+            param_catalog[path] = sorted(names)
+    return table_catalog, channel_catalog, param_catalog
+
+
+def entry_point_catalogs(
+    db: Session, nodes: list[Node]
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Точки входа среза, разделённые надвое: описанные и ждущие описания (Ф3).
+
+    Каталог — по узлам СРЕЗА (а не всего проекта): адреса в нём должны совпадать с
+    путями из вложенного среза схемы, иначе агент увидит перечень для объектов,
+    которых в срезе нет.
+
+    Тела схем НЕ грузим: у монолита их две сотни, а вопрос тут булев — тянуть ради
+    него мегабайты mermaid нельзя. «Описана» считает выражение в БД (NodeDoc.described,
+    длина тела после trim), тем же способом, что признак в мете витрины.
+    """
+    path_by_id = NodeIndex.of(nodes).path_by_id()
+    described: dict[str, list[str]] = {}
+    pending: dict[str, list[str]] = {}
+    rows = (
+        db.query(NodeDoc.node_id, NodeDoc.name, NodeDoc.operation, NodeDoc.described)
+        .filter(NodeDoc.node_id.in_(path_by_id))
+        .all()
+    )
+    for node_id, name, operation, is_described in rows:
+        path = path_by_id.get(node_id)
+        if path is None:
+            continue
+        # Адрес операции показываем рядом с именем, когда они разошлись: агент назвал
+        # схему по-человечески, и без адреса перечень не отвечает «что уже закрыто».
+        подпись = f"{name} ({operation})" if operation and operation != name else name
+        (described if is_described else pending).setdefault(path, []).append(подпись)
+    return described, pending
+
+
+def plan_from_upload(
+    db: Session,
+    project_id: uuid.UUID,
+    files: list[tuple[str, str]],
+    overrides: dict[str, MmdOverride],
+    only: DocsOnly | None,
+    window: uuid.UUID | None,
+    overwrite: bool,
+) -> DocsPlan:
+    """Разбор загруженных файлов пакета → план. Схема логики опознаётся ПО
+    СОДЕРЖИМОМУ (расширение, шапка или начало диаграммы), остальное — кандидат в
+    файл спеки. Ошибки блокируют план целиком: частичный план вводил бы в
+    заблуждение кнопку «Применить»."""
+    entries: list[tuple[str, ParsedPkg]] = []
+    assets: dict[str, str] = {}
+    errors: list[str] = []
+    notes: list[str] = []
+    for fname, content in files:
+        if looks_like_mermaid(fname, content):
+            # Схема логики самодостаточна: метаданные — в её шапке.
+            parsed_mmd, mmd_notes = pkg_from_mmd(fname, content, overrides.get(fname))
+            entries.append((fname, parsed_mmd))
+            notes.extend(mmd_notes)
+        else:
+            # Всё остальное — ресурс (кандидат в файл спеки). Дубль имени: последний
+            # побеждает молча (имена в одной папке уникальны по построению).
+            assets[fname] = content
+    if only == "api" and window is not None and assets:
+        # Окно спеки: пакет — сам файл спеки, конверт не нужен (объект известен
+        # из окна, спека у него одна). Из нескольких файлов выбираем похожий на
+        # OpenAPI; если таких несколько — спрашиваем, а не угадываем.
+        # Условие НЕ «файлов больше нет»: пользователь вправе перетащить всю
+        # папку archmap-docs целиком, и спеку в ней надо найти, а не потерять
+        # среди схем логики.
+        picked = [n for n, c in assets.items() if spec_check(c)[1]] or list(assets)
+        if len(picked) == 1:
+            entries.append((picked[0], pkg_from_spec(picked[0], assets[picked[0]])))
+        elif len(picked) > 1:
+            errors.append("в пакете несколько файлов спеки: " + ", ".join(sorted(picked)))
+    if not entries and not errors:
+        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни файла спеки")
+    if errors:
+        plan = DocsPlan()
+        plan.errors = errors
+        return plan
+    # Тела ЖИВЫХ схем здесь нужны: план сравнивает текст пакета с текущим
+    # («unchanged» / заполнение заглушки), а тело — отложенная колонка. Без undefer
+    # мердж вытянул бы их по одной на схему — у монолита это две сотни запросов.
+    nodes = (
+        db.query(Node)
+        .options(selectinload(Node.docs).undefer(NodeDoc.content))
+        .filter(Node.project_id == project_id)
+        .all()
+    )
+    scope_ids = None
+    if window is not None:
+        by_id = {n.id: n for n in nodes}
+        scope_ids = tree.subtree_ids(by_id, window) if window in by_id else set()
+    # db/project_id — только для резолва пометок данных в текстах схем (превью
+    # обязано показывать битые «читает:/пишет:» так же, как плашка редактора).
+    plan = build_docs_plan(
+        nodes, entries, assets, overwrite, window, scope_ids,
+        db=db, project_id=project_id,
+    )
+    plan.warnings.extend(notes)
+    # Раздельные окна дозаливки: окно логики применяет только схемы логики, окно
+    # спеки — только OpenAPI-спеки (сущности не смешиваются даже в смешанном манифесте).
+    if only == "logic":
+        plan.specs = []
+    elif only == "api":
+        plan.logic = []
+    return plan

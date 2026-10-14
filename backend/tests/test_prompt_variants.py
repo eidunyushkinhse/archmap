@@ -25,6 +25,7 @@ from app.channels_prompt import build_channels_prompt
 from app.data_prompt import build_data_prompt
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor
+from app.docs_import import prompt_name_catalogs
 from app.docs_prompt import build_docs_prompt
 from app.export import build_export
 from app.import_prompt import build_import_prompt
@@ -36,7 +37,7 @@ from app.models.node import Node
 from app.node_ref import NodeIndex
 from app.routers.channels_import import channels_prompt
 from app.routers.data_import import data_prompt
-from app.routers.docs_import import _name_catalogs, docs_prompt
+from app.routers.docs_import import docs_prompt
 from app.routers.projects import import_prompt
 from app.skeptic_prompt import (
     BLOCK_A_END,
@@ -146,7 +147,7 @@ def _прямой_доковый(db, project) -> str:
     """Тот же промпт, что собирает ручка: срез схемы + каталоги имён проекта."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    tables, channels, params = _name_catalogs(db, project.id, {n.id for n in nodes})
+    tables, channels, params = prompt_name_catalogs(db, project.id, {n.id for n in nodes})
     return build_docs_prompt(
         build_export(nodes, edges, root_id=None), "both", "ru", None, None, tables, channels,
         param_catalog=params,
