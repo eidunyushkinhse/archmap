@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from app.access import effective_role, effective_roles
 from app.auth import create_access_token
 from app.database import get_db
-from app.deps import ProjectAccess, require_project_editor, require_project_owner
+from app.deps import ProjectAccess, require_project_editor
 from app.main import app
 from app.models.node import Node
 from app.models.project import Project
@@ -116,24 +116,20 @@ def test_effective_role_порядок_проверок(db, scene):
         assert effective_roles(db, scene[name], [p])[p.id] == effective_role(db, scene[name], p)
 
 
-def test_зависимости_записи_и_управления(db, scene):
+def test_зависимость_записи(db, scene):
+    # Управление проектом (owner) закрывает project_for(need="owner") — его держит
+    # матрица «роль × действие» ниже.
     p = scene["p"]
     owner_access = ProjectAccess(project=p, user=scene["owner"], role="owner")
     editor_access = ProjectAccess(project=p, user=scene["editor"], role="editor")
     reader_access = ProjectAccess(project=p, user=scene["reader"], role="reader")
     assert require_project_editor(owner_access) is scene["owner"]
     assert require_project_editor(editor_access) is scene["editor"]
-    assert require_project_owner(owner_access) is scene["owner"]
     from fastapi import HTTPException
 
-    for access, dep in (
-        (reader_access, require_project_editor),
-        (editor_access, require_project_owner),
-        (reader_access, require_project_owner),
-    ):
-        with pytest.raises(HTTPException) as ei:
-            dep(access)
-        assert ei.value.status_code == 403
+    with pytest.raises(HTTPException) as ei:
+        require_project_editor(reader_access)
+    assert ei.value.status_code == 403
 
 
 # ── Матрица «роль × действие» ────────────────────────────────────────────────

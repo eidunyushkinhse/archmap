@@ -14,7 +14,7 @@ import pytest
 from conftest import make_project
 from fastapi.testclient import TestClient
 
-from app import demo
+from app import demo, demo_limits
 from app.admin import demo_cleanup, demo_stats
 from app.auth import (
     GUEST_CLAIM,
@@ -56,6 +56,7 @@ def client(db):
 @pytest.fixture()
 def demo_on(monkeypatch):
     monkeypatch.setattr(settings, "demo_mode", True)
+    demo_limits.install()  # в проде — main.lifespan; TestClient без with его не запускает
     demo.start_limiter.reset()
     yield
     demo.start_limiter.reset()
@@ -417,3 +418,25 @@ def test_вне_демо_наблюдатель_не_создаёт_проект
     db.commit()
     me = client.get("/api/v1/auth/me", headers=_auth(_user_token(viewer))).json()
     assert me["can_create_project"] is False
+
+
+def test_lifespan_демо_вешает_слушатели_пределов(monkeypatch):
+    # Аудит Q-33: слушатели пределов вешались при ЛЮБОМ импорте модуля, теперь — только
+    # lifespan демо-режима. Снимаем их, поднимаем lifespan и проверяем, что вернулись.
+    import asyncio
+
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+
+    from app.main import app
+
+    async def idle() -> None:  # фоновая уборка песочниц полезла бы в настоящую базу
+        await asyncio.sleep(3600)
+
+    for name, fn in demo_limits._LISTENERS:
+        if event.contains(Session, name, fn):
+            event.remove(Session, name, fn)
+    monkeypatch.setattr(settings, "demo_mode", True)
+    monkeypatch.setattr(demo, "cleanup_loop", idle)
+    with TestClient(app):
+        assert all(event.contains(Session, name, fn) for name, fn in demo_limits._LISTENERS)

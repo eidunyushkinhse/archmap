@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import GUEST_CLAIM, create_access_token, hash_password
+from app.database import SessionLocal
 from app.demo_package import DEMO_PACKAGE, seed_package_template
 from app.models.project import Project
 from app.models.project_member import ProjectMember
@@ -254,8 +255,6 @@ def sandbox_stats(db: Session, top: int = 5) -> SandboxStats:
 
 def _cleanup_once() -> None:
     """Один прогон уборки в своей сессии БД (для фоновой задачи)."""
-    from app.database import SessionLocal
-
     with SessionLocal() as db:
         report = cleanup_sandboxes(db)
     if report.guests:

@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import demo
+from app import demo, demo_limits
 from app.column_limits import ValueTooLong
 from app.config import settings
 from app.database import get_db
@@ -44,6 +44,8 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Фоновая уборка песочниц — только в демо-режиме (docs/tasks/demo-mode.md):
     asyncio-задача раз в 10 минут, своя сессия БД на прогон."""
     task = asyncio.create_task(demo.cleanup_loop()) if settings.demo_mode else None
+    if settings.demo_mode:
+        demo_limits.install()  # пределы проекта — слушатели сессии (app/demo_limits.py)
     yield
     if task is not None:
         task.cancel()

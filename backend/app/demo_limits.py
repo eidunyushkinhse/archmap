@@ -23,6 +23,7 @@
 превышение видно до кнопки «Создать».
 """
 
+import logging
 import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from typing import Any, Literal
 from fastapi import HTTPException, status
 from sqlalchemy import Integer, event, func, inspect, select
 from sqlalchemy.engine import Connection
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, SessionTransaction
 from sqlalchemy.orm.base import NO_VALUE
@@ -39,6 +41,8 @@ from sqlalchemy.sql.elements import ColumnElement
 from sqlalchemy.sql.functions import FunctionElement
 
 from app import demo
+from app.archive_import import ArchiveError
+from app.column_limits import ValueTooLong
 from app.config import settings
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -54,6 +58,9 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.schemas.demo import DemoExcess
+from app.unified_import import UnifiedImportError
+
+logger = logging.getLogger(__name__)
 
 LimitKind = Literal["nodes", "edges", "docs", "processes", "text"]
 
@@ -408,14 +415,12 @@ _LISTENERS: tuple[tuple[str, Callable[..., None]], ...] = (
 
 
 def install() -> None:
-    """Повесить слушатели на все сессии (идемпотентно). Вне демо-режима они
-    возвращаются сразу."""
+    """Повесить слушатели на все сессии (идемпотентно). Зовёт main.lifespan в
+    демо-режиме (аудит Q-33: раньше — при любом импорте модуля, и слушатели
+    срабатывали на каждом flush во всех поставках), тесты демо — своими фикстурами."""
     for name, fn in _LISTENERS:
         if not event.contains(Session, name, fn):
             event.listen(Session, name, fn)
-
-
-install()
 
 
 # ── Превью импорта и размер файла ───────────────────────────────────────────
@@ -437,10 +442,15 @@ def dry_run_excess(
         pid = apply()
         db.flush()
         after = measure(db, pid) if pid is not None else None
-    except Exception:
-        # Сбой пробного применения не ломает превью: причину покажет само превью
-        # или честное применение.
+    except (UnifiedImportError, ArchiveError, IntegrityError, ValueTooLong, HTTPException):
+        # Ожидаемый отказ пробного применения не ломает превью: причину покажет само
+        # превью или честное применение.
         after = None
+    except Exception:
+        # Баг применения: раньше превью молча теряло demo_excess, и падало только
+        # честное применение (аудит Q-39). Теперь — в журнал и наружу.
+        logger.exception("пробное применение импорта упало")
+        raise
     finally:
         db.rollback()
     return find_excess(after, before) if after is not None else None

@@ -6,13 +6,14 @@ get_current_project — скоуп доменных запросов текущ�
 
 Доступ (docs/tasks/project-access.md): get_current_project пускает только того,
 у кого есть действующая роль в проекте (app/access.py), поэтому ЧТЕНИЕ закрыто во
-всех роутерах проекта одним местом. Запись — require_project_editor, управление
-проектом — require_project_owner. Проекты, адресуемые ПУТЁМ (/projects/{id}/...),
-проверяет project_for с той же логикой.
+всех роутерах проекта одним местом. Запись — require_project_editor. Проекты,
+адресуемые ПУТЁМ (/projects/{id}/...), проверяет project_for с той же логикой; им же
+закрыто управление проектом (need="owner").
 """
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
@@ -107,12 +108,6 @@ def require_project_editor(access: ProjectAccess = Depends(get_project_access)) 
     return access.user
 
 
-def require_project_owner(access: ProjectAccess = Depends(get_project_access)) -> User:
-    """Управление текущим проектом: только owner (администратор — тоже owner)."""
-    _require_role(access.role, "owner")
-    return access.user
-
-
 def scoped_node(db: Session, node_id: uuid.UUID, project: Project) -> Node | None:
     """Узел, принадлежащий проекту, иначе None (для 404). db.get по PK игнорирует
     скоуп — проверяем project_id явно, чтобы чужой узел был недоступен (изоляция)."""
@@ -137,7 +132,6 @@ def touch_project(db: Session, project: Project, user_id: uuid.UUID | None) -> N
     Раскладочные апдейты (позиции/хэндлы/изломы/label_t) сюда НЕ входят — они не
     версионируются, дата изменения отражает смысл, а не геометрию. Сам commit —
     на вызывающей стороне (мутация и touch коммитятся вместе)."""
-    from datetime import UTC, datetime
 
     project.updated_at = datetime.now(UTC)
     project.updated_by_id = user_id

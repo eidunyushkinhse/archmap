@@ -18,7 +18,7 @@ import pytest
 from conftest import ensure_architect, seed_project_from_yaml
 from fastapi.testclient import TestClient
 
-from app import demo
+from app import demo, demo_limits
 from app.archive_export import build_archive
 from app.auth import create_access_token
 from app.config import settings
@@ -128,6 +128,7 @@ def scene(db) -> dict:
 def small(scene, monkeypatch):
     """Демо-режим с маленькими пределами (сцена уже стоит на них)."""
     monkeypatch.setattr(settings, "demo_mode", True)
+    demo_limits.install()  # в проде — main.lifespan; TestClient без with его не запускает
     monkeypatch.setattr(demo, "MAX_NODES", 4)
     monkeypatch.setattr(demo, "MAX_EDGES", 2)
     monkeypatch.setattr(demo, "MAX_DOCS", 2)
