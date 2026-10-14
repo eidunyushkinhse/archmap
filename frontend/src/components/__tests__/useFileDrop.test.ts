@@ -142,4 +142,20 @@ describe("useFileDrop", () => {
 
     expect(result.current.error).toBeNull();
   });
+
+  // Аудит F-31: в окне ввоза проекта предел 2 МБ стоял на всё, и архив знания крупнее
+  // при перетаскивании отбивался, хотя кнопкой проходил.
+  it("предел функцией: архиву свой, документу свой — и текст отказа называет предел", () => {
+    const onFiles = vi.fn();
+    const big = 3 * 1024 * 1024;
+    const { result } = renderHook(() => useFileDrop({
+      accept: [".yaml", ".zip"],
+      onFiles,
+      maxBytes: (f) => (f.name.endsWith(".zip") ? 64 * 1024 * 1024 : 2_000_000),
+    }));
+    act(() => result.current.bind.onDrop(dragEvent([file("архив.zip", big), file("схема.yaml", big)])));
+    expect(onFiles).toHaveBeenCalledWith([expect.objectContaining({ name: "архив.zip" })]);
+    expect(result.current.error).toBe("Слишком большой файл: схема.yaml (больше 2 МБ).");
+  });
 });
+

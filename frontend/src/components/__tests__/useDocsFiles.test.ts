@@ -64,4 +64,15 @@ describe("useDocsFiles", () => {
     expect(result.current.files).toHaveLength(1);
     expect(result.current.active).toBe(0);
   });
+
+  // Аудит F-31: кнопкой «Загрузить файлы…» файл больше 2 МБ принимался и падал уже на
+  // сервере — перетаскивание же его отбивало сразу.
+  it("файл больше предела документа не читается, причина — в sizeError", () => {
+    const { result } = renderHook(() => useDocsFiles());
+    const big = { name: "огромный.mmd", size: 3 * 1024 * 1024, text: async () => "x" } as unknown as File;
+    act(() => result.current.pickFiles([big]));
+    expect(result.current.sizeError).toBe("Слишком большой файл: огромный.mmd (больше 2 МБ).");
+    expect(result.current.files.some((f) => f.name === "огромный.mmd")).toBe(false);
+  });
 });
+

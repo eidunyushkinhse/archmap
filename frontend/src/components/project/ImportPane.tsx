@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { ImportPreviewOut, UnfixableOut } from "../../types";
 import { plural } from "../../ui/plural";
-import { useFileDrop } from "../docsImport/useFileDrop";
+import { MAX_ARCHIVE_BYTES, MAX_FILE_BYTES, useFileDrop } from "../docsImport/useFileDrop";
 import { allErrors, statusState } from "./importRemarks";
 import { ArchiveCard, ReportList } from "./ImportPaneParts";
 import { RemainderBlock, StatusLine, UnfixableFold } from "./remainder";
@@ -197,6 +197,9 @@ export default function ImportPane({
     accept,
     onFiles: pickFiles,
     disabled: docs.length >= MAX_IMPORT_FILES,
+    // Архив знания — до предела запроса, YAML — как документ (раньше 2 МБ на всё, и
+    // архив крупнее при перетаскивании отбивался, хотя кнопкой проходил; аудит F-31).
+    maxBytes: (f) => (isZip(f) ? MAX_ARCHIVE_BYTES : MAX_FILE_BYTES),
   });
 
   // Мульти-режим — по числу РАЗОБРАННЫХ входов, а не чипов: пустой чип в dry-run

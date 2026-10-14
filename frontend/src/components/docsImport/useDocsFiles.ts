@@ -6,6 +6,7 @@
 import { useState } from "react";
 import type { DocsFile } from "../../api/docsImport";
 import { fileTooBigMessage } from "../demo/demoLimits";
+import { bytesLimitText, MAX_FILE_BYTES } from "./useFileDrop";
 
 // Клиентский предохранитель. Зеркало MAX_PACKAGE_FILES бэка: схема логики стала
 // отдельным .mmd, и у монолита их десятки (docs/plan-docs-mmd.md).
@@ -66,10 +67,15 @@ export function useDocsFiles(): DocsFilesApi {
     if (!list || list.length === 0) return;
     // Демо-стенд: файл больше предела не читаем и не отправляем — сервер ответил бы
     // 413. Отказ показывает окно (sizeError); остальные файлы берутся как обычно.
+    // Вне демо — тот же предел документа, что у перетаскивания (аудит F-31: кнопкой
+    // файл больше 2 МБ принимался и падал уже на сервере).
     const all = Array.from(list);
-    const refusals = all.map((f) => fileTooBigMessage(f)).filter((m): m is string => m !== null);
+    const tooBig = (f: File): string | null =>
+      fileTooBigMessage(f) ??
+      (f.size > MAX_FILE_BYTES ? `Слишком большой файл: ${f.name} (${bytesLimitText(MAX_FILE_BYTES)}).` : null);
+    const refusals = all.map(tooBig).filter((m): m is string => m !== null);
     setSizeError(refusals[0] ?? null);
-    const fit = all.filter((f) => fileTooBigMessage(f) === null);
+    const fit = all.filter((f) => tooBig(f) === null);
     void Promise.all(
       // Нечитаемое пропускаем молча: через перетаскивание сюда может приехать
       // то, чего не бывает в диалоге выбора (папка, удалённый уже файл).

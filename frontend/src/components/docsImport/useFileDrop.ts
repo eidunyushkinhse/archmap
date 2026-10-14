@@ -12,6 +12,13 @@ import type { DragEvent } from "react";
 
 /** Зеркало лимита бэка на длину одного документа (schemas/project.py, docs_import.py). */
 export const MAX_FILE_BYTES = 2_000_000;
+/** Архив знания (.zip) — до предела запроса бэка (MAX_REQUEST_MB, 64 МБ). */
+export const MAX_ARCHIVE_BYTES = 64 * 1024 * 1024;
+
+/** «больше 2 МБ» — предел словами для отказа. */
+export function bytesLimitText(limit: number): string {
+  return `больше ${Math.round(limit / (1024 * 1024))} МБ`;
+}
 
 export interface FileDropOptions {
   /** Допустимые расширения, с точкой и в нижнем регистре; пусто — берём любые файлы. */
@@ -20,6 +27,9 @@ export interface FileDropOptions {
   onFiles: (files: File[]) => void;
   /** Приём выключен — например, исчерпан лимит файлов пакета. */
   disabled?: boolean;
+  /** Предел размера файла (по умолчанию MAX_FILE_BYTES); функцией — свой у разных
+   *  типов: архив знания крупнее документа (аудит F-31). */
+  maxBytes?: number | ((file: File) => number);
 }
 
 export interface FileDropApi {
@@ -59,17 +69,20 @@ function names(list: string[]): string {
 function rejectMessage(
   folders: string[],
   badExt: string[],
-  tooBig: string[],
+  tooBig: { name: string; limit: number }[],
   accept: string[],
 ): string | null {
   const parts: string[] = [];
   if (folders.length) parts.push(`Папку перетащить нельзя (${names(folders)}) — перетащите файлы из неё.`);
   if (badExt.length) parts.push(`Не тот формат: ${names(badExt)} (подойдёт ${accept.join(", ")}).`);
-  if (tooBig.length) parts.push(`Слишком большой файл: ${names(tooBig)} (больше 2 МБ).`);
+  for (const limit of new Set(tooBig.map((f) => f.limit))) {
+    const these = tooBig.filter((f) => f.limit === limit).map((f) => f.name);
+    parts.push(`Слишком большой файл: ${names(these)} (${bytesLimitText(limit)}).`);
+  }
   return parts.length ? parts.join(" ") : null;
 }
 
-export function useFileDrop({ accept = [], onFiles, disabled = false }: FileDropOptions): FileDropApi {
+export function useFileDrop({ accept = [], onFiles, disabled = false, maxBytes = MAX_FILE_BYTES }: FileDropOptions): FileDropApi {
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -100,11 +113,12 @@ export function useFileDrop({ accept = [], onFiles, disabled = false }: FileDrop
     const good: File[] = [];
     const folders: string[] = [];
     const badExt: string[] = [];
-    const tooBig: string[] = [];
+    const tooBig: { name: string; limit: number }[] = [];
     for (const f of Array.from(e.dataTransfer.files)) {
+      const limit = typeof maxBytes === "function" ? maxBytes(f) : maxBytes;
       if (looksLikeFolder(f)) folders.push(f.name);
       else if (accept.length && !accept.includes(ext(f.name))) badExt.push(f.name);
-      else if (f.size > MAX_FILE_BYTES) tooBig.push(f.name);
+      else if (f.size > limit) tooBig.push({ name: f.name, limit });
       else good.push(f);
     }
 
