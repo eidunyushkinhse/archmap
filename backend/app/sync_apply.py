@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.identity import known_key
-from app.import_yaml import ParsedImport
+from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
-from app.sync_plan import SyncPlan
+from app.sync_plan import SyncNodeAction, SyncPlan
 from app.view_state import bump_graph_rev
 
 
@@ -46,6 +46,12 @@ class SyncReport:
         )
 
 
+# Поля узла, которые синк переносит из прогона как есть: имя поля плана совпадает с
+# колонкой узла и полем разобранного прогона. Якорь — отдельно: в плане он уже
+# разобранный ключ, а не поле прогона.
+_FLAT_FIELDS = frozenset({"name", "description", "role", "technology", "shape", "status"})
+
+
 def apply_sync_plan(
     db: Session,
     project: Project,
@@ -67,77 +73,19 @@ def apply_sync_plan(
 
     for act in plan.nodes:
         if act.action == "missing":
-            node = live_by_id.get(act.node_id) if act.node_id else None
-            if node is None:
-                report.skipped.append(f"{act.path}: узел исчез до применения")
-                continue
-            # Пометка ставится только по политике — build_sync_plan оставляет
-            # действие missing и без неё (пропажу показываем всегда, помечаем нет).
-            if plan.policies.mark_missing_deprecated and node.status != "deprecated":
-                node.status = "deprecated"
-                node.version += 1
-                report.deprecated_nodes.append(act.path)
+            _mark_missing(act, live_by_id, plan, report)
             continue
-
         imp = parsed.nodes[act.imp_idx] if act.imp_idx is not None else None
-
         if act.action == "create":
-            if imp is None:
-                report.skipped.append(f"{act.path}: нечего создавать")
-                continue
-            parent = by_path.get(act.parent_path) if act.parent_path else None
-            if act.parent_path and parent is None:
-                # Родитель не создался (например, был пропущен как компонент) —
-                # ребёнка в корень не выносим, это исказило бы иерархию.
-                report.skipped.append(f"{act.path}: родитель не найден")
-                continue
-            node = Node(
-                id=uuid.uuid4(),
-                project_id=project.id,
-                name=imp.name,
-                description=imp.description,
-                role=imp.role,
-                technology=imp.technology,
-                shape=imp.shape,
-                status=imp.status,
-                is_external=imp.is_external,
-                source_ref=known_key(act.source_ref),
-                parent_id=parent.id if parent else None,
-            )
-            db.add(node)
-            db.flush()  # id нужен детям и связям этого же прохода
-            by_path[act.path] = node
-            report.created_nodes.append(act.path)
+            _create_node(db, project, act, imp, by_path, report)
             continue
-
         node = live_by_id.get(act.node_id) if act.node_id else None
         if node is None:
             report.skipped.append(f"{act.path}: узел исчез до применения")
             continue
         by_path[act.path] = node
-        if act.action == "unchanged" or not act.fields:
-            continue
-        if imp is None:
-            report.skipped.append(f"{act.path}: нет данных в YAML")
-            continue
-        # Что менять — решено планом (список fields); здесь только присваивание.
-        for fld in act.fields:
-            if fld == "source_ref":
-                node.source_ref = known_key(act.source_ref)
-            elif fld == "name":
-                node.name = imp.name
-            elif fld == "description":
-                node.description = imp.description
-            elif fld == "role":
-                node.role = imp.role
-            elif fld == "technology":
-                node.technology = imp.technology
-            elif fld == "shape":
-                node.shape = imp.shape
-            elif fld == "status":
-                node.status = imp.status
-        node.version += 1
-        report.updated_nodes.append(act.path)
+        if act.action != "unchanged" and act.fields:
+            _update_node(act, imp, node, report)
 
     for eact in plan.edges:
         if eact.action != "create" or eact.imp_idx is None:
@@ -164,3 +112,70 @@ def apply_sync_plan(
         # Курсор поллинга: чужие сессии подтянут обновлённую схему.
         bump_graph_rev(db, project)
     return report
+
+
+def _mark_missing(
+    act: SyncNodeAction, live_by_id: dict[uuid.UUID, Node], plan: SyncPlan, report: SyncReport
+) -> None:
+    node = live_by_id.get(act.node_id) if act.node_id else None
+    if node is None:
+        report.skipped.append(f"{act.path}: узел исчез до применения")
+        return
+    # Пометка ставится только по политике — build_sync_plan оставляет действие
+    # missing и без неё (пропажу показываем всегда, помечаем нет).
+    if plan.policies.mark_missing_deprecated and node.status != "deprecated":
+        node.status = "deprecated"
+        node.version += 1
+        report.deprecated_nodes.append(act.path)
+
+
+def _create_node(
+    db: Session,
+    project: Project,
+    act: SyncNodeAction,
+    imp: _ImpNode | None,
+    by_path: dict[str, Node],
+    report: SyncReport,
+) -> None:
+    if imp is None:
+        report.skipped.append(f"{act.path}: нечего создавать")
+        return
+    parent = by_path.get(act.parent_path) if act.parent_path else None
+    if act.parent_path and parent is None:
+        # Родитель не создался (например, был пропущен как компонент) — ребёнка в
+        # корень не выносим, это исказило бы иерархию.
+        report.skipped.append(f"{act.path}: родитель не найден")
+        return
+    node = Node(
+        id=uuid.uuid4(),
+        project_id=project.id,
+        name=imp.name,
+        description=imp.description,
+        role=imp.role,
+        technology=imp.technology,
+        shape=imp.shape,
+        status=imp.status,
+        is_external=imp.is_external,
+        source_ref=known_key(act.source_ref),
+        parent_id=parent.id if parent else None,
+    )
+    db.add(node)
+    db.flush()  # id нужен детям и связям этого же прохода
+    by_path[act.path] = node
+    report.created_nodes.append(act.path)
+
+
+def _update_node(
+    act: SyncNodeAction, imp: _ImpNode | None, node: Node, report: SyncReport
+) -> None:
+    if imp is None:
+        report.skipped.append(f"{act.path}: нет данных в YAML")
+        return
+    # Что менять — решено планом (список fields); здесь только присваивание.
+    for fld in act.fields:
+        if fld == "source_ref":
+            node.source_ref = known_key(act.source_ref)
+        elif fld in _FLAT_FIELDS:
+            setattr(node, fld, getattr(imp, fld))
+    node.version += 1
+    report.updated_nodes.append(act.path)
