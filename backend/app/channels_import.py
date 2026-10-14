@@ -31,11 +31,12 @@ from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
 from app.docs_import import _closest_name
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import NodeIndex, qualified_node_hits
+from app.node_ref import NodeIndex
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -212,12 +213,6 @@ class ParsedChannels:
     has_node_key: bool = False
 
 
-def _as_bool(v: object) -> bool:
-    return v is True or (isinstance(v, str) and v.strip().lower() in {"true", "да", "yes", "1"})
-
-
-def _as_str(v: object) -> str:
-    return "" if v is None else str(v).strip()
 
 
 def parse_channels_file(content: str) -> ParsedChannels | None:
@@ -236,22 +231,22 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
     )
 
     for raw in doc.get("channels") or []:
-        if not isinstance(raw, dict) or not _as_str(raw.get("name")):
+        if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         c = ChannelIn(
-            name=_as_str(raw.get("name")),
-            group_name=_as_str(raw.get("group")),
-            kind=_as_str(raw.get("kind")),
-            partition_key=_as_str(raw.get("partition_key")),
-            delivery=_as_str(raw.get("delivery")),
-            retention=_as_str(raw.get("retention")),
-            description=_as_str(raw.get("description")) or None,
+            name=as_str(raw.get("name")),
+            group_name=as_str(raw.get("group")),
+            kind=as_str(raw.get("kind")),
+            partition_key=as_str(raw.get("partition_key")),
+            delivery=as_str(raw.get("delivery")),
+            retention=as_str(raw.get("retention")),
+            description=as_str(raw.get("description")) or None,
         )
         seen_fields: set[str] = set()
         for rf in raw.get("fields") or []:
-            if not isinstance(rf, dict) or not _as_str(rf.get("name")):
+            if not isinstance(rf, dict) or not as_str(rf.get("name")):
                 continue
-            field_name = _as_str(rf.get("name"))
+            field_name = as_str(rf.get("name"))
             # Одно имя поля дважды в одном канале — та же неряшливость агента, что и
             # поле без имени выше, и молча пропустить её тут дешевле, чем ловить
             # уникальностью (channel_id, name) уже на записи: превью показало бы
@@ -262,9 +257,9 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
             c.fields.append(
                 FieldIn(
                     name=field_name,
-                    type=_as_str(rf.get("type")),
-                    required=_as_bool(rf.get("required")),
-                    description=_as_str(rf.get("description")) or None,
+                    type=as_str(rf.get("type")),
+                    required=as_bool(rf.get("required")),
+                    description=as_str(rf.get("description")) or None,
                 )
             )
         out.channels.append(c)
@@ -297,63 +292,8 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-def _broker_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
-    """Перечень узлов-брокеров проекта для текстов ошибок.
-
-    Слабая модель адрес ВЫДУМЫВАЕТ, а «объект не найден» без списка допустимых
-    заставляет её гадать вслепую — раунд переписки за раунд (уроки Н8/Н11).
-    """
-    paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "broker"]
-    return ", ".join(paths) if paths else "в проекте их нет"
 
 
-def _resolve_node(
-    ref: str | None,
-    fname: str,
-    flat: list[Node],
-    fulls: list[str],
-    by_bare: dict[str, list[int]],
-    by_path: dict[str, list[int]],
-    window: uuid.UUID | None,
-    plan: ChannelsPlan,
-    broker_hint: str,
-) -> Node | None:
-    """Узел по адресу: полный путь либо голое имя (как в дозаливке доков). Без
-    адреса — объект окна."""
-    if ref is None:
-        if window is None:
-            plan.report.errors.append(
-                f"{fname}: не указан объект, а окно не сказало, к какому применять"
-            )
-            return None
-        for i, n in enumerate(flat):
-            if n.id == window:
-                return flat[i]
-        plan.report.errors.append(f"{fname}: объект окна не найден")
-        return None
-    hits = by_path.get(ref) or by_bare.get(ref) or []
-    if not hits:
-        # ЧАСТИЧНЫЙ путь («Ярмарка / events» при корне «Маркетплейс …»): агент видит
-        # только свой репозиторий и корневого контейнера не знает. Совпадение по
-        # хвосту — по границе « / », чтобы «…/ events» не цеплялось к «…/ my events».
-        hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
-    if not hits:
-        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
-        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»;
-        # так пишут архив и синтетические файлы единого импорта (app/node_ref.py).
-        hits = qualified_node_hits(ref, flat)
-    if not hits:
-        plan.report.errors.append(
-            f"{fname}: объект «{ref}» не найден; узлы-брокеры проекта: {broker_hint}"
-        )
-        return None
-    if len(hits) > 1:
-        plan.report.errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(fulls[i] for i in hits)}) — '
-            "укажите полный путь"
-        )
-        return None
-    return flat[hits[0]]
 
 
 def build_channels_plan(
@@ -364,10 +304,11 @@ def build_channels_plan(
     overwrite: bool,
 ) -> ChannelsPlan:
     plan = ChannelsPlan()
-    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
-    path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
+    index = NodeIndex.of(nodes)
+    flat = index.flat
+    path_of = index.path_by_id()
     plan.path_of = path_of
-    broker_hint = _broker_nodes_hint(flat, fulls)
+    broker_hint = nodes_hint(index, "broker")
 
     parsed: list[tuple[str, ParsedChannels]] = []
     for fname, content in files:
@@ -400,8 +341,9 @@ def build_channels_plan(
     for fname, pc in parsed:
         if not pc.channels:
             continue
-        owner = _resolve_node(
-            pc.node_ref, fname, flat, fulls, by_bare, by_path, window, plan, broker_hint
+        owner = resolve_owner(
+            pc.node_ref, fname, index, window, plan.report.errors,
+            f"узлы-брокеры проекта: {broker_hint}",
         )
         if owner is None:
             continue
