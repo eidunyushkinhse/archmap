@@ -377,7 +377,7 @@ function LevelGraphInner({
   // view_id записи раскладки: ключ ВИДА (layoutViewId), а не структурный containerId.
   // На странице объекта раскладка персистится в вид фокуса (node.id), тогда как
   // containerId (= parent_id) продолжает ключить структуру/предков/глубину ниже.
-  const { commitLayout, commitLayoutStable } = useLevelPersistence({
+  const { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed } = useLevelPersistence({
     containerId: layoutViewId ?? containerId, isArchitect, canArrange, viewLayout,
     onPersistError, onPersistConflict, onLayoutChanged, viewMeta, retryPatch,
   });
@@ -1396,6 +1396,13 @@ function LevelGraphInner({
             onClick={() => setOverloadToastOpen(false)}
             aria-label="Закрыть предупреждение"
           >✕</button>
+        </div>
+      )}
+      {/* Запись расположения не прошла (аудит R-11): схема вернулась к сохранённой. */}
+      {persistFailed && (
+        <div className="lg-overload-toast" role="alert">
+          <span>Не удалось сохранить расположение — схема вернулась к последней сохранённой версии.</span>
+          <button className="lg-overload-close" onClick={dismissPersistFailed} aria-label="Закрыть сообщение">✕</button>
         </div>
       )}
       {/* Разовый тост ступеней бюджета работ (P13): честное объявление о том, что
