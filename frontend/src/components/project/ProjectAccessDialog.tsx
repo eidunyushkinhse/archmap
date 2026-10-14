@@ -59,17 +59,26 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
     setMembers(await projectsApi.members(project.id));
   }, [project.id]);
 
+  // Ответ по прежнему проекту (окно переоткрыли на другом) не применяем (аудит F-49).
   useEffect(() => {
+    let alive = true;
     projectsApi
       .members(project.id)
-      .then(setMembers)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить участников"));
+      .then((ms) => { if (alive) setMembers(ms); })
+      .catch((e: unknown) => {
+        if (alive) setError(e instanceof Error ? e.message : "Не удалось загрузить участников");
+      });
+    return () => { alive = false; };
   }, [project.id]);
 
   // Список пользователей нужен только тому, кто добавляет и передаёт.
   useEffect(() => {
     if (!isOwner) return;
-    usersApi.list().then(setUsers).catch(() => setUsers([]));
+    let alive = true;
+    usersApi.list()
+      .then((us) => { if (alive) setUsers(us); })
+      .catch(() => { if (alive) setUsers([]); });
+    return () => { alive = false; };
   }, [isOwner]);
 
   const candidates = useMemo(() => addCandidates(users, members), [users, members]);
