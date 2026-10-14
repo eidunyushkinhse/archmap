@@ -24,8 +24,8 @@ from app.archive_import import unpacked_size
 from app.auth import require_architect
 from app.data_import import parse_data_file
 from app.database import get_db
-from app.import_merge import _MAX_CONTAINER_EDGES
 from app.main import app
+from app.merge_warnings import _MAX_CONTAINER_EDGES
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
