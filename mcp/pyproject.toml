@@ -9,6 +9,9 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
+# Лишний `# type: ignore` — ошибка: когда библиотека дотипизировалась (mcp 1.30 типизировал
+# декораторы Server), заглушка обязана уйти, а не висеть мёртвым грузом (P-26).
+warn_unused_ignores = true
 files = ["archmap_mcp"]
 
 [tool.pytest.ini_options]

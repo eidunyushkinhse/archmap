@@ -1,5 +1,8 @@
 # Окружение разработки: рантайм (requirements-prod.txt) + тесты и линтеры.
 -r requirements-prod.txt
-pytest==8.2.2
+pytest==9.1.1
+# TestClient и прямые ASGI-тесты. До FastAPI 0.112 httpx приезжал транзитивно, теперь — нет.
+# Starlette 1.x советует httpx2 — переход отдельным шагом.
+httpx==0.28.1
 ruff==0.15.16
 mypy==2.3.0  # dev: статическая типизация

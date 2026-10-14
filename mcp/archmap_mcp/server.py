@@ -25,10 +25,10 @@ SERVER_NAME = "archmap"
 VERSION = "0.5.1"
 
 
-def build_server(client: ArchMapClient) -> Server:  # type: ignore[type-arg]
+def build_server(client: ArchMapClient) -> Server:
     server: Server = Server(SERVER_NAME)
 
-    @server.list_tools()  # type: ignore[no-untyped-call, misc]
+    @server.list_tools()
     async def list_tools() -> list[types.Tool]:
         return [
             types.Tool(
@@ -39,7 +39,7 @@ def build_server(client: ArchMapClient) -> Server:  # type: ignore[type-arg]
             for t in tools.TOOLS
         ]
 
-    @server.call_tool()  # type: ignore[no-untyped-call, misc]
+    @server.call_tool()
     async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
         return [types.TextContent(type="text", text=await answer(client, name, arguments or {}))]
 

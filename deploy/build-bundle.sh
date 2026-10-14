@@ -74,9 +74,10 @@ fi
 echo "$PY_SHA256  $CACHE/$PY_ASSET" | sha256sum -c --quiet - || die "контрольная сумма $PY_ASSET не сошлась"
 tar -xzf "$CACHE/$PY_ASSET" -C "$STAGE"
 
-say "Зависимости бэкенда (только готовые бинарные пакеты)"
+say "Зависимости бэкенда (только готовые бинарные пакеты, по lock с хэшами)"
+# --require-hashes: ставится ровно то, что в lock, включая транзитивные (аудит P-22)
 "$STAGE/python/bin/python3" -m pip install --quiet --no-cache-dir --disable-pip-version-check \
-  --only-binary=:all: --no-compile -r "$SRC/backend/requirements-prod.txt"
+  --only-binary=:all: --no-compile --require-hashes -r "$SRC/backend/requirements-prod.lock"
 # На сервере пакеты не ставятся: pip и его копия в ensurepip — лишний вес и лишние
 # находки сканеров уязвимостей
 "$STAGE/python/bin/python3" -m pip uninstall --quiet --yes pip
@@ -85,7 +86,7 @@ rm -rf "$STAGE/python/lib/python${PY_VERSION%.*}/ensurepip" "$STAGE"/python/bin/
 say "Бэкенд и скрипты установки"
 mkdir -p "$STAGE/backend"
 cp -a "$SRC/backend/app" "$SRC/backend/alembic" "$SRC/backend/alembic.ini" \
-  "$SRC/backend/requirements-prod.txt" "$STAGE/backend/"
+  "$SRC/backend/requirements-prod.txt" "$SRC/backend/requirements-prod.lock" "$STAGE/backend/"
 cp -a "$SRC/deploy" "$STAGE/deploy"
 rm -f "$STAGE/deploy/build-bundle.sh" "$STAGE/deploy/build-image.sh"
 cp "$SRC/DEPLOY.md" "$STAGE/"

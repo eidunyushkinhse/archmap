@@ -97,6 +97,8 @@ uuid. Скрытое состояние на сервере сделало бы 
 cd mcp
 python3 -m venv venv
 ./venv/bin/pip install -r requirements.txt
+# для разработки сервера (тесты и линтеры гейта, пины как в CI):
+./venv/bin/pip install -r requirements-dev.txt
 ```
 
 ## Настройка клиента
