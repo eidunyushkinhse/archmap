@@ -49,6 +49,7 @@ import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
 import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../components/tour/tourBus";
+import LoadError from "../ui/LoadError";
 
 interface Props {
   projectId: string;
@@ -77,6 +78,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [edges, setEdges] = useState<LevelEdge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
   const [loading, setLoading] = useState(false);
+  // Отказ загрузки уровня (переход, первичная загрузка): вместо холста — причина и
+  // «Повторить» (аудит R-9, R-10). Фоновые отказы не показываются: на экране остаётся
+  // последняя удачная версия, поллинг догонит.
+  // Повтор хранится описанием, а не замыканием: load и переходы не ссылаются сами на себя.
+  const [loadError, setLoadError] = useState<{
+    error: unknown;
+    retry: { kind: "initial" } | { kind: "level"; level: string | null } | { kind: "navigate"; level: string };
+  } | null>(null);
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
@@ -126,6 +135,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const currentParentId = currentParent?.id ?? null;
 
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+  // Номер последнего начатого чтения уровня и признак «идёт переход» (см. load).
+  const loadSeqRef = useRef(0);
+  const awaitingLevelRef = useRef(false);
   const gestureActiveRef = useRef(false);
   const layoutRetrySeq = useRef(0);
   const [layoutRetry, setLayoutRetry] = useState<{
@@ -150,43 +162,87 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // (создание/удаление/правка узлов и связей, remote-sync-эхо, ресинк 409, доки от
   // агента). foreground: true — заглушка «Загрузка…» (первичная загрузка и навигация
   // между уровнями, где холст всё равно сбрасывается на новый containerId).
-  async function load(parentId: string | null, opts?: { foreground?: boolean }): Promise<Node[]> {
-    if (opts?.foreground) setLoading(true);
-    setLayoutRetry(null);
-    try {
-      const graph = await nodesApi.getGraph(parentId);
-      viewMetaRef.current = { version: graph.version, graphRev: graph.graph_rev };
-      setNodes(graph.nodes);
-      setEndpoints(graph.endpoints);
-      setViewLayout(graph.layout ?? {});
-      setEdges(toLevelEdges(graph));
-      setProjectHasStatuses(graph.has_status_info);
-      setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
-      reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
-      // Обучающий тур демо-стенда: показан слой (вход внутрь, возврат наверх).
-      emitTourEvent({ type: "level", levelId: parentId });
-      return graph.nodes;
-    } finally {
-      if (opts?.foreground) setLoading(false);
+  //
+  // Номер прогона (аудит R-9): применяется только ответ ПОСЛЕДНЕГО начатого чтения —
+  // иначе фоновый тик, ответивший позже перехода, подкладывал корень под крошки
+  // контейнера. Переход перебивает всё; фоновое чтение во время перехода не начинается
+  // (переход и так принесёт свежее), иначе тик со старым currentParentId перебил бы его.
+  // undefined — ответ не применён (устарел или отказ).
+  async function load(parentId: string | null, opts?: { foreground?: boolean }): Promise<Node[] | undefined> {
+    if (!opts?.foreground && awaitingLevelRef.current) return undefined;
+    const seq = ++loadSeqRef.current;
+    if (opts?.foreground) {
+      awaitingLevelRef.current = true;
+      setLoading(true);
+      setLoadError(null);
     }
+    setLayoutRetry(null);
+    let graph: Awaited<ReturnType<typeof nodesApi.getGraph>>;
+    try {
+      graph = await nodesApi.getGraph(parentId);
+    } catch (e) {
+      if (seq !== loadSeqRef.current) return undefined;
+      if (opts?.foreground) {
+        awaitingLevelRef.current = false;
+        setLoading(false);
+        setLoadError({ error: e, retry: { kind: "level", level: parentId } });
+      }
+      return undefined;
+    }
+    if (seq !== loadSeqRef.current) return undefined;
+    viewMetaRef.current = { version: graph.version, graphRev: graph.graph_rev };
+    setNodes(graph.nodes);
+    setEndpoints(graph.endpoints);
+    setViewLayout(graph.layout ?? {});
+    setEdges(toLevelEdges(graph));
+    setProjectHasStatuses(graph.has_status_info);
+    setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
+    reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
+    // Обучающий тур демо-стенда: показан слой (вход внутрь, возврат наверх).
+    emitTourEvent({ type: "level", levelId: parentId });
+    if (opts?.foreground) {
+      awaitingLevelRef.current = false;
+      setLoading(false);
+    }
+    return graph.nodes;
+  }
+
+  // Путь к уровню для крошек (сам уровень — последним). Отказ чтения — экран ошибки с
+  // повтором того же действия, а не тихо оставшийся прежний уровень.
+  async function breadcrumbTo(
+    level: string,
+    retry: { kind: "initial" } | { kind: "navigate"; level: string },
+  ): Promise<AncestorRef[] | undefined> {
+    let all: Node[];
+    try {
+      all = await nodesApi.getAll();
+    } catch (e) {
+      setLoading(false);
+      setLoadError({ error: e, retry });
+      return undefined;
+    }
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const path: AncestorRef[] = [];
+    let cur: Node | undefined = byId.get(level);
+    while (cur) {
+      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    return path;
   }
 
   // Начальная загрузка: breadcrumb по nodeId + граф уровня
+  async function openInitial(): Promise<void> {
+    if (nodeId) {
+      const path = await breadcrumbTo(nodeId, { kind: "initial" });
+      if (path === undefined) return;
+      setBreadcrumb(path);
+    }
+    await load(nodeId, { foreground: true });
+  }
   useEffect(() => {
-    (async () => {
-      if (nodeId) {
-        const all = await nodesApi.getAll();
-        const byId = new Map(all.map((n) => [n.id, n]));
-        const path: AncestorRef[] = [];
-        let cur = byId.get(nodeId);
-        while (cur) {
-          path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-          cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-        }
-        setBreadcrumb(path);
-      }
-      await load(nodeId, { foreground: true });
-    })();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- первичная загрузка: заглушка «Загрузка…» ставится в том же прогоне, что и запрос уровня (прежде то же самое пряталось в async IIFE)
+    void openInitial();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -233,16 +289,21 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     if (level === currentParentId) return;
     setSelectedObject(null);
     if (level === null) { setBreadcrumb([]); return load(null, { foreground: true }); }
-    const all = await nodesApi.getAll();
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const path: AncestorRef[] = [];
-    let cur: Node | undefined = byId.get(level);
-    while (cur) {
-      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
+    setLoadError(null);
+    const path = await breadcrumbTo(level, { kind: "navigate", level });
+    if (path === undefined) return undefined;
     setBreadcrumb(path);
     return load(level, { foreground: true });
+  }
+
+  // «Повторить» на экране отказа: то же действие, что не удалось.
+  function retryLoad() {
+    const retry = loadError?.retry;
+    if (!retry) return;
+    setLoadError(null);
+    if (retry.kind === "initial") void openInitial();
+    else if (retry.kind === "navigate") void navigateToLevel(retry.level);
+    else void load(retry.level, { foreground: true });
   }
 
   // Обучающий тур демо-стенда: «Продолжить обучение» после паузы просит вернуть слой,
@@ -826,6 +887,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           <DemoLimitToast message={limitToast} />
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
+          ) : loadError ? (
+            <LoadError what="уровень схемы" error={loadError.error} onRetry={retryLoad}
+              onBack={onDone} backLabel="Закрыть редактор" />
           ) : (
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
