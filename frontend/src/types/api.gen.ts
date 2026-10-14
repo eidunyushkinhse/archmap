@@ -116,8 +116,8 @@ export interface paths {
          * Start Sandbox
          * @description Завести песочницу: гость + его копия демо-проекта.
          *
-         *     Адрес берётся из соединения (request.client.host). За прокси это будет адрес
-         *     прокси; заголовки прокси настраиваются на шаге упаковки стенда.
+         *     Адрес — последний в X-Forwarded-For (его дописывает nginx или роутер OpenShift,
+         *     подделать его клиент не может), см. rate_limit.client_address.
          */
         post: operations["start_sandbox_api_v1_demo_start_post"];
         delete?: never;
@@ -2327,8 +2327,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Процесс жив (liveness). Базу не трогает намеренно: недоступная база — повод не
+         *     слать запросы (/ready), а не перезапускать процесс по кругу.
+         */
         get: operations["health_health_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ready
+         * @description Готов принимать запросы (readiness, ожидание установщика): база отвечает.
+         *     /health отвечал «ок» и при лежащей базе (аудит P-16).
+         */
+        get: operations["ready_ready_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -11296,6 +11321,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": Record<string, never>;
+                };
+            };
+        };
+    };
+    ready_ready_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
         };
