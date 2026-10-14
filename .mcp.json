@@ -1,31 +1,31 @@
 {
   "mcpServers": {
     "python-lsp": {
-      "command": "/home/eidunyushkin/project/.claude/mcp-servers/python-lsp/venv/bin/python",
+      "command": ".claude/mcp-servers/python-lsp/venv/bin/python",
       "args": [
-        "/home/eidunyushkin/project/.claude/mcp-servers/python-lsp/server.py"
+        ".claude/mcp-servers/python-lsp/server.py"
       ],
       "env": {
-        "PROJECT_ROOT": "/home/eidunyushkin/project/backend"
+        "PROJECT_ROOT": "backend"
       }
     },
     "typescript-lsp": {
       "command": "node",
       "args": [
-        "/home/eidunyushkin/project/.claude/mcp-servers/typescript-lsp/server.js"
+        ".claude/mcp-servers/typescript-lsp/server.js"
       ],
       "env": {
-        "PROJECT_ROOT": "/home/eidunyushkin/project/frontend"
+        "PROJECT_ROOT": "frontend"
       }
     },
     "archmap": {
-      "command": "/home/eidunyushkin/project/mcp/venv/bin/python",
+      "command": "mcp/venv/bin/python",
       "args": [
         "-m",
         "archmap_mcp.server"
       ],
       "env": {
-        "PYTHONPATH": "/home/eidunyushkin/project/mcp"
+        "PYTHONPATH": "mcp"
       }
     }
   }

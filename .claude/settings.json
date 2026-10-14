@@ -2,7 +2,7 @@
   "enableAllProjectMcpServers": true,
   "statusLine": {
     "type": "command",
-    "command": "python3 /home/eidunyushkin/project/.claude/statusline.py"
+    "command": "python3 .claude/statusline.py"
   },
   "permissions": {
     "allow": [
