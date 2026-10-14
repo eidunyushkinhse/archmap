@@ -33,7 +33,12 @@ export function useFactRows<T, U>(
 ): FactRows<T, U> {
   const [rows, setRows] = useState<T[] | null>(null);
   const [usage, setUsage] = useState<U[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  // Отказ загрузки и отказ правки — РАЗНЫЕ состояния. Был один флаг на оба, и
+  // перечитывание после неудачной правки (оно-то проходит) стирало текст отказа через
+  // один сетевой круг — пользователь его не успевал увидеть.
+  const [loadFailed, setLoadFailed] = useState(false);
+  // Отказ правки помнит свой объект: перешли на другой — чужой отказ не показываем.
+  const [saveError, setSaveError] = useState<{ nodeId: string; text: string } | null>(null);
   const [limit, setLimit] = useState<LimitMessage | null>(null);
 
   // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
@@ -44,32 +49,35 @@ export function useFactRows<T, U>(
   useEffect(() => {
     let alive = true;
     api.list(nodeId)
-      .then((xs) => { if (alive) { setRows(xs); setError(null); } })
-      .catch(() => { if (alive) setError(loadError); });
+      .then((xs) => { if (alive) { setRows(xs); setLoadFailed(false); } })
+      .catch(() => { if (alive) setLoadFailed(true); });
     api.usage(nodeId)
       .then((u) => { if (alive) setUsage(u); })
       .catch(() => { if (alive) setUsage([]); });
     return () => { alive = false; };
-  }, [api, nodeId, loadError, seq]);
+  }, [api, nodeId, seq]);
 
   // Перечитывание после правки — не лень, а необходимость: CAS-версии и порядок
   // вложенных строк приходят с сервера, и локальная склейка разъезжалась бы с ними на
   // первой же ошибке.
   const apply = useCallback(async (fn: () => Promise<unknown>) => {
     setLimit(null);
+    setSaveError(null);
     try {
       await fn();
-      setError(null);
     } catch (e) {
       const refusal = limitMessage(e, "save");
       if (refusal) setLimit(refusal);
-      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
+      else setSaveError({ nodeId, text: e instanceof Error && e.message ? e.message : "Правка не прошла" });
     }
     setSeq((n) => n + 1);
-  }, []);
+  }, [nodeId]);
 
   const reload = useCallback(() => setSeq((n) => n + 1), []);
 
+  const error = saveError !== null && saveError.nodeId === nodeId
+    ? saveError.text
+    : loadFailed ? loadError : null;
   return { rows, usage, error, limit, apply, reload };
 }
 
