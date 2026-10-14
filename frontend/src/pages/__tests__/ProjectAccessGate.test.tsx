@@ -19,6 +19,12 @@ const карточка = (my_role: Project["my_role"]) => ({ id: "p1", my_role }
 describe("ProjectAccessGate", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("пока роль грузится — заглушка «Загрузка…», а не пустой экран (аудит R-27)", () => {
+    vi.mocked(projectsApi.get).mockReturnValue(new Promise(() => {}));
+    render(<ProjectAccessGate projectId="p1"><div /></ProjectAccessGate>);
+    expect(screen.getByText("Загрузка…")).toBeInTheDocument();
+  });
+
   it("до ответа страницы не рендерятся, после — получают роль", async () => {
     vi.mocked(projectsApi.get).mockResolvedValue(карточка("editor"));
     render(<ProjectAccessGate projectId="p1"><Probe /></ProjectAccessGate>);
