@@ -18,13 +18,14 @@ import {
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { ExitUpTile, HistoryToolbar, ViewToolbar } from "./graph/CanvasToolbars";
+import DropOverlays from "./graph/DropOverlays";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { distToPolyline } from "./graph/edgePath";
 
 /** Допуск попадания двойного клика в линию соседней связи (общее плечо, E95), px холста. */
 const SHARED_HIT_TOL = 4;
-import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
+import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
 import type {
   WrappedEdgeData,
@@ -44,7 +45,6 @@ import { getCurrentProjectId } from "../api/projectScope";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
-import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
@@ -900,18 +900,8 @@ function LevelGraphInner({
     isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
   });
 
-  // ПРИГЛАШАЮЩАЯ РАМКА ПУСТОГО СЛОЯ (эпик «связи, упирающиеся в рамку»): пока тянут
-  // шаблон, её внутренность светится зелёным — «первый узел кладут сюда»; когда центр
-  // будущего узла оказывается внутри, зелёный становится выразительнее.
-  // Подсветка ЧИСТО ВИЗУАЛЬНАЯ (canvas.md CV20a): в цели дропа рамка уровня не входит и
-  // семантику не меняет — на пустом слое любой дроп и так создаёт ребёнка контейнера,
-  // чью рамку видно. Хит-тест — тот же, что у рамок-целей: центр будущего узла в rect.
+  // Рамка уровня, когда слой пуст: приглашение «первый узел кладут сюда» (CV20a).
   const emptyLevelFrame = layout && layout.nodes.length === 0 ? layout.levelFrame : undefined;
-  const emptyFrameHit = !!emptyLevelFrame && !!dropPreview && (() => {
-    const cx = dropPreview.x + NODE_W / 2, cy = dropPreview.y + NODE_H / 2;
-    const r = emptyLevelFrame.rect;
-    return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
-  })();
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. Отзывается ЛЮБОЙ узел — сплошная фигура на схеме: локальный
@@ -1226,75 +1216,8 @@ function LevelGraphInner({
         {/* Живой оверлей рамок на время драга: RF-рамки предков скрыты, их bbox рисуют
             div-ы хука useFrameFollowOverlay (императивно, без setState на тик). */}
         {frameFollow.overlay && <ViewportPortal>{frameFollow.overlay}</ViewportPortal>}
-        {/* Превью будущего узла: пустая рамка-форма с прозрачным телом. В
-            ViewportPortal координаты — в системе графа, поэтому рамка масштабируется
-            вместе с зумом (как реальный узел) и показывает точное место создания. */}
-        {dropPreview && (
-          <ViewportPortal>
-            <div
-              style={{
-                position: "absolute",
-                left: dropPreview.x,
-                top: dropPreview.y,
-                width: NODE_W,
-                height: NODE_H,
-                pointerEvents: "none",
-                zIndex: 5,
-                opacity: 0.85,
-              }}
-            >
-              <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
-            </div>
-          </ViewportPortal>
-        )}
-        {/* Приглашение пустого слоя: пока тянут шаблон, внутренность рамки родителя
-            светится зелёным; когда центр будущего узла внутри — заметнее. */}
-        {emptyLevelFrame && dropPreview && (
-          <ViewportPortal>
-            <div
-              // стабильный хук для тестов: idle — приглашение, hit — центр узла внутри
-              data-empty-frame-hint={emptyFrameHit ? "hit" : "idle"}
-              style={{
-                position: "absolute",
-                left: emptyLevelFrame.rect.x,
-                top: emptyLevelFrame.rect.y,
-                width: emptyLevelFrame.rect.w,
-                height: emptyLevelFrame.rect.h,
-                // border-box + радиус 12 — как у .lg-frame: заливка ложится ровно внутрь
-                boxSizing: "border-box",
-                pointerEvents: "none",
-                zIndex: 4,
-                borderRadius: 12,
-                background: emptyFrameHit ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.06)",
-                border: `2px solid ${emptyFrameHit ? "#22c55e" : "rgba(34, 197, 94, 0.35)"}`,
-                transition: "background 0.12s ease, border-color 0.12s ease",
-              }}
-            />
-          </ViewportPortal>
-        )}
-        {/* Индикация цели дропа в раскрытую рамку: подсвечиваем её контур («рамка
-            раскрывается шире под новый узел» — узел станет ребёнком её контейнера). */}
-        {dropTargetFrame && (
-          <ViewportPortal>
-            <div
-              style={{
-                position: "absolute",
-                left: dropTargetFrame.rect.x,
-                top: dropTargetFrame.rect.y,
-                width: dropTargetFrame.rect.w,
-                height: dropTargetFrame.rect.h,
-                // border-box + тот же радиус (12), что у .lg-frame — контур подсветки
-                // ложится ровно на контур рамки (иначе бордер уезжал наружу на 2px).
-                boxSizing: "border-box",
-                pointerEvents: "none",
-                zIndex: 4,
-                borderRadius: 12,
-                border: "2px solid #6366f1",
-                background: "rgba(99, 102, 241, 0.06)",
-              }}
-            />
-          </ViewportPortal>
-        )}
+        {/* Подсказки дропа шаблона: превью узла, приглашение пустого слоя, рамка-цель. */}
+        <DropOverlays preview={dropPreview} targetFrame={dropTargetFrame} emptyFrame={emptyLevelFrame?.rect} />
         {/* Превью «быстрой связи»: автоопределённая стрелка от хэндла к соседу. Гасим во
             время ручного протягивания (connecting), чтобы превью не накладывались. */}
         {qcCandidate && !connecting && (
