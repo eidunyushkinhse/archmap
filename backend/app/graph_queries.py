@@ -22,8 +22,8 @@ from app.schemas.node import (
     GraphEdgeResponse,
     GraphResponse,
     NodeEdgeInfo,
-    ViewLayoutPayload,
 )
+from app.schemas.view import ViewLayoutPayload
 
 
 def project_has_status_info(db: Session, project_id: uuid.UUID) -> bool:

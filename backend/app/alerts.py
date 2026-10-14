@@ -26,7 +26,7 @@ from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.schemas.node import (
+from app.schemas.alerts import (
     AlertsResponse,
     BrokerEdgeChannelAlert,
     ContainerOwnDocsAlert,

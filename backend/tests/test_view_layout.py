@@ -14,7 +14,7 @@ from app.models.node import Node
 from app.models.view_layout import ViewLayoutItem
 from app.routers.nodes import get_node_graph, get_root_graph
 from app.routers.views import save_view_layout
-from app.schemas.node import ViewLayoutBatch, ViewLayoutPayload
+from app.schemas.view import ViewLayoutBatch, ViewLayoutPayload
 
 
 def _node(db, name, parent=None):

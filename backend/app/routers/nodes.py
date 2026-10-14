@@ -26,8 +26,8 @@ from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.node_ref import NodeIndex
 from app.processes import process_list_items
+from app.schemas.alerts import AlertsResponse
 from app.schemas.node import (
-    AlertsResponse,
     AnchorPreviewOut,
     GraphResponse,
     NodeCreate,
@@ -35,13 +35,15 @@ from app.schemas.node import (
     NodeResponse,
     NodeSource,
     NodeUpdate,
+)
+from app.schemas.process import ProcessListItem
+from app.schemas.restore import DeletionSnapshot
+from app.schemas.transition import (
     TransitionApplyIn,
     TransitionApplyOut,
     TransitionNodeOut,
     TransitionPreviewOut,
 )
-from app.schemas.process import ProcessListItem
-from app.schemas.restore import DeletionSnapshot
 from app.transition import apply_transition, build_transition, cleanup_layout
 from app.view_state import (
     bump_graph_rev,
