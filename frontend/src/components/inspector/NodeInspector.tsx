@@ -3,17 +3,16 @@
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
-import { useCallback, useRef, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import type { DeletionSnapshot, Node, NodeShape, NodeSource, NodeStatus, NodeUpdate } from "../../types";
+import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
-import { nodesApi } from "../../api/nodes";
-import { ApiError, isConflict } from "../../api/client";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AnchorField from "../anchor/AnchorField";
 import { useContainerChildren } from "../../pages/useContainerChildren";
+import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
@@ -36,27 +35,20 @@ const noticeStyle: CSSProperties = {
 };
 
 export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
-  // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
-  // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
-  const [name, setName] = useState(node.name);
-  const [description, setDescription] = useState(node.description ?? "");
-  const [role, setRole] = useState(node.role ?? "");
-  const [technology, setTechnology] = useState(node.technology ?? "");
-  const [isExternal, setIsExternal] = useState(node.is_external);
-  const [status, setStatus] = useState<NodeStatus>(node.status);
+  // Правка по blur (тексты) / сразу (тогл, статус, тип) с CAS и 409-ресинком — тот же
+  // хук, что на странице объекта. Успешная правка ложится в Undo редактора: хук отдаёт
+  // узел ДО правки вторым аргументом. Значения полей сбрасываются на смену выбора:
+  // ObjectInspector монтирует NodeInspector с key=node.id. Плашки: conflict — 409
+  // (правка не применилась, данные обновлены с сервера), error — отказ с причиной
+  // (400: смена типа у узла с детьми / у базы с описанной структурой).
+  const patch = useNodePatch(node, (saved, before) => onNodeSaved(saved, false, before));
+  const { name, description, role, technology, isExternal, status, conflict, error } = patch;
   const [statusOpen, setStatusOpen] = useState(false);
   const [shapeOpen, setShapeOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
-  // обновлены с сервера — пользователь повторяет правку поверх свежего.
-  const [conflict, setConflict] = useState<string | null>(null);
-  // Отказ сервера с причиной (400: смена типа у узла с детьми / у базы с описанной
-  // структурой). Гаснет при следующей успешной правке.
-  const [error, setError] = useState<string | null>(null);
-
-  // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
-  // успешного коммита.
-  const beforeRef = useRef<Node>(node);
+  // Тип показываем из самого узла (пропа): он обновится тем же путём, что имя
+  // (onNodeSaved → данные узла в редакторе → холст), а при отказе 400 показанный тип
+  // остаётся прежним, потому что прошлое значение никто не перетирал.
   const shape = node.shape;
   const isPerson = shape === "person";
   const isContainer = canHaveChildren(shape) && node.has_children;
@@ -65,113 +57,16 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
   const container = useContainerChildren(node.id, isContainer);
 
-  // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
-  // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
-  // переносим из beforeRef без изменений — документацией управляет страница узла;
-  // схемы логики живут отдельным API (node_docs), не здесь.
-  // Возвращает ТЕКСТ ОТКАЗА или null при успехе: плашки панели оно выставляет
-  // само (как и раньше), а возврат нужен полю «Якорь» — там 422 показывается
-  // прямо под формой, где его исправляют. Остальные зовут через void.
-  const save = useCallback(
-    async (over: Partial<NodeUpdate>): Promise<string | null> => {
-      const before = beforeRef.current;
-      const payload: NodeUpdate = {
-        name: name.trim() || before.name,
-        description: description || null,
-        role: role || null,
-        technology: technology || null,
-        openapi_spec: before.openapi_spec,
-        is_external: isExternal,
-        shape: before.shape,
-        status,
-        ...over,
-        // CAS (этап 0 конкурентности): правка от версии последнего сохранённого;
-        // узел изменён другой сессией → 409 (ветка conflict ниже), не тихий LWW.
-        base_version: before.version,
-      };
-      try {
-        const saved = await nodesApi.update(node.id, payload);
-        onNodeSaved(saved, false, before);
-        beforeRef.current = saved;
-        setConflict(null);
-        setError(null);
-        return null;
-      } catch (e: unknown) {
-        if (!isConflict(e)) {
-          // Отказ с причиной (400: смена типа у узла с детьми / у базы со
-          // структурой). Раньше прочие ошибки уходили молча — правка «не
-          // срабатывала» без объяснения; показываем текст сервера плашкой. Внешность
-          // и статус коммитятся сразу по клику — откатываем их к сохранённым (аудит
-          // R-13), иначе панель показывала бы значение, которого в БД нет.
-          setConflict(null);
-          setIsExternal(beforeRef.current.is_external);
-          setStatus(beforeRef.current.status);
-          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
-          setError(текст);
-          return текст;
-        }
-        // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
-        // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
-        try {
-          const fresh = await nodesApi.get(node.id);
-          beforeRef.current = fresh;
-          setName(fresh.name);
-          setDescription(fresh.description ?? "");
-          setRole(fresh.role ?? "");
-          setTechnology(fresh.technology ?? "");
-          setIsExternal(fresh.is_external);
-          setStatus(fresh.status);
-        } catch {
-          // узел могли удалить — уровень догонит поллинг/ресинк
-        }
-        setError(null);
-        const текст = "Узел изменён в другой сессии — данные обновлены, повторите правку";
-        setConflict(текст);
-        return текст;
-      }
-    },
-    [name, description, role, technology, isExternal, status, node.id, onNodeSaved],
-  );
-
-  // Коммитим только при реальном изменении (не плодим пустые записи истории). Пустое
-  // имя по blur откатываем к прежнему — оно обязательно.
-  const commitName = () => {
-    const t = name.trim();
-    if (!t) { setName(beforeRef.current.name); return; }
-    if (t === beforeRef.current.name) return;
-    void save({ name: t });
-  };
-  const commitDesc = () => {
-    if (description === (beforeRef.current.description ?? "")) return;
-    void save({ description: description || null });
-  };
-  const commitRole = () => {
-    if (role === (beforeRef.current.role ?? "")) return;
-    void save({ role: role || null });
-  };
-  const commitTech = () => {
-    if (technology === (beforeRef.current.technology ?? "")) return;
-    void save({ technology: technology || null });
-  };
-  const toggleExternal = () => {
-    const next = !isExternal;
-    setIsExternal(next);
-    void save({ is_external: next });
-  };
+  // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
+  // плодит пустых записей истории).
   const pickStatus = (st: NodeStatus) => {
     setStatusOpen(false);
-    if (st === status) return;
-    setStatus(st);
-    void save({ status: st });
+    patch.pickStatus(st);
   };
-  // Смена типа: локального зеркала у формы нет осознанно — значение показываем из
-  // самого узла (пропа), который обновится тем же путём, что имя (onNodeSaved →
-  // данные узла в редакторе → холст). Отказ 400 приезжает плашкой, и показанный
-  // тип остаётся прежним, потому что прошлое значение никто не перетирал.
   const pickShape = (sh: NodeShape) => {
     setShapeOpen(false);
     if (sh === shape) return;
-    void save({ shape: sh });
+    patch.pickShape(sh);
   };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
@@ -189,8 +84,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {...noAutofill("node-inspector-1")}
               className="insp-field insp-field--name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
+              onChange={(e) => patch.setName(e.target.value)}
+              onBlur={patch.commitName}
             />
           ) : (
             <div className="insp-name">{node.name}</div>
@@ -207,8 +102,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           {...noAutofill("node-inspector-2")}
           className="insp-field insp-fieldarea"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={commitDesc}
+          onChange={(e) => patch.setDescription(e.target.value)}
+          onBlur={patch.commitDesc}
           placeholder="Описание"
         />
       ) : (
@@ -262,7 +157,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
                   сервис — активный синий, чужой — серый, как точка у наблюдателя.
                   Подпись называет состояние, а не «что включает» тогл. */}
-              <button type="button" className="insp-toggle" onClick={toggleExternal} aria-pressed={!isExternal}>
+              <button type="button" className="insp-toggle" onClick={patch.toggleExternal} aria-pressed={!isExternal}>
                 <span className={"insp-switch" + (isExternal ? "" : " is-on")} />
                 {isExternal ? "Внешний" : "Внутренний"}
               </button>
@@ -326,8 +221,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 {...noAutofill("node-inspector-3")}
                 className="insp-field"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
-                onBlur={commitRole}
+                onChange={(e) => patch.setRole(e.target.value)}
+                onBlur={patch.commitRole}
                 placeholder="сервис, БД, брокер…"
               />
             </span>
@@ -351,8 +246,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                   {...noAutofill("node-inspector-4")}
                   className="insp-field"
                   value={technology}
-                  onChange={(e) => setTechnology(e.target.value)}
-                  onBlur={commitTech}
+                  onChange={(e) => patch.setTechnology(e.target.value)}
+                  onBlur={patch.commitTech}
                   placeholder="Python, Kafka, Redis…"
                 />
               </span>
@@ -373,7 +268,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       <AnchorField
         source={node.source}
         isArchitect={isArchitect}
-        onSave={(source: NodeSource | null) => save({ source })}
+        onSave={patch.commitSource}
       />
 
       {/* Документация: управление схемами логики и спеками — только на странице

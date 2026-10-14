@@ -78,7 +78,8 @@ describe("useNodePatch", () => {
     const saved = makeNode({ name: "Новое", version: 2 });
     vi.mocked(nodesApi.update).mockResolvedValue(saved);
     const onSaved = vi.fn();
-    const { result } = renderHook(() => useNodePatch(makeNode({ name: "Старое", version: 3 }), onSaved));
+    const initial = makeNode({ name: "Старое", version: 3 });
+    const { result } = renderHook(() => useNodePatch(initial, onSaved));
     act(() => result.current.setName("Новое"));
     act(() => result.current.commitName());
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
@@ -87,7 +88,8 @@ describe("useNodePatch", () => {
     expect(payload.name).toBe("Новое");
     expect(payload.base_version).toBe(3);
     await waitFor(() => expect(result.current.node.version).toBe(2));
-    expect(onSaved).toHaveBeenCalledWith(saved);
+    // Вторым аргументом — узел ДО правки: по нему панель редактора пишет Undo.
+    expect(onSaved).toHaveBeenCalledWith(saved, initial);
   });
 
   // Аудит R-12: внешность и статус коммитятся сразу по клику — при отказе (не 409)
