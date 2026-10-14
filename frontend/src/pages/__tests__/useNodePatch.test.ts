@@ -90,6 +90,20 @@ describe("useNodePatch", () => {
     expect(onSaved).toHaveBeenCalledWith(saved);
   });
 
+  // Аудит R-12: внешность и статус коммитятся сразу по клику — при отказе (не 409)
+  // поле обязано вернуться к сохранённому, иначе интерфейс показывает то, чего нет в БД.
+  it("отказ сервера: внешность и статус откатываются к сохранённым, причина видна", async () => {
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, "нельзя"));
+    const { result } = renderHook(() => useNodePatch(makeNode({ is_external: false, status: "existing" })));
+
+    await act(async () => { result.current.toggleExternal(); });
+    await waitFor(() => expect(result.current.error).toBe("нельзя"));
+    expect(result.current.isExternal).toBe(false);
+
+    await act(async () => { result.current.pickStatus("deprecated"); });
+    await waitFor(() => expect(result.current.status).toBe("existing"));
+  });
+
   it("409 конфликт: рефреш + баннер, конфликт гасится при следующем успехе", async () => {
     const fresh = makeNode({ name: "Чужое", version: 9 });
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(409, "conflict"));

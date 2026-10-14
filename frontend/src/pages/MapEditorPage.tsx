@@ -31,7 +31,7 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
-import { useToast } from "./useToast";
+import { useMessageToast, useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
@@ -50,6 +50,7 @@ import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
 import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../components/tour/tourBus";
 import LoadError from "../ui/LoadError";
+import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
 
 interface Props {
@@ -78,7 +79,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
-  const [loading, setLoading] = useState(false);
+  // С заглушки: до первичной загрузки холст не монтируется пустым (иначе он вставал с
+  // пустыми данными, снимался заглушкой и монтировался снова).
+  const [loading, setLoading] = useState(true);
   // Отказ загрузки уровня (переход, первичная загрузка): вместо холста — причина и
   // «Повторить» (аудит R-9, R-10). Фоновые отказы не показываются: на экране остаётся
   // последняя удачная версия, поллинг догонит.
@@ -128,6 +131,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [edgeLabelsHidden, setEdgeLabelsHidden] = useState(readEdgeLabelsHidden);
   useEffect(() => { writeEdgeLabelsHidden(edgeLabelsHidden); }, [edgeLabelsHidden]);
   const [remoteToast, showRemoteToast] = useToast();
+  // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
+  const [errorToast, showErrorToast] = useMessageToast();
 
   const history = useHistory();
   // Право правки — роль в проекте (owner/editor), не глобальная роль.
@@ -488,8 +493,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
-    const snapshot = await nodesApi.moveSnapshot(node.id);
-    await nodesApi.update(node.id, { parent_id: newParentId });
+    let snapshot: Awaited<ReturnType<typeof nodesApi.moveSnapshot>>;
+    try {
+      snapshot = await nodesApi.moveSnapshot(node.id);
+      await nodesApi.update(node.id, { parent_id: newParentId });
+    } catch (e) {
+      // Перенос не прошёл (аудит R-14): раньше отказ уходил необработанным, человек не
+      // узнавал причину. Дерево перечитываем — объект на прежнем месте.
+      setTreeReload((t) => t + 1);
+      if (!showLimit(e, "save")) showErrorToast(`Не удалось перенести объект: ${loadErrorText(e)}`);
+      return;
+    }
     setTreeReload((t) => t + 1);
     load(levelAtMove);
     noteMutation();
@@ -884,6 +898,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             )}
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
+            {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
           </div>
           <DemoLimitToast message={limitToast} />
           {loading ? (
@@ -1030,5 +1045,6 @@ const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", j
 // Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
 // интерактивны только вложенные кнопка/панель рекомендаций и тост (у них pointerEvents auto).
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
+const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

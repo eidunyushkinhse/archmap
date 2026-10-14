@@ -366,6 +366,21 @@ describe("MapEditorPage: перенос объекта", () => {
     );
   });
 
+  // Аудит R-14: отказ уходил необработанным отклонением — человек не узнавал причину.
+  it("отказ переноса: причина тостом, в историю ничего, дерево перечитывается", async () => {
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const reloadBefore = treeProps.current.reloadToken;
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось перенести объект: Нет связи с сервером");
+    expect(historyMock.push).not.toHaveBeenCalled();
+    expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
+  });
+
   it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {
     await перенести();
     const cmd = historyMock.push.mock.calls[0][0] as { undo: () => void };
