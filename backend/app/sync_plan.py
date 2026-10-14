@@ -25,10 +25,11 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 import uuid
 from dataclasses import dataclass, field
 
-from app.identity import compare_identity, key_type
+from app.identity import basis_of_key, compare_identity
 from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
+from app.text import identity_name
 
 # Глубина дерева импорта: 1 — корень-система, 2 — контейнеры, 3+ — компоненты.
 # Слой компонентов вне синка по умолчанию (его состав меняется от прогона к прогону).
@@ -132,10 +133,6 @@ def _is_return(live: Node, imp: _ImpNode) -> bool:
     return live.status == "deprecated" and imp.status == "existing"
 
 
-def _norm(name: str) -> str:
-    return " ".join(name.split()).casefold()
-
-
 def _live_keys(node: Node) -> list[str]:
     """Ключи живого узла: в БД хранится один — сильнейший на момент прогона."""
     return [node.source_ref] if node.source_ref else []
@@ -152,17 +149,10 @@ _SOURCE_KIND = {"git": "коду", "host": "имени зависимости"}
 
 # Основание матча словами — тот же словарь, что у мерджа (import_merge.BASIS_ORDER):
 # им живёт и превью импорта, и план синка, и догрузка.
-_BASIS_OF_KEY_TYPE = {"git": "code", "host": "dependency"}
 
 
 # Основания, означающие «сошлось по ЯКОРЮ» (в отличие от имени).
 _ANCHOR_BASIS = frozenset({"code", "dependency"})
-
-
-def _basis_of_key(k: str) -> str:
-    """Ключ, по которому сошлись, → основание. Ключ снятого вида (архив прежней
-    модели якоря) основанием не притворяется — остаётся имя."""
-    return _BASIS_OF_KEY_TYPE.get(key_type(k), "name")
 
 
 def _human_source(ref: str | None) -> str:
@@ -224,10 +214,10 @@ class _Matcher:
             cand = self.by_source.get(k)
             if cand is not None and cand.id not in self.taken:
                 # Основание — вид СОВПАВШЕГО ключа: им узлы и признаны одним.
-                return cand, _basis_of_key(k)
+                return cand, basis_of_key(k)
         siblings = self.children.get(parent_live.id if parent_live else None, [])
         for cand in siblings:
-            if cand.id in self.taken or _norm(cand.name) != _norm(imp.name):
+            if cand.id in self.taken or identity_name(cand.name) != identity_name(imp.name):
                 continue
             # Предохранитель Фазы 0: тёзка с противоречащим якорем — другой узел.
             if compare_identity(_live_keys(cand), imp.source_keys) == "different":
@@ -244,7 +234,7 @@ class _Matcher:
         (заполняем только пустое — ручная правка не затирается), не-дефолт бьёт
         дефолт для shape/status, проза и имя — только по политике."""
         fields: list[str] = []
-        if self.policies.update_names and _norm(live.name) != _norm(imp.name):
+        if self.policies.update_names and identity_name(live.name) != identity_name(imp.name):
             fields.append("name")
         for attr, val in (("role", imp.role), ("technology", imp.technology)):
             cur = getattr(live, attr)
@@ -306,7 +296,7 @@ class _Matcher:
                 continue
             self.taken.add(live.id)
             self.imp_to_live[i] = live
-            if how in _ANCHOR_BASIS and _norm(live.name) != _norm(imp.name):
+            if how in _ANCHOR_BASIS and identity_name(live.name) != identity_name(imp.name):
                 verb = (
                     "имя будет изменено"
                     if self.policies.update_names

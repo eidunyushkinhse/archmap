@@ -32,6 +32,7 @@ from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
 from app.node_ref import RefIndex
+from app.text import loose_name
 
 # Лимиты щедрые (реальный экспорт не упрётся) — защита от «бомбы» в textarea.
 MAX_NODES = 2000
@@ -136,12 +137,6 @@ _HINT_CUTOFF = 0.75
 # же кандидатов расхождение мелкое: разделитель, окончание, опечатка (0–3).
 _HINT_MAX_DIFF = 3
 # Разделители, которыми одно и то же имя пишут по-разному: «web-api» / «web_api».
-_HINT_SEPARATORS = str.maketrans("", "", "_-. ")
-
-
-def _norm_name(s: str) -> str:
-    """Имя без регистра и разделителей — «то же имя, записанное иначе»."""
-    return s.lower().translate(_HINT_SEPARATORS)
 
 
 def _norm_path(ref: str) -> str:
@@ -187,14 +182,14 @@ def _closest_node(
         return fulls[
             min(same_leaf, key=lambda i: (-SequenceMatcher(None, path, fulls[i]).ratio(), i))
         ]
-    norm = _norm_name(path)
+    norm = loose_name(path)
     if not norm:  # ссылка из одних разделителей — сравнивать нечем
         return None
     matcher = SequenceMatcher(None)
     matcher.set_seq2(norm)  # b индексируется один раз, меняем только a
     best: tuple[float, int] | None = None
     for i, full in enumerate(fulls):
-        cand = _norm_name(full)
+        cand = loose_name(full)
         # Длина отсеивает даром: расхождение в _HINT_MAX_DIFF символов невозможно
         # при большей разнице длин (документ бывает на MAX_NODES узлов).
         if abs(len(cand) - len(norm)) > _HINT_MAX_DIFF or not resolvable(i):

@@ -25,6 +25,8 @@ from typing import TypeGuard
 from app.connectivity import connected_components
 from app.identity import (
     KEY_ORDER,
+    basis_of_key,
+    basis_of_type,
     compare_identity,
     key_type,
     merge_key_sets,
@@ -38,6 +40,7 @@ from app.import_yaml import (
     _ImpNode,
     parse_import,
 )
+from app.text import identity_name
 
 # Порог похожести имён сиблингов для предупреждения «возможно, одно и то же».
 _FUZZY_RATIO = 0.78
@@ -84,13 +87,6 @@ _MAX_STABILIZE_PASSES = 5
 # Порядок — убывание различающей силы (тот же, что у KEY_ORDER, плюс имя в хвосте):
 # у склеенного узла показываем СИЛЬНЕЙШЕЕ основание среди его вкладов.
 BASIS_ORDER = ("code", "dependency", "name")
-_BASIS_OF_KEY_TYPE = {"git": "code", "host": "dependency"}
-
-
-def _basis_of_key(k: str) -> str:
-    """Ключ, по которому сошлись, → основание словами. Неизвестный вид ключа
-    (архив прежней модели якоря) основанием не притворяется — остаётся имя."""
-    return _BASIS_OF_KEY_TYPE.get(key_type(k), "name")
 
 
 def _strongest_basis(bases: list[str]) -> str | None:
@@ -432,11 +428,6 @@ def split_remarks(report: MergeReport) -> tuple[list[FileRemarks], list[str], li
     return files, schema_errors, schema_warnings
 
 
-def _norm(name: str) -> str:
-    """Нормализация имени для сравнения идентичности: регистр + схлоп пробелов."""
-    return " ".join(name.split()).casefold()
-
-
 def _fill(val: str | None) -> TypeGuard[str]:
     # TypeGuard: после проверки val сужается до str (используется в _merge_str
     # для безопасного .strip() и передачи в _conflict без повторных null-чеков).
@@ -690,7 +681,7 @@ class _Merger:
             if _compare_anchors(self.nodes[hit].source_keys, node.source_keys) == "different":
                 continue
             # Основание — вид СОВПАВШЕГО ключа: по нему узлы и признаны одним.
-            return hit, _basis_of_key(k)
+            return hit, basis_of_key(k)
         return None, None
 
     def _match_by_name(self, node: _ImpNode, parent_m: int | None) -> int | None:
@@ -699,7 +690,7 @@ class _Merger:
         решает сильнейший общий тип ключа (_compare_anchors, К3): тёзки с разными
         репозиториями раздельны, даже когда сетевое имя у них общее, а тёзка, у
         которой репозитория НЕТ вовсе, склеивается как раньше."""
-        for idx in self.by_key.get((parent_m, _norm(node.name)), []):
+        for idx in self.by_key.get((parent_m, identity_name(node.name)), []):
             if _compare_anchors(self.nodes[idx].source_keys, node.source_keys) == "different":
                 # Замечание о ФАЙЛАХ (тёзки из разных прогонов) — виноватого нет.
                 self.report.warn(
@@ -715,7 +706,7 @@ class _Merger:
 
     def _register(self, idx: int, node: _ImpNode, parent_m: int | None, fi: int) -> None:
         """Узел адресуем и по имени в родителе, и по каждому своему якорю."""
-        self.by_key.setdefault((parent_m, _norm(node.name)), []).append(idx)
+        self.by_key.setdefault((parent_m, identity_name(node.name)), []).append(idx)
         for k in self.nodes[idx].source_keys:
             taken = self.by_source.get(k)
             if taken is not None and fi in self.sources[taken]:
@@ -762,7 +753,7 @@ class _Merger:
         # Общей грани нет (у вклада якорей нет вовсе) — сошлись по имени: группы
         # строятся из ОДНОИМЁННЫХ узлов одного родителя, другого основания там нет.
         common = strongest_common_type(self.nodes[hit].source_keys, node.source_keys)
-        return hit, _BASIS_OF_KEY_TYPE.get(common or "", "name")
+        return hit, basis_of_type(common)
 
     def _note_absorbed(self, hit: int, node: _ImpNode) -> None:
         """Запомнить склейку узлов с РАЗНЫМИ именами по общему repo без path.
@@ -775,7 +766,7 @@ class _Merger:
 
         Вызывать ДО merge_key_sets: сравнение идёт с ключами ПРИНЯВШЕГО узла, а
         после слияния наборов общими стали бы все ключи новичка."""
-        if _norm(node.name) == _norm(self.nodes[hit].name):
+        if identity_name(node.name) == identity_name(self.nodes[hit].name):
             return
         for k in node.source_keys:
             if _repo_no_path(k) and k in self.nodes[hit].source_keys:
@@ -820,7 +811,7 @@ class _Merger:
         # Оставляем первое — перевешивать поддерево по позднему файлу опаснее, чем
         # оставить расхождение видимым в отчёте.
         creator = min(self.sources[hit])  # имя и место узла всегда от создателя
-        if _norm(node.name) != _norm(self.nodes[hit].name):
+        if identity_name(node.name) != identity_name(self.nodes[hit].name):
             self._conflict(hit, "имя", self.nodes[hit].name, node.name, creator, fi)
         kept_parent = self.nodes[hit].parent_idx
         if parent_m != kept_parent:
@@ -935,7 +926,7 @@ class _Merger:
         for parent, idxs in groups.items():
             if len(idxs) < 2 or len(idxs) > _FUZZY_GROUP_LIMIT:
                 continue
-            norms = [_norm(self.nodes[i].name) for i in idxs]
+            norms = [identity_name(self.nodes[i].name) for i in idxs]
             for a in range(len(idxs)):
                 for b in range(a + 1, len(idxs)):
                     ia, ib = idxs[a], idxs[b]
@@ -1124,7 +1115,7 @@ def _regroup(m: _Merger) -> dict[tuple[int, int], int] | None:
     changed = False
     namesakes: dict[tuple[int | None, str], list[int]] = {}
     for i, n in enumerate(m.nodes):
-        namesakes.setdefault((n.parent_idx, _norm(n.name)), []).append(i)
+        namesakes.setdefault((n.parent_idx, identity_name(n.name)), []).append(i)
     for idxs in namesakes.values():
         for a in range(len(idxs)):
             for b in range(a + 1, len(idxs)):

@@ -49,7 +49,6 @@ from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
 from app.import_merge import (
     MergeReport,
-    _norm,
     carry_parse_warnings,
     count_without_anchor,
     merge_imports,
@@ -75,6 +74,7 @@ from app.schemas.unified_import import (
     UnifiedFamilyCountsOut,
     UnifiedPreviewOut,
 )
+from app.text import identity_name
 
 # Максимум входов за раз — тот же щедрый предел, что у голого мульти-YAML импорта
 # (MAX_IMPORT_FILES): мульти-репо BYOA присылает файл на репозиторий, и системе из
@@ -1395,11 +1395,11 @@ def _live_namesakes(plan: UnifiedPlan, text: str, current: int) -> bool:
     merged = plan.merged
     if m is None or merged is None:
         return False
-    name, parent, paths = _norm(m["name"]), m["parent"], plan.node_paths
+    name, parent, paths = identity_name(m["name"]), m["parent"], plan.node_paths
     group = [
         i
         for i, n in enumerate(merged.nodes)
-        if _norm(n.name) == name
+        if identity_name(n.name) == name
         and (paths[n.parent_idx] if n.parent_idx is not None else None) == parent
     ]
     return bool(group) and all(current in plan.report.node_files[i] for i in group)

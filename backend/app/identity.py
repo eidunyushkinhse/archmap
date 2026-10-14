@@ -180,6 +180,21 @@ def key_type(key: str) -> str:
     return key.split(":", 1)[0]
 
 
+# Вид ключа → основание склейки словами (для отчётов мерджа и синка).
+_BASIS_OF_KEY_TYPE = {"git": "code", "host": "dependency"}
+
+
+def basis_of_type(kind: str | None) -> str:
+    """Вид ключа («git», «host») → основание («code», «dependency»). Нет общего вида или
+    вид снятый (архив прежней модели якоря) — основание «name»."""
+    return _BASIS_OF_KEY_TYPE.get(kind or "", "name")
+
+
+def basis_of_key(k: str) -> str:
+    """Ключ, по которому сошлись, → основание (см. basis_of_type)."""
+    return basis_of_type(key_type(k))
+
+
 def known_key(key: str | None) -> str | None:
     """Гвард точек ЗАПИСИ nodes.source_ref: ключ известного вида — или None.
 

@@ -20,22 +20,15 @@
 с уточнителем. Без тёзок и одноимённых узлов вывод прежний байт-в-байт.
 """
 
-import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from app.schemas.process import MessageOut, ProcessDetail
+from app.text import sequence_text
 
-# Чистка текста реплики/условия: Mermaid обрывает оператор на переводе строки и
-# плохо реагирует на «;». Схлопываем пробелы/переводы строк, «;» → «,».
-_WS = re.compile(r"\s+")
-
-
-def _clean(text: str | None) -> str:
-    if not text:
-        return ""
-    return _WS.sub(" ", text).replace(";", ",").strip()
+# Чистка текста реплики/условия — app.text.sequence_text: Mermaid обрывает оператор на
+# переводе строки и плохо реагирует на «;».
 
 
 # Стрелка Mermaid по виду сообщения: return — пунктир с возвратом, async —
@@ -86,8 +79,8 @@ def detail_to_mermaid(
         alias[p.id] = pid
         address = (participant_addresses or {}).get(p.id)
         if address:
-            lines.append(f"{_indent(1)}%% archmap-node: {_clean(address)}")
-        lines.append(f"{_indent(1)}participant {pid} as {_clean(p.name) or pid}")
+            lines.append(f"{_indent(1)}%% archmap-node: {sequence_text(address)}")
+        lines.append(f"{_indent(1)}participant {pid} as {sequence_text(p.name) or pid}")
 
     # Сообщения по order → строки 0..N-1.
     msgs: list[MessageOut] = sorted(detail.messages, key=lambda m: m.order)
@@ -103,11 +96,11 @@ def detail_to_mermaid(
             kind=f.kind,
             from_row=row_of(f.from_order),
             to_row=row_of(f.to_order),
-            guard=_clean(f.guard),
+            guard=sequence_text(f.guard),
             # Ветви [иначе] со второй и дальше: у alt их сколько угодно (mermaid
             # принимает цепочку else любой длины — проверено парсером 11.15.0).
             branches=[
-                _Branch(row=row_of(b.start_order), guard=_clean(b.guard)) for b in f.branches
+                _Branch(row=row_of(b.start_order), guard=sequence_text(b.guard)) for b in f.branches
             ],
         )
         for f in detail.fragments
@@ -140,9 +133,9 @@ def detail_to_mermaid(
         if frm and to:
             if m.doc_id and m.doc_node_path and m.doc_name:
                 node_addr = (doc_node_addresses or {}).get(m.doc_id, m.doc_node_path)
-                addr = _clean(f"{node_addr} / {m.doc_name}")
+                addr = sequence_text(f"{node_addr} / {m.doc_name}")
                 lines.append(f"{_indent(depth)}%% archmap-doc: {addr}")
-            lines.append(f"{_indent(depth)}{frm}{_arrow(m.kind)}{to}: {_clean(m.caption) or '—'}")
+            lines.append(f"{_indent(depth)}{frm}{_arrow(m.kind)}{to}: {sequence_text(m.caption) or '—'}")
 
         # 4) Закрываем фрагменты, заканчивающиеся на строке i (внутренние/узкие — раньше).
         closing = sorted((f for f in frags if f.to_row == i), key=lambda f: -f.from_row)

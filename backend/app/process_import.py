@@ -39,6 +39,7 @@ from app.schemas.process_import import (
     ProcessImportPreview,
     ProcessImportResult,
 )
+from app.text import sequence_text
 
 # Стрелка → плечо канала. Вид (синхронный/событие) определяет сам канал в схеме,
 # поэтому здесь важно только направление: forward или return.
@@ -249,12 +250,6 @@ def parse_sequence(text: str) -> ParsedDiagram:
 _EXPORT_PLACEHOLDER = "—"
 
 
-def _clean(text: str | None) -> str:
-    if not text:
-        return ""
-    return re.sub(r"\s+", " ", text).replace(";", ",").strip()
-
-
 def caption_for_import(raw: str | None) -> str | None:
     """Подпись шага, какой её сохранять. None — подписи нет (шаг покажет пустую).
 
@@ -265,7 +260,7 @@ def caption_for_import(raw: str | None) -> str | None:
     Прочерк «—», которым экспорт обозначает пустую подпись, по-прежнему читается как
     «подписи нет», а не как текст из тире.
     """
-    if raw is None or _clean(raw) in ("", _EXPORT_PLACEHOLDER):
+    if raw is None or sequence_text(raw) in ("", _EXPORT_PLACEHOLDER):
         return None
     return raw
 
@@ -297,7 +292,7 @@ def find_channel(
 def _norm_address(raw: str) -> str:
     """Норма адреса схемы: та же чистка, что у экспортёра (схлопнуть пробелы,
     «;» → «,»), плюс casefold — адрес пишет машина, но человек правит руками."""
-    return _clean(raw).casefold()
+    return sequence_text(raw).casefold()
 
 
 def _doc_address_map(

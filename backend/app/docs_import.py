@@ -27,6 +27,7 @@ from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.node_ref import qualified_node_hits, sibling_sorter
+from app.text import loose_name
 
 if TYPE_CHECKING:
     # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
@@ -332,12 +333,6 @@ _HINT_MIN_TAIL = 3
 _HINT_MAX_DIFF = 3
 # Разделители, которыми одно и то же имя пишут по-разному: «...member_teams» против
 # «...memberteam», «task-worker» против «taskworker».
-_SEPARATORS = str.maketrans("", "", "_-. ")
-
-
-def _norm_name(s: str) -> str:
-    """Имя без регистра и разделителей — для сравнения «то же имя, записанное иначе»."""
-    return s.lower().translate(_SEPARATORS)
 
 
 def _tiny_diff(ref: str, cand: str) -> float | None:
@@ -376,20 +371,20 @@ def _closest_name(tail: str, names: Iterable[str]) -> str | None:
             by_low.setdefault(name.lower(), name)
     if not by_low:
         return None
-    norm = _norm_name(tail)
+    norm = loose_name(tail)
     # Единственное и множественное: агент пишет имя таблицы во множественном
     # («messages»), а в DDL она в единственном («app_message»), и наоборот.
     variants = [
         v for v in (norm, norm[:-1] if norm.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL
     ]
     hits = [
-        orig for cand, orig in by_low.items() if any(_norm_name(cand).endswith(v) for v in variants)
+        orig for cand, orig in by_low.items() if any(loose_name(cand).endswith(v) for v in variants)
     ]
     if hits:
-        return min(hits, key=lambda n: (-SequenceMatcher(None, norm, _norm_name(n)).ratio(), n))
+        return min(hits, key=lambda n: (-SequenceMatcher(None, norm, loose_name(n)).ratio(), n))
     by_norm: dict[str, str] = {}
     for cand, orig in by_low.items():
-        by_norm.setdefault(_norm_name(cand), orig)
+        by_norm.setdefault(loose_name(cand), orig)
     best: tuple[float, str] | None = None
     for cand in sorted(by_norm):  # порядок каталога произволен — выбор должен быть один
         ratio = _tiny_diff(norm, cand)
