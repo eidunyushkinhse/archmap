@@ -9,6 +9,8 @@
 """
 
 import uuid
+from collections.abc import Callable, Sequence
+from typing import Protocol
 
 from app.models.node import Node
 from app.node_ref import NodeIndex, qualified_node_hits
@@ -79,3 +81,37 @@ def resolve_owner(
         )
         return None
     return index.flat[hits[0]]
+
+
+# Сколько записей-дублей пакета называть поимённо; остальные — одной строкой.
+MAX_DUPLICATE_WARNINGS = 8
+
+
+class MergedRecord(Protocol):
+    """Запись плана после слияния файлов пакета: все файлы, описавшие её (в порядке
+    пакета, без повторов), и расхождения меты МЕЖДУ ними — уже готовыми строками."""
+
+    files: list[str]
+    meta_notes: list[str]
+
+
+def warn_duplicates[M: MergedRecord](
+    warnings: list[str], merged: Sequence[M], one: Callable[[M], str], many: str
+) -> None:
+    """Запись описана НЕСКОЛЬКИМИ файлами пакета — план сливает её в одну строку.
+
+    Дубль внутри пакета — норма (файлы собраны разными прогонами агента по разным
+    частям кода), поэтому сливаем и предупреждаем, а не падаем и не молчим: без
+    слияния превью показывало бы две строки «create», а применение падало бы на
+    уникальности. one(m) — фраза о записи, many — «таблиц»/«каналов»/«параметров»
+    для хвоста «…ещё N». Порядок — как в пакете: он осмыслен."""
+    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
+    for m in dups[:MAX_DUPLICATE_WARNINGS]:
+        if len(m.files) > 1:
+            warnings.append(one(m))
+        warnings.extend(m.meta_notes)
+    if len(dups) > MAX_DUPLICATE_WARNINGS:
+        warnings.append(
+            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} {many} описаны в нескольких "
+            "файлах пакета"
+        )

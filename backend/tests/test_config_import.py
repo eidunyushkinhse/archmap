@@ -14,11 +14,11 @@ import uuid
 from conftest import ensure_architect, ensure_project
 
 from app.config_import import (
-    MAX_DUPLICATE_WARNINGS,
     MAX_SECRET_WARNINGS,
     parse_config_file,
 )
 from app.config_prompt import build_config_prompt
+from app.facts_import import MAX_DUPLICATE_WARNINGS
 from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.routers.config_import import (

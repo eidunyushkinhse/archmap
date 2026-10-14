@@ -28,7 +28,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.node_ref import NodeIndex
@@ -49,7 +49,6 @@ PKG_KEY = {"value_type": "type", "required": "required", "default_value": "defau
 
 # Кап предупреждений о параметрах, описанных несколькими файлами: замечания уезжают
 # агенту ОДНИМ списком, и один класс не должен вытеснить остальные.
-MAX_DUPLICATE_WARNINGS = 8
 # Свой кап у подозрительных дефолтов — чтобы класс не съел квоту остальных.
 MAX_SECRET_WARNINGS = 8
 
@@ -90,8 +89,6 @@ class ParsedConfig:
     # В YAML верхнего уровня есть КЛЮЧ «archmap-node»: агент потерял решётку, и адрес
     # стал невидимым (урок Н11 полевого QA — записи молча уехали к объекту окна).
     has_node_key: bool = False
-
-
 
 
 def parse_config_file(content: str) -> ParsedConfig | None:
@@ -142,10 +139,6 @@ class _Merged:
     source: str
     files: list[str] = field(default_factory=list)
     meta_notes: list[str] = field(default_factory=list)
-
-
-
-
 
 
 def build_config_plan(
@@ -216,7 +209,15 @@ def build_config_plan(
             else:
                 _merge_duplicate(m, fname, p)
 
-    _warn_duplicates(plan, list(merged.values()))
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"параметр «{m.param.name}» описан в нескольких файлах пакета "
+            f'({", ".join(m.files)}): останется одна запись, при расхождении '
+            "побеждает первый файл"
+        ),
+        "параметров",
+    )
     _warn_secret_defaults(plan, list(merged.values()))
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
@@ -269,29 +270,6 @@ def _merge_duplicate(m: _Merged, fname: str, p: ParamIn) -> None:
     # description намеренно без замечания (как и в META_KEYS).
     if not first.description:
         first.description = p.description
-
-
-def _warn_duplicates(plan: ConfigPlan, merged: list[_Merged]) -> None:
-    """Параметр описан НЕСКОЛЬКИМИ файлами пакета — план сливает его в одну строку.
-
-    Урок каналов (Ф3 полевого QA): без слияния превью показывало бы две строки
-    «create», а применение падало бы на уникальности (node_id, name). Дубль внутри
-    пакета — норма: файлы собраны разными прогонами по разным частям репозитория.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"параметр «{m.param.name}» описан в нескольких файлах пакета "
-                f'({", ".join(m.files)}): останется одна запись, при расхождении '
-                "побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} параметров описаны в "
-            "нескольких файлах пакета"
-        )
 
 
 def _warn_secret_defaults(plan: ConfigPlan, merged: list[_Merged]) -> None:

@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
 from app.docs_import import _closest_name
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
@@ -59,7 +59,6 @@ MAX_ADDRESS_WARNINGS = 8
 MAX_COVERAGE_WARNINGS = 8
 # Свой кап у каналов, описанных НЕСКОЛЬКИМИ файлами пакета. Считает КАНАЛЫ, а не
 # строки: к заметке о дубле может добавиться расхождение меты между файлами.
-MAX_DUPLICATE_WARNINGS = 8
 # ЗАГЛУШКА КАНАЛА ПО СВЯЗИ. Импорт C4 заводит брокеру запись на каждое имя канала,
 # названное связью (Edge.channel), — иначе честная схема сильной модели сразу после
 # ввоза тонула в «канал «X» не найден у брокера» (Ф-D эпика BYOA: 59 из 60 замечаний).
@@ -213,8 +212,6 @@ class ParsedChannels:
     has_node_key: bool = False
 
 
-
-
 def parse_channels_file(content: str) -> ParsedChannels | None:
     """Разобрать файл пакета. None — файл не про каналы (пусть его смотрит другой
     разборщик: в пакете рядом лежат и схемы логики, и спеки, и структура БД)."""
@@ -292,10 +289,6 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-
-
-
-
 def build_channels_plan(
     db: Session,
     nodes: list[Node],
@@ -369,7 +362,18 @@ def build_channels_plan(
             else:
                 _merge_duplicate(m, fname, c)
 
-    _warn_duplicate_channels(plan, list(merged.values()))
+    # Находка полевого QA Ф3: четыре очереди Zulip приехали в двух файлах каждая, и
+    # применение падало 500-й на uq_channel_field_name — у брокера нет
+    # репозитория-владельца, файлы собраны разными прогонами.
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"канал «{m.channel.name}» описан в нескольких файлах пакета "
+            f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
+            "имени поля и расхождении меты побеждает первый файл"
+        ),
+        "каналов",
+    )
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
     # скольким владельцам приехал пакет, а строка превью нужна одна на канал.
@@ -452,36 +456,6 @@ def _merge_duplicate(m: _Merged, fname: str, c: ChannelIn) -> None:
         earlier.type = earlier.type or f.type
         earlier.description = earlier.description or f.description
         earlier.required = earlier.required or f.required
-
-
-def _warn_duplicate_channels(plan: ChannelsPlan, merged: list[_Merged]) -> None:
-    """Канал описан НЕСКОЛЬКИМИ файлами пакета — план сливает его в одну строку.
-
-    Находка полевого QA Ф3: в пакете Zulip четыре очереди приехали в двух файлах
-    каждая (перечень очередей rabbitmq плюс подробный файл по конкретной). Превью
-    молчало и показывало их ДВУМЯ строками «create» с разным числом полей, а
-    применение падало 500-й: второй файл лил одноимённое поле в канал, только что
-    созданный первым (duplicate key uq_channel_field_name). Дубль внутри пакета —
-    норма (у брокера нет репозитория-владельца, файлы собраны разными прогонами),
-    поэтому сливаем и предупреждаем, а не падаем и не молчим.
-
-    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из
-    БД у соседних эвристик, который приходится сортировать.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"канал «{m.channel.name}» описан в нескольких файлах пакета "
-                f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
-                "имени поля и расхождении меты побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} каналов описаны в нескольких "
-            "файлах пакета"
-        )
 
 
 def _names_channel(pairs: set[tuple[str, str]], named: str) -> bool:

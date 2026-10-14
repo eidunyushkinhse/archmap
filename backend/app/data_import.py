@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -60,7 +60,6 @@ LOOKS_LIKE_DATA = re.compile(r"^(tables|access):", re.MULTILINE)
 
 # Кап у таблиц, описанных НЕСКОЛЬКИМИ файлами пакета. Считает ТАБЛИЦЫ, а не строки:
 # к заметке о дубле может добавиться расхождение описания между файлами.
-MAX_DUPLICATE_WARNINGS = 8
 # Свой кап у споров пакета с уже описанным (две картины одной базы): считает СТРОКИ —
 # одна колонка может разойтись сразу по типу, обязательности и ключу.
 MAX_COLUMN_CONFLICTS = 12
@@ -95,8 +94,6 @@ class ParsedData:
     # стал невидимым (полевой QA Zabbix 7 — записи молча уехали к объекту окна).
     # Адресом ключ не считаем (поведение прежнее), но молчать о нём нельзя.
     has_node_key: bool = False
-
-
 
 
 def parse_data_file(content: str) -> ParsedData | None:
@@ -184,10 +181,6 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-
-
-
-
 def build_data_plan(
     db: Session,
     nodes: list[Node],
@@ -268,7 +261,18 @@ def build_data_plan(
             else:
                 _merge_duplicate(m, fname, t)
 
-    _warn_duplicate_tables(plan, list(merged.values()))
+    # Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
+    # знало о таблицах, уже поставленных в план предыдущими файлами, — второй файл лил
+    # одноимённую колонку в только что созданную таблицу (uq_db_column_name, 500).
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"таблица «{m.table.name}» описана в нескольких файлах пакета "
+            f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
+            "имени колонки и расхождении меты побеждает первый файл"
+        ),
+        "таблиц",
+    )
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
     # скольким владельцам приехал пакет, а строка превью нужна одна на таблицу.
@@ -391,35 +395,6 @@ def _merge_duplicate(m: _Merged, fname: str, t: TableIn) -> None:
         earlier.references = earlier.references or c.references
         earlier.pk = earlier.pk or c.pk
         earlier.required = earlier.required or c.required
-
-
-def _warn_duplicate_tables(plan: DataPlan, merged: list[_Merged]) -> None:
-    """Таблица описана НЕСКОЛЬКИМИ файлами пакета — план сливает её в одну строку.
-
-    Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
-    знало о таблицах, уже поставленных в план предыдущими файлами. Превью показывало
-    ДВЕ строки «create» с разным числом колонок, а применение падало 500-й — второй
-    файл лил одноимённую колонку в таблицу, только что созданную первым (уникальность
-    uq_db_column_name; у свежесозданной таблицы коллекция columns после flush пуста).
-    Дубль внутри пакета — норма (файлы собраны разными прогонами агента), поэтому
-    сливаем и предупреждаем, а не падаем и не молчим.
-
-    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из БД.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"таблица «{m.table.name}» описана в нескольких файлах пакета "
-                f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
-                "имени колонки и расхождении меты побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} таблиц описаны в нескольких "
-            "файлах пакета"
-        )
 
 
 def apply_data_plan(db: Session, plan: DataPlan, overwrite: bool) -> None:
