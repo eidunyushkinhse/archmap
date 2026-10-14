@@ -3,6 +3,8 @@
 # КАЖДЫМ коммитом гоняет проверки той части, которую правят (по staged-файлам).
 #   frontend/* → tsc -b + eslint + vitest
 #   backend/*  → ruff + mypy + pytest
+#   скрипты поставки и разработки (deploy/*.sh|*.py, scripts/*.sh, хук, dev.sh, stop.sh)
+#              → bash -n + ruff (аудит P-33: раньше их не видел никто)
 # NB: именно `tsc -b`, не `tsc --noEmit`. Корневой tsconfig.json — solution-config
 # (files:[], только references) → `tsc --noEmit` НИЧЕГО не проверяет (тихо exit 0).
 # `tsc -b` идёт по ссылкам на tsconfig.app/node.json и реально типизирует src.
@@ -33,6 +35,22 @@ touch_mcp=false
 if grep -q '^frontend/' <<<"$staged"; then touch_front=true; fi
 if grep -q '^backend/'  <<<"$staged"; then touch_back=true;  fi
 if grep -q '^mcp/'      <<<"$staged"; then touch_mcp=true;   fi
+# Скрипты: shell — bash -n, python поставки — ruff бэкенда
+scripts_sh="$(grep -E '^(deploy/.*\.sh|scripts/.*\.sh|scripts/git-hooks/[^/]+|dev\.sh|stop\.sh)$' <<<"$staged" || true)"
+scripts_py="$(grep -E '^deploy/.*\.py$' <<<"$staged" || true)"
+
+# --- Скрипты: синтаксис shell и ruff по python поставки ---
+if [ -n "$scripts_sh" ]; then
+  say "Скрипты: bash -n…"
+  while IFS= read -r f; do
+    bash -n "$f" || { err "синтаксическая ошибка в $f"; exit 1; }
+  done <<<"$scripts_sh"
+fi
+if [ -n "$scripts_py" ] && [ -x backend/venv/bin/ruff ]; then
+  say "Скрипты поставки: ruff…"
+  # shellcheck disable=SC2086 # список файлов намеренно разбивается по словам
+  backend/venv/bin/ruff check --config backend/pyproject.toml $scripts_py
+fi
 
 # --- Фронтенд: типы + тесты ---
 if $touch_front; then
