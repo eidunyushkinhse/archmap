@@ -68,7 +68,6 @@ export type ImportPromptOut = Schemas["ImportPromptOut"];
 // дефолтом) — их рассуживает пользователь, выбирая кандидата в превью.
 export type UnifiedPreviewOut = Schemas["UnifiedPreviewOut"];
 export type FamilyConflictOut = Schemas["FamilyConflictOut"];
-export type FamilyCandidateOut = Schemas["FamilyCandidateOut"];
 export type UnifiedFamilyCountsOut = Schemas["UnifiedFamilyCountsOut"];
 // Остаток слияния (Ф-E, docs/plan-byoa-quality.md): то, что мердж решить не может,
 // приезжает в обоих превью СТРУКТУРОЙ — по ней фронт задаёт вопросы («Без ваших
@@ -125,12 +124,6 @@ export const compareByRank = (a: Node, b: Node): number =>
   Number(a.is_external) - Number(b.is_external) ||
   a.name.localeCompare(b.name);
 
-// Узлы-«пользователи» (shape: person) в дереве-навигаторе не показываем: дерево —
-// навигатор детализации, «провалиться» внутрь пользователя нечего. Общий отсев для
-// боковой панели (NodeTreePanel) и ветки детей в модалке (NodeModal).
-export const withoutPersons = (nodes: Node[]): Node[] =>
-  nodes.filter((n) => n.shape !== "person");
-
 export type NodeCreate = Schemas["NodeCreate"];
 export type NodeUpdate = Schemas["NodeUpdate"];
 
@@ -150,16 +143,11 @@ export type NodeDocKind = NodeDocMeta["kind"];
 export type NodeDocCreate = Schemas["NodeDocCreate"];
 export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
-// «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
-// контейнера на его непосредственных детей.
-export type DistributeDocAssignment = Schemas["DistributeDocAssignment"];
 export type DistributeDocsIn = Schemas["DistributeDocsIn"];
 export type DistributeDocsOut = Schemas["DistributeDocsOut"];
 
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];
-export type DocsLogicItem = Schemas["DocsLogicItem"];
-export type DocsSpecItem = Schemas["DocsSpecItem"];
 
 // Точка ортогональной ломаной стрелки в координатах графа (чисто фронтовое:
 // авто-маршруты роутера; в контракте геометрии стрелок больше нет).
@@ -193,9 +181,6 @@ export type AncestorRef = Schemas["AncestorRef"];
 // графа): и внешние концы (гости), и глубокие внутри поддерева. Имя типа
 // историческое — контекст-эндпоинт отдаёт той же схемой своих «соседей».
 export type GhostNode = Schemas["GhostNodeResponse"];
-// СЫРОЕ ребро графа уровня (R2): source_id/target_id — реальные концы; проекцию
-// на видимые сущности делает graph/projection.ts на фронте.
-export type GraphEdge = Schemas["GraphEdgeResponse"];
 
 // Ребро в стейте уровня: EdgeResponse-подобное (source_id/target_id — РЕАЛЬНЫЕ
 // концы, R2) плюс синтезируемые original_* — те же реальные концы с именами для
@@ -210,22 +195,10 @@ export type LevelEdge = Edge & {
 export type GraphResponse = Schemas["GraphResponse"];
 export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 
-export type DisconnectedNodeAlert = Schemas["DisconnectedNodeAlert"];
-export type IntermediateEdgeAlert = Schemas["IntermediateEdgeAlert"];
-export type IsolatedGroupAlert = Schemas["IsolatedGroupAlert"];
-export type ContainerOwnDocsAlert = Schemas["ContainerOwnDocsAlert"];
 // Пометка «читает:/пишет:» в схеме логики, не нашедшая таблицу структуры (AL29).
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
-// И то же для конфигурации: «зависит от:» без параметра у САМОГО объекта (AL33).
-// Полей reason и mode у класса нет — причина и режим у него единственные.
-export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
-// Связь с брокером, не назвавшая канал (missing) либо назвавшая неизвестный (unknown) —
-// шов «стрелка ↔ структура брокера», который держат алерты, а не FK (AL31).
-export type BrokerEdgeChannelAlert = Schemas["BrokerEdgeChannelAlert"];
-// Связь узла с его собственным потомком: вложенность уже выражена иерархией (AL32).
-export type DescendantEdgeAlert = Schemas["DescendantEdgeAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];
@@ -267,7 +240,6 @@ export type Channel = Schemas["ChannelOut"];
 // правило владельца и скоуп поддеревьев там же, где проекция концов связи.
 export type MessageDocCatalog = Schemas["MessageDocCatalog"];
 export type DocChoice = Schemas["DocChoiceOut"];
-export type ChannelLeg = Schemas["LegOut"];
 export type ParticipantCreate = Schemas["ParticipantCreate"];
 export type MessageCreate = Schemas["MessageCreate"];
 export type MessageUpdate = Schemas["MessageUpdate"];
@@ -281,10 +253,8 @@ export type ProcessImportIn = Schemas["ProcessImportIn"];
 export type ProcessImportApply = Schemas["ProcessImportApply"];
 export type ProcessImportPreview = Schemas["ProcessImportPreview"];
 export type ProcessImportResult = Schemas["ProcessImportResult"];
-export type FragmentBranch = Schemas["BranchOut"];
 export type BranchIn = Schemas["BranchIn"];
-// Плечо сообщения (хранимое) и стиль стрелки (производный) — Literal из контракта.
-export type MessageLeg = Schemas["MessageOut"]["leg"];
+// Стиль стрелки сообщения (производный от плеча) — Literal из контракта.
 export type MessageKind = Schemas["MessageOut"]["kind"];
 export type FragmentKind = Schemas["FragmentOut"]["kind"];
 

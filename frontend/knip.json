@@ -1,0 +1,19 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "src/embed/main.tsx",
+    "scripts/*.ts"
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "scripts/**/*.ts"
+  ],
+  "ignore": [
+    "src/types/swagger-ui.d.ts",
+    "src/types/api.gen.ts"
+  ],
+  "ignoreBinaries": [
+    "venv/bin/python"
+  ],
+  "ignoreExportsUsedInFile": true
+}

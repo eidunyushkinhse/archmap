@@ -12,13 +12,3 @@ export function DrillInIcon({ size = 13 }: { size?: number }) {
     </svg>
   );
 }
-
-export function MoreIcon({ size = 13 }: { size?: number }) {
-  // Три точки — «открыть карточку со сведениями» (модалка детализации).
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-      style={{ display: "block" }} aria-hidden>
-      <circle cx="5" cy="12" r="1.9" /><circle cx="12" cy="12" r="1.9" /><circle cx="19" cy="12" r="1.9" />
-    </svg>
-  );
-}

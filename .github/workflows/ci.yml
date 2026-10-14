@@ -50,6 +50,10 @@ jobs:
         run: npx vitest run --coverage --coverage.reporter=text-summary
       - name: Build (приложение и живая схема лендинга)
         run: npm run build && npm run build:embed
+      - name: Мёртвый код (knip, конфиг — knip.json)
+        # Экспорт, нужный только своему файлу, теряет export; ненужный нигде — удаляется
+        # (аудит M16, урок фазы 8).
+        run: npm run knip
       - name: Audit (только то, что едет в браузер)
         run: npm audit --omit=dev --audit-level=high
 
