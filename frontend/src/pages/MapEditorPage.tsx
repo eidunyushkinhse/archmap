@@ -50,6 +50,7 @@ import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
 import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../components/tour/tourBus";
 import LoadError from "../ui/LoadError";
+import { safeSession } from "../lib/safeStorage";
 
 interface Props {
   projectId: string;
@@ -364,7 +365,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // кладёт цель для карты), а уходим обычным закрытием редактора — туда же, куда
   // ведёт «Готово».
   function openProcess(processId: string) {
-    sessionStorage.setItem(PENDING_PROCESS_KEY, processId);
+    safeSession.setItem(PENDING_PROCESS_KEY, processId);
     onDone();
   }
 
@@ -372,9 +373,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // загрузки алертов (нужны концы связей), затем ключ очищается.
   useEffect(() => {
     if (!alertsLoaded) return;
-    const raw = sessionStorage.getItem(PENDING_ALERT_LOCATE_KEY);
+    const raw = safeSession.getItem(PENDING_ALERT_LOCATE_KEY);
     if (!raw) return;
-    sessionStorage.removeItem(PENDING_ALERT_LOCATE_KEY);
+    safeSession.removeItem(PENDING_ALERT_LOCATE_KEY);
     try {
       void handleLocate(JSON.parse(raw) as LocateTarget);
     } catch { /* повреждённые данные цели — игнорируем */ }

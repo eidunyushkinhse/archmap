@@ -1,5 +1,6 @@
 import type { AuthConfig, DemoLimits, Me, Token, UserRole } from "../types";
 import { api, ApiError } from "./client";
+import { safeLocal } from "../lib/safeStorage";
 
 const BASE_URL = "/api/v1";
 
@@ -18,18 +19,18 @@ export async function login(username: string, password: string): Promise<Token> 
 }
 
 export function saveToken(token: string): void {
-  localStorage.setItem("access_token", token);
+  safeLocal.setItem("access_token", token);
   // Новый токен — возможно, другой человек: прежний «кто я» больше не годится.
   setMe(null);
 }
 
 export function clearToken(): void {
-  localStorage.removeItem("access_token");
+  safeLocal.removeItem("access_token");
   setMe(null);
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem("access_token");
+  return safeLocal.getItem("access_token");
 }
 
 // ── Кто я: роль и признак администратора из БД ───────────────────────────────
@@ -66,12 +67,20 @@ export async function fetchMe(): Promise<Me> {
   return fresh;
 }
 
+// Часть JWT — base64url (RFC 7515: «-» и «_» вместо «+» и «/», без «=»), а внутри —
+// UTF-8. Голый atob падал на «-»/«_» и превращал кириллицу в sub в мусор (аудит R-25).
+function decodeBase64Url(part: string): string {
+  const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+  const bin = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, "="));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+
 // Полезная нагрузка JWT без проверки подписи: только для отображения до ответа /auth/me.
 function tokenClaims(): Record<string, unknown> | null {
   const token = getToken();
   if (!token) return null;
   try {
-    const payload: unknown = JSON.parse(atob(token.split(".")[1]));
+    const payload: unknown = JSON.parse(decodeBase64Url(token.split(".")[1] ?? ""));
     return payload && typeof payload === "object" ? (payload as Record<string, unknown>) : null;
   } catch {
     return null;

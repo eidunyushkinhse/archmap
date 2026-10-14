@@ -23,6 +23,16 @@ afterEach(() => {
 });
 
 describe("getUserRole / getIsAdmin", () => {
+  // Аудит R-25: часть JWT — base64url с UTF-8 внутри; atob падал на «-»/«_», и роль из
+  // токена до ответа /auth/me пропадала. Эта полезная нагрузка (sub «Иван Петров»)
+  // в base64url содержит «-» и требует добивки «=».
+  it("роль из токена с кириллицей и base64url-символами читается", () => {
+    const part = "eyJzdWIiOiLQmNCy0LDQvSDQn9C10YLRgNC-0LIiLCJyb2xlIjoiYXJjaGl0ZWN0In0";
+    expect(part).toMatch(/[-_]/);
+    saveToken(`h.${part}.s`);
+    expect(getUserRole()).toBe("architect");
+  });
+
   it("без токена — null и не админ", () => {
     expect(getUserRole()).toBeNull();
     expect(getIsAdmin()).toBe(false);

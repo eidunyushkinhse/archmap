@@ -1,4 +1,5 @@
 import { getCurrentProjectId } from "./projectScope";
+import { safeLocal } from "../lib/safeStorage";
 
 const BASE_URL = "/api/v1";
 
@@ -85,7 +86,7 @@ async function readError(res: Response): Promise<ApiError> {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem("access_token");
+  return safeLocal.getItem("access_token");
 }
 
 // Запросы к управлению проектами, авторизации, админке и списку пользователей
