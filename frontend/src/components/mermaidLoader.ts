@@ -40,6 +40,26 @@ export function loadMermaid(): Promise<Mermaid> {
   });
 }
 
+// Мягкий порог «тяжёлой» схемы (аудит R-16). Жёсткие пределы выше подняты под свои
+// данные, но после эпика доступа схему редактора открывает и читатель — у него она
+// рендерится на главном потоке минутами. Выше порога рендерер не рисует сам, а
+// спрашивает («Показать всё равно»). Порог с запасом выше реальных схем БД на 200
+// таблиц; связи считаем по строкам со стрелкой («--», «==», «~~~») — грубо, но дёшево.
+export const HEAVY_TEXT = 150_000;
+export const HEAVY_EDGES = 1_500;
+
+export function isHeavyChart(chart: string): boolean {
+  if (chart.length > HEAVY_TEXT) return true;
+  let edges = 0;
+  for (const line of chart.split("\n")) {
+    if (line.includes("--") || line.includes("==") || line.includes("~~~")) {
+      edges += 1;
+      if (edges > HEAVY_EDGES) return true;
+    }
+  }
+  return false;
+}
+
 // Загружался ли mermaid хоть раз (для статуса «loading» первого рендера).
 export function mermaidLoaded(): boolean {
   return mermaidOnce.started();
