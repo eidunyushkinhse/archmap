@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
+import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
 import { fetchMe, getCanCreateProject, getIsGuest, getMe, getUserRole } from "../api/auth";
 import { projectsApi } from "../api/projects";
 import type { Project } from "../types";
@@ -272,18 +273,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
 }
 
 // ── Стили ─────────────────────────────────────────────────────────────────────
-const page: CSSProperties = { height: "100vh", overflowY: "auto", background: "#f8fafc" };
-const topBar: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e2e8f0",
-};
 const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "28px 24px 60px" };
-const h1: CSSProperties = { margin: 0, fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" };
-const newBtn: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px",
-  background: "#2563eb", color: "#fff", border: "none", borderRadius: 10,
-  fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-};
 const newBtnBlocked: CSSProperties = { background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" };
 const tipStyle: CSSProperties = {
   position: "absolute", right: 0, top: "calc(100% + 8px)", width: 270, zIndex: 3,
@@ -323,10 +313,4 @@ const empty: CSSProperties = {
 const emptyIcon: CSSProperties = {
   display: "inline-flex", alignItems: "center", justifyContent: "center", width: 76, height: 76,
   borderRadius: 20, background: "#eff6ff",
-};
-const toastStyle: CSSProperties = {
-  position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-  background: "#0f172a", color: "#fff", padding: "10px 18px", borderRadius: 10,
-  fontSize: 14, boxShadow: "0 12px 30px rgba(15,23,42,.28)", zIndex: 50,
-  pointerEvents: "none", // информативный снекбар не должен глотать клики под собой
 };

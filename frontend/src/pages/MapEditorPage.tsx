@@ -4,6 +4,7 @@
 // Центр: LevelGraph со всеми жестами. Справа: ObjectInspector (272px).
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { workBodyRow as bodyRow, workDivider as divider, workPage, workTopBar as topBar, workTopLeft as topLeft } from "../ui/pageChrome";
 import { nodesApi, edgesApi, exportApi } from "../api/nodes";
 import { getIsGuest } from "../api/auth";
 import { canEditProject, useProjectRole } from "./projectRole";
@@ -1011,11 +1012,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
 // ── Стили ───────────────────────────────────────────────────────────
 
-const page: CSSProperties = { display: "flex", flexDirection: "column", height: "100vh", fontFamily: "system-ui, -apple-system, sans-serif", overflow: "hidden", background: "#f8fafc" };
-const topBar: CSSProperties = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "11px 20px", borderBottom: "1px solid #e2e8f0", background: "#fff", flexShrink: 0, gap: 12, flexWrap: "wrap" };
-const topLeft: CSSProperties = { display: "flex", alignItems: "center", gap: 4, fontSize: 14, flexWrap: "wrap", flex: 1, minWidth: 0 };
-const divider: CSSProperties = { width: 1, height: 22, background: "#e2e8f0", flex: "none", margin: "0 4px" };
-const bodyRow: CSSProperties = { flex: 1, display: "flex", minHeight: 0, overflow: "hidden" };
+const page: CSSProperties = { ...workPage, background: "#f8fafc" };
 const graphArea: CSSProperties = { flex: 1, minWidth: 0, overflow: "hidden", padding: 12, display: "flex", flexDirection: "column", position: "relative" };
 const RIGHT_PANEL_W = 272;
 const RIGHT_PANEL_COLLAPSED_W = 48; // как у свёрнутого дерева слева

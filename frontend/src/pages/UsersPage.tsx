@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
+import { listPage as page, listPrimaryBtn as newBtn, listTitle as h1, listToast as toastStyle, listTopBar as topBar } from "../ui/pageChrome";
 import { adminApi } from "../api/admin";
 import { fetchMe } from "../api/auth";
 import type { AdminUser, AdminUserUpdate, UserRole } from "../types";
@@ -283,22 +284,11 @@ function fmtDate(iso: string): string {
 }
 
 // ── Стили (шапка и контейнер — как у лендинга «Проекты») ─────────────────────
-const page: CSSProperties = { height: "100vh", overflowY: "auto", background: "#f8fafc" };
-const topBar: CSSProperties = {
-  display: "flex", alignItems: "center", justifyContent: "space-between",
-  padding: "12px 24px", background: "#fff", borderBottom: "1px solid #e2e8f0",
-};
 const container: CSSProperties = { maxWidth: 1120, margin: "0 auto", padding: "20px 24px 60px" };
 const backLink: CSSProperties = {
   display: "inline-flex", alignItems: "center", padding: "4px 8px", margin: "0 0 10px -8px",
   border: "none", borderRadius: 8, background: "none", color: "#64748b",
   fontSize: 13.5, fontWeight: 600, cursor: "pointer",
-};
-const h1: CSSProperties = { margin: 0, fontSize: 26, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" };
-const newBtn: CSSProperties = {
-  display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 16px",
-  background: "#2563eb", color: "#fff", border: "none", borderRadius: 10,
-  fontSize: 14, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
 };
 const tableBox: CSSProperties = {
   marginTop: 22, background: "#fff", border: "1px solid #e8edf3", borderRadius: 14, overflowX: "auto",
@@ -326,10 +316,4 @@ const actions: CSSProperties = { display: "inline-flex", gap: 6, flexWrap: "wrap
 const rowBtn: CSSProperties = {
   padding: "6px 10px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#fff",
   fontSize: 13, fontWeight: 600, whiteSpace: "nowrap",
-};
-const toastStyle: CSSProperties = {
-  position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-  background: "#0f172a", color: "#fff", padding: "10px 18px", borderRadius: 10,
-  fontSize: 14, boxShadow: "0 12px 30px rgba(15,23,42,.28)", zIndex: 50,
-  pointerEvents: "none", // информативный снекбар не должен глотать клики под собой
 };
