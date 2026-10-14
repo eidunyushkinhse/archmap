@@ -5,6 +5,10 @@ backend/venv/
 *.py[cod]
 *$py.class
 .pytest_cache/
+# Отчёты покрытия (pytest-cov в CI и локальные замеры)
+.coverage
+.coverage.*
+htmlcov/
 .mypy_cache/
 .ruff_cache/
 
