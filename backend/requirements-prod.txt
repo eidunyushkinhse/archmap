@@ -1,5 +1,11 @@
 # Зависимости рантайма: то, что едет на сервер в поставке (deploy/build-bundle.sh).
 # Инструменты разработки — в requirements.txt поверх этого файла.
+# Поставка ставится НЕ отсюда, а из requirements-prod.lock — все транзитивные пакеты с
+# хэшами (--require-hashes, аудит P-22): сборки одного коммита одинаковы, а аудит видит
+# ровно то, что едет. Поменял пин здесь — перегенерируй lock (pip-tools, Python 3.12):
+#   pip-compile --generate-hashes --strip-extras --no-emit-index-url \
+#     --output-file requirements-prod.lock requirements-prod.txt
+# Расхождение файла и lock ловит tests/test_requirements_lock.py.
 fastapi==0.143.0
 # Транзитивно через fastapi (у него starlette>=0.46 без потолка) — пин до lock-файла
 # поставки (аудит P-22), иначе сборка брала бы любую свежую.
