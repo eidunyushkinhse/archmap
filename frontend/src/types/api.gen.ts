@@ -2664,7 +2664,10 @@ export interface components {
             grant_type?: string | null;
             /** Username */
             username: string;
-            /** Password */
+            /**
+             * Password
+             * Format: password
+             */
             password: string;
             /**
              * Scope
@@ -2673,7 +2676,10 @@ export interface components {
             scope: string;
             /** Client Id */
             client_id?: string | null;
-            /** Client Secret */
+            /**
+             * Client Secret
+             * Format: password
+             */
             client_secret?: string | null;
         };
         /** BranchIn */
@@ -4393,7 +4399,6 @@ export interface components {
              * Is Ghost
              * @default true
              * @constant
-             * @enum {boolean}
              */
             is_ghost: true;
         };
@@ -6727,6 +6732,10 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
         };
         /**
          * ViewLayoutBatch
@@ -6752,7 +6761,9 @@ export interface components {
             /** Item Id */
             item_id: string;
             /** Payload */
-            payload: Record<string, never>;
+            payload: {
+                [key: string]: unknown;
+            };
         };
         /**
          * ViewLayoutPayload
@@ -11320,7 +11331,9 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": Record<string, never>;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };

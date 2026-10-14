@@ -111,7 +111,9 @@ def test_templates_catalog_endpoint_removed():
     Соседняя статическая ручка на месте — проверка не пустая по построению."""
     from app.main import app
 
-    paths = {getattr(r, "path", "") for r in app.routes}
+    # По описанию API, а не по app.routes: с FastAPI 0.14x подключённые роутеры в
+    # app.routes лежат обёрткой без путей.
+    paths = set(app.openapi()["paths"])
     assert "/api/v1/projects/import/prompt" in paths
     assert "/api/v1/projects/templates" not in paths
 
