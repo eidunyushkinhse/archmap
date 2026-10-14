@@ -10,6 +10,7 @@ import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
+import { usePersistenceHost } from "./usePersistenceHost";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useRemoteSync } from "./useRemoteSync";
@@ -1399,28 +1400,9 @@ function SchemaSection({
     [],
   );
 
-  // Ресинк при ошибке персиста / перед переигровкой 409: перечитать контекст
-  // (курсоры + раскладка к истине). Замок resyncingRef — один inflight на серию.
-  const resyncingRef = useRef<Promise<void> | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер), бандл пересобирается с ним — по образу MapEditorPage.
-  function resyncOnPersistError(): Promise<void> {
-    if (resyncingRef.current) return resyncingRef.current;
-    const p = refetch().finally(() => { resyncingRef.current = null; });
-    resyncingRef.current = p;
-    return p;
-  }
-  // 409 (вид фокуса изменён другой сессией): ресинк + одноразовая переигровка
-  // исходного патча от свежего зеркала (канал retryPatch, по образу MapEditorPage).
-  const layoutRetrySeq = useRef(0);
-  const [layoutRetry, setLayoutRetry] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
-  } | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError.
-  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
-    void resyncOnPersistError().then(() => {
-      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
-    });
-  }
+  // Ресинк при ошибке персиста и переигровка 409 (вид фокуса изменён другой
+  // сессией): перечитать контекст — курсоры и раскладка к истине.
+  const host = usePersistenceHost(refetch);
 
   // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
   // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
@@ -1428,13 +1410,13 @@ function SchemaSection({
     if (!isArchitect) return undefined;
     return {
       onLayoutChanged: handleLayoutChanged,
-      onPersistError: resyncOnPersistError,
-      onPersistConflict: handlePersistConflict,
-      retryPatch: layoutRetry,
+      onPersistError: host.resync,
+      onPersistConflict: host.onConflict,
+      retryPatch: host.retryPatch,
       viewMeta: metaCursorRef,
       gestureActiveRef,
     };
-  }, [isArchitect, handleLayoutChanged, resyncOnPersistError, handlePersistConflict, layoutRetry, metaCursorRef]);
+  }, [isArchitect, handleLayoutChanged, host.resync, host.onConflict, host.retryPatch, metaCursorRef]);
 
   // «Переразложить»: сброс раскладки вида фокуса → рефетч (свежий ELK). Реф-замок
   // от повторных кликов (relayout идемпотентен, но незачем спамить ресинками).

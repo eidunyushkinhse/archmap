@@ -3,7 +3,6 @@
 // Секция «Бизнес-процессы» — список со счётчиком участников.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { ViewLayoutPayload } from "../types";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
@@ -11,6 +10,7 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps } from "../components/graph/types";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
+import { usePersistenceHost } from "./usePersistenceHost";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
@@ -56,28 +56,9 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   // Корень — тот же level-конвейер, что и страница объекта: архитектору доступна
   // расстановка (драг + запись вида view_id=null), наблюдателю — read-only.
   // Зеркало записанных батчей держит useLevelSchema (mergeLayout). Ресинк при
-  // ошибке персиста / перед переигровкой 409 — перезагрузка уровня из БД.
-  // Замок resyncingRef — один inflight на серию (по образу SchemaSection).
-  const resyncingRef = useRef<Promise<void> | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер), бандл пересобирается с ним — по образу SchemaSection.
-  function resyncOnPersistError(): Promise<void> {
-    if (resyncingRef.current) return resyncingRef.current;
-    const p = lvl.reload().finally(() => { resyncingRef.current = null; });
-    resyncingRef.current = p;
-    return p;
-  }
-  // 409 (корневой вид изменён другой сессией): ресинк + одноразовая переигровка
-  // исходного патча от свежего зеркала (канал retryPatch, по образу SchemaSection).
-  const layoutRetrySeq = useRef(0);
-  const [layoutRetry, setLayoutRetry] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
-  } | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError.
-  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
-    void resyncOnPersistError().then(() => {
-      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
-    });
-  }
+  // ошибке персиста и переигровка 409 (корневой вид изменён другой сессией) —
+  // перезагрузка уровня из БД.
+  const host = usePersistenceHost(lvl.reload);
 
   // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
   // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
@@ -86,13 +67,13 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     if (!isArchitect) return undefined;
     return {
       onLayoutChanged: lvl.mergeLayout,
-      onPersistError: resyncOnPersistError,
-      onPersistConflict: handlePersistConflict,
-      retryPatch: layoutRetry,
+      onPersistError: host.resync,
+      onPersistConflict: host.onConflict,
+      retryPatch: host.retryPatch,
       viewMeta: lvl.viewMetaRef,
       gestureActiveRef: lvl.gestureActiveRef,
     };
-  }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, resyncOnPersistError, handlePersistConflict, layoutRetry]);
+  }, [isArchitect, lvl.mergeLayout, lvl.viewMetaRef, lvl.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
   // «Переразложить»: сброс раскладки корневого уровня → перезагрузка (свежий ELK).
   // Реф-замок от повторных кликов (relayout идемпотентен, но незачем спамить).
