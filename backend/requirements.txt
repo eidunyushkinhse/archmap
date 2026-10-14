@@ -5,5 +5,5 @@ pytest==9.1.1
 # Starlette 1.x советует httpx2 — переход отдельным шагом.
 httpx==0.28.1
 pytest-cov==7.1.0  # покрытие в CI: python -m pytest --cov (порог — pyproject.toml)
-ruff==0.15.16
-mypy==2.3.0  # dev: статическая типизация
+ruff==0.17.0
+mypy==2.4.0  # dev: статическая типизация
