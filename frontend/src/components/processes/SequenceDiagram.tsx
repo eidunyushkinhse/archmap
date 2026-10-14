@@ -167,8 +167,15 @@ export default function SequenceDiagram({
   // чтобы текст влезал целиком и не наезжал на соседнюю стрелку/шапки.
   const labelEls = useRef<Map<string, HTMLElement>>(new Map());
   const [labelH, setLabelH] = useState<Record<string, number>>({});
+  // Ref-колбэк с очисткой (React 19, аудит F-54): подпись удалённого шага уходит из
+  // словаря, а не копится в нём до размонтирования диаграммы.
   const bindLabel = useCallback((el: HTMLDivElement | null) => {
-    if (el?.dataset.mid) labelEls.current.set(el.dataset.mid, el);
+    const mid = el?.dataset.mid;
+    if (!el || !mid) return;
+    labelEls.current.set(mid, el);
+    return () => {
+      if (labelEls.current.get(mid) === el) labelEls.current.delete(mid);
+    };
   }, []);
   useLayoutEffect(() => {
     const ro = new ResizeObserver(() => {
