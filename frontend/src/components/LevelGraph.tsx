@@ -91,6 +91,18 @@ const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 // ~10 px: даже уровень на 6000 px умещается в окно с запасом. Ниже FAR_ZOOM холст в
 // дальнем режиме (см. useFarZoom).
 const MIN_ZOOM = 0.05;
+// Пропсы <ReactFlow> — модульными константами (аудит F-57): литерал в JSX — новый объект
+// на каждый рендер, а массивы клавиш и кнопок панорамы React Flow сверяет по ссылке и
+// перевешивает на них слушатели.
+// Редактор-карта не зумит ближе 0.85 при фите — вход на разреженный уровень не подлетает.
+const EDITOR_FIT_OPTIONS = { padding: 0.2, maxZoom: 0.85 };
+// «Центрировать» страничных схем — тот же вид, что авто-фит, и с той же плавностью.
+const SCHEMA_FIT_ANIMATED = { ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS };
+const DEFAULT_VIEWPORT = { x: 60, y: 60, zoom: 0.85 };
+// Панорамирование ПРАВОЙ кнопкой мыши (код 2).
+const PAN_RIGHT_BUTTON = [2];
+const MULTI_SELECT_KEYS = ["Control", "Meta"];
+const PRO_OPTIONS = { hideAttribution: true };
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -1222,10 +1234,10 @@ function LevelGraphInner({
         // добавлять объекты. Страничные схемы (fitOnLoad): SCHEMA_FIT_OPTIONS — тот
         // же вид, что даст авто-фит по оседании и кнопка «Центрировать» (без скачка).
         fitView={hasGraphContent}
-        fitViewOptions={fitOnLoad ? SCHEMA_FIT_OPTIONS : { padding: 0.2, maxZoom: 0.85 }}
+        fitViewOptions={fitOnLoad ? SCHEMA_FIT_OPTIONS : EDITOR_FIT_OPTIONS}
         // Пустой уровень (fitView выключен) открывается слегка отдалённым — комфортно
         // бросить первый узел, не отъезжая вручную.
-        defaultViewport={{ x: 60, y: 60, zoom: 0.85 }}
+        defaultViewport={DEFAULT_VIEWPORT}
         // Контекст-схема и readOnly — без правки: раскладка предписана, drag
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
@@ -1241,10 +1253,10 @@ function LevelGraphInner({
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
         // частично. В read-only без драга узлов — панорамирование левой кнопкой.
-        panOnDrag={dragNodes ? [2] : (isReadOnly ? true : [2])}
+        panOnDrag={dragNodes ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
         selectionOnDrag={dragNodes && canArrange}
         selectionMode={SelectionMode.Partial}
-        multiSelectionKeyCode={["Control", "Meta"]}
+        multiSelectionKeyCode={MULTI_SELECT_KEYS}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
         // штатный зум-по-даблклику отключаем, чтобы холст не подлетал на этом жесте
         zoomOnDoubleClick={false}
@@ -1253,13 +1265,13 @@ function LevelGraphInner({
         onViewportChange={handleViewportChange}
         // предел отдаления снят до MIN_ZOOM (CV2 v2); приближение — дефолт RF (2)
         minZoom={MIN_ZOOM}
-        proOptions={{ hideAttribution: true }}
+        proOptions={PRO_OPTIONS}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
         {/* Кнопка «Центрировать» (fit-view). Страничные схемы: SCHEMA_FIT_OPTIONS +
             плавность (duration = ANIM_MOVE_MS) — как авто-фит при раскрытии/сворачивании.
             Редактор-карта: undefined → прежнее поведение (дефолт RF, без cap). */}
-        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? { ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS } : undefined} />
+        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? SCHEMA_FIT_ANIMATED : undefined} />
         {/* Границы уровней: вложенные рамки вокруг локальных узлов — по одной на
             каждого родителя из breadcrumb. Только на не-корневых уровнях. */}
         {containerId && ancestorIds.length > 0 && (
