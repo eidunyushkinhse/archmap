@@ -230,7 +230,7 @@ def test_импорт_оставляет_несопоставленного_не
     preview = build_preview(db, ensure_project(db).id, ЭКСПОРТ, None)
     mapping = {p.alias: p.node_id for p in preview.participants}
 
-    proc, res = apply_import(db, ensure_project(db).id, ЭКСПОРТ, None, mapping)
+    _proc, res = apply_import(db, ensure_project(db).id, ЭКСПОРТ, None, mapping)
     db.commit()
 
     assert (res.participants, res.unbound) == (2, 1)

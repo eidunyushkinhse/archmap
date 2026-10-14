@@ -350,7 +350,7 @@ def build_data_plan(
             DataTableItem(
                 node_path=path_of.get(owner.id, owner.name), source=m.source,
                 schema_name=t.schema_name, name=t.name, columns=len(t.columns),
-                action=action,  # type: ignore[arg-type]
+                action=action,
             )
         )
         plan.tables.append((owner, t, m.source))

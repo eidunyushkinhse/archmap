@@ -206,9 +206,8 @@ def update_process(
     proc = _get_process(db, process_id, project)
     all_nodes = load_nodes(db, project.id)
     data = payload.model_dump(exclude_unset=True)
-    if "scope_node_id" in data and data["scope_node_id"] is not None:
-        if data["scope_node_id"] not in all_nodes:
-            raise HTTPException(status_code=404, detail="Узел области не найден")
+    if data.get("scope_node_id") is not None and data["scope_node_id"] not in all_nodes:
+        raise HTTPException(status_code=404, detail="Узел области не найден")
     for field, value in data.items():
         setattr(proc, field, value)
     _touch(db, project, user.id)
@@ -654,7 +653,7 @@ def message_doc_catalog(
                 node_id=c.node.id,
                 node_path=c.path,
                 name=c.doc.name,
-                kind=c.doc.kind,  # type: ignore[arg-type]
+                kind=c.doc.kind,
                 operation=c.doc.operation,
                 described=c.doc.described,
             )
@@ -953,8 +952,8 @@ def list_channels(
                 continue
             legs_out.append(
                 LegOut(
-                    leg=leg.leg,  # type: ignore[arg-type]
-                    kind=leg.kind,  # type: ignore[arg-type]
+                    leg=leg.leg,
+                    kind=leg.kind,
                     from_id=f,
                     to_id=t,
                     default_caption=leg.default_caption,

@@ -107,7 +107,7 @@ def normalize_path(raw: str | None) -> str | None:
 # Петлевые адреса: «localhost:5432» — примета машины разработчика, а не сервиса.
 # Любая БД любой системы на дефолтном порту даст такой же ключ, и два разных узла
 # склеились бы по нему (найдено прогоном по репозиторию без compose 2026-08-07).
-_LOOPBACK = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"})
+_LOOPBACK = frozenset({"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"})  # noqa: S104 — список «не якорь», не привязка сокета
 
 
 def normalize_host(raw: str | None) -> str | None:

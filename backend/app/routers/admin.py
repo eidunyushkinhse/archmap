@@ -98,12 +98,10 @@ def update_user(
     user = _get_user(db, user_id)
     is_self = user.id == admin.id
 
-    if payload.is_active is False and user.is_active:
-        if is_self:
-            raise _bad("Нельзя заблокировать себя")
-    if payload.is_admin is False and user.is_admin:
-        if is_self:
-            raise _bad("Нельзя снять права администратора с себя")
+    if is_self and payload.is_active is False and user.is_active:
+        raise _bad("Нельзя заблокировать себя")
+    if is_self and payload.is_admin is False and user.is_admin:
+        raise _bad("Нельзя снять права администратора с себя")
 
     # Правка, уменьшающая число активных администраторов: снять права с активного
     # админа или заблокировать его. Последнего такого трогать нельзя.

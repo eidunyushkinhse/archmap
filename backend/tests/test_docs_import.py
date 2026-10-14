@@ -470,7 +470,7 @@ def _payload(*files, overwrite=False, only=None, node=None):
 
 def test_endpoint_prompt_slices(db):
     # lang/hints/target передаём явно: прямой вызов минует DI, дефолты Query — не значения
-    root, orders, billing, *_ = _tree(db)
+    _root, _orders, billing, *_ = _tree(db)
     whole = docs_prompt(
         lang="ru", hints=None, target=None, db=db, project=ensure_project(db), _=ensure_architect(db)
     )
@@ -690,7 +690,7 @@ def test_вставка_текстом_опознаётся_по_содержи�
 
 
 def test_адрес_в_шапке_уводит_схему_на_ребёнка(db):
-    root, _orders, billing, *_ = _tree(db)
+    _root, _orders, billing, *_ = _tree(db)
     text = "%% archmap-node: billing / api\ngraph TD\n  A --> B\n"
 
     report = docs_import_preview(
@@ -705,7 +705,7 @@ def test_адрес_в_шапке_уводит_схему_на_ребёнка(db
 def test_адрес_вне_поддерева_окна_отклоняется(db):
     # Иначе схема тихо приедет чужому сервису: окно открыто для billing, а
     # шапка адресует shipping.
-    _root, _orders, billing, shipping, *_ = _tree(db)
+    _root, _orders, billing, _shipping, *_ = _tree(db)
     text = "%% archmap-node: shipping\ngraph TD\n  A --> B\n"
 
     report = docs_import_preview(

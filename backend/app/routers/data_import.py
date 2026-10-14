@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app import demo_limits
-from app.data_import import apply_data_plan, build_data_plan
+from app.data_import import DataPlan, apply_data_plan, build_data_plan
 from app.data_prompt import build_data_prompt
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
@@ -42,7 +42,7 @@ def data_prompt(
     return DataPromptOut(prompt=prompt_for_variant(variant, "data", build_data_prompt(db_paths)))
 
 
-def _plan(db: Session, project: Project, payload: DataImportIn, window: uuid.UUID | None):
+def _plan(db: Session, project: Project, payload: DataImportIn, window: uuid.UUID | None) -> DataPlan:
     # Демо-стенд: файл больше предела — 413 до разбора (docs/tasks/demo-mode.md).
     demo_limits.check_texts((f.name, f.content) for f in payload.files)
     nodes = db.query(Node).filter(Node.project_id == project.id).all()

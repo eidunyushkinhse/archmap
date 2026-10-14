@@ -2,24 +2,24 @@ from logging.config import fileConfig
 
 from sqlalchemy import engine_from_config, pool, text
 
-import app.models.broker_channel  # noqa: F401
-import app.models.business_process  # noqa: F401
-import app.models.channel_field  # noqa: F401
-import app.models.config_param  # noqa: F401
-import app.models.db_column  # noqa: F401
-import app.models.db_table  # noqa: F401
-import app.models.edge  # noqa: F401
-import app.models.node  # noqa: F401
-import app.models.node_doc  # noqa: F401
-import app.models.process_fragment  # noqa: F401
-import app.models.process_message  # noqa: F401
-import app.models.process_participant  # noqa: F401
-import app.models.project  # noqa: F401
-import app.models.project_member  # noqa: F401
+import app.models.broker_channel
+import app.models.business_process
+import app.models.channel_field
+import app.models.config_param
+import app.models.db_column
+import app.models.db_table
+import app.models.edge
+import app.models.node
+import app.models.node_doc
+import app.models.process_fragment
+import app.models.process_message
+import app.models.process_participant
+import app.models.project
+import app.models.project_member
 
 # импортируем модели, чтобы Alembic видел их метаданные
-import app.models.user  # noqa: F401
-import app.models.view_layout  # noqa: F401
+import app.models.user
+import app.models.view_layout
 import app.models.view_state  # noqa: F401 — без импорта autogenerate предлагал DROP view_state
 from alembic import context
 from app.config import settings

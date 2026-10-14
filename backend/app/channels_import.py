@@ -453,7 +453,7 @@ def build_channels_plan(
             ChannelItem(
                 node_path=path_of.get(owner.id, owner.name), source=m.source,
                 group_name=c.group_name, name=c.name, fields=len(c.fields),
-                action=action,  # type: ignore[arg-type]
+                action=action,
             )
         )
         plan.channels.append((owner, c, m.source))

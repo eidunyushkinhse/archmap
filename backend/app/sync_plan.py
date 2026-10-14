@@ -256,9 +256,7 @@ class _Matcher:
                 fields.append("description")
         if imp.shape != "service" and live.shape != imp.shape:
             fields.append("shape")
-        if imp.status != "existing" and live.status != imp.status:
-            fields.append("status")
-        elif self.policies.restore_returned and _is_return(live, imp):
+        if (imp.status != "existing" and live.status != imp.status) or (self.policies.restore_returned and _is_return(live, imp)):
             fields.append("status")
         # Якорь — не пользовательские данные: проставляем и обновляем всегда.
         new_ref = imp.source_keys[0] if imp.source_keys else None

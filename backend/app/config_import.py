@@ -301,7 +301,7 @@ def build_config_plan(
             ConfigParamItem(
                 node_path=path_of.get(owner.id, owner.name), source=m.source,
                 name=p.name, value_type=p.value_type, required=p.required,
-                action=action,  # type: ignore[arg-type]
+                action=action,
             )
         )
         plan.params.append((owner, p, m.source))

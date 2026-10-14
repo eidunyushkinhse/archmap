@@ -193,7 +193,7 @@ def test_структура_только_у_узла_БД_иначе_ошибк�
 
 
 def test_структура_контейнеру_не_приезжает(db):
-    бд, _сервис = _сцена(db)
+    _бд, _сервис = _сцена(db)
     контейнер = _node(db, "Платформа", shape="service")
     вложенная = Node(id=uuid.uuid4(), name="БД платформы", shape="database",
                      parent_id=контейнер.id, project_id=ensure_project(db).id)

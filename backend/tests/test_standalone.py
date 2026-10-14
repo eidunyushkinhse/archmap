@@ -245,7 +245,7 @@ def test_create_app_без_сборки_фронта_не_стартует(monke
     with pytest.raises(RuntimeError, match="FRONTEND_DIR"):
         standalone.create_app()
     monkeypatch.setattr(settings, "frontend_dir", str(tmp_path))
-    with pytest.raises(RuntimeError, match="index.html"):
+    with pytest.raises(RuntimeError, match=r"index\.html"):
         standalone.create_app()
 
 

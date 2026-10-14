@@ -377,7 +377,8 @@ def _strip_node_comment(text: str) -> str:
 def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> list[_Raw]:
     """Все вклады семей одного архива, привязанные к узлам слитого дерева."""
     archive = inp.archive
-    assert archive is not None  # вызывается только для читаемых архивов
+    if archive is None:  # вызывается только для читаемых архивов
+        raise RuntimeError("_collect: вход без архива")
     out: list[_Raw] = []
 
     def add(family: Family, node_idx: int, key: tuple[str, ...], key_str: str,
@@ -508,11 +509,10 @@ def _table_doc(t: TableIn) -> dict:
 
 def _channel_doc(c: ChannelIn) -> dict:
     d: dict = {"name": c.name}
-    for key, val in (("group", c.group_name), ("kind", c.kind),
-                     ("partition_key", c.partition_key), ("delivery", c.delivery),
-                     ("retention", c.retention), ("description", c.description)):
-        if val:
-            d[key] = val
+    d.update({key: val for key, val in (("group", c.group_name), ("kind", c.kind),
+                                         ("partition_key", c.partition_key), ("delivery", c.delivery),
+                                         ("retention", c.retention), ("description", c.description))
+              if val})
     fields = []
     for f in c.fields:
         fd: dict = {"name": f.name}
@@ -740,7 +740,8 @@ def _processes_of(inp: _Input, origin: int, remarks: list[str]) -> list[ProcessI
     """Процессы входа перечнем манифеста. НЕ мерджим никогда: авторские
     sequence-диаграммы не склеиваются (решение груминга)."""
     archive = inp.archive
-    assert archive is not None
+    if archive is None:  # вызывается только для читаемых архивов
+        raise RuntimeError("процессы входа: вход без архива")
     out: list[ProcessItem] = []
     for entry in (archive.manifest.get("contents") or {}).get("processes") or []:
         if not isinstance(entry, dict):
@@ -1268,7 +1269,7 @@ def remainder_with_index(
         fields.append(FieldDisputeOut(
             id=eid,
             node_path=paths[d.node_idx],
-            field=d.field,  # type: ignore[arg-type]  # ровно поля _decide
+            field=d.field,
             candidates=cands,
             default=default,
         ))
@@ -1294,7 +1295,7 @@ def remainder_with_index(
             to_path=paths[e.target_idx],
             label=e.label,
             technology=e.technology,
-            end=rec.end,  # type: ignore[arg-type]  # «source» | «target» по построению
+            end=rec.end,
             container_path=paths[rec.container_idx],
             components=[
                 ComponentOut(path=paths[i], has_children=tree.has_children[i]) for i in comps
@@ -1512,7 +1513,7 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
         merged=plan.report.merged_paths[:8],
         # Ф2 якорей: основание каждой склейки словами и счётчик узлов без якоря.
         merged_nodes=[
-            MergedNodeOut(path=path, basis=basis)  # type: ignore[arg-type]  # словарь BASIS_ORDER
+            MergedNodeOut(path=path, basis=basis)
             for path, basis in merged_with_basis(plan.report)
         ],
         nodes_without_anchor=count_without_anchor(merged) if merged else 0,
@@ -1558,16 +1559,16 @@ __all__ = [
     "FamilyCounts",
     "FamilyItem",
     "ProcessItem",
+    "RemainderIndex",
     "UnifiedImportError",
     "UnifiedPlan",
-    "build_unified_plan",
     "apply_unfixable",
+    "build_unified_plan",
     "family_candidate_out",
     "friendly_apply_note",
     "friendly_process_note",
     "friendly_remark",
     "preview_from_plan",
-    "RemainderIndex",
     "remainder_from_plan",
     "remainder_with_index",
     "source_label",

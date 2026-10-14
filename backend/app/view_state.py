@@ -9,13 +9,13 @@
 import uuid
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session
 
 from app.models.project import Project
 from app.models.view_state import ViewState
 
 
-def _view_query(db: Session, project_id: uuid.UUID, view_id: uuid.UUID | None):
+def _view_query(db: Session, project_id: uuid.UUID, view_id: uuid.UUID | None) -> Query[ViewState]:
     return db.query(ViewState).filter(
         ViewState.project_id == project_id,
         ViewState.view_id.is_(None) if view_id is None else ViewState.view_id == view_id,

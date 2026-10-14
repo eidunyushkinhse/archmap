@@ -18,12 +18,9 @@ tests/test_import_merge.py).
 """
 
 from collections.abc import Hashable, Iterable, Mapping
-from typing import TypeVar
-
-T = TypeVar("T", bound=Hashable)
 
 
-def subtree_bridges(
+def subtree_bridges[T: Hashable](
     edges: Iterable[tuple[T, T]], parent_of: Mapping[T, T | None]
 ) -> list[tuple[T, T]]:
     """Мостики «контейнер со связью ↔ его потомок со связью» (любой глубины).
@@ -45,7 +42,7 @@ def subtree_bridges(
     return bridges
 
 
-def connected_components(
+def connected_components[T: Hashable](
     edges: Iterable[tuple[T, T]], parent_of: Mapping[T, T | None] | None = None
 ) -> list[list[T]]:
     """Связные компоненты графа РЁБЕР; компоненты из одного узла не возвращаются.

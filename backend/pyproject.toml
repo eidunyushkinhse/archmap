@@ -1,21 +1,57 @@
 [tool.ruff]
-target-version = "py311"
+# Поставка и разработка — Python 3.12 (deploy/build-bundle.sh, CI).
+target-version = "py312"
 # Автогенерат миграций не линтуем (Alembic пишет их сам).
 extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
-# Дефолт (E4/E7/E9 + F) + сортировка импортов (I) + bugbear (B) + pyupgrade (UP).
-select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
-# B008: Depends(...) в дефолтах параметров — идиома FastAPI, не баг.
-ignore = ["B008"]
+# Дефолт (E4/E7/E9 + F) + сортировка импортов (I) + bugbear (B) + pyupgrade (UP);
+# с аудита 2026-10 (M13): безопасность (S), производительность (PERF), упрощения (SIM),
+# правила ruff (RUF), PIE, RET и сложность функций (C90).
+select = ["E4", "E7", "E9", "F", "I", "B", "UP", "S", "PERF", "SIM", "RUF", "PIE", "RET", "C90"]
+ignore = [
+  "B008",     # Depends(...) в дефолтах параметров — идиома FastAPI, не баг
+  "RUF001",   # «двусмысленные» символы — это кириллица: тексты и комментарии проекта русские
+  "RUF002",
+  "RUF003",
+  "PERF401",  # цикл с append вместо comprehension — вкус, а не производительность на наших объёмах
+]
+
+# «Фиктивные» имена — с подчёркиванием и в кириллице: дефолтный шаблон ruff только ASCII,
+# и `_сервис` считался бы настоящей переменной.
+dummy-variable-rgx = "^_\\w*$"
+
+[tool.ruff.lint.mccabe]
+# Сложнее — пора делить функцию. Существующие исключения — ниже, пофайлово.
+max-complexity = 15
 
 [tool.ruff.lint.per-file-ignores]
 # env.py настраивает sys.path до импортов — E402 здесь ожидаем.
 "alembic/env.py" = ["E402"]
+# Тесты: assert — их язык, пароли и секреты — тестовые.
+"tests/**" = ["S101", "S105", "S106", "S108"]
+# Ratchet сложности (C901, замер 2026-10-14): функции сложнее 15 в этих модулях живут до
+# распила (фаза 5 docs/plan-audit-2026-10.md). Распилил модуль — убери его из списка;
+# новые модули в список не добавлять.
+"app/alerts.py" = ["C901"]
+"app/archive_export.py" = ["C901"]
+"app/channels_import.py" = ["C901"]
+"app/config_import.py" = ["C901"]
+"app/data_import.py" = ["C901"]
+"app/docs_import.py" = ["C901"]
+"app/export.py" = ["C901"]
+"app/import_yaml.py" = ["C901"]
+"app/process_import.py" = ["C901"]
+"app/recon_import.py" = ["C901"]
+"app/search.py" = ["C901"]
+"app/sync_apply.py" = ["C901"]
+"app/unified_apply.py" = ["C901"]
+"app/unified_import.py" = ["C901"]
+"app/unified_into.py" = ["C901"]
 
 [tool.mypy]
 # Статическая типизация бэкенда (гейт pre-commit/CI: `mypy app/`).
-python_version = "3.11"
+python_version = "3.12"
 # Pydantic-плагин: учит mypy, что BaseSettings берёт поля из окружения (.env),
 # поэтому Settings() без аргументов валиден (секреты/адреса — fail-fast, без дефолтов).
 plugins = ["pydantic.mypy"]
@@ -23,6 +59,10 @@ plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 # Цель проверки — пакет app (миграции Alembic автогенерированы, не типизируем).
 files = ["app"]
+# Строгость (аудит M13): лишний `type: ignore` — ошибка (подавление пережило причину —
+# 21 такое снято 2026-10-14), функция без аннотаций — ошибка.
+warn_unused_ignores = true
+disallow_untyped_defs = true
 
 # Покрытие (аудит M12): CI гоняет python -m pytest --cov, порог — ratchet чуть ниже факта
 # (замер 2026-10-14: 96 %). Покрытие выросло — подними порог; упало — тесты к новому коду.

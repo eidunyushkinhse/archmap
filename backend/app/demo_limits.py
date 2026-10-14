@@ -319,7 +319,7 @@ class _Resolver:
         if obj is not None:
             pid = self.project_of(obj)
         elif cls is Node or cls is BusinessProcess:
-            pid = self._scalar(select(cls.project_id).where(cls.id == ident))  # type: ignore[attr-defined]
+            pid = self._scalar(select(cls.project_id).where(cls.id == ident))
         else:
             parent_cls, fk, _rel = _UP[cls]
             parent_id = self._scalar(
@@ -340,7 +340,7 @@ def _tracked(objs: Iterable[object]) -> Iterable[object]:
     """Строки, влияющие на размер проекта. Удаление проекта целиком не меряем:
     после него проекта нет, а его схему уносит БД-каскад."""
     for obj in objs:
-        if isinstance(obj, Project) or isinstance(obj, _HAS_PROJECT) or type(obj) in _UP:
+        if isinstance(obj, (Project, *_HAS_PROJECT)) or type(obj) in _UP:
             yield obj
 
 

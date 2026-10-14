@@ -565,11 +565,11 @@ def sync_preview(
         nodes=[
             SyncNodeActionOut(
                 path=a.path,
-                action=a.action,  # type: ignore[arg-type]  # значения из фиксированного набора sync_plan
+                action=a.action,
                 node_id=a.node_id,
                 source_ref=a.source_ref,
                 fields=a.fields,
-                matched_by=a.matched_by,  # type: ignore[arg-type]
+                matched_by=a.matched_by,
                 source=_action_source(a.source_ref),
                 returned=a.returned,
             )
@@ -579,7 +579,7 @@ def sync_preview(
             SyncEdgeActionOut(
                 source_path=e.source_path,
                 target_path=e.target_path,
-                action=e.action,  # type: ignore[arg-type]
+                action=e.action,
             )
             for e in plan.edges
         ],

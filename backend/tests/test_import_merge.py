@@ -20,6 +20,7 @@ passthrough одного файла, нечувствительность к п�
 dependency / name) в отчёте — доклад, не решение (порядконезависим).
 """
 
+import itertools
 import uuid
 from itertools import permutations
 
@@ -1126,7 +1127,7 @@ def test_одиночка_группой_не_считается():
 
 def test_кап_имён_в_группе_и_хвост():
     цепочка = lambda имена: "".join(  # noqa: E731 — короткий локальный помощник
-        f"- from: {a}\n  to: {b}\n" for a, b in zip(имена, имена[1:], strict=False)
+        f"- from: {a}\n  to: {b}\n" for a, b in itertools.pairwise(имена)
     )
     ядро = [f"я{i}" for i in range(9)]
     группа = [f"г{i}" for i in range(8)]
@@ -2549,7 +2550,7 @@ def test_основание_не_влияет_на_склейку_при_люб�
 def test_основание_склейки_один_файл_пусто():
     """Passthrough одного документа: склеек нет, оснований тоже — по узлу на None."""
     один = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
-    merged, report = merge_imports([один])
+    _merged, report = merge_imports([один])
 
     assert report.node_basis == [None, None]
     assert report.merged_basis == []
@@ -2674,7 +2675,7 @@ def test_остаток_связей_в_контейнер_больше_капа
     текст = "nodes:\n  - name: box\n    children:\n      - name: inner\n"
     текст += "".join(f"  - name: s{i}\n" for i in range(n))
     текст += "edges:\n" + "".join(f"  - from: s{i}\n    to: box\n" for i in range(n))
-    merged, report, errors = parse_and_merge([текст])
+    _merged, report, errors = parse_and_merge([текст])
     assert errors == []
 
     assert len(report.container_edges) == n
@@ -2727,7 +2728,7 @@ def test_остаток_переживает_общий_кап_предупре�
                + "".join(f"      - name: payments{i}\n" for i in range(n)))
     b = _parse("nodes:\n  - name: Система\n    children:\n"
                + "".join(f"      - name: payments{i}-service\n" for i in range(n)))
-    merged, report = merge_imports([a, b])
+    _merged, report = merge_imports([a, b])
 
     # Пар (а с ними и вопросов) больше, чем строк помещается в отчёт.
     всего = len(report.fuzzy_pairs)

@@ -18,7 +18,7 @@
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
 from sqlalchemy import inspect as sa_inspect
 
@@ -229,10 +229,7 @@ NOT_COPIED: dict[type[Base], str] = {
 }
 
 
-TRow = TypeVar("TRow", bound=Base)
-
-
-def copy_row(row: TRow, **overrides: Any) -> TRow:
+def copy_row[TRow: Base](row: TRow, **overrides: Any) -> TRow:
     """Строка-копия: ВСЕ колонки-данные модели как есть, поверх — overrides.
 
     Дефолт — копировать: колонка, о которой в плане ничего не сказано, попадает в

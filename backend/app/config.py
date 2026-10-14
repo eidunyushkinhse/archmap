@@ -2,7 +2,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Значение-заглушка из .env.example: прод обязан заменить его реальным ключом.
-_PLACEHOLDER_SECRET = "change-me-in-production-needs-32-bytes"
+_PLACEHOLDER_SECRET = "change-me-in-production-needs-32-bytes"  # noqa: S105 — заглушка, с ней сверяют настоящий ключ
 
 
 class Settings(BaseSettings):

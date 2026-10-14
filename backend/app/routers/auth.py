@@ -107,7 +107,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
     return MeResponse(
         id=user.id,
         username=user.username,
-        role=user.role,  # type: ignore[arg-type]  # Enum в БД держит тот же набор
+        role=user.role,
         is_admin=user.is_admin,
         is_guest=user.is_guest,
         can_create_project=demo.can_create_project(db, user),

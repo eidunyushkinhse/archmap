@@ -658,7 +658,7 @@ class _Merger:
         # неотличим от отсутствия поля — считаем его самым слабым утверждением;
         # содержательность вклада этого не меняет — утверждения тут просто нет).
         cur = getattr(self.nodes[idx], fld)
-        if new == default or new == cur:
+        if new in (default, cur):
             return
         if cur == default:
             setattr(self.nodes[idx], fld, new)

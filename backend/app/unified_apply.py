@@ -31,6 +31,7 @@ import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -598,7 +599,9 @@ def apply_unified_plan(
     db.flush()
 
     # ── Семьи фактов: синтетические файлы ввозного формата → родные приёмники.
-    def run_family(family: Family, build, apply):
+    # Строители и приёмники у семей разные (свои типы планов) — общий тип появится вместе
+    # с общей базой семейства фактов (аудит Q-2), пока — Callable[..., Any].
+    def run_family(family: Family, build: Callable[..., Any], apply: Callable[..., Any]) -> Any:
         files = _synthetic_files(family, winners, addr_of)
         if not files:
             return None

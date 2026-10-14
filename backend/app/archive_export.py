@@ -22,6 +22,7 @@ import re
 import uuid
 import zipfile
 from collections import Counter
+from collections.abc import Callable
 
 import yaml
 from sqlalchemy.orm import Session, undefer
@@ -258,7 +259,7 @@ def build_archive_ordered(db: Session, project: Project) -> tuple[bytes, list[uu
         contents["docs"] = doc_files
 
     # Структура БД / каналы брокеров / конфигурация — файл на узел-владельца.
-    def family(rows_by_node: dict[uuid.UUID, list], subdir: str, render) -> list[str]:
+    def family(rows_by_node: dict[uuid.UUID, list], subdir: str, render: Callable[[list, str], str]) -> list[str]:
         out = []
         ordered = sorted(rows_by_node.items(), key=lambda kv: path_of(kv[0]))
         for i, (nid, rows) in enumerate(ordered, 1):

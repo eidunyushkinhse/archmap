@@ -181,7 +181,7 @@ def process_list_items(
                 scope_node_id=proc.scope_node_id,
                 scope_name=scope.name if scope else None,
                 message_count=counts.get(proc.id, 0),
-                statuses=sorted(proc_statuses.get(proc.id, set())),  # type: ignore[arg-type]
+                statuses=sorted(proc_statuses.get(proc.id, set())),
             )
         )
     return out
@@ -240,9 +240,9 @@ def participant_out(p: ProcessParticipant, node: Node | None) -> ParticipantOut:
         node_id=p.node_id,
         name=node.name,
         role=node.role,
-        shape=node.shape,  # type: ignore[arg-type]
+        shape=node.shape,
         is_external=node.is_external,
-        status=node.status,  # type: ignore[arg-type]
+        status=node.status,
         order=p.order,
     )
 
@@ -319,8 +319,8 @@ def message_out(
         id=msg.id,
         order=msg.order,
         edge_id=msg.edge_id,
-        leg=msg.leg,  # type: ignore[arg-type]
-        kind=kind,  # type: ignore[arg-type]
+        leg=msg.leg,
+        kind=kind,
         caption=caption,
         technology=edge.technology if edge is not None else None,
         # Концы — УЧАСТНИКИ, а не узлы: у непривязанного узла нет, и два таких конца
@@ -417,7 +417,7 @@ def fragment_out(frag: ProcessFragment) -> FragmentOut:
     первой ветви среди них нет: она начинается с from_order, её условие — в guard."""
     return FragmentOut(
         id=frag.id,
-        kind=frag.kind,  # type: ignore[arg-type]
+        kind=frag.kind,
         from_order=frag.from_order,
         to_order=frag.to_order,
         guard=frag.guard,

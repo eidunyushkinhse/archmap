@@ -441,7 +441,7 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
         matched_nodes=[
             MergedNodeOut(
                 path=plan.node_paths[m],
-                basis=plan.report.node_basis[m] or "name",  # type: ignore[arg-type]
+                basis=plan.report.node_basis[m] or "name",
             )
             for m in matched[:MAX_PREVIEW_PATHS]
         ] if plan else [],
@@ -505,7 +505,7 @@ def _fill_node(
             setattr(live, fld, new_raw)
             changed = True
             warnings.append(f"узел «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из архива")
-        else:  # noqa: PLR5501 — ветка forced выше читается ровно как «исключение»
+        else:
             warnings.append(
                 f"узел «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}») — "
                 f"оставлено живое («{_cut(cur)}»)"
