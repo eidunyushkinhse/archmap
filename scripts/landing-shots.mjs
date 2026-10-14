@@ -63,7 +63,7 @@ const DOC_LOGIC = "Создание заказа";
 const CHANNEL = "catalog.product-events";
 const PROCESS = "Оформление заказа";
 
-// Вторая «пара» к mock-import.yaml для кадра импорта: прогон агента в другом
+// Вторая «пара» к scripts/fixtures/mock-import.yaml для кадра импорта: прогон агента в другом
 // репозитории той же демо-системы «Плёнка» (мульти-репо сценарий «Из репозитория»).
 const SECOND_YAML = `# Прогон агента в репозитории биллинга «Плёнки»
 nodes:
@@ -656,7 +656,7 @@ const SHOTS = {
     await dlg.getByRole("button", { name: "Импорт", exact: true }).click();
     const preview = () => page.waitForResponse((r) => r.url().includes("/projects/import/unified-preview"), { timeout: 20000 });
     let wait = preview();
-    await dlg.locator("textarea").last().fill(readFileSync(join(ROOT, "mock-import.yaml"), "utf8"));
+    await dlg.locator("textarea").last().fill(readFileSync(join(ROOT, "scripts", "fixtures", "mock-import.yaml"), "utf8"));
     await wait;
     await dlg.locator('button[title="Добавить ещё один YAML вставкой"]').click();
     wait = preview();
