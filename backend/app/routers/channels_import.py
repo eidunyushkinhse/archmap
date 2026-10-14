@@ -21,11 +21,11 @@ from app.channels_import import (
 from app.channels_prompt import build_channels_prompt
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
-from app.docs_import import _node_paths
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.schemas.channels_import import (
     ChannelsImportIn,
     ChannelsImportReport,
@@ -51,7 +51,7 @@ def channels_prompt(
     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
     broker_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "broker"]
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     return ChannelsPromptOut(

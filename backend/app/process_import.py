@@ -23,7 +23,6 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -31,7 +30,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.node_ref import node_addresses, qualified_node_hits
+from app.node_ref import NodeIndex, node_addresses, qualified_node_hits
 from app.processes import legs_for_edge, node_path, resolve_to_participant
 from app.schemas.process_import import (
     ImportNodeCandidate,
@@ -338,7 +337,7 @@ def _nodes_by_address(
     имени, как всегда (выбирать за пользователя из тёзок нельзя)."""
     if not parsed.node_addresses:
         return {}
-    flat, _fulls, _by_bare, by_path = _node_paths(nodes)
+    flat, _fulls, _by_bare, by_path = NodeIndex.of(nodes)
     out: dict[str, Node] = {}
     for alias, address in parsed.node_addresses.items():
         hits = by_path.get(address) or qualified_node_hits(address, flat)

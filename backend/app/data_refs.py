@@ -30,11 +30,11 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
 from app.models.broker_channel import BrokerChannel
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
 from app.models.node import Node
+from app.node_ref import NodeIndex
 
 Mode = Literal["read", "write", "publish", "consume", "config"]
 RefStatus = Literal[
@@ -426,7 +426,7 @@ def catalog_for_project(
     Первые два каталога — по ВСЕМУ проекту, а не по одному узлу: неоднозначность
     имени есть свойство проекта, и «orders» обязано считаться неоднозначным
     независимо от того, чью страницу сейчас читают. Пути — те же, что у импорта
-    (`_node_paths`): квалификатор пометки пишется так же, как адрес узла в пакете
+    (NodeIndex): квалификатор пометки пишется так же, как адрес узла в пакете
     агента.
 
     Конфигурация же приходит РАЗЛОЖЕННОЙ ПО УЗЛАМ («узел → имя параметра → id»), и
@@ -435,8 +435,7 @@ def catalog_for_project(
     сослаться на чужую ручку.
     """
     nodes: list[Node] = db.query(Node).filter(Node.project_id == project_id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
-    node_paths: dict[uuid.UUID, str] = {n.id: fulls[i] for i, n in enumerate(flat)}
+    node_paths = NodeIndex.of(nodes).path_by_id()
 
     tables: list[DbTable] = (
         db.query(DbTable)

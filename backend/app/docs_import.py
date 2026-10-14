@@ -18,21 +18,26 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
-from typing import TYPE_CHECKING, NamedTuple
+from typing import NamedTuple
 
 import yaml
 from sqlalchemy.orm import Session
 
+from app.data_refs import (
+    CHANNEL_MODES,
+    CONFIG_MODES,
+    CatalogChannel,
+    CatalogTable,
+    ResolvedRef,
+    catalog_for_project,
+    parse_data_refs,
+    resolve_data_refs,
+)
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
-from app.node_ref import qualified_node_hits, sibling_sorter
+from app.node_ref import NodeIndex, qualified_node_hits
 from app.text import loose_name
-
-if TYPE_CHECKING:
-    # Только для аннотаций: app.data_refs берёт из ЭТОГО модуля _node_paths, и
-    # верхнеуровневый импорт замкнул бы цикл (в рантайме — локальные импорты).
-    from app.data_refs import CatalogChannel, CatalogTable, ResolvedRef
 
 # Кап предупреждений о нерезолвящихся пометках данных на весь план: замечания
 # уезжают агенту ОДНИМ списком, и сотня строк одного класса вытеснит остальное.
@@ -196,42 +201,6 @@ class DocsPlan:
     data_refs_total: int = 0
     channel_refs_total: int = 0
 
-
-def _node_paths(nodes: list[Node]) -> tuple[list[Node], list[str], dict[str, list[int]], dict[str, list[int]]]:
-    """Полные пути живых узлов (родители раньше детей, сиблинги по имени) +
-    карты резолва — зеркало ref_name экспорта / resolve импорта.
-
-    Порядок сиблингов — ПОРЯДОК ДОКУМЕНТА экспорта (node_ref.sibling_sorter): тёзки
-    идут по содержательному ключу, и порядковый уточнитель «путь @ #N», который
-    пишут архив и синтетические файлы единого импорта (node_ref.node_addresses),
-    здесь находит того же N-го тёзку."""
-    by_id = {n.id: n for n in nodes}
-    kids: dict[uuid.UUID | None, list[Node]] = {}
-    for n in nodes:
-        parent = n.parent_id if n.parent_id in by_id else None
-        kids.setdefault(parent, []).append(n)
-    sort = sibling_sorter(nodes)
-    for parent, group in kids.items():
-        kids[parent] = sort(group)
-
-    flat: list[Node] = []
-    fulls: list[str] = []
-    by_bare: dict[str, list[int]] = {}
-    by_path: dict[str, list[int]] = {}
-
-    def walk(n: Node, prefix: str) -> None:
-        full = f"{prefix} / {n.name}" if prefix else n.name
-        idx = len(flat)
-        flat.append(n)
-        fulls.append(full)
-        by_bare.setdefault(n.name, []).append(idx)
-        by_path.setdefault(full, []).append(idx)
-        for kid in kids.get(n.id, []):
-            walk(kid, full)
-
-    for root in kids.get(None, []):
-        walk(root, "")
-    return flat, fulls, by_bare, by_path
 
 
 def spec_check(content: str) -> tuple[bool, bool, str | None]:
@@ -432,12 +401,8 @@ class _DataRefCheck:
         # заведены. Проверяются они при этом полноценно — промах даёт замечание.
         self.params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]] = {}
         if db is not None and project_id is not None:
-            # Импорт локальный: app.data_refs берёт из этого модуля _node_paths, и
-            # верхнеуровневый импорт замкнул бы цикл. Каталог собирается ОДИН раз
-            # на план (внутри — весь проект: неоднозначность имени есть свойство
-            # проекта, а не одного узла).
-            from app.data_refs import catalog_for_project
-
+            # Каталог собирается ОДИН раз на план (внутри — весь проект:
+            # неоднозначность имени есть свойство проекта, а не одного узла).
             (
                 self.tables,
                 self.channels,
@@ -445,7 +410,7 @@ class _DataRefCheck:
                 self.node_paths,
             ) = catalog_for_project(db, project_id)
 
-    def _hint(self, r: "ResolvedRef", owner_params: dict[str, uuid.UUID]) -> str | None:
+    def _hint(self, r: ResolvedRef, owner_params: dict[str, uuid.UUID]) -> str | None:
         """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
 
         Замечание без ответа даёт слабой модели колебательный контур (находка №1
@@ -502,14 +467,6 @@ class _DataRefCheck:
         """
         if not content:
             return
-        # Локальный импорт — цикл, см. __init__.
-        from app.data_refs import (
-            CHANNEL_MODES,
-            CONFIG_MODES,
-            parse_data_refs,
-            resolve_data_refs,
-        )
-
         refs = parse_data_refs(content)
         if not refs:
             return
@@ -623,7 +580,7 @@ def build_docs_plan(
     бы чужому сервису."""
     plan = DocsPlan()
     data_refs = _DataRefCheck(db, project_id)
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
+    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
     by_node_id = {n.id: i for i, n in enumerate(flat)}
     # Кто из узлов — контейнер (есть дети). Собственные доки у контейнера законны, но
     # продукт считает их запахом: их ловит алерт AL24 и лечит «распределение» по детям.

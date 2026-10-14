@@ -30,12 +30,12 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _closest_name, _node_paths
+from app.docs_import import _closest_name
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex, qualified_node_hits
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -364,7 +364,7 @@ def build_channels_plan(
     overwrite: bool,
 ) -> ChannelsPlan:
     plan = ChannelsPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
+    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
     path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
     plan.path_of = path_of
     broker_hint = _broker_nodes_hint(flat, fulls)

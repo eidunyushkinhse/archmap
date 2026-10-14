@@ -25,7 +25,6 @@ from app.channels_prompt import build_channels_prompt
 from app.data_prompt import build_data_prompt
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor
-from app.docs_import import _node_paths
 from app.docs_prompt import build_docs_prompt
 from app.export import build_export
 from app.import_prompt import build_import_prompt
@@ -34,6 +33,7 @@ from app.models.broker_channel import BrokerChannel
 from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
+from app.node_ref import NodeIndex
 from app.routers.channels_import import channels_prompt
 from app.routers.data_import import data_prompt
 from app.routers.docs_import import _name_catalogs, docs_prompt
@@ -249,7 +249,7 @@ def test_данные_скептик(db):
 
 def _прямой_канальный(db, project) -> str:
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _bare, _path = _node_paths(nodes)
+    flat, fulls, _bare, _path = NodeIndex.of(nodes)
     broker_paths = {n.id: fulls[i] for i, n in enumerate(flat) if n.shape == "broker"}
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     minimum = edge_channel_minimum(edges, set(broker_paths))

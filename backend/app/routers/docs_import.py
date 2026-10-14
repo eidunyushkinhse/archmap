@@ -22,7 +22,6 @@ from app.docs_import import (
     DocsPlan,
     MmdOverride,
     ParsedPkg,
-    _node_paths,
     apply_docs_plan,
     build_docs_plan,
     pkg_from_mmd,
@@ -37,6 +36,7 @@ from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.schemas.docs_import import (
     DocsAction,
     DocsImportIn,
@@ -104,8 +104,7 @@ def _entry_point_catalogs(
     него мегабайты mermaid нельзя. «Описана» считает выражение в БД (NodeDoc.described,
     длина тела после trim), тем же способом, что признак в мете витрины.
     """
-    _flat, fulls, _bare, _paths = _node_paths(nodes)
-    path_by_id = {n.id: fulls[i] for i, n in enumerate(_flat)}
+    path_by_id = NodeIndex.of(nodes).path_by_id()
     described: dict[str, list[str]] = {}
     pending: dict[str, list[str]] = {}
     rows = (

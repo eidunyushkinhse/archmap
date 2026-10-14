@@ -14,10 +14,10 @@ from app.data_import import DataPlan, apply_data_plan, build_data_plan
 from app.data_prompt import build_data_prompt
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
-from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.schemas.data_import import DataImportIn, DataImportReport, DataPromptOut
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.view_state import bump_meta_rev
@@ -37,7 +37,7 @@ def data_prompt(
     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
     db_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "database"]
     return DataPromptOut(prompt=prompt_for_variant(variant, "data", build_data_prompt(db_paths)))
 

@@ -28,10 +28,9 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _node_paths
 from app.models.config_param import ConfigParam
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex, qualified_node_hits
 from app.schemas.config_import import ConfigImportReport, ConfigParamItem
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -221,7 +220,7 @@ def build_config_plan(
     overwrite: bool,
 ) -> ConfigPlan:
     plan = ConfigPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
+    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
     path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
     plan.path_of = path_of
     hint = _service_nodes_hint(flat, fulls)

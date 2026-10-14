@@ -23,11 +23,11 @@ from typing import cast
 import yaml
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths, spec_check
+from app.docs_import import spec_check
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex, qualified_node_hits
 from app.recon_prompt import RECON_FILE
 from app.schemas.node_doc import NodeDocKind
 from app.schemas.recon import ReconImportReport, ReconItem
@@ -453,7 +453,7 @@ def build_recon_plan(
     БД только читается: превью и применение зовут одно и то же.
     """
     plan = ReconPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
+    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
 
     выбран = _pick_file(files, plan)
     if выбран is None:

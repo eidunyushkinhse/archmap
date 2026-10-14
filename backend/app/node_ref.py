@@ -50,6 +50,7 @@ import re
 import uuid
 from collections import Counter
 from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 from app.identity import SourceRef, canonical_key, source_ref_dict
 from app.models.node import Node
@@ -162,7 +163,7 @@ _Step = tuple[str, str, Qualifier | None]
 class RefIndex:
     """Карта узлов для ссылок с уточнителями: имена, родители и якоря В ПОРЯДКЕ
     ДОКУМЕНТА (родитель раньше детей). Строится и по разобранному документу, и по
-    живым узлам (docs_import._node_paths отдаёт их в том же порядке)."""
+    живым узлам (NodeIndex.of отдаёт их в том же порядке)."""
 
     def __init__(
         self,
@@ -316,8 +317,59 @@ class _Order:
 
 def sibling_sorter(nodes: Sequence[Node]) -> Callable[[Sequence[Node]], list[Node]]:
     """Сортировщик групп сиблингов набора в порядке документа (для обходов, которые
-    строят свои карты сами, — docs_import._node_paths)."""
+    строят свои карты сами, — NodeIndex.of)."""
     return _Order(_roots_and_kids(nodes)[1]).sort
+
+
+class NodeIndex(NamedTuple):
+    """Узлы проекта в порядке документа экспорта и карты резолва адресов — один
+    источник пути узла для приёмников пакетов, разведки, процессов и превью
+    перехода (аудит Q-4: было три способа, приватное имя импортировали 11 модулей).
+
+    paths[i] — полный путь flat[i] «Система / payments / api» без уточнителей;
+    by_name и by_path — имя и полный путь → индексы в flat (тёзок там несколько).
+    Тёзок различают уточнители: qualified_node_hits (ссылка «путь @ #N» находит того
+    же N-го тёзку — порядок сиблингов тот же, что у документа экспорта) и
+    node_addresses (адреса для файлов семей). NamedTuple: распаковка в четыре имени
+    работает, как у прежнего кортежа."""
+
+    flat: list[Node]
+    paths: list[str]
+    by_name: dict[str, list[int]]
+    by_path: dict[str, list[int]]
+
+    @classmethod
+    def of(cls, nodes: Sequence[Node]) -> "NodeIndex":
+        """Родители раньше детей, сиблинги — в порядке документа (sibling_sorter).
+        Узел, чей родитель вне набора, — корень."""
+        by_id = {n.id: n for n in nodes}
+        kids: dict[uuid.UUID | None, list[Node]] = {}
+        for n in nodes:
+            parent = n.parent_id if n.parent_id in by_id else None
+            kids.setdefault(parent, []).append(n)
+        sort = sibling_sorter(nodes)
+        for parent, group in kids.items():
+            kids[parent] = sort(group)
+
+        index = cls([], [], {}, {})
+
+        def walk(n: Node, prefix: str) -> None:
+            full = f"{prefix} / {n.name}" if prefix else n.name
+            idx = len(index.flat)
+            index.flat.append(n)
+            index.paths.append(full)
+            index.by_name.setdefault(n.name, []).append(idx)
+            index.by_path.setdefault(full, []).append(idx)
+            for kid in kids.get(n.id, []):
+                walk(kid, full)
+
+        for root in kids.get(None, []):
+            walk(root, "")
+        return index
+
+    def path_by_id(self) -> dict[uuid.UUID, str]:
+        """Полный путь каждого узла по id."""
+        return {n.id: p for n, p in zip(self.flat, self.paths, strict=True)}
 
 
 def document_order(nodes: Sequence[Node]) -> list[Node]:
@@ -348,8 +400,8 @@ def node_addresses(nodes: Sequence[Node]) -> dict[uuid.UUID, str]:
 
 
 def qualified_node_hits(ref: str, flat: Sequence[Node]) -> list[int]:
-    """Кандидаты ссылки с уточнителем в карте узлов проекта (docs_import._node_paths:
-    flat — в порядке документа) — для родных приёмников. Ссылка без уточнителя —
+    """Кандидаты ссылки с уточнителем в карте узлов проекта (NodeIndex.flat — в
+    порядке документа) — для родных приёмников. Ссылка без уточнителя —
     пусто: её уже искали обычным порядком. Карта строится, только если в ссылке
     вообще есть « @ »: приёмники зовут помощника на каждом промахе адреса, и
     опечатке без уточнителя обход всего проекта ни к чему."""

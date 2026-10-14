@@ -25,6 +25,7 @@ from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
+from app.node_ref import NodeIndex
 from app.processes import process_list_items
 from app.schemas.node import (
     AlertsResponse,
@@ -274,7 +275,7 @@ def transition_preview(
     """Что произойдёт при принятии перехода (новое → существующее, выводимое →
     удалить). Ничего не записывает."""
     plan = build_transition(db, project)
-    paths = _node_paths(db, project)
+    paths = NodeIndex.of(db.query(Node).filter(Node.project_id == project.id).all()).path_by_id()
     return TransitionPreviewOut(
         graph_rev=project.graph_rev,
         is_noop=plan.is_noop,
@@ -310,21 +311,6 @@ def transition_apply(
     db.commit()
     return TransitionApplyOut(deleted_nodes=deleted, promoted_nodes=promoted)
 
-
-def _node_paths(db: Session, project: Project) -> dict[uuid.UUID, str]:
-    """Полные пути узлов проекта — «Система / payments / api»."""
-    nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    by_id = {n.id: n for n in nodes}
-
-    def full(n: Node) -> str:
-        parts = [n.name]
-        cur = by_id.get(n.parent_id) if n.parent_id else None
-        while cur is not None:
-            parts.append(cur.name)
-            cur = by_id.get(cur.parent_id) if cur.parent_id else None
-        return " / ".join(reversed(parts))
-
-    return {n.id: full(n) for n in nodes}
 
 
 def _transition_node(n: Node, paths: dict[uuid.UUID, str]) -> TransitionNodeOut:

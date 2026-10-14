@@ -43,11 +43,10 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex, qualified_node_hits
 from app.schemas.data_import import DataImportReport, DataTableItem
 
 NODE_HEADER = re.compile(r"^#\s*archmap-node:\s*(.+?)\s*$", re.MULTILINE)
@@ -255,7 +254,7 @@ def build_data_plan(
     overwrite: bool,
 ) -> DataPlan:
     plan = DataPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
+    flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
     path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
     plan.path_of = path_of
     db_hint = _db_nodes_hint(flat, fulls)

@@ -17,10 +17,10 @@ from sqlalchemy.orm import Session
 from app import demo_limits
 from app.database import get_db
 from app.deps import get_current_project, require_project_editor, touch_project
-from app.docs_import import _node_paths
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.recon_import import ReconPlan, apply_recon_plan, build_recon_plan
 from app.recon_prompt import build_recon_prompt
 from app.schemas.recon import ReconImportIn, ReconImportReport, ReconPromptOut
@@ -54,7 +54,7 @@ def recon_prompt(
     готовый текст: пути прогонов знает обёртка.
     """
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
     найден = next((fulls[i] for i, n in enumerate(flat) if n.id == node_id), None)
     if найден is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
