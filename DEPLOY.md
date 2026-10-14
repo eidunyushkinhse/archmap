@@ -302,6 +302,35 @@ sudo ./deploy/install.sh
 - Восстановить доступ администратору: `sudo archmap-admin create-admin <логин> --reset-password`
   (команда делает пользователя администратором, снимает блокировку и задаёт новый пароль).
 
+### Журналы
+
+Своих файлов журнала у ArchMap нет: система для службы только для чтения.
+
+| Что | Где | Кто ротирует |
+|---|---|---|
+| бэкенд: строка на каждый запрос (метод, путь, код ответа, адрес) и ошибки с трассировкой | journald: `journalctl -u archmap` | journald |
+| nginx: доступ и ошибки | `/var/log/nginx/access.log`, `error.log` — установщик своих путей не задаёт | logrotate из пакета nginx (`/etc/logrotate.d/nginx`) |
+| установщик | только терминал; сохранить — `sudo ./deploy/install.sh 2>&1 \| tee install.log` | — |
+
+Пароли и токены входа в журналы не попадают: они идут в теле запроса и в заголовке, а не в
+адресе. Запросы к `/health` и `/ready` nginx в журнал доступа не пишет.
+
+Объём и срок хранения журнала службы задаёт journald, например
+`/etc/systemd/journald.conf.d/archmap.conf`:
+```ini
+[Journal]
+Storage=persistent
+SystemMaxUse=1G
+MaxRetentionSec=90day
+```
+и `sudo systemctl restart systemd-journald`. Без `Storage=persistent` (или каталога
+`/var/log/journal`) некоторые системы держат журнал только в памяти, и после перезагрузки он
+пропадает. Если журналы собирает центральная система, забирайте их из journald и nginx
+штатным агентом сбора.
+
+В OpenShift журнал — `oc logs deploy/archmap` (бэкенд пишет только в stdout); сколько он
+хранится, решает сбор журналов кластера.
+
 ### Если что-то не так
 
 - **«Встроенный Python не запускается».** Каталог поставки смонтирован с `noexec`;
