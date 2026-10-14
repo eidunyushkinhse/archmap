@@ -9,6 +9,7 @@ import ProcessWorkspace from "../processes/ProcessWorkspace";
 import { processesApi } from "../../api/processes";
 import { viewsApi } from "../../api/nodes";
 import { POLL_MS } from "../../pages/useRemoteSync";
+import { isOffline, setOffline } from "../../lib/connection";
 
 // Холст подменён индикатором syncRev: тестируем поллинг, а не диаграмму.
 vi.mock("../processes/ProcessCanvas", () => ({
@@ -60,5 +61,16 @@ describe("поллинг процессов (process_rev)", () => {
     // Курсор уже был 5 на маунте — рефетчей сверх первичной загрузки нет.
     await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS * 2); });
     expect(processesApi.list).toHaveBeenCalledTimes(1);
+  });
+
+  // Аудит F-24: у поллинга процессов была своя копия цикла — без отката и без плашки.
+  it("отказы связи — плашка «нет связи», как у поллинга схемы", async () => {
+    vi.mocked(viewsApi.state).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<ProcessWorkspace isArchitect />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); }); // 1-й отказ
+    expect(isOffline()).toBe(false);
+    await act(async () => { await vi.advanceTimersByTimeAsync(POLL_MS * 2); }); // 2-й, после отката
+    expect(isOffline()).toBe(true);
+    setOffline(false);
   });
 });

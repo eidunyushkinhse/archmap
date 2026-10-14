@@ -64,6 +64,53 @@ export function createRemoteSyncTick(deps: {
   };
 }
 
+// Цикл поллинга — общий для схемы (useRemoteSync) и процессов (ProcessWorkspace, аудит
+// F-24: там жила своя копия без отката и без плашки «нет связи»). Тик раз в POLL_MS, сразу —
+// на возврат фокуса окна (и на старте, если immediate); тики не накладываются. Цепочка
+// таймеров вместо setInterval: задержка следующего тика зависит от исхода предыдущего —
+// после отказов связи она удваивается (до POLL_MS × MAX_BACKOFF), а после OFFLINE_AFTER
+// отказов подряд горит плашка «нет связи». Возвращает остановку.
+export function startPollLoop(
+  tick: () => Promise<RemoteSyncTick>,
+  opts: { immediate?: boolean } = {},
+): () => void {
+  let disposed = false;
+  let running = false;
+  let failures = 0;
+  let timer = 0;
+  const run = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    let result: RemoteSyncTick;
+    try {
+      result = await tick();
+    } finally {
+      running = false;
+    }
+    if (disposed || result === "skipped") return;
+    if (result === "offline") {
+      failures += 1;
+      if (failures >= OFFLINE_AFTER) setOffline(true);
+    } else {
+      failures = 0;
+      setOffline(false);
+    }
+  };
+  const loop = async (): Promise<void> => {
+    await run();
+    if (disposed) return;
+    timer = window.setTimeout(() => { void loop(); }, POLL_MS * Math.min(2 ** failures, MAX_BACKOFF));
+  };
+  timer = window.setTimeout(() => { void loop(); }, opts.immediate ? 0 : POLL_MS);
+  const onFocus = () => { void run(); };
+  window.addEventListener("focus", onFocus);
+  return () => {
+    disposed = true;
+    window.clearTimeout(timer);
+    window.removeEventListener("focus", onFocus);
+  };
+}
+
 export function useRemoteSync(opts: {
   currentParentId: string | null;
   viewMeta: { current: ViewMetaState };
@@ -94,32 +141,10 @@ export function useRemoteSync(opts: {
       onRemoteChange: () => { if (!disposed) onChangeRef.current(); },
       onMetaChange: (rev) => { if (!disposed) onMetaRef.current?.(rev); },
     });
-    // Цепочка таймеров вместо setInterval: задержка следующего тика зависит от исхода
-    // предыдущего (откат при отказах связи).
-    let failures = 0;
-    let timer = 0;
-    const note = (result: RemoteSyncTick) => {
-      if (result === "skipped") return;
-      if (result === "offline") {
-        failures += 1;
-        if (failures >= OFFLINE_AFTER) setOffline(true);
-      } else {
-        failures = 0;
-        setOffline(false);
-      }
-    };
-    const loop = async () => {
-      note(await tick());
-      if (disposed) return;
-      timer = window.setTimeout(() => { void loop(); }, POLL_MS * Math.min(2 ** failures, MAX_BACKOFF));
-    };
-    timer = window.setTimeout(() => { void loop(); }, POLL_MS);
-    const onFocus = () => { void tick().then((r) => { if (!disposed) note(r); }); };
-    window.addEventListener("focus", onFocus);
+    const stop = startPollLoop(tick);
     return () => {
       disposed = true;
-      window.clearTimeout(timer);
-      window.removeEventListener("focus", onFocus);
+      stop();
     };
   }, [currentParentId, viewMeta, gestureActiveRef]);
 }

@@ -6,7 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { viewsApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
-import { POLL_MS } from "../../pages/useRemoteSync";
+import { startPollLoop, type RemoteSyncTick } from "../../pages/useRemoteSync";
+import { isConnectionError } from "../../lib/connection";
 import type { ProcessListItem } from "../../types";
 import ProcessCanvas from "./ProcessCanvas";
 import ProcessImportModal from "./ProcessImportModal";
@@ -97,39 +98,32 @@ export default function ProcessWorkspace({
   const [syncRev, setSyncRev] = useState(0);
   useEffect(() => {
     let disposed = false;
-    let inflight = false;
-    async function tick() {
+    async function tick(): Promise<RemoteSyncTick> {
       // Не врываемся в открытую модалку (все модалки проекта — нативные <dialog>);
       // оверлеи холста — div-ы, но их рефетч не рушит: детали заменяются по id.
-      if (disposed || inflight || document.hidden) return;
-      if (document.querySelector("dialog[open]") != null) return;
-      inflight = true;
+      if (disposed || document.hidden || document.querySelector("dialog[open]") != null) return "skipped";
+      let s: Awaited<ReturnType<typeof viewsApi.state>>;
       try {
-        const s = await viewsApi.state(null);
-        if (disposed) return;
-        if (knownProcessRev.current === undefined) {
-          knownProcessRev.current = s.process_rev; // первый тик только запоминает
-          return;
-        }
-        if (s.process_rev !== knownProcessRev.current) {
-          knownProcessRev.current = s.process_rev;
-          void reload();
-          setSyncRev((r) => r + 1);
-        }
-      } catch {
-        // сеть/архив — молча, следующий тик попробует снова
-      } finally {
-        inflight = false;
+        s = await viewsApi.state(null);
+      } catch (e) {
+        return isConnectionError(e) ? "offline" : "error"; // следующий тик попробует снова
       }
+      if (disposed) return "skipped";
+      if (knownProcessRev.current === undefined) {
+        knownProcessRev.current = s.process_rev; // первый тик только запоминает
+        return "quiet";
+      }
+      if (s.process_rev === knownProcessRev.current) return "quiet";
+      knownProcessRev.current = s.process_rev;
+      void reload();
+      setSyncRev((r) => r + 1);
+      return "refetch";
     }
-    const timer = window.setInterval(() => { void tick(); }, POLL_MS);
-    const onFocus = () => { void tick(); };
-    window.addEventListener("focus", onFocus);
-    void tick(); // немедленная инициализация известного курсора
+    // Общий цикл (откат, «нет связи»); немедленный тик — инициализация известного курсора.
+    const stop = startPollLoop(tick, { immediate: true });
     return () => {
       disposed = true;
-      window.clearInterval(timer);
-      window.removeEventListener("focus", onFocus);
+      stop();
     };
   }, [reload]);
 
