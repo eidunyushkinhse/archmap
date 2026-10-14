@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { makeToken } from "./probeToken.mjs";
 
 const pw = await import(join(homedir(), ".npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.js"));
 const { chromium } = pw.default;
@@ -40,16 +41,6 @@ const collapseFirst = args.includes("--collapse-first");
 const captureFile = argOf("--capture"); // сохранить ПОСЛЕДНИЙ вход конвейера (для реплея)
 if (!projectName) { console.error("Нужен --project <имя>"); process.exit(2); }
 
-function makeToken() {
-  const f = join(tmpdir(), `archmap-perf-tok-${process.pid}.txt`);
-  execFileSync("backend/venv/bin/python", ["-c", `
-import sys; sys.path.insert(0, 'backend')
-from app.auth import create_access_token
-open(${JSON.stringify(f)}, 'w').write(create_access_token({'sub': 'admin', 'role': 'viewer'}))
-`]);
-  const t = readFileSync(f, "utf8").trim(); rmSync(f); return t;
-}
-
 async function api(token, path, projectId = null) {
   const headers = { Authorization: `Bearer ${token}`, ...(projectId ? { "X-Project-Id": projectId } : {}) };
   const r = await fetch(`${BACKEND}/api/v1${path}`, { headers });
@@ -57,7 +48,7 @@ async function api(token, path, projectId = null) {
   return r.json();
 }
 
-const token = makeToken();
+const token = makeToken("viewer");
 const projects = await api(token, "/projects");
 const project = projects.filter((p) => !p.archived_at).find((p) => p.name === projectName);
 if (!project) throw new Error(`Проект «${projectName}» не найден`);

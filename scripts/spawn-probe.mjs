@@ -24,6 +24,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { makeToken } from "./probeToken.mjs";
 
 const pw = await import(join(homedir(), ".npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.js"));
 const { chromium } = pw.default;
@@ -50,18 +51,6 @@ const shotFile = argOf("--shot");
 // вложенных: вторая волна меняла состав подграфа спавна → дёрганье анимации)
 const expandChildName = argOf("--expand-child");
 const traceN = argOf("--trace") ? Number(argOf("--trace")) : 0;
-
-function makeToken(role) {
-  const tokFile = join(tmpdir(), `archmap-spawn-tok-${process.pid}.txt`);
-  execFileSync("backend/venv/bin/python", ["-c", `
-import sys; sys.path.insert(0, 'backend')
-from app.auth import create_access_token
-open(${JSON.stringify(tokFile)}, 'w').write(create_access_token({'sub': 'admin', 'role': ${JSON.stringify(role)}}))
-`]);
-  const tok = readFileSync(tokFile, "utf8").trim();
-  rmSync(tokFile);
-  return tok;
-}
 
 async function api(token, path, opts = {}, projectId = null) {
   const headers = {

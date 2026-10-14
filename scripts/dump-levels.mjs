@@ -37,6 +37,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join, dirname } from "node:path";
+import { makeToken } from "./probeToken.mjs";
 
 // playwright — CommonJS из npx-кэша: named-import падает, берём default динамически
 const pw = await import(join(homedir(), ".npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.js"));
@@ -62,19 +63,6 @@ const onlyLevels = (argOf("--levels") ?? "").split(",").map((s) => s.trim()).fil
 if (!outFile && !checkFile) {
   console.error("Нужен --out <file> или --check <baseline>");
   process.exit(2);
-}
-
-// --- токен архитектора: python пишет в файл (JWT в stdout не печатаем) ---
-function makeToken() {
-  const tokFile = join(tmpdir(), `archmap-tok-${process.pid}.txt`);
-  execFileSync("backend/venv/bin/python", ["-c", `
-import sys; sys.path.insert(0, 'backend')
-from app.auth import create_access_token
-open(${JSON.stringify(tokFile)}, 'w').write(create_access_token({'sub': 'admin', 'role': ${JSON.stringify(role)}}))
-`]);
-  const tok = readFileSync(tokFile, "utf8").trim();
-  rmSync(tokFile);
-  return tok;
 }
 
 // --- выбор проекта через REST ---
@@ -248,7 +236,7 @@ async function freshLevel(page, projectId, levelId) {
 }
 
 async function main() {
-  const token = makeToken();
+  const token = makeToken(role);
   const project = await pickProject(token);
   console.log(`Проект: ${project.name} (${project.id}), max-depth ${maxDepth}`);
 

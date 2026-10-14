@@ -21,6 +21,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { makeToken } from "./probeToken.mjs";
 
 const pw = await import(join(homedir(), ".npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.js"));
 const { chromium } = pw.default;
@@ -44,18 +45,6 @@ const CLONE = argOf("--clone") ?? CLONE_NAME;
 // page — страница фокусного узла с раскрытиями (сценарий пользователя);
 // map — корневой уровень редактора-карты (быстрый детектор-скан проекта).
 const MODE = argOf("--mode") ?? "page";
-
-function makeToken(role) {
-  const f = join(tmpdir(), `archmap-triple-tok-${process.pid}.txt`);
-  execFileSync("backend/venv/bin/python", ["-c", `
-import sys; sys.path.insert(0, 'backend')
-from app.auth import create_access_token
-open(${JSON.stringify(f)}, 'w').write(create_access_token({'sub': 'admin', 'role': ${JSON.stringify(role)}}))
-`]);
-  const t = readFileSync(f, "utf8").trim();
-  rmSync(f);
-  return t;
-}
 
 async function api(token, path, opts = {}, projectId = null) {
   const headers = {

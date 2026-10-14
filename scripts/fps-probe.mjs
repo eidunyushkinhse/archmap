@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, rmSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
+import { makeToken } from "./probeToken.mjs";
 
 const pw = await import(join(homedir(), ".npm/_npx/e41f203b7505f1fb/node_modules/playwright/index.js"));
 const { chromium } = pw.default;
@@ -14,18 +15,6 @@ const BACKEND = process.env.ARCHMAP_BACKEND ?? "http://localhost:8000";
 const CHROME = join(homedir(), ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome");
 const CHROME_LIBS = join(homedir(), ".cache/archmap-chrome-libs/usr/lib/x86_64-linux-gnu");
 const CLONE_NAME = "__drift-полигон";
-
-function makeToken(role) {
-  const f = join(tmpdir(), `archmap-fps-tok-${process.pid}.txt`);
-  execFileSync("backend/venv/bin/python", ["-c", `
-import sys; sys.path.insert(0, 'backend')
-from app.auth import create_access_token
-open(${JSON.stringify(f)}, 'w').write(create_access_token({'sub': 'admin', 'role': ${JSON.stringify(role)}}))
-`]);
-  const t = readFileSync(f, "utf8").trim();
-  rmSync(f);
-  return t;
-}
 
 async function api(token, path, opts = {}, projectId = null) {
   const headers = {
