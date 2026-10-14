@@ -7,22 +7,20 @@
 //
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: строк много, а правка — точечная.
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useRef, useState } from "react";
 import { dbTablesApi } from "../api/nodes";
 import AddDocsMenu from "./AddDocsMenu";
 import DataAgentModal from "./docsImport/DataAgentModal";
 import ErDiagramModal from "./ErDiagramModal";
 import { useCollapse } from "./useCollapse";
-import { useFlipRows } from "./useFlipRows";
 import { useShrinkAnchor } from "./useShrinkAnchor";
+import FactGroups from "./FactGroups";
+import { freeName, useFactRows, useToggleSet } from "./useFactRows";
 import MermaidRenderer from "./MermaidRenderer";
 import { ChevronDownIcon } from "../ui/icons";
 import { tablesToErDiagram } from "./dbErDiagram";
 import type { DbColumn, DbTable, TableUsage } from "../types";
 import "./dbStructure.css";
-import { limitMessage } from "./demo/demoLimits";
-import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
 import { noAutofill } from "../ui/noAutofill";
 
@@ -33,110 +31,44 @@ interface Props {
   isArchitect: boolean;
 }
 
-// Свободное имя вида «база», «база_2», … — чтобы «+ Таблица» не упиралась в 409
-// уникальности при повторном нажатии.
-function freeName(base: string, taken: Set<string>): string {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) {
-    const candidate = `${base}_${i}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
-
 export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Props) {
-  const [tables, setTables] = useState<DbTable[] | null>(null);
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
+  // Обратный индекс (usage): кто обращается к таблицам этой базы. Разворот тех же
+  // обращений, что описаны у вызывающих, — ответ на вопрос «кто кладёт сюда значение».
+  const { rows: tables, usage, error, limit, apply, reload } =
+    useFactRows(nodeId, dbTablesApi, "Не удалось загрузить структуру");
+  const [open, toggleOpen] = useToggleSet();
   // ER — производное представление тех же записей (dbErDiagram), поэтому это просто
   // переключатель показа, а не второй источник правды и не отдельное хранилище.
   const [showEr, setShowEr] = useState(false);
   // Встроенная диаграмма ужата под ширину карточки и на реальной базе нечитаема —
   // клик по ней открывает её во весь экран с пан/зумом.
   const [erFull, setErFull] = useState(false);
-  // Обратный индекс: кто обращается к таблицам этой базы. Разворот тех же обращений,
-  // что описаны у вызывающих, — ответ на вопрос «кто кладёт сюда значение».
-  const [usage, setUsage] = useState<TableUsage[]>([]);
   // Окно дозаливки от агента: базу с сорока таблицами руками не опишут, поэтому это
   // основной путь наполнения, а редактор ниже — для правок.
   const [agentOpen, setAgentOpen] = useState(false);
-  // Свёрнутые разделы (по умолчанию раскрыты — иначе структура выглядит пустой).
-  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
   // Сворачивание укорачивает страницу, и внизу скролл упирается в новый конец —
   // содержимое уезжает из-под курсора. Якорь придерживает позицию (см. хук).
   // Контейнер прокрутки ищется от самой кнопки: реф для этого не нужен, а читать
   // рефы в обработчиках, созданных в рендере, линтер и не даёт.
   const holdScroll = useShrinkAnchor();
-  // Переезд карточки между плоским списком и разделом анимируем (FLIP): без этого
-  // она мгновенно оказывается в другом месте и это читается как рывок.
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
-  // в теле эффекта даёт каскад рендеров (тот же приём, что в useContainerChildren).
-  const [seq, setSeq] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    dbTablesApi.list(nodeId)
-      .then((ts) => { if (alive) { setTables(ts); setError(null); } })
-      .catch(() => { if (alive) setError("Не удалось загрузить структуру"); });
-    dbTablesApi.usage(nodeId)
-      .then((u) => { if (alive) setUsage(u); })
-      .catch(() => { if (alive) setUsage([]); });
-    return () => { alive = false; };
-  }, [nodeId, seq]);
-
-  // Любая правка: применяем на сервере и перечитываем список. Перечитывание — не
-  // лень, а необходимость: CAS-версия таблицы и порядок колонок приходят с сервера,
-  // и локальная склейка разъезжалась бы с ними на первой же ошибке.
-  const apply = useCallback(async (fn: () => Promise<unknown>) => {
-    setLimit(null);
-    try {
-      await fn();
-      setError(null);
-    } catch (e) {
-      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
-      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
-      const refusal = limitMessage(e, "save");
-      if (refusal) setLimit(refusal);
-      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
-    }
-    setSeq((n) => n + 1);
-  }, [setSeq]);
 
   const addTable = () => {
-    const taken = new Set((tables ?? []).map((t) => t.name));
     // Поля с серверным дефолтом генерат делает ОБЯЗАТЕЛЬНЫМИ (openapi-typescript,
     // default-non-nullable) — заполняем теми же значениями явно.
     void apply(() => dbTablesApi.create(nodeId, {
-      name: freeName("таблица", taken), schema_name: "",
+      name: freeName("таблица", (tables ?? []).map((t) => t.name)), schema_name: "",
     }));
   };
 
   const addColumn = (table: DbTable) => {
-    const taken = new Set(table.columns.map((c) => c.name));
     void apply(() => dbTablesApi.createColumn(nodeId, table.id, {
-      name: freeName("колонка", taken),
+      name: freeName("колонка", table.columns.map((c) => c.name)),
       type: "",
       nullable: true,
       is_primary_key: false,
       order: table.columns.length,
     }));
   };
-
-  // Таблицы по разделам (schema/database/keyspace — см. подпись поля). Пустой раздел
-  // идёт первым: у большинства баз он единственный.
-  const grouped: [string, DbTable[]][] = [];
-  for (const t of tables ?? []) {
-    const bucket = grouped.find(([k]) => k === t.schema_name);
-    if (bucket) bucket[1].push(t);
-    else grouped.push([t.schema_name, [t]]);
-  }
-  grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
-
-  // Подпись перестройки для FLIP — только про ПЕРЕЕЗД карточек: свёртка раздела
-  // позиций не меняет (тело едет само), и включать её сюда незачем.
-  const flipKey = (tables ?? []).map((t) => `${t.id}:${t.schema_name}`).join("|");
-  useFlipRows(listRef, flipKey);
 
   // Все колонки узла как цели внешнего ключа: «таблица.колонка».
   const fkOptions = (tables ?? []).flatMap((t) =>
@@ -153,11 +85,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
       onToggle={(el) => {
         // Придерживаем скролл ДО правки: свернуть — значит укоротить страницу.
         if (open.has(t.id)) holdScroll(el);
-        setOpen((prev) => {
-          const next = new Set(prev);
-          if (next.has(t.id)) next.delete(t.id); else next.add(t.id);
-          return next;
-        });
+        toggleOpen(t.id);
       }}
       fkOptions={fkOptions}
       usage={usage.filter((u) => u.table_id === t.id)}
@@ -205,42 +133,19 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
           onClose={() => setErFull(false)}
         />
       )}
-      <div ref={listRef}>
-      {(tables ?? []).length === 0 ? (
-        <p className="np-empty">Таблицы не описаны</p>
-      ) : grouped.length > 1 ? (
-        // Разделы показываем ТОЛЬКО когда они реально заданы: у баз без такого уровня
-        // (Redis, Elasticsearch) лишняя вложенность была бы шумом.
-        grouped.map(([schema, list]) => (
-          <div key={schema} className="dbs-group np-group">
-            {/* Те же классы, что у групп доков на странице объекта: раскрывашка
-                должна выглядеть как соседние, а не как своя выдумка. */}
-            <button
-              type="button"
-              className="np-doc-group-toggle"
-              aria-expanded={!closedGroups.has(schema)}
-              onClick={(e) => {
-                if (!closedGroups.has(schema)) holdScroll(e.currentTarget);
-                setClosedGroups((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(schema)) next.delete(schema); else next.add(schema);
-                  return next;
-                });
-              }}
-            >
-              <span className="np-doc-group-chev"
-                style={{ transform: closedGroups.has(schema) ? "rotate(-90deg)" : "none" }}>
-                <ChevronDownIcon />
-              </span>
-              {schema || "без раздела"}
-            </button>
-            <GroupBody open={!closedGroups.has(schema)}>{list.map(renderTable)}</GroupBody>
-          </div>
-        ))
-      ) : (
-        <div className="dbs-tables">{(tables ?? []).map(renderTable)}</div>
-      )}
-      </div>
+      {/* Таблицы по разделам (schema/database/keyspace — см. подпись поля). */}
+      <FactGroups
+        items={tables ?? []}
+        idOf={(t) => t.id}
+        groupOf={(t) => t.schema_name}
+        ungrouped="без раздела"
+        groupClass="dbs-group"
+        bodyClass="dbs-groupbody"
+        flatClass="dbs-tables"
+        empty={<p className="np-empty">Таблицы не описаны</p>}
+        holdScroll={holdScroll}
+        render={renderTable}
+      />
       {isArchitect && (
         <div className="dbs-actions">
           {/* Тот же вход, что у «Логики» и «OpenAPI»: одна кнопка с шевроном, а
@@ -260,28 +165,9 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
           nodeId={nodeId}
           nodeName={nodeName}
           onClose={() => setAgentOpen(false)}
-          onApplied={() => setSeq((n) => n + 1)}
+          onApplied={reload}
         />
       )}
-    </div>
-  );
-}
-
-// Тело раздела: высоту ведёт ОНО САМО, а список и карточка секции живут с auto и
-// следуют за ним. Пробовали наоборот (анимировать высоту контейнера) — измерение
-// врало, потому что дочерние блоки в этот момент зафиксированы своей анимацией, и
-// кнопки под списком подпрыгивали на старте и на приземлении.
-function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const show = useCollapse(ref, open);
-  if (!show) return null;
-  // Анимируем ГОЛУЮ обёртку, вся косметика — на внутреннем блоке. Иначе высота
-  // считалась бы неверно: у блока с padding/border ставить ему border-box-высоту
-  // нельзя (он content-box), а его margin в height не входит вовсе — и то, и другое
-  // давало прыжок соседей в начале и в конце анимации.
-  return (
-    <div ref={ref} className="anim-box">
-      <div className="dbs-groupbody">{children}</div>
     </div>
   );
 }
@@ -367,7 +253,7 @@ function TableCard({
       ) : null}
 
       {showCols && (
-        // Голая обёртка ведёт высоту, косметика — на .dbs-cols (см. GroupBody).
+        // Голая обёртка ведёт высоту, косметика — на .dbs-cols (см. GroupBody в FactGroups).
         <div ref={colsRef} className="anim-box">
           <div className="dbs-cols">
           {table.columns.length === 0 && <p className="np-empty">Колонки не описаны</p>}
