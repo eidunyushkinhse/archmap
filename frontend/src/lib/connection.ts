@@ -1,25 +1,23 @@
 import { ApiError } from "../api/client";
+import { createEmitter } from "./emitter";
 
 // Признак «нет связи с сервером» (аудит R-24): поллеры раньше молча повторяли тики, и
 // человек не знал, что чужие правки перестали подтягиваться. Стор вне React — его
 // пишут поллеры, читает плашка ui/ConnectionNotice через useSyncExternalStore.
 
 let offline = false;
-const listeners = new Set<() => void>();
+const changed = createEmitter();
 
 export function isOffline(): boolean {
   return offline;
 }
 
-export function subscribeConnection(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
-}
+export const subscribeConnection = changed.on;
 
 export function setOffline(next: boolean): void {
   if (next === offline) return;
   offline = next;
-  for (const listener of listeners) listener();
+  changed.emit();
 }
 
 // Отказ по связи, а не по смыслу: fetch не достучался (TypeError) или сервер лежит

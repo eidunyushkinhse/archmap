@@ -1,6 +1,7 @@
 import type { AuthConfig, DemoLimits, Me, Token, UserRole } from "../types";
 import { api } from "./client";
 import { safeLocal } from "../lib/safeStorage";
+import { createEmitter } from "../lib/emitter";
 
 /** Вход. Отказ (неверный пароль, блокировка, перебор) — ApiError с текстом сервера;
  *  сигнала «сессия истекла» он не поднимает: запрос идёт мимо сессии. */
@@ -31,18 +32,15 @@ export function getToken(): string | null {
 // Кэш — внешний стор для useSyncExternalStore: App перерисовывается, когда «кто я»
 // пришёл, и страницы перечитывают роль.
 let me: Me | null = null;
-const meListeners = new Set<() => void>();
+const meChanged = createEmitter();
 
 function setMe(next: Me | null): void {
   if (next === me) return;
   me = next;
-  for (const listener of meListeners) listener();
+  meChanged.emit();
 }
 
-export function subscribeMe(listener: () => void): () => void {
-  meListeners.add(listener);
-  return () => { meListeners.delete(listener); };
-}
+export const subscribeMe = meChanged.on;
 
 export function getMe(): Me | null {
   return me;

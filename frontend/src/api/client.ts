@@ -1,5 +1,6 @@
 import { getCurrentProjectId } from "./projectScope";
 import { safeLocal } from "../lib/safeStorage";
+import { createEmitter } from "../lib/emitter";
 
 const BASE_URL = "/api/v1";
 
@@ -45,30 +46,21 @@ export const SANDBOX_GONE_DETAIL =
 // Подписчики «сессию закрыли с причиной» (учётку заблокировали, песочницу удалили):
 // App выходит на экран входа с этим текстом. Сигнал из общего клиента, а не из
 // каждой страницы: это застаёт человека на любом экране, в любом запросе.
-type BlockedListener = (message: string) => void;
-const blockedListeners = new Set<BlockedListener>();
-
-export function onAccountBlocked(listener: BlockedListener): () => void {
-  blockedListeners.add(listener);
-  return () => { blockedListeners.delete(listener); };
-}
+const blocked = createEmitter<string>();
+export const onAccountBlocked = blocked.on;
 
 // Подписчики прочего 401 (токен истёк или испорчен). Слушает App: выходит на экран
 // входа (вне демо — с плашкой «Сессия истекла»).
-const unauthorizedListeners = new Set<() => void>();
-
-export function onUnauthorized(listener: () => void): () => void {
-  unauthorizedListeners.add(listener);
-  return () => { unauthorizedListeners.delete(listener); };
-}
+const unauthorized = createEmitter();
+export const onUnauthorized = unauthorized.on;
 
 function reportIfBlocked(status: number, detail: unknown): void {
   if (status !== 401) return;
   if (detail === BLOCKED_DETAIL || detail === SANDBOX_GONE_DETAIL) {
-    for (const listener of blockedListeners) listener(detail);
+    blocked.emit(detail);
     return;
   }
-  for (const listener of unauthorizedListeners) listener();
+  unauthorized.emit();
 }
 
 // Тело отказа: detail бэка и необязательный машинный признак.

@@ -2,6 +2,7 @@
 // объектов) в localStorage по id гостя. Гость живёт, пока жива сессия браузера, —
 // сервер для этого не нужен. Здесь же связь с пилюлей «Обучение» в шапке: сигналы
 // «пройти заново» и «продолжить», признак «тур на паузе».
+import { createEmitter } from "../../lib/emitter";
 import { parseTourState, type TourState } from "./tourMachine";
 
 const PREFIX = "archmap_tour:";
@@ -43,47 +44,30 @@ export function dropStaleTours(userId: string): void {
 }
 
 // ── «Пройти обучение заново» (пилюля «Обучение») ────────────────────────────
-const restartListeners = new Set<() => void>();
-
-export function requestTourRestart(): void {
-  for (const listener of restartListeners) listener();
-}
-
-export function onTourRestart(listener: () => void): () => void {
-  restartListeners.add(listener);
-  return () => { restartListeners.delete(listener); };
-}
+const restart = createEmitter();
+export const requestTourRestart = (): void => { restart.emit(); };
+export const onTourRestart = restart.on;
 
 // ── Пауза: «Продолжить обучение» (пилюля, пока тур на паузе) ────────────────
-const resumeListeners = new Set<() => void>();
-
-export function requestTourResume(): void {
-  for (const listener of resumeListeners) listener();
-}
-
-export function onTourResume(listener: () => void): () => void {
-  resumeListeners.add(listener);
-  return () => { resumeListeners.delete(listener); };
-}
+const resume = createEmitter();
+export const requestTourResume = (): void => { resume.emit(); };
+export const onTourResume = resume.on;
 
 // Тур на паузе — внешний стор для пилюли (её шапки тур не рендерит).
 let paused = false;
-const pausedListeners = new Set<() => void>();
+const pausedChanged = createEmitter();
 
 export function setTourPaused(value: boolean): void {
   if (paused === value) return;
   paused = value;
-  for (const listener of pausedListeners) listener();
+  pausedChanged.emit();
 }
 
 export function getTourPaused(): boolean {
   return paused;
 }
 
-export function subscribeTourPaused(listener: () => void): () => void {
-  pausedListeners.add(listener);
-  return () => { pausedListeners.delete(listener); };
-}
+export const subscribeTourPaused = pausedChanged.on;
 
 // Клик по затемнению: карточка шага уходит не угасанием, а сворачивается в пилюлю —
 // видно, куда нажать, чтобы продолжить. Признак забирает уходящая карточка (TourLayer).

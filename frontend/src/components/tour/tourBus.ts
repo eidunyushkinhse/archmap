@@ -3,6 +3,8 @@
 // без знания о шагах. Слушает только тур демо-стенда; вне демо слушателей нет и
 // вызов ничего не делает. Что с событием делать — решает машина тура (tourMachine.ts).
 
+import { createEmitter } from "../../lib/emitter";
+
 export type TourBusEvent =
   /** создан объект (окно «Новый объект») */
   | { type: "node-created"; id: string; name: string; shape: string; parentId: string | null }
@@ -17,33 +19,17 @@ export type TourBusEvent =
   /** редактор показал слой (null — корень проекта): вход на слой и возврат наверх */
   | { type: "level"; levelId: string | null };
 
-type Listener = (e: TourBusEvent) => void;
-const listeners = new Set<Listener>();
-
-export function emitTourEvent(e: TourBusEvent): void {
-  for (const listener of listeners) listener(e);
-}
-
-export function onTourEvent(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
-}
+const events = createEmitter<TourBusEvent>();
+export const emitTourEvent = events.emit;
+export const onTourEvent = events.on;
 
 // ── Обратная команда: тур просит редактор открыть слой ──────────────────────
 // «Продолжить обучение» возвращает на слой схемы, где взяли паузу
 // (docs/tasks/demo-tour-pause.md). Слой в хэше бывает только при открытии редактора,
 // дальше его знает сам редактор — поэтому просьба идёт через шину.
-type LevelListener = (levelId: string | null) => void;
-const levelListeners = new Set<LevelListener>();
-
-export function requestTourLevel(levelId: string | null): void {
-  for (const listener of levelListeners) listener(levelId);
-}
-
-export function onTourLevelRequest(listener: LevelListener): () => void {
-  levelListeners.add(listener);
-  return () => { levelListeners.delete(listener); };
-}
+const levelRequests = createEmitter<string | null>();
+export const requestTourLevel = levelRequests.emit;
+export const onTourLevelRequest = levelRequests.on;
 
 // ── Обратная команда: тур ведёт камеру холста ───────────────────────────────
 // Лупа на объекте мелкая, когда слой отдалён (тачпадом в неё трудно попасть) — на входе
@@ -51,14 +37,6 @@ export function onTourLevelRequest(listener: LevelListener): () => void {
 // всему слою, чтобы было видно, к чему привело нажатие. Редактор исполняет это тем же
 // locate, что и «Показать на схеме», без вспышки.
 export type TourFocus = { kind: "node"; id: string } | { kind: "level" };
-type FocusListener = (focus: TourFocus) => void;
-const focusListeners = new Set<FocusListener>();
-
-export function requestTourFocus(focus: TourFocus): void {
-  for (const listener of focusListeners) listener(focus);
-}
-
-export function onTourFocusRequest(listener: FocusListener): () => void {
-  focusListeners.add(listener);
-  return () => { focusListeners.delete(listener); };
-}
+const focusRequests = createEmitter<TourFocus>();
+export const requestTourFocus = focusRequests.emit;
+export const onTourFocusRequest = focusRequests.on;
