@@ -2,7 +2,7 @@
 // React Flow. Возвращает вырезы, якорь для карточки и то, что карточка не должна
 // закрывать. Прямоугольники — видимые части элементов (с учётом прокрутки и
 // обрезки холстом), в координатах окна.
-import { padHole, union, type Hole, type Rect } from "./tourGeometry";
+import { intersect, padHole, union, type Hole, type Rect } from "./tourGeometry";
 import type { TourVars } from "./tourMachine";
 import type { RehangDemo } from "./tourDemo";
 import { resolveHandlePair, resolveRehang } from "./tourHandles";
@@ -46,12 +46,6 @@ function clippers(el: Element): Element[] {
 
 const toRect = (r: DOMRect): Rect => ({ x: r.left, y: r.top, w: r.width, h: r.height });
 
-function clip(a: Rect, b: Rect): Rect | null {
-  const x1 = Math.max(a.x, b.x), y1 = Math.max(a.y, b.y);
-  const x2 = Math.min(a.x + a.w, b.x + b.w), y2 = Math.min(a.y + a.h, b.y + b.h);
-  return x2 > x1 && y2 > y1 ? { x: x1, y: y1, w: x2 - x1, h: y2 - y1 } : null;
-}
-
 /** Видимая часть элемента: пересечение с окном и с обрезающими предками. Прямая
  *  связь — отрезок нулевой толщины (роутер ведёт линии прямо, эпик стрелок): ей даём
  *  толщину 1 px, иначе пересечение пусто и цель «не видна». */
@@ -60,10 +54,10 @@ export function visibleRect(el: Element): Rect | null {
   if (r.w <= 0 && r.h <= 0) return null;
   if (r.w < 1) r = { ...r, x: r.x - 0.5, w: 1 };
   if (r.h < 1) r = { ...r, y: r.y - 0.5, h: 1 };
-  r = clip(r, { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
+  r = intersect(r, { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight });
   for (const c of clippers(el)) {
     if (!r) return null;
-    r = clip(r, toRect(c.getBoundingClientRect()));
+    r = intersect(r, toRect(c.getBoundingClientRect()));
   }
   return r;
 }
