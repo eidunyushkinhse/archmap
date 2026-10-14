@@ -47,6 +47,7 @@ from app.archive_import import (
 from app.channels_import import ChannelIn, parse_channels_file
 from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
+from app.domain_types import NodeDocKind
 from app.import_merge import (
     MergeReport,
     carry_parse_warnings,
@@ -111,7 +112,7 @@ class DocIn:
     """Схема логики как вклад архива: тело БЕЗ шапки (заглушка остаётся заглушкой)."""
 
     name: str
-    kind: str
+    kind: NodeDocKind
     operation: str | None
     body: str
 

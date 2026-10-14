@@ -30,6 +30,7 @@ ProjectRole = Literal["owner", "editor", "reader"]
 # Роль пользователя — право на документацию. Администратор — отдельный признак
 # is_admin, а не третья роль (docs/tasks/admin-users.md).
 UserRole = Literal["architect", "viewer"]
+USER_ROLES: tuple[UserRole, ...] = get_args(UserRole)
 
 # Режим пометки обращения в тексте схемы логики: «читает:», «пишет:», «публикует:»,
 # «потребляет:», «зависит от:».
@@ -59,3 +60,13 @@ MessageLeg = Literal["forward", "return"]
 
 # Вид фрагмента sequence-диаграммы.
 FragmentKind = Literal["alt", "opt", "loop", "par"]
+
+
+def pick[T: str](value: object, allowed: tuple[T, ...]) -> T | None:
+    """value, если он из набора allowed, иначе None — для разбора входа (YAML, шапка
+    .mmd, аргументы команды). Отдаёт элемент самого набора: он и несёт Literal-тип,
+    а проверка «in» тип str не сужает."""
+    for item in allowed:
+        if value == item:
+            return item
+    return None

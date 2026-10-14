@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.database import Base
+from app.domain_types import NodeDocKind
 
 if TYPE_CHECKING:
     # Только для типов: связь резолвится реестром SQLAlchemy по строке в рантайме.
@@ -43,7 +44,7 @@ class NodeDoc(Base):
     # или действие пользователя в интерфейсе) | worker (фоновая работа).
     # Кодируется Literal-ом в Pydantic-схеме. Вид «overview» удалён миграцией
     # 4c1e0a9f6b2d вместе со всеми схемами, которые его несли.
-    kind: Mapped[str] = mapped_column(String(16), default="operation", server_default="operation")
+    kind: Mapped[NodeDocKind] = mapped_column(String(16), default="operation", server_default="operation")
     # Привязка к операции OpenAPI-спеки узла («METHOD /path», свободная строка) —
     # задел под провал «шаг процесса → схема сценария / спека операции».
     operation: Mapped[str | None] = mapped_column(String(256), nullable=True)

@@ -9,7 +9,6 @@ preview — dry-run плана без записи; apply — тот же пла
 """
 
 import uuid
-from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, selectinload
@@ -38,16 +37,13 @@ from app.models.project import Project
 from app.models.user import User
 from app.node_ref import NodeIndex
 from app.schemas.docs_import import (
-    DocsAction,
     DocsImportIn,
     DocsImportReport,
     DocsInclude,
     DocsLogicItem,
     DocsPromptOut,
     DocsSpecItem,
-    SpecOrigin,
 )
-from app.schemas.node_doc import NodeDocKind
 from app.skeptic_prompt import PromptVariant, prompt_for_variant
 from app.view_state import bump_meta_rev
 
@@ -235,19 +231,18 @@ def _plan_from_files(db: Session, project: Project, payload: DocsImportIn) -> Do
 
 
 def _report(plan: DocsPlan) -> DocsImportReport:
-    # kind/action/origin приходят из внутреннего плана (LogicAction/SpecAction)
-    # как str, но их значения гарантированно из домена Literal — проставляются
-    # парсером/строителем плана (build_docs_plan/parse_manifest). Безопасный cast
-    # на границе сериализации вместо игнор-комментариев.
+    # kind типизирован Literal-ом вида схемы (app/domain_types); action/origin —
+    # строки плана, их значения проставляет строитель плана (build_docs_plan /
+    # parse_manifest) из того же набора, что Literal схемы, а сверяет Pydantic.
     return DocsImportReport(
         logic=[
             DocsLogicItem(
                 node_path=a.node_path,
                 source=a.source,
                 name=a.name,
-                kind=cast(NodeDocKind, a.kind),
+                kind=a.kind,
                 operation=a.operation,
-                action=cast(DocsAction, a.action),
+                action=a.action,
                 mermaid=a.mermaid,
             )
             for a in plan.logic
@@ -256,8 +251,8 @@ def _report(plan: DocsPlan) -> DocsImportReport:
             DocsSpecItem(
                 node_path=s.node_path,
                 source=s.source,
-                origin=cast("SpecOrigin | None", s.origin),
-                action=cast(DocsAction, s.action),
+                origin=s.origin,
+                action=s.action,
                 valid_yaml=s.valid_yaml,
                 looks_openapi=s.looks_openapi,
                 oas_version=s.oas_version,

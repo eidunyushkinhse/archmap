@@ -33,6 +33,7 @@ from app.data_refs import (
     parse_data_refs,
     resolve_data_refs,
 )
+from app.domain_types import NodeDocKind
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -49,7 +50,7 @@ _ORIGINS = ("found", "generated", "synthesized")
 @dataclass
 class LogicIn:
     name: str
-    kind: str
+    kind: NodeDocKind
     operation: str | None
     mermaid: str
 
@@ -81,7 +82,7 @@ class MmdOverride:
     """Правка строки превью пользователем: что он исправил руками перед записью."""
 
     name: str | None = None
-    kind: str | None = None
+    kind: NodeDocKind | None = None
     node: str | None = None
 
 
@@ -168,7 +169,7 @@ class LogicAction:
     # (правка едет обратно полем overrides — файла-описи больше нет).
     source: str
     name: str
-    kind: str
+    kind: NodeDocKind
     operation: str | None
     mermaid: str
     action: str  # create | overwrite | skip | unchanged

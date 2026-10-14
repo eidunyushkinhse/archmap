@@ -5,6 +5,7 @@ from sqlalchemy import ForeignKey, Index, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.domain_types import FragmentKind
 
 if TYPE_CHECKING:
     # Только для типов: связь резолвится реестром SQLAlchemy по строке в рантайме.
@@ -25,7 +26,7 @@ class ProcessFragment(Base):
         Uuid, ForeignKey("business_processes.id", ondelete="CASCADE"), nullable=False, index=True
     )
     # Вид фрагмента: "alt" | "opt" | "loop" | "par"
-    kind: Mapped[str] = mapped_column(String(8), nullable=False)
+    kind: Mapped[FragmentKind] = mapped_column(String(8), nullable=False)
     # Диапазон охваченных сообщений (по order)
     from_order: Mapped[int] = mapped_column(Integer, nullable=False)
     to_order: Mapped[int] = mapped_column(Integer, nullable=False)

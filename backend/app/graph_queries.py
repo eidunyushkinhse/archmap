@@ -10,7 +10,6 @@ expand/collapse-состояния, известного только ему.
 
 import uuid
 from collections import Counter
-from typing import cast
 
 from sqlalchemy.orm import Session
 
@@ -22,9 +21,6 @@ from app.schemas.node import (
     GhostNodeResponse,
     GraphEdgeResponse,
     GraphResponse,
-    NodeResponse,
-    NodeShape,
-    NodeStatus,
     ViewLayoutPayload,
 )
 
@@ -91,8 +87,8 @@ def ghost_registry(
             is_external=all_nodes[nid].is_external,
             # shape/status — str в ORM-модели, но значение всегда из домена Literal
             # (контролируется схемой NodeCreate/NodeUpdate): безопасный cast.
-            shape=cast(NodeShape, all_nodes[nid].shape),
-            status=cast(NodeStatus, all_nodes[nid].status),
+            shape=all_nodes[nid].shape,
+            status=all_nodes[nid].status,
             node_depth=tree.node_depth(all_nodes, nid),
             has_children=child_counts.get(nid, 0) > 0,
             child_count=child_counts.get(nid, 0),
@@ -169,7 +165,7 @@ def build_graph(
     # has_children проставлены выше) — на границе сериализации типизируем как
     # list[NodeResponse].
     return GraphResponse(
-        nodes=cast(list[NodeResponse], local_nodes),
+        nodes=local_nodes,
         edges=result_edges,
         endpoints=endpoints,
         layout=layout,

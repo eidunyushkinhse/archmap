@@ -28,7 +28,7 @@ from difflib import SequenceMatcher
 import yaml
 from sqlalchemy.orm import Session
 
-from app.domain_types import NODE_SHAPES, NODE_STATUSES
+from app.domain_types import NODE_SHAPES, NODE_STATUSES, NodeShape, NodeStatus, pick
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
@@ -47,8 +47,8 @@ _STATUSES = NODE_STATUSES
 @dataclass
 class _ImpNode:
     name: str
-    shape: str
-    status: str
+    shape: NodeShape
+    status: NodeStatus
     role: str | None
     technology: str | None
     is_external: bool
@@ -331,13 +331,15 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             overflow = True
             return
 
-        shape = raw.get("shape", "service")
-        if shape not in _SHAPES:
-            errors.append(f"{path}: shape {shape!r} не поддерживается ({' | '.join(_SHAPES)})")
+        raw_shape = raw.get("shape", "service")
+        shape = pick(raw_shape, _SHAPES)
+        if shape is None:
+            errors.append(f"{path}: shape {raw_shape!r} не поддерживается ({' | '.join(_SHAPES)})")
             shape = "service"
-        status = raw.get("status", "existing")
-        if status not in _STATUSES:
-            errors.append(f"{path}: status {status!r} не поддерживается ({' | '.join(_STATUSES)})")
+        raw_status = raw.get("status", "existing")
+        status = pick(raw_status, _STATUSES)
+        if status is None:
+            errors.append(f"{path}: status {raw_status!r} не поддерживается ({' | '.join(_STATUSES)})")
             status = "existing"
         ext = raw.get("external", False)
         if not isinstance(ext, bool):

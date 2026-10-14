@@ -5,6 +5,7 @@ from sqlalchemy import ForeignKey, Integer, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.domain_types import MessageLeg
 
 if TYPE_CHECKING:
     # Только для типов: связь резолвится реестром SQLAlchemy по строке в рантайме.
@@ -34,7 +35,7 @@ class ProcessMessage(Base):
         Uuid, ForeignKey("edges.id", ondelete="SET NULL"), nullable=True, index=True
     )
     # Плечо канала: "forward" (вызов) | "return" (ответ)
-    leg: Mapped[str] = mapped_column(String(8), nullable=False)
+    leg: Mapped[MessageLeg] = mapped_column(String(8), nullable=False)
     # Спроецированные отправитель/получатель (участники процесса)
     from_participant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("process_participants.id", ondelete="CASCADE"), nullable=False, index=True

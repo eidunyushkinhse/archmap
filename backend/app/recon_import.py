@@ -18,7 +18,6 @@
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import cast
 
 import yaml
 from sqlalchemy.orm import Session
@@ -538,7 +537,7 @@ def build_recon_plan(
         plan.report.items.append(
             ReconItem(
                 name=d.name,
-                kind=cast(NodeDocKind, d.kind),
+                kind=d.kind,
                 operation=d.operation,
                 action="vanished",
             )
