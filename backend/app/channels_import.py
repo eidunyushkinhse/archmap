@@ -30,12 +30,12 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _closest_name
 from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
 from app.models.node import Node
+from app.name_match import closest_name
 from app.node_ref import NodeIndex
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
@@ -609,12 +609,12 @@ def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[No
                 # уже говорит эвристика адресации (Ф7б), второй строкой не дублируем.
                 continue
             # Подсказка — ТА ЖЕ эвристика, что чинит пометки в превью доков (Ф8б,
-            # _closest_name: суффикс впереди difflib, порог 0.5): своя копия
+            # closest_name: суффикс впереди difflib, порог 0.5): своя копия
             # разъехалась бы с ней на первой правке порога. Кандидаты — имена, которые
             # брокер знает, в обеих формах послабления: голое и «группа.канал».
             candidates = [n for _g, n in known[broker_id]]
             candidates += [f"{g}.{n}" for g, n in known[broker_id] if g]
-            hint = _closest_name(named, candidates)
+            hint = closest_name(named, candidates)
             похоже = f" (похоже на «{hint}»)" if hint else ""
             found.append(
                 f"связь «{name_by_id.get(e.source_id, '?')} → "

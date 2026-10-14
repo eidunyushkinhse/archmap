@@ -13,14 +13,11 @@ Mermaid здесь НЕ валидируется (валидатора на бэ
 openapi/paths, серверное зеркало docValidate) — warnings, не блокеры.
 """
 
-import re
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from difflib import SequenceMatcher
 from typing import NamedTuple
 
-import yaml
 from sqlalchemy.orm import Session, selectinload
 
 from app import tree
@@ -34,134 +31,25 @@ from app.data_refs import (
     parse_data_refs,
     resolve_data_refs,
 )
+from app.docs_pkg import (
+    MmdOverride,
+    ParsedPkg,
+    PkgEntry,
+    pkg_from_mmd,
+    pkg_from_spec,
+    spec_check,
+)
 from app.domain_types import NodeDocKind
-from app.mmd_header import fix_unpaired_brackets, looks_like_mermaid, parse_mmd_header
+from app.mmd_header import looks_like_mermaid
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.name_match import closest_name
 from app.node_ref import NodeIndex, qualified_node_hits
 from app.schemas.docs_import import DocsOnly
-from app.text import loose_name
 
 # Кап предупреждений о нерезолвящихся пометках данных на весь план: замечания
 # уезжают агенту ОДНИМ списком, и сотня строк одного класса вытеснит остальное.
 MAX_DATA_REF_WARNINGS = 12
-
-_ORIGINS = ("found", "generated", "synthesized")
-
-
-@dataclass
-class LogicIn:
-    name: str
-    kind: NodeDocKind
-    operation: str | None
-    mermaid: str
-
-
-@dataclass
-class OpenapiIn:
-    # Имя файла спеки среди загруженных. Инлайн-спеки не бывает: спека приезжает
-    # файлом (её копирует инструмент агента, а не перепечатывает модель).
-    file: str
-    origin: str | None  # None — происхождение не указано (warning в плане)
-
-
-@dataclass
-class PkgEntry:
-    # None — «объект, из окна которого открыта дозаливка»: так адресуют себя
-    # файлы .mmd без строки «%% archmap-node».
-    node_ref: str | None
-    logic: list[LogicIn]
-    openapi: OpenapiIn | None
-
-
-@dataclass
-class ParsedPkg:
-    entries: list[PkgEntry]
-
-
-@dataclass
-class MmdOverride:
-    """Правка строки превью пользователем: что он исправил руками перед записью."""
-
-    name: str | None = None
-    kind: NodeDocKind | None = None
-    node: str | None = None
-
-
-def _is_stub(doc: NodeDoc) -> bool:
-    """Схема — ЗАГЛУШКА разведки: тело пусто (docs/plan-recon.md, §5).
-
-    «Пусто» — по strip(), ровно как считают признак «описана» (NodeDoc.described,
-    выражение в БД) и резолвер пометок: схема из одних пробелов документацией не
-    становится, и три места обязаны понимать пустоту одинаково.
-    """
-    return not doc.content.strip()
-
-
-def _name_from_file(fname: str) -> str:
-    """Имя схемы из имени файла: «orders-create.mmd» → «orders-create»."""
-    stem = fname.rsplit("/", 1)[-1]
-    for ext in (".mmd", ".mermaid", ".txt"):
-        if stem.lower().endswith(ext):
-            return stem[: -len(ext)] or stem
-    return stem
-
-
-_ORIGIN_COMMENT_RE = re.compile(r"^[#/ ]*archmap-origin:[ \t]*(\w+)[ \t]*$", re.MULTILINE)
-
-
-def pkg_from_spec(fname: str, content: str) -> ParsedPkg:
-    """Голый файл спеки → «манифест» из одной записи для объекта окна.
-
-    Окно спеки открыто ДЛЯ узла, спека у него одна — конверт-манифест здесь не
-    нёс ничего, кроме происхождения; его агент пишет комментарием в первых
-    строках самой спеки («# archmap-origin: generated»)."""
-    match = _ORIGIN_COMMENT_RE.search(content[:2000])
-    origin = match.group(1) if match and match.group(1) in _ORIGINS else None
-    return ParsedPkg(
-        entries=[
-            PkgEntry(
-                node_ref=None,
-                logic=[],
-                openapi=OpenapiIn(file=fname, origin=origin),
-            )
-        ]
-    )
-
-
-def pkg_from_mmd(
-    fname: str,
-    content: str,
-    override: MmdOverride | None = None,
-) -> tuple[ParsedPkg, list[str]]:
-    """Файл .mmd → «манифест» из одной схемы. (манифест, замечания).
-
-    Так весь дальнейший конвейер (резолв узла, конфликты слотов, действия
-    create/overwrite/skip) переиспользуется без изменений.
-
-    Чем закрываем пропуски в шапке: имя — именем файла, вид — «операция», адрес —
-    объектом окна. Ничего не блокирует импорт: слабая модель шапку забудет, а
-    поправить имя и вид пользователь сможет прямо в превью (override).
-
-    Содержимое сохраняем ЦЕЛИКОМ, вместе с шапкой: mermaid её игнорирует, зато
-    метаданные не теряются при обратной выгрузке, а повторная заливка того же
-    файла остаётся идемпотентной.
-    """
-    header = parse_mmd_header(content)
-    notes = [f"{fname}: {p}" for p in header.problems]
-    content, fixed = fix_unpaired_brackets(content)
-    if fixed:
-        notes.append(f"{fname}: исправлено фигур с непарной скобкой («{{…]» или «[…}}»): {fixed}")
-    name = (override.name if override and override.name else None) or header.name or _name_from_file(fname)
-    kind = (override.kind if override and override.kind else None) or header.kind or "operation"
-    node_ref = (override.node if override and override.node else None) or header.node
-    entry = PkgEntry(
-        node_ref=node_ref,
-        logic=[LogicIn(name=name, kind=kind, operation=header.operation, mermaid=content)],
-        openapi=None,
-    )
-    return ParsedPkg(entries=[entry]), notes
-
 
 @dataclass
 class LogicAction:
@@ -203,20 +91,6 @@ class DocsPlan:
     # агента и поймать ампутацию — находка №2 docs/qa-sentry-brokers.md.
     data_refs_total: int = 0
     channel_refs_total: int = 0
-
-
-
-def spec_check(content: str) -> tuple[bool, bool, str | None]:
-    """(валидный YAML, похоже на OpenAPI, версия OAS) — серверное зеркало docValidate."""
-    try:
-        doc = yaml.safe_load(content)
-    except yaml.YAMLError:
-        return False, False, None
-    if not isinstance(doc, dict):
-        return True, False, None
-    ver = doc.get("openapi") or doc.get("swagger")
-    looks = ver is not None and isinstance(doc.get("paths"), dict)
-    return True, looks, str(ver) if looks else None
 
 
 # Сколько адресов перечислять в замечании. Кап нужен: на монолите узлов бывают
@@ -274,6 +148,16 @@ def _resolve_entry(
     return idx
 
 
+def _is_stub(doc: NodeDoc) -> bool:
+    """Схема — ЗАГЛУШКА разведки: тело пусто (docs/plan-recon.md, §5).
+
+    «Пусто» — по strip(), ровно как считают признак «описана» (NodeDoc.described,
+    выражение в БД) и резолвер пометок: схема из одних пробелов документацией не
+    становится, и три места обязаны понимать пустоту одинаково.
+    """
+    return not doc.content.strip()
+
+
 _DATA_REF_PROBLEM: dict[str, str] = {
     "unknown_table": "таблица не найдена в структуре проекта",
     "ambiguous": "имя неоднозначно, укажите «Узел-БД / таблица»",
@@ -288,82 +172,6 @@ _DATA_REF_PROBLEM: dict[str, str] = {
 }
 # «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
 _AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
-
-# Порог похожести для подсказки «похоже на …». НИЖЕ НЕ ОПУСКАТЬ: ложная подсказка
-# хуже её отсутствия — слабая модель копирует предложенное имя не глядя, и вместо
-# битой пометки получается пометка, битая по-другому. Полевая валидация Ф8 показала
-# это буквально: по подсказкам-мусору модель «починила» три пометки в СЕМАНТИЧЕСКИ
-# ДРУГИЕ таблицы, а сильные подсказки того же круга исполнила верно.
-_HINT_CUTOFF = 0.75
-# Суффиксным матчем короткие хвосты не проверяем: «id» есть в конце половины имён.
-_HINT_MIN_TAIL = 3
-# Сколько символов ВСЕГО (на обе строки) может не совпасть у «того же имени, записанного
-# иначе». Одной похожести мало: у таблиц одного приложения общий длинный префикс, и
-# difflib даёт «sentry_projectoptions» ↔ «sentry_projectcodeowners» целых 0.79 при
-# девяти несовпавших символах — это РАЗНЫЕ таблицы. У настоящих же кандидатов расхождение
-# АБСОЛЮТНО мелкое: разделитель, окончание, опечатка (0–3 символа).
-_HINT_MAX_DIFF = 3
-# Разделители, которыми одно и то же имя пишут по-разному: «...member_teams» против
-# «...memberteam», «task-worker» против «taskworker».
-
-
-def _tiny_diff(ref: str, cand: str) -> float | None:
-    """Похожесть, если имена расходятся ТОЛЬКО мелочью, иначе None.
-
-    Два условия, и второе главное: похожесть выше порога И абсолютное расхождение не
-    больше _HINT_MAX_DIFF символов. Порога одного недостаточно — соседи по префиксу
-    приложения набирают 0.75+ на общем начале, ничего общего не имея по смыслу.
-    """
-    m = SequenceMatcher(None, ref, cand)
-    ratio = m.ratio()
-    if ratio < _HINT_CUTOFF:
-        return None
-    matched = sum(block.size for block in m.get_matching_blocks())
-    if (len(ref) - matched) + (len(cand) - matched) > _HINT_MAX_DIFF:
-        return None
-    return ratio
-
-
-def _closest_name(tail: str, names: Iterable[str]) -> str | None:
-    """Ближайшее описанное имя к хвосту битой ссылки — или None.
-
-    Сначала СУФФИКС: «messages» → «app_message». Разрыв «имя ORM-класса против имени
-    таблицы» почти всегда состоит из префикса приложения и числа (находка №1
-    docs/qa-zulip-brokers.md), а difflib на нём слабеет тем сильнее, чем длиннее
-    префикс: «queues» против «background_jobs_queue» — 0.37, ниже порога. Сравниваем
-    имена БЕЗ РАЗДЕЛИТЕЛЕЙ, иначе «user_profile» не узнаёт себя в «zerver_userprofile».
-
-    difflib идёт добором и только на мелких расхождениях (_tiny_diff): опечатка,
-    окончание, разделитель. Подсказка ОДНА и только уверенная — не нашли уверенного
-    кандидата, замечание остаётся как было.
-    """
-    by_low: dict[str, str] = {}
-    for name in names:
-        if name != tail:  # точное совпадение чинить нечем — там дело не в имени
-            by_low.setdefault(name.lower(), name)
-    if not by_low:
-        return None
-    norm = loose_name(tail)
-    # Единственное и множественное: агент пишет имя таблицы во множественном
-    # («messages»), а в DDL она в единственном («app_message»), и наоборот.
-    variants = [
-        v for v in (norm, norm[:-1] if norm.endswith("s") else "") if len(v) >= _HINT_MIN_TAIL
-    ]
-    hits = [
-        orig for cand, orig in by_low.items() if any(loose_name(cand).endswith(v) for v in variants)
-    ]
-    if hits:
-        return min(hits, key=lambda n: (-SequenceMatcher(None, norm, loose_name(n)).ratio(), n))
-    by_norm: dict[str, str] = {}
-    for cand, orig in by_low.items():
-        by_norm.setdefault(loose_name(cand), orig)
-    best: tuple[float, str] | None = None
-    for cand in sorted(by_norm):  # порядок каталога произволен — выбор должен быть один
-        ratio = _tiny_diff(norm, cand)
-        if ratio is not None and (best is None or ratio > best[0]):
-            best = (ratio, cand)
-    return by_norm[best[1]] if best is not None else None
-
 
 class _DataRefCheck:
     """Резолв пометок «читает:/пишет:» и «публикует:/потребляет:» в текстах пакета —
@@ -456,7 +264,7 @@ class _DataRefCheck:
             names = list(owner_params)
             tails = [bare]
         for tail in dict.fromkeys(t for t in tails if t):
-            hit = _closest_name(tail, names)
+            hit = closest_name(tail, names)
             if hit is not None:
                 return hit
         return None

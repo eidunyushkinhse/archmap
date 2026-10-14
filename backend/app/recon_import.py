@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
-from app.docs_import import spec_check
+from app.docs_pkg import spec_check
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
