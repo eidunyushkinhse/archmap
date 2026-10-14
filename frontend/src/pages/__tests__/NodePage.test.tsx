@@ -162,6 +162,28 @@ describe("NodePage", () => {
     return render(<NodePage nodeId="n1" isArchitect {...nav} />);
   }
 
+  // Аудит R-2: load без catch — 404/403/сеть оставляли «Загрузку…» навсегда.
+  it("узел не найден: экран с причиной, «Повторить» грузит заново, «К проекту» уводит", async () => {
+    vi.mocked(nodesApi.get).mockRejectedValueOnce(new ApiError(404, "Узел не найден")).mockResolvedValue(node("n1"));
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("n1")]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(<NodePage nodeId="n1" isArchitect {...nav} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Не удалось загрузить объект");
+    expect(alert).toHaveTextContent("возможно, объект удалили");
+
+    await userEvent.click(within(alert).getByRole("button", { name: "К проекту" }));
+    expect(nav.onNavigateProject).toHaveBeenCalled();
+
+    await userEvent.click(within(alert).getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(nodesApi.get).toHaveBeenCalledTimes(2);
+  });
+
   it("загружает узел и рендерит имя в шапке (инлайн-инпут)", async () => {
     setup();
     await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());

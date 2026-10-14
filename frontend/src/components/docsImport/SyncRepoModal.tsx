@@ -29,6 +29,7 @@ import { labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyText } from "../../lib/copyText";
 
 interface Props {
   projectId: string;
@@ -154,12 +155,12 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   // (решение пользователя 2026-08-16): синк и создание обязаны просить одно и то же,
   // иначе прогон синка предложит план по более дробной схеме, чем построенная.
   const copyPrompt = (variant: PromptVariant): Promise<void> =>
-    projectsApi
+    copyText(projectsApi
       .importPrompt({
         systemName: projectName, depth: 2, lang,
         hints: hints.trim() || undefined, variant,
       })
-      .then((r) => navigator.clipboard.writeText(r.prompt));
+      .then((r) => r.prompt));
 
   const apply = () => {
     if (!preview?.ok || preview.is_noop) return;

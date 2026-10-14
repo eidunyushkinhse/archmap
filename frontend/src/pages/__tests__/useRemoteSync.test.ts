@@ -7,6 +7,7 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useRemoteSync, POLL_MS } from "../useRemoteSync";
 import { viewsApi } from "../../api/nodes";
+import { isOffline, setOffline } from "../../lib/connection";
 
 vi.mock("../../api/nodes", () => ({ viewsApi: { state: vi.fn() } }));
 
@@ -23,6 +24,7 @@ describe("useRemoteSync", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+    setOffline(false);
   });
 
   function setup(over: {
@@ -55,6 +57,27 @@ describe("useRemoteSync", () => {
       await vi.advanceTimersByTimeAsync(ms);
     });
   }
+
+  // Аудит R-24: раньше отказы молча повторялись раз в 10 с из каждой вкладки.
+  it("отказы связи: интервал удваивается, после двух подряд — «нет связи», удача гасит", async () => {
+    vi.mocked(viewsApi.state).mockRejectedValue(new TypeError("Failed to fetch"));
+    setup();
+    await tick(); // 1-й отказ, следующий — через 2×POLL_MS
+    expect(viewsApi.state).toHaveBeenCalledTimes(1);
+    expect(isOffline()).toBe(false);
+    await tick(POLL_MS);
+    expect(viewsApi.state).toHaveBeenCalledTimes(1);
+    await tick(POLL_MS); // 2-й отказ — плашка, дальше 4×POLL_MS
+    expect(viewsApi.state).toHaveBeenCalledTimes(2);
+    expect(isOffline()).toBe(true);
+
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 0, meta_rev: 0, process_rev: 0 });
+    await tick(POLL_MS * 4);
+    expect(viewsApi.state).toHaveBeenCalledTimes(3);
+    expect(isOffline()).toBe(false);
+    await tick(); // после удачи — снова обычный интервал
+    expect(viewsApi.state).toHaveBeenCalledTimes(4);
+  });
 
   it("поллит по интервалу: курсор вырос → onRemoteChange", async () => {
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0, process_rev: 0 });

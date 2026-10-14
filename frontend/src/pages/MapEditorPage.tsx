@@ -31,7 +31,7 @@ import type {
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
 } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
-import { useToast } from "./useToast";
+import { useMessageToast, useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
@@ -49,6 +49,9 @@ import DemoLimitToast from "../components/demo/DemoLimitToast";
 import { useDemoLimitToast } from "../components/demo/useDemoLimitToast";
 import type { LimitAction } from "../components/demo/demoLimits";
 import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../components/tour/tourBus";
+import LoadError from "../ui/LoadError";
+import { loadErrorText } from "../ui/loadErrorText";
+import { safeSession } from "../lib/safeStorage";
 
 interface Props {
   projectId: string;
@@ -76,7 +79,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [viewLayout, setViewLayout] = useState<ViewLayout>({});
   const [edges, setEdges] = useState<LevelEdge[]>([]);
   const [breadcrumb, setBreadcrumb] = useState<AncestorRef[]>([]);
-  const [loading, setLoading] = useState(false);
+  // С заглушки: до первичной загрузки холст не монтируется пустым (иначе он вставал с
+  // пустыми данными, снимался заглушкой и монтировался снова).
+  const [loading, setLoading] = useState(true);
+  // Отказ загрузки уровня (переход, первичная загрузка): вместо холста — причина и
+  // «Повторить» (аудит R-9, R-10). Фоновые отказы не показываются: на экране остаётся
+  // последняя удачная версия, поллинг догонит.
+  // Повтор хранится описанием, а не замыканием: load и переходы не ссылаются сами на себя.
+  const [loadError, setLoadError] = useState<{
+    error: unknown;
+    retry: { kind: "initial" } | { kind: "level"; level: string | null } | { kind: "navigate"; level: string };
+  } | null>(null);
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
@@ -118,6 +131,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [edgeLabelsHidden, setEdgeLabelsHidden] = useState(readEdgeLabelsHidden);
   useEffect(() => { writeEdgeLabelsHidden(edgeLabelsHidden); }, [edgeLabelsHidden]);
   const [remoteToast, showRemoteToast] = useToast();
+  // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
+  const [errorToast, showErrorToast] = useMessageToast();
 
   const history = useHistory();
   // Право правки — роль в проекте (owner/editor), не глобальная роль.
@@ -126,6 +141,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const currentParentId = currentParent?.id ?? null;
 
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
+  // Номер последнего начатого чтения уровня и признак «идёт переход» (см. load).
+  const loadSeqRef = useRef(0);
+  const awaitingLevelRef = useRef(false);
   const gestureActiveRef = useRef(false);
   const layoutRetrySeq = useRef(0);
   const [layoutRetry, setLayoutRetry] = useState<{
@@ -150,43 +168,87 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // (создание/удаление/правка узлов и связей, remote-sync-эхо, ресинк 409, доки от
   // агента). foreground: true — заглушка «Загрузка…» (первичная загрузка и навигация
   // между уровнями, где холст всё равно сбрасывается на новый containerId).
-  async function load(parentId: string | null, opts?: { foreground?: boolean }): Promise<Node[]> {
-    if (opts?.foreground) setLoading(true);
-    setLayoutRetry(null);
-    try {
-      const graph = await nodesApi.getGraph(parentId);
-      viewMetaRef.current = { version: graph.version, graphRev: graph.graph_rev };
-      setNodes(graph.nodes);
-      setEndpoints(graph.endpoints);
-      setViewLayout(graph.layout ?? {});
-      setEdges(toLevelEdges(graph));
-      setProjectHasStatuses(graph.has_status_info);
-      setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
-      reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
-      // Обучающий тур демо-стенда: показан слой (вход внутрь, возврат наверх).
-      emitTourEvent({ type: "level", levelId: parentId });
-      return graph.nodes;
-    } finally {
-      if (opts?.foreground) setLoading(false);
+  //
+  // Номер прогона (аудит R-9): применяется только ответ ПОСЛЕДНЕГО начатого чтения —
+  // иначе фоновый тик, ответивший позже перехода, подкладывал корень под крошки
+  // контейнера. Переход перебивает всё; фоновое чтение во время перехода не начинается
+  // (переход и так принесёт свежее), иначе тик со старым currentParentId перебил бы его.
+  // undefined — ответ не применён (устарел или отказ).
+  async function load(parentId: string | null, opts?: { foreground?: boolean }): Promise<Node[] | undefined> {
+    if (!opts?.foreground && awaitingLevelRef.current) return undefined;
+    const seq = ++loadSeqRef.current;
+    if (opts?.foreground) {
+      awaitingLevelRef.current = true;
+      setLoading(true);
+      setLoadError(null);
     }
+    setLayoutRetry(null);
+    let graph: Awaited<ReturnType<typeof nodesApi.getGraph>>;
+    try {
+      graph = await nodesApi.getGraph(parentId);
+    } catch (e) {
+      if (seq !== loadSeqRef.current) return undefined;
+      if (opts?.foreground) {
+        awaitingLevelRef.current = false;
+        setLoading(false);
+        setLoadError({ error: e, retry: { kind: "level", level: parentId } });
+      }
+      return undefined;
+    }
+    if (seq !== loadSeqRef.current) return undefined;
+    viewMetaRef.current = { version: graph.version, graphRev: graph.graph_rev };
+    setNodes(graph.nodes);
+    setEndpoints(graph.endpoints);
+    setViewLayout(graph.layout ?? {});
+    setEdges(toLevelEdges(graph));
+    setProjectHasStatuses(graph.has_status_info);
+    setChildrenRev((r) => r + 1); // кэш детей раскрытых рамок протух — перечитать
+    reloadAlerts(); // алерты глобальные — освежаем при каждой загрузке/мутации уровня
+    // Обучающий тур демо-стенда: показан слой (вход внутрь, возврат наверх).
+    emitTourEvent({ type: "level", levelId: parentId });
+    if (opts?.foreground) {
+      awaitingLevelRef.current = false;
+      setLoading(false);
+    }
+    return graph.nodes;
+  }
+
+  // Путь к уровню для крошек (сам уровень — последним). Отказ чтения — экран ошибки с
+  // повтором того же действия, а не тихо оставшийся прежний уровень.
+  async function breadcrumbTo(
+    level: string,
+    retry: { kind: "initial" } | { kind: "navigate"; level: string },
+  ): Promise<AncestorRef[] | undefined> {
+    let all: Node[];
+    try {
+      all = await nodesApi.getAll();
+    } catch (e) {
+      setLoading(false);
+      setLoadError({ error: e, retry });
+      return undefined;
+    }
+    const byId = new Map(all.map((n) => [n.id, n]));
+    const path: AncestorRef[] = [];
+    let cur: Node | undefined = byId.get(level);
+    while (cur) {
+      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
+      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    }
+    return path;
   }
 
   // Начальная загрузка: breadcrumb по nodeId + граф уровня
+  async function openInitial(): Promise<void> {
+    if (nodeId) {
+      const path = await breadcrumbTo(nodeId, { kind: "initial" });
+      if (path === undefined) return;
+      setBreadcrumb(path);
+    }
+    await load(nodeId, { foreground: true });
+  }
   useEffect(() => {
-    (async () => {
-      if (nodeId) {
-        const all = await nodesApi.getAll();
-        const byId = new Map(all.map((n) => [n.id, n]));
-        const path: AncestorRef[] = [];
-        let cur = byId.get(nodeId);
-        while (cur) {
-          path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-          cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-        }
-        setBreadcrumb(path);
-      }
-      await load(nodeId, { foreground: true });
-    })();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- первичная загрузка: заглушка «Загрузка…» ставится в том же прогоне, что и запрос уровня (прежде то же самое пряталось в async IIFE)
+    void openInitial();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -233,16 +295,21 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     if (level === currentParentId) return;
     setSelectedObject(null);
     if (level === null) { setBreadcrumb([]); return load(null, { foreground: true }); }
-    const all = await nodesApi.getAll();
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const path: AncestorRef[] = [];
-    let cur: Node | undefined = byId.get(level);
-    while (cur) {
-      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
+    setLoadError(null);
+    const path = await breadcrumbTo(level, { kind: "navigate", level });
+    if (path === undefined) return undefined;
     setBreadcrumb(path);
     return load(level, { foreground: true });
+  }
+
+  // «Повторить» на экране отказа: то же действие, что не удалось.
+  function retryLoad() {
+    const retry = loadError?.retry;
+    if (!retry) return;
+    setLoadError(null);
+    if (retry.kind === "initial") void openInitial();
+    else if (retry.kind === "navigate") void navigateToLevel(retry.level);
+    else void load(retry.level, { foreground: true });
   }
 
   // Обучающий тур демо-стенда: «Продолжить обучение» после паузы просит вернуть слой,
@@ -303,7 +370,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // кладёт цель для карты), а уходим обычным закрытием редактора — туда же, куда
   // ведёт «Готово».
   function openProcess(processId: string) {
-    sessionStorage.setItem(PENDING_PROCESS_KEY, processId);
+    safeSession.setItem(PENDING_PROCESS_KEY, processId);
     onDone();
   }
 
@@ -311,9 +378,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // загрузки алертов (нужны концы связей), затем ключ очищается.
   useEffect(() => {
     if (!alertsLoaded) return;
-    const raw = sessionStorage.getItem(PENDING_ALERT_LOCATE_KEY);
+    const raw = safeSession.getItem(PENDING_ALERT_LOCATE_KEY);
     if (!raw) return;
-    sessionStorage.removeItem(PENDING_ALERT_LOCATE_KEY);
+    safeSession.removeItem(PENDING_ALERT_LOCATE_KEY);
     try {
       void handleLocate(JSON.parse(raw) as LocateTarget);
     } catch { /* повреждённые данные цели — игнорируем */ }
@@ -426,8 +493,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
-    const snapshot = await nodesApi.moveSnapshot(node.id);
-    await nodesApi.update(node.id, { parent_id: newParentId });
+    let snapshot: Awaited<ReturnType<typeof nodesApi.moveSnapshot>>;
+    try {
+      snapshot = await nodesApi.moveSnapshot(node.id);
+      await nodesApi.update(node.id, { parent_id: newParentId });
+    } catch (e) {
+      // Перенос не прошёл (аудит R-14): раньше отказ уходил необработанным, человек не
+      // узнавал причину. Дерево перечитываем — объект на прежнем месте.
+      setTreeReload((t) => t + 1);
+      if (!showLimit(e, "save")) showErrorToast(`Не удалось перенести объект: ${loadErrorText(e)}`);
+      return;
+    }
     setTreeReload((t) => t + 1);
     load(levelAtMove);
     noteMutation();
@@ -822,10 +898,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             )}
             {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
+            {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
           </div>
           <DemoLimitToast message={limitToast} />
           {loading ? (
             <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
+          ) : loadError ? (
+            <LoadError what="уровень схемы" error={loadError.error} onRetry={retryLoad}
+              onBack={onDone} backLabel="Закрыть редактор" />
           ) : (
             <LevelGraph
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
@@ -965,5 +1045,6 @@ const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", j
 // Рейл тостов холста (правый верхний угол): колонка, прозрачна для мыши —
 // интерактивны только вложенные кнопка/панель рекомендаций и тост (у них pointerEvents auto).
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
+const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

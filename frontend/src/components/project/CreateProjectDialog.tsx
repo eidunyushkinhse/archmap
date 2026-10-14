@@ -15,6 +15,7 @@ import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./rema
 import type { Answer, Answers } from "./remainder";
 import "./createProject.css";
 import { noAutofill } from "../../ui/noAutofill";
+import { CopyFailed, copyText } from "../../lib/copyText";
 
 /**
  * Создание проекта — двухпанельное окно: слева способ старта (Пустой / Копия /
@@ -206,7 +207,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   // разрешению обещания — ошибку пробрасываем, чтобы её не показал.
   function copyPrompt(variant: PromptVariant): Promise<void> {
     setPromptBusy(true);
-    return projectsApi
+    return copyText(projectsApi
       .importPrompt({
         systemName: name.trim(),
         // Глубина у агента всегда просится одна — два слоя (решение пользователя
@@ -216,9 +217,11 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         hints: promptHints.trim() || undefined,
         variant,
       })
-      .then((res) => navigator.clipboard.writeText(res.prompt))
+      .then((res) => res.prompt))
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : "Не удалось скопировать промпт");
+        // CopyFailed (буфер недоступен) — кнопка сама покажет текст для ручного
+        // копирования; ошибкой окна показываем только отказ запроса промпта.
+        if (!(e instanceof CopyFailed)) setError(e instanceof Error ? e.message : "Не удалось скопировать промпт");
         throw e;
       })
       .finally(() => setPromptBusy(false));

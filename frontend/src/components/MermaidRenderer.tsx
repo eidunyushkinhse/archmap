@@ -3,8 +3,8 @@
 // vite build кладёт mermaid в отдельный чанк). Экспортирует статус парсинга для
 // статус-строки редактора DocOverlay; без onStatus ведёт себя как раньше
 // (текст ошибки в контейнер) — NodeModal не замечает разницы.
-import { useEffect, useId, useRef } from "react";
-import { loadMermaid, mermaidLoaded } from "./mermaidLoader";
+import { useEffect, useId, useRef, useState } from "react";
+import { isHeavyChart, loadMermaid, MermaidLoadError, mermaidLoaded } from "./mermaidLoader";
 
 // Статус парсинга для статус-строки редактора (Часть D ТЗ визуализации доков).
 export type MmdStatus =
@@ -42,8 +42,14 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
     onStatusRef.current = onStatus;
   });
   const firstRun = useRef(true);
+  // Тяжёлая схема (isHeavyChart) не рисуется сама — до «Показать всё равно» (аудит
+  // R-16). Согласие действует до конца жизни блока: живое превью не спрашивает на
+  // каждый символ.
+  const [forced, setForced] = useState(false);
+  const blocked = !forced && isHeavyChart(chart);
 
   useEffect(() => {
+    if (blocked) return;
     let cancelled = false;
     const run = async () => {
       if (!mermaidLoaded()) onStatusRef.current?.({ kind: "loading" });
@@ -65,14 +71,15 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
         if (cancelled) return;
         // Упавший render оставляет в body временный контейнер d{id} — подчищаем.
         document.getElementById("d" + id)?.remove();
+        const notLoaded = err instanceof MermaidLoadError;
         if (onStatusRef.current) {
           onStatusRef.current({
             kind: "error",
-            line: errorLine(err),
+            line: notLoaded ? undefined : errorLine(err),
             message: err instanceof Error ? err.message : String(err),
           });
         } else if (ref.current) {
-          ref.current.textContent = "Ошибка в синтаксисе диаграммы";
+          ref.current.textContent = notLoaded ? err.message : "Ошибка в синтаксисе диаграммы";
         }
       }
     };
@@ -87,7 +94,17 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [chart, id, debounceMs]);
+  }, [chart, id, debounceMs, blocked]);
 
+  if (blocked) {
+    return (
+      <div className="doc-pvnote" role="status">
+        Схема большая — отрисовка может занять время.{" "}
+        <button type="button" className="esb-edit" onClick={() => setForced(true)}>
+          Показать всё равно
+        </button>
+      </div>
+    );
+  }
   return <div ref={ref} />;
 }

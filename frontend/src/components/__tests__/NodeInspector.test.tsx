@@ -161,6 +161,16 @@ describe("NodeInspector: тогл размещения", () => {
     expect(outer.querySelector(".insp-switch")?.classList.contains("is-on")).toBe(false);
   });
 
+  it("отказ записи тогла — тогл возвращается, причина плашкой (аудит R-13)", async () => {
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, "Сервер отказал"));
+    setup(makeNode({ is_external: false }));
+    const toggle = screen.getByRole("button", { name: "Внутренний" });
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    await userEvent.click(toggle);
+    expect(await screen.findByText("Сервер отказал")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Внутренний" }).getAttribute("aria-pressed")).toBe("true");
+  });
+
   it("клик по тоглу переключает is_external, а не вид", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ is_external: true, version: 4 }));
     setup(makeNode({ is_external: false }));

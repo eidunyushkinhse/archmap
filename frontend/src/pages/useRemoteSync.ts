@@ -10,10 +10,17 @@
 import { useEffect, useRef } from "react";
 import { viewsApi } from "../api/nodes";
 import type { ViewMetaState } from "../components/graph/types";
+import { isConnectionError, setOffline } from "../lib/connection";
 
 export const POLL_MS = 10_000;
+// Откат при отказах связи (аудит R-24): интервал удваивается до POLL_MS × MAX_BACKOFF
+// (80 с) — лежащий сервер не долбят тиками раз в 10 с из каждой вкладки.
+export const MAX_BACKOFF = 8;
+// Столько отказов связи подряд — и горит плашка «нет связи» (один сбой — не повод).
+export const OFFLINE_AFTER = 2;
 
-export type RemoteSyncTick = "skipped" | "quiet" | "refetch" | "error";
+// "offline" — не достучались (сеть, 5xx); "error" — прочий отказ (архив, права).
+export type RemoteSyncTick = "skipped" | "quiet" | "refetch" | "error" | "offline";
 
 // Ядро одного тика — чистое (тестируется без таймеров/DOM): сходить за состоянием,
 // сравнить курсоры с известными, дёрнуть колбэки. Два курсора: graph_rev — схема
@@ -48,8 +55,9 @@ export function createRemoteSyncTick(deps: {
         tick = "refetch";
       }
       return tick;
-    } catch {
-      return "error"; // сеть/архив — молча, следующий тик попробует снова
+    } catch (e) {
+      // Следующий тик попробует снова; отказ связи хозяин считает для отката и плашки.
+      return isConnectionError(e) ? "offline" : "error";
     } finally {
       inflight = false;
     }
@@ -86,12 +94,31 @@ export function useRemoteSync(opts: {
       onRemoteChange: () => { if (!disposed) onChangeRef.current(); },
       onMetaChange: (rev) => { if (!disposed) onMetaRef.current?.(rev); },
     });
-    const id = window.setInterval(() => { void tick(); }, POLL_MS);
-    const onFocus = () => { void tick(); };
+    // Цепочка таймеров вместо setInterval: задержка следующего тика зависит от исхода
+    // предыдущего (откат при отказах связи).
+    let failures = 0;
+    let timer = 0;
+    const note = (result: RemoteSyncTick) => {
+      if (result === "skipped") return;
+      if (result === "offline") {
+        failures += 1;
+        if (failures >= OFFLINE_AFTER) setOffline(true);
+      } else {
+        failures = 0;
+        setOffline(false);
+      }
+    };
+    const loop = async () => {
+      note(await tick());
+      if (disposed) return;
+      timer = window.setTimeout(() => { void loop(); }, POLL_MS * Math.min(2 ** failures, MAX_BACKOFF));
+    };
+    timer = window.setTimeout(() => { void loop(); }, POLL_MS);
+    const onFocus = () => { void tick().then((r) => { if (!disposed) note(r); }); };
     window.addEventListener("focus", onFocus);
     return () => {
       disposed = true;
-      window.clearInterval(id);
+      window.clearTimeout(timer);
       window.removeEventListener("focus", onFocus);
     };
   }, [currentParentId, viewMeta, gestureActiveRef]);

@@ -28,6 +28,7 @@ import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyText, copyTextOrShow } from "../../lib/copyText";
 
 interface Props {
   // Объект, из окна которого открыта дозаливка: к нему уедут параметры без адреса.
@@ -81,7 +82,7 @@ export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) 
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА; «скопировано» по каждому из
   // трёх вариантов показывает PromptCopyButton по разрешению этого обещания.
   function copyPrompt(variant: PromptVariant): Promise<void> {
-    return configImportApi.prompt(variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
+    return copyText(configImportApi.prompt(variant).then(({ prompt }) => prompt));
   }
 
   const remarks = report === null ? [] : [...report.errors, ...report.warnings];
@@ -94,7 +95,7 @@ export default function ConfigAgentModal({ nodeId, onClose, onApplied }: Props) 
       "Исправь файлы и сообщи, какие изменились. Параметры чини по замечаниям, " +
       "а не удаляй из пакета:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyTextOrShow(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
       setAskedFor(pkg.files);

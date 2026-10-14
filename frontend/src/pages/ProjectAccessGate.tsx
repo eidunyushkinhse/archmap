@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { projectsApi } from "../api/projects";
 import type { ProjectRole } from "../types";
 import { ProjectRoleContext } from "./projectRole";
+import "./NodePage.css";
 
 interface Props {
   projectId: string;
@@ -27,6 +28,8 @@ export default function ProjectAccessGate({ projectId, children }: Props) {
     return () => { alive = false; };
   }, [projectId]);
 
-  if (role === undefined) return null;
+  // Пока роль грузится — та же заглушка, что у страниц: пустой экран между проектами
+  // выглядел как зависание (аудит R-27).
+  if (role === undefined) return <div className="np-loading">Загрузка…</div>;
   return <ProjectRoleContext.Provider value={role}>{children}</ProjectRoleContext.Provider>;
 }

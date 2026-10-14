@@ -10,7 +10,7 @@
 // Зависимости (RF/конвейер/хуки) замоканы через levelGraphHarness; тестируются
 // настоящие commitLayout/persistFenced из LevelGraphInner (через getCb).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { act, render } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import type { ViewLayoutPayload } from "../../types";
 import { ApiError } from "../../api/client";
 import LevelGraph from "../LevelGraph";
@@ -181,6 +181,24 @@ describe("LevelGraph orchestration: персист раскладки", () => {
 
     expect(onPersistConflict).not.toHaveBeenCalled();
     expect(props.persistence?.onPersistError).toHaveBeenCalledOnce();
+  });
+
+  // Аудит R-11: раньше отказ записи давал только console.error и ресинк — узлы молча
+  // прыгали назад, человек не понимал почему.
+  it("отказ записи — плашка на холсте, одна на серию; удачная запись её гасит", async () => {
+    await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: viewMeta() } });
+    apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new Error("network down"));
+    apiNodesMock.viewsApi.saveLayout.mockRejectedValueOnce(new Error("network down"));
+
+    getCb().commitLayout({ n1: { x: 10, y: 20 } });
+    await flushPersist();
+    getCb().commitLayout({ n1: { x: 30, y: 40 } });
+    await flushPersist();
+    expect(screen.getAllByRole("alert").filter((n) => n.textContent?.includes("Не удалось сохранить расположение"))).toHaveLength(1);
+
+    getCb().commitLayout({ n1: { x: 50, y: 60 } });
+    await flushPersist();
+    expect(screen.queryByText(/Не удалось сохранить расположение/)).toBeNull();
   });
 
   it("retryPatch переигрывает исходный патч (user) поверх зеркала", async () => {

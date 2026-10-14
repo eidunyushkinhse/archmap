@@ -20,6 +20,7 @@ import { ApiGlyph, DocAgentSteps, DocHead, EditMenu } from "./docChrome";
 import { limitMessage } from "../demo/demoLimits";
 import type { LimitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
+import { copyText } from "../../lib/copyText";
 
 export type DocStage = "view" | "manual" | "agent";
 
@@ -133,9 +134,9 @@ export default function OpenApiPane({
   }
 
   function copyPrompt(variant: PromptVariant): Promise<void> {
-    return docsImportApi
+    return copyText(docsImportApi
       .prompt({ nodeId, include: "api", lang: "ru", hints: "", variant })
-      .then(({ prompt }) => navigator.clipboard.writeText(prompt));
+      .then(({ prompt }) => prompt));
   }
 
   async function afterAgent() {

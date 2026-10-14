@@ -75,4 +75,29 @@ describe("useLevelSchema", () => {
     await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledWith("c1"));
     expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
   });
+
+  // Аудит R-10: ошибка загрузки раньше глоталась — страница видела «проект пуст».
+  it("отказ первичной загрузки: error с причиной, retry грузит заново", async () => {
+    vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    const { result } = renderHook(() => useLevelSchema({ containerId: null }));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.error).toBeInstanceOf(TypeError);
+    expect(result.current.nodes).toEqual([]);
+
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(makeGraph());
+    act(() => { result.current.retry(); });
+    await waitFor(() => expect(result.current.nodes).toHaveLength(1));
+    expect(result.current.error).toBeNull();
+  });
+
+  it("фоновый отказ — не ошибка: данные остаются, reload не отклоняется", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(makeGraph());
+    const { result } = renderHook(() => useLevelSchema({ containerId: null }));
+    await waitFor(() => expect(result.current.nodes).toHaveLength(1));
+
+    vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await act(async () => { await result.current.reload(); });
+    expect(result.current.error).toBeNull();
+    expect(result.current.nodes).toHaveLength(1);
+  });
 });

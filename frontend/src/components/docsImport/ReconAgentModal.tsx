@@ -30,6 +30,7 @@ import Modal from "../../ui/Modal";
 import { ChevronDownIcon, CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyText, copyTextOrShow } from "../../lib/copyText";
 
 // Группы превью — в порядке «что сделаем → что уже есть → расхождение». Подписи
 // русские и говорят действием, а не кодом: человек читает их, а не Literal бэка.
@@ -148,7 +149,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   // Запрос промпта + запись в буфер В ПРЕДЕЛАХ ЖЕСТА (иначе Chrome отбирает
   // разрешение); «скопировано» по каждому из трёх вариантов показывает PromptCopyButton.
   function copyPrompt(variant: PromptVariant): Promise<void> {
-    return reconApi.prompt(nodeId, variant).then(({ prompt }) => navigator.clipboard.writeText(prompt));
+    return copyText(reconApi.prompt(nodeId, variant).then(({ prompt }) => prompt));
   }
 
   const remarks = report === null ? [] : [...report.errors, ...report.warnings];
@@ -161,7 +162,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
       "Исправь файл и сообщи, что изменилось. Строки чини по замечаниям, " +
       "а не удаляй из перечня:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyTextOrShow(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
       // Замечания ушли агенту — вернётся исправленная версия, и лежащий в панели

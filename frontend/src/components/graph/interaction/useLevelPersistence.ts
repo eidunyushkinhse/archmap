@@ -25,7 +25,7 @@
 // анимации раскрытия; репро: spawn-probe --relayout-first --slow-layout —
 // после «Переразложить» массовый derived-засев уровня висит в полёте, а клик
 // раскрытия уезжает с той же версией). Fence остаётся против ЧУЖИХ сессий.
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { viewsApi } from "../../../api/nodes";
 import { isConflict } from "../../../api/client";
 import type { ViewLayout, ViewLayoutPayload } from "../../../types";
@@ -63,6 +63,11 @@ export interface LevelPersistence {
   // Стабильная обёртка для долгоживущих замыканий (команды undo/redo): всегда зовёт
   // СВЕЖИЙ commitLayout (дедуп сравнивает с актуальным зеркалом, а не со снимком).
   commitLayoutStable: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => boolean;
+  // Последняя запись раскладки не прошла (не 409-переигровка): холст показывает плашку
+  // — раньше узлы после ресинка молча прыгали назад (аудит R-11). Одна на серию отказов,
+  // гаснет на следующей удачной записи или по крестику.
+  persistFailed: boolean;
+  dismissPersistFailed: () => void;
 }
 
 export function useLevelPersistence({
@@ -77,6 +82,8 @@ export function useLevelPersistence({
   retryPatch,
 }: UseLevelPersistenceArgs): LevelPersistence {
   const persistChainRef = useRef<Promise<void>>(Promise.resolve());
+  const [persistFailed, setPersistFailed] = useState(false);
+  const dismissPersistFailed = useCallback(() => setPersistFailed(false), []);
   const persistFenced = useCallback(
     (
       items: Record<string, ViewLayoutPayload | null>,
@@ -89,6 +96,7 @@ export function useLevelPersistence({
           .saveLayout(containerId, items, viewMeta?.current.version)
           .then((res) => {
             if (viewMeta) viewMeta.current = { version: res.version, graphRev: res.graph_rev };
+            setPersistFailed(false);
           })
           .catch((e: unknown) => {
             console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
@@ -99,6 +107,7 @@ export function useLevelPersistence({
               onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
               return;
             }
+            setPersistFailed(true);
             void onPersistError?.(e);
           }),
       );
@@ -159,5 +168,5 @@ export function useLevelPersistence({
     [],
   );
 
-  return { commitLayout, commitLayoutStable };
+  return { commitLayout, commitLayoutStable, persistFailed, dismissPersistFailed };
 }

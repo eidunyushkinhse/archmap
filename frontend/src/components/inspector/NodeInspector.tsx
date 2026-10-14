@@ -102,8 +102,12 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         if (!isConflict(e)) {
           // Отказ с причиной (400: смена типа у узла с детьми / у базы со
           // структурой). Раньше прочие ошибки уходили молча — правка «не
-          // срабатывала» без объяснения; показываем текст сервера плашкой.
+          // срабатывала» без объяснения; показываем текст сервера плашкой. Внешность
+          // и статус коммитятся сразу по клику — откатываем их к сохранённым (аудит
+          // R-13), иначе панель показывала бы значение, которого в БД нет.
           setConflict(null);
+          setIsExternal(beforeRef.current.is_external);
+          setStatus(beforeRef.current.status);
           const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
           setError(текст);
           return текст;

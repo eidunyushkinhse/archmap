@@ -180,6 +180,45 @@ describe("MapEditorPage", () => {
     expect(nodesApi.getGraph).toHaveBeenCalledWith(null);
   });
 
+  // Аудит R-9/R-10: ошибка загрузки уровня раньше глоталась — пустой холст без причины.
+  it("отказ первичной загрузки — экран с причиной и «Повторить», повтор открывает холст", async () => {
+    vi.mocked(nodesApi.getGraph).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    render(<MapEditorPage {...props} nodeId={null} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Не удалось загрузить уровень схемы");
+    expect(alert).toHaveTextContent("Нет связи с сервером");
+    expect(screen.queryByTestId("level-graph")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    expect(await screen.findByTestId("level-graph")).toBeInTheDocument();
+    expect(nodesApi.getGraph).toHaveBeenCalledTimes(2);
+  });
+
+  it("ответ фонового чтения, пришедший после перехода, не подменяет уровень", async () => {
+    const { useRemoteSync } = await import("../useRemoteSync");
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+
+    // Фоновый тик поллинга читает корень — медленно.
+    let finishRoot: (g: unknown) => void = () => {};
+    vi.mocked(nodesApi.getGraph).mockImplementationOnce(
+      () => new Promise((resolve) => { finishRoot = resolve; }) as never,
+    );
+    const sync = vi.mocked(useRemoteSync).mock.calls.at(-1)?.[0] as { onRemoteChange: () => void };
+    act(() => { sync.onRemoteChange(); });
+
+    // Тем временем человек входит в контейнер — этот ответ приходит первым.
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ nodes: [node("inner", { parent_id: "box" })] }) as never);
+    const drill = levelGraphProps.current?.drill as { onDrillDown: (n: Node) => void };
+    act(() => { drill.onDrillDown(node("box")); });
+    await waitFor(() => expect((levelGraphProps.current?.nodes as Node[]).map((n) => n.id)).toEqual(["inner"]));
+
+    // Опоздавший ответ корня отброшен: под крошками контейнера — его дети.
+    await act(async () => { finishRoot(graph({ nodes: [node("root-a")] })); });
+    expect((levelGraphProps.current?.nodes as Node[]).map((n) => n.id)).toEqual(["inner"]);
+  });
+
   // Кнопки жили только в шапке ОБОЛОЧКИ, а редактор — отдельный роут мимо неё:
   // в пивоте они тут просто исчезли (находка ручной проверки 2026-08-08).
   it("в шапке есть меню действий: экспорт, синк и архив проекта", async () => {
@@ -325,6 +364,21 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(historyMock.push).toHaveBeenCalledWith(
       expect.objectContaining({ label: "Перенос объекта", level: null }),
     );
+  });
+
+  // Аудит R-14: отказ уходил необработанным отклонением — человек не узнавал причину.
+  it("отказ переноса: причина тостом, в историю ничего, дерево перечитывается", async () => {
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const reloadBefore = treeProps.current.reloadToken;
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось перенести объект: Нет связи с сервером");
+    expect(historyMock.push).not.toHaveBeenCalled();
+    expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
   });
 
   it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {

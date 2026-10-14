@@ -22,6 +22,7 @@ import { primaryBtn, secondaryBtn } from "../ui/styles";
 import BrandLink from "../ui/BrandLink";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
+import { safeLocal, safeSession } from "../lib/safeStorage";
 
 type WorkMode = "schema" | "proc";
 const MODE_KEY = "archmap_mode";
@@ -58,12 +59,12 @@ export default function ProjectShell({
   // одноразовый, поэтому читаем его при маунте, а гасим эффектом: инициализатор
   // useState под StrictMode вызывается дважды, и удаление прямо в нём потеряло бы
   // процесс на втором проходе.
-  const [pendingProc] = useState<string | null>(() => sessionStorage.getItem(PENDING_PROCESS_KEY));
-  useEffect(() => { sessionStorage.removeItem(PENDING_PROCESS_KEY); }, []);
+  const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
+  useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
   const [mode, setMode] = useState<WorkMode>(() =>
-    pendingProc ? "proc" : localStorage.getItem(MODE_KEY) === "proc" ? "proc" : "schema",
+    pendingProc ? "proc" : safeLocal.getItem(MODE_KEY) === "proc" ? "proc" : "schema",
   );
-  useEffect(() => { localStorage.setItem(MODE_KEY, mode); }, [mode]);
+  useEffect(() => { safeLocal.setItem(MODE_KEY, mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
   // Процесс, выбранный извне (клик по процессу на странице узла либо по строке
@@ -107,7 +108,7 @@ export default function ProjectShell({
   // корне — MapEditorPage сам перейдёт на нужный уровень, применив цель после загрузки.
   function confirmGoToEditor() {
     if (!editorConfirmTarget) return;
-    sessionStorage.setItem(PENDING_ALERT_LOCATE_KEY, JSON.stringify(editorConfirmTarget));
+    safeSession.setItem(PENDING_ALERT_LOCATE_KEY, JSON.stringify(editorConfirmTarget));
     setEditorConfirmTarget(null);
     onNavigateMap(null);
   }

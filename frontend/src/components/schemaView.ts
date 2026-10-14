@@ -5,6 +5,7 @@
 // показывать (остальные приглушаются на холсте, но не удаляются).
 import { getCurrentProjectId } from "../api/projectScope";
 import type { NodeStatus } from "../types";
+import { safeLocal } from "../lib/safeStorage";
 
 export type SchemaView = "asis" | "all" | "tobe";
 
@@ -75,8 +76,8 @@ function parseView(raw: string | null): SchemaView | null {
 // Прочитать сохранённый вид текущего проекта (дефолт «переход»/all).
 export function readSchemaView(): SchemaView {
   const pid = getCurrentProjectId();
-  return parseView(localStorage.getItem(viewKey(pid)))
-    ?? parseView(localStorage.getItem(VIEW_KEY))
+  return parseView(safeLocal.getItem(viewKey(pid)))
+    ?? parseView(safeLocal.getItem(VIEW_KEY))
     ?? "all";
 }
 
@@ -84,6 +85,6 @@ export function readSchemaView(): SchemaView {
 // семенем, он иначе вечно подсовывал бы чужой вид каждому новому проекту.
 export function writeSchemaView(view: SchemaView): void {
   const pid = getCurrentProjectId();
-  localStorage.setItem(viewKey(pid), view);
-  if (pid) localStorage.removeItem(VIEW_KEY);
+  safeLocal.setItem(viewKey(pid), view);
+  if (pid) safeLocal.removeItem(VIEW_KEY);
 }

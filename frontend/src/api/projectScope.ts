@@ -4,9 +4,11 @@
 // шлёт первые запросы уровня (см. комментарий у routeFromHash). Дублируется в
 // localStorage, чтобы рефреш страницы не терял место.
 
+import { safeLocal } from "../lib/safeStorage";
+
 const STORAGE_KEY = "archmap.lastProjectId";
 
-let currentProjectId: string | null = localStorage.getItem(STORAGE_KEY);
+let currentProjectId: string | null = safeLocal.getItem(STORAGE_KEY);
 
 export function getCurrentProjectId(): string | null {
   return currentProjectId;
@@ -15,6 +17,6 @@ export function getCurrentProjectId(): string | null {
 export function setCurrentProjectId(id: string | null): void {
   if (id === currentProjectId) return;
   currentProjectId = id;
-  if (id) localStorage.setItem(STORAGE_KEY, id);
-  else localStorage.removeItem(STORAGE_KEY);
+  if (id) safeLocal.setItem(STORAGE_KEY, id);
+  else safeLocal.removeItem(STORAGE_KEY);
 }

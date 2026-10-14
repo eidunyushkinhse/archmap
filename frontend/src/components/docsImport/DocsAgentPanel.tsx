@@ -27,6 +27,7 @@ import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./age
 import AgentPackageInput from "./AgentPackageInput";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyTextOrShow } from "../../lib/copyText";
 
 // Режим панели. «doc» несёт имя схемы, которую обновляет пакет.
 export type DocsAgentPanelMode =
@@ -231,7 +232,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
       "«Узел / имя» добавляй ТОЛЬКО когда одинаковое имя есть у разных узлов. " +
       "НЕ удаляй пометки: удаление прячет факт, а не исправляет его:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyTextOrShow(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
       // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в

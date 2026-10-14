@@ -7,6 +7,7 @@
 // а не привычку читателя вообще. Глобального семени, в отличие от вида, нет —
 // настройка новая, наследовать нечего; дефолт — подписи видны.
 import { getCurrentProjectId } from "../../api/projectScope";
+import { safeLocal } from "../../lib/safeStorage";
 
 const KEY = "archmap-hide-edge-labels";
 
@@ -16,12 +17,12 @@ function prefKey(projectId: string | null): string {
 
 /** Прочитать настройку текущего проекта (дефолт — подписи видны). */
 export function readEdgeLabelsHidden(): boolean {
-  return localStorage.getItem(prefKey(getCurrentProjectId())) === "1";
+  return safeLocal.getItem(prefKey(getCurrentProjectId())) === "1";
 }
 
 /** Записать настройку текущего проекта (false стирает ключ — дефолт не хранится). */
 export function writeEdgeLabelsHidden(hidden: boolean): void {
   const key = prefKey(getCurrentProjectId());
-  if (hidden) localStorage.setItem(key, "1");
-  else localStorage.removeItem(key);
+  if (hidden) safeLocal.setItem(key, "1");
+  else safeLocal.removeItem(key);
 }

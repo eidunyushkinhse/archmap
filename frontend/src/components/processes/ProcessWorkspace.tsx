@@ -16,6 +16,7 @@ import { BPT } from "./tokens";
 import "./processes.css";
 import DemoLimitToast from "../demo/DemoLimitToast";
 import { useDemoLimitToast } from "../demo/useDemoLimitToast";
+import { safeLocal } from "../../lib/safeStorage";
 
 interface Props {
   isArchitect: boolean;
@@ -46,7 +47,7 @@ interface Prefs {
 }
 function readPrefs(): Prefs {
   try {
-    return JSON.parse(localStorage.getItem(LS_KEY) ?? "{}") as Prefs;
+    return JSON.parse(safeLocal.getItem(LS_KEY) ?? "{}") as Prefs;
   } catch {
     return {};
   }
@@ -73,7 +74,7 @@ export default function ProcessWorkspace({
   );
 
   useEffect(() => {
-    localStorage.setItem(LS_KEY, JSON.stringify({ railOpen, editing: editingPref }));
+    safeLocal.setItem(LS_KEY, JSON.stringify({ railOpen, editing: editingPref }));
   }, [railOpen, editingPref]);
 
   const reload = useCallback(() => {

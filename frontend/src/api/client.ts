@@ -1,4 +1,5 @@
 import { getCurrentProjectId } from "./projectScope";
+import { safeLocal } from "../lib/safeStorage";
 
 const BASE_URL = "/api/v1";
 
@@ -52,8 +53,8 @@ export function onAccountBlocked(listener: BlockedListener): () => void {
   return () => { blockedListeners.delete(listener); };
 }
 
-// Подписчики прочего 401 (токен истёк или испорчен). Слушает только App демо-стенда:
-// выйти гостю иначе нечем, меню профиля у него нет. Вне демо поведение прежнее.
+// Подписчики прочего 401 (токен истёк или испорчен). Слушает App: выходит на экран
+// входа (вне демо — с плашкой «Сессия истекла»).
 const unauthorizedListeners = new Set<() => void>();
 
 export function onUnauthorized(listener: () => void): () => void {
@@ -85,7 +86,7 @@ async function readError(res: Response): Promise<ApiError> {
 }
 
 function getToken(): string | null {
-  return localStorage.getItem("access_token");
+  return safeLocal.getItem("access_token");
 }
 
 // Запросы к управлению проектами, авторизации, админке и списку пользователей

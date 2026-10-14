@@ -152,6 +152,15 @@ export function useEdgeEdit(
         setError("Связь изменена в другой сессии — данные обновлены, повторите правку");
         return false;
       }
+      // Инверсия переставляет концы в панели сразу — при отказе возвращаем сохранённое
+      // направление (аудит R-14), иначе панель показывала бы стрелку, которой в БД нет.
+      // Подписи — из этого же рендера, где инверсия нажата: они ещё прежние.
+      if (src === before.target_id && tgt === before.source_id && src !== tgt) {
+        setSourceId(before.source_id);
+        setTargetId(before.target_id);
+        setSrcLabel(srcLabel);
+        setTgtLabel(tgtLabel);
+      }
       setError(e instanceof Error ? e.message : "Ошибка сохранения");
       return false;
     }

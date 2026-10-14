@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
+import { copyText } from "../lib/copyText";
 
 interface Props {
   // Заголовок модалки («Экспорт схемы» / «Экспорт поддерева …»).
@@ -55,12 +56,12 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
   const copy = async () => {
     if (!content) return;
     try {
-      await navigator.clipboard.writeText(content);
+      await copyText(content);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard API может быть недоступен (нет https/разрешения) — пользователь
-      // скопирует выделением вручную. Молча проглатываем, чтобы не пугать ошибкой.
+      // Буфер недоступен и запасной способ не сработал — текст и так виден в окне,
+      // пользователь скопирует выделением вручную. Молча, чтобы не пугать ошибкой.
     }
   };
 

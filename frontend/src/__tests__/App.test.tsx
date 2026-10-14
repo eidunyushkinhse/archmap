@@ -4,7 +4,7 @@
 // работают поверх подменённого fetch.
 import { render, screen } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import App from "../App";
+import App, { SESSION_EXPIRED_NOTICE } from "../App";
 import { clearToken, getIsAdmin, getUserRole, saveToken } from "../api/auth";
 
 vi.mock("../pages/ProjectsPage", () => ({
@@ -49,6 +49,18 @@ describe("App", () => {
     expect(await screen.findByText("Учётная запись заблокирована")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Войти" })).toBeInTheDocument();
     expect(localStorage.getItem("access_token")).toBeNull();
+  });
+
+  it("токен истёк вне демо: экран входа с плашкой, адрес страницы сохранён (аудит R-15)", async () => {
+    saveToken(jwt("architect"));
+    window.location.hash = "/p/11111111-1111-1111-1111-111111111111";
+    stubFetch(401, { detail: "Недействительный токен" });
+    render(<App />);
+    expect(await screen.findByText(SESSION_EXPIRED_NOTICE)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Войти" })).toBeInTheDocument();
+    expect(localStorage.getItem("access_token")).toBeNull();
+    // После входа человек вернётся туда, где был.
+    expect(window.location.hash).toBe("#/p/11111111-1111-1111-1111-111111111111");
   });
 
   it("прочий отказ /auth/me не выкидывает: остаётся роль из токена", async () => {
