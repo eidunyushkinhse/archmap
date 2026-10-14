@@ -17,7 +17,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import { UndoIcon, RedoIcon, RelayoutIcon, EdgeLabelsIcon } from "../ui/icons";
+import { ExitUpTile, HistoryToolbar, ViewToolbar } from "./graph/CanvasToolbars";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
 import { canHaveChildren } from "../types";
 import { distToPolyline } from "./graph/edgePath";
@@ -1056,28 +1056,7 @@ function LevelGraphInner({
           скрыт у наблюдателя. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый
           редирект); на страницах (undo-бандл не передан) — локальная ownHistory. */}
       {isArchitect && canArrange && (
-        <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
-          <div className="lg-seg">
-            <button
-              type="button"
-              onClick={runUndo}
-              disabled={!history.canUndo()}
-              title="Отменить · Ctrl+Z"
-              aria-label="Отменить"
-            >
-              <UndoIcon />
-            </button>
-            <button
-              type="button"
-              onClick={runRedo}
-              disabled={!history.canRedo()}
-              title="Вернуть · Ctrl+Shift+Z"
-              aria-label="Вернуть"
-            >
-              <RedoIcon />
-            </button>
-          </div>
-        </div>
+        <HistoryToolbar onUndo={runUndo} onRedo={runRedo} canUndo={history.canUndo()} canRedo={history.canRedo()} />
       )}
       {/* ПРАВЫЙ верхний угол: «Переразложить» (архитектор, передан onRelayout) +
           тумблер «Скрыть подписи связей» (CV32, все роли — просмотровый режим, не
@@ -1085,61 +1064,17 @@ function LevelGraphInner({
           Редактор-карта не передаёт onRelayout И владеет тумблером сама (управляемый
           mode.edgeLabelsHidden): её угол холста занят рейлом алертов (AL10), поэтому
           там обе кнопки живут в топбаре, а здесь угол остаётся пустым. */}
-      {(edgeLabelsHiddenMode === undefined || (isArchitect && onRelayout)) && (
-        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 5 }}>
-          <div className="lg-seg">
-            {isArchitect && onRelayout && (
-              <button
-                type="button"
-                onClick={onRelayout}
-                title="Переразложить уровень"
-                aria-label="Переразложить"
-              >
-                <RelayoutIcon />
-              </button>
-            )}
-            {edgeLabelsHiddenMode === undefined && (
-              <button
-                type="button"
-                onClick={toggleEdgeLabels}
-                aria-pressed={labelsHidden}
-                title={labelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
-                aria-label="Подписи связей"
-              >
-                <EdgeLabelsIcon off={labelsHidden} />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <ViewToolbar
+        onRelayout={isArchitect ? onRelayout : undefined}
+        labels={edgeLabelsHiddenMode === undefined ? { hidden: labelsHidden, onToggle: toggleEdgeLabels } : undefined}
+      />
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
           (MapEditorPage → ObjectInspector); оверлея на холсте больше нет. */}
       {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
           протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
           стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по
           data-exit-up). Не объект графа, а элемент интерфейса. */}
-      {connecting && containerId && (
-        <div className="lg-exit-up" data-exit-up>
-          <span className="lg-exit-up-node">
-            <span className="lg-exit-up-ico" aria-hidden>
-              <svg
-                width={12}
-                height={12}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.4}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 19 V5" />
-                <path d="M6 11 L12 5 L18 11" />
-              </svg>
-            </span>
-            Объект вне уровня
-          </span>
-        </div>
-      )}
+      {connecting && containerId && <ExitUpTile />}
       {/* Индикация занятости конвейера (перф-эпик Ф2, P4): бейдж проявляется
           CSS-задержкой 300мс (INDICATE_AFTER_MS) — короткие пересчёты не мигают.
           Работает и на пустом холсте первого показа (layout ещё null). */}
