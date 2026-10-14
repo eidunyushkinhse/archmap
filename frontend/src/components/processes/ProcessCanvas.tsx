@@ -153,6 +153,20 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
+  // Каркас мутации процесса (аудит F-18): работа — запрос и команда истории, затем
+  // процесс перечитывается. Отказ тоже перечитывает: оптимистичный порядок, рамка или
+  // подпись возвращаются к истине (БД не изменилась), а частично применённая серия
+  // (несколько участников подряд) — к тому, что реально записано. Успех снимает прежнюю
+  // ошибку — раньше её текст висел до ухода со страницы (F-36).
+  async function runMutation(work: () => Promise<void>, failText: string): Promise<void> {
+    try {
+      await work();
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : failText);
+    }
+    reload();
+  }
   // Узел → участник в СВЕЖЕМ состоянии: нужен для восстановления сообщений после
   // undo (id участника при пересоздании меняется, node_id — нет). Непривязанных
   // участников тут нет: восстанавливать их шаги всё равно нечем.
@@ -236,15 +250,12 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   async function addParticipants(nodeIds: string[]) {
     if (!detail) return;
     let order = detail.participants.length;
-    try {
+    await runMutation(async () => {
       for (const nid of nodeIds) {
         await addParticipant(nid, order);
         order++;
       }
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось добавить участника");
-    }
+    }, "Не удалось добавить участника");
   }
   // Перестановка участников (живой reorder в SequenceDiagram): новый порядок node_id
   // маппим на participant.id и персистим существующим reorder-эндпоинтом. id участников
@@ -267,18 +278,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         // (order — number: Map строго типизирована ниже)
       })),
     });
-    try {
+    await runMutation(async () => {
       await processesApi.reorderParticipants(id, newIds);
       hist.push({
         label: "Перестановка участников",
         undo: async () => { await processesApi.reorderParticipants(id, prevIds); },
         redo: async () => { await processesApi.reorderParticipants(id, newIds); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload(); // откат оптимистичного порядка к истинному (БД не изменилась)
-      setError(e instanceof Error ? e.message : "Не удалось переставить участников");
-    }
+    }, "Не удалось переставить участников");
   }
   // Перестановка ШАГОВ сценария. id сообщений стабильны (меняется только order),
   // поэтому undo/redo бьют по тем же id — как и у перестановки участников.
@@ -295,18 +302,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       ...detail,
       messages: detail.messages.map((m) => ({ ...m, order: orderById.get(m.id) ?? m.order })),
     });
-    try {
+    await runMutation(async () => {
       await processesApi.reorderMessages(id, ids);
       hist.push({
         label: "Перестановка шагов",
         undo: async () => { await processesApi.reorderMessages(id, prevIds); },
         redo: async () => { await processesApi.reorderMessages(id, ids); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload(); // откат оптимистичного порядка к истинному (БД не изменилась)
-      setError(e instanceof Error ? e.message : "Не удалось переставить шаги");
-    }
+    }, "Не удалось переставить шаги");
   }
 
   // Снимок хранит УЗЛЫ, а не участников: при пересоздании участника его id меняется,
@@ -373,7 +376,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Восстановление связей по всему процессу — после того как пользователь починил схему.
   // Кнопка появляется только когда чинить есть что: повисшие шаги видны на диаграмме.
   async function reattachChannels() {
-    try {
+    await runMutation(async () => {
       const res = await processesApi.reattach(id);
       setBindNote(
         res.attached === 0
@@ -391,17 +394,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           redo: async () => { await processesApi.reattach(id); },
         });
       }
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось подхватить каналы");
-    }
+    }, "Не удалось подхватить каналы");
   }
 
   async function bindParticipant(participantId: string, nodeId: string) {
     setBindPart(null);
     setBindConfirm(null);
-    try {
+    await runMutation(async () => {
       const res = await processesApi.bindParticipant(id, participantId, nodeId);
       setBindNote(
         res.attached === 0 && res.dangling === 0
@@ -417,11 +416,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         undo: async () => { await processesApi.bindParticipant(id, participantId, null); },
         redo: async () => { await processesApi.bindParticipant(id, participantId, nodeId); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось привязать участника к узлу");
-    }
+    }, "Не удалось привязать участника к узлу");
   }
 
   async function doRemoveParticipant(p: ProcessParticipant) {
@@ -456,12 +451,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     setDelPart(p);
   }
   async function removeParticipant(p: ProcessParticipant) {
-    try {
+    await runMutation(async () => {
       await doRemoveParticipant(p);
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось удалить участника");
-    }
+    }, "Не удалось удалить участника");
   }
   async function confirmRemoveParticipant() {
     if (!delPart) return;
@@ -556,7 +548,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       caption: caption.trim() || null,
       order: nextOrder,
     };
-    try {
+    await runMutation(async () => {
       const created = await processesApi.addMessage(id, payload);
       let mid = created.id;
       hist.push({
@@ -576,10 +568,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       });
       setSelfMsg(null);
       setSelfCaption("");
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось добавить рефлексивное сообщение");
-    }
+    }, "Не удалось добавить рефлексивное сообщение");
   }
   // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
   // пустое поле означает ровно «подписи нет», а не «взять метку связи».
@@ -595,7 +584,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       ...detail,
       messages: detail.messages.map((x) => (x.id === mid ? { ...x, caption: next } : x)),
     });
-    try {
+    await runMutation(async () => {
       // CAS (Д9): правка от устаревшего шага не затирает чужую — бэк ответит 409,
       // catch перечитает процесс и покажет detail. Undo/redo идут БЕЗ base_version:
       // компенсация переигрывается поверх любого текущего состояния (паттерн узлов).
@@ -605,11 +594,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         undo: async () => { await processesApi.updateMessage(id, mid, { caption: prev }); },
         redo: async () => { await processesApi.updateMessage(id, mid, { caption: next }); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось изменить подпись шага");
-    }
+    }, "Не удалось изменить подпись шага");
   }
   // Привязка шага к схеме логики. Карточку НЕ закрываем — как и тумблер канала, это
   // контроль внутри карточки: человек привязал схему и тут же видит результат строкой.
@@ -619,7 +604,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const m = detail.messages.find((x) => x.id === mid);
     if (!m || m.doc_id === docId) return;
     const prev = m.doc_id ?? null;
-    try {
+    await runMutation(async () => {
       // CAS (Д9) — как у подписи: конфликт → 409 → reload + detail в баннере.
       await processesApi.updateMessage(id, mid, { doc_id: docId, base_version: m.version });
       hist.push({
@@ -627,11 +612,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         undo: async () => { await processesApi.updateMessage(id, mid, { doc_id: prev }); },
         redo: async () => { await processesApi.updateMessage(id, mid, { doc_id: docId }); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось привязать схему");
-    }
+    }, "Не удалось привязать схему");
   }
   // Синхронность КАНАЛА под шагом. Живёт в карточке шага, а не в C4-модалке (решение
   // пользователя 2026-08-11): состав плеч — вопрос процесса, в схеме объекта этот
@@ -642,22 +623,18 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // «Сохранить»), а результат переключения было не увидеть — карточка исчезала вместе
   // с тумблером и предупреждением про плечи ответов (П3 челленджа 2026-08-16).
   async function setChannelSync(edgeId: string, next: boolean) {
-    try {
+    await runMutation(async () => {
       await edgesApi.update(edgeId, { is_synchronous: next });
       hist.push({
         label: next ? "Канал стал синхронным" : "Канал стал асинхронным",
         undo: async () => { await edgesApi.update(edgeId, { is_synchronous: !next }); },
         redo: async () => { await edgesApi.update(edgeId, { is_synchronous: next }); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось изменить тип канала");
-    }
+    }, "Не удалось изменить тип канала");
   }
   async function removeMessage(mid: string) {
     const m = detail?.messages.find((x) => x.id === mid);
-    try {
+    await runMutation(async () => {
       await processesApi.removeMessage(id, mid);
       setMsgEdit(null);
       // Записываем в историю ТОЛЬКО восстановимое. Шаг без канала (связь удалили из
@@ -691,10 +668,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           },
         });
       }
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось удалить сообщение");
-    }
+    }, "Не удалось удалить сообщение");
   }
   async function createFragment(kind: FragmentKind, fromRow: number, toRow: number, guard: string) {
     if (!detail) return;
@@ -703,7 +677,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const payload = {
       kind, from_order: sorted[fromRow].order, to_order: sorted[toRow].order, guard: guard.trim() || null, branches: [],
     };
-    try {
+    await runMutation(async () => {
       const created = await processesApi.addFragment(id, payload);
       let fid = created.id;
       hist.push({
@@ -716,10 +690,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       });
       setPendingFrag(null);
       setFragGuard("");
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось добавить фрагмент");
-    }
+    }, "Не удалось добавить фрагмент");
   }
   // Правка охвата фрагмента протягиванием грани. Диаграмма отдаёт индексы СТРОК —
   // переводим их в order сообщений (фрагмент хранит диапазон позиций, как и при
@@ -737,18 +708,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       ...detail,
       fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
     });
-    try {
+    await runMutation(async () => {
       await processesApi.updateFragment(id, fid, next);
       hist.push({
         label: "Охват фрагмента",
         undo: async () => { await processesApi.updateFragment(id, fid, prev); },
         redo: async () => { await processesApi.updateFragment(id, fid, next); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload(); // откат оптимистичной рамки к истинной (БД не изменилась)
-      setError(e instanceof Error ? e.message : "Не удалось изменить охват фрагмента");
-    }
+    }, "Не удалось изменить охват фрагмента");
   }
 
   // Общая запись правки ветвей: и границы, и условия, и снятие. Ветви правятся
@@ -767,18 +734,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         x.id === fid ? { ...x, branches: next.map((b) => ({ start_order: b.start_order, guard: b.guard ?? null })) } : x,
       ),
     });
-    try {
+    await runMutation(async () => {
       await processesApi.updateFragment(id, fid, { branches: next });
       hist.push({
         label: "Ветки «иначе»",
         undo: async () => { await processesApi.updateFragment(id, fid, { branches: prev }); },
         redo: async () => { await processesApi.updateFragment(id, fid, { branches: next }); },
       });
-      reload();
-    } catch (e: unknown) {
-      reload();
-      setError(e instanceof Error ? e.message : "Не удалось изменить ветки «иначе»");
-    }
+    }, "Не удалось изменить ветки «иначе»");
   }
 
   // Перенос границы ветви: строка → order (как и у охвата). Остальные ветви на месте.
@@ -827,7 +790,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   async function removeFragment(fid: string) {
     const f = detail?.fragments.find((x) => x.id === fid);
-    try {
+    await runMutation(async () => {
       await processesApi.removeFragment(id, fid);
       setDelFrag(null);
       if (f) {
@@ -849,10 +812,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           },
         });
       }
-      reload();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось удалить фрагмент");
-    }
+    }, "Не удалось удалить фрагмент");
   }
 
   // ── Тулбар над диаграммой ─────────────────────────────────────────
