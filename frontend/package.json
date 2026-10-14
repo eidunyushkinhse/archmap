@@ -13,7 +13,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "gen:api": "(cd ../backend && venv/bin/python -c \"from app.main import app; import json,sys; json.dump(app.openapi(), sys.stdout)\") | openapi-typescript /dev/stdin -o src/types/api.gen.ts"
+    "gen:api": "(cd ../backend && venv/bin/python -c \"from app.main import app; import json,sys; json.dump(app.openapi(), sys.stdout)\") | openapi-typescript /dev/stdin -o src/types/api.gen.ts",
+    "replay-prof": "tsx scripts/replay-prof.ts",
+    "route-quality": "tsx scripts/route-quality.ts"
   },
   "dependencies": {
     "@xyflow/react": "^12.12.0",
@@ -51,6 +53,7 @@
     "globals": "^17.13.0",
     "jsdom": "^29.1.1",
     "openapi-typescript": "^7.13.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.71.2",
     "vite": "^8.3.4",

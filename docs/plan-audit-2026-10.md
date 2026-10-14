@@ -12,7 +12,7 @@
 | 0. Дыры и надёжность | **сделана** 2026-10-13…14: п.1 97250ef3; п.2 f3878a2b; п.3 dd17e28b 6c305c3d; п.4 bcbdb89f db859655; п.5 834b3ada 881439c9 874bb9d6 3a4f8f0f 3c892363; п.6 17055a01; п.7 b9a7604b; п.8 — коммит «общий предел распаковки». Отступления от плана — в тексте пунктов 3 и 7 | изоляция restore, циклы, регулярка, bcrypt, длины полей, индексы, установщик, заголовки, MCP-пути |
 | 1. Зависимости | **сделана** 2026-10-14 на ветке `chore/deps-2026-10`: шаг 1 (независимые бампы, P-5, P-26), шаг 2 FastAPI 0.143/Starlette 1.8/Pydantic 2.14/uvicorn 0.54 d64e1393, шаг 3 фронт (npm audit 15 → 0) 80570098, шаг 4 lock с хэшами df274b81, Dependabot/.nvmrc ba4bd0a4 | бэкенд 2024 → 2026 (две ступени), фронт `npm audit fix`, lock с хэшами, Dependabot |
 | 2. Устойчивость фронтенда | **сделана** 2026-10-14 на ветке `refactor/frontend-robustness`: п.1 R-1 5b1c9ebc, R-15 565170e0, R-7 863e2c44; п.2 R-9/R-10 55d1429b, R-2/R-23 6a4e5b73; п.3 R-8/R-25 701b432d; п.4 R-11 bde86d4a, R-12…R-14 417d0ab5, R-6 b5085f25; п.5 R-27 1f05a1d4, R-24 74b976c0, R-17 e0822ed7, R-16 7a4ecba2 | ErrorBoundary, ошибки загрузки, 401 вне демо, выкат без F5, хранилище, откаты, буфер обмена |
-| 3. Гейты и CI | не начата | permissions/пины/сборка/дрейф api.gen/аудит/coverage; ruff/mypy строже; зонды полигона |
+| 3. Гейты и CI | **сделана** 2026-10-14: CI (permissions, concurrency, timeout, SHA, build, contract, scripts, аудиты) ecdf5862, покрытие 6b30a8e4, ruff/mypy строже e3db76d7, зонды de359bad, инструменты — коммит «tsx, stop.sh, umask». noUncheckedIndexedAccess — оценён и не включён (см. п.3) | permissions/пины/сборка/дрейф api.gen/аудит/coverage; ruff/mypy строже; зонды полигона |
 | 4. Мёртвый код, дубли, документация | не начата | knip/vulture, хелперы-дубли, устаревшие ссылки, CLAUDE.md/QWEN.md/README MCP |
 | 5. Структура бэкенда | не начата | семейство фактов на общей базе, domain_types, домен из роутеров, распил import_merge/unified_import |
 | 6. Производительность | не начата | кэш индекса проекта, N+1 импортов, выборки, бандл фронта |
@@ -204,6 +204,12 @@
    `disallow_untyped_defs` по пакетам; `target-version py312`; оценить
    `noUncheckedIndexedAccess` (кластеры `no-non-null-assertion` в channelNudge,
    coincidentLegs, edgeJumps).
+   **Сделано (2026-10-14).** ruff: S/PERF/SIM/RUF/PIE/RET/C90 на py312, кириллица
+   (RUF001–003) и PERF401 исключены, сложность ≤ 15 с пофайловым ratchet на 15 модулей
+   (снимать по мере распила в фазе 5); mypy: `warn_unused_ignores` и `disallow_untyped_defs`
+   на весь `app` (снят 21 пережитый `type: ignore`). `noUncheckedIndexedAccess` оценён: 1674
+   ошибки, ⅔ — в роутере стрелок (индексация массивов точек в циклах); включать только вместе
+   с переписыванием этих модулей, иначе это ~1700 механических `!` в самом хрупком коде.
 4. **Инструменты (P-6, P-23, P-21, P-25, P-42).** Зонды полигона — токен по учётке без
    роли в claim, `ARCHMAP_PROBE_USER`, второй пользователь-reader через API; оговорка в
    `docs/specs/README.md`; npm-скрипты для `replay-prof`/`route-quality` с `vite-node`/`tsx`

@@ -40,11 +40,15 @@ fi
 if [ ! -f backend/.env ]; then
   say "backend/.env не найден — создаю со случайным SECRET_KEY."
   GEN_SECRET="$(openssl rand -hex 32)"
-  cat > backend/.env <<EOF
+  # В файле пароль БД и секрет — только владельцу (аудит P-42: под umask по умолчанию 0644).
+  # umask — в подоболочке: остальному dev.sh (venv, node_modules) он не нужен.
+  ( umask 077
+    cat > backend/.env <<EOF
 DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD:-postgres}@${DB_HOST}:${DB_PORT}/${DB_NAME}
 SECRET_KEY=${GEN_SECRET}
 CORS_ORIGINS=http://localhost:${FRONTEND_PORT}
 EOF
+  )
 elif grep -q "change-me-in-production-needs-32-bytes" backend/.env; then
   err "В backend/.env секрет-заглушка. Замените SECRET_KEY: openssl rand -hex 32."
   exit 1

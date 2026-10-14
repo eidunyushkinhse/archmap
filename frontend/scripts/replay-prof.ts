@@ -5,10 +5,10 @@
 // T4-диагностики и итоговую гистограмму экспансий на вызов A*. Требование В8.2 плана:
 // атрибуция обязана быть воспроизводимой (прежний одноразовый скрипт жил в скретчпаде).
 //
-// Запуск СТРОГО из frontend/ (иначе vite-node молча возьмёт не тот контекст):
-//   npx vite-node scripts/replay-prof.ts <вход.json> [--dump <файл.json>]
+// Запуск из frontend/ (tsx — в devDependencies, сеть не нужна; аудит P-21):
+//   npm run replay-prof -- <вход.json> [--dump <файл.json>]
 // Под V8-профилем (мишени микрооптимизаций):
-//   NODE_OPTIONS="--cpu-prof --cpu-prof-dir=<каталог>" npx vite-node scripts/replay-prof.ts <вход.json>
+//   NODE_OPTIONS="--cpu-prof --cpu-prof-dir=<каталог>" npm run replay-prof -- <вход.json>
 //
 // Вход — снимок PipelineInput, снятый в браузере хуком __archmapCaptureInput
 // (Set/Map сериализованы как {"__set": [...]} / {"__map": [...]}, см. revive).
@@ -26,7 +26,7 @@ const inputFile = argv[0];
 const dumpAt = argv.indexOf("--dump");
 const dumpFile = dumpAt >= 0 ? argv[dumpAt + 1] : undefined;
 if (!inputFile || (dumpAt >= 0 && !dumpFile)) {
-  console.error("использование: npx vite-node scripts/replay-prof.ts <вход.json> [--dump <файл.json>]");
+  console.error("использование: npm run replay-prof -- <вход.json> [--dump <файл.json>]");
   process.exit(2);
 }
 

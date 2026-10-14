@@ -127,7 +127,7 @@ describe("фазз-полигон роутера — golden", () => {
       "Разобрать один сид (из frontend/):",
       "  ARCHMAP_FUZZ_SEED=<сид> npx vitest run routerFuzz",
       "  → routerFuzz.seed<сид>.json (маршруты обоих проходов; читается",
-      "    npx vite-node scripts/route-quality.ts routerFuzz.seed<сид>.json)",
+      "    npm run route-quality -- routerFuzz.seed<сид>.json)",
       "Маршруты изменились ОСОЗНАННО? Перезапиши golden:",
       "  ARCHMAP_FUZZ_WRITE=1 npx vitest run routerFuzz",
     ].filter(Boolean).join("\n");

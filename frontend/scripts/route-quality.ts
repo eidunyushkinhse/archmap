@@ -3,9 +3,9 @@
 // роутера», docs/plan-router-deep-opt.md § «Метрики качества»).
 //
 // Запуск ИЗ frontend/ (иначе vite не найдёт корень проекта):
-//   npx vite-node scripts/route-quality.ts <dump.json>
-//   npx vite-node scripts/route-quality.ts <до.json> <после.json>
-//   npx vite-node scripts/route-quality.ts <dump.json> --assert    # exit 1 при нарушении «обязано 0»
+//   npm run route-quality -- <dump.json>
+//   npm run route-quality -- <до.json> <после.json>
+//   npm run route-quality -- <dump.json> --assert    # exit 1 при нарушении «обязано 0»
 //
 // --assert: на ОДНОМ дампе роняет при абсолютном значении > 0 (честный показ), на
 // ПАРЕ дампов — только при НОВОМ нарушении (after > before): известный дефект
@@ -104,7 +104,7 @@ function main(): number {
   if (files.length === 0 || files.length > 2) {
     console.error(
       "Использование (из frontend/):\n" +
-      "  npx vite-node scripts/route-quality.ts <dump.json> [<dump2.json>] [--assert]",
+      "  npm run route-quality -- <dump.json> [<dump2.json>] [--assert]",
     );
     return 2;
   }
