@@ -189,16 +189,28 @@ export function useEdgeEdit(
     void commit({ source_id: targetId, target_id: sourceId });
   }
 
+  // Выбор конца в пикере: подпись — сразу, коммит — только выбранного узла (очистка
+  // пикера конец не снимает: связь без конца не сохранить).
+  function pickEnd(end: "source" | "target", id: string, label?: string): void {
+    if (end === "source") {
+      setSourceId(id);
+      if (label != null) setSrcLabel(label);
+      if (id) void commit({ source_id: id });
+    } else {
+      setTargetId(id);
+      if (label != null) setTgtLabel(label);
+      if (id) void commit({ target_id: id });
+    }
+  }
+
   return {
     labelText, setLabelText,
     technology, setTechnology,
     channel, setChannel,
-    sourceId, setSourceId,
-    targetId, setTargetId,
-    srcLabel, setSrcLabel,
-    tgtLabel, setTgtLabel,
+    sourceId, targetId, srcLabel, tgtLabel,
     error, setError,
     commit,
     invert,
+    pickEnd,
   };
 }

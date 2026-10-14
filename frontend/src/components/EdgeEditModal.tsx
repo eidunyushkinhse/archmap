@@ -6,13 +6,15 @@
 // Коммит — auto, как в панели: по blur текста и по смене конца; «Готово»
 // дожимает незакоммиченный текст и закрывает только при успехе.
 import { useEffect, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { Edge } from "../types";
 import { edgesApi, nodesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { dangerBtn, primaryBtn, secondaryBtn } from "../ui/styles";
-import NodeSearchPicker from "./NodeSearchPicker";
 import { useEdgeEdit } from "./inspector/useEdgeEdit";
+import EdgeEndRow from "./inspector/EdgeEndRow";
+import MetaRow from "./inspector/MetaRow";
+import { META_ICON } from "./inspector/metaIcons";
 import "./inspector/inspector.css";
 import { noAutofill } from "../ui/noAutofill";
 
@@ -89,11 +91,8 @@ function EdgeEditForm({ data, onClose, onChanged }: {
   const {
     labelText, setLabelText,
     technology, setTechnology,
-    sourceId, setSourceId,
-    targetId, setTargetId,
-    srcLabel, setSrcLabel,
-    tgtLabel, setTgtLabel,
-    error, commit, invert,
+    sourceId, targetId, srcLabel, tgtLabel,
+    error, commit, invert, pickEnd,
   } = useEdgeEdit(
     {
       id: data.edge.id,
@@ -150,61 +149,33 @@ function EdgeEditForm({ data, onClose, onChanged }: {
     <Modal onClose={onClose} boxStyle={{ width: 480 }}>
       <h3 style={titleStyle}>Редактирование связи</h3>
       <dl className="insp-meta" style={{ borderTop: "none" }}>
-        {/* Откуда */}
-        <div className="insp-row insp-row--top">
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.source}</span>Откуда</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0 }}>
-            <NodeSearchPicker
-              key={`src-${invertSeq}`}
-              value={sourceId}
-              initialLabel={srcLabel}
-              onChange={(id, lbl) => { setSourceId(id); if (lbl != null) setSrcLabel(lbl); if (id) void commit({ source_id: id }); }}
-            />
-          </dd>
-        </div>
-        {/* Куда */}
-        <div className="insp-row insp-row--top">
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.target}</span>Куда</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0 }}>
-            <NodeSearchPicker
-              key={`tgt-${invertSeq}`}
-              value={targetId}
-              initialLabel={tgtLabel}
-              onChange={(id, lbl) => { setTargetId(id); if (lbl != null) setTgtLabel(lbl); if (id) void commit({ target_id: id }); }}
-            />
-          </dd>
-        </div>
+        <EdgeEndRow key={`src-${invertSeq}`} end="source" value={sourceId} label={srcLabel}
+          onPick={(id, lbl) => pickEnd("source", id, lbl)} />
+        <EdgeEndRow key={`tgt-${invertSeq}`} end="target" value={targetId} label={tgtLabel}
+          onPick={(id, lbl) => pickEnd("target", id, lbl)} />
       </dl>
 
       {/* Инверсия направления: концы меняются местами, описание/технология
           остаются на связи; коммит сразу (в хуке). */}
       <button type="button" onClick={handleInvert} style={invertBtn}
         title="Поменять местами «Откуда» и «Куда»">
-        {ICON.invert} Развернуть направление
+        {META_ICON.invert} Развернуть направление
       </button>
 
       <dl className="insp-meta">
-        {/* Описание */}
-        <div className="insp-row">
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.desc}</span>Описание</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
-            <span className="insp-value">
-              <textarea {...noAutofill("edge-edit-modal-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
-                onChange={(e) => setLabelText(e.target.value)}
-                onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
-            </span>
-          </dd>
-        </div>
-        {/* Технология */}
-        <div className="insp-row">
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.tech}</span>Технология</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
-            <span className="insp-value">
-              <input {...noAutofill("edge-edit-modal-2")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
-                onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
-            </span>
-          </dd>
-        </div>
+        <MetaRow icon={META_ICON.desc} label="Описание">
+          <span className="insp-value">
+            <textarea {...noAutofill("edge-edit-modal-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+              onChange={(e) => setLabelText(e.target.value)}
+              onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
+          </span>
+        </MetaRow>
+        <MetaRow icon={META_ICON.tech} label="Технология">
+          <span className="insp-value">
+            <input {...noAutofill("edge-edit-modal-2")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
+              onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
+          </span>
+        </MetaRow>
       </dl>
 
       {error && <p style={errText}>{error}</p>}
@@ -286,16 +257,4 @@ const invertBtn: CSSProperties = {
   fontSize: 13,
   fontWeight: 600,
   cursor: "pointer",
-};
-
-const ms = {
-  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
-  stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
-} as const;
-const ICON: Record<"source" | "target" | "desc" | "tech" | "invert", ReactNode> = {
-  source: <svg {...ms}><circle cx="3.5" cy="8" r="2.25" /><path d="M6 8h7" /><path d="M10.5 5.4 13.2 8l-2.7 2.6" /></svg>,
-  target: <svg {...ms}><path d="M2.8 8h7" /><path d="M7.3 5.4 10 8l-2.7 2.6" /><circle cx="12.5" cy="8" r="2.25" /></svg>,
-  desc: <svg {...ms}><path d="M8.4 2.6 13 7.2a1.3 1.3 0 0 1 0 1.8l-3.9 3.9a1.3 1.3 0 0 1-1.8 0L2.7 8.3V4a1.3 1.3 0 0 1 1.3-1.3Z" /><circle cx="5.6" cy="5.5" r=".9" fill="currentColor" stroke="none" /></svg>,
-  tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  invert: <svg {...ms} width={15} height={15}><path d="M2.5 5.5h9.5" /><path d="M9.8 3.2 12 5.5l-2.2 2.3" /><path d="M13.5 10.5H4" /><path d="M6.2 8.2 4 10.5l2.2 2.3" /></svg>,
 };

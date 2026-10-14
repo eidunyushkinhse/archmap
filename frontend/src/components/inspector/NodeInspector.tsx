@@ -4,13 +4,15 @@
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AnchorField from "../anchor/AnchorField";
+import MetaRow from "./MetaRow";
+import { META_ICON } from "./metaIcons";
 import { useContainerChildren } from "../../pages/useContainerChildren";
 import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
@@ -112,7 +114,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
       {/* Список меты «терм → значение» */}
       <dl className="insp-meta">
-        <Row icon={META_ICON.type} label="Тип">
+        <MetaRow icon={META_ICON.type} label="Тип">
           {isArchitect ? (
             <span className="insp-value">
               <span className="insp-selwrap">
@@ -149,9 +151,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           ) : (
             <span className="insp-value">{SHAPE_LABEL[shape]}</span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.placement} label="Размещение">
+        <MetaRow icon={META_ICON.placement} label="Размещение">
           {isArchitect ? (
             <span className="insp-value">
               {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
@@ -168,9 +170,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {isExternal ? "Внешний" : "Внутренний"}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.status} label="Статус">
+        <MetaRow icon={META_ICON.status} label="Статус">
           {isArchitect ? (
             <span className="insp-value">
               <span className="insp-selwrap">
@@ -212,9 +214,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {STATUS_META[node.status].label}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.role} label="Роль">
+        <MetaRow icon={META_ICON.role} label="Роль">
           {isArchitect ? (
             <span className="insp-value">
               <input
@@ -231,10 +233,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {node.role || "не указана"}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
         {!isPerson && (
-          <Row icon={META_ICON.tech} label="Технология">
+          <MetaRow icon={META_ICON.tech} label="Технология">
             {isContainer ? (
               // Контейнер: агрегированная технология потомков, только чтение.
               <span className={"insp-value" + (container.aggTech ? "" : " insp-value--empty")}>
@@ -256,7 +258,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 {node.technology || "не указана"}
               </span>
             )}
-          </Row>
+          </MetaRow>
         )}
       </dl>
 
@@ -299,37 +301,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     </div>
   );
 }
-
-// Строка меты «терм → значение». dd — нейтральная флекс-ячейка; само значение несёт
-// класс .insp-value (его передаёт вызывающий — текст у наблюдателя / поле у архитектора).
-function Row({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
-  return (
-    <div className="insp-row">
-      <dt className="insp-term">
-        <span className="insp-term-ico">{icon}</span>
-        {label}
-      </dt>
-      <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>{children}</dd>
-    </div>
-  );
-}
-
-
-// Линейные иконки термов (16×16, currentColor). Порт META_ICON из NodeModal + flow/api/trash.
-const ms = {
-  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
-  stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
-} as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
-  type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
-  placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
-  status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
-  role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
-  tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
-  api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
-  trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,
-};
 
 function ChevronDown() {
   return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9 L12 15 L18 9" /></svg>;
