@@ -72,6 +72,8 @@ import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/u
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
+import { useOncePerViewToast } from "./graph/interaction/useOncePerViewToast";
+import CanvasNotice from "./graph/CanvasNotice";
 import { emitTourEvent } from "./tour/tourBus";
 
 // --- Основной компонент ---
@@ -298,18 +300,18 @@ function LevelGraphInner({
   // раскладке (отображаемые узлы = локалы + гости; мастер-рёбра = groupArr).
   // Реф читает оркестратор анимации (честное отключение), стейт — разовый тост.
   const overloadedRef = useRef(false);
-  const [overloadToastOpen, setOverloadToastOpen] = useState(false);
-  const overloadToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const overloadToast = useOncePerViewToast();
   // ТОСТ СТУПЕНЕЙ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P13) — по образцу
   // разового тоста перегрузки P8. Ступень бюджета означает, что часть стадий качества
   // стрелок принесена в жертву потолку работ; молчаливая деградация запрещена ровно так
   // же, как молчаливое отключение анимаций.
-  const [budgetToastOpen, setBudgetToastOpen] = useState(false);
-  const budgetToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const budgetToast = useOncePerViewToast();
   // Разовый совет о грязи стрелок на перегруженной сцене (P15) — только тем, кто
   // может двигать узлы: совет «подёргайте узлы» наблюдателю невыполним.
-  const [dirtyToastOpen, setDirtyToastOpen] = useState(false);
-  const dirtyToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const dirtyToast = useOncePerViewToast();
+  const { show: showOverloadToast } = overloadToast;
+  const { show: showBudgetToast } = budgetToast;
+  const { show: showDirtyToast } = dirtyToast;
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
@@ -811,20 +813,14 @@ function LevelGraphInner({
     overloadedRef.current = overloaded;
     if (overloaded) {
       const viewKey = containerId ?? "__root__";
-      if (!overloadToastShownRef.current.has(viewKey)) {
-        overloadToastShownRef.current.add(viewKey); // разовый тост на вид (P8)
-        setOverloadToastOpen(true);
-      }
+      showOverloadToast(viewKey); // разовый тост на вид (P8)
       // Разовый совет о грязи стрелок (P15, пожелание пользователя 2026-09-01):
       // на перегруженной сцене холодная раскладка грубее, а выправляет её именно
       // серия правок (скоуп E84 → невидимая уборка P14 → чистый гистерезис под
       // следующим действием). Совет выполним только тому, кто может двигать узлы.
       // Уборка сюда не доходит (setLayout не зовёт — apply не срабатывает), так
       // что «сам всплывший» тост невозможен (аксиома P14).
-      if (isArchitect && canArrange && !dirtyToastShownRef.current.has(viewKey)) {
-        dirtyToastShownRef.current.add(viewKey);
-        setDirtyToastOpen(true);
-      }
+      if (isArchitect && canArrange) showDirtyToast(viewKey);
     }
     // Применение состоялось — интенты раскрытий отражены на холсте, гвард
     // прокликивания (P5) отпускает накопленные id.
@@ -836,7 +832,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
@@ -961,13 +957,7 @@ function LevelGraphInner({
       // законсервированная в кэше, невозможна.
       // Уборка тостов НЕ показывает: её геометрию пользователь не видит (на экран она
       // не идёт), а всплывшее без действия предупреждение — то же «само происходит».
-      if (budgetDegraded && !cleanup) {
-        const viewKey = containerId ?? "__root__";
-        if (!budgetToastShownRef.current.has(viewKey)) {
-          budgetToastShownRef.current.add(viewKey);
-          setBudgetToastOpen(true);
-        }
-      }
+      if (budgetDegraded && !cleanup) showBudgetToast(containerId ?? "__root__");
       // СНИМОК ГИСТЕРЕЗИСА — И ДЛЯ УБОРКИ (P14): её маршруты чистые, а позиции она не
       // меняла, поэтому снимок сцены (из ЕЁ результата, как у всех прогонов) совпадает
       // с экранной сценой — дифф следующего драга остаётся честным. Именно эта запись
@@ -1039,7 +1029,7 @@ function LevelGraphInner({
     // idleCleanup ссылочно стабилен (useMemo в хуке) — identity computeNow от него не
     // дрожит, эффект раскладки не перезапускается.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
-  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup, showBudgetToast]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
@@ -1388,51 +1378,33 @@ function LevelGraphInner({
       )}
       {/* Разовый тост перегруженной сцены (P8): честное предупреждение об
           отключении анимаций — один на вход в перегруженный вид. */}
-      {overloadToastOpen && (
-        <div className="lg-overload-toast" role="status">
-          <span>Схема перегружена: плавность не гарантируется, анимации могут отключаться.</span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setOverloadToastOpen(false)}
-            aria-label="Закрыть предупреждение"
-          >✕</button>
-        </div>
+      {overloadToast.open && (
+        <CanvasNotice tone="overload" closeLabel="Закрыть предупреждение" onClose={overloadToast.close}>
+          Схема перегружена: плавность не гарантируется, анимации могут отключаться.
+        </CanvasNotice>
       )}
       {/* Запись расположения не прошла (аудит R-11): схема вернулась к сохранённой. */}
       {persistFailed && (
-        <div className="lg-overload-toast" role="alert">
-          <span>Не удалось сохранить расположение — схема вернулась к последней сохранённой версии.</span>
-          <button className="lg-overload-close" onClick={dismissPersistFailed} aria-label="Закрыть сообщение">✕</button>
-        </div>
+        <CanvasNotice tone="overload" role="alert" closeLabel="Закрыть сообщение" onClose={dismissPersistFailed}>
+          Не удалось сохранить расположение — схема вернулась к последней сохранённой версии.
+        </CanvasNotice>
       )}
       {/* Разовый тост ступеней бюджета работ (P13): честное объявление о том, что
           раскладка стрелок упрощена ради потолка счёта. */}
-      {budgetToastOpen && (
-        <div className="lg-budget-toast" role="status">
-          <span>Сцена очень плотная: раскладка упрощена.</span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setBudgetToastOpen(false)}
-            aria-label="Закрыть предупреждение"
-          >✕</button>
-        </div>
+      {budgetToast.open && (
+        <CanvasNotice tone="budget" closeLabel="Закрыть предупреждение" onClose={budgetToast.close}>
+          Сцена очень плотная: раскладка упрощена.
+        </CanvasNotice>
       )}
       {/* Разовый совет о грязи стрелок на перегруженной сцене (P15): холодная
           раскладка грубее, выправит её серия правок (невидимая уборка +
           гистерезис, P14). Текст — пожелание пользователя 2026-09-01 дословно. */}
-      {dirtyToastOpen && (
-        <div className="lg-dirty-toast" role="status">
-          <span>
-            На вашей схеме очень много объектов, поэтому стрелки могут быть
-            расставлены неаккуратно. Подёргайте несколько узлов, и стрелки
-            выправятся сами.
-          </span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setDirtyToastOpen(false)}
-            aria-label="Закрыть подсказку"
-          >✕</button>
-        </div>
+      {dirtyToast.open && (
+        <CanvasNotice tone="dirty" closeLabel="Закрыть подсказку" onClose={dirtyToast.close}>
+          На вашей схеме очень много объектов, поэтому стрелки могут быть
+          расставлены неаккуратно. Подёргайте несколько узлов, и стрелки
+          выправятся сами.
+        </CanvasNotice>
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
           точки прыжков. Пауза — на драг И на фазу move анимации (иначе пересчёт реестра
