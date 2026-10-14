@@ -19,8 +19,8 @@ import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
 import { ExitUpTile, HistoryToolbar, ViewToolbar } from "./graph/CanvasToolbars";
 import DropOverlays from "./graph/DropOverlays";
+import { useConnectTargets } from "./graph/interaction/useConnectTargets";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
-import { canHaveChildren } from "../types";
 import { distToPolyline } from "./graph/edgePath";
 
 /** Допуск попадания двойного клика в линию соседней связи (общее плечо, E95), px холста. */
@@ -29,7 +29,7 @@ import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
 import type {
   WrappedEdgeData,
-  BlockData, GhostData, ContainerData,
+  BlockData, GhostData,
   LocateRequest,
   LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
   LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
@@ -61,7 +61,7 @@ import { useLevelRehang } from "./graph/interaction/useLevelRehang";
 import { SCHEMA_FIT_OPTIONS, useLevelAutoFit } from "./graph/interaction/useLevelAutoFit";
 import { useFarZoom } from "./graph/interaction/useFarZoom";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
-import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
+import { useEdgeConnect } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
@@ -478,41 +478,9 @@ function LevelGraphInner({
   });
 
 
-  // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
-  // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
-  // потомка); лист (block без детей или гость) — связываем напрямую; распорка — игнор.
-  const resolveTarget = useCallback(
-    (id: string): ConnectTarget => {
-      const n = rfNodes.find((x) => x.id === id);
-      if (!n) return null;
-      if (n.type === "container") return { kind: "into", name: (n.data as ContainerData).name };
-      if (n.type === "block") {
-        const an = (n.data as BlockData).appNode;
-        // зона входа — только сервис с детьми; БД/брокер связываем напрямую
-        return an.has_children && canHaveChildren(an.shape)
-          ? { kind: "into", name: an.name }
-          : { kind: "direct" };
-      }
-      if (n.type === "ghost") return { kind: "direct" };
-      return null; // spacer и прочее
-    },
-    [rfNodes],
-  );
-
-  // Имя ОТОБРАЖАЕМОГО узла по id — для заголовков модалок создания связи. Дети
-  // раскрытых локальных контейнеров известны только холсту (кэш localChildren),
-  // поэтому имена концов уезжают вместе с жестом, а не разрешаются в MapEditorPage.
-  const displayNameOf = useCallback(
-    (id: string): string | undefined => {
-      const n = rfNodes.find((x) => x.id === id);
-      if (!n) return undefined;
-      if (n.type === "block") return (n.data as BlockData).appNode.name;
-      if (n.type === "ghost") return (n.data as GhostData).appNode.name;
-      if (n.type === "container") return (n.data as ContainerData).name;
-      return undefined;
-    },
-    [rfNodes],
-  );
+  // Узлы холста как концы новой связи: цель протяжки («зона входа» / напрямую) и имя
+  // отображаемого узла для заголовков окон создания связи.
+  const { resolveTarget, displayNameOf } = useConnectTargets(rfNodes);
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
