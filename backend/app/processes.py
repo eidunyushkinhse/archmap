@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.domain_types import MessageKind, MessageLeg
+from app.domain_types import FragmentKind, MessageKind, MessageLeg
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -29,8 +29,12 @@ from app.models.process_fragment import ProcessFragment
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.schemas.process import (
+    BranchIn,
     BranchOut,
+    ChannelOut,
     FragmentOut,
+    LegOut,
+    MessageCreate,
     MessageInvalidReason,
     MessageOut,
     ParticipantOut,
@@ -560,3 +564,197 @@ def build_process_detail(
         messages=messages,
         fragments=fragments,
     )
+
+
+class ProcessRuleError(Exception):
+    """Шаг или фрагмент нарушает правило процесса. status и detail — для ответа API:
+    роутер переводит ошибку в HTTP один в один."""
+
+    def __init__(self, status: int, detail: str) -> None:
+        super().__init__(detail)
+        self.status = status
+        self.detail = detail
+
+
+@dataclass
+class MessageDraft:
+    """Проверенный шаг процесса — всё, что нужно, чтобы его записать и отдать."""
+
+    edge: Edge | None
+    sender: ProcessParticipant
+    receiver: ProcessParticipant
+    caption: str | None
+    nodes: dict[uuid.UUID, Node]
+
+
+def validate_message(
+    db: Session, project_id: uuid.UUID, proc: BusinessProcess, payload: MessageCreate
+) -> MessageDraft:
+    """Правила нового шага (аудит Q-9: жили в роутере). Порядок проверок — часть
+    контракта: при нескольких нарушениях отвечает первое."""
+    # Самосообщение: внутренняя операция участника — НЕ плечо канала C4, поэтому
+    # «запертый слой» к нему не применяется (концы совпадают, связи нет). Это
+    # сознательное исключение из правила «сообщение = плечо существующего канала».
+    if payload.from_participant_id == payload.to_participant_id:
+        if payload.edge_id is not None:
+            raise ProcessRuleError(422, "Самосообщение не привязывается к связи")
+        frm = db.get(ProcessParticipant, payload.from_participant_id)
+        if frm is None or frm.process_id != proc.id:
+            raise ProcessRuleError(422, "Участник не из этого процесса")
+        check_step_doc(db, payload.doc_id, project_id)
+        # Узлы нужны message_out для пути узла схемы (doc_node_path).
+        return MessageDraft(None, frm, frm, payload.caption, load_nodes(db, project_id))
+    if payload.edge_id is None:
+        raise ProcessRuleError(422, "Не указана связь")
+    # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
+    # не на что опереться. Говорим это прямо: иначе пользователь упёрся бы в
+    # «концы связи не проецируются» и гадал, что не так.
+    for pid in (payload.from_participant_id, payload.to_participant_id):
+        part = db.get(ProcessParticipant, pid)
+        if part is not None and part.process_id == proc.id and part.node_id is None:
+            raise ProcessRuleError(
+                422,
+                "Участник не привязан к узлу схемы — у него нет каналов. "
+                "Сначала привяжите его к узлу",
+            )
+    edge = db.get(Edge, payload.edge_id)
+    if edge is None or edge.project_id != project_id:
+        raise ProcessRuleError(404, "Связь не найдена")
+    # 2) leg легален: return только для синхронного канала
+    if payload.leg == "return" and not edge_is_synchronous(edge):
+        raise ProcessRuleError(422, "Канал асинхронный — плеча «ответ» нет")
+    # 3) концы — участники этого процесса
+    frm = db.get(ProcessParticipant, payload.from_participant_id)
+    to = db.get(ProcessParticipant, payload.to_participant_id)
+    if frm is None or frm.process_id != proc.id:
+        raise ProcessRuleError(422, "Отправитель не участник процесса")
+    if to is None or to.process_id != proc.id:
+        raise ProcessRuleError(422, "Получатель не участник процесса")
+    # 4) проекция сырых концов плеча сходится именно на этих участников
+    all_nodes = load_nodes(db, project_id)
+    participant_ids = bound_node_ids(proc.participants)
+    leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
+    if leg is None:
+        raise ProcessRuleError(422, "Недопустимое плечо для этой связи")
+    if (
+        resolve_to_participant(leg.from_id, participant_ids, all_nodes) != frm.node_id
+        or resolve_to_participant(leg.to_id, participant_ids, all_nodes) != to.node_id
+    ):
+        raise ProcessRuleError(422, "Концы связи не проецируются на выбранных участников")
+    check_step_doc(db, payload.doc_id, project_id)
+    # Подпись у шага всегда СВОЯ: дефолт канала (метка связи у вызова, «ответ» у
+    # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом. Пустую
+    # подпись присылает композитор — он и означает «возьми дефолт».
+    caption = payload.caption if payload.caption is not None else default_caption(payload.leg, edge)
+    return MessageDraft(edge, frm, to, caption, all_nodes)
+
+def check_step_doc(db: Session, doc_id: uuid.UUID | None, project_id: uuid.UUID) -> None:
+    """Схема привязки обязана принадлежать ЭТОМУ проекту.
+
+    Без проверки шаг ссылался бы на строку чужого проекта: id приходит от клиента, а
+    FK на уровне БД межпроектную границу не знает — project_id у схемы не свой, он
+    берётся через узел. Это и есть дефект Д6 челленджа, ради которого правка шага
+    переведена на белый список полей.
+
+    404, а не 403: чужая схема для этого проекта попросту не существует — тот же ответ,
+    что и на выдуманный id, и он не подтверждает существование чужой строки.
+    """
+    if doc_id is None:  # «отвязать» — законное значение
+        return
+    ok = (
+        db.query(NodeDoc.id)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(NodeDoc.id == doc_id, Node.project_id == project_id)
+        .first()
+    )
+    if ok is None:
+        raise ProcessRuleError(404, "Схема логики не найдена")
+
+
+def check_fragment(
+    kind: FragmentKind,
+    from_order: int,
+    to_order: int,
+    branches: list[BranchIn],
+    span_steps: int | None,
+) -> None:
+    """Границы фрагмента и его ветвей. Проверяется РЕЗУЛЬТАТ (после применения патча),
+    а не вход: частичная правка может сломать инвариант, не упоминая нарушенного поля.
+
+    Ветви [иначе] — только у alt (у opt/loop/par альтернативы нет), строго ВНУТРИ
+    охвата (start == from_order оставил бы первую ветвь пустой, за to_order — ветвь
+    вне рамки) и строго по возрастанию (две ветви с одной границей неразличимы).
+
+    span_steps — сколько шагов накрывает охват; None означает «ветви в запросе не
+    приходили, считать их нечего». Ограничение «ветвей не больше, чем шагов» держим
+    ТОЛЬКО на явно присланном списке: иначе фрагмент, из-под которого удалили шаги,
+    стало бы невозможно править вовсе — любой патч упирался бы в старые ветви.
+    """
+    if from_order > to_order:
+        raise ProcessRuleError(422, "from_order должен быть ≤ to_order")
+    if not branches:
+        return
+    if kind != "alt":
+        raise ProcessRuleError(422, "Ветки «иначе» бывают только у alt")
+    prev = from_order
+    for b in branches:
+        if not (prev < b.start_order <= to_order):
+            raise ProcessRuleError(
+                422,
+                (
+                    "Границы ветвей обязаны строго возрастать и лежать внутри охвата: "
+                    "from_order < start_order ≤ to_order"
+                ),
+            )
+        prev = b.start_order
+    # Первая ветвь тоже занимает шаг, поэтому строк должно быть строго меньше шагов.
+    if span_steps is not None and len(branches) >= span_steps:
+        raise ProcessRuleError(
+            422,
+            "Ветвей больше, чем шагов в охвате: последней не досталось бы ни одного",
+        )
+
+
+def channels_between(
+    db: Session, project_id: uuid.UUID, proc: BusinessProcess, a: uuid.UUID, b: uuid.UUID
+) -> list[ChannelOut]:
+    """Каналы схемы между двумя участниками процесса (концы — узлы, на которые
+    участники привязаны, с проекцией сквозных связей) и плечи каждого канала, уже
+    спроецированные на участников: их фронт и пришлёт в POST /messages."""
+    all_nodes = load_nodes(db, project_id)
+    participant_ids = bound_node_ids(proc.participants)
+    pair = {a, b}
+    out: list[ChannelOut] = []
+    for edge in db.query(Edge).filter(Edge.project_id == project_id).all():
+        p = resolve_to_participant(edge.source_id, participant_ids, all_nodes)
+        q = resolve_to_participant(edge.target_id, participant_ids, all_nodes)
+        if p is None or q is None or p == q or {p, q} != pair:
+            continue
+        legs_out: list[LegOut] = []
+        for leg in legs_for_edge(edge):
+            # Концы плеча проецируем на участников — фронт пришлёт их в POST /messages
+            f = resolve_to_participant(leg.from_id, participant_ids, all_nodes)
+            t = resolve_to_participant(leg.to_id, participant_ids, all_nodes)
+            if f is None or t is None:
+                continue
+            legs_out.append(
+                LegOut(
+                    leg=leg.leg,
+                    kind=leg.kind,
+                    from_id=f,
+                    to_id=t,
+                    default_caption=leg.default_caption,
+                )
+            )
+        out.append(
+            ChannelOut(
+                edge_id=edge.id,
+                source_id=edge.source_id,
+                target_id=edge.target_id,
+                technology=edge.technology,
+                label=edge.label,
+                synchronous=edge_is_synchronous(edge),
+                legs=legs_out,
+            )
+        )
+    return out
