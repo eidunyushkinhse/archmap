@@ -95,40 +95,31 @@ function dataBody(p: DataImportParams): Record<string, unknown> {
   return out;
 }
 
-export const dataImportApi = {
-  // variant: без него ручка отдаёт строительный промпт — прежнее поведение.
-  prompt: (variant?: PromptVariant): Promise<{ prompt: string }> =>
-    api.get<{ prompt: string }>(`/data-import/prompt${variant ? `?variant=${variant}` : ""}`),
-  preview: (p: DataImportParams): Promise<DataImportReport> =>
-    api.post<DataImportReport>("/data-import/preview", dataBody(p)),
-  apply: (p: DataImportParams): Promise<DataImportReport> =>
-    api.post<DataImportReport>("/data-import/apply", dataBody(p)),
-};
+// Три табличные семьи (БД, каналы, конфигурация) ввозятся одинаковой тройкой ручек
+// под своим префиксом: промпт, превью, применение. Отчёт у каждой свой (аудит F-34:
+// было три копии одних и тех же методов). variant: без него ручка отдаёт строительный
+// промпт — прежнее поведение.
+function importFamilyApi<Report>(segment: string) {
+  return {
+    prompt: (variant?: PromptVariant): Promise<{ prompt: string }> =>
+      api.get<{ prompt: string }>(`/${segment}/prompt${variant ? `?variant=${variant}` : ""}`),
+    preview: (p: DataImportParams): Promise<Report> => api.post<Report>(`/${segment}/preview`, dataBody(p)),
+    apply: (p: DataImportParams): Promise<Report> => api.post<Report>(`/${segment}/apply`, dataBody(p)),
+  };
+}
+
+export const dataImportApi = importFamilyApi<DataImportReport>("data-import");
 
 // Дозаливка КАНАЛОВ брокера. Свой контракт и свой префикс, а не режим data-import:
 // формат пакета другой (каналы с метой доставки и полями сообщений) и политика
 // слияния другая — у брокера нет репозитория-владельца, один топик описывают пакеты
 // разных репозиториев. Параметры те же: пакет, политика занятых полей, объект окна.
-export const channelsImportApi = {
-  prompt: (variant?: PromptVariant): Promise<{ prompt: string }> =>
-    api.get<{ prompt: string }>(`/channels-import/prompt${variant ? `?variant=${variant}` : ""}`),
-  preview: (p: DataImportParams): Promise<ChannelsImportReport> =>
-    api.post<ChannelsImportReport>("/channels-import/preview", dataBody(p)),
-  apply: (p: DataImportParams): Promise<ChannelsImportReport> =>
-    api.post<ChannelsImportReport>("/channels-import/apply", dataBody(p)),
-};
+export const channelsImportApi = importFamilyApi<ChannelsImportReport>("channels-import");
 
 // Дозаливка КОНФИГУРАЦИИ сервиса. Свой контракт по той же причине, что у каналов:
 // формат пакета другой (плоские параметры без второго уровня). Параметры общие с
 // соседями — пакет, политика занятых полей, объект окна.
-export const configImportApi = {
-  prompt: (variant?: PromptVariant): Promise<{ prompt: string }> =>
-    api.get<{ prompt: string }>(`/config-import/prompt${variant ? `?variant=${variant}` : ""}`),
-  preview: (p: DataImportParams): Promise<ConfigImportReport> =>
-    api.post<ConfigImportReport>("/config-import/preview", dataBody(p)),
-  apply: (p: DataImportParams): Promise<ConfigImportReport> =>
-    api.post<ConfigImportReport>("/config-import/apply", dataBody(p)),
-};
+export const configImportApi = importFamilyApi<ConfigImportReport>("config-import");
 
 // РАЗВЕДКА точек входа (docs/plan-recon.md): нулевой шаг документирования монолита.
 // Агент обходит репозиторий и возвращает не документацию, а ПЕРЕЧЕНЬ операций и

@@ -147,18 +147,27 @@ export const edgesApi = {
     api.get<DeletionSnapshot>(`/edges/${id}/deletion-snapshot`),
 };
 
+// Записи табличной семьи у объекта (таблицы, каналы, параметры): список, создание,
+// правка, удаление и «кто обращается» — одинаковые ручки под /nodes/{id}/{segment}
+// (аудит F-34). Второй уровень (колонки, поля) у каждой семьи свой.
+function factApi<Item, Create, Update, Usage>(segment: string) {
+  const base = (nodeId: string) => `/nodes/${nodeId}/${segment}`;
+  return {
+    list: (nodeId: string): Promise<Item[]> => api.get<Item[]>(base(nodeId)),
+    create: (nodeId: string, data: Create): Promise<Item> => api.post<Item>(base(nodeId), data),
+    update: (nodeId: string, id: string, data: Update): Promise<Item> =>
+      api.patch<Item>(`${base(nodeId)}/${id}`, data),
+    delete: (nodeId: string, id: string): Promise<void> => api.delete(`${base(nodeId)}/${id}`),
+    usage: (nodeId: string): Promise<Usage[]> => api.get<Usage[]>(`${base(nodeId)}/usage`),
+  };
+}
+
 // Структура БД узла (таблицы с колонками) — контракт базы. Обращения к ней своего
 // ввода не имеют: они живут пометками «читает:/пишет:» в тексте схем логики
 // вызывающих, и usage собирает их разбором на чтении (docs/plan-db-docs.md §9).
 export const dbTablesApi = {
-  list: (nodeId: string): Promise<DbTable[]> =>
-    api.get<DbTable[]>(`/nodes/${nodeId}/tables`),
-  create: (nodeId: string, data: DbTableCreate): Promise<DbTable> =>
-    api.post<DbTable>(`/nodes/${nodeId}/tables`, data),
-  update: (nodeId: string, tableId: string, data: DbTableUpdate): Promise<DbTable> =>
-    api.patch<DbTable>(`/nodes/${nodeId}/tables/${tableId}`, data),
-  delete: (nodeId: string, tableId: string): Promise<void> =>
-    api.delete(`/nodes/${nodeId}/tables/${tableId}`),
+  // usage — кто обращается к таблицам этой базы: разворот пометок из схем логики проекта.
+  ...factApi<DbTable, DbTableCreate, DbTableUpdate, TableUsage>("tables"),
   createColumn: (nodeId: string, tableId: string, data: DbColumnCreate): Promise<DbColumn> =>
     api.post<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns`, data),
   updateColumn: (
@@ -167,9 +176,6 @@ export const dbTablesApi = {
     api.patch<DbColumn>(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`, data),
   deleteColumn: (nodeId: string, tableId: string, columnId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/tables/${tableId}/columns/${columnId}`),
-  // Кто обращается к таблицам этой базы — разворот пометок из схем логики проекта.
-  usage: (nodeId: string): Promise<TableUsage[]> =>
-    api.get<TableUsage[]>(`/nodes/${nodeId}/tables/usage`),
 };
 
 // Структура брокера (каналы с полями сообщений) — тот же «контракт» узла, что таблицы
@@ -179,16 +185,9 @@ export const dbTablesApi = {
 // (docs/plan-broker-docs.md §1). Адреса — /nodes/{id}/channels (Ф0, без слеша на конце:
 // префикс роутера уже содержит путь целиком).
 export const brokerChannelsApi = {
-  list: (nodeId: string): Promise<BrokerChannel[]> =>
-    api.get<BrokerChannel[]>(`/nodes/${nodeId}/channels`),
-  create: (nodeId: string, data: BrokerChannelCreate): Promise<BrokerChannel> =>
-    api.post<BrokerChannel>(`/nodes/${nodeId}/channels`, data),
-  update: (
-    nodeId: string, channelId: string, data: BrokerChannelUpdate,
-  ): Promise<BrokerChannel> =>
-    api.patch<BrokerChannel>(`/nodes/${nodeId}/channels/${channelId}`, data),
-  delete: (nodeId: string, channelId: string): Promise<void> =>
-    api.delete(`/nodes/${nodeId}/channels/${channelId}`),
+  // usage — кто публикует и кто потребляет каналы этого брокера: разворот пометок
+  // «публикует:/потребляет:» из схем логики проекта (записей обращений нет).
+  ...factApi<BrokerChannel, BrokerChannelCreate, BrokerChannelUpdate, ChannelUsage>("channels"),
   createField: (
     nodeId: string, channelId: string, data: ChannelFieldCreate,
   ): Promise<ChannelField> =>
@@ -199,25 +198,10 @@ export const brokerChannelsApi = {
     api.patch<ChannelField>(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`, data),
   deleteField: (nodeId: string, channelId: string, fieldId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/channels/${channelId}/fields/${fieldId}`),
-  // Кто публикует и кто потребляет каналы этого брокера — разворот пометок
-  // «публикует:/потребляет:» из схем логики проекта (записей обращений нет).
-  usage: (nodeId: string): Promise<ChannelUsage[]> =>
-    api.get<ChannelUsage[]>(`/nodes/${nodeId}/channels/usage`),
 };
 
 // Конфигурация сервиса: переменные окружения и параметры (docs/plan-config-docs.md).
 // Плоская семья — второго уровня, как колонки у таблиц и поля у каналов, здесь нет.
 // Обращений своих записей тоже нет: «какая развилка от ручки зависит» — разворот
 // пометок «зависит от:» из схем логики ЭТОГО ЖЕ объекта (чужие сослаться не могут).
-export const configParamsApi = {
-  list: (nodeId: string): Promise<ConfigParam[]> =>
-    api.get<ConfigParam[]>(`/nodes/${nodeId}/config`),
-  create: (nodeId: string, data: ConfigParamCreate): Promise<ConfigParam> =>
-    api.post<ConfigParam>(`/nodes/${nodeId}/config`, data),
-  update: (nodeId: string, paramId: string, data: ConfigParamUpdate): Promise<ConfigParam> =>
-    api.patch<ConfigParam>(`/nodes/${nodeId}/config/${paramId}`, data),
-  delete: (nodeId: string, paramId: string): Promise<void> =>
-    api.delete(`/nodes/${nodeId}/config/${paramId}`),
-  usage: (nodeId: string): Promise<ConfigParamUsage[]> =>
-    api.get<ConfigParamUsage[]>(`/nodes/${nodeId}/config/usage`),
-};
+export const configParamsApi = factApi<ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage>("config");
