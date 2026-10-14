@@ -12,6 +12,7 @@ from app.database import get_db
 from app.deps import (
     check_cas,
     get_current_project,
+    node_or_404,
     require_project_editor,
     scoped_node,
     touch_project,
@@ -375,9 +376,7 @@ def get_node(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node = node_or_404(db, node_id, project)
     _mark_has_children(db, [node])
     return node
 
@@ -392,9 +391,7 @@ def update_node(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node = node_or_404(db, node_id, project)
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле узла)
     base_version = data.pop("base_version", None)
@@ -465,9 +462,7 @@ def get_move_snapshot(
     сменой parent_id и при Undo возвращает его через POST /nodes/restore. Узлы и связи
     в снимке пусты — перенос ничего не сносит, кроме запомненных позиций.
     """
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node = node_or_404(db, node_id, project)
     return reparent.build_move_snapshot(db, project, node)
 
 
@@ -482,8 +477,7 @@ def get_deletion_snapshot(
 
     Клиент берёт его ПЕРЕД delete, чтобы потом восстановить через POST /restore (Undo).
     """
-    if not scoped_node(db, node_id, project):
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
     return restore.build_deletion_snapshot(db, node_id)
 
 
@@ -494,9 +488,7 @@ def delete_node(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node = node_or_404(db, node_id, project)
     # Удаляем узел со всем поддеревом (потомки любой глубины) и их рёбрами — это
     # делает БД-каскад (ondelete="CASCADE" на parent_id, source_id/target_id), а
     # passive_deletes на связях Node не даёт ORM лезть в эти строки в Python.
@@ -516,9 +508,7 @@ def get_children(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[Node]:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
     children = db.query(Node).filter(Node.parent_id == node_id).all()
     _mark_has_children(db, children)
     return children
@@ -534,9 +524,7 @@ def get_descendants(
     """Все потомки узла на любой глубине (без самого узла) — для скоупленного
     выбора дальнего конца межуровневой связи: тянешь стрелку на узел-контейнер,
     поиск идёт только по его поддереву."""
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
     subtree_ids = tree.collect_subtree_ids_db(db, node_id) - {node_id}
     if not subtree_ids:
         return []
@@ -557,9 +545,7 @@ def get_node_edges(
     Для предупреждения перед удалением. Чисто внутренние связи ветки не включаем —
     они уходят вместе с самой веткой и «потерей связи наружу» не являются.
     Направление/имя соседа считаются относительно поддерева (внешний конец)."""
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
 
     return external_edges(db, project.id, node_id)
 
@@ -572,9 +558,7 @@ def get_node_graph(
     _: User = Depends(get_current_user),
 ) -> GraphResponse:
     """Граф для уровня node_id: дочерние узлы + рёбра + гостевые узлы из других уровней."""
-    parent = scoped_node(db, node_id, project)
-    if not parent:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
 
     local_nodes = db.query(Node).filter(Node.parent_id == node_id).all()
     # версия вида + курсор проекта — базовая точка отсчёта клиента (этапы 0/1)
@@ -598,9 +582,7 @@ def get_node_context_graph(
     (single-schema): виртуальный корневой уровень «фокус + представители соседей»,
     который фронт рендерит тем же level-конвейером, что и обычный уровень.
     Доменный алгоритм сборки — в app/context_graph.build_context_graph."""
-    focus = scoped_node(db, node_id, project)
-    if not focus:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    focus = node_or_404(db, node_id, project)
     return build_context_graph(db, project, focus)
 
 
@@ -615,9 +597,7 @@ def get_node_processes(
     в процессах» страницы объекта (single-schema): участник-потомок считает
     процесс участием своего контейнера-предка. Форма ответа — тот же
     ProcessListItem, что у GET /processes (счётчик сообщений, статусы)."""
-    focus = scoped_node(db, node_id, project)
-    if not focus:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    focus = node_or_404(db, node_id, project)
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id).all()}
     node_ids = tree.subtree_ids(all_nodes, focus.id)
     proc_ids = {
@@ -679,7 +659,6 @@ def relayout_context(
     """«Переразложить» страницу объекта: сбрасывает раскладку ВИДА ФОКУСА
     (view_id = node_id) — позиции и инлайн-раскрытия → свежий ELK. Соседние
     виды (другие страницы, уровни редактора) нетронуты."""
-    if not scoped_node(db, node_id, project):
-        raise HTTPException(status_code=404, detail="Узел не найден")
+    node_or_404(db, node_id, project)
     reset_view_layout(db, project, node_id)
     db.commit()
