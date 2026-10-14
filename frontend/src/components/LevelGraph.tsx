@@ -57,6 +57,7 @@ import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
 import { useLevelHistory } from "./graph/interaction/useLevelHistory";
+import { useLevelDragLifecycle } from "./graph/interaction/useLevelDragLifecycle";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
@@ -455,101 +456,25 @@ function LevelGraphInner({
   const liveHandleInputs = useRef<LiveHandleInputs | null>(null);
   const liveDragHandles = useLiveDragHandles({ inputsRef: liveHandleInputs, setRfEdges });
 
-  // Идёт ли драг узлов/рамки выделения. На время драга замораживаем реестр «мостиков»
-  // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
-  // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
-  // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
-  const [dragging, setDragging] = useState(false);
-  // Зеркало для СИНХРОННОГО чтения вне рендера (таймер фоновой уборки P14): стейт
-  // виден только следующему рендеру, а таймеру нужен факт «драг в полёте» сейчас.
-  const draggingRef = useRef(false);
-  useEffect(() => { draggingRef.current = dragging; });
-
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
   // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
   // рамок при драге ребёнка — оверлей в useFrameFollowOverlay (вынесен при распиле Ф2).
   const frameFollow = useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes });
-  const handleNodeDragStart = useCallback(
-    (_e: unknown, n: RFNode, ns: RFNode[]) => {
-      setDragging(true);
-      if (gestureActiveRef) gestureActiveRef.current = true; // поллинг этапа 1: рефетч не врывается в жест
-      cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
-      const grp = ns.length > 0 ? ns : [n];
-      liveDragHandles.begin(rfNodes, rfEdges); // база позиций узлов + снимок маршрутов на старте
-      noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
-      frameFollow.snapshotPads(); // паддинги рамок для живого bbox-follow
-      frameFollow.begin(grp); // скрыть рамки-предки, включить живой оверлей
-    },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
-  );
-  const handleSelectionDragStart = useCallback(
-    (_e: unknown, ns: RFNode[]) => {
-      setDragging(true);
-      if (gestureActiveRef) gestureActiveRef.current = true;
-      cancelAnim();
-      liveDragHandles.begin(rfNodes, rfEdges);
-      noteDragStart(ns);
-      frameFollow.snapshotPads();
-      frameFollow.begin(ns);
-    },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
-  );
-  const handleNodeDrag = useCallback(
-    (_e: unknown, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
-    [liveDragHandles, frameFollow],
-  );
-  const handleSelectionDrag = useCallback(
-    (_e: unknown, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
-    [liveDragHandles, frameFollow],
-  );
-  // Отпускание драга: persistGroup сам кладёт ОДНУ команду на весь жест;
-  // beginGroup/commitGroup вокруг — страховка, чтобы сопутствующие push-и
-  // (если появятся) не разбили жест на несколько шагов Undo.
-  const handleNodeDragStopP = useCallback(
-    (e: unknown, n: RFNode, ns: RFNode[]) => {
-      setDragging(false);
-      frameFollow.finalize(); // рамки: финальный bbox одним setState + вернуть видимость
-      noteGesture(); // изменённые пересчётом стрелки перерисовать анимированно
-      history.beginGroup();
-      try {
-        // персист первым: нужен факт записи — жест без неё (нетто-сдвига нет)
-        // не сменит viewLayout и не запустит пересчёт, поэтому живое превью
-        // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
-        const committed = handleNodeDragStop(e, n, ns);
-        if (!committed) liveDragHandles.restore();
-        else {
-          dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
-          emitTourEvent({ type: "node-drag-end", ids: [n.id] }); // ждёт обучающий тур демо
-        }
-      } finally {
-        liveDragHandles.end();
-        history.commitGroup("Перемещение группы");
-        if (gestureActiveRef) gestureActiveRef.current = false;
-      }
-    },
-    [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture, gestureActiveRef],
-  );
-  const handleSelectionDragStopP = useCallback(
-    (e: unknown, ns: RFNode[]) => {
-      setDragging(false);
-      frameFollow.finalize();
-      noteGesture();
-      history.beginGroup();
-      try {
-        const committed = handleSelectionDragStop(e, ns);
-        if (!committed) liveDragHandles.restore();
-        else {
-          dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
-          emitTourEvent({ type: "node-drag-end", ids: ns.map((x) => x.id) }); // ждёт обучающий тур демо
-        }
-      } finally {
-        liveDragHandles.end();
-        history.commitGroup("Перемещение группы");
-        if (gestureActiveRef) gestureActiveRef.current = false;
-      }
-    },
-    [liveDragHandles, handleSelectionDragStop, history, frameFollow, noteGesture, gestureActiveRef],
-  );
+  // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
+  // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
+  // обнуляет — следующий прогон (не дроп) считает всё целиком.
+  const dragScopeRef = useRef<string[] | null>(null);
+  // Старт, ход и отпускание драга узлов и рамки выделения; dragging замораживает
+  // реестр «мостиков» на время жеста, draggingRef читает таймер фоновой уборки (P14).
+  const {
+    dragging, draggingRef,
+    handleNodeDragStart, handleSelectionDragStart, handleNodeDrag, handleSelectionDrag,
+    handleNodeDragStopP, handleSelectionDragStopP,
+  } = useLevelDragLifecycle({
+    rfNodes, rfEdges, history, liveDragHandles, frameFollow, noteDragStart,
+    handleNodeDragStop, handleSelectionDragStop, cancelAnim, noteGesture,
+    gestureActiveRef, dragScopeRef,
+  });
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
@@ -717,10 +642,6 @@ function LevelGraphInner({
     scene: PrevScene;
     version: number;
   } | null>(null);
-  // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
-  // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
-  // обнуляет — следующий прогон (не дроп) считает всё целиком.
-  const dragScopeRef = useRef<string[] | null>(null);
   // ПЕРСИСТНЫЙ КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11): маршруты
   // последнего АВТОРИТЕТНОГО прогона этого вида, пережившие уход с вида и перезагрузку.
   // Открытие уровня — единственный сценарий без prev (гистерезис и скоуп бессильны):
