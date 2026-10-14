@@ -24,7 +24,9 @@ import yaml
 from conftest import ensure_architect, make_project
 from fastapi.testclient import TestClient
 
+from app import archive_import
 from app.archive_export import build_archive
+from app.archive_import import unpacked_size
 from app.auth import get_current_user
 from app.config_import import ParamIn
 from app.database import get_db
@@ -616,6 +618,17 @@ def test_пустой_запрос_и_кап_архивов(db):
     много = [(f"{i}.zip", b"PK\x03\x04") for i in range(17)]
     with pytest.raises(UnifiedImportError, match="Больше 16 архивов"):
         build_into_plan(db, проект, много)
+
+
+def test_распакованный_объём_архивов_считается_на_весь_запрос(db, monkeypatch):
+    # Аудит S7 — тот же предел на запрос, что у ввоза в новый проект.
+    проект, _ = _ярмарка(db)
+    архив = build_archive(db, проект)
+    monkeypatch.setattr(archive_import, "MAX_TOTAL_BYTES", 2 * unpacked_size(архив) - 1)
+
+    assert build_into_plan(db, проект, [("a.zip", архив)]) is not None
+    with pytest.raises(UnifiedImportError, match="вместе распаковываются"):
+        build_into_plan(db, проект, [("a.zip", архив), ("b.zip", архив)])
 
 
 def test_кривой_архив_адресуется_своему_чипу(db):

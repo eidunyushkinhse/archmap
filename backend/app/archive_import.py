@@ -38,6 +38,27 @@ class _Archive:
     files: dict[str, str] = field(default_factory=dict)
 
 
+def unpacked_size(payload: bytes) -> int:
+    """Сколько архив займёт распакованным — по центральному каталогу, без чтения файлов.
+    Не zip — 0: такой вход отвергнет сам разбор, адресно."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+            return sum(info.file_size for info in zf.infolist())
+    except zipfile.BadZipFile:
+        return 0
+
+
+def check_unpacked_total(payloads: list[bytes]) -> None:
+    """Предел распаковки на ЗАПРОС (аудит S7): _read_zip держит каждый архив, но шестнадцать
+    архивов по 64 МБ из нулей — до гигабайта строк в памяти одного запроса."""
+    total = sum(unpacked_size(p) for p in payloads if p.startswith(b"PK"))
+    if total > MAX_TOTAL_BYTES:
+        raise ArchiveError(
+            f"Архивы запроса вместе распаковываются больше чем в {MAX_TOTAL_BYTES // 2**20} МБ — "
+            "ввезите их частями"
+        )
+
+
 def _read_zip(payload: bytes) -> _Archive:
     try:
         zf = zipfile.ZipFile(io.BytesIO(payload))

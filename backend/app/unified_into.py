@@ -34,6 +34,7 @@ from typing import Any
 from sqlalchemy.orm import Session, undefer
 
 from app.archive_export import build_archive_ordered
+from app.archive_import import ArchiveError, check_unpacked_total
 from app.channels_import import (
     ChannelIn,
     apply_channels_plan,
@@ -181,6 +182,10 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
         raise UnifiedImportError("Не передан ни один файл")
     if len(inputs) > MAX_ARCHIVES:
         raise UnifiedImportError(f"Больше {MAX_ARCHIVES} архивов за раз не принимаем")
+    try:
+        check_unpacked_total([payload for _label, payload in inputs])
+    except ArchiveError as e:
+        raise UnifiedImportError(str(e)) from e
 
     graph_rev, meta_rev = project.graph_rev, project.meta_rev
 
@@ -198,7 +203,7 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
         return failed(None, not_archives)
 
     self_bytes, node_order = build_archive_ordered(db, project)
-    plan = build_unified_plan([(SELF_LABEL, self_bytes), *inputs])
+    plan = build_unified_plan([(SELF_LABEL, self_bytes), *inputs], limit_unpacked=False)
     if not plan.ok or plan.merged is None:
         return failed(plan, _addressed_errors(plan))
 

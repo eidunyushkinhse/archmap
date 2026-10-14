@@ -37,7 +37,13 @@ from typing import Literal
 
 import yaml
 
-from app.archive_import import ArchiveError, _Archive, _listed, _read_zip
+from app.archive_import import (
+    ArchiveError,
+    _Archive,
+    _listed,
+    _read_zip,
+    check_unpacked_total,
+)
 from app.channels_import import ChannelIn, parse_channels_file
 from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
@@ -619,11 +625,15 @@ def _failed(inputs: list[_Input], errors: list[str], report: MergeReport) -> Uni
     )
 
 
-def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
+def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool = True) -> UnifiedPlan:
     """План ввоза N входов (label, payload) в порядке пользователя.
 
     Порядок входов значим: от него зависят tie-break C4-мерджа и дефолт «первый
-    кандидат» у конфликтов семей — поэтому входы НЕ сортируются нигде."""
+    кандидат» у конфликтов семей — поэтому входы НЕ сортируются нигде.
+
+    limit_unpacked=False — для догрузки: среди входов там самоархив живого проекта,
+    собранный сервером, и в предел распаковки он не считается (догрузка проверила
+    пользовательские входы сама)."""
     if not inputs:
         raise UnifiedImportError("Не передан ни один файл")
     if len(inputs) > MAX_INPUTS:
@@ -632,6 +642,11 @@ def build_unified_plan(inputs: list[tuple[str, bytes]]) -> UnifiedPlan:
     # у них своя цена — распаковка в память, — и свой, куда более строгий предел.
     if sum(1 for _label, payload in inputs if payload.startswith(b"PK")) > MAX_ARCHIVES:
         raise UnifiedImportError(f"Больше {MAX_ARCHIVES} архивов за раз не принимаем")
+    if limit_unpacked:
+        try:
+            check_unpacked_total([payload for _label, payload in inputs])
+        except ArchiveError as e:
+            raise UnifiedImportError(str(e)) from e
 
     read = [_read_input(label, payload) for label, payload in inputs]
     remarks: list[list[str]] = [[] for _ in read]

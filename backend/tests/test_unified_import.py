@@ -19,6 +19,8 @@ import yaml
 from conftest import ensure_architect
 from fastapi.testclient import TestClient
 
+from app import archive_import
+from app.archive_import import unpacked_size
 from app.auth import require_architect
 from app.data_import import parse_data_file
 from app.database import get_db
@@ -736,6 +738,17 @@ def test_пустой_вход_и_превышение_капов_ломают_�
     with pytest.raises(UnifiedImportError, match=f"Больше {MAX_ARCHIVES} архивов"):
         build_unified_plan(архивы)
     assert build_unified_plan(архивы[:MAX_ARCHIVES]).ok  # ровно кап — принимаем
+
+
+def test_распакованный_объём_архивов_считается_на_весь_запрос(monkeypatch):
+    # Аудит S7: _read_zip держит каждый архив, но не их сумму — шестнадцать архивов по
+    # 64 МБ из нулей дали бы до гигабайта строк в памяти одного запроса.
+    a, b = _архив(name="A"), _архив(name="B")
+    monkeypatch.setattr(archive_import, "MAX_TOTAL_BYTES", unpacked_size(a) + unpacked_size(b) - 1)
+
+    assert build_unified_plan([("a.zip", a)]).ok  # по отдельности архив в пределе
+    with pytest.raises(UnifiedImportError, match="вместе распаковываются"):
+        build_unified_plan([("a.zip", a), ("b.zip", b)])
 
 
 def test_один_yaml_вход_проходит_как_обычный_импорт():
