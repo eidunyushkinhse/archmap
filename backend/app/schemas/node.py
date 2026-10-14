@@ -4,16 +4,13 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.domain_types import NodeShape, NodeStatus
 from app.schemas.broker_channel import ChannelAccessMode
 from app.schemas.db_doc import DataAccessMode
 from app.schemas.node_doc import NodeDocMeta
 
-# C4-формы узла. Источник правды контракта — этот Literal; фронтовый NodeShape
-# генерируется из него (openapi-typescript). Заодно серверная валидация shape.
-NodeShape = Literal["service", "database", "broker", "person"]
-
-# Статус жизненного цикла узла. Источник правды контракта — этот Literal.
-NodeStatus = Literal["existing", "planned", "deprecated"]
+# C4-формы и статусы узла — словари предметной области (app/domain_types): из них
+# же генерируются фронтовые NodeShape/NodeStatus и валидируется вход.
 
 
 class NodeSource(BaseModel):

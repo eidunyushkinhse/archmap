@@ -28,6 +28,7 @@ from difflib import SequenceMatcher
 import yaml
 from sqlalchemy.orm import Session
 
+from app.domain_types import NODE_SHAPES, NODE_STATUSES
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
@@ -39,8 +40,8 @@ MAX_NODES = 2000
 MAX_EDGES = 4000
 MAX_DEPTH = 32
 
-_SHAPES = ("service", "database", "broker", "person")
-_STATUSES = ("existing", "planned", "deprecated")
+_SHAPES = NODE_SHAPES
+_STATUSES = NODE_STATUSES
 
 
 @dataclass

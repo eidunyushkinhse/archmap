@@ -27,10 +27,11 @@ import re
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Literal, NamedTuple
+from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
+from app.domain_types import DataRefMode, DataRefStatus
 from app.models.broker_channel import BrokerChannel
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
@@ -38,23 +39,9 @@ from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.node_ref import NodeIndex
 
-Mode = Literal["read", "write", "publish", "consume", "config"]
-RefStatus = Literal[
-    "ok",
-    # Табличная семья (read/write).
-    "unknown_table",
-    "unknown_column",
-    # Канальная семья (publish/consume).
-    "unknown_channel",
-    "unknown_field",
-    # Конфигурационная семья (config). Пары «нет параметра / нет члена» у неё нет:
-    # параметр плоский, второго уровня не бывает.
-    "unknown_param",
-    # Общий для табличной и канальной: имя подошло нескольким целям, выбрать за
-    # пользователя нельзя. Конфигурации он НЕДОСТУПЕН по построению — искать её
-    # можно только у владельца схемы, а там имя уникально (см. _resolve_config).
-    "ambiguous",
-]
+# Режим и итог резолва пометки — словари предметной области (app/domain_types).
+Mode = DataRefMode
+RefStatus = DataRefStatus
 
 # Режимы, адресующие КАНАЛЫ. Каталог у них свой: read/write ищутся только среди
 # таблиц, publish/consume — только среди каналов. Смешать их значило бы вернуть

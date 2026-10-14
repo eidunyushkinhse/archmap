@@ -25,10 +25,12 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
+from app.domain_types import NODE_DOC_KINDS
+
 # Порядок полей в примере для промпта; он же — порядок вывода render_header.
 KEYS = ("name", "kind", "operation", "node")
 # Виды схем логики (NodeDoc.kind). Латиницей — как в остальном контракте агента.
-KINDS = ("operation", "worker")
+KINDS = NODE_DOC_KINDS
 
 _PREFIX = "archmap-"
 

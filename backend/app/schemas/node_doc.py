@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.domain_types import NodeDocKind
 
 # Вид схемы логики узла. Источник правды контракта — этот Literal; фронтовый
 # NodeDocKind генерируется из него (openapi-typescript).
@@ -15,7 +16,6 @@ from pydantic import BaseModel, Field
 # Поле operation заполняется только у операций СОБСТВЕННОГО API узла — у
 # клиентских сценариев его нет и это законно (см. recon_import: безадресная
 # схема не может «исчезнуть» из кода).
-NodeDocKind = Literal["operation", "worker"]
 
 
 class NodeDocCreate(BaseModel):
