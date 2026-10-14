@@ -28,6 +28,7 @@ import DocsAgentPanel from "../docsImport/DocsAgentPanel";
 import { DocAgentSteps, DocHead, EditMenu, FlowGlyph, TwoStepDeleteButton } from "./docChrome";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText } from "../../lib/copyText";
+import { DOC_KIND_LABEL, DOC_KIND_ORDER } from "../nodeTerms";
 
 // Событие мутации дока для истории/меты. before/after — полные доки: undo/redo
 // делаются компенсациями PATCH/POST/DELETE без base_version (паттерн U24).
@@ -66,11 +67,6 @@ interface Draft {
   content: string;
 }
 
-const KIND_LABEL: Record<NodeDocKind, string> = {
-  operation: "Операция",
-  worker: "Воркер",
-};
-const KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
 
 function freshName(docs: NodeDoc[]): string {
   const taken = new Set(docs.map((d) => d.name));
@@ -314,7 +310,7 @@ export default function FlowchartDocs({
           <label className="doc-field" title="Обработчик операции или сценарий клиента / фоновый воркер">
             Вид
             <select value={form.kind} onChange={(e) => edit({ kind: e.target.value as NodeDocKind })}>
-              {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+              {DOC_KIND_ORDER.map((k) => <option key={k} value={k}>{DOC_KIND_LABEL[k]}</option>)}
             </select>
           </label>
           {form.kind === "operation" && (
@@ -390,7 +386,7 @@ export default function FlowchartDocs({
       <DocHead
         glyph={<FlowGlyph />}
         title={title}
-        tag={shownKind ? KIND_LABEL[shownKind] : "mermaid · flowchart"}
+        tag={shownKind ? DOC_KIND_LABEL[shownKind] : "mermaid · flowchart"}
         actions={actions}
         onClose={onRequestClose ?? onClose}
       />

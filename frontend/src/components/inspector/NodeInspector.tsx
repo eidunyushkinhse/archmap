@@ -16,6 +16,7 @@ import AnchorField from "../anchor/AnchorField";
 import { useContainerChildren } from "../../pages/useContainerChildren";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
+import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 
 interface Props {
   node: Node;
@@ -27,9 +28,6 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
 }
 
-const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
-// Порядок типов в выпадашке — от самого частого (сервис) к самому редкому.
-const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
 
 // Плашка-уведомление панели: и конфликт версий, и отказ сервера с причиной.
 const noticeStyle: CSSProperties = {
@@ -421,13 +419,6 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
   );
 }
 
-// Форма узла → человекочитаемая подпись типа.
-const SHAPE_LABEL: Record<NodeShape, string> = {
-  service: "Сервис",
-  database: "База данных",
-  broker: "Брокер сообщений",
-  person: "Пользователь",
-};
 
 // Линейные иконки термов (16×16, currentColor). Порт META_ICON из NodeModal + flow/api/trash.
 const ms = {

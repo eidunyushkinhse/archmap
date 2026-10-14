@@ -28,6 +28,7 @@ import AgentPackageInput from "./AgentPackageInput";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyTextOrShow } from "../../lib/copyText";
+import { DOC_KIND_LABEL, DOC_KIND_ORDER } from "../nodeTerms";
 
 // Режим панели. «doc» несёт имя схемы, которую обновляет пакет.
 export type DocsAgentPanelMode =
@@ -62,11 +63,6 @@ interface Attempts {
 const NO_REFS: RefCounts = { data: 0, channel: 0 };
 const NO_ATTEMPTS: Attempts = { from: null, prev: null, cur: NO_REFS };
 
-const KIND_LABEL: Record<NodeDocKind, string> = {
-  operation: "Операция",
-  worker: "Воркер",
-};
-const KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
 
 // Сводка окна одной схемы: что станет с ЭТОЙ схемой, словами, а не счётчиками пакета.
 function docSummary(action: string, name: string): string {
@@ -397,7 +393,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
                       title="Вид схемы — можно поменять до применения"
                       aria-label={`Вид схемы из файла ${l.source}`}
                     >
-                      {KIND_ORDER.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
+                      {DOC_KIND_ORDER.map((k) => <option key={k} value={k}>{DOC_KIND_LABEL[k]}</option>)}
                     </select>
                   </>
                 ),

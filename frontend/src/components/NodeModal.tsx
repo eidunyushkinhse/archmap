@@ -13,6 +13,7 @@ import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
 import { emitTourEvent } from "./tour/tourBus";
 import { noAutofill } from "../ui/noAutofill";
+import { STATUS_ORDER } from "./nodeTerms";
 
 // Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
 // панель схемы (inspector/NodeInspector) — здесь осталась только форма нового объекта,
@@ -33,7 +34,6 @@ interface Props {
   onSaved: (node: Node, isCreate: boolean) => void;
 }
 
-const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
 export default function NodeModal({ parentId, shape: templateShape, initialPos, posView, onClose, onSaved }: Props) {
   // Дроп в раскрытую рамку: позицию пишем отдельным батчем в вид текущего уровня.

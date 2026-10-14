@@ -40,6 +40,7 @@ import { hasNoNeighbors, schemaSectionHeight, toLevelEdges, visibleEntityGuess, 
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 import { noAutofill } from "../ui/noAutofill";
+import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../components/nodeTerms";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -1184,12 +1185,6 @@ function EdgeRow({
 
 // ── Вспомогательные ─────────────────────────────────────────────────
 
-const SHAPE_LABEL: Record<NodeShape, string> = {
-  service: "Сервис",
-  database: "База данных",
-  broker: "Брокер сообщений",
-  person: "Пользователь",
-};
 
 // Внешность — относительно контура организации, не системы (спека N2а).
 const EXTERNAL_HINT =
@@ -1197,10 +1192,7 @@ const EXTERNAL_HINT =
   "third-party, клиент). Свои сотрудники и свои серверы — внутренние, даже вне " +
   "границы системы: границу системы выражает дерево, а не этот флаг";
 
-const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
-// Порядок типов в выпадашке — от самого частого (сервис) к самому редкому.
-const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
 
 function statusDotColor(status: NodeStatus, isExternal: boolean): string {
   if (status === "existing") return isExternal ? "#9ca3af" : "#9ca3af";

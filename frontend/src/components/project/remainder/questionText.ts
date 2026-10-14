@@ -9,6 +9,7 @@ import type {
 } from "../../../types";
 import { plural } from "../../../ui/plural";
 import { STATUS_META } from "../../graph/colors";
+import { SHAPE_LABEL } from "../../nodeTerms";
 
 /** Последний сегмент пути: «Grafana / Сервер Grafana» → «Сервер Grafana». */
 export const lastSegment = (path: string): string => path.split(" / ").pop() ?? path;
@@ -26,14 +27,6 @@ export function sourcesPhrase(n: number): string {
   return `в ${n} источниках`;
 }
 
-// Человеческие имена форм C4 — та же карта, что в палитре NodeTreePanel и в
-// SHAPE_LABEL страницы объекта (общего экспорта в проекте нет, поэтому копия).
-const SHAPE_LABEL: Record<NodeShape, string> = {
-  service: "Сервис",
-  database: "База данных",
-  broker: "Брокер",
-  person: "Пользователь",
-};
 
 /**
  * Значение поля человеческими словами (Р5 задания): форма и статус приезжают
