@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   clearToken, fetchAuthConfig, fetchMe, getAuthConfig, getIsGuest, getMe, getToken, subscribeMe,
 } from "./api/auth";
@@ -99,19 +99,20 @@ export default function App() {
     return () => { alive = false; };
   }, []);
 
+  // Конец сессии — один на выход, блокировку и истёкший токен (аудит F-67): токен и
+  // открытый проект забываются, экран входа показывает notice. toProjects — начать
+  // после входа со «Всех проектов»; иначе адрес сохраняется и человек вернётся туда же.
+  const resetSession = useCallback((notice: string | null, toProjects: boolean) => {
+    clearToken();
+    setCurrentProjectId(null);
+    setLoginNotice(notice);
+    setAuthenticated(false);
+    if (toProjects) window.location.hash = "/projects";
+  }, []);
+
   // Учётку заблокировали (или песочницу гостя убрали), пока человек работал: любой
   // запрос получил 401 с этим текстом — выходим на экран входа и показываем причину.
-  useEffect(
-    () =>
-      onAccountBlocked((message) => {
-        clearToken();
-        setCurrentProjectId(null);
-        setLoginNotice(message);
-        setAuthenticated(false);
-        window.location.hash = "/projects";
-      }),
-    [],
-  );
+  useEffect(() => onAccountBlocked((message) => { resetSession(message, true); }), [resetSession]);
 
   // Прочий 401 (токен истёк или испорчен) — на экран входа. Раньше это делал только
   // демо-стенд, а вне демо страницы молча оставались пустыми (аудит R-15). Вне демо —
@@ -120,25 +121,15 @@ export default function App() {
   const demoMode = authConfig?.demo_mode ?? false;
   useEffect(() => {
     if (!authenticated) return;
-    return onUnauthorized(() => {
-      clearToken();
-      setCurrentProjectId(null);
-      setLoginNotice(demoMode ? null : SESSION_EXPIRED_NOTICE);
-      setAuthenticated(false);
-      if (demoMode) window.location.hash = "/projects";
-    });
-  }, [authenticated, demoMode]);
+    return onUnauthorized(() => { resetSession(demoMode ? null : SESSION_EXPIRED_NOTICE, demoMode); });
+  }, [authenticated, demoMode, resetSession]);
 
   function navigate(hash: string) {
     window.location.hash = hash;
   }
 
   function handleLogout() {
-    clearToken();
-    setCurrentProjectId(null);
-    setLoginNotice(null);
-    setAuthenticated(false);
-    navigate("/projects");
+    resetSession(null, true);
   }
 
   if (!authenticated) {
