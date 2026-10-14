@@ -10,6 +10,7 @@ from app.auth import get_current_user
 from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import (
+    check_cas,
     get_current_project,
     require_project_editor,
     scoped_node,
@@ -463,8 +464,7 @@ def update_node(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле узла)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != node.version:
-        raise HTTPException(status_code=409, detail="Узел изменён в другой сессии")
+    check_cas(node.version, base_version, "Узел изменён в другой сессии")
     # Якорь — НЕ колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
     if "source" in data:

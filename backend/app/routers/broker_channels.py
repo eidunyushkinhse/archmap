@@ -25,9 +25,12 @@ from app.auth import get_current_user
 from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
 from app.deps import (
+    check_cas,
     get_current_project,
+    name_taken,
+    node_or_404,
+    owned_or_404,
     require_project_editor,
-    scoped_node,
     touch_project,
 )
 from app.models.broker_channel import BrokerChannel
@@ -50,18 +53,11 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/nodes/{node_id}/channels", tags=["broker-docs"])
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _broker_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
     """Узел-владелец каналов. Форма проверяется на КАЖДОЙ мутации, включая создание:
     иначе «каналы у сервиса» пришлось бы ловить постфактум, а страница их не покажет.
     Контейнер отсекается этой же проверкой — детей имеет только сервис (node.md N4)."""
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     if node.shape != "broker":
         raise HTTPException(
             status_code=400, detail="Каналы может иметь только узел-брокер"
@@ -70,42 +66,37 @@ def _broker_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
 
 
 def _scoped_channel(db: Session, node: Node, channel_id: uuid.UUID) -> BrokerChannel:
-    channel = db.get(BrokerChannel, channel_id)
-    if channel is None or channel.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Канал не найден")
-    return channel
+    return owned_or_404(db, BrokerChannel, channel_id, "node_id", node.id, "Канал не найден")
 
 
 def _scoped_field(db: Session, channel: BrokerChannel, field_id: uuid.UUID) -> ChannelField:
-    field = db.get(ChannelField, field_id)
-    if field is None or field.channel_id != channel.id:
-        raise HTTPException(status_code=404, detail="Поле не найдено")
-    return field
+    return owned_or_404(db, ChannelField, field_id, "channel_id", channel.id, "Поле не найдено")
 
 
 def _channel_taken(
     db: Session, node_id: uuid.UUID, group_name: str, name: str, except_id: uuid.UUID | None
 ) -> bool:
     """Пре-чек уникальности имени в группе — 409 вместо IntegrityError-500."""
-    q = db.query(BrokerChannel.id).filter(
+    return name_taken(
+        db,
+        BrokerChannel.id,
+        except_id,
         BrokerChannel.node_id == node_id,
         BrokerChannel.group_name == group_name,
         BrokerChannel.name == name,
     )
-    if except_id is not None:
-        q = q.filter(BrokerChannel.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 def _field_taken(
     db: Session, channel_id: uuid.UUID, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    q = db.query(ChannelField.id).filter(
-        ChannelField.channel_id == channel_id, ChannelField.name == name
+    return name_taken(
+        db,
+        ChannelField.id,
+        except_id,
+        ChannelField.channel_id == channel_id,
+        ChannelField.name == name,
     )
-    if except_id is not None:
-        q = q.filter(ChannelField.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 # ── Каналы ────────────────────────────────────────────────────────────────────
@@ -121,7 +112,7 @@ def list_channels(
     # Чтение форму НЕ проверяет: если каналы у узла уже есть (например, форму сменили
     # в обход), спрятать их хуже, чем показать — «применённое-но-невидимое» и так
     # запрещено при смене типа (node.md N4а).
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     return list(node.broker_channels)
 
 
@@ -142,7 +133,7 @@ def list_usage(
 
     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
     """
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
     # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые каналы у соседних
     # брокеров перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
@@ -238,8 +229,7 @@ def update_channel(
     channel = _scoped_channel(db, node, channel_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != channel.version:
-        raise HTTPException(status_code=409, detail="Канал изменён в другой сессии")
+    check_cas(channel.version, base_version, "Канал изменён в другой сессии")
     if data:
         new_name = data.get("name", channel.name)
         new_group = data.get("group_name", channel.group_name)

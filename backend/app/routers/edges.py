@@ -7,6 +7,7 @@ from app import restore
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
+    check_cas,
     get_current_project,
     require_project_editor,
     scoped_edge,
@@ -79,8 +80,7 @@ def update_edge(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле связи)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != edge.version:
-        raise HTTPException(status_code=409, detail="Связь изменена в другой сессии")
+    check_cas(edge.version, base_version, "Связь изменена в другой сессии")
 
     # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю.
     # Геометрия (хэндлы/изломы/плашка) на связи больше не живёт (R3) — при смене конца

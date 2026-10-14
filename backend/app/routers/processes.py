@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
+    check_cas,
     get_current_project,
     require_project_editor,
     scoped_edge,
@@ -679,8 +680,7 @@ def update_message(
     # CAS (Д9): правка от устаревшей версии не затирает чужую. None — компенсация
     # undo без проверки (паттерн update_node / update_doc).
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != msg.version:
-        raise HTTPException(status_code=409, detail="Шаг изменён в другой сессии")
+    check_cas(msg.version, base_version, "Шаг изменён в другой сессии")
     # Поля применяются ПО БЕЛОМУ СПИСКУ, а не циклом setattr по payload. Причина не в
     # аккуратности: сюда приезжает ССЫЛОЧНОЕ поле (привязка шага к схеме логики),
     # а слепое присваивание приняло бы ссылку на строку ЧУЖОГО проекта — межпроектная

@@ -29,9 +29,12 @@ from app.auth import get_current_user
 from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
 from app.database import get_db
 from app.deps import (
+    check_cas,
     get_current_project,
+    name_taken,
+    node_or_404,
+    owned_or_404,
     require_project_editor,
-    scoped_node,
     touch_project,
 )
 from app.models.config_param import ConfigParam
@@ -50,30 +53,20 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/nodes/{node_id}/config", tags=["config-docs"])
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _scoped_param(db: Session, node: Node, param_id: uuid.UUID) -> ConfigParam:
-    param = db.get(ConfigParam, param_id)
-    if param is None or param.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Параметр не найден")
-    return param
+    return owned_or_404(db, ConfigParam, param_id, "node_id", node.id, "Параметр не найден")
 
 
 def _name_taken(
     db: Session, node_id: uuid.UUID, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    """Пре-чек уникальности имени у узла — 409 вместо IntegrityError-500."""
-    q = db.query(ConfigParam.id).filter(
-        ConfigParam.node_id == node_id, ConfigParam.name == name
+    return name_taken(
+        db,
+        ConfigParam.id,
+        except_id,
+        ConfigParam.node_id == node_id,
+        ConfigParam.name == name,
     )
-    if except_id is not None:
-        q = q.filter(ConfigParam.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 @router.get("", response_model=list[ConfigParamResponse])
@@ -83,7 +76,7 @@ def list_params(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[ConfigParam]:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     return list(node.config_params)
 
 
@@ -102,7 +95,7 @@ def list_usage(
 
     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
     """
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
     owner_params = params_by_node.get(node.id, {})
     if not owner_params:
@@ -160,7 +153,7 @@ def create_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> ConfigParam:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     if _name_taken(db, node.id, payload.name, None):
         raise HTTPException(status_code=409, detail="Параметр с таким именем уже есть")
     param = ConfigParam(node_id=node.id, **payload.model_dump())
@@ -181,12 +174,11 @@ def update_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> ConfigParam:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     param = _scoped_param(db, node, param_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != param.version:
-        raise HTTPException(status_code=409, detail="Параметр изменён в другой сессии")
+    check_cas(param.version, base_version, "Параметр изменён в другой сессии")
     if data:
         new_name = data.get("name", param.name)
         if _name_taken(db, node.id, new_name, param.id):
@@ -209,7 +201,7 @@ def delete_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     param = _scoped_param(db, node, param_id)
     db.delete(param)
     bump_meta_rev(db, project)
