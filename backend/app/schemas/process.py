@@ -10,14 +10,12 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain_types import FragmentKind, MessageLeg, NodeShape
+from app.domain_types import FragmentKind, MessageKind, MessageLeg, NodeShape
 from app.schemas.node import NodeStatus
 from app.schemas.node_doc import NodeDocKind
 
 Leg = MessageLeg
-# "self" — самосообщение (внутренняя операция участника): не плечо канала C4, концы
-# совпадают (from==to), edge_id отсутствует. Производный kind, как и остальные.
-Kind = Literal["forward", "return", "async", "self"]
+Kind = MessageKind
 # Чем именно сломан шаг (см. MessageOut.invalid_reason).
 MessageInvalidReason = Literal["edge_deleted", "leg_gone"]
 

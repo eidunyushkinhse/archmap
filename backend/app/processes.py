@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.domain_types import MessageKind, MessageLeg
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -50,8 +51,8 @@ def edge_is_synchronous(edge: Edge) -> bool:
 class Leg:
     """Плечо канала. kind — производное для рендера (forward/return/async)."""
 
-    leg: str  # "forward" | "return" — что хранится на сообщении
-    kind: str  # "forward" | "return" | "async" — стиль стрелки
+    leg: MessageLeg  # что хранится на сообщении
+    kind: MessageKind  # стиль стрелки (самосообщение каналом не бывает)
     from_id: uuid.UUID  # сырой конец-источник (узел C4)
     to_id: uuid.UUID  # сырой конец-цель (узел C4)
     default_caption: str | None  # подпись по умолчанию
@@ -202,7 +203,7 @@ def scope_node_ids(
     return subtree_ids(all_nodes, scope_node_id)
 
 
-def _message_kind(leg: str, edge: Edge | None) -> str:
+def _message_kind(leg: MessageLeg, edge: Edge | None) -> MessageKind:
     """Стиль стрелки: return → return; forward на async-канале → async; иначе forward."""
     if leg == "return":
         return "return"
@@ -211,7 +212,7 @@ def _message_kind(leg: str, edge: Edge | None) -> str:
     return "forward"
 
 
-def default_caption(leg: str, edge: Edge | None) -> str | None:
+def default_caption(leg: MessageLeg, edge: Edge | None) -> str | None:
     """Подпись, которую канал даёт плечу: метка связи у вызова, «ответ» у ответа.
 
     Точка применения ОДНА — создание шага (create_message замораживает это значение

@@ -58,8 +58,13 @@ DataRefStatus = Literal[
 # Плечо канала в шаге процесса: вызов или ответ.
 MessageLeg = Literal["forward", "return"]
 
+# Стиль стрелки шага — производное от плеча и канала: ответ, вызов, событие на
+# асинхронном канале или самосообщение (внутренняя операция участника, from == to).
+MessageKind = Literal["forward", "return", "async", "self"]
+
 # Вид фрагмента sequence-диаграммы.
 FragmentKind = Literal["alt", "opt", "loop", "par"]
+FRAGMENT_KINDS: tuple[FragmentKind, ...] = get_args(FragmentKind)
 
 
 def pick[T: str](value: object, allowed: tuple[T, ...]) -> T | None:

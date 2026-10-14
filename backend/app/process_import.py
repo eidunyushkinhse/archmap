@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.domain_types import FRAGMENT_KINDS, FragmentKind, MessageLeg, pick
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -42,7 +43,7 @@ from app.text import sequence_text
 
 # Стрелка → плечо канала. Вид (синхронный/событие) определяет сам канал в схеме,
 # поэтому здесь важно только направление: forward или return.
-_ARROWS: list[tuple[str, str]] = [
+_ARROWS: list[tuple[str, MessageLeg]] = [
     ("-->>", "return"),
     ("--)", "forward"),
     ("-->", "return"),
@@ -68,7 +69,7 @@ _NODE_RE = re.compile(r"^%%\s*archmap-node:\s*(.+)$", re.IGNORECASE)
 class ParsedMessage:
     frm: str  # алиас участника
     to: str
-    leg: str  # forward | return
+    leg: MessageLeg
     caption: str | None
     # Адрес схемы логики из «%% archmap-doc: путь узла / имя схемы» перед шагом (Ф7).
     # Резолв в doc_id — на применении; не разрешился — шаг едет непривязанным.
@@ -83,7 +84,7 @@ class ParsedBranch:
 
 @dataclass
 class ParsedFragment:
-    kind: str
+    kind: FragmentKind
     from_row: int
     to_row: int
     guard: str | None
@@ -101,7 +102,7 @@ class ParsedDiagram:
     unsupported: list[str] = field(default_factory=list)
 
 
-def _split_arrow(body: str) -> tuple[str, str, str] | None:
+def _split_arrow(body: str) -> tuple[str, MessageLeg, str] | None:
     """Разбор «A->>B» на (откуда, стрелка, куда). Стрелки ищем от длинной к короткой:
     иначе «-->>» распался бы по «->»."""
     for arrow, leg in _ARROWS:
@@ -173,10 +174,11 @@ def parse_sequence(text: str) -> ParsedDiagram:
         drop_pending_node()  # адрес узла относится только к объявлению участника
 
         m = _FRAGMENT_RE.match(line)
-        if m:
+        kind = pick(m.group(1).lower(), FRAGMENT_KINDS) if m else None
+        if m and kind is not None:
             guard = m.group(2).strip() or None
             frag = ParsedFragment(
-                kind=m.group(1).lower(), from_row=len(out.messages), to_row=len(out.messages),
+                kind=kind, from_row=len(out.messages), to_row=len(out.messages),
                 guard=guard,
             )
             stack.append(frag)
@@ -270,7 +272,7 @@ def find_channel(
     participant_ids: set[uuid.UUID],
     from_node: uuid.UUID,
     to_node: uuid.UUID,
-    leg: str,
+    leg: MessageLeg,
 ) -> Edge | None:
     """Единственный канал, чьё плечо `leg` проецируется ровно на эту пару узлов.
 
