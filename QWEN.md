@@ -1,93 +1,141 @@
 # ArchMap — QWEN.md
 
-Стек (проверено 2026-08-01 по package.json / requirements.txt / pyproject.toml)
-- Frontend: React 19 + Vite 8 + TypeScript 6
-- Backend: Python 3.11 + FastAPI 0.111
-- БД: PostgreSQL (localhost:5432, БД `archmap`)
+Стек (проверено 2026-10-14 по package.json / requirements-prod.txt / pyproject.toml)
+- Frontend: React 19 + Vite 8 + TypeScript 6; холст — @xyflow/react 12 + elkjs, схемы логики — mermaid 12
+- Backend: Python 3.12 + FastAPI 0.143 (Starlette 1.8, Pydantic 2.14, uvicorn 0.54)
+- БД: PostgreSQL 15+ (localhost:5432, БД `archmap`; второй экземпляр в демо-режиме — `archmap_demo`)
 - ORM: SQLAlchemy 2.0 + Alembic (миграции)
 - Аутентификация: JWT (PyJWT + pwdlib[bcrypt])
-- Тесты: vitest (фронт), pytest (бэк)
-- Линтеры: eslint + tsc (фронт), ruff (бэк)
-- CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта
+- Тесты: vitest (фронт), pytest (бэк — на in-memory SQLite; MCP — поверх подменённого httpx)
+- Линтеры: tsc + eslint + knip (фронт), ruff + mypy (бэк и MCP)
+- Зависимости поставки: backend/requirements-prod.lock с хэшами (pip --require-hashes);
+  обновления предлагает Dependabot (.github/dependabot.yml)
+- CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта плюс сборка фронта,
+  дрейф api.gen.ts против app.openapi(), аудит зависимостей, проверка скриптов
 - Деплой: закрытый контур — OpenShift/Kubernetes (deploy/openshift) или сервер с systemd и nginx
   (deploy/install.sh), см. DEPLOY.md; публичный стенд — https://archmap.tech (лендинг) и
-  https://demo.archmap.tech (DEMO_MODE) на серверной поставке; Railway — не настроен
+  https://demo.archmap.tech (DEMO_MODE) на серверной поставке
 
-Структура проекта (проверено 2026-08-01)
+Структура проекта (проверено 2026-10-14)
 archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
-│   │   ├── api/           # клиент для бэкенда (auth, admin, nodes, processes, projects, docsImport, projectScope)
+│   │   ├── api/           # клиент бэкенда: client (общий запрос, 401, X-Project-Id), auth, admin, nodes,
+│   │   │                  # processes, projects, docsImport, dataRefs, projectScope
+│   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
+│   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
+│   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
+│   │   │                  # ConnectionNotice, InfoPopover, ProfileMenu, icons, styles, plural
 │   │   ├── components/
-│   │   │   ├── graph/     # движок холста: layout/ (роутер, раскладка, VPSC, ELK), interaction/ (драг, снап, анимации, undo)
-│   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, DocOverlay
-│   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор
-│   │   │   ├── project/   # создание/редактирование проектов, импорт YAML, превью
+│   │   │   ├── graph/     # движок холста: layout/ (конвейер в Web Worker, роутер стрелок, раскладка, VPSC, ELK),
+│   │   │   │              # interaction/ (хуки useLevel*, драг, снап, анимации, undo), узлы, рёбра, проекция
+│   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, ObjectInspector, DocOverlay
+│   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор, импорт из mermaid
+│   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
-│   │   │   ├── docsImport/# модалка «Доки от агента» (BYOA)
+│   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
+│   │   │   ├── anchor/    # поле и тексты якоря объекта (source_ref)
 │   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
 │   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
 │   │   │   ├── tour/      # обучающий тур демо: шаги, машина состояний, слой подсказок, пилюля «Обучение»
-│   │   │   ├── __tests__/ # vitest-тесты (чистые функции раскладки/проекции)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 204 тестовых файла)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
-│   │   │   └── ...        # модалки, дерево (NodeTreePanel), алерты, фильтр вида, палитра
-│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage (редактор-карта), ProjectsPage (лендинг), UsersPage (админка пользователей), LoginPage (сплит: превью схемы + форма); TreePage — легаси за фиче-флагом
+│   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
+│   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel), алерты, фильтр вида
+│   │   ├── pages/         # ProjectShell (оболочка), ProjectHomePage, NodePage (страница объекта), MapEditorPage
+│   │   │                  # (редактор-карта), ProjectsPage, UsersPage, LoginPage, DemoLoginPage; хуки страниц:
+│   │   │                  # useLevelSchema, useRemoteSync (поллинг и startPollLoop), useNodePatch, useToast
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
-│   │   ├── ui/            # общие UI-примитивы: Modal, ProfileMenu, иконки, стили, plural.ts
 │   │   └── embed/         # живая схема для лендинга: холст на снимке демо-проекта без бэкенда (embed.html, npm run build:embed)
+│   ├── scripts/           # replay-prof.ts, route-quality.ts — замеры роутера (npm run replay-prof / route-quality)
+│   ├── knip.json          # поиск мёртвого кода (npm run knip; в CI)
 │   ├── package.json
-│   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom)
+│   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom), пороги покрытия
 ├── backend/               # FastAPI
 │   ├── app/
-│   │   ├── models/        # SQLAlchemy: node, edge, project, project_member, user, node_doc, view_layout, view_state, business_process, process_*
-│   │   ├── routers/       # API: auth, admin, users, nodes, edges, projects, views, export, processes, node_docs, docs_import
-│   │   ├── schemas/       # Pydantic: node, edge, project, auth, admin, process, export, node_doc, docs_import, restore
-│   │   ├── main.py        # FastAPI app, CORS, роутеры /api/v1
-│   │   ├── config.py      # Settings (database_url, secret_key, cors_origins, allow_signup, demo_mode)
-│   │   ├── export.py / import_yaml.py / import_merge.py / import_prompt.py  # экспорт/импорт YAML
-│   │   ├── docs_import.py / docs_prompt.py  # BYOA-дозаливка доков
-│   │   ├── demo_package.py  # посев демо-пакета для будущего онбординга (из API не зовётся)
-│   │   ├── template_packages/  # демо-пакет — распакованный архив знания
-│   │   │                       # (demo-marketplace); сеется единым импортом
-│   │   ├── processes.py   # логика бизнес-процессов
-│   │   ├── tree.py / projects.py / access.py / restore.py / view_state.py
+│   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
+│   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*
+│   │   ├── routers/       # 21 роутер /api/v1: auth, admin, users, demo, projects, nodes, edges, views, export, search,
+│   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
+│   │   │                  # broker_channels, channels_import, config_params, config_import
+│   │   ├── schemas/       # Pydantic-контракт API (23 модуля; из него генерируется api.gen.ts)
+│   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health и /ready
+│   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
+│   │   ├── auth.py / deps.py / access.py  # JWT и пароли; общие зависимости; роль в проекте (effective_role)
+│   │   ├── database.py / column_limits.py / view_state.py  # сессия и пул; длины строк до flush (422, а не 500); CAS-версии
+│   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py
+│   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»
+│   │   ├── graph_queries.py / context_graph.py / alerts.py / connectivity.py  # граф уровня, контекст-схема, алерты
+│   │   ├── export.py / import_yaml.py / import_merge.py / identity.py / node_ref.py
+│   │   │                  # YAML C4: экспорт, импорт, слияние прогонов, якорь объекта, ссылки на узлы
+│   │   ├── sync_plan.py / sync_apply.py  # синк живой схемы с прогоном агента
+│   │   ├── unified_import.py / unified_apply.py / unified_into.py / archive_export.py / archive_import.py
+│   │   │                  # единый ввоз N входов, догрузка в живой проект, архив знания (zip)
+│   │   ├── docs_import.py / recon_import.py / data_import.py / channels_import.py / config_import.py / data_refs.py
+│   │   │                  # BYOA-дозаливки: схемы логики, разведка, БД, каналы, конфигурация; пометки обращений
+│   │   ├── *_prompt.py    # промпты агенту (import, docs, recon, data, channels, config, skeptic) — под снапшотами
+│   │   ├── processes.py / process_import.py / process_export.py / process_copy.py  # бизнес-процессы
+│   │   ├── search.py / text.py / mmd_header.py  # поиск по знанию проекта; нормализация текстов; шапка .mmd
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
-│   │   ├── demo.py / demo_limits.py  # демо-режим: гость, песочница, уборка; центральная проверка пределов проекта
-│   │   ├── standalone.py  # API и собранный фронт одним процессом (образ OpenShift без nginx): статика, лимит входа, предел запроса
-│   │   └── auth.py / database.py / deps.py
+│   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
+│   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (OpenShift без nginx)
+│   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (23 тестовых файла)
-│   ├── requirements.txt   # dev-окружение: рантайм (requirements-prod.txt — то, что едет на сервер) + тесты/линтеры
-│   └── pyproject.toml     # ruff config
+│   ├── tests/             # pytest (68 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
+│   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
+│   ├── .env.example       # шаблон backend/.env — все поля Settings
+│   └── pyproject.toml     # ruff, mypy, порог покрытия
+├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
+│   ├── archmap_mcp/       # client.py (логин, скоуп, перевод отказов), tools.py (31 инструмент: чтение, поиск,
+│   │                      # промпты, превью → применение, точечные правки; удалений нет), render.py, server.py
+│   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
+│   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
+│   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
+│   └── README.md          # каталог инструментов, подключение, HTTPS с корпоративным CA, сценарии
+├── scripts/
+│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
+│   ├── setup-hooks.sh     # установка хука
+│   ├── agent-docs.py      # сборка QWEN.md из CLAUDE.md (--check — сверка в хуке и CI)
+│   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
+│   ├── *-probe.mjs / arrow-metrics.mjs / dump-levels.mjs / page-fit-diag.mjs  # полигонные зонды
+│   │                      # (токен — probeToken.mjs, учётка-читатель — probe-reader.py)
+│   ├── hub-survey.py      # метрики формы по всем уровням проектов (перф)
+│   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
+│   ├── seed-alerts-demo.py  # стенд, на котором горят все классы алертов
+│   ├── landing-shots.mjs / landing-videos.mjs / landing-embed-scene.mjs  # кадры, видео и живая схема лендинга
+│   ├── c4-compare/        # измеритель сверки C4-схем (QA импорта)
+│   └── fixtures/          # mock-import.yaml — фикстура кадров лендинга
+├── deploy/                # поставка (DEPLOY.md)
+│   ├── build-bundle.sh    # офлайн-архив с переносным Python → dist-bundle/
+│   ├── install.sh         # сервер: systemd, nginx, копия базы перед миграциями, откат релиза по /ready
+│   ├── archmap.service / archmap.env.example / archmap-admin  # юнит с песочницей systemd, шаблон настроек, команды
+│   ├── backup.py / preflight.py / runenv.py  # pg_dump перед миграциями; проверка базы; чтение archmap.env
+│   ├── build-image.sh     # образ и пакет для OpenShift (нужен Docker или Podman)
+│   └── openshift/         # Dockerfile (UBI 9 minimal), манифесты kustomize, settings.env
 ├── docs/
-│   ├── specs/             # нормативные спеки движка (10 файлов + README)
+│   ├── specs/             # нормативные спеки движка (11 файлов + README)
+│   ├── tasks/             # ТЗ фич (демо-режим и тур, доступ к проектам, админка, вход, поиск…)
 │   ├── archive/           # рабочие доки закрытых эпиков (включая планы)
+│   ├── plan-*.md / qa-*.md / review-*.md  # живые планы эпиков, полевые замеры, ревью
+│   ├── refactoring-lessons.md  # уроки и playbook рефакторинга
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   ├── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 │   └── plan-audit-2026-10.md # аудит 2026-10-13: реестр находок (безопасность, надёжность, зависимости, дубли) и план фаз 0–8
-├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
-│   ├── archmap_mcp/       # client.py (логин+скоуп+ошибки), tools.py (31 инструмент: поиск по проекту и чтение одной схемы, якорь объекта в карточке и правках), render.py, server.py
-│   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
-│   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
-│   └── README.md          # каталог инструментов, подключение, сценарии
-├── scripts/
-│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
-│   ├── arrow-metrics.mjs / dump-levels.mjs / spawn-probe.mjs / drift-probe.mjs / triple-probe.mjs / fps-probe.mjs  # полигонные зонды
-│   ├── refresh-demo-template.py  # обновление пакета демо-шаблона из живого эталона в БД
-│   ├── landing-shots.mjs / landing-videos.mjs  # скриншоты и видео реального UI для лендинга (демо-проект, без записи в БД)
-│   ├── landing-embed-scene.mjs  # снимок сцены для живой схемы лендинга (frontend/src/embed/scene.gen.ts)
-│   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
-│   └── setup-hooks.sh
-├── .github/workflows/ci.yml # CI: зеркало pre-commit-гейта
-├── deploy/               # поставка: build-bundle.sh (офлайн-архив с переносным Python), build-image.sh (образ и пакет для OpenShift),
-│                         # openshift/ (Dockerfile, манифесты kustomize), install.sh (сервер: systemd, nginx), preflight.py (проверка базы)
+├── .claude/               # LSP-серверы (mcp-servers/), агент-исполнитель (agents/), строка статуса, settings.json
+├── .github/               # CI (workflows/ci.yml) и Dependabot (dependabot.yml)
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
-├── DEPLOY.md              # установка в OpenShift/Kubernetes и на сервер (закрытый контур), обновление, резервные копии
+├── DEV.md                 # локальный запуск: подробности и ручной режим
+├── DEPLOY.md              # установка в OpenShift/Kubernetes и на сервер (закрытый контур), обновление, журналы, копии
+├── README.md              # витрина репозитория
 ├── spec.md                # продуктовая спецификация
 ├── tasks.md               # живые задачи и бэклог
-├── .mcp.json              # MCP-серверы: LSP (python-lsp, typescript-lsp) + archmap (учётка — в mcp/.env)
-└── CLAUDE.md              # аналогичный файл для Claude Code (держать синхронным с этим!)
+├── .mcp.json              # MCP-серверы: LSP (python-lsp, typescript-lsp) + archmap (учётка — в mcp/.env);
+│                          # пути относительные — сессию запускать из корня репозитория
+├── .nvmrc                 # версия Node для разработки и CI
+└── CLAUDE.md              # исходник этого файла для Claude Code: QWEN.md собирается из него
+                           # (python3 scripts/agent-docs.py), руками не правится
 
 Команды
 - Поднять весь сервис:   ./dev.sh         (бэк+фронт+миграции одной командой)
@@ -105,6 +153,8 @@ archmap/
 - Типизация фронта:      cd frontend && npx tsc -b
 - Линтер фронта:         cd frontend && npx eslint .
 - Линтер бэкенда:        cd backend && ./venv/bin/ruff check .
+- Типизация бэкенда:     cd backend && ./venv/bin/mypy app/
+- Мёртвый код фронта:    cd frontend && npm run knip
 - Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
 - Снапшоты промптов:     ПОСЛЕ ОСОЗНАННОЙ правки любого промпта (app/*_prompt.py):
     cd backend && UPDATE_PROMPT_SNAPSHOTS=1 ./venv/bin/python -m pytest tests/test_prompt_snapshots.py -q
@@ -126,7 +176,7 @@ archmap/
   ./dev.sh; либо другие порты: BACKEND_PORT=8001 FRONTEND_PORT=5174 ./dev.sh.
 
 Git
-- Проект под git с 2026-06-07, ветка main. Remote: github.com/eidunyushkinhse/archmap
+- Проект под git с 2026-06-07. Remote: github.com/eidunyushkinhse/archmap
   (ПУБЛИЧНЫЙ с 2026-09-26). Пушить можно (пользователь дал разрешение).
   История до 2026-09-26 переписана при публикации: хэши коммитов, упомянутые
   в документах и памяти, в этом репозитории не открываются.
@@ -136,13 +186,14 @@ Git
   сейчас; для примеров брать демо-сцены («Ярмарка», «Плёнка») и открытые
   проекты (Zabbix, Grafana, Zulip, Sentry, Mastodon). Сомневаешься, можно ли
   называть систему, — спроси владельца.
-- Коммитить ПРЯМО в main (solo-проект). Эпик пивота страниц слит merge-коммитом
-  9c7a830 (2026-08-09), ветка feat/pages-pivot удалена. Отдельную ветку заводить
-  только под новый ЭПИК и сливать через --no-ff (граница эпика + точка отката).
+- Рабочая ветка — main (solo-проект): эпик пивота страниц слит merge-коммитом
+  9c7a830 (2026-08-09), ветка feat/pages-pivot удалена. Мелкие правки —
+  коммитом прямо в main; под новый ЭПИК заводить отдельную ветку и сливать её
+  через --no-ff (merge-коммит даёт границу эпика и точку отката revert -m 1).
 - Перед коммитом убедиться, что приложение запускается / тесты проходят;
   заведомо сломанное состояние не коммитить. Pre-commit хук (scripts/git-hooks/)
   автоматически гоняет tsc+eslint+vitest (фронт) и ruff+pytest (бэк) по
-  staged-файлам.
+  staged-файлам. CI (.github/workflows/ci.yml) дублирует гейт на сервере.
 - Коммиты маленькие, по одной логической правке. Сообщения на русском,
   формат: "feat: …" / "fix: …" / "chore: …" / "docs: …".
 - После коммита называть в ответе хэш и сообщение.
@@ -150,13 +201,15 @@ Git
 - Не коммитить: node_modules, venv, dist, .claude/mcp-servers/{venv,
   node_modules}, **/settings.local.json, реальные .env — уже в .gitignore.
 
-Ключевые сущности (проверено 2026-07-21 по моделям SQLAlchemy)
+Ключевые сущности (проверено 2026-08-01 по моделям SQLAlchemy)
 
 Project (проект — изолированная схема)
 - id UUID, name, description, archived_at (null = активен)
 - visible_to_all — «Виден всем пользователям»: не-участники получают чтение
   (иначе проект виден только участникам)
 - created_at, updated_at, created_by_id, updated_by_id → User
+- graph_rev — курсор изменений СХЕМЫ (узлы/рёбра/раскладка), meta_rev — курсор
+  изменений МЕТЫ (атрибуты узла/доки/openapi); поллинг конкурентных сессий
 - Все доменные сущности несут project_id (NOT NULL, каскад)
 
 Node (узел)
@@ -177,7 +230,7 @@ Node (узел)
 - created_at, updated_at
 - has_children — вычисляемое поле в API
 
-NodeDoc (схема логики узла)
+NodeDoc (схема логики узла; прежнее единственное поле Node.flowchart перенесено сюда)
 - id, node_id → Node, name (уникально в пределах узла)
 - kind — операция | воркер (оба — точки входа; вид «обзор» удалён 2026-08-18)
 - operation — привязка к операции спеки («METHOD /path»), опционально
@@ -231,78 +284,119 @@ BusinessProcess / ProcessParticipant / ProcessMessage / ProcessFragment
 - Комментарии в коде писать на русском
 - После каждого изменения убедиться, что приложение запускается
 - Косметические фронтенд-правки не проверять визуально. Триггер (оба условия):
-  (1) правка только во фронтенде; (2) пользователь ЯВНО назвал её косметической.
-  Тогда НЕЛЬЗЯ: запускать headless-браузер, делать скриншоты, гонять визуальную
-  проверку. МОЖНО: ts_diagnostics на изменённых файлах.
+  (1) правка только во фронтенде; (2) пользователь в промпте ЯВНО назвал её
+  косметической (слова «косметика»/«косметическая»/«косметический» о самой правке).
+  Тогда НЕЛЬЗЯ: запускать headless-браузер (Playwright/Chromium), делать скриншоты,
+  читать вычисленные стили, гонять визуальную проверку рендера. Пользователь смотрит
+  результат глазами сам — это быстрее и без лишних токенов. МОЖНО (и нужно) оставить
+  дешёвую статику: ts_diagnostics на изменённых файлах. Если сомневаешься, косметическая
+  ли правка, или она затрагивает не только фронт — правило НЕ применять, спросить.
 - Не менять существующие API-контракты без явного запроса
 - TypeScript: не использовать any, типизировать всё явно
 - Типы контракта на фронте ГЕНЕРИРУЮТСЯ из OpenAPI, не пишутся руками.
-  src/types/api.gen.ts — артефакт openapi-typescript; src/types/index.ts —
-  фасад алиасов. ПРАВИЛО: изменил Pydantic-схемы (backend/app/schemas/*) →
+  src/types/api.gen.ts — артефакт openapi-typescript (правится только
+  перегенерацией, баннер в шапке); src/types/index.ts — фасад алиасов на него с
+  привычными именами. ПРАВИЛО: изменил Pydantic-схемы (backend/app/schemas/*) →
   сразу `cd frontend && npm run gen:api`, проверь `tsc -b` и закоммить
-  обновлённый api.gen.ts вместе с правкой схем.
+  обновлённый api.gen.ts вместе с правкой схем. Если генерат вышел слабее нужного —
+  чинить Pydantic-схему (Literal/required), а НЕ накладывать патчи на фронте.
+- Работа с git — см. секцию «Git» выше
 - Документация всегда актуальна (кроме чисто косметических изменений):
-  при появлении новой фичи — сразу обновить spec.md;
-  при её реализации — отметить в tasks.md.
-- QWEN.md и CLAUDE.md — аналоги для разных ИИ-агентов: менять ОБА одновременно.
+    при появлении новой фичи — сразу обновить spec.md;
+    при её реализации — отметить в tasks.md (перенести в «Сделано» / обновить статус).
+    Косметику (правки стиля, отступы, переименования подписей и т.п.) можно не документировать.
+- QWEN.md собирается из CLAUDE.md (python3 scripts/agent-docs.py): правила меняются
+  в CLAUDE.md и попадают сюда пересборкой; сам QWEN.md руками не правится.
 
 Архитектурные привычки (фронтенд)
-- Дефолты, реагирующие на видимый «смелл», а НЕ чек-лист.
+- Это дефолты, реагирующие на видимый «смелл» в коде, а НЕ чек-лист для сверки
+  перед каждой правкой. Замечаешь смелл — применяешь; нет смелла — не думаешь.
 - Один модуль — одна ответственность. Смелл: файл > ~400 строк, либо в нём
-  одновременно рендер + вычисления + сайд-эффекты. Реакция: вынести по границе
-  ответственности сразу. LevelGraph разобран (1678→1055, пропсы 43→19, 7 хуков
-  useLevel* в graph/interaction/) — эталон декомпозиции.
-- God-компонент разбирать ТОЛЬКО после поведенческих тестов (characterization-
-  тесты на оркестрацию как страховка). Порядок выноса: сначала изолированные хуки
-  (только читают: locate/selection), потом центральные узлы (persistence/commitLayout),
-  потом зависимые (drill); один хук — один коммит, новые хуки в тестах НЕ мокаются.
-  Пропсы — в доменные бандлы с useMemo (без ре-рендеров канваса); общие типы — в
-  graph/types.ts (без type-only циклов). Атомарные ядра с инвариантом порядка
-  эффектов (конвейер раскладки) НЕ выносить. Playbook: docs/refactoring-lessons.md.
+  одновременно рендер + вычисления + сайд-эффекты, либо скроллишь в поисках
+  функции. Реакция: вынести по границе ответственности сразу, не ждать God
+  Component (ориентир — разбивка graph/* из Фазы 2). LevelGraph разобран
+  (1678→1055, пропсы 43→19, 7 хуков useLevel* в graph/interaction/) — эталон;
+  NodePage тоже похудел. Уроки и playbook — docs/refactoring-lessons.md.
+- God-компонент разбирать ТОЛЬКО после поведенческих тестов: characterization-
+  тесты на оркестрацию (рендер внутреннего компонента с моком тяжёлых зависимостей,
+  перехват колбэков) — страховочная сетка; без неё разбор вслепую ломает ядро
+  (кейс LevelGraph — фаза 3а). Порядок выноса: сначала изолированные хуки (только
+  читают: locate/selection), потом центральные узлы (persistence/commitLayout —
+  точка схождения), потом зависимые (drill). Один хук — один коммит; новые хуки в
+  тестах НЕ мокаются (исполняются по-настоящему), иначе тесты ничего не ловят.
+- Пропсы god-компонента группировать в НЕСКОЛЬКО связных доменных бандлов
+  (persistence/mode/drill/edgeCallbacks/delete/drop/undo), в точках вызова — через
+  useMemo (ссылочная стабильность, без ре-рендеров канваса). Общие типы — в общий
+  модуль (graph/types.ts), чтобы не было type-only циклов компонент↔хуки.
+- Атомарные ядра с инвариантом порядка эффектов НЕ выносить: конвейер раскладки
+  LevelGraph (сборщик обязан быть объявлен до data→computeNow эффекта; частичный
+  вынос молча ломает батчинг анимации, тесты не ловят). Чистый пол LevelGraph
+  ~1055 строк; <800 достижимо только фрагментацией JSX (осознанно не делалось).
 - Производное состояние — в рендере (useMemo), не в useEffect. Смелл: эффект,
-  заканчивающийся setState.
-- Строгость типов/линтеров в гейте (TS strict + eslint strict + mypy на бэке) дёшева
-  при дисциплине «без any»: код был strict-чист ДО включения флага (0 ошибок).
-- Сломанные контракты ловит гейт «зелёный билд/тесты перед коммитом» (pre-commit
-  гоняет ВСЕ тесты + CI-зеркало; --no-verify не используется).
-- Коммитить и пушить по фазам: фоновые сессии могут встать при обрыве сети —
-  запушенный в origin прогресс не теряется.
+  заканчивающийся setState. Зеркалирование пропсов/стейта в стейт через эффект —
+  источник рассинхрона.
+- Строгость типов/линтеров в гейте (TS strict + eslint strict + mypy на бэке с
+  pydantic-плагином) дёшева при дисциплине «без any»: код был strict-чист ДО
+  включения флага (0 ошибок). Что машина может проверить — отдаём машине.
+- Сломанные контракты (обязательный проп без обновления вызовов и т.п.) НЕ держим
+  в голове — их ловит гейт «зелёный билд/тесты перед коммитом» (pre-commit гоняет
+  ВСЕ тесты + CI-зеркало; --no-verify не используется).
+- Коммитить и пушить по фазам: долгие фоновые ИИ-сессии могут встать при обрыве
+  сети — запушенный в origin прогресс не теряется.
 
 Спецификации движка (docs/specs)
-- docs/specs/ — нормативный реестр поведения движка/холста, 10 спек: edge,
-  node, container, guest, canvas, history, view, alerts, context, transitions;
-  формат инвариантов, правило старшинства и карта «модуль → спека» —
+- docs/specs/ — нормативный реестр поведения движка/холста, 11 спек: edge
+  (связь), node (узел), container (контейнер), guest (гость), canvas (холст и
+  выделение), history (Undo/Redo), view (уровень и вид), alerts (алерты),
+  context (контекст-схема), transitions (анимации переходов), perf
+  (производительность рендерера); формат
+  инвариантов, правило старшинства и карта «модуль → спека» —
   docs/specs/README.md.
 - ПРАВИЛО: правишь движок/холст (модули из карты README: graph/**,
   LevelGraph/TreePage, бэк-эндпоинты графа/вида/алертов/контекста) → пройди
-  регрессионный чек по затронутым спекам и прогони указанные тесты;
-  осознанно меняешь поведение → обнови спеку В ТОМ ЖЕ коммите.
-- При расхождении спеки с кодом сначала выясни, что из двух — баг.
+  регрессионный чек по затронутым спекам (процедура в README) и прогони
+  указанные в инвариантах тесты; осознанно меняешь поведение или константу →
+  обнови спеку В ТОМ ЖЕ коммите. При расхождении спеки с кодом сначала выясни,
+  что из двух — баг.
 
 LSP-навигация
-- В проекте НЕТ встроенного LSP. Единственный доступный LSP — два MCP-сервера
-  из .mcp.json:
+- В проекте НЕТ встроенного LSP. Единственный доступный LSP — это два MCP-сервера,
+  объявленные в .mcp.json. Пользоваться только ими, других LSP-инструментов не существует:
     Бэкенд (Python):  mcp__python-lsp__python_definition / python_references /
                       python_diagnostics / python_hover
     Фронтенд (TS):    mcp__typescript-lsp__ts_definition / ts_references /
                       ts_diagnostics / ts_hover
-- Для определений, ссылок и диагностики использовать эти MCP-инструменты,
-  а не grep/Read. Read — только когда нужен контекст вокруг кода.
-- Статус инструментов (проверено 2026-05-30):
-    TypeScript: работают все 4 функции. Курсор ставить точно на идентификатор.
+  Если в начале сессии этих инструментов в списке нет — значит .mcp.json не подхватился,
+  нужен рестарт сессии. Не выдумывать «встроенный LSP» и не выдавать обычный Read за LSP.
+- Для определений, ссылок и диагностики использовать эти MCP-инструменты, а не grep/Read.
+- Read применять только когда нужен контекст вокруг кода, а не навигация.
+
+- ВАЖНО — статус инструментов (проверено 2026-05-30 на реальных файлах):
+    TypeScript: работают все 4 функции (definition, references, diagnostics, hover).
+                Курсор ставить точно на идентификатор: ts_definition при позиции вне
+                границ строки падает с внутренней ошибкой tsserver, а не возвращает пусто.
     Python:     работают definition, references, diagnostics.
-                python_hover СЛОМАН — всегда отвечает «Информация недоступна».
-- Воркэраунд для типа Python-символа: python_definition → Read диапазона.
-- СТОП-ПРАВИЛО: если LSP-серверы не поднялись или выдают ошибки —
-  НЕМЕДЛЕННО прервать работу и предупредить пользователя.
+                python_hover СЛОМАН — всегда отвечает «Информация недоступна», даже на
+                валидных символах. Это не ошибка позиции.
+- Воркэраунд для типа Python-символа (раз hover не работает):
+    1) mcp__python-lsp__python_definition на символе → получить файл:строку определения;
+    2) Read этого диапазона, чтобы увидеть сигнатуру/аннотацию типа.
+  Для типа TS-символа hover работает — пользоваться ts_hover напрямую.
+
+- СТОП-ПРАВИЛО: если LSP-серверы не поднялись, недоступны в списке инструментов,
+  выдают ошибки или отвечают не так, как описано выше (кроме известного сломанного
+  python_hover), — НЕМЕДЛЕННО прервать любую работу над проектом и честно
+  предупредить пользователя. Не продолжать через grep/Read как замену, не делать вид,
+  что LSP работает, не строить догадки о коде вслепую. Сначала сообщить о проблеме
+  и дождаться решения пользователя.
 
 Что читать для контекста
-- spec.md          — описание продукта и MVP
-- docs/specs/      — нормативные спеки поведения сущностей движка
-- tasks.md         — текущие задачи и бэклог (только живое)
+- spec.md   — описание продукта и MVP
+- docs/specs/ — нормативные спеки поведения сущностей движка (реестр инвариантов)
+- tasks.md  — текущие задачи и бэклог (только живое)
+- DEV.md    — локальный запуск: подробности и ручной режим
 - docs/tasks-archive.md — журнал закрытых задач (история решений)
-- docs/archive/    — рабочие доки закрытых эпиков
+- docs/archive/ — рабочие доки закрытых эпиков (аудиты, планы)
 - docs/plan-refactoring.md — план рефакторинга (аудит 2026-08-01: метрики, риски, фазы)
 - docs/plan-audit-2026-10.md — план исправлений по аудиту 2026-10-13 (уязвимости, 500/зависания,
   зависимости, мёртвый код, дубли, god-компоненты): реестр с местами в коде и фазы 0–8
-- DEV.md           — инструкция локального запуска

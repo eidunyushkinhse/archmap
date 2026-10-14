@@ -140,7 +140,7 @@ jobs:
         run: python -m pytest -q
 
   scripts:
-    name: Scripts (bash -n + shellcheck + ruff)
+    name: Scripts (bash -n + shellcheck + ruff + agent-docs)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -158,3 +158,6 @@ jobs:
           python-version: "3.12"
       - name: ruff (скрипты поставки)
         run: pip install ruff==0.17.0 && ruff check --config backend/pyproject.toml deploy/
+      - name: QWEN.md собран из CLAUDE.md
+        # Правила двух агентов расходились на 173 строки (аудит P-7): источник теперь один.
+        run: python3 scripts/agent-docs.py --check
