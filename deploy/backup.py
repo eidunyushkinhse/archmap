@@ -70,7 +70,7 @@ def dump(dsn: str, target: Path) -> None:
     user = f"{parts.username}@" if parts.username else ""
     bare = urlunsplit((parts.scheme, f"{user}{host}", parts.path, parts.query, ""))
     partial = target.with_name(target.name + ".part")
-    run = subprocess.run(
+    run = subprocess.run(  # noqa: S603 — pg_dump из PATH установщика, аргументы — из его настроек
         [pg_dump, "-Fc", f"--dbname={bare}", f"--file={partial}"],
         env=env,
         capture_output=True,

@@ -32,7 +32,7 @@ def main(argv: list[str]) -> None:
     if len(argv) < 4 or argv[2] != "--":
         sys.exit("использование: runenv.py ФАЙЛ_НАСТРОЕК -- КОМАНДА [АРГУМЕНТЫ…]")
     os.environ.update(read_env(argv[1]))
-    os.execvp(argv[3], argv[3:])
+    os.execvp(argv[3], argv[3:])  # noqa: S606 — запуск переданной команды и есть назначение скрипта
 
 
 if __name__ == "__main__":
