@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { KeyIcon, LogoutIcon, UsersIcon } from "./icons";
+import { useDismiss } from "./useDismiss";
 
 // Меню профиля под аватаром (заменяет прежнюю кнопку «Выйти» в шапке). Аватар-кружок
 // с инициалом роли; по клику — поповер с бейджем роли и пунктами «Сменить пароль»,
@@ -22,20 +23,7 @@ export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangeP
   // инициал из роли («Архитектор» → «А», «Наблюдатель» → «Н»); пусто → «—»
   const initial = role.trim().charAt(0).toUpperCase() || "—";
 
-  // Закрытие по клику вне поповера и по Escape (как в SchemaAlerts).
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismiss(open, ref, setOpen);
 
   // Пункт меню: закрывает поповер и зовёт действие.
   const item = (label: string, icon: ReactNode, action: () => void) => (

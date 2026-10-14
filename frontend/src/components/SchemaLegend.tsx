@@ -6,9 +6,10 @@
 // useState(open), закрытие по клику вне и Escape. Отличие: кнопка стоит ВНИЗУ справа,
 // поэтому панель раскрывается ВВЕРХ (bottom: calc(100% + 8px)). Видна всегда (обе
 // роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import "./SchemaLegend.css";
+import { useDismiss } from "../ui/useDismiss";
 
 /* ── Мини-свотчи фигур (в тех же цветах, что узлы на схеме) ────────── */
 const BLUE = "#1168bd";      // getNodeColors: internal, depth 0
@@ -84,20 +85,7 @@ export default function SchemaLegend() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Закрытие по клику вне и Escape
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismiss(open, ref, setOpen);
 
   return (
     <div ref={ref} style={wrap}>

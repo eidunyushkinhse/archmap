@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type {
   SchemaAlerts as Alerts,
@@ -8,6 +8,7 @@ import type {
 import { plural } from "../ui/plural";
 import { BulbIcon } from "../ui/icons";
 import "./schemaAlerts.css";
+import { useDismiss } from "../ui/useDismiss";
 
 /**
  * Рекомендации по схеме для архитектора (подача «А1. Чистый список», 2026-09-29;
@@ -149,20 +150,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
     unresolvedConfigRefs.length + brokerEdges.length + unlinkedMessages.length +
     undescribedDocs.length;
 
-  // Закрытие панели по клику вне и по Escape
-  useEffect(() => {
-    if (!open) return;
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as globalThis.Node)) setOpen(false);
-    }
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismiss(open, ref, setOpen);
 
   // Клик по пункту ведёт к цели (на страницу объекта или в редактор) — переход
   // уводит с текущего экрана, поэтому панель сразу закрываем.

@@ -21,6 +21,7 @@ import ExportModal from "./ExportModal";
 import SyncRepoModal from "./docsImport/SyncRepoModal";
 import ImportIntoModal from "./project/ImportIntoModal";
 import { KebabIcon } from "../ui/icons";
+import { useDismiss } from "../ui/useDismiss";
 
 /** Область экспорта: что грузим и как назвать окно/пункт меню. */
 export interface ExportScope {
@@ -67,20 +68,7 @@ export default function SchemaActions({
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
   }, []);
 
-  // Закрытие меню по клику вне и по Escape (паттерн ProfileMenu).
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setMenuOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [menuOpen]);
+  useDismiss(menuOpen, wrapRef, setMenuOpen);
 
   function showToast(message: string) {
     setToast(message);

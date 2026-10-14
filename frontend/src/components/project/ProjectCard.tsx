@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { Project } from "../../types";
 import SchemaPreview from "./SchemaPreview";
+import { useDismiss } from "../../ui/useDismiss";
 
 /**
  * Карточка проекта на лендинге: превью схемы, имя и описание, кто и когда менял,
@@ -85,14 +86,7 @@ function CardMenu({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [open]);
+  useDismiss(open, ref, setOpen);
   const item = (label: string, fn: () => void, danger = false): ReactNode => (
     <MenuItem label={label} danger={danger} onClick={() => { setOpen(false); fn(); }} />
   );

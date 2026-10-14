@@ -5,6 +5,7 @@ import type { Project } from "../types";
 import { ChevronIcon, PlusIcon } from "../ui/icons";
 import CreateProjectDialog from "./project/CreateProjectDialog";
 import { noAutofill } from "../ui/noAutofill";
+import { useDismiss } from "../ui/useDismiss";
 
 /**
  * Свитчер проектов в шапке схемы: имя текущего проекта + дропдаун (поиск ТОЛЬКО по
@@ -32,14 +33,7 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
     void projectsApi.list(false).then(setProjects).catch(() => setProjects([]));
   }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
-  }, [open]);
+  useDismiss(open, ref, setOpen);
 
   const current = projects.find((p) => p.id === projectId);
   const q = query.trim().toLowerCase();
