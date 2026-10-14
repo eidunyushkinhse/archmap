@@ -16,6 +16,7 @@ import { useCallback, useRef, useState, type Dispatch, type SetStateAction, type
 import type { Node as RFNode } from "@xyflow/react";
 import { NODE_W, NODE_H } from "../constants";
 import { absPositionOf } from "../absPos";
+import { mustGet } from "../../../lib/mustGet";
 
 interface Params {
   rfNodes: RFNode[];
@@ -73,8 +74,7 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
     affectedFramesRef.current = affected;
     if (affected.size === 0) { setOverlayFrames([]); return; }
     setOverlayFrames([...affected].map((id) => {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- id добавлен в affected из byId, ключ существует
-      const f = byId.get(id)!;
+      const f = mustGet(byId, id);
       const abs = absPositionOf(f, byId);
       const { w, h } = rfSize(f);
       return { id, name: (f.data as { name?: string }).name ?? "", x: abs.x, y: abs.y, w, h };

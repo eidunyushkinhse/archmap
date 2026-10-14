@@ -40,6 +40,7 @@
 import type { EdgePoint } from "../../../types";
 import { cleanup, type SegOrient } from "../edgePath";
 import { solveSeparation, type SepConstraint } from "./vpsc";
+import { mustGet } from "../../../lib/mustGet";
 
 export const EPS = 0.75;      // допуск «одна линия»
 export const OVERLAP_MIN = 3; // перекрытие > 3px считаем наложением (касание концами игнорируем)
@@ -138,8 +139,9 @@ function clusterChannels(segs: Seg[], nearTol: number): Seg[][] {
   const byRoot = new Map<number, Seg[]>();
   segs.forEach((s, k) => {
     const r = find(k);
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
-    (byRoot.get(r) ?? byRoot.set(r, []).get(r)!).push(s);
+    let group = byRoot.get(r);
+    if (!group) byRoot.set(r, (group = []));
+    group.push(s);
   });
   return [...byRoot.values()].filter((c) => c.length > 1);
 }
@@ -219,8 +221,7 @@ export function nudgeChannels(params: {
 
   const allSegs: Seg[] = [];
   const ids = [...work.keys()].sort();
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- ids из work.keys(), ключ заведомо есть
-  for (const id of ids) allSegs.push(...segsOf(id, work.get(id)!));
+  for (const id of ids) allSegs.push(...segsOf(id, mustGet(work, id)));
 
   const nudged = new Set<string>();
   const channels = clusterChannels(allSegs, gap * 1.5).sort(
@@ -241,8 +242,9 @@ export function nudgeChannels(params: {
     const groups = new Map<string, Seg[]>();
     channel.forEach((s, k) => {
       const key = `g${String(find(k)).padStart(3, "0")}`;
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- set() выше гарантировал наличие ключа
-      (groups.get(key) ?? groups.set(key, []).get(key)!).push(s);
+      let group = groups.get(key);
+      if (!group) groups.set(key, (group = []));
+      group.push(s);
     });
     if (groups.size < 2) continue; // весь канал — сегменты одного ребра, разводить нечего
 
@@ -283,8 +285,7 @@ export function nudgeChannels(params: {
     // страховка применения на случай несовершенства модели стенок.
     const canApply = (s: Seg, off: number): boolean => {
       if (Math.abs(off) < 0.5) return true; // нулевой сдвиг всегда легален
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- edgeId из сегментов, построенных по work
-      const pts = work.get(s.edgeId)!;
+      const pts = mustGet(work, s.edgeId);
       const p = pts[s.i], q = pts[s.i + 1];
       const newAxis = s.axis + off;
       const perpOf = (t: EdgePoint): number => (s.orient === "h" ? t.y : t.x);
@@ -448,8 +449,7 @@ export function nudgeChannels(params: {
         const off = targets[j] - s.axis;
         if (Math.abs(off) < 0.5) continue;
         if (!canApply(s, off)) continue;
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- edgeId из сегментов, построенных по work
-        const pts = work.get(s.edgeId)!;
+        const pts = mustGet(work, s.edgeId);
         const p = pts[s.i], q = pts[s.i + 1];
         const newAxis = s.axis + off;
         if (s.orient === "h") { p.y = newAxis; q.y = newAxis; }
@@ -460,7 +460,6 @@ export function nudgeChannels(params: {
   }
 
   const out = new Map<string, EdgePoint[]>();
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- work построена из routes, id заведомо есть
-  for (const [id, pts] of work) out.set(id, nudged.has(id) ? cleanup(pts) : routes.get(id)!);
+  for (const [id, pts] of work) out.set(id, nudged.has(id) ? cleanup(pts) : mustGet(routes, id));
   return { routes: out, nudged };
 }

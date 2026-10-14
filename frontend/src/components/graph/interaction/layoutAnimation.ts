@@ -24,6 +24,7 @@
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import { absPositionOf } from "../absPos";
 import { NODE_W, NODE_H } from "../constants";
+import { mustGet } from "../../../lib/mustGet";
 
 // Тайминги (мс). ДОЛЖНЫ совпадать с CSS (LevelGraph.css): move — transition
 // transform/width/height у .lg-canvas--anim, fade — transition opacity, draw —
@@ -308,8 +309,7 @@ export function planCollapse(
     // общий сосед: довезти до next-позиции в СТАРОЙ системе родителей
     // (рамки вне поддерева в фазе 1 неподвижны, абсолюты сходятся)
     if (moved.has(n.id)) {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- moved построена обходом nextById, ключ n.id гарантирован
-      const abs = absPositionOf(nextById.get(n.id)!, nextById);
+      const abs = absPositionOf(mustGet(nextById, n.id), nextById);
       const chain = parentChainAbs(n, prevById);
       return { ...n, position: { x: abs.x - chain.x, y: abs.y - chain.y } };
     }
