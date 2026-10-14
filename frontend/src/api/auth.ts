@@ -1,21 +1,11 @@
 import type { AuthConfig, DemoLimits, Me, Token, UserRole } from "../types";
-import { api, ApiError } from "./client";
+import { api } from "./client";
 import { safeLocal } from "../lib/safeStorage";
 
-const BASE_URL = "/api/v1";
-
-export async function login(username: string, password: string): Promise<Token> {
-  const body = new URLSearchParams({ username, password });
-  const res = await fetch(`${BASE_URL}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: body.toString(),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail ?? "Ошибка входа");
-  }
-  return res.json() as Promise<Token>;
+/** Вход. Отказ (неверный пароль, блокировка, перебор) — ApiError с текстом сервера;
+ *  сигнала «сессия истекла» он не поднимает: запрос идёт мимо сессии. */
+export function login(username: string, password: string): Promise<Token> {
+  return api.anon.post<Token>("/auth/login", new URLSearchParams({ username, password }));
 }
 
 export function saveToken(token: string): void {
@@ -137,8 +127,7 @@ const FALLBACK_CONFIG: AuthConfig = { allow_signup: true, demo_mode: false, demo
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   try {
-    const res = await fetch(`${BASE_URL}/auth/config`);
-    authConfig = res.ok ? ((await res.json()) as AuthConfig) : FALLBACK_CONFIG;
+    authConfig = await api.anon.get<AuthConfig>("/auth/config");
   } catch {
     authConfig = FALLBACK_CONFIG;
   }
@@ -156,11 +145,6 @@ export function getDemoLimits(): DemoLimits | null {
 
 /** «Попробовать без регистрации»: сервер заводит гостя с песочницей и отдаёт токен.
  *  Отказ (429 «слишком много пользователей») — ApiError с текстом сервера. */
-export async function startDemo(): Promise<Token> {
-  const res = await fetch(`${BASE_URL}/demo/start`, { method: "POST" });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({ detail: res.statusText }))) as { detail?: unknown };
-    throw new ApiError(res.status, String(err.detail ?? "Не удалось начать"));
-  }
-  return res.json() as Promise<Token>;
+export function startDemo(): Promise<Token> {
+  return api.anon.post<Token>("/demo/start");
 }

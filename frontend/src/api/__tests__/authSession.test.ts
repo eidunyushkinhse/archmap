@@ -2,8 +2,8 @@
 // из JWT, после — из «кто я»; 401 «Учётная запись заблокирована» из любого запроса
 // будит подписчиков onAccountBlocked (App выходит на экран входа).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { clearToken, fetchMe, getIsAdmin, getMe, getUserRole, saveToken, subscribeMe } from "../auth";
-import { api, ApiError, BLOCKED_DETAIL, onAccountBlocked } from "../client";
+import { clearToken, fetchAuthConfig, fetchMe, getIsAdmin, getMe, getUserRole, login, saveToken, startDemo, subscribeMe } from "../auth";
+import { api, ApiError, BLOCKED_DETAIL, onAccountBlocked, onUnauthorized } from "../client";
 import { setCurrentProjectId } from "../projectScope";
 
 // JWT с нужной ролью в полезной нагрузке (подпись фронту не нужна).
@@ -115,5 +115,60 @@ describe("onAccountBlocked", () => {
     expect(headers(0)).not.toHaveProperty("X-Project-Id");
     expect(headers(1)).toHaveProperty("X-Project-Id", "p1");
     setCurrentProjectId(null);
+  });
+});
+
+// Аудит F-33: вход, старт демо и публичные настройки ходили сырым fetch со своими
+// разборами ошибки. Теперь — общим клиентом мимо сессии: без токена и скоупа, а 401
+// на входе — отказ формы, не «сессия истекла».
+describe("запросы мимо сессии", () => {
+  const init = (mock: ReturnType<typeof respond>) =>
+    (mock.mock.calls[0] as unknown as [string, RequestInit])[1];
+
+  it("вход — форма urlencoded, без токена и заголовка проекта", async () => {
+    saveToken(jwt("viewer")); // прежний токен в хранилище не должен уехать на вход
+    setCurrentProjectId("p1");
+    const fetchMock = respond(200, { access_token: "t", token_type: "bearer" });
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(login("ivan", "секрет")).resolves.toEqual({ access_token: "t", token_type: "bearer" });
+    const req = init(fetchMock);
+    expect(req.method).toBe("POST");
+    expect(req.body).toBe("username=ivan&password=%D1%81%D0%B5%D0%BA%D1%80%D0%B5%D1%82");
+    expect(req.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
+    setCurrentProjectId(null);
+  });
+
+  it("неверный пароль и блокировка на входе — ApiError с текстом, без сигналов App", async () => {
+    const expired = vi.fn();
+    const blocked = vi.fn();
+    const offExpired = onUnauthorized(expired);
+    const offBlocked = onAccountBlocked(blocked);
+    vi.stubGlobal("fetch", respond(401, { detail: "Неверный логин или пароль" }));
+    await expect(login("ivan", "x")).rejects.toThrow("Неверный логин или пароль");
+    vi.stubGlobal("fetch", respond(401, { detail: BLOCKED_DETAIL }));
+    await expect(login("ivan", "x")).rejects.toBeInstanceOf(ApiError);
+    expect(expired).not.toHaveBeenCalled();
+    expect(blocked).not.toHaveBeenCalled();
+    offExpired();
+    offBlocked();
+  });
+
+  it("старт демо: отказ — ApiError со статусом и текстом сервера", async () => {
+    vi.stubGlobal("fetch", respond(429, { detail: "Слишком много пользователей" }));
+    const err: unknown = await startDemo().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(429);
+    expect((err as ApiError).message).toBe("Слишком много пользователей");
+  });
+
+  it("публичные настройки: отказ или обрыв — обычный вход", async () => {
+    const fallback = { allow_signup: true, demo_mode: false, demo_limits: null };
+    vi.stubGlobal("fetch", respond(500, { detail: "сбой" }));
+    await expect(fetchAuthConfig()).resolves.toEqual(fallback);
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
+    await expect(fetchAuthConfig()).resolves.toEqual(fallback);
+    const cfg = { allow_signup: false, demo_mode: true, demo_limits: null };
+    vi.stubGlobal("fetch", respond(200, cfg));
+    await expect(fetchAuthConfig()).resolves.toEqual(cfg);
   });
 });

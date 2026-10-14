@@ -77,9 +77,9 @@ interface ErrorBody {
   code?: unknown;
 }
 
-async function readError(res: Response): Promise<ApiError> {
+async function readError(res: Response, session: boolean): Promise<ApiError> {
   const error = (await res.json().catch(() => ({ detail: res.statusText }))) as ErrorBody;
-  reportIfBlocked(res.status, error.detail);
+  if (session) reportIfBlocked(res.status, error.detail);
   // String() — как прежде: нестроковый detail (422 с перечнем) Error и раньше приводил к строке.
   const message = String(error.detail ?? "Неизвестная ошибка");
   return new ApiError(res.status, message, typeof error.code === "string" ? error.code : null);
@@ -111,13 +111,16 @@ function buildHeaders(path: string, options: RequestInit): HeadersInit {
   };
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+// session=false — запрос мимо сессии (вход, старт демо, публичные настройки): без
+// токена и скоупа проекта, а 401 — отказ этой формы (неверный пароль), не сигнал App
+// «сессия истекла».
+async function request<T>(path: string, options: RequestInit = {}, session = true): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
-    headers: buildHeaders(path, options),
+    headers: session ? buildHeaders(path, options) : (options.headers ?? {}),
   });
 
-  if (!res.ok) throw await readError(res);
+  if (!res.ok) throw await readError(res, session);
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -126,7 +129,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // Бинарная выгрузка (zip-архив проекта): тот же auth/scope, но ответ — Blob.
 async function requestBlob(path: string): Promise<Blob> {
   const res = await fetch(`${BASE_URL}${path}`, { headers: buildHeaders(path, {}) });
-  if (!res.ok) throw await readError(res);
+  if (!res.ok) throw await readError(res, true);
   return res.blob();
 }
 
@@ -144,4 +147,20 @@ export const api = {
   // Мультипарт-загрузка файла (импорт архива проекта).
   upload: <T>(path: string, form: FormData) => request<T>(path, { method: "POST", body: form }),
   download: (path: string) => requestBlob(path),
+  // Мимо сессии (см. request): форма входа шлёт логин и пароль как
+  // application/x-www-form-urlencoded — так их ждёт OAuth2PasswordRequestForm бэка.
+  anon: {
+    get: <T>(path: string) => request<T>(path, {}, false),
+    post: <T>(path: string, form?: URLSearchParams) => request<T>(
+      path,
+      form
+        ? {
+          method: "POST",
+          body: form.toString(),
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        }
+        : { method: "POST" },
+      false,
+    ),
+  },
 };
