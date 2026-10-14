@@ -43,11 +43,11 @@ from dataclasses import dataclass, field
 import yaml
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex
 from app.schemas.data_import import DataImportReport, DataTableItem
 
 NODE_HEADER = re.compile(r"^#\s*archmap-node:\s*(.+?)\s*$", re.MULTILINE)
@@ -60,7 +60,6 @@ LOOKS_LIKE_DATA = re.compile(r"^(tables|access):", re.MULTILINE)
 
 # Кап у таблиц, описанных НЕСКОЛЬКИМИ файлами пакета. Считает ТАБЛИЦЫ, а не строки:
 # к заметке о дубле может добавиться расхождение описания между файлами.
-MAX_DUPLICATE_WARNINGS = 8
 # Свой кап у споров пакета с уже описанным (две картины одной базы): считает СТРОКИ —
 # одна колонка может разойтись сразу по типу, обязательности и ключу.
 MAX_COLUMN_CONFLICTS = 12
@@ -97,14 +96,6 @@ class ParsedData:
     has_node_key: bool = False
 
 
-def _as_bool(v: object) -> bool:
-    return v is True or (isinstance(v, str) and v.strip().lower() in {"true", "да", "yes", "1"})
-
-
-def _as_str(v: object) -> str:
-    return "" if v is None else str(v).strip()
-
-
 def parse_data_file(content: str) -> ParsedData | None:
     """Разобрать файл пакета. None — файл не про данные (пусть его смотрит другой
     разборщик: в пакете рядом лежат и спеки, и схемы логики)."""
@@ -125,18 +116,18 @@ def parse_data_file(content: str) -> ParsedData | None:
     )
 
     for raw in doc.get("tables") or []:
-        if not isinstance(raw, dict) or not _as_str(raw.get("name")):
+        if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         t = TableIn(
-            name=_as_str(raw.get("name")),
-            schema_name=_as_str(raw.get("schema")),
-            description=_as_str(raw.get("description")) or None,
+            name=as_str(raw.get("name")),
+            schema_name=as_str(raw.get("schema")),
+            description=as_str(raw.get("description")) or None,
         )
         seen_columns: set[str] = set()
         for rc in raw.get("columns") or []:
-            if not isinstance(rc, dict) or not _as_str(rc.get("name")):
+            if not isinstance(rc, dict) or not as_str(rc.get("name")):
                 continue
-            col_name = _as_str(rc.get("name"))
+            col_name = as_str(rc.get("name"))
             # Одно имя колонки дважды в одной таблице — та же неряшливость агента, что и
             # колонка без имени выше, и молча пропустить её тут дешевле, чем ловить
             # уникальностью (table_id, name) уже на записи: превью показало бы завышенное
@@ -147,11 +138,11 @@ def parse_data_file(content: str) -> ParsedData | None:
             t.columns.append(
                 ColumnIn(
                     name=col_name,
-                    type=_as_str(rc.get("type")),
-                    pk=_as_bool(rc.get("pk")),
-                    required=_as_bool(rc.get("required")),
-                    references=_as_str(rc.get("references")) or None,
-                    description=_as_str(rc.get("description")) or None,
+                    type=as_str(rc.get("type")),
+                    pk=as_bool(rc.get("pk")),
+                    required=as_bool(rc.get("required")),
+                    references=as_str(rc.get("references")) or None,
+                    description=as_str(rc.get("description")) or None,
                 )
             )
         out.tables.append(t)
@@ -190,63 +181,6 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-def _db_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
-    """Перечень узлов-БД проекта для текстов ошибок.
-
-    Слабая модель адрес ВЫДУМЫВАЕТ («Zabbix Storage»), а «объект не найден» без списка
-    допустимых заставляет её гадать вслепую — раунд переписки за раунд (полевой QA).
-    """
-    paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "database"]
-    return ", ".join(paths) if paths else "в проекте их нет"
-
-
-def _resolve_node(
-    ref: str | None,
-    fname: str,
-    flat: list[Node],
-    fulls: list[str],
-    by_bare: dict[str, list[int]],
-    by_path: dict[str, list[int]],
-    window: uuid.UUID | None,
-    plan: DataPlan,
-    db_hint: str,
-) -> Node | None:
-    """Узел по адресу: полный путь либо голое имя (как в дозаливке доков). Без
-    адреса — объект окна."""
-    if ref is None:
-        if window is None:
-            plan.report.errors.append(f"{fname}: не указан объект, а окно не сказало, к какому применять")
-            return None
-        for i, n in enumerate(flat):
-            if n.id == window:
-                return flat[i]
-        plan.report.errors.append(f"{fname}: объект окна не найден")
-        return None
-    hits = by_path.get(ref) or by_bare.get(ref) or []
-    if not hits:
-        # ЧАСТИЧНЫЙ путь («Сервис заказов / Order API» при корне «Маркетплейс …»):
-        # агент видит только свой репозиторий и корневого контейнера не знает, а
-        # промпт как раз просит писать путь. Совпадение по хвосту — по границе « / »,
-        # чтобы «…/ Заказы» не цеплялось к «…/ Мои Заказы».
-        hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
-    if not hits:
-        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
-        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»;
-        # так пишут архив и синтетические файлы единого импорта (app/node_ref.py).
-        hits = qualified_node_hits(ref, flat)
-    if not hits:
-        plan.report.errors.append(
-            f"{fname}: объект «{ref}» не найден; узлы-БД проекта: {db_hint}"
-        )
-        return None
-    if len(hits) > 1:
-        plan.report.errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(fulls[i] for i in hits)}) — укажите полный путь'
-        )
-        return None
-    return flat[hits[0]]
-
-
 def build_data_plan(
     db: Session,
     nodes: list[Node],
@@ -255,10 +189,10 @@ def build_data_plan(
     overwrite: bool,
 ) -> DataPlan:
     plan = DataPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
-    path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
+    index = NodeIndex.of(nodes)
+    path_of = index.path_by_id()
     plan.path_of = path_of
-    db_hint = _db_nodes_hint(flat, fulls)
+    db_hint = nodes_hint(index, "database")
 
     parsed: list[tuple[str, ParsedData]] = []
     for fname, content in files:
@@ -299,8 +233,9 @@ def build_data_plan(
     for fname, pd in parsed:
         if not pd.tables:
             continue
-        owner = _resolve_node(
-            pd.node_ref, fname, flat, fulls, by_bare, by_path, window, plan, db_hint
+        owner = resolve_owner(
+            pd.node_ref, fname, index, window, plan.report.errors,
+            f"узлы-БД проекта: {db_hint}",
         )
         if owner is None:
             continue
@@ -326,7 +261,18 @@ def build_data_plan(
             else:
                 _merge_duplicate(m, fname, t)
 
-    _warn_duplicate_tables(plan, list(merged.values()))
+    # Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
+    # знало о таблицах, уже поставленных в план предыдущими файлами, — второй файл лил
+    # одноимённую колонку в только что созданную таблицу (uq_db_column_name, 500).
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"таблица «{m.table.name}» описана в нескольких файлах пакета "
+            f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
+            "имени колонки и расхождении меты побеждает первый файл"
+        ),
+        "таблиц",
+    )
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
     # скольким владельцам приехал пакет, а строка превью нужна одна на таблицу.
@@ -449,35 +395,6 @@ def _merge_duplicate(m: _Merged, fname: str, t: TableIn) -> None:
         earlier.references = earlier.references or c.references
         earlier.pk = earlier.pk or c.pk
         earlier.required = earlier.required or c.required
-
-
-def _warn_duplicate_tables(plan: DataPlan, merged: list[_Merged]) -> None:
-    """Таблица описана НЕСКОЛЬКИМИ файлами пакета — план сливает её в одну строку.
-
-    Механизм тот же, что у каналов (7bbf9cd): живое состояние читалось по файлу и не
-    знало о таблицах, уже поставленных в план предыдущими файлами. Превью показывало
-    ДВЕ строки «create» с разным числом колонок, а применение падало 500-й — второй
-    файл лил одноимённую колонку в таблицу, только что созданную первым (уникальность
-    uq_db_column_name; у свежесозданной таблицы коллекция columns после flush пуста).
-    Дубль внутри пакета — норма (файлы собраны разными прогонами агента), поэтому
-    сливаем и предупреждаем, а не падаем и не молчим.
-
-    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из БД.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"таблица «{m.table.name}» описана в нескольких файлах пакета "
-                f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
-                "имени колонки и расхождении меты побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} таблиц описаны в нескольких "
-            "файлах пакета"
-        )
 
 
 def apply_data_plan(db: Session, plan: DataPlan, overwrite: bool) -> None:

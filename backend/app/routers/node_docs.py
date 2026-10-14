@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session, undefer
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
+    name_taken,
+    node_or_404,
     require_project_editor,
-    scoped_node,
-    touch_project,
 )
 from app.models.business_process import BusinessProcess
 from app.models.node import Node
@@ -57,19 +59,8 @@ def _scoped_doc(db: Session, node: Node, doc_id: uuid.UUID, *, body: bool = Fals
     return doc
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _name_taken(db: Session, node_id: uuid.UUID, name: str, except_id: uuid.UUID | None) -> bool:
-    """Пре-чек уникальности имени в пределах узла — 409 вместо IntegrityError-500."""
-    q = db.query(NodeDoc.id).filter(NodeDoc.node_id == node_id, NodeDoc.name == name)
-    if except_id is not None:
-        q = q.filter(NodeDoc.id != except_id)
-    return db.query(q.exists()).scalar() or False
+    return name_taken(db, NodeDoc.id, except_id, NodeDoc.node_id == node_id, NodeDoc.name == name)
 
 
 @router.get("/usage", response_model=list[NodeDocUsage])
@@ -86,7 +77,7 @@ def docs_usage(
     КОНКРЕТНУЮ схему, а не про узел: узловой вопрос закрывает секция «Участвует в
     процессах», и при полусотне операций она не говорит, какие процессы висят на
     этой. Читателю открыт: состояние документации — знание, а не действие."""
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     rows = (
         db.query(
             ProcessMessage.doc_id,
@@ -114,7 +105,7 @@ def list_docs(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[NodeDoc]:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     # Ровно то место, ради которого тело схемы отложено: здесь оно НУЖНО (ответ —
     # NodeDocResponse с content), и его надо запросить явно. Через node.docs тела
     # приехали бы по одному запросу на схему; порядок повторяет relationship
@@ -141,7 +132,7 @@ def get_doc(
     Вход поиска для агента (archmap_doc): находка несёт doc_id, и читать ради неё
     все схемы объекта незачем. Объявлен ПОСЛЕ /usage: иначе «usage» попал бы сюда
     как doc_id и получил 422. Чужой узел и чужая схема — 404, как у PATCH."""
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id, body=True)
     chain = [node.name]
     parent_id, seen = node.parent_id, {node.id}
@@ -179,7 +170,7 @@ def create_doc(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> NodeDoc:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     if _name_taken(db, node.id, payload.name, None):
         raise HTTPException(status_code=409, detail="Схема с таким именем уже есть у узла")
     doc = NodeDoc(
@@ -190,9 +181,7 @@ def create_doc(
         content=payload.content,
     )
     db.add(doc)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(doc)
     return doc
 
@@ -206,13 +195,12 @@ def update_doc(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> NodeDoc:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id, body=True)
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужой текст (base_version — не поле)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != doc.version:
-        raise HTTPException(status_code=409, detail="Схема изменена в другой сессии")
+    check_cas(doc.version, base_version, "Схема изменена в другой сессии")
     if data:
         new_name = data.get("name")
         if new_name is not None and _name_taken(db, node.id, new_name, doc.id):
@@ -221,8 +209,7 @@ def update_doc(
             setattr(doc, field, value)
         doc.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(doc)
     return doc
 
@@ -235,12 +222,10 @@ def delete_doc(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id)
     db.delete(doc)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 @router.post("/distribute", response_model=DistributeDocsOut)
@@ -255,7 +240,7 @@ def distribute_docs(
     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
     его openapi_spec — целиком одному ребёнку. Вызывается из модалки
     распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev."""
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     children = db.query(Node).filter(Node.parent_id == node.id).all()
     child_ids = {c.id for c in children}
     if not child_ids:
@@ -292,6 +277,5 @@ def distribute_docs(
 
     if moved_docs or spec_moved:
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     return DistributeDocsOut(moved_docs=moved_docs, spec_moved=spec_moved)

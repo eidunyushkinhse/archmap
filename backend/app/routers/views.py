@@ -28,7 +28,7 @@ from app.deps import get_current_project, require_project_editor, scoped_node
 from app.models.project import Project
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
-from app.schemas.node import ViewLayoutBatch, ViewLayoutResult, ViewStateResponse
+from app.schemas.view import ViewLayoutBatch, ViewLayoutResult, ViewStateResponse
 from app.view_state import bump_graph_rev, current_version, lock_view_state
 
 router = APIRouter(prefix="/views", tags=["views"])

@@ -1,13 +1,9 @@
 import uuid
-from typing import Literal
 
 from pydantic import BaseModel
 
+from app.domain_types import UserRole
 from app.schemas.demo import DemoLimits
-
-# Роли пользователя: право на документацию. Администратор — отдельный признак
-# is_admin, а не третья роль (docs/tasks/admin-users.md).
-UserRole = Literal["architect", "viewer"]
 
 
 class UserCreate(BaseModel):

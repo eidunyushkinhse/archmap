@@ -123,12 +123,12 @@ def validated_payload() -> dict[str, Any]:
     поэтому судьёй берём саму AlertsResponse — иначе тест зелёный на выдуманных
     полях, а живой сервер отдаёт другие."""
     payload = full_payload()
-    backend("schemas.node").AlertsResponse.model_validate(payload)
+    backend("schemas.alerts").AlertsResponse.model_validate(payload)
     return payload
 
 
 def test_фикстура_покрывает_все_классы_контракта() -> None:
-    fields = set(backend("schemas.node").AlertsResponse.model_fields)
+    fields = set(backend("schemas.alerts").AlertsResponse.model_fields)
     assert set(full_payload()) == fields
     assert len(fields) == 15
 
@@ -168,7 +168,7 @@ def test_тексты_причин_те_же_что_в_панели() -> None:
     # Аудит P-38: тексты причин уже разъехались («— укажите» против «, укажите»),
     # и ни один тест этого не видел. Ключи сверяются с контрактом бэкенда — новая
     # причина без текста печаталась бы агенту кодом.
-    schemas = backend("schemas.node")
+    schemas = backend("schemas.alerts")
     for mine, const, alert in (
         (render.DATA_REASON, "REF_REASON", schemas.UnresolvedDataRefAlert),
         (render.CHANNEL_REASON, "CHANNEL_REASON", schemas.UnresolvedChannelRefAlert),

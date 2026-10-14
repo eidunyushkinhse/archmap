@@ -18,13 +18,13 @@ from app.channels_import import (
     EDGE_STUB_DESCRIPTION,
     MAX_ADDRESS_WARNINGS,
     MAX_COVERAGE_WARNINGS,
-    MAX_DUPLICATE_WARNINGS,
     is_edge_stub,
     parse_channels_file,
     seed_edge_channel_stubs,
 )
 from app.channels_prompt import build_channels_prompt
 from app.data_import import NODE_HEADER
+from app.facts_import import MAX_DUPLICATE_WARNINGS
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge

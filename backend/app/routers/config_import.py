@@ -14,11 +14,15 @@ from app import demo_limits
 from app.config_import import ConfigPlan, apply_config_plan, build_config_plan
 from app.config_prompt import build_config_prompt
 from app.database import get_db
-from app.deps import get_current_project, require_project_editor, touch_project
-from app.docs_import import _node_paths
+from app.deps import (
+    commit_change,
+    get_current_project,
+    require_project_editor,
+)
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.schemas.config_import import (
     ConfigImportIn,
     ConfigImportReport,
@@ -42,7 +46,7 @@ def config_prompt(
     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
+    flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
     service_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "service"]
     return ConfigPromptOut(
         prompt=prompt_for_variant(variant, "config", build_config_prompt(service_paths))
@@ -85,6 +89,5 @@ def config_import_apply(
     apply_config_plan(db, plan, payload.overwrite)
     if plan.report.params_written:
         bump_meta_rev(db, project)  # конфигурация — мета узла
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     return plan.report

@@ -20,12 +20,8 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.schemas.project import ImportPreviewOut
-from app.unified_import import (
-    MAX_INPUTS,
-    UnifiedImportError,
-    build_unified_plan,
-    preview_from_plan,
-)
+from app.unified_import import MAX_INPUTS, UnifiedImportError, build_unified_plan
+from app.unified_preview import preview_from_plan
 
 
 def _preview(*texts: str) -> ImportPreviewOut:

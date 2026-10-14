@@ -21,18 +21,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
+    name_taken,
+    node_or_404,
+    owned_or_404,
     require_project_editor,
-    scoped_node,
-    touch_project,
 )
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.db_doc import (
@@ -49,15 +51,8 @@ from app.view_state import bump_meta_rev
 tables_router = APIRouter(prefix="/nodes/{node_id}/tables", tags=["db-docs"])
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _writable_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     has_children = (
         db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
     )
@@ -70,31 +65,32 @@ def _writable_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
 
 
 def _scoped_table(db: Session, node: Node, table_id: uuid.UUID) -> DbTable:
-    table = db.get(DbTable, table_id)
-    if table is None or table.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Таблица не найдена")
-    return table
+    return owned_or_404(db, DbTable, table_id, "node_id", node.id, "Таблица не найдена")
 
 
 def _table_taken(
     db: Session, node_id: uuid.UUID, schema_name: str, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    """Пре-чек уникальности имени в контуре — 409 вместо IntegrityError-500."""
-    q = db.query(DbTable.id).filter(
-        DbTable.node_id == node_id, DbTable.schema_name == schema_name, DbTable.name == name
+    return name_taken(
+        db,
+        DbTable.id,
+        except_id,
+        DbTable.node_id == node_id,
+        DbTable.schema_name == schema_name,
+        DbTable.name == name,
     )
-    if except_id is not None:
-        q = q.filter(DbTable.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 def _column_taken(
     db: Session, table_id: uuid.UUID, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    q = db.query(DbColumn.id).filter(DbColumn.table_id == table_id, DbColumn.name == name)
-    if except_id is not None:
-        q = q.filter(DbColumn.id != except_id)
-    return db.query(q.exists()).scalar() or False
+    return name_taken(
+        db,
+        DbColumn.id,
+        except_id,
+        DbColumn.table_id == table_id,
+        DbColumn.name == name,
+    )
 
 
 # ── Таблицы ───────────────────────────────────────────────────────────────────
@@ -107,7 +103,7 @@ def list_tables(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[DbTable]:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     return list(node.db_tables)
 
 
@@ -124,65 +120,44 @@ def list_usage(
     лежать, а обратный индекс — КТО его туда кладёт. Источник — сам текст доков
     (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
     """
-    node = _get_node(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые таблицы в чужих базах
-    # перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
-    mine = {t.id: t for t in tables if t.node_id == node.id}
+    node = node_or_404(db, node_id, project)
+    catalog = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (doc_ref_hits), а в ответ отбираем свои.
+    mine = {t.id: t for t in catalog.tables if t.node_id == node.id}
     if not mine:
         return []
-
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
-        .select_from(NodeDoc)
-        .join(Node, Node.id == NodeDoc.node_id)
-        .filter(Node.project_id == project.id)
-        .all()
-    )
 
     rows: list[TableUsage] = []
     # Дедуп в пределах дока: «orders.status» и «Хранилище / orders.status» — одно и то
     # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
     seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
-    for doc_id, doc_name, content, caller_id, caller_name in docs:
-        if not content:
+    for hit in doc_ref_hits(db, project.id, catalog):
+        ref = hit.ref
+        # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
+        # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
+        # Канальные пометки («публикует:/потребляет:») отсеиваются сами: у них
+        # table_id пуст — их разворот живёт у брокера (channels/usage).
+        if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
             continue
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            # Конфигурация ВЛАДЕЛЬЦА дока: этому индексу она не нужна, но каталог
-            # передаём настоящий — подсунуть пустой значило бы сказать резолверу
-            # неправду и получить ложные статусы, если фильтр ниже когда-нибудь
-            # ослабнет.
-            owner_params=params_by_node.get(caller_id, {}),
-        ):
-            # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
-            # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
-            # Канальные пометки («публикует:/потребляет:») отсеиваются сами: у них
-            # table_id пуст — их разворот живёт у брокера (channels/usage).
-            if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
-                continue
-            table = mine.get(ref.table_id)
-            if table is None:
-                continue
-            # unknown_column = таблица нашлась, колонки нет → обращение к таблице
-            # ЦЕЛИКОМ; несуществующую колонку в индекс не тащим (её подсветит алерт).
-            column_id = ref.column_id if ref.status == "ok" else None
-            column_name = ref.column_name if ref.status == "ok" else None
-            key = (doc_id, table.id, column_id, ref.mode)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                TableUsage(
-                    table_id=table.id, table_name=table.name,
-                    column_id=column_id, column_name=column_name,
-                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
-                    node_id=caller_id, node_name=caller_name,
-                )
+        table = mine.get(ref.table_id)
+        if table is None:
+            continue
+        # unknown_column = таблица нашлась, колонки нет → обращение к таблице
+        # ЦЕЛИКОМ; несуществующую колонку в индекс не тащим (её подсветит алерт).
+        column_id = ref.column_id if ref.status == "ok" else None
+        column_name = ref.column_name if ref.status == "ok" else None
+        key = (hit.doc_id, table.id, column_id, ref.mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            TableUsage(
+                table_id=table.id, table_name=table.name,
+                column_id=column_id, column_name=column_name,
+                mode=ref.mode, doc_id=hit.doc_id, doc_name=hit.doc_name,
+                node_id=hit.node_id, node_name=hit.node_name,
             )
+        )
     rows.sort(key=lambda u: (u.table_name, u.node_name, u.doc_name))
     return rows
 
@@ -205,9 +180,7 @@ def create_table(
         description=payload.description,
     )
     db.add(table)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(table)
     return table
 
@@ -221,12 +194,11 @@ def update_table(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> DbTable:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != table.version:
-        raise HTTPException(status_code=409, detail="Таблица изменена в другой сессии")
+    check_cas(table.version, base_version, "Таблица изменена в другой сессии")
     if data:
         new_name = data.get("name", table.name)
         new_schema = data.get("schema_name", table.schema_name)
@@ -236,8 +208,7 @@ def update_table(
             setattr(table, field, value)
         table.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(table)
     return table
 
@@ -250,12 +221,10 @@ def delete_table(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     db.delete(table)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 # ── Колонки ───────────────────────────────────────────────────────────────────
@@ -272,15 +241,13 @@ def create_column(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> DbColumn:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     if _column_taken(db, table.id, payload.name, None):
         raise HTTPException(status_code=409, detail="Колонка с таким именем уже есть в таблице")
     column = DbColumn(table_id=table.id, **payload.model_dump())
     db.add(column)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(column)
     return column
 
@@ -295,7 +262,7 @@ def update_column(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> DbColumn:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     column = db.get(DbColumn, column_id)
     if column is None or column.table_id != table.id:
@@ -310,8 +277,7 @@ def update_column(
         for field, value in data.items():
             setattr(column, field, value)
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(column)
     return column
 
@@ -327,12 +293,10 @@ def delete_column(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     column = db.get(DbColumn, column_id)
     if column is None or column.table_id != table.id:
         raise HTTPException(status_code=404, detail="Колонка не найдена")
     db.delete(column)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)

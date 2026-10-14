@@ -16,15 +16,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.access import ProjectRole, effective_role, role_at_least
 from app.auth import get_current_user
-from app.database import get_db
+from app.database import Base, get_db
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.view_state import bump_graph_rev, bump_meta_rev, bump_process_rev
 
 # Недоступный проект неотличим от несуществующего: существование не выдаём.
 PROJECT_NOT_FOUND = "Проект не найден"
@@ -125,6 +127,54 @@ def scoped_edge(db: Session, edge_id: uuid.UUID, project: Project) -> Edge | Non
     return edge
 
 
+# ── Общее у CRUD-ручек записей узла (аудит Q-15: копии в db_docs, broker_channels,
+# config_params и node_docs) ────────────────────────────────────────────────────
+
+NODE_NOT_FOUND = "Узел не найден"
+
+
+def node_or_404(db: Session, node_id: uuid.UUID, project: Project) -> Node:
+    """Узел проекта (scoped_node) или 404."""
+    node = scoped_node(db, node_id, project)
+    if node is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=NODE_NOT_FOUND)
+    return node
+
+
+def owned_or_404[R: Base](
+    db: Session, model: type[R], row_id: uuid.UUID, owner: str, owner_id: uuid.UUID, detail: str
+) -> R:
+    """Строка model, принадлежащая владельцу (owner — колонка: «node_id», «table_id»),
+    иначе 404 с detail. db.get по PK владельца не видит — сверяем явно, как scoped_node:
+    чужая таблица по прямому id недоступна так же, как отсутствующая."""
+    row = db.get(model, row_id)
+    if row is None or getattr(row, owner) != owner_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
+    return row
+
+
+def name_taken(
+    db: Session,
+    id_column: InstrumentedAttribute[uuid.UUID],
+    except_id: uuid.UUID | None,
+    *where: ColumnElement[bool],
+) -> bool:
+    """Пре-чек уникальности имени в контуре — 409 вместо IntegrityError-500. where —
+    условия контура и имени; except_id — сама правимая строка (её имя «занятым» не
+    считается)."""
+    q = db.query(id_column).filter(*where)
+    if except_id is not None:
+        q = q.filter(id_column != except_id)
+    return db.query(q.exists()).scalar() or False
+
+
+def check_cas(version: int, base_version: int | None, detail: str) -> None:
+    """Версия, с которой клиент начинал правку, устарела — 409 с detail. Без
+    base_version проверки нет (старые клиенты и скрипты)."""
+    if base_version is not None and base_version != version:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
 def touch_project(db: Session, project: Project, user_id: uuid.UUID | None) -> None:
     """Отметить смысловую правку схемы проекта: обновить updated_at/updated_by_id.
 
@@ -136,3 +186,27 @@ def touch_project(db: Session, project: Project, user_id: uuid.UUID | None) -> N
     project.updated_at = datetime.now(UTC)
     project.updated_by_id = user_id
     db.add(project)
+
+
+def commit_change(
+    db: Session,
+    project: Project,
+    user_id: uuid.UUID | None,
+    *,
+    graph: bool = False,
+    meta: bool = False,
+    process: bool = False,
+) -> None:
+    """Смысловая правка проекта целиком (аудит Q-23: три строки в ~50 ручках): курсоры
+    поллинга того, что изменилось, — graph_rev (схема: узлы, связи, раскладка),
+    meta_rev (мета узла: атрибуты, доки, факты), process_rev (процессы); кто и когда
+    менял (touch_project); коммит. Курсоры разведены намеренно: чужой курсор дал бы
+    соседней странице ложный тост или рефетч."""
+    if graph:
+        bump_graph_rev(db, project)
+    if meta:
+        bump_meta_rev(db, project)
+    if process:
+        bump_process_rev(db, project)
+    touch_project(db, project, user_id)
+    db.commit()

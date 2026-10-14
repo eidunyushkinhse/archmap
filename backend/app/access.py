@@ -14,7 +14,6 @@ reader — только смотрит и экспортирует.
 
 import uuid
 from collections.abc import Iterable
-from typing import cast
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Query, Session
@@ -45,7 +44,7 @@ def effective_role(db: Session, user: User, project: Project) -> ProjectRole | N
         return "owner"
     member = db.get(ProjectMember, (project.id, user.id))
     if member is not None:
-        return cast(ProjectRole, member.role)
+        return member.role
     if project.visible_to_all:
         return "reader"
     return None
@@ -62,7 +61,7 @@ def effective_roles(
     mine: dict[uuid.UUID, ProjectRole] = {}
     if ids:
         mine = {
-            pid: cast(ProjectRole, role)
+            pid: role
             for pid, role in db.query(ProjectMember.project_id, ProjectMember.role).filter(
                 ProjectMember.user_id == user.id, ProjectMember.project_id.in_(ids)
             )

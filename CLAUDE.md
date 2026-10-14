@@ -59,30 +59,34 @@ archmap/
 │   │   ├── routers/       # 21 роутер /api/v1: auth, admin, users, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import
-│   │   ├── schemas/       # Pydantic-контракт API (23 модуля; из него генерируется api.gen.ts)
+│   │   ├── schemas/       # Pydantic-контракт API (26 модулей; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health и /ready
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
-│   │   ├── auth.py / deps.py / access.py  # JWT и пароли; общие зависимости; роль в проекте (effective_role)
+│   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
+│   │   ├── auth.py / deps.py / access.py  # JWT и пароли; общие зависимости (node_or_404, commit_change…); роль в проекте
 │   │   ├── database.py / column_limits.py / view_state.py  # сессия и пул; длины строк до flush (422, а не 500); CAS-версии
 │   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py
 │   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»
 │   │   ├── graph_queries.py / context_graph.py / alerts.py / connectivity.py  # граф уровня, контекст-схема, алерты
-│   │   ├── export.py / import_yaml.py / import_merge.py / identity.py / node_ref.py
-│   │   │                  # YAML C4: экспорт, импорт, слияние прогонов, якорь объекта, ссылки на узлы
+│   │   ├── export.py / import_yaml.py / import_merge.py / merge_report.py / merge_warnings.py
+│   │   │                  # YAML C4: экспорт, импорт, слияние прогонов, отчёт и анализаторы слияния
+│   │   ├── identity.py / node_ref.py / name_match.py  # якорь объекта; адреса узлов (NodeIndex); «похоже на …»
 │   │   ├── sync_plan.py / sync_apply.py  # синк живой схемы с прогоном агента
-│   │   ├── unified_import.py / unified_apply.py / unified_into.py / archive_export.py / archive_import.py
-│   │   │                  # единый ввоз N входов, догрузка в живой проект, архив знания (zip)
-│   │   ├── docs_import.py / recon_import.py / data_import.py / channels_import.py / config_import.py / data_refs.py
-│   │   │                  # BYOA-дозаливки: схемы логики, разведка, БД, каналы, конфигурация; пометки обращений
+│   │   ├── unified_import.py / unified_remarks.py / unified_preview.py / unified_apply.py / unified_into.py
+│   │   │                  # единый ввоз N входов: план, остаток и тексты, превью, применение, догрузка
+│   │   ├── archive_export.py / archive_import.py  # архив знания (zip)
+│   │   ├── docs_import.py / docs_pkg.py / recon_import.py / data_refs.py  # доки от агента (план, разбор пакета), разведка, пометки
+│   │   ├── facts_import.py / data_import.py / channels_import.py / config_import.py  # табличные факты: общее и три семьи
 │   │   ├── *_prompt.py    # промпты агенту (import, docs, recon, data, channels, config, skeptic) — под снапшотами
 │   │   ├── processes.py / process_import.py / process_export.py / process_copy.py  # бизнес-процессы
 │   │   ├── search.py / text.py / mmd_header.py  # поиск по знанию проекта; нормализация текстов; шапка .mmd
+│   │   ├── project_cards.py  # карточки списка «Проекты» (счётчики, мини-граф, роль)
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (OpenShift без nginx)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (68 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (70 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings

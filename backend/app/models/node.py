@@ -6,6 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.domain_types import NodeShape, NodeStatus
 from app.identity import source_ref_dict
 
 if TYPE_CHECKING:
@@ -44,10 +45,10 @@ class Node(Base):
     # (item_id = id узла, вид = родитель).
     is_external: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     # вариант отображения: service | database | broker | person (C4-формы)
-    shape: Mapped[str] = mapped_column(String(32), default="service", server_default="service")
+    shape: Mapped[NodeShape] = mapped_column(String(32), default="service", server_default="service")
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
-    status: Mapped[str] = mapped_column(String(16), default="existing", server_default="existing")
+    status: Mapped[NodeStatus] = mapped_column(String(16), default="existing", server_default="existing")
     # Канонический ключ источника — ЯКОРЬ узла (app/identity): чем узел опознаётся
     # между прогонами ИИ-агента. Видов два: код («git:github.com/org/payments#src/api»)
     # и имя зависимости («host:postgres»). Пишется импортом и синком И РУКАМИ —

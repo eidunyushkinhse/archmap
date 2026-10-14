@@ -28,9 +28,11 @@ from difflib import SequenceMatcher
 import yaml
 from sqlalchemy.orm import Session
 
+from app.domain_types import NODE_SHAPES, NODE_STATUSES, NodeShape, NodeStatus, pick
 from app.identity import SourceRef, source_keys
 from app.models.edge import Edge
 from app.models.node import Node
+from app.name_match import HINT_CUTOFF, HINT_MAX_DIFF, tiny_diff
 from app.node_ref import RefIndex
 from app.text import loose_name
 
@@ -39,15 +41,15 @@ MAX_NODES = 2000
 MAX_EDGES = 4000
 MAX_DEPTH = 32
 
-_SHAPES = ("service", "database", "broker", "person")
-_STATUSES = ("existing", "planned", "deprecated")
+_SHAPES = NODE_SHAPES
+_STATUSES = NODE_STATUSES
 
 
 @dataclass
 class _ImpNode:
     name: str
-    shape: str
-    status: str
+    shape: NodeShape
+    status: NodeStatus
     role: str | None
     technology: str | None
     is_external: bool
@@ -126,16 +128,11 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
 # «zabbix-server / web-api». Без подсказки слабая модель гадает заново; лишний
 # круг случился дважды (изолированный Zabbix и федерация).
 #
-# Пороги — ДОСЛОВНО из дозаливки доков (app/docs_import.py, Ф8ж), и ниже их не
-# опускать: ложная подсказка ХУЖЕ её отсутствия — слабая модель копирует
-# предложенное имя не глядя, и вместо битой ссылки получается ссылка, битая
-# по-другому.
-_HINT_CUTOFF = 0.75
-# Сколько символов ВСЕГО (на обе строки) может не совпасть у «того же пути,
-# записанного иначе». Одной похожести мало: у соседей по контейнеру общий длинный
-# префикс, и difflib даёт им 0.75+ на совершенно разных именах листа. У настоящих
-# же кандидатов расхождение мелкое: разделитель, окончание, опечатка (0–3).
-_HINT_MAX_DIFF = 3
+# Пороги и правило мелкого расхождения — общие с дозаливкой доков (app/name_match.py,
+# Ф8ж), и ниже их не опускать: ложная подсказка ХУЖЕ её отсутствия — слабая модель
+# копирует предложенное имя не глядя, и вместо битой ссылки получается ссылка, битая
+# по-другому. У соседей по контейнеру общий длинный префикс, и difflib даёт им 0.75+
+# на совершенно разных именах листа; у настоящих кандидатов расхождение мелкое.
 # Разделители, которыми одно и то же имя пишут по-разному: «web-api» / «web_api».
 
 
@@ -163,7 +160,7 @@ def _closest_node(
        здесь выдаётся уверенно. Несколько одноимённых листьев → ближайший по
        difflib к полному пути, при равенстве — первый в порядке документа.
     2. Добор difflib по ПОЛНОМУ пути и только на МЕЛКОМ расхождении (опечатка,
-       окончание, разделитель): порог _HINT_CUTOFF И не больше _HINT_MAX_DIFF
+       окончание, разделитель): порог HINT_CUTOFF И не больше HINT_MAX_DIFF
        несовпавших символов.
     3. Иначе подсказки нет.
 
@@ -190,18 +187,15 @@ def _closest_node(
     best: tuple[float, int] | None = None
     for i, full in enumerate(fulls):
         cand = loose_name(full)
-        # Длина отсеивает даром: расхождение в _HINT_MAX_DIFF символов невозможно
+        # Длина отсеивает даром: расхождение в HINT_MAX_DIFF символов невозможно
         # при большей разнице длин (документ бывает на MAX_NODES узлов).
-        if abs(len(cand) - len(norm)) > _HINT_MAX_DIFF or not resolvable(i):
+        if abs(len(cand) - len(norm)) > HINT_MAX_DIFF or not resolvable(i):
             continue
         matcher.set_seq1(cand)
-        if matcher.real_quick_ratio() < _HINT_CUTOFF or matcher.quick_ratio() < _HINT_CUTOFF:
+        if matcher.real_quick_ratio() < HINT_CUTOFF or matcher.quick_ratio() < HINT_CUTOFF:
             continue
-        ratio = matcher.ratio()
-        if ratio < _HINT_CUTOFF:
-            continue
-        matched = sum(block.size for block in matcher.get_matching_blocks())
-        if (len(norm) - matched) + (len(cand) - matched) > _HINT_MAX_DIFF:
+        ratio = tiny_diff(matcher, cand, norm)
+        if ratio is None:
             continue
         if best is None or ratio > best[0]:  # равенство оставляет первого по документу
             best = (ratio, i)
@@ -210,7 +204,7 @@ def _closest_node(
 
 # --- перечень кандидатов к «имя неоднозначно» ---------------------------------
 # Сколько путей называем, прежде чем свернуть остаток в счётчик. Кап — как у
-# соседних перечней слияния (_MAX_GROUP_NAMES, import_merge.py): замечания уезжают
+# соседних перечней слияния (_MAX_GROUP_NAMES, merge_warnings.py): замечания уезжают
 # агенту одним списком, и полсотни одноимённых узлов вытеснили бы всё остальное.
 # Хвост считаем, а не молчим о нём: агент должен знать, что выбор шире показанного.
 _MAX_AMBIGUOUS_PATHS = 6
@@ -330,13 +324,15 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             overflow = True
             return
 
-        shape = raw.get("shape", "service")
-        if shape not in _SHAPES:
-            errors.append(f"{path}: shape {shape!r} не поддерживается ({' | '.join(_SHAPES)})")
+        raw_shape = raw.get("shape", "service")
+        shape = pick(raw_shape, _SHAPES)
+        if shape is None:
+            errors.append(f"{path}: shape {raw_shape!r} не поддерживается ({' | '.join(_SHAPES)})")
             shape = "service"
-        status = raw.get("status", "existing")
-        if status not in _STATUSES:
-            errors.append(f"{path}: status {status!r} не поддерживается ({' | '.join(_STATUSES)})")
+        raw_status = raw.get("status", "existing")
+        status = pick(raw_status, _STATUSES)
+        if status is None:
+            errors.append(f"{path}: status {raw_status!r} не поддерживается ({' | '.join(_STATUSES)})")
             status = "existing"
         ext = raw.get("external", False)
         if not isinstance(ext, bool):

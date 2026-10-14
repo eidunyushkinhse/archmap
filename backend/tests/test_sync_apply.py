@@ -170,3 +170,71 @@ def test_apply_rejects_broken_yaml_and_unknown_project(db):
     with pytest.raises(HTTPException) as exc:
         sync_apply(uuid.uuid4(), SyncApplyIn(contents=[RUN]), db=db, user=user)
     assert exc.value.status_code == 404
+
+
+# ── Прямые тесты apply_sync_plan (аудит Q-48): без HTTP, на настоящем плане ──────
+# Политики и поля обновления раньше проверялись только через ручку синка; после
+# разбора применения на помощники (Q-16) каждая ветка держится здесь отдельно.
+
+
+def _apply(db, p, text: str, **policies: bool):
+    from app.import_merge import parse_and_merge
+    from app.sync_apply import apply_sync_plan
+    from app.sync_plan import SyncPolicies, plan_for
+
+    merged, _report, errors = parse_and_merge([text])
+    assert merged is not None, errors
+    plan = plan_for(db, p.id, merged, SyncPolicies(**policies))
+    report = apply_sync_plan(db, p, merged, plan)
+    db.commit()
+    return report
+
+
+def test_apply_переносит_имя_и_описание_по_политикам(db):
+    p, _user = _project(db)
+    payments = _node(db, p.id, "payments")
+    version = payments.version
+    text = NEXT_RUN.replace("role: сервис\n", "role: сервис\n        description: Платежи\n", 1)
+
+    report = _apply(db, p, text, update_names=True, update_descriptions=True)
+
+    db.refresh(payments)
+    assert (payments.name, payments.description) == ("billing", "Платежи")
+    assert payments.version == version + 1
+    assert "Система / billing" in report.updated_nodes
+
+
+def test_apply_без_политик_имя_не_трогает(db):
+    p, _user = _project(db)
+    report = _apply(db, p, NEXT_RUN)
+    assert _node(db, p.id, "payments").name == "payments"
+    assert report.updated_nodes == []
+
+
+def test_apply_проставляет_якорь_узлу_без_него(db):
+    p, _user = _project(db, RUN.replace("        source: {host: orders-db}\n", ""))
+    db_node = _node(db, p.id, "orders-db")
+    assert db_node.source_ref is None
+
+    report = _apply(db, p, RUN)
+
+    db.refresh(db_node)
+    assert db_node.source_ref == "host:orders-db"
+    assert report.updated_nodes == ["Система / orders-db"]
+
+
+def test_apply_помечает_пропавшее_только_по_политике(db):
+    p, _user = _project(db)
+    без_orders_db = RUN.replace(
+        "      - name: orders-db\n        shape: database\n        source: {host: orders-db}\n", ""
+    ).replace("  - {from: orders, to: orders-db, label: хранит}\n", "")
+
+    report = _apply(db, p, без_orders_db)
+    assert report.deprecated_nodes == []
+    assert _node(db, p.id, "orders-db").status == "existing"
+
+    report = _apply(db, p, без_orders_db, mark_missing_deprecated=True)
+    assert report.deprecated_nodes == ["Система / orders-db"]
+    assert _node(db, p.id, "orders-db").status == "deprecated"
+    # Повторный прогон: уже устаревший узел второй раз не помечается.
+    assert _apply(db, p, без_orders_db, mark_missing_deprecated=True).deprecated_nodes == []

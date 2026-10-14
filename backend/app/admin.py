@@ -34,11 +34,12 @@ from sqlalchemy.orm import Session
 from app import demo
 from app.auth import hash_password, password_problem
 from app.database import SessionLocal
+from app.domain_types import USER_ROLES, UserRole
 from app.models.user import User
 
 # Роль нового администратора, если --role не передан: первый админ обычно и
 # ведёт документацию.
-DEFAULT_ROLE = "architect"
+DEFAULT_ROLE: UserRole = "architect"
 
 
 class AdminCommandError(Exception):
@@ -64,7 +65,7 @@ def read_new_password(prompt: Callable[[str], str] | None = None) -> str:
 def create_admin(
     db: Session,
     username: str,
-    role: str | None = None,
+    role: UserRole | None = None,
     reset_password: bool = False,
     prompt: Callable[[str], str] | None = None,
 ) -> str:
@@ -149,7 +150,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("username", help="логин")
     create.add_argument(
         "--role",
-        choices=["architect", "viewer"],
+        choices=USER_ROLES,
         default=None,
         help=f"роль (новому по умолчанию {DEFAULT_ROLE}; существующему — не меняется)",
     )

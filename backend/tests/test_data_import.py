@@ -14,9 +14,9 @@ from conftest import ensure_architect, ensure_project
 
 from app.data_import import (
     MAX_COLUMN_CONFLICTS,
-    MAX_DUPLICATE_WARNINGS,
     parse_data_file,
 )
+from app.facts_import import MAX_DUPLICATE_WARNINGS
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
+from app.domain_types import FRAGMENT_KINDS, FragmentKind, MessageLeg, pick
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
@@ -31,7 +31,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
-from app.node_ref import node_addresses, qualified_node_hits
+from app.node_ref import NodeIndex, node_addresses, qualified_node_hits
 from app.processes import legs_for_edge, node_path, resolve_to_participant
 from app.schemas.process_import import (
     ImportNodeCandidate,
@@ -43,7 +43,7 @@ from app.text import sequence_text
 
 # Стрелка → плечо канала. Вид (синхронный/событие) определяет сам канал в схеме,
 # поэтому здесь важно только направление: forward или return.
-_ARROWS: list[tuple[str, str]] = [
+_ARROWS: list[tuple[str, MessageLeg]] = [
     ("-->>", "return"),
     ("--)", "forward"),
     ("-->", "return"),
@@ -69,7 +69,7 @@ _NODE_RE = re.compile(r"^%%\s*archmap-node:\s*(.+)$", re.IGNORECASE)
 class ParsedMessage:
     frm: str  # алиас участника
     to: str
-    leg: str  # forward | return
+    leg: MessageLeg
     caption: str | None
     # Адрес схемы логики из «%% archmap-doc: путь узла / имя схемы» перед шагом (Ф7).
     # Резолв в doc_id — на применении; не разрешился — шаг едет непривязанным.
@@ -84,7 +84,7 @@ class ParsedBranch:
 
 @dataclass
 class ParsedFragment:
-    kind: str
+    kind: FragmentKind
     from_row: int
     to_row: int
     guard: str | None
@@ -102,7 +102,7 @@ class ParsedDiagram:
     unsupported: list[str] = field(default_factory=list)
 
 
-def _split_arrow(body: str) -> tuple[str, str, str] | None:
+def _split_arrow(body: str) -> tuple[str, MessageLeg, str] | None:
     """Разбор «A->>B» на (откуда, стрелка, куда). Стрелки ищем от длинной к короткой:
     иначе «-->>» распался бы по «->»."""
     for arrow, leg in _ARROWS:
@@ -174,10 +174,11 @@ def parse_sequence(text: str) -> ParsedDiagram:
         drop_pending_node()  # адрес узла относится только к объявлению участника
 
         m = _FRAGMENT_RE.match(line)
-        if m:
+        kind = pick(m.group(1).lower(), FRAGMENT_KINDS) if m else None
+        if m and kind is not None:
             guard = m.group(2).strip() or None
             frag = ParsedFragment(
-                kind=m.group(1).lower(), from_row=len(out.messages), to_row=len(out.messages),
+                kind=kind, from_row=len(out.messages), to_row=len(out.messages),
                 guard=guard,
             )
             stack.append(frag)
@@ -271,7 +272,7 @@ def find_channel(
     participant_ids: set[uuid.UUID],
     from_node: uuid.UUID,
     to_node: uuid.UUID,
-    leg: str,
+    leg: MessageLeg,
 ) -> Edge | None:
     """Единственный канал, чьё плечо `leg` проецируется ровно на эту пару узлов.
 
@@ -338,7 +339,7 @@ def _nodes_by_address(
     имени, как всегда (выбирать за пользователя из тёзок нельзя)."""
     if not parsed.node_addresses:
         return {}
-    flat, _fulls, _by_bare, by_path = _node_paths(nodes)
+    flat, _fulls, _by_bare, by_path = NodeIndex.of(nodes)
     out: dict[str, Node] = {}
     for alias, address in parsed.node_addresses.items():
         hits = by_path.get(address) or qualified_node_hits(address, flat)

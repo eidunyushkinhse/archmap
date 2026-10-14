@@ -25,34 +25,23 @@
 
 import re
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Literal
+from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
-from app.docs_import import _node_paths
+from app.domain_types import DataRefMode, DataRefStatus
 from app.models.broker_channel import BrokerChannel
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
 from app.models.node import Node
+from app.models.node_doc import NodeDoc
+from app.node_ref import NodeIndex
 
-Mode = Literal["read", "write", "publish", "consume", "config"]
-RefStatus = Literal[
-    "ok",
-    # Табличная семья (read/write).
-    "unknown_table",
-    "unknown_column",
-    # Канальная семья (publish/consume).
-    "unknown_channel",
-    "unknown_field",
-    # Конфигурационная семья (config). Пары «нет параметра / нет члена» у неё нет:
-    # параметр плоский, второго уровня не бывает.
-    "unknown_param",
-    # Общий для табличной и канальной: имя подошло нескольким целям, выбрать за
-    # пользователя нельзя. Конфигурации он НЕДОСТУПЕН по построению — искать её
-    # можно только у владельца схемы, а там имя уникально (см. _resolve_config).
-    "ambiguous",
-]
+# Режим и итог резолва пометки — словари предметной области (app/domain_types).
+Mode = DataRefMode
+RefStatus = DataRefStatus
 
 # Режимы, адресующие КАНАЛЫ. Каталог у них свой: read/write ищутся только среди
 # таблиц, publish/consume — только среди каналов. Смешать их значило бы вернуть
@@ -413,20 +402,24 @@ def _resolve_channel(
 # любой инвалидации (переименование таблицы/раздела/узла, удаление колонки).
 
 
-def catalog_for_project(
-    db: Session, project_id: uuid.UUID
-) -> tuple[
-    list[CatalogTable],
-    list[CatalogChannel],
-    dict[uuid.UUID, dict[str, uuid.UUID]],
-    dict[uuid.UUID, str],
-]:
+class ProjectCatalog(NamedTuple):
+    """Каталог проекта для резолва пометок (catalog_for_project). NamedTuple:
+    распаковка в четыре имени работает, как у прежнего кортежа."""
+
+    tables: list[CatalogTable]
+    channels: list[CatalogChannel]
+    # Параметры конфигурации по владельцу: «узел → имя → id».
+    params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]]
+    node_paths: dict[uuid.UUID, str]
+
+
+def catalog_for_project(db: Session, project_id: uuid.UUID) -> ProjectCatalog:
     """Таблицы, каналы и конфигурация проекта в виде каталогов + полные пути узлов.
 
     Первые два каталога — по ВСЕМУ проекту, а не по одному узлу: неоднозначность
     имени есть свойство проекта, и «orders» обязано считаться неоднозначным
     независимо от того, чью страницу сейчас читают. Пути — те же, что у импорта
-    (`_node_paths`): квалификатор пометки пишется так же, как адрес узла в пакете
+    (NodeIndex): квалификатор пометки пишется так же, как адрес узла в пакете
     агента.
 
     Конфигурация же приходит РАЗЛОЖЕННОЙ ПО УЗЛАМ («узел → имя параметра → id»), и
@@ -435,8 +428,7 @@ def catalog_for_project(
     сослаться на чужую ручку.
     """
     nodes: list[Node] = db.query(Node).filter(Node.project_id == project_id).all()
-    flat, fulls, _by_bare, _by_path = _node_paths(nodes)
-    node_paths: dict[uuid.UUID, str] = {n.id: fulls[i] for i, n in enumerate(flat)}
+    node_paths = NodeIndex.of(nodes).path_by_id()
 
     tables: list[DbTable] = (
         db.query(DbTable)
@@ -482,4 +474,50 @@ def catalog_for_project(
     for p in params:
         params_by_node.setdefault(p.node_id, {})[p.name] = p.id
 
-    return table_catalog, channel_catalog, params_by_node, node_paths
+    return ProjectCatalog(table_catalog, channel_catalog, params_by_node, node_paths)
+
+
+@dataclass(frozen=True)
+class DocRefHit:
+    """Резолвленная пометка из схемы логики: где написана и что значит."""
+
+    doc_id: uuid.UUID
+    doc_name: str
+    # Владелец схемы — тот, КТО обращается.
+    node_id: uuid.UUID
+    node_name: str
+    ref: ResolvedRef
+
+
+def doc_ref_hits(
+    db: Session, project_id: uuid.UUID, catalog: ProjectCatalog, node_id: uuid.UUID | None = None
+) -> Iterator[DocRefHit]:
+    """Пометки всех схем логики проекта (node_id — только схем этого объекта),
+    разобранные и резолвленные по каталогу ВСЕГО проекта: иначе одноимённые таблицы и
+    каналы в соседних базах и брокерах перестали бы делать ссылку неоднозначной.
+    Общий обход разворотов «кто обращается» у базы, брокера и сервиса (аудит Q-8:
+    было три копии); что отобрать и как назвать — решает вызывающий.
+
+    Конфигурация владельца каждой схемы — настоящая, хотя табличному и канальному
+    разворотам она не нужна: подсунуть пустую значило бы сказать резолверу неправду
+    и получить ложные статусы, если фильтр вызывающего когда-нибудь ослабнет."""
+    tables, channels, params_by_node, node_paths = catalog
+    q = (
+        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
+        .select_from(NodeDoc)
+        .join(Node, Node.id == NodeDoc.node_id)
+        .filter(Node.project_id == project_id)
+    )
+    if node_id is not None:
+        q = q.filter(NodeDoc.node_id == node_id)
+    for doc_id, doc_name, content, owner_id, owner_name in q.all():
+        if not content:
+            continue
+        for ref in resolve_data_refs(
+            parse_data_refs(content),
+            tables,
+            channels,
+            node_paths,
+            owner_params=params_by_node.get(owner_id, {}),
+        ):
+            yield DocRefHit(doc_id, doc_name, owner_id, owner_name, ref)

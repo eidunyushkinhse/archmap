@@ -99,9 +99,11 @@ from app.unified_import import (
     UnifiedImportError,
     UnifiedPlan,
     _bump,
-    apply_unfixable,
     build_unified_plan,
-    family_candidate_out,
+)
+from app.unified_preview import family_candidate_out
+from app.unified_remarks import (
+    apply_unfixable,
     friendly_process_note,
     remainder_from_plan,
 )

@@ -6,28 +6,10 @@
 """
 
 import uuid
-from typing import Literal
 
 from pydantic import BaseModel
 
-# Режим пометки — ВСЕ ТРИ семьи сразу: плашка одна на док, а в одном доке рядом стоят
-# и «пишет: orders», и «публикует: orders.created», и «зависит от: FEATURE_X».
-# Зеркалит app.data_refs.Mode.
-DataRefMode = Literal["read", "write", "publish", "consume", "config"]
-
-# Итог резолва одной пометки. Зеркалит доменный app.data_refs.RefStatus (там —
-# внутренний тип, здесь — контракт наружу); расхождение поймает mypy на
-# присваивании в роутере. Статусы табличной и канальной семей разные («таблицы нет»
-# и «канала нет» — разные починки), общий у них только «ambiguous».
-DataRefStatus = Literal[
-    "ok",
-    "unknown_table",
-    "unknown_column",
-    "unknown_channel",
-    "unknown_field",
-    "unknown_param",
-    "ambiguous",
-]
+from app.domain_types import DataRefMode, DataRefStatus
 
 
 class DataRefPreviewIn(BaseModel):

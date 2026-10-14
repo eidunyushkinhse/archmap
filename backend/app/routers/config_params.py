@@ -26,17 +26,19 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
+    name_taken,
+    node_or_404,
+    owned_or_404,
     require_project_editor,
-    scoped_node,
-    touch_project,
 )
 from app.models.config_param import ConfigParam
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.config_param import (
@@ -50,30 +52,20 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/nodes/{node_id}/config", tags=["config-docs"])
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _scoped_param(db: Session, node: Node, param_id: uuid.UUID) -> ConfigParam:
-    param = db.get(ConfigParam, param_id)
-    if param is None or param.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Параметр не найден")
-    return param
+    return owned_or_404(db, ConfigParam, param_id, "node_id", node.id, "Параметр не найден")
 
 
 def _name_taken(
     db: Session, node_id: uuid.UUID, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    """Пре-чек уникальности имени у узла — 409 вместо IntegrityError-500."""
-    q = db.query(ConfigParam.id).filter(
-        ConfigParam.node_id == node_id, ConfigParam.name == name
+    return name_taken(
+        db,
+        ConfigParam.id,
+        except_id,
+        ConfigParam.node_id == node_id,
+        ConfigParam.name == name,
     )
-    if except_id is not None:
-        q = q.filter(ConfigParam.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 @router.get("", response_model=list[ConfigParamResponse])
@@ -83,7 +75,7 @@ def list_params(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[ConfigParam]:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     return list(node.config_params)
 
 
@@ -102,52 +94,35 @@ def list_usage(
 
     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
     """
-    node = _get_node(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    owner_params = params_by_node.get(node.id, {})
+    node = node_or_404(db, node_id, project)
+    catalog = catalog_for_project(db, project.id)
+    owner_params = catalog.params_by_node.get(node.id, {})
     if not owner_params:
         return []
     by_id = {pid: name for name, pid in owner_params.items()}
 
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content)
-        .filter(NodeDoc.node_id == node.id)
-        .all()
-    )
-
     rows: list[ConfigParamUsage] = []
     seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
-    for doc_id, doc_name, content in docs:
-        if not content:
+    # Только СВОИ схемы: «зависит от:» резолвится среди параметров владельца схемы.
+    for hit in doc_ref_hits(db, project.id, catalog, node_id=node.id):
+        ref = hit.ref
+        # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
+        # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
+        # сами — param_id у них пуст.
+        if ref.status != "ok" or ref.param_id is None:
             continue
-        # Каталоги чужих семей передаём НАСТОЯЩИЕ, хотя индексу они не нужны:
-        # подсунуть пустые значило бы получить выдуманные статусы у табличных и
-        # канальных пометок того же дока — сейчас их отсеивает фильтр ниже, но
-        # держать в коде заведомо неверный ответ нельзя.
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            owner_params=owner_params,
-        ):
-            # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
-            # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
-            # сами — param_id у них пуст.
-            if ref.status != "ok" or ref.param_id is None:
-                continue
-            key = (doc_id, ref.param_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                ConfigParamUsage(
-                    param_id=ref.param_id,
-                    param_name=by_id[ref.param_id],
-                    doc_id=doc_id,
-                    doc_name=doc_name,
-                )
+        key = (hit.doc_id, ref.param_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            ConfigParamUsage(
+                param_id=ref.param_id,
+                param_name=by_id[ref.param_id],
+                doc_id=hit.doc_id,
+                doc_name=hit.doc_name,
             )
+        )
     rows.sort(key=lambda u: (u.param_name, u.doc_name))
     return rows
 
@@ -160,14 +135,12 @@ def create_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> ConfigParam:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     if _name_taken(db, node.id, payload.name, None):
         raise HTTPException(status_code=409, detail="Параметр с таким именем уже есть")
     param = ConfigParam(node_id=node.id, **payload.model_dump())
     db.add(param)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(param)
     return param
 
@@ -181,12 +154,11 @@ def update_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> ConfigParam:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     param = _scoped_param(db, node, param_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != param.version:
-        raise HTTPException(status_code=409, detail="Параметр изменён в другой сессии")
+    check_cas(param.version, base_version, "Параметр изменён в другой сессии")
     if data:
         new_name = data.get("name", param.name)
         if _name_taken(db, node.id, new_name, param.id):
@@ -195,8 +167,7 @@ def update_param(
             setattr(param, field, value)
         param.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(param)
     return param
 
@@ -209,9 +180,7 @@ def delete_param(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     param = _scoped_param(db, node, param_id)
     db.delete(param)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)

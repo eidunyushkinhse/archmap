@@ -14,7 +14,7 @@
 | 2. Устойчивость фронтенда | **сделана** 2026-10-14 на ветке `refactor/frontend-robustness`: п.1 R-1 5b1c9ebc, R-15 565170e0, R-7 863e2c44; п.2 R-9/R-10 55d1429b, R-2/R-23 6a4e5b73; п.3 R-8/R-25 701b432d; п.4 R-11 bde86d4a, R-12…R-14 417d0ab5, R-6 b5085f25; п.5 R-27 1f05a1d4, R-24 74b976c0, R-17 e0822ed7, R-16 7a4ecba2 | ErrorBoundary, ошибки загрузки, 401 вне демо, выкат без F5, хранилище, откаты, буфер обмена |
 | 3. Гейты и CI | **сделана** 2026-10-14: CI (permissions, concurrency, timeout, SHA, build, contract, scripts, аудиты) ecdf5862, покрытие 6b30a8e4, ruff/mypy строже e3db76d7, зонды de359bad, инструменты — коммит «tsx, stop.sh, umask». noUncheckedIndexedAccess — оценён и не включён (см. п.3) | permissions/пины/сборка/дрейф api.gen/аудит/coverage; ruff/mypy строже; зонды полигона |
 | 4. Мёртвый код, дубли, документация | **сделана** 2026-10-14: п.1 bda68bd6; п.2 68ed0ab8; п.3 2b77c0eb ed7e0327 821b7452; п.4 94cc0b38 000e8af8 37ef184e 2edee994 102270b1 4d28584f db4efaf1 6d7aa478 fa3e5cea b7c62bfb c2744207 f9490807 55f6da57 53e299fd 3943d2e6; п.5 bbe9f4d4 04625b4b 1352b3d1 b3667a63 9fc167de 87aad1db 4c3d4c25. Отступления (Q-23/Q-36/Q-37 → фаза 5, F-20/F-21 → фаза 7, Q-24, rect/hash, useLocalPref, иконки) — в тексте пунктов 3 и 4 | knip/vulture, хелперы-дубли, устаревшие ссылки, CLAUDE.md/QWEN.md/README MCP |
-| 5. Структура бэкенда | не начата | семейство фактов на общей базе, domain_types, домен из роутеров, распил import_merge/unified_import |
+| 5. Структура бэкенда | **сделана** 2026-10-14 на ветке `refactor/backend-structure`: п.1 b066d321; п.2 475ac926 6900e9dc ad505bd3 1040b608; п.3 eeb613c5 820da81b 7aecd11f; п.4 a7738d71 f0fafc86 6caf18e5 4cd89c75 f056e084 c8e20d12; п.5 6a2fcbde b82f8c63 062948aa 0d2be1f1; п.6 52a310d4; п.7 5076afd9 3615bc99. Отступления (Q-3, Q-2 MergedEntry, Q-36/37, Q-17 частично, Q-47) — в тексте фазы | семейство фактов на общей базе, domain_types, домен из роутеров, распил import_merge/unified_import |
 | 6. Производительность | не начата | кэш индекса проекта, N+1 импортов, выборки, бандл фронта |
 | 7. Структура фронтенда | не начата | god-компоненты (после страховочных тестов), дубли секций и модалок |
 | 8. Уроки | не начата | правила в «Архитектурных привычках» CLAUDE.md/QWEN.md, сторожевые тесты |
@@ -297,6 +297,38 @@
 7. **Из фазы 4 (Q-23, Q-36, Q-37).** `deps.commit_change`; тексты 404/409 — константами
    `app/errors.py`; `StrEnum` ролей — вместе с `domain_types` (п.3), раз роутеры и так
    пересобираются.
+
+**Сделано (2026-10-14, ветка `refactor/backend-structure`):** п.1 `NodeIndex` (Q-4, цикл
+`docs_import ↔ data_refs` снят, прямой `tests/test_node_ref.py`); п.2 `app/facts_import`
+(`resolve_owner`, `nodes_hint`, `as_str/as_bool`, `warn_duplicates`; Q-2), `deps.node_or_404/
+owned_or_404/name_taken/check_cas` (Q-15), `data_refs.doc_ref_hits` (Q-8); п.3 `app/domain_types`
+с `pick`, `Mapped[Literal]` у колонок, 11 `cast` сняты (Q-5); п.4 `AlertContext` (Q-7, сверено на
+57 проектах dev-базы — 651 запись алертов совпала), `processes.validate_message` +
+`ProcessRuleError` (Q-9), домен из `routers/nodes` (Q-10), `app/project_cards` и
+`sync_plan.plan_for` (Q-11), `apply_sync_plan` на помощниках (Q-16), домен из
+`routers/docs_import` (Q-38); п.5 `merge_report`/`merge_warnings` (Q-18), `unified_remarks`/
+`unified_preview` и `_RemainderBuilder` (Q-19, Q-17), `docs_pkg`/`name_match` с общими порогами
+подсказок (Q-19, Q-22), `schemas/alerts|view|transition` (Q-42); п.6 прямые тесты
+`apply_sync_plan` (Q-48); п.7 `commit_change` в 48 ручках (Q-23), `node_or_404` в routers/nodes
+(Q-36). C901-ratchet снят с `sync_apply` и `alerts`. `api.gen.ts` не менялся ни разу (сверено
+перегенерацией после каждого шага со схемами).
+
+**Отступления:**
+- Q-3: фабрика роутеров семей фактов не делалась — FastAPI выводит operationId из имён
+  функций, и сгенерированные ручки сдвинули бы `api.gen.ts`; явные границы транзакции у ручек
+  дороже двух десятков строк.
+- Q-2: `MergedEntry[T]`, `merge_by_key`, `live_by_key` не заводились: слияние полей у каждой
+  семьи своё (колонки, поля канала, плоские параметры); классы `_Merged` остались в модулях,
+  общий только протокол `MergedRecord` для `warn_duplicates`.
+- Q-36/Q-37: общий словарь отказов `app/errors.py` и `StrEnum` ролей не заводились — тексты 404
+  у разных сущностей говорят каждый своё, одинаковые по смыслу уже одинаковы; роли — Literal из
+  `domain_types`, опечатку в литерале ловит mypy.
+- Q-17: из длинных функций разрезана только `remainder_with_index`; `parse_import` (306,
+  замыкания над общим состоянием), `build_docs_plan` (245), `apply_into_plan` (208),
+  `apply_unified_plan` (194), `collect_units` (174) и др. — при ближайшей правке своего модуля;
+  их видно по ratchet C901 в `backend/pyproject.toml` (13 модулей).
+- Q-47: `tests/factories.py` не заводился — 21 копия `_node` с пятью сигнатурами и разными
+  дефолтами формы и flush/commit; общая фабрика оставила бы обёртку в каждом файле.
 
 ### Фаза 6 — Производительность
 1. **Индекс проекта (Q-6, Q-20, Q-14).** `app/project_index.py` — LRU по

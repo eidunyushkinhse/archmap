@@ -26,6 +26,9 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app import tree
+from app.domain_types import NodeShape
+from app.models.broker_channel import BrokerChannel
+from app.models.db_table import DbTable
 from app.models.node import Node
 from app.models.project import Project
 from app.models.view_layout import ViewLayoutItem
@@ -108,3 +111,43 @@ def strip_layout(db: Session, project: Project, node: Node, old_parent: uuid.UUI
     touched.add(node.parent_id)
     for vid in touched:
         bump_view_version(db, project.id, vid)
+
+
+def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str | None:
+    """Причина, по которой форму узла менять нельзя, либо None. Чистая проверка, без HTTP.
+
+    Оба запрета — про то, чем узел УЖЕ владеет и чего новая форма держать не умеет:
+
+      • ДЕТИ. Вкладывать объекты можно только в сервис (спека node.md N4, зеркало
+        фронтового canHaveChildren): сменив форму контейнеру, мы оставили бы
+        поддерево у формы, которая ни детей не показывает, ни внутрь не пускает.
+      • СТРУКТУРА БД. Таблицы — «контракт» узла-базы (routers/db_docs.py), и страница
+        рендерит их ТОЛЬКО у shape=database. Правка прошла бы, а структура исчезла из
+        интерфейса, оставшись в БД: применённое-но-невидимое хуже честного отказа.
+      • КАНАЛЫ БРОКЕРА. Ровно тот же довод у shape=broker (routers/broker_channels.py):
+        каналы рендерятся только у брокера, и CRUD их брокером же и ограничивает —
+        запрет здесь замыкает правило с другой стороны.
+
+    Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
+    показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
+    с предупреждением и без кнопок добавления, то есть унести его есть чем.
+    """
+    if new_shape not in CONTAINER_SHAPES:
+        has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
+        if has_children:
+            return (
+                "У узла есть вложенные объекты — тип «Сервис» единственный, "
+                "который может их иметь"
+            )
+    if node.shape == "database" and new_shape != "database":
+        has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
+        if has_tables:
+            return "У узла описана структура БД — сначала перенесите или удалите её"
+    if node.shape == "broker" and new_shape != "broker":
+        has_channels = (
+            db.query(BrokerChannel.id).filter(BrokerChannel.node_id == node.id).first()
+            is not None
+        )
+        if has_channels:
+            return "У узла описаны каналы брокера — сначала перенесите или удалите их"
+    return None

@@ -7,6 +7,8 @@ from app import restore
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
     require_project_editor,
     scoped_edge,
@@ -45,9 +47,7 @@ def create_edge(
     # project_id проставляем сервером из текущего проекта (концы уже проверены в нём).
     edge = Edge(**payload.model_dump(), project_id=project.id)
     db.add(edge)
-    bump_graph_rev(db, project)  # курсор поллинга: связь меняет картинку уровней
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, graph=True)  # курсор поллинга: связь меняет картинку уровней
     db.refresh(edge)
     return edge
 
@@ -79,8 +79,7 @@ def update_edge(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле связи)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != edge.version:
-        raise HTTPException(status_code=409, detail="Связь изменена в другой сессии")
+    check_cas(edge.version, base_version, "Связь изменена в другой сессии")
 
     # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю.
     # Геометрия (хэндлы/изломы/плашка) на связи больше не живёт (R3) — при смене конца
@@ -98,8 +97,7 @@ def update_edge(
     if data:
         edge.version += 1
         bump_graph_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(edge)
     return edge
 

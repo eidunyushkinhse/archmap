@@ -25,10 +25,12 @@ import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 
+from app.domain_types import NODE_DOC_KINDS, NodeDocKind, pick
+
 # Порядок полей в примере для промпта; он же — порядок вывода render_header.
 KEYS = ("name", "kind", "operation", "node")
 # Виды схем логики (NodeDoc.kind). Латиницей — как в остальном контракте агента.
-KINDS = ("operation", "worker")
+KINDS = NODE_DOC_KINDS
 
 _PREFIX = "archmap-"
 
@@ -38,7 +40,7 @@ class MmdHeader:
     """Разобранная шапка. Ничего не подставляет: пропуск — это None."""
 
     name: str | None = None
-    kind: str | None = None
+    kind: NodeDocKind | None = None
     operation: str | None = None
     node: str | None = None
     # Строки «%% archmap-…», которые понять не удалось: опечатка в ключе, пустое
@@ -129,12 +131,16 @@ def parse_mmd_header(text: str) -> MmdHeader:
         if key not in KEYS:
             header.problems.append(f"неизвестное поле «{key}» в строке «%% {comment}»")
             continue
-        if key == "kind" and value.lower() not in KINDS:
-            header.problems.append(
-                f"неизвестный вид схемы «{value}» — бывают: {', '.join(KINDS)}"
-            )
+        if key == "kind":
+            kind = pick(value.lower(), KINDS)
+            if kind is None:
+                header.problems.append(
+                    f"неизвестный вид схемы «{value}» — бывают: {', '.join(KINDS)}"
+                )
+            else:
+                header.kind = kind
             continue
-        setattr(header, key, value.lower() if key == "kind" else value)
+        setattr(header, key, value)
     return header
 
 

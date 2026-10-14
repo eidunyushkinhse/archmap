@@ -26,18 +26,10 @@ from itertools import permutations
 
 from conftest import ensure_project
 
-from app.import_merge import (
-    _MAX_CONTAINER_EDGES,
-    _MAX_ISOLATED_GROUPS,
-    _MAX_WARNINGS,
-    MergeReport,
-    _run_merge,
-    merge_imports,
-    parse_and_merge,
-    split_remarks,
-    warn_content,
-)
+from app.import_merge import _MAX_WARNINGS, _run_merge, merge_imports, parse_and_merge
 from app.import_yaml import ParsedImport, parse_import
+from app.merge_report import MergeReport, split_remarks
+from app.merge_warnings import _MAX_CONTAINER_EDGES, _MAX_ISOLATED_GROUPS, warn_content
 from app.models.edge import Edge
 from app.models.node import Node
 from app.routers.nodes import get_alerts

@@ -10,17 +10,14 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.domain_types import FragmentKind, MessageKind, MessageLeg, NodeShape
 from app.schemas.node import NodeStatus
 from app.schemas.node_doc import NodeDocKind
 
-Leg = Literal["forward", "return"]
-# "self" — самосообщение (внутренняя операция участника): не плечо канала C4, концы
-# совпадают (from==to), edge_id отсутствует. Производный kind, как и остальные.
-Kind = Literal["forward", "return", "async", "self"]
-FragmentKind = Literal["alt", "opt", "loop", "par"]
+Leg = MessageLeg
+Kind = MessageKind
 # Чем именно сломан шаг (см. MessageOut.invalid_reason).
 MessageInvalidReason = Literal["edge_deleted", "leg_gone"]
-Shape = Literal["service", "database", "broker", "person"]
 
 
 # ── Процесс ───────────────────────────────────────────────────────────────────
@@ -57,7 +54,7 @@ class ParticipantOut(BaseModel):
     node_id: uuid.UUID | None
     name: str  # живое имя узла, а у непривязанного — своё (из импорта / до удаления узла)
     role: str | None
-    shape: Shape | None
+    shape: NodeShape | None
     is_external: bool | None
     status: NodeStatus | None  # статус узла-участника (цвет плеча/линии жизни)
     order: int

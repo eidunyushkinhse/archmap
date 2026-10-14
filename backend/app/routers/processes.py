@@ -6,6 +6,8 @@
 """
 
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -13,15 +15,13 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
     require_project_editor,
-    scoped_edge,
-    touch_project,
 )
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
-from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -31,24 +31,25 @@ from app.process_copy import duplicate_process
 from app.process_export import detail_to_mermaid
 from app.process_import import apply_import, build_preview
 from app.processes import (
+    ProcessRuleError,
     bound_node_ids,
     build_process_detail,
-    default_caption,
+    channels_between,
+    check_fragment,
+    check_step_doc,
     detach_messages,
     doc_catalog,
     docs_for_messages,
-    edge_is_synchronous,
     fragment_out,
     legal_directions,
-    legs_for_edge,
     load_nodes,
     message_out,
     participant_node,
     participant_out,
     process_list_items,
     reattach_dangling,
-    resolve_to_participant,
     scope_node_ids,
+    validate_message,
 )
 from app.schemas.export import ExportResponse
 from app.schemas.process import (
@@ -60,7 +61,6 @@ from app.schemas.process import (
     FragmentCreate,
     FragmentOut,
     FragmentUpdate,
-    LegOut,
     MessageCreate,
     MessageDocCatalog,
     MessageOut,
@@ -81,20 +81,21 @@ from app.schemas.process_import import (
     ProcessImportPreview,
     ProcessImportResult,
 )
-from app.view_state import bump_process_rev
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
 
 # ── Вспомогательные ───────────────────────────────────────────────────────────
-def _touch(db: Session, project: Project, user_id: uuid.UUID | None) -> None:
-    """touch_project + курсор процессов: каждая мутация процессов двигает
-    process_rev (Д9), чтобы её увидел поллинг чужой сессии на странице процесса.
-    Курсор СВОЙ: meta_rev дал бы ложный тост странице объекта, graph_rev — ложный
-    рефетч уровня канвасу."""
-    bump_process_rev(db, project)
-    touch_project(db, project, user_id)
-
+# Каждая мутация процессов двигает process_rev (commit_change(..., process=True), Д9),
+# чтобы её увидел поллинг чужой сессии на странице процесса. Курсор СВОЙ: meta_rev
+# дал бы ложный тост странице объекта, graph_rev — ложный рефетч уровня канвасу.
+@contextmanager
+def _rules() -> Iterator[None]:
+    """Нарушение правила процесса (app/processes) — HTTP-ответ с тем же текстом."""
+    try:
+        yield
+    except ProcessRuleError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
 
 
 def _get_process(db: Session, process_id: uuid.UUID, project: Project) -> BusinessProcess:
@@ -131,8 +132,7 @@ def create_process(
         name=payload.name, scope_node_id=payload.scope_node_id, project_id=project.id
     )
     db.add(proc)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
 
@@ -162,8 +162,7 @@ def import_process(
 ) -> ProcessImportResult:
     """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
     _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     return result
 
 
@@ -210,8 +209,7 @@ def update_process(
         raise HTTPException(status_code=404, detail="Узел области не найден")
     for field, value in data.items():
         setattr(proc, field, value)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
 
@@ -238,8 +236,7 @@ def duplicate_process_endpoint(
     """
     proc = _get_process(db, process_id, project)
     copy = duplicate_process(db, proc)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(copy)
     return build_process_detail(db, copy, load_nodes(db, project.id))
 
@@ -253,8 +250,7 @@ def delete_process(
 ) -> None:
     proc = _get_process(db, process_id, project)
     db.delete(proc)  # каскад сносит участников/сообщения/фрагменты
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Участники ─────────────────────────────────────────────────────────────────
@@ -284,8 +280,7 @@ def add_participant(
         process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
     )
     db.add(part)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(part)
     return participant_out(part, node)
 
@@ -305,8 +300,7 @@ def reorder_participants(
         if part is None:
             raise HTTPException(status_code=422, detail="Участник не из этого процесса")
         part.order = index
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
     return [participant_out(p, participant_node(p, all_nodes)) for p in parts]
@@ -336,8 +330,7 @@ def bind_participant(
     if payload.node_id is None:
         part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
         detached = detach_messages(proc, part)
-        _touch(db, project, user.id)
-        db.commit()
+        commit_change(db, project, user.id, process=True)
         db.refresh(part)
         return BindResult(participant=participant_out(part, None), attached=0, dangling=detached)
     if part.node_id is not None:
@@ -358,8 +351,7 @@ def bind_participant(
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
     db.flush()  # подхват смотрит на уже привязанного участника
     attached, dangling, _ids = reattach_dangling(db, proc, all_nodes, part)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(part)
     return BindResult(
         participant=participant_out(part, node), attached=attached, dangling=dangling
@@ -382,8 +374,7 @@ def reattach_process(
     """
     proc = _get_process(db, process_id, project)
     attached, dangling, ids = reattach_dangling(db, proc, load_nodes(db, project.id))
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     return ReattachResult(attached=attached, dangling=dangling, attached_ids=ids)
 
 
@@ -406,8 +397,7 @@ def detach_messages_endpoint(
         if msg is None:
             raise HTTPException(status_code=422, detail="Сообщение не из этого процесса")
         msg.edge_id = None
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 @router.delete(
@@ -426,8 +416,7 @@ def delete_participant(
     if part is None or part.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Участник не найден")
     db.delete(part)  # каскад сносит сообщения с этим концом (FK ON DELETE CASCADE)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Сообщения (точка enforcement) ─────────────────────────────────────────────
@@ -444,95 +433,23 @@ def create_message(
     user: User = Depends(require_project_editor),
 ) -> MessageOut:
     proc = _get_process(db, process_id, project)
-    # Самосообщение: внутренняя операция участника — НЕ плечо канала C4, поэтому
-    # «запертый слой» к нему не применяется (концы совпадают, связи нет). Это
-    # сознательное исключение из правила «сообщение = плечо существующего канала».
-    if payload.from_participant_id == payload.to_participant_id:
-        if payload.edge_id is not None:
-            raise HTTPException(status_code=422, detail="Самосообщение не привязывается к связи")
-        frm = db.get(ProcessParticipant, payload.from_participant_id)
-        if frm is None or frm.process_id != proc.id:
-            raise HTTPException(status_code=422, detail="Участник не из этого процесса")
-        _check_doc(db, payload.doc_id, project)
-        msg = ProcessMessage(
-            process_id=proc.id,
-            order=payload.order,
-            edge_id=None,
-            leg=payload.leg,
-            from_participant_id=frm.id,
-            to_participant_id=frm.id,
-            caption=payload.caption,
-            doc_id=payload.doc_id,
-        )
-        db.add(msg)
-        _touch(db, project, user.id)
-        db.commit()
-        db.refresh(msg)
-        part_by_id = {p.id: p for p in proc.participants}
-        # Узлы нужны message_out для пути узла схемы (doc_node_path).
-        return message_out(
-            msg, None, part_by_id, docs_for_messages(db, [msg]), load_nodes(db, project.id)
-        )
-    if payload.edge_id is None:
-        raise HTTPException(status_code=422, detail="Не указана связь")
-    # Непривязанный участник узла не имеет, значит и канала к нему в C4 нет — плечу
-    # не на что опереться. Говорим это прямо: иначе пользователь упёрся бы в
-    # «концы связи не проецируются» и гадал, что не так.
-    for pid in (payload.from_participant_id, payload.to_participant_id):
-        part = db.get(ProcessParticipant, pid)
-        if part is not None and part.process_id == proc.id and part.node_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="Участник не привязан к узлу схемы — у него нет каналов. "
-                "Сначала привяжите его к узлу",
-            )
-    edge = scoped_edge(db, payload.edge_id, project)
-    if edge is None:
-        raise HTTPException(status_code=404, detail="Связь не найдена")
-    # 2) leg легален: return только для синхронного канала
-    if payload.leg == "return" and not edge_is_synchronous(edge):
-        raise HTTPException(status_code=422, detail="Канал асинхронный — плеча «ответ» нет")
-    # 3) концы — участники этого процесса
-    frm = db.get(ProcessParticipant, payload.from_participant_id)
-    to = db.get(ProcessParticipant, payload.to_participant_id)
-    if frm is None or frm.process_id != proc.id:
-        raise HTTPException(status_code=422, detail="Отправитель не участник процесса")
-    if to is None or to.process_id != proc.id:
-        raise HTTPException(status_code=422, detail="Получатель не участник процесса")
-    # 4) проекция сырых концов плеча сходится именно на этих участников
-    all_nodes = load_nodes(db, project.id)
-    participant_ids = bound_node_ids(proc.participants)
-    leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
-    if leg is None:
-        raise HTTPException(status_code=422, detail="Недопустимое плечо для этой связи")
-    if (
-        resolve_to_participant(leg.from_id, participant_ids, all_nodes) != frm.node_id
-        or resolve_to_participant(leg.to_id, participant_ids, all_nodes) != to.node_id
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail="Концы связи не проецируются на выбранных участников",
-        )
-    _check_doc(db, payload.doc_id, project)
+    with _rules():
+        draft = validate_message(db, project.id, proc, payload)
     msg = ProcessMessage(
         process_id=proc.id,
         order=payload.order,
-        edge_id=edge.id,
+        edge_id=draft.edge.id if draft.edge else None,
         leg=payload.leg,
-        from_participant_id=frm.id,
-        to_participant_id=to.id,
-        # Подпись у шага всегда СВОЯ: дефолт канала (метка связи у вызова, «ответ» у
-        # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом.
-        # Пустую подпись присылает композитор — он и означает «возьми дефолт».
-        caption=payload.caption if payload.caption is not None else default_caption(payload.leg, edge),
+        from_participant_id=draft.sender.id,
+        to_participant_id=draft.receiver.id,
+        caption=draft.caption,
         doc_id=payload.doc_id,
     )
     db.add(msg)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
-    return message_out(msg, edge, part_by_id, docs_for_messages(db, [msg]), all_nodes)
+    return message_out(msg, draft.edge, part_by_id, docs_for_messages(db, [msg]), draft.nodes)
 
 
 # Объявлен ДО /{message_id}, иначе FastAPI примет "reorder" за message_id.
@@ -563,8 +480,7 @@ def reorder_messages(
         )
     for index, mid in enumerate(payload.ids):
         by_id[mid].order = index
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
     part_by_id = {p.id: p for p in proc.participants}
     edge_cache: dict[uuid.UUID, Edge | None] = {}
@@ -592,29 +508,6 @@ _MESSAGE_REFS: tuple[str, ...] = ("doc_id",)
 # Служебные поля контракта — НЕ поля шага: CAS-токен читается и выбрасывается,
 # в setattr не попадает никогда (паттерн update_node / update_doc).
 _MESSAGE_META: tuple[str, ...] = ("base_version",)
-
-
-def _check_doc(db: Session, doc_id: uuid.UUID | None, project: Project) -> None:
-    """Схема привязки обязана принадлежать ЭТОМУ проекту.
-
-    Без проверки шаг ссылался бы на строку чужого проекта: id приходит от клиента, а
-    FK на уровне БД межпроектную границу не знает — project_id у схемы не свой, он
-    берётся через узел. Это и есть дефект Д6 челленджа, ради которого правка шага
-    переведена на белый список полей.
-
-    404, а не 403: чужая схема для этого проекта попросту не существует — тот же ответ,
-    что и на выдуманный id, и он не подтверждает существование чужой строки.
-    """
-    if doc_id is None:  # «отвязать» — законное значение
-        return
-    ok = (
-        db.query(NodeDoc.id)
-        .join(Node, Node.id == NodeDoc.node_id)
-        .filter(NodeDoc.id == doc_id, Node.project_id == project.id)
-        .first()
-    )
-    if ok is None:
-        raise HTTPException(status_code=404, detail="Схема логики не найдена")
 
 
 @router.get(
@@ -679,8 +572,7 @@ def update_message(
     # CAS (Д9): правка от устаревшей версии не затирает чужую. None — компенсация
     # undo без проверки (паттерн update_node / update_doc).
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != msg.version:
-        raise HTTPException(status_code=409, detail="Шаг изменён в другой сессии")
+    check_cas(msg.version, base_version, "Шаг изменён в другой сессии")
     # Поля применяются ПО БЕЛОМУ СПИСКУ, а не циклом setattr по payload. Причина не в
     # аккуратности: сюда приезжает ССЫЛОЧНОЕ поле (привязка шага к схеме логики),
     # а слепое присваивание приняло бы ссылку на строку ЧУЖОГО проекта — межпроектная
@@ -694,12 +586,12 @@ def update_message(
         if field in data:
             setattr(msg, field, data[field])
     if "doc_id" in data:
-        _check_doc(db, data["doc_id"], project)
+        with _rules():
+            check_step_doc(db, data["doc_id"], project.id)
         msg.doc_id = data["doc_id"]
     if data:
         msg.version += 1
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
     return message_out(
@@ -727,8 +619,7 @@ def delete_message(
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     db.delete(msg)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Фрагменты (свободный слой) ────────────────────────────────────────────────
@@ -745,50 +636,6 @@ def _span_steps(db: Session, process_id: uuid.UUID, from_order: int, to_order: i
     )
 
 
-def _check_fragment(
-    kind: str,
-    from_order: int,
-    to_order: int,
-    branches: list[BranchIn],
-    span_steps: int | None,
-) -> None:
-    """Границы фрагмента и его ветвей. Проверяется РЕЗУЛЬТАТ (после применения патча),
-    а не вход: частичная правка может сломать инвариант, не упоминая нарушенного поля.
-
-    Ветви [иначе] — только у alt (у opt/loop/par альтернативы нет), строго ВНУТРИ
-    охвата (start == from_order оставил бы первую ветвь пустой, за to_order — ветвь
-    вне рамки) и строго по возрастанию (две ветви с одной границей неразличимы).
-
-    span_steps — сколько шагов накрывает охват; None означает «ветви в запросе не
-    приходили, считать их нечего». Ограничение «ветвей не больше, чем шагов» держим
-    ТОЛЬКО на явно присланном списке: иначе фрагмент, из-под которого удалили шаги,
-    стало бы невозможно править вовсе — любой патч упирался бы в старые ветви.
-    """
-    if from_order > to_order:
-        raise HTTPException(status_code=422, detail="from_order должен быть ≤ to_order")
-    if not branches:
-        return
-    if kind != "alt":
-        raise HTTPException(status_code=422, detail="Ветки «иначе» бывают только у alt")
-    prev = from_order
-    for b in branches:
-        if not (prev < b.start_order <= to_order):
-            raise HTTPException(
-                status_code=422,
-                detail=(
-                    "Границы ветвей обязаны строго возрастать и лежать внутри охвата: "
-                    "from_order < start_order ≤ to_order"
-                ),
-            )
-        prev = b.start_order
-    # Первая ветвь тоже занимает шаг, поэтому строк должно быть строго меньше шагов.
-    if span_steps is not None and len(branches) >= span_steps:
-        raise HTTPException(
-            status_code=422,
-            detail="Ветвей больше, чем шагов в охвате: последней не досталось бы ни одного",
-        )
-
-
 @router.post(
     "/{process_id}/fragments",
     response_model=FragmentOut,
@@ -802,13 +649,14 @@ def create_fragment(
     user: User = Depends(require_project_editor),
 ) -> FragmentOut:
     proc = _get_process(db, process_id, project)
-    _check_fragment(
-        payload.kind,
-        payload.from_order,
-        payload.to_order,
-        payload.branches,
-        _span_steps(db, proc.id, payload.from_order, payload.to_order),
-    )
+    with _rules():
+        check_fragment(
+            payload.kind,
+            payload.from_order,
+            payload.to_order,
+            payload.branches,
+            _span_steps(db, proc.id, payload.from_order, payload.to_order),
+        )
     frag = ProcessFragment(
         process_id=proc.id,
         kind=payload.kind,
@@ -821,8 +669,7 @@ def create_fragment(
         ],
     )
     db.add(frag)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(frag)
     return fragment_out(frag)
 
@@ -856,15 +703,16 @@ def update_fragment(
         if new_branches is not None
         else [BranchIn(start_order=b.start_order, guard=b.guard) for b in frag.branches]
     )
-    _check_fragment(
-        merged["kind"],
-        merged["from_order"],
-        merged["to_order"],
-        branches,
-        _span_steps(db, proc.id, merged["from_order"], merged["to_order"])
-        if new_branches is not None
-        else None,
-    )
+    with _rules():
+        check_fragment(
+            merged["kind"],
+            merged["from_order"],
+            merged["to_order"],
+            branches,
+            _span_steps(db, proc.id, merged["from_order"], merged["to_order"])
+            if new_branches is not None
+            else None,
+        )
     for field, value in data.items():
         if field != "branches":
             setattr(frag, field, value)
@@ -874,8 +722,7 @@ def update_fragment(
         frag.branches = [
             ProcessFragmentBranch(start_order=b.start_order, guard=b.guard) for b in new_branches
         ]
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(frag)
     return fragment_out(frag)
 
@@ -896,8 +743,7 @@ def delete_fragment(
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
     db.delete(frag)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Композитор: каналы между парой участников ─────────────────────────────────
@@ -934,40 +780,4 @@ def list_channels(
     _: User = Depends(get_current_user),
 ) -> list[ChannelOut]:
     proc = _get_process(db, process_id, project)
-    all_nodes = load_nodes(db, project.id)
-    participant_ids = bound_node_ids(proc.participants)
-    pair = {a, b}
-    out: list[ChannelOut] = []
-    for edge in db.query(Edge).filter(Edge.project_id == project.id).all():
-        p = resolve_to_participant(edge.source_id, participant_ids, all_nodes)
-        q = resolve_to_participant(edge.target_id, participant_ids, all_nodes)
-        if p is None or q is None or p == q or {p, q} != pair:
-            continue
-        legs_out: list[LegOut] = []
-        for leg in legs_for_edge(edge):
-            # Концы плеча проецируем на участников — фронт пришлёт их в POST /messages
-            f = resolve_to_participant(leg.from_id, participant_ids, all_nodes)
-            t = resolve_to_participant(leg.to_id, participant_ids, all_nodes)
-            if f is None or t is None:
-                continue
-            legs_out.append(
-                LegOut(
-                    leg=leg.leg,
-                    kind=leg.kind,
-                    from_id=f,
-                    to_id=t,
-                    default_caption=leg.default_caption,
-                )
-            )
-        out.append(
-            ChannelOut(
-                edge_id=edge.id,
-                source_id=edge.source_id,
-                target_id=edge.target_id,
-                technology=edge.technology,
-                label=edge.label,
-                synchronous=edge_is_synchronous(edge),
-                legs=legs_out,
-            )
-        )
-    return out
+    return channels_between(db, project.id, proc, a, b)

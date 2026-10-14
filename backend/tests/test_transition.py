@@ -18,7 +18,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.routers.nodes import transition_apply, transition_preview
-from app.schemas.node import TransitionApplyIn
+from app.schemas.transition import TransitionApplyIn
 from app.transition import build_transition
 
 

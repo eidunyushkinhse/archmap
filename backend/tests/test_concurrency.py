@@ -28,7 +28,8 @@ from app.routers.nodes import (
 )
 from app.routers.views import get_view_state, save_view_layout
 from app.schemas.edge import EdgeCreate, EdgeUpdate
-from app.schemas.node import NodeCreate, NodeUpdate, ViewLayoutBatch, ViewLayoutPayload
+from app.schemas.node import NodeCreate, NodeUpdate
+from app.schemas.view import ViewLayoutBatch, ViewLayoutPayload
 
 
 def _node(db, name, parent=None):

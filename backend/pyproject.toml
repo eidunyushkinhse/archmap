@@ -33,7 +33,6 @@ max-complexity = 15
 # Ratchet сложности (C901, замер 2026-10-14): функции сложнее 15 в этих модулях живут до
 # распила (фаза 5 docs/plan-audit-2026-10.md). Распилил модуль — убери его из списка;
 # новые модули в список не добавлять.
-"app/alerts.py" = ["C901"]
 "app/archive_export.py" = ["C901"]
 "app/channels_import.py" = ["C901"]
 "app/config_import.py" = ["C901"]
@@ -44,7 +43,6 @@ max-complexity = 15
 "app/process_import.py" = ["C901"]
 "app/recon_import.py" = ["C901"]
 "app/search.py" = ["C901"]
-"app/sync_apply.py" = ["C901"]
 "app/unified_apply.py" = ["C901"]
 "app/unified_import.py" = ["C901"]
 "app/unified_into.py" = ["C901"]

@@ -28,10 +28,10 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _node_paths
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.config_param import ConfigParam
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.node_ref import NodeIndex
 from app.schemas.config_import import ConfigImportReport, ConfigParamItem
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -49,7 +49,6 @@ PKG_KEY = {"value_type": "type", "required": "required", "default_value": "defau
 
 # Кап предупреждений о параметрах, описанных несколькими файлами: замечания уезжают
 # агенту ОДНИМ списком, и один класс не должен вытеснить остальные.
-MAX_DUPLICATE_WARNINGS = 8
 # Свой кап у подозрительных дефолтов — чтобы класс не съел квоту остальных.
 MAX_SECRET_WARNINGS = 8
 
@@ -92,18 +91,6 @@ class ParsedConfig:
     has_node_key: bool = False
 
 
-def _as_bool(v: object) -> bool:
-    return v is True or (isinstance(v, str) and v.strip().lower() in {"true", "да", "yes", "1"})
-
-
-def _as_str(v: object) -> str:
-    # bool отдельно: str(True) дало бы «True» в поле дефолта, а в YAML агент пишет
-    # «false» — и такое значение в карте выглядело бы как чужой язык.
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    return "" if v is None else str(v).strip()
-
-
 def parse_config_file(content: str) -> ParsedConfig | None:
     """Разобрать файл пакета. None — файл не про конфигурацию (пусть его смотрит
     другой разборщик: в пакете рядом лежат схемы логики, спеки, таблицы и каналы)."""
@@ -119,15 +106,15 @@ def parse_config_file(content: str) -> ParsedConfig | None:
         has_node_key="archmap-node" in doc,
     )
     for raw in doc.get("config") or []:
-        if not isinstance(raw, dict) or not _as_str(raw.get("name")):
+        if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         out.params.append(
             ParamIn(
-                name=_as_str(raw.get("name")),
-                value_type=_as_str(raw.get("type")),
-                required=_as_bool(raw.get("required")),
-                default_value=_as_str(raw.get("default")),
-                description=_as_str(raw.get("description")) or None,
+                name=as_str(raw.get("name")),
+                value_type=as_str(raw.get("type")),
+                required=as_bool(raw.get("required")),
+                default_value=as_str(raw.get("default")),
+                description=as_str(raw.get("description")) or None,
             )
         )
     return out
@@ -154,65 +141,6 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-def _service_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
-    """Перечень узлов-сервисов проекта для текстов ошибок.
-
-    Слабая модель адрес ВЫДУМЫВАЕТ, а «объект не найден» без списка допустимых
-    заставляет её гадать вслепую — раунд переписки за раунд (уроки Н8/Н11).
-    """
-    paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "service"]
-    return ", ".join(paths) if paths else "в проекте их нет"
-
-
-def _resolve_node(
-    ref: str | None,
-    fname: str,
-    flat: list[Node],
-    fulls: list[str],
-    by_bare: dict[str, list[int]],
-    by_path: dict[str, list[int]],
-    window: uuid.UUID | None,
-    plan: ConfigPlan,
-    hint: str,
-) -> Node | None:
-    """Узел по адресу: полный путь либо голое имя (как в дозаливке доков). Без
-    адреса — объект окна."""
-    if ref is None:
-        if window is None:
-            plan.report.errors.append(
-                f"{fname}: не указан объект, а окно не сказало, к какому применять"
-            )
-            return None
-        for n in flat:
-            if n.id == window:
-                return n
-        plan.report.errors.append(f"{fname}: объект окна не найден")
-        return None
-    hits = by_path.get(ref) or by_bare.get(ref) or []
-    if not hits:
-        # ЧАСТИЧНЫЙ путь («Ярмарка / Платежи» при корне «Маркетплейс …»): агент видит
-        # только свой репозиторий и корневого контейнера не знает. Совпадение по
-        # хвосту — по границе « / », чтобы «…/ payments» не цеплялось к «…/ my payments».
-        hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
-    if not hits:
-        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
-        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»;
-        # так пишут архив и синтетические файлы единого импорта (app/node_ref.py).
-        hits = qualified_node_hits(ref, flat)
-    if not hits:
-        plan.report.errors.append(
-            f"{fname}: объект «{ref}» не найден; узлы-сервисы проекта: {hint}"
-        )
-        return None
-    if len(hits) > 1:
-        plan.report.errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(fulls[i] for i in hits)}) — '
-            "укажите полный путь"
-        )
-        return None
-    return flat[hits[0]]
-
-
 def build_config_plan(
     db: Session,
     nodes: list[Node],
@@ -221,10 +149,10 @@ def build_config_plan(
     overwrite: bool,
 ) -> ConfigPlan:
     plan = ConfigPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
-    path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
+    index = NodeIndex.of(nodes)
+    path_of = index.path_by_id()
     plan.path_of = path_of
-    hint = _service_nodes_hint(flat, fulls)
+    hint = nodes_hint(index, "service")
 
     parsed: list[tuple[str, ParsedConfig]] = []
     for fname, content in files:
@@ -256,8 +184,9 @@ def build_config_plan(
     for fname, pc in parsed:
         if not pc.params:
             continue
-        owner = _resolve_node(
-            pc.node_ref, fname, flat, fulls, by_bare, by_path, window, plan, hint
+        owner = resolve_owner(
+            pc.node_ref, fname, index, window, plan.report.errors,
+            f"узлы-сервисы проекта: {hint}",
         )
         if owner is None:
             continue
@@ -280,7 +209,15 @@ def build_config_plan(
             else:
                 _merge_duplicate(m, fname, p)
 
-    _warn_duplicates(plan, list(merged.values()))
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"параметр «{m.param.name}» описан в нескольких файлах пакета "
+            f'({", ".join(m.files)}): останется одна запись, при расхождении '
+            "побеждает первый файл"
+        ),
+        "параметров",
+    )
     _warn_secret_defaults(plan, list(merged.values()))
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
@@ -333,29 +270,6 @@ def _merge_duplicate(m: _Merged, fname: str, p: ParamIn) -> None:
     # description намеренно без замечания (как и в META_KEYS).
     if not first.description:
         first.description = p.description
-
-
-def _warn_duplicates(plan: ConfigPlan, merged: list[_Merged]) -> None:
-    """Параметр описан НЕСКОЛЬКИМИ файлами пакета — план сливает его в одну строку.
-
-    Урок каналов (Ф3 полевого QA): без слияния превью показывало бы две строки
-    «create», а применение падало бы на уникальности (node_id, name). Дубль внутри
-    пакета — норма: файлы собраны разными прогонами по разным частям репозитория.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"параметр «{m.param.name}» описан в нескольких файлах пакета "
-                f'({", ".join(m.files)}): останется одна запись, при расхождении '
-                "побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} параметров описаны в "
-            "нескольких файлах пакета"
-        )
 
 
 def _warn_secret_defaults(plan: ConfigPlan, merged: list[_Merged]) -> None:

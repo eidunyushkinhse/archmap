@@ -30,12 +30,13 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app.data_import import NODE_HEADER
-from app.docs_import import _closest_name, _node_paths
+from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
 from app.models.node import Node
-from app.node_ref import qualified_node_hits
+from app.name_match import closest_name
+from app.node_ref import NodeIndex
 from app.schemas.channels_import import ChannelItem, ChannelsImportReport
 
 # «Файл ПОХОЖ на наш» — по разделу верхнего уровня. Нужен, чтобы отличить чужой файл
@@ -58,7 +59,6 @@ MAX_ADDRESS_WARNINGS = 8
 MAX_COVERAGE_WARNINGS = 8
 # Свой кап у каналов, описанных НЕСКОЛЬКИМИ файлами пакета. Считает КАНАЛЫ, а не
 # строки: к заметке о дубле может добавиться расхождение меты между файлами.
-MAX_DUPLICATE_WARNINGS = 8
 # ЗАГЛУШКА КАНАЛА ПО СВЯЗИ. Импорт C4 заводит брокеру запись на каждое имя канала,
 # названное связью (Edge.channel), — иначе честная схема сильной модели сразу после
 # ввоза тонула в «канал «X» не найден у брокера» (Ф-D эпика BYOA: 59 из 60 замечаний).
@@ -212,14 +212,6 @@ class ParsedChannels:
     has_node_key: bool = False
 
 
-def _as_bool(v: object) -> bool:
-    return v is True or (isinstance(v, str) and v.strip().lower() in {"true", "да", "yes", "1"})
-
-
-def _as_str(v: object) -> str:
-    return "" if v is None else str(v).strip()
-
-
 def parse_channels_file(content: str) -> ParsedChannels | None:
     """Разобрать файл пакета. None — файл не про каналы (пусть его смотрит другой
     разборщик: в пакете рядом лежат и схемы логики, и спеки, и структура БД)."""
@@ -236,22 +228,22 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
     )
 
     for raw in doc.get("channels") or []:
-        if not isinstance(raw, dict) or not _as_str(raw.get("name")):
+        if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         c = ChannelIn(
-            name=_as_str(raw.get("name")),
-            group_name=_as_str(raw.get("group")),
-            kind=_as_str(raw.get("kind")),
-            partition_key=_as_str(raw.get("partition_key")),
-            delivery=_as_str(raw.get("delivery")),
-            retention=_as_str(raw.get("retention")),
-            description=_as_str(raw.get("description")) or None,
+            name=as_str(raw.get("name")),
+            group_name=as_str(raw.get("group")),
+            kind=as_str(raw.get("kind")),
+            partition_key=as_str(raw.get("partition_key")),
+            delivery=as_str(raw.get("delivery")),
+            retention=as_str(raw.get("retention")),
+            description=as_str(raw.get("description")) or None,
         )
         seen_fields: set[str] = set()
         for rf in raw.get("fields") or []:
-            if not isinstance(rf, dict) or not _as_str(rf.get("name")):
+            if not isinstance(rf, dict) or not as_str(rf.get("name")):
                 continue
-            field_name = _as_str(rf.get("name"))
+            field_name = as_str(rf.get("name"))
             # Одно имя поля дважды в одном канале — та же неряшливость агента, что и
             # поле без имени выше, и молча пропустить её тут дешевле, чем ловить
             # уникальностью (channel_id, name) уже на записи: превью показало бы
@@ -262,9 +254,9 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
             c.fields.append(
                 FieldIn(
                     name=field_name,
-                    type=_as_str(rf.get("type")),
-                    required=_as_bool(rf.get("required")),
-                    description=_as_str(rf.get("description")) or None,
+                    type=as_str(rf.get("type")),
+                    required=as_bool(rf.get("required")),
+                    description=as_str(rf.get("description")) or None,
                 )
             )
         out.channels.append(c)
@@ -297,65 +289,6 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
-def _broker_nodes_hint(flat: list[Node], fulls: list[str]) -> str:
-    """Перечень узлов-брокеров проекта для текстов ошибок.
-
-    Слабая модель адрес ВЫДУМЫВАЕТ, а «объект не найден» без списка допустимых
-    заставляет её гадать вслепую — раунд переписки за раунд (уроки Н8/Н11).
-    """
-    paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "broker"]
-    return ", ".join(paths) if paths else "в проекте их нет"
-
-
-def _resolve_node(
-    ref: str | None,
-    fname: str,
-    flat: list[Node],
-    fulls: list[str],
-    by_bare: dict[str, list[int]],
-    by_path: dict[str, list[int]],
-    window: uuid.UUID | None,
-    plan: ChannelsPlan,
-    broker_hint: str,
-) -> Node | None:
-    """Узел по адресу: полный путь либо голое имя (как в дозаливке доков). Без
-    адреса — объект окна."""
-    if ref is None:
-        if window is None:
-            plan.report.errors.append(
-                f"{fname}: не указан объект, а окно не сказало, к какому применять"
-            )
-            return None
-        for i, n in enumerate(flat):
-            if n.id == window:
-                return flat[i]
-        plan.report.errors.append(f"{fname}: объект окна не найден")
-        return None
-    hits = by_path.get(ref) or by_bare.get(ref) or []
-    if not hits:
-        # ЧАСТИЧНЫЙ путь («Ярмарка / events» при корне «Маркетплейс …»): агент видит
-        # только свой репозиторий и корневого контейнера не знает. Совпадение по
-        # хвосту — по границе « / », чтобы «…/ events» не цеплялось к «…/ my events».
-        hits = [i for i, full in enumerate(fulls) if full.endswith(f" / {ref}")]
-    if not hits:
-        # Тёзка (одно имя в одном родителе) и его потомки адресуются путём с
-        # уточнителем на сегменте тёзки — якорным «@ git:…» или порядковым «@ #N»;
-        # так пишут архив и синтетические файлы единого импорта (app/node_ref.py).
-        hits = qualified_node_hits(ref, flat)
-    if not hits:
-        plan.report.errors.append(
-            f"{fname}: объект «{ref}» не найден; узлы-брокеры проекта: {broker_hint}"
-        )
-        return None
-    if len(hits) > 1:
-        plan.report.errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(fulls[i] for i in hits)}) — '
-            "укажите полный путь"
-        )
-        return None
-    return flat[hits[0]]
-
-
 def build_channels_plan(
     db: Session,
     nodes: list[Node],
@@ -364,10 +297,11 @@ def build_channels_plan(
     overwrite: bool,
 ) -> ChannelsPlan:
     plan = ChannelsPlan()
-    flat, fulls, by_bare, by_path = _node_paths(nodes)
-    path_of = {n.id: fulls[i] for i, n in enumerate(flat)}
+    index = NodeIndex.of(nodes)
+    flat = index.flat
+    path_of = index.path_by_id()
     plan.path_of = path_of
-    broker_hint = _broker_nodes_hint(flat, fulls)
+    broker_hint = nodes_hint(index, "broker")
 
     parsed: list[tuple[str, ParsedChannels]] = []
     for fname, content in files:
@@ -400,8 +334,9 @@ def build_channels_plan(
     for fname, pc in parsed:
         if not pc.channels:
             continue
-        owner = _resolve_node(
-            pc.node_ref, fname, flat, fulls, by_bare, by_path, window, plan, broker_hint
+        owner = resolve_owner(
+            pc.node_ref, fname, index, window, plan.report.errors,
+            f"узлы-брокеры проекта: {broker_hint}",
         )
         if owner is None:
             continue
@@ -427,7 +362,18 @@ def build_channels_plan(
             else:
                 _merge_duplicate(m, fname, c)
 
-    _warn_duplicate_channels(plan, list(merged.values()))
+    # Находка полевого QA Ф3: четыре очереди Zulip приехали в двух файлах каждая, и
+    # применение падало 500-й на uq_channel_field_name — у брокера нет
+    # репозитория-владельца, файлы собраны разными прогонами.
+    warn_duplicates(
+        plan.report.warnings, list(merged.values()),
+        lambda m: (
+            f"канал «{m.channel.name}» описан в нескольких файлах пакета "
+            f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
+            "имени поля и расхождении меты побеждает первый файл"
+        ),
+        "каналов",
+    )
 
     # Живое состояние берём ОДНИМ запросом после слияния: до него не известно, к
     # скольким владельцам приехал пакет, а строка превью нужна одна на канал.
@@ -510,36 +456,6 @@ def _merge_duplicate(m: _Merged, fname: str, c: ChannelIn) -> None:
         earlier.type = earlier.type or f.type
         earlier.description = earlier.description or f.description
         earlier.required = earlier.required or f.required
-
-
-def _warn_duplicate_channels(plan: ChannelsPlan, merged: list[_Merged]) -> None:
-    """Канал описан НЕСКОЛЬКИМИ файлами пакета — план сливает его в одну строку.
-
-    Находка полевого QA Ф3: в пакете Zulip четыре очереди приехали в двух файлах
-    каждая (перечень очередей rabbitmq плюс подробный файл по конкретной). Превью
-    молчало и показывало их ДВУМЯ строками «create» с разным числом полей, а
-    применение падало 500-й: второй файл лил одноимённое поле в канал, только что
-    созданный первым (duplicate key uq_channel_field_name). Дубль внутри пакета —
-    норма (у брокера нет репозитория-владельца, файлы собраны разными прогонами),
-    поэтому сливаем и предупреждаем, а не падаем и не молчим.
-
-    Порядок — как в пакете: он осмыслен, в отличие от произвольного порядка строк из
-    БД у соседних эвристик, который приходится сортировать.
-    """
-    dups = [m for m in merged if len(m.files) > 1 or m.meta_notes]
-    for m in dups[:MAX_DUPLICATE_WARNINGS]:
-        if len(m.files) > 1:
-            plan.report.warnings.append(
-                f"канал «{m.channel.name}» описан в нескольких файлах пакета "
-                f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
-                "имени поля и расхождении меты побеждает первый файл"
-            )
-        plan.report.warnings.extend(m.meta_notes)
-    if len(dups) > MAX_DUPLICATE_WARNINGS:
-        plan.report.warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} каналов описаны в нескольких "
-            "файлах пакета"
-        )
 
 
 def _names_channel(pairs: set[tuple[str, str]], named: str) -> bool:
@@ -693,12 +609,12 @@ def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[No
                 # уже говорит эвристика адресации (Ф7б), второй строкой не дублируем.
                 continue
             # Подсказка — ТА ЖЕ эвристика, что чинит пометки в превью доков (Ф8б,
-            # _closest_name: суффикс впереди difflib, порог 0.5): своя копия
+            # closest_name: суффикс впереди difflib, порог 0.5): своя копия
             # разъехалась бы с ней на первой правке порога. Кандидаты — имена, которые
             # брокер знает, в обеих формах послабления: голое и «группа.канал».
             candidates = [n for _g, n in known[broker_id]]
             candidates += [f"{g}.{n}" for g, n in known[broker_id] if g]
-            hint = _closest_name(named, candidates)
+            hint = closest_name(named, candidates)
             похоже = f" (похоже на «{hint}»)" if hint else ""
             found.append(
                 f"связь «{name_by_id.get(e.source_id, '?')} → "

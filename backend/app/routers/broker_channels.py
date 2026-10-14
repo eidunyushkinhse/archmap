@@ -22,18 +22,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
+    check_cas,
+    commit_change,
     get_current_project,
+    name_taken,
+    node_or_404,
+    owned_or_404,
     require_project_editor,
-    scoped_node,
-    touch_project,
 )
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.broker_channel import (
@@ -50,18 +52,11 @@ from app.view_state import bump_meta_rev
 router = APIRouter(prefix="/nodes/{node_id}/channels", tags=["broker-docs"])
 
 
-def _get_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
-    node = scoped_node(db, node_id, project)
-    if not node:
-        raise HTTPException(status_code=404, detail="Узел не найден")
-    return node
-
-
 def _broker_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
     """Узел-владелец каналов. Форма проверяется на КАЖДОЙ мутации, включая создание:
     иначе «каналы у сервиса» пришлось бы ловить постфактум, а страница их не покажет.
     Контейнер отсекается этой же проверкой — детей имеет только сервис (node.md N4)."""
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     if node.shape != "broker":
         raise HTTPException(
             status_code=400, detail="Каналы может иметь только узел-брокер"
@@ -70,42 +65,37 @@ def _broker_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
 
 
 def _scoped_channel(db: Session, node: Node, channel_id: uuid.UUID) -> BrokerChannel:
-    channel = db.get(BrokerChannel, channel_id)
-    if channel is None or channel.node_id != node.id:
-        raise HTTPException(status_code=404, detail="Канал не найден")
-    return channel
+    return owned_or_404(db, BrokerChannel, channel_id, "node_id", node.id, "Канал не найден")
 
 
 def _scoped_field(db: Session, channel: BrokerChannel, field_id: uuid.UUID) -> ChannelField:
-    field = db.get(ChannelField, field_id)
-    if field is None or field.channel_id != channel.id:
-        raise HTTPException(status_code=404, detail="Поле не найдено")
-    return field
+    return owned_or_404(db, ChannelField, field_id, "channel_id", channel.id, "Поле не найдено")
 
 
 def _channel_taken(
     db: Session, node_id: uuid.UUID, group_name: str, name: str, except_id: uuid.UUID | None
 ) -> bool:
     """Пре-чек уникальности имени в группе — 409 вместо IntegrityError-500."""
-    q = db.query(BrokerChannel.id).filter(
+    return name_taken(
+        db,
+        BrokerChannel.id,
+        except_id,
         BrokerChannel.node_id == node_id,
         BrokerChannel.group_name == group_name,
         BrokerChannel.name == name,
     )
-    if except_id is not None:
-        q = q.filter(BrokerChannel.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 def _field_taken(
     db: Session, channel_id: uuid.UUID, name: str, except_id: uuid.UUID | None
 ) -> bool:
-    q = db.query(ChannelField.id).filter(
-        ChannelField.channel_id == channel_id, ChannelField.name == name
+    return name_taken(
+        db,
+        ChannelField.id,
+        except_id,
+        ChannelField.channel_id == channel_id,
+        ChannelField.name == name,
     )
-    if except_id is not None:
-        q = q.filter(ChannelField.id != except_id)
-    return db.query(q.exists()).scalar() or False
 
 
 # ── Каналы ────────────────────────────────────────────────────────────────────
@@ -121,7 +111,7 @@ def list_channels(
     # Чтение форму НЕ проверяет: если каналы у узла уже есть (например, форму сменили
     # в обход), спрятать их хуже, чем показать — «применённое-но-невидимое» и так
     # запрещено при смене типа (node.md N4а).
-    node = _get_node(db, node_id, project)
+    node = node_or_404(db, node_id, project)
     return list(node.broker_channels)
 
 
@@ -142,65 +132,46 @@ def list_usage(
 
     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
     """
-    node = _get_node(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые каналы у соседних
-    # брокеров перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
-    mine = {c.id: c for c in channels if c.node_id == node.id}
+    node = node_or_404(db, node_id, project)
+    catalog = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (doc_ref_hits), а в ответ отбираем свои.
+    mine = {c.id: c for c in catalog.channels if c.node_id == node.id}
     if not mine:
         return []
-
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
-        .select_from(NodeDoc)
-        .join(Node, Node.id == NodeDoc.node_id)
-        .filter(Node.project_id == project.id)
-        .all()
-    )
 
     rows: list[ChannelUsage] = []
     # Дедуп в пределах дока: «orders.created» и «Кафка / orders.created» — одно и то
     # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
     seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
-    for doc_id, doc_name, content, caller_id, caller_name in docs:
-        if not content:
+    for hit in doc_ref_hits(db, project.id, catalog):
+        ref = hit.ref
+        # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
+        # их разворот живёт у базы: каталоги и семьи режимов разведены.
+        if ref.mode != "publish" and ref.mode != "consume":
             continue
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            # Конфигурация владельца дока — этому индексу не нужна, но каталог обязан
-            # быть настоящим (см. тот же довод в db_docs.list_usage).
-            owner_params=params_by_node.get(caller_id, {}),
-        ):
-            # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
-            # их разворот живёт у базы: каталоги и семьи режимов разведены.
-            if ref.mode != "publish" and ref.mode != "consume":
-                continue
-            # unknown_channel/ambiguous сюда НЕ попадают: индекс брокера отвечает за
-            # факты, а нерезолвнутой пометке место в алертах и в плашке редактора.
-            if ref.status not in ("ok", "unknown_field") or ref.channel_id is None:
-                continue
-            channel = mine.get(ref.channel_id)
-            if channel is None:
-                continue
-            # unknown_field = канал нашёлся, поля нет → обращение к каналу ЦЕЛИКОМ;
-            # несуществующее поле в индекс не тащим (его подсветит алерт).
-            field_id = ref.field_id if ref.status == "ok" else None
-            field_name = ref.field_name if ref.status == "ok" else None
-            key = (doc_id, channel.id, field_id, ref.mode)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                ChannelUsage(
-                    channel_id=channel.id, channel_name=channel.name,
-                    field_id=field_id, field_name=field_name,
-                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
-                    node_id=caller_id, node_name=caller_name,
-                )
+        # unknown_channel/ambiguous сюда НЕ попадают: индекс брокера отвечает за
+        # факты, а нерезолвнутой пометке место в алертах и в плашке редактора.
+        if ref.status not in ("ok", "unknown_field") or ref.channel_id is None:
+            continue
+        channel = mine.get(ref.channel_id)
+        if channel is None:
+            continue
+        # unknown_field = канал нашёлся, поля нет → обращение к каналу ЦЕЛИКОМ;
+        # несуществующее поле в индекс не тащим (его подсветит алерт).
+        field_id = ref.field_id if ref.status == "ok" else None
+        field_name = ref.field_name if ref.status == "ok" else None
+        key = (hit.doc_id, channel.id, field_id, ref.mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            ChannelUsage(
+                channel_id=channel.id, channel_name=channel.name,
+                field_id=field_id, field_name=field_name,
+                mode=ref.mode, doc_id=hit.doc_id, doc_name=hit.doc_name,
+                node_id=hit.node_id, node_name=hit.node_name,
             )
+        )
     rows.sort(key=lambda u: (u.channel_name, u.node_name, u.doc_name))
     return rows
 
@@ -218,9 +189,7 @@ def create_channel(
         raise HTTPException(status_code=409, detail="Канал с таким именем уже есть")
     channel = BrokerChannel(node_id=node.id, **payload.model_dump())
     db.add(channel)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(channel)
     return channel
 
@@ -238,8 +207,7 @@ def update_channel(
     channel = _scoped_channel(db, node, channel_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    if base_version is not None and base_version != channel.version:
-        raise HTTPException(status_code=409, detail="Канал изменён в другой сессии")
+    check_cas(channel.version, base_version, "Канал изменён в другой сессии")
     if data:
         new_name = data.get("name", channel.name)
         new_group = data.get("group_name", channel.group_name)
@@ -249,8 +217,7 @@ def update_channel(
             setattr(channel, field, value)
         channel.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(channel)
     return channel
 
@@ -266,9 +233,7 @@ def delete_channel(
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
     db.delete(channel)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 # ── Поля сообщений ────────────────────────────────────────────────────────────
@@ -293,9 +258,7 @@ def create_field(
         raise HTTPException(status_code=409, detail="Поле с таким именем уже есть в канале")
     field = ChannelField(channel_id=channel.id, **payload.model_dump())
     db.add(field)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(field)
     return field
 
@@ -323,8 +286,7 @@ def update_field(
         for attr, value in data.items():
             setattr(field, attr, value)
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(field)
     return field
 
@@ -344,6 +306,4 @@ def delete_field(
     channel = _scoped_channel(db, node, channel_id)
     field = _scoped_field(db, channel, field_id)
     db.delete(field)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)

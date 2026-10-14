@@ -5,6 +5,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
+from app.domain_types import ProjectRole
 
 # Роли в проекте (docs/tasks/project-access.md): owner, editor, reader. Права внутри
 # проекта определяет ТОЛЬКО эта роль; глобальная роль architect/viewer решает лишь,
@@ -36,7 +37,7 @@ class ProjectMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True, index=True
     )
-    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    role: Mapped[ProjectRole] = mapped_column(String(16), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=lambda: datetime.now(UTC)
     )
