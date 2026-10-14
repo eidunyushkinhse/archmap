@@ -10,6 +10,8 @@ import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors, STATUS_META } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
+import { useAsyncLoad } from "../lib/useAsyncLoad";
+import LoadError from "../ui/LoadError";
 import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
@@ -74,44 +76,38 @@ interface Props {
   onNodeDeleted?: (parentId: string | null) => void;
 }
 
+// Узел, предки (breadcrumb) и связи — одной загрузкой страницы.
+async function loadNodePage(id: string): Promise<{ node: Node; ancestors: AncestorRef[]; edges: NodeEdgeInfo[] }> {
+  const [node, all, edges] = await Promise.all([
+    nodesApi.get(id),
+    nodesApi.getAll(),
+    nodesApi.getEdges(id),
+  ]);
+  const byId = new Map(all.map((x) => [x.id, x]));
+  const ancestors: AncestorRef[] = [];
+  let cur = node.parent_id ? byId.get(node.parent_id) : undefined;
+  while (cur) {
+    ancestors.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
+    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+  }
+  return { node, ancestors, edges };
+}
+
 export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
-  const [node, setNode] = useState<Node | null>(null);
-  const [ancestors, setAncestors] = useState<AncestorRef[]>([]);
-  const [edges, setEdges] = useState<NodeEdgeInfo[]>([]);
-  const [loading, setLoading] = useState(true);
   const [confirming, setConfirming] = useState(false);
+  // Отказ (404 — узел удалили, 403, сеть) — экран с причиной, а не вечная «Загрузка…»
+  // (аудит R-2).
+  const page = useAsyncLoad(nodeId, () => loadNodePage(nodeId));
 
-  // Загрузка узла, предков (breadcrumb) и связей
-  const load = useCallback(async (id: string) => {
-    setLoading(true);
-    setNode(null);
-    try {
-      const [n, all, eds] = await Promise.all([
-        nodesApi.get(id),
-        nodesApi.getAll(),
-        nodesApi.getEdges(id),
-      ]);
-      setNode(n);
-      setEdges(eds);
-      const byId = new Map(all.map((x) => [x.id, x]));
-      const path: AncestorRef[] = [];
-      let cur = n.parent_id ? byId.get(n.parent_id) : undefined;
-      while (cur) {
-        path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-        cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-      }
-      setAncestors(path);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка данных при смене nodeId; setState в load() — стандартный паттерн (как TreePage.load)
-  useEffect(() => { void load(nodeId); }, [nodeId, load]);
-
-  if (loading || !node) {
+  if (page.error) {
+    return (
+      <LoadError what="объект" error={page.error} onRetry={page.reload} onBack={onNavigateProject} />
+    );
+  }
+  if (!page.data) {
     return <div className="np-loading">Загрузка…</div>;
   }
+  const { node, ancestors, edges } = page.data;
 
   return (
     <NodePageInner
@@ -129,7 +125,7 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       setConfirming={setConfirming}
       onEdgesReload={() => {
         // Сбой загрузки связей: список останется прежним, догонит поллинг/перезаход
-        nodesApi.getEdges(nodeId).then(setEdges).catch(() => {});
+        nodesApi.getEdges(nodeId).then((fresh) => page.update((d) => ({ ...d, edges: fresh }))).catch(() => {});
       }}
     />
   );
@@ -1345,6 +1341,9 @@ function SchemaSection({
 
   const [graph, setGraph] = useState<GraphResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  // Последний отказ чтения схемы. Показывается, только пока схемы на экране нет
+  // (первичная загрузка, аудит R-2): раньше секция молча пропадала.
+  const [failure, setFailure] = useState<unknown>(null);
   // Курсоры изменений для remote-sync И fence персиста: context-graph несёт
   // version (вид фокуса) / graph_rev / meta_rev; рефетч обновляет курсоры. Свои
   // записи раскладки (архитектор) обновляют курсор из ответа PUT — поллинг не даёт
@@ -1360,9 +1359,10 @@ function SchemaSection({
       .then((g) => {
         metaCursorRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
         setGraph(g);
+        setFailure(null);
         setLoading(false);
       })
-      .catch(() => { setLoading(false); });
+      .catch((e: unknown) => { setFailure(e); setLoading(false); });
   }, [node.id, metaCursorRef]);
 
   useEffect(() => {
@@ -1486,7 +1486,13 @@ function SchemaSection({
   const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
 
   if (loading) return <p className="np-empty">Загрузка схемы…</p>;
-  if (!view) return null;
+  if (!view) {
+    if (failure === null) return null;
+    return (
+      <LoadError what="схему" error={failure}
+        onRetry={() => { setLoading(true); void refetch(); }} />
+    );
+  }
 
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).

@@ -44,25 +44,27 @@ function nodeSize(count: number): { w: number; h: number } {
 }
 
 export default function SchemaPreview({ preview }: Props) {
-  // undefined = раскладка ещё считается (ELK async), null = пустая схема.
-  const [layout, setLayout] = useState<LayoutResult | undefined>(
+  // undefined = раскладка ещё считается (ELK async), null = пустая схема, "failed" —
+  // раскладка упала (аудит R-23: раньше без catch каркас оставался пустым навсегда).
+  const [layout, setLayout] = useState<LayoutResult | undefined | "failed">(
     preview.nodes.length === 0 ? null : undefined,
   );
 
   useEffect(() => {
     let cancelled = false;
-    void computeLayout(preview).then((r) => {
-      if (!cancelled) setLayout(r);
-    });
+    computeLayout(preview).then(
+      (r) => { if (!cancelled) setLayout(r); },
+      () => { if (!cancelled) setLayout("failed"); },
+    );
     return () => {
       cancelled = true;
     };
   }, [preview]);
 
-  if (layout === null) {
+  if (layout === null || layout === "failed") {
     return (
       <div style={{ ...frame, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ color: "#94a3b8", fontSize: 12 }}>Пустая схема</span>
+        <span style={{ color: "#94a3b8", fontSize: 12 }}>{layout === null ? "Пустая схема" : "Превью недоступно"}</span>
       </div>
     );
   }

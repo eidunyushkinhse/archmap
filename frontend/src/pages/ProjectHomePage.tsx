@@ -3,7 +3,7 @@
 // Секция «Бизнес-процессы» — список со счётчиком участников.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Project, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { ViewLayoutPayload } from "../types";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
@@ -11,6 +11,8 @@ import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import type { LevelPersistenceProps } from "../components/graph/types";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
+import { useAsyncLoad } from "../lib/useAsyncLoad";
+import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
@@ -28,9 +30,9 @@ interface Props {
 }
 
 export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode, onNavigateMap, onNavigateProcesses }: Props) {
-  const [project, setProject] = useState<Project | null>(null);
-  const [processes, setProcesses] = useState<ProcessListItem[]>([]);
-  const [metaLoading, setMetaLoading] = useState(true);
+  // Мета проекта + процессы (граф уровня грузит useLevelSchema). Отказ — экран с
+  // причиной и повтором, а не вечная «Загрузка…» (аудит R-2).
+  const meta = useAsyncLoad(projectId, () => Promise.all([projectsApi.get(projectId), processesApi.list()]));
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   const lvl = useLevelSchema({ containerId: null });
 
@@ -105,28 +107,19 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
       .finally(() => { relayoutInflight.current = false; });
   }, [lvl]);
 
-  // Мета проекта + процессы (граф уровня грузит useLevelSchema)
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const [proj, procs] = await Promise.all([
-          projectsApi.get(projectId),
-          processesApi.list(),
-        ]);
-        if (!alive) return;
-        setProject(proj);
-        setProcesses(procs);
-      } finally {
-        if (alive) setMetaLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, [projectId]);
-
-  if (metaLoading || lvl.loading || !project) {
+  const loadFailure = meta.error ?? lvl.error;
+  if (loadFailure) {
+    return (
+      <LoadError what="проект" error={loadFailure} onRetry={() => {
+        if (meta.error) meta.reload();
+        if (lvl.error) lvl.retry();
+      }} />
+    );
+  }
+  if (!meta.data || lvl.loading) {
     return <div className="np-loading">Загрузка…</div>;
   }
+  const [project, processes] = meta.data;
 
   const graphNodes = lvl.nodes;
   const endpoints = lvl.endpoints;
