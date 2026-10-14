@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
@@ -39,7 +39,6 @@ from app.deps import (
 )
 from app.models.config_param import ConfigParam
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.config_param import (
@@ -96,51 +95,34 @@ def list_usage(
     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
     """
     node = node_or_404(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    owner_params = params_by_node.get(node.id, {})
+    catalog = catalog_for_project(db, project.id)
+    owner_params = catalog.params_by_node.get(node.id, {})
     if not owner_params:
         return []
     by_id = {pid: name for name, pid in owner_params.items()}
 
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content)
-        .filter(NodeDoc.node_id == node.id)
-        .all()
-    )
-
     rows: list[ConfigParamUsage] = []
     seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
-    for doc_id, doc_name, content in docs:
-        if not content:
+    # Только СВОИ схемы: «зависит от:» резолвится среди параметров владельца схемы.
+    for hit in doc_ref_hits(db, project.id, catalog, node_id=node.id):
+        ref = hit.ref
+        # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
+        # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
+        # сами — param_id у них пуст.
+        if ref.status != "ok" or ref.param_id is None:
             continue
-        # Каталоги чужих семей передаём НАСТОЯЩИЕ, хотя индексу они не нужны:
-        # подсунуть пустые значило бы получить выдуманные статусы у табличных и
-        # канальных пометок того же дока — сейчас их отсеивает фильтр ниже, но
-        # держать в коде заведомо неверный ответ нельзя.
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            owner_params=owner_params,
-        ):
-            # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
-            # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
-            # сами — param_id у них пуст.
-            if ref.status != "ok" or ref.param_id is None:
-                continue
-            key = (doc_id, ref.param_id)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                ConfigParamUsage(
-                    param_id=ref.param_id,
-                    param_name=by_id[ref.param_id],
-                    doc_id=doc_id,
-                    doc_name=doc_name,
-                )
+        key = (hit.doc_id, ref.param_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            ConfigParamUsage(
+                param_id=ref.param_id,
+                param_name=by_id[ref.param_id],
+                doc_id=hit.doc_id,
+                doc_name=hit.doc_name,
             )
+        )
     rows.sort(key=lambda u: (u.param_name, u.doc_name))
     return rows
 

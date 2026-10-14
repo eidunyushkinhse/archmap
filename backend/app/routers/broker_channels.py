@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
@@ -36,7 +36,6 @@ from app.deps import (
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.broker_channel import (
@@ -134,64 +133,45 @@ def list_usage(
     ОБЪЯВЛЕН ДО путей с {channel_id}: иначе «usage» поехало бы в разбор uuid.
     """
     node = node_or_404(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые каналы у соседних
-    # брокеров перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
-    mine = {c.id: c for c in channels if c.node_id == node.id}
+    catalog = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (doc_ref_hits), а в ответ отбираем свои.
+    mine = {c.id: c for c in catalog.channels if c.node_id == node.id}
     if not mine:
         return []
-
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
-        .select_from(NodeDoc)
-        .join(Node, Node.id == NodeDoc.node_id)
-        .filter(Node.project_id == project.id)
-        .all()
-    )
 
     rows: list[ChannelUsage] = []
     # Дедуп в пределах дока: «orders.created» и «Кафка / orders.created» — одно и то
     # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
     seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
-    for doc_id, doc_name, content, caller_id, caller_name in docs:
-        if not content:
+    for hit in doc_ref_hits(db, project.id, catalog):
+        ref = hit.ref
+        # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
+        # их разворот живёт у базы: каталоги и семьи режимов разведены.
+        if ref.mode != "publish" and ref.mode != "consume":
             continue
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            # Конфигурация владельца дока — этому индексу не нужна, но каталог обязан
-            # быть настоящим (см. тот же довод в db_docs.list_usage).
-            owner_params=params_by_node.get(caller_id, {}),
-        ):
-            # Табличные пометки («читает:/пишет:») этому индексу не принадлежат —
-            # их разворот живёт у базы: каталоги и семьи режимов разведены.
-            if ref.mode != "publish" and ref.mode != "consume":
-                continue
-            # unknown_channel/ambiguous сюда НЕ попадают: индекс брокера отвечает за
-            # факты, а нерезолвнутой пометке место в алертах и в плашке редактора.
-            if ref.status not in ("ok", "unknown_field") or ref.channel_id is None:
-                continue
-            channel = mine.get(ref.channel_id)
-            if channel is None:
-                continue
-            # unknown_field = канал нашёлся, поля нет → обращение к каналу ЦЕЛИКОМ;
-            # несуществующее поле в индекс не тащим (его подсветит алерт).
-            field_id = ref.field_id if ref.status == "ok" else None
-            field_name = ref.field_name if ref.status == "ok" else None
-            key = (doc_id, channel.id, field_id, ref.mode)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                ChannelUsage(
-                    channel_id=channel.id, channel_name=channel.name,
-                    field_id=field_id, field_name=field_name,
-                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
-                    node_id=caller_id, node_name=caller_name,
-                )
+        # unknown_channel/ambiguous сюда НЕ попадают: индекс брокера отвечает за
+        # факты, а нерезолвнутой пометке место в алертах и в плашке редактора.
+        if ref.status not in ("ok", "unknown_field") or ref.channel_id is None:
+            continue
+        channel = mine.get(ref.channel_id)
+        if channel is None:
+            continue
+        # unknown_field = канал нашёлся, поля нет → обращение к каналу ЦЕЛИКОМ;
+        # несуществующее поле в индекс не тащим (его подсветит алерт).
+        field_id = ref.field_id if ref.status == "ok" else None
+        field_name = ref.field_name if ref.status == "ok" else None
+        key = (hit.doc_id, channel.id, field_id, ref.mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            ChannelUsage(
+                channel_id=channel.id, channel_name=channel.name,
+                field_id=field_id, field_name=field_name,
+                mode=ref.mode, doc_id=hit.doc_id, doc_name=hit.doc_name,
+                node_id=hit.node_id, node_name=hit.node_name,
             )
+        )
     rows.sort(key=lambda u: (u.channel_name, u.node_name, u.doc_name))
     return rows
 

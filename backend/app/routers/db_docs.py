@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.data_refs import catalog_for_project, parse_data_refs, resolve_data_refs
+from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
@@ -35,7 +35,6 @@ from app.deps import (
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
-from app.models.node_doc import NodeDoc
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.db_doc import (
@@ -122,64 +121,43 @@ def list_usage(
     (пивот §9 плана): разбор и резолв на чтении, хранения обращений нет.
     """
     node = node_or_404(db, node_id, project)
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    # Резолв идёт по каталогу ВСЕГО проекта (иначе одноимённые таблицы в чужих базах
-    # перестали бы делать ссылку неоднозначной), а в ответ отбираем свои.
-    mine = {t.id: t for t in tables if t.node_id == node.id}
+    catalog = catalog_for_project(db, project.id)
+    # Резолв идёт по каталогу ВСЕГО проекта (doc_ref_hits), а в ответ отбираем свои.
+    mine = {t.id: t for t in catalog.tables if t.node_id == node.id}
     if not mine:
         return []
-
-    docs = (
-        db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
-        .select_from(NodeDoc)
-        .join(Node, Node.id == NodeDoc.node_id)
-        .filter(Node.project_id == project.id)
-        .all()
-    )
 
     rows: list[TableUsage] = []
     # Дедуп в пределах дока: «orders.status» и «Хранилище / orders.status» — одно и то
     # же обращение, написанное по-разному, и второй строкой в индексе быть не должно.
     seen: set[tuple[uuid.UUID, uuid.UUID, uuid.UUID | None, str]] = set()
-    for doc_id, doc_name, content, caller_id, caller_name in docs:
-        if not content:
+    for hit in doc_ref_hits(db, project.id, catalog):
+        ref = hit.ref
+        # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
+        # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
+        # Канальные пометки («публикует:/потребляет:») отсеиваются сами: у них
+        # table_id пуст — их разворот живёт у брокера (channels/usage).
+        if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
             continue
-        for ref in resolve_data_refs(
-            parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            # Конфигурация ВЛАДЕЛЬЦА дока: этому индексу она не нужна, но каталог
-            # передаём настоящий — подсунуть пустой значило бы сказать резолверу
-            # неправду и получить ложные статусы, если фильтр ниже когда-нибудь
-            # ослабнет.
-            owner_params=params_by_node.get(caller_id, {}),
-        ):
-            # unknown_table/ambiguous сюда НЕ попадают: индекс базы отвечает за факты,
-            # а нерезолвнутой пометке место в алертах и в плашке редактора дока.
-            # Канальные пометки («публикует:/потребляет:») отсеиваются сами: у них
-            # table_id пуст — их разворот живёт у брокера (channels/usage).
-            if ref.status not in ("ok", "unknown_column") or ref.table_id is None:
-                continue
-            table = mine.get(ref.table_id)
-            if table is None:
-                continue
-            # unknown_column = таблица нашлась, колонки нет → обращение к таблице
-            # ЦЕЛИКОМ; несуществующую колонку в индекс не тащим (её подсветит алерт).
-            column_id = ref.column_id if ref.status == "ok" else None
-            column_name = ref.column_name if ref.status == "ok" else None
-            key = (doc_id, table.id, column_id, ref.mode)
-            if key in seen:
-                continue
-            seen.add(key)
-            rows.append(
-                TableUsage(
-                    table_id=table.id, table_name=table.name,
-                    column_id=column_id, column_name=column_name,
-                    mode=ref.mode, doc_id=doc_id, doc_name=doc_name,
-                    node_id=caller_id, node_name=caller_name,
-                )
+        table = mine.get(ref.table_id)
+        if table is None:
+            continue
+        # unknown_column = таблица нашлась, колонки нет → обращение к таблице
+        # ЦЕЛИКОМ; несуществующую колонку в индекс не тащим (её подсветит алерт).
+        column_id = ref.column_id if ref.status == "ok" else None
+        column_name = ref.column_name if ref.status == "ok" else None
+        key = (hit.doc_id, table.id, column_id, ref.mode)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(
+            TableUsage(
+                table_id=table.id, table_name=table.name,
+                column_id=column_id, column_name=column_name,
+                mode=ref.mode, doc_id=hit.doc_id, doc_name=hit.doc_name,
+                node_id=hit.node_id, node_name=hit.node_name,
             )
+        )
     rows.sort(key=lambda u: (u.table_name, u.node_name, u.doc_name))
     return rows
 
