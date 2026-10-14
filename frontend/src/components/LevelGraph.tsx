@@ -509,7 +509,7 @@ function LevelGraphInner({
   // рамок при драге ребёнка — оверлей в useFrameFollowOverlay (вынесен при распиле Ф2).
   const frameFollow = useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes });
   const handleNodeDragStart = useCallback(
-    (_e: MouseEvent, n: RFNode, ns: RFNode[]) => {
+    (_e: unknown, n: RFNode, ns: RFNode[]) => {
       setDragging(true);
       if (gestureActiveRef) gestureActiveRef.current = true; // поллинг этапа 1: рефетч не врывается в жест
       cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
@@ -522,7 +522,7 @@ function LevelGraphInner({
     [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
   );
   const handleSelectionDragStart = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => {
+    (_e: unknown, ns: RFNode[]) => {
       setDragging(true);
       if (gestureActiveRef) gestureActiveRef.current = true;
       cancelAnim();
@@ -534,18 +534,18 @@ function LevelGraphInner({
     [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
   );
   const handleNodeDrag = useCallback(
-    (_e: MouseEvent, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
+    (_e: unknown, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
     [liveDragHandles, frameFollow],
   );
   const handleSelectionDrag = useCallback(
-    (_e: MouseEvent, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
+    (_e: unknown, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
     [liveDragHandles, frameFollow],
   );
   // Отпускание драга: persistGroup сам кладёт ОДНУ команду на весь жест;
   // beginGroup/commitGroup вокруг — страховка, чтобы сопутствующие push-и
   // (если появятся) не разбили жест на несколько шагов Undo.
   const handleNodeDragStopP = useCallback(
-    (e: MouseEvent, n: RFNode, ns: RFNode[]) => {
+    (e: unknown, n: RFNode, ns: RFNode[]) => {
       setDragging(false);
       frameFollow.finalize(); // рамки: финальный bbox одним setState + вернуть видимость
       noteGesture(); // изменённые пересчётом стрелки перерисовать анимированно
@@ -569,7 +569,7 @@ function LevelGraphInner({
     [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture, gestureActiveRef],
   );
   const handleSelectionDragStopP = useCallback(
-    (e: MouseEvent, ns: RFNode[]) => {
+    (e: unknown, ns: RFNode[]) => {
       setDragging(false);
       frameFollow.finalize();
       noteGesture();

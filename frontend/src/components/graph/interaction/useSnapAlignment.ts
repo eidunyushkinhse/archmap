@@ -2,7 +2,6 @@
 // Плюс клавиатурный сдвиг узлов (стрелки, RF a11y): без снапа, с клампами, серия
 // нажатий персистится дебаунсом одной командой истории.
 import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from "react";
-import type { MouseEvent } from "react";
 import type { Node as RFNode, NodeChange } from "@xyflow/react";
 import type { History } from "./useHistory";
 import { snapNode, nodeSize } from "./snap";
@@ -314,7 +313,7 @@ export function useSnapAlignment({
   // все перетянутые узлы третьим аргументом — сохраняем их все. Возвращает, была ли
   // запись раскладки (false — пересчёта не будет, живое превью рёбер надо откатить).
   const handleNodeDragStop = useCallback(
-    (_event: MouseEvent, rfNode: RFNode, draggedNodes: RFNode[]): boolean => {
+    (_event: unknown, rfNode: RFNode, draggedNodes: RFNode[]): boolean => {
       dragLive.current = false; // финальное «оседание» уже пришло — сессия жеста закрыта
       setGuides({ x: null, y: null, spacing: [] }); // прячем направляющие
       return persistGroup(draggedNodes.length > 0 ? draggedNodes : [rfNode]);
@@ -325,7 +324,7 @@ export function useSnapAlignment({
   // Отпускание драга рамки выделения (NodesSelection) — RF тащит всю группу через
   // отдельный обработчик. Сохраняем те же узлы.
   const handleSelectionDragStop = useCallback(
-    (_event: MouseEvent, draggedNodes: RFNode[]): boolean => {
+    (_event: unknown, draggedNodes: RFNode[]): boolean => {
       dragLive.current = false;
       setGuides({ x: null, y: null, spacing: [] });
       return persistGroup(draggedNodes);

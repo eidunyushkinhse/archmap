@@ -13,14 +13,14 @@
     "gen:api": "(cd ../backend && venv/bin/python -c \"from app.main import app; import json,sys; json.dump(app.openapi(), sys.stdout)\") | openapi-typescript /dev/stdin -o src/types/api.gen.ts"
   },
   "dependencies": {
-    "@xyflow/react": "^12.10.2",
-    "@xyflow/system": "0.0.76",
+    "@xyflow/react": "^12.12.0",
+    "@xyflow/system": "0.0.83",
     "elkjs": "^0.11.1",
     "js-yaml": "^5.4.3",
-    "mermaid": "^12.1.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "swagger-ui-dist": "^5.32.8"
+    "mermaid": "^12.2.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "swagger-ui-dist": "^5.33.2"
   },
   "comment:overrides": "openapi-typescript ещё держит peer typescript ^5.x; проект на TS 6 (bleeding-edge). Сужаем peer этого dev-тула до нашей версии — узко, без глобального legacy-peer-deps. Генерат работает с TS 6 (проверено tsc -b).",
   "overrides": {
@@ -33,25 +33,24 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@testing-library/jest-dom": "^7.0.0",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^14.6.1",
-    "@types/js-yaml": "^4.0.9",
-    "@types/node": "^24.12.3",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@types/swagger-ui-dist": "^3.30.6",
-    "@vitejs/plugin-react": "^6.0.1",
-    "@vitest/coverage-v8": "^4.1.10",
-    "eslint": "^10.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.12.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.6.0",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.13.0",
     "jsdom": "^29.1.1",
     "openapi-typescript": "^7.13.0",
     "typescript": "~6.0.2",
-    "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12",
-    "vitest": "^4.1.8"
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.3.4",
+    "vitest": "^4.1.11"
   }
 }
