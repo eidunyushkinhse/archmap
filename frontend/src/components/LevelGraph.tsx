@@ -14,7 +14,6 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
-  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
@@ -60,6 +59,7 @@ import { useLevelHistory } from "./graph/interaction/useLevelHistory";
 import { useLevelDragLifecycle } from "./graph/interaction/useLevelDragLifecycle";
 import { useLevelRehang } from "./graph/interaction/useLevelRehang";
 import { SCHEMA_FIT_OPTIONS, useLevelAutoFit } from "./graph/interaction/useLevelAutoFit";
+import { useFarZoom } from "./graph/interaction/useFarZoom";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
 import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
@@ -89,9 +89,8 @@ const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 // упирались на больших уровнях — ни колесом, ни «Центрировать» (fitView тоже не
 // опускается ниже minZoom) всю схему было не увидеть. 0.05 — узел 190 px становится
 // ~10 px: даже уровень на 6000 px умещается в окно с запасом. Ниже FAR_ZOOM холст в
-// дальнем режиме (см. handleViewportChange).
+// дальнем режиме (см. useFarZoom).
 const MIN_ZOOM = 0.05;
-const FAR_ZOOM = 0.4;
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -967,33 +966,10 @@ function LevelGraphInner({
     if (next) setRfEdges(next);
   }, [linkedHighlight, getEdges, setRfEdges]);
 
-  // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
-  // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
-  // физический 1px тает до долей экранного пикселя и рамка исчезает. Держим на холсте
-  // CSS-переменную --lg-frame-bw = max(1, 1/zoom)px: при приближении рамка остаётся
-  // прежним аккуратным 1px, при отдалении растёт физически ровно настолько, чтобы на
-  // экране оставаться ~1px. Пишем императивно (не через стейт) — зум не должен
-  // ре-рендерить граф; квант 0.25px гасит дёрганье стилей на каждом тике колеса.
-  // ДАЛЬНИЙ РЕЖИМ (решение пользователя 2026-10-12 — предел отдаления снят): ниже
-  // FAR_ZOOM холст получает атрибут data-far — линии стрелок держат экранную толщину
-  // (vector-effect), а сетка точек прячется (на отдалении она сливалась в серую муть).
-  // Тоже императивно, по тому же тику вьюпорта. Атрибут, а не класс: className корня
-  // пишет React на каждом рендере и стёр бы класс, поставленный мимо него.
+  // Отклик на зум без ре-рендера графа: толщина рамок держит ~1px на экране, ниже
+  // FAR_ZOOM — дальний режим (data-far). Корень холста — canvasRef.
   const canvasRef = useRef<HTMLDivElement>(null);
-  const frameBwRef = useRef(0);
-  const farRef = useRef(false);
-  const handleViewportChange = useCallback((vp: Viewport) => {
-    const far = vp.zoom < FAR_ZOOM;
-    if (far !== farRef.current) {
-      farRef.current = far;
-      if (far) canvasRef.current?.setAttribute("data-far", "1");
-      else canvasRef.current?.removeAttribute("data-far");
-    }
-    const bw = Math.round(Math.max(1, 1 / vp.zoom) * 4) / 4;
-    if (bw === frameBwRef.current) return;
-    frameBwRef.current = bw;
-    canvasRef.current?.style.setProperty("--lg-frame-bw", `${bw}px`);
-  }, []);
+  const handleViewportChange = useFarZoom(canvasRef);
 
   // Уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
   // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
