@@ -201,6 +201,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
     [detail],
   );
+  // Шаги в порядке сценария и поиск шага/фрагмента по id — для правок ниже (раньше
+  // каждая сортировала и искала заново, аудит F-63).
+  const sortedMessages = useMemo(
+    () => (detail ? [...detail.messages].sort((a, b) => a.order - b.order) : []),
+    [detail],
+  );
+  const msgById = useMemo(() => new Map((detail?.messages ?? []).map((m) => [m.id, m])), [detail]);
+  const fragById = useMemo(() => new Map((detail?.fragments ?? []).map((f) => [f.id, f])), [detail]);
   // Участник по id и его узел: сообщения теперь ссылаются на УЧАСТНИКОВ.
   const partById = useMemo(() => {
     const m: Record<string, ProcessParticipant> = {};
@@ -280,7 +288,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Границы фрагментов бэк намеренно не двигает: фрагмент — диапазон позиций.
   async function reorderMessages(ids: string[]) {
     if (!detail) return;
-    const prevIds = [...detail.messages].sort((a, b) => a.order - b.order).map((m) => m.id);
+    const prevIds = sortedMessages.map((m) => m.id);
     if (ids.length !== prevIds.length) return; // страховка неполного порядка
     // Оптимистично: сразу переписываем order в detail, иначе диаграмма мигнула бы
     // на прежний порядок между отпусканием и ответом API (onRootUp синхронно
@@ -562,7 +570,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // пустое поле означает ровно «подписи нет», а не «взять метку связи».
   async function saveCaption(mid: string) {
     if (!detail) return;
-    const m = detail.messages.find((x) => x.id === mid);
+    const m = msgById.get(mid);
     if (!m) return;
     const next = msgCaption.trim() || null;
     setMsgEdit(null);
@@ -589,7 +597,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Набранная, но не сохранённая подпись при этом уцелеет (её пишет только «Сохранить»).
   async function linkDoc(mid: string, docId: string | null) {
     if (!detail) return;
-    const m = detail.messages.find((x) => x.id === mid);
+    const m = msgById.get(mid);
     if (!m || m.doc_id === docId) return;
     const prev = m.doc_id ?? null;
     await runMutation(async () => {
@@ -621,7 +629,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }, "Не удалось изменить тип канала");
   }
   async function removeMessage(mid: string) {
-    const m = detail?.messages.find((x) => x.id === mid);
+    const m = msgById.get(mid);
     await runMutation(async () => {
       await processesApi.removeMessage(id, mid);
       setMsgEdit(null);
@@ -660,7 +668,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   }
   async function createFragment(kind: FragmentKind, fromRow: number, toRow: number, guard: string) {
     if (!detail) return;
-    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    const sorted = sortedMessages;
     if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
     const payload = {
       kind, from_order: sorted[fromRow].order, to_order: sorted[toRow].order, guard: guard.trim() || null, branches: [],
@@ -685,9 +693,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // создании). Границы держит бэк: from_order ≤ to_order.
   async function resizeFragment(fid: string, fromRow: number, toRow: number) {
     if (!detail) return;
-    const frag = detail.fragments.find((x) => x.id === fid);
+    const frag = fragById.get(fid);
     if (!frag) return;
-    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    const sorted = sortedMessages;
     if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
     const next = { from_order: sorted[fromRow].order, to_order: sorted[toRow].order };
     const prev = { from_order: frag.from_order, to_order: frag.to_order };
@@ -710,7 +718,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // ЦЕЛИКОМ одним списком — тогда откат возвращает набор разом (иначе undo половинчатый).
   async function patchBranches(fid: string, branches: BranchIn[]) {
     if (!detail) return;
-    const frag = detail.fragments.find((x) => x.id === fid);
+    const frag = fragById.get(fid);
     if (!frag) return;
     // Единственная точка записи — здесь же держим порядок: бэк требует строго
     // возрастающих границ, а новая ветвь не обязана быть последней.
@@ -735,9 +743,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Перенос границы ветви: строка → order (как и у охвата). Остальные ветви на месте.
   async function moveBranch(fid: string, index: number, row: number) {
     if (!detail) return;
-    const frag = detail.fragments.find((x) => x.id === fid);
+    const frag = fragById.get(fid);
     if (!frag || index < 0 || index >= frag.branches.length) return;
-    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    const sorted = sortedMessages;
     if (row < 0 || row >= sorted.length) return;
     await patchBranches(
       fid,
@@ -748,9 +756,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Сохранение карточки: заводим НОВУЮ ветвь либо правим условие существующей.
   async function saveBranch() {
     if (!branchEdit || !detail) return;
-    const frag = detail.fragments.find((x) => x.id === branchEdit.fid);
+    const frag = fragById.get(branchEdit.fid);
     if (!frag) return;
-    const sorted = [...detail.messages].sort((a, b) => a.order - b.order);
+    const sorted = sortedMessages;
     // Строка = число сообщений с меньшим order — ровно как в проекции диаграммы
     // (fromDetail). findIndex здесь врал бы: order удалённого сообщения дал бы −1.
     const rowOf = (order: number) => sorted.filter((m) => m.order < order).length;
@@ -777,7 +785,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   }
 
   async function removeFragment(fid: string) {
-    const f = detail?.fragments.find((x) => x.id === fid);
+    const f = fragById.get(fid);
     await runMutation(async () => {
       await processesApi.removeFragment(id, fid);
       setDelFrag(null);
@@ -868,7 +876,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
               onMoveBranch={editing ? (fid, index, row) => void moveBranch(fid, index, row) : undefined}
               onEditBranch={editing ? (fid, index) => {
-                const frag = detail.fragments.find((x) => x.id === fid);
+                const frag = fragById.get(fid);
                 setBranchGuard(index != null ? (frag?.branches[index]?.guard ?? "") : "");
                 setBranchEdit({ fid, index });
               } : undefined}
@@ -894,7 +902,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               // Просмотр: шаг со схемой логики открывает её — тем же оверлеем, что
               // провал из карточки шага в правке.
               onOpenDoc={editing ? undefined : (mid) => {
-                const m = detail?.messages.find((x) => x.id === mid);
+                const m = msgById.get(mid);
                 const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
                 if (doc) setDocView(doc);
               }}
@@ -977,7 +985,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         {/* Карточка шага — свой модуль: у неё появилось состояние (каталог схем,
             поиск), а холст и без того велик. */}
         {msgEdit && detail && (() => {
-          const m = detail.messages.find((x) => x.id === msgEdit);
+          const m = msgById.get(msgEdit);
           if (!m) return null;
           return (
             <>
@@ -1070,7 +1078,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                       style={{ marginRight: "auto", color: "#dc2626" }}
                       onClick={() => {
                         const { fid, index } = branchEdit;
-                        const frag = detail.fragments.find((x) => x.id === fid);
+                        const frag = fragById.get(fid);
                         setBranchEdit(null);
                         if (frag) void patchBranches(fid, frag.branches.filter((_, k) => k !== index));
                       }}
