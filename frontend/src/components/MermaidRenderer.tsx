@@ -4,7 +4,7 @@
 // статус-строки редактора DocOverlay; без onStatus ведёт себя как раньше
 // (текст ошибки в контейнер) — NodeModal не замечает разницы.
 import { useEffect, useId, useRef } from "react";
-import { loadMermaid, mermaidLoaded } from "./mermaidLoader";
+import { loadMermaid, MermaidLoadError, mermaidLoaded } from "./mermaidLoader";
 
 // Статус парсинга для статус-строки редактора (Часть D ТЗ визуализации доков).
 export type MmdStatus =
@@ -65,14 +65,15 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
         if (cancelled) return;
         // Упавший render оставляет в body временный контейнер d{id} — подчищаем.
         document.getElementById("d" + id)?.remove();
+        const notLoaded = err instanceof MermaidLoadError;
         if (onStatusRef.current) {
           onStatusRef.current({
             kind: "error",
-            line: errorLine(err),
+            line: notLoaded ? undefined : errorLine(err),
             message: err instanceof Error ? err.message : String(err),
           });
         } else if (ref.current) {
-          ref.current.textContent = "Ошибка в синтаксисе диаграммы";
+          ref.current.textContent = notLoaded ? err.message : "Ошибка в синтаксисе диаграммы";
         }
       }
     };

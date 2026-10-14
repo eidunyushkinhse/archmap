@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import UpdateNotice from './ui/UpdateNotice.tsx'
 
 // Корневой элемент гарантированно существует (index.html содержит <div id="root">),
 // но добавляем явный гард: без него приложение не может быть смонтировано.
@@ -20,5 +21,7 @@ createRoot(rootEl, {
 }).render(
   <StrictMode>
     <App />
+    {/* Вне границ ошибок App: плашка о новой версии видна на любом экране, и на входе */}
+    <UpdateNotice />
   </StrictMode>,
 )

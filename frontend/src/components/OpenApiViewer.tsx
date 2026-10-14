@@ -4,28 +4,17 @@
 // карта архитектуры, не API-клиент, кнопок Execute/Authorize быть не должно.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SwaggerUIBundle } from "swagger-ui-dist";
+import { lazyOnce } from "../lib/lazyOnce";
 import { refuseSwaggerRequest, stripExternalRefs } from "./openapiRefs";
 
 // Модульный синглтон загрузки. При отказе (битый деплой) сбрасывается,
 // чтобы следующее открытие оверлея попробовало снова.
-let swaggerP: Promise<SwaggerUIBundle> | null = null;
-let swaggerReady = false;
-function loadSwagger(): Promise<SwaggerUIBundle> {
-  swaggerP ??= Promise.all([
+const loadSwagger = lazyOnce<SwaggerUIBundle>(() =>
+  Promise.all([
     import("swagger-ui-dist/swagger-ui-es-bundle.js"),
     import("swagger-ui-dist/swagger-ui.css"),
-  ]).then(
-    ([mod]) => {
-      swaggerReady = true;
-      return mod.default;
-    },
-    (err: unknown) => {
-      swaggerP = null;
-      throw err;
-    },
-  );
-  return swaggerP;
-}
+  ]).then(([mod]) => mod.default),
+);
 
 interface Props {
   spec: object; // уже распарсенный объект спеки (не сырой текст)
@@ -34,7 +23,7 @@ interface Props {
 export default function OpenApiViewer({ spec }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "failed">(
-    swaggerReady ? "ready" : "loading",
+    loadSwagger.ready() ? "ready" : "loading",
   );
   // Внешние $ref — вон до рендера: swagger-ui загрузил бы их из браузера читателя.
   const safeSpec = useMemo(() => stripExternalRefs(spec).spec, [spec]);
