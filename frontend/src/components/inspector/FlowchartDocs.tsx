@@ -27,6 +27,7 @@ import FlowchartView, { StubCard } from "./FlowchartView";
 import DocsAgentPanel from "../docsImport/DocsAgentPanel";
 import { DocAgentSteps, DocHead, EditMenu, FlowGlyph, TwoStepDeleteButton } from "./docChrome";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyText } from "../../lib/copyText";
 
 // Событие мутации дока для истории/меты. before/after — полные доки: undo/redo
 // делаются компенсациями PATCH/POST/DELETE без base_version (паттерн U24).
@@ -247,9 +248,9 @@ export default function FlowchartDocs({
   // очереди; имена классов-обработчиков недоверенные, docs/plan-recon.md).
   function copyPrompt(variant: PromptVariant): Promise<void> {
     const target = active ? active.operation ?? active.name : "";
-    return docsImportApi
+    return copyText(docsImportApi
       .prompt({ nodeId, include: "logic", lang: "ru", hints: "", target, variant })
-      .then(({ prompt }) => navigator.clipboard.writeText(prompt));
+      .then(({ prompt }) => prompt));
   }
 
   async function afterAgent() {

@@ -16,6 +16,7 @@ import {
 import { ItemList, NoteList, StaleFilesConfirm, UnchangedInputNote } from "./agentModalReport";
 import AgentPackageInput from "./AgentPackageInput";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import { copyTextOrShow } from "../../lib/copyText";
 
 interface Props {
   // Узел, для которого агент готовит спеку (скоуп превью и применения).
@@ -76,7 +77,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
       "Валидатор дозаливки доков ArchMap нашёл замечания к пакету archmap-docs. " +
       "Исправь пакет и сообщи, какие файлы изменились:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyTextOrShow(text).then(() => {
       setRemarksCopied(true);
       setTimeout(() => setRemarksCopied(false), 2000);
       // Замечания ушли агенту — значит вернётся исправленная версия, и лежащий в

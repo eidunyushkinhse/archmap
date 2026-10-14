@@ -21,6 +21,7 @@ import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { labelStyle } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { copyText } from "../../lib/copyText";
 
 type Mode = "batch" | "single";
 
@@ -47,7 +48,7 @@ export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }:
     // в режиме «по одной» target фокусирует агента на одном воркере/эндпоинте
     // (пустой target в «пакетом» клиент не передаёт).
     const params: DocsPromptParams = { nodeId, include: "logic", lang, hints, target, variant };
-    return docsImportApi.prompt(params).then(({ prompt }) => navigator.clipboard.writeText(prompt));
+    return copyText(docsImportApi.prompt(params).then(({ prompt }) => prompt));
   }
 
   // Пакет применён: «Добавить ещё» оставляет окно под следующую точку входа

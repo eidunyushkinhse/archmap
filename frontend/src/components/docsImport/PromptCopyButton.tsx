@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { PromptVariant } from "../../types";
+import { CopyFailed } from "../../lib/copyText";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
 
 // Сколько держится «скопировано».
@@ -30,10 +31,11 @@ interface Props {
   /** Доводка стиля главной кнопки по месту: отступ, приглушение неактивной. */
   buttonStyle?: CSSProperties;
   /**
-   * Скопировать промпт варианта. Окно САМО делает запрос и пишет в буфер — так
-   * writeText остаётся в пределах жеста (Chrome иначе отбирает разрешение);
-   * промежуточных await между кликом и записью не добавляем. Обещание разрешилось
-   * — показываем «скопировано», отклонилось — молчим (ошибку показывает окно).
+   * Скопировать промпт варианта. Окно САМО делает запрос и пишет в буфер через
+   * lib/copyText — так запись начинается в пределах жеста; промежуточных await между
+   * кликом и записью не добавляем. Обещание разрешилось — «скопировано»; CopyFailed
+   * (буфер недоступен: http, отказ браузера) — показываем текст для ручного
+   * копирования (аудит R-6); прочий отказ (запрос промпта) показывает окно.
    */
   copy: (variant: PromptVariant) => Promise<void>;
   disabled?: boolean;
@@ -41,17 +43,22 @@ interface Props {
 
 export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle, copy, disabled }: Props) {
   const [copied, setCopied] = useState(false);
+  // Текст, который не удалось положить в буфер: показываем его для ручного копирования.
+  const [manual, setManual] = useState<string | null>(null);
   const timer = useRef(0);
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   function click() {
     void copy("orchestrated").then(
       () => {
+        setManual(null);
         window.clearTimeout(timer.current); // повторный клик продлевает «скопировано»
         setCopied(true);
         timer.current = window.setTimeout(() => setCopied(false), COPIED_MS);
       },
-      () => undefined,
+      (e: unknown) => {
+        if (e instanceof CopyFailed) setManual(e.text);
+      },
     );
   }
 
@@ -65,9 +72,34 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
       >
         {copied ? copiedLabel : label}
       </button>
+      {manual !== null && (
+        <>
+          <p style={manualHint} role="status">
+            Браузер не дал скопировать автоматически — выделите текст ниже и скопируйте
+            (Ctrl+C).
+          </p>
+          <textarea
+            readOnly
+            value={manual}
+            style={manualArea}
+            aria-label="Текст промпта"
+            onFocus={(e) => e.currentTarget.select()}
+            ref={(el) => el?.select()}
+          />
+        </>
+      )}
     </div>
   );
 }
+
+const manualHint: CSSProperties = { margin: "8px 0 4px", fontSize: 12, color: "#92400e" };
+const manualArea: CSSProperties = {
+  width: "100%",
+  minHeight: 120,
+  fontFamily: "monospace",
+  fontSize: 11,
+  boxSizing: "border-box",
+};
 
 // Колонка, а не просто div: кнопка внутри растягивается по ширине боковой колонки.
 const wrap: CSSProperties = { display: "flex", flexDirection: "column" };
