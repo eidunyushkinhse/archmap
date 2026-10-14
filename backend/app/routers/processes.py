@@ -16,9 +16,9 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     require_project_editor,
-    touch_project,
 )
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
@@ -81,12 +81,14 @@ from app.schemas.process_import import (
     ProcessImportPreview,
     ProcessImportResult,
 )
-from app.view_state import bump_process_rev
 
 router = APIRouter(prefix="/processes", tags=["processes"])
 
 
 # ── Вспомогательные ───────────────────────────────────────────────────────────
+# Каждая мутация процессов двигает process_rev (commit_change(..., process=True), Д9),
+# чтобы её увидел поллинг чужой сессии на странице процесса. Курсор СВОЙ: meta_rev
+# дал бы ложный тост странице объекта, graph_rev — ложный рефетч уровня канвасу.
 @contextmanager
 def _rules() -> Iterator[None]:
     """Нарушение правила процесса (app/processes) — HTTP-ответ с тем же текстом."""
@@ -94,16 +96,6 @@ def _rules() -> Iterator[None]:
         yield
     except ProcessRuleError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from None
-
-
-def _touch(db: Session, project: Project, user_id: uuid.UUID | None) -> None:
-    """touch_project + курсор процессов: каждая мутация процессов двигает
-    process_rev (Д9), чтобы её увидел поллинг чужой сессии на странице процесса.
-    Курсор СВОЙ: meta_rev дал бы ложный тост странице объекта, graph_rev — ложный
-    рефетч уровня канвасу."""
-    bump_process_rev(db, project)
-    touch_project(db, project, user_id)
-
 
 
 def _get_process(db: Session, process_id: uuid.UUID, project: Project) -> BusinessProcess:
@@ -140,8 +132,7 @@ def create_process(
         name=payload.name, scope_node_id=payload.scope_node_id, project_id=project.id
     )
     db.add(proc)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
 
@@ -171,8 +162,7 @@ def import_process(
 ) -> ProcessImportResult:
     """Создаёт НОВЫЙ процесс из диаграммы (слияние с существующим — отдельная задача)."""
     _, result = apply_import(db, project.id, payload.text, payload.name, payload.mapping)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     return result
 
 
@@ -219,8 +209,7 @@ def update_process(
         raise HTTPException(status_code=404, detail="Узел области не найден")
     for field, value in data.items():
         setattr(proc, field, value)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(proc)
     return build_process_detail(db, proc, all_nodes)
 
@@ -247,8 +236,7 @@ def duplicate_process_endpoint(
     """
     proc = _get_process(db, process_id, project)
     copy = duplicate_process(db, proc)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(copy)
     return build_process_detail(db, copy, load_nodes(db, project.id))
 
@@ -262,8 +250,7 @@ def delete_process(
 ) -> None:
     proc = _get_process(db, process_id, project)
     db.delete(proc)  # каскад сносит участников/сообщения/фрагменты
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Участники ─────────────────────────────────────────────────────────────────
@@ -293,8 +280,7 @@ def add_participant(
         process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
     )
     db.add(part)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(part)
     return participant_out(part, node)
 
@@ -314,8 +300,7 @@ def reorder_participants(
         if part is None:
             raise HTTPException(status_code=422, detail="Участник не из этого процесса")
         part.order = index
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     all_nodes = load_nodes(db, project.id)
     parts = sorted(proc.participants, key=lambda p: p.order)
     return [participant_out(p, participant_node(p, all_nodes)) for p in parts]
@@ -345,8 +330,7 @@ def bind_participant(
     if payload.node_id is None:
         part.node_id = None  # имя остаётся: без него линия жизни стала бы безымянной
         detached = detach_messages(proc, part)
-        _touch(db, project, user.id)
-        db.commit()
+        commit_change(db, project, user.id, process=True)
         db.refresh(part)
         return BindResult(participant=participant_out(part, None), attached=0, dangling=detached)
     if part.node_id is not None:
@@ -367,8 +351,7 @@ def bind_participant(
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
     db.flush()  # подхват смотрит на уже привязанного участника
     attached, dangling, _ids = reattach_dangling(db, proc, all_nodes, part)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(part)
     return BindResult(
         participant=participant_out(part, node), attached=attached, dangling=dangling
@@ -391,8 +374,7 @@ def reattach_process(
     """
     proc = _get_process(db, process_id, project)
     attached, dangling, ids = reattach_dangling(db, proc, load_nodes(db, project.id))
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     return ReattachResult(attached=attached, dangling=dangling, attached_ids=ids)
 
 
@@ -415,8 +397,7 @@ def detach_messages_endpoint(
         if msg is None:
             raise HTTPException(status_code=422, detail="Сообщение не из этого процесса")
         msg.edge_id = None
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 @router.delete(
@@ -435,8 +416,7 @@ def delete_participant(
     if part is None or part.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Участник не найден")
     db.delete(part)  # каскад сносит сообщения с этим концом (FK ON DELETE CASCADE)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Сообщения (точка enforcement) ─────────────────────────────────────────────
@@ -466,8 +446,7 @@ def create_message(
         doc_id=payload.doc_id,
     )
     db.add(msg)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
     return message_out(msg, draft.edge, part_by_id, docs_for_messages(db, [msg]), draft.nodes)
@@ -501,8 +480,7 @@ def reorder_messages(
         )
     for index, mid in enumerate(payload.ids):
         by_id[mid].order = index
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
     part_by_id = {p.id: p for p in proc.participants}
     edge_cache: dict[uuid.UUID, Edge | None] = {}
@@ -530,8 +508,6 @@ _MESSAGE_REFS: tuple[str, ...] = ("doc_id",)
 # Служебные поля контракта — НЕ поля шага: CAS-токен читается и выбрасывается,
 # в setattr не попадает никогда (паттерн update_node / update_doc).
 _MESSAGE_META: tuple[str, ...] = ("base_version",)
-
-
 
 
 @router.get(
@@ -615,8 +591,7 @@ def update_message(
         msg.doc_id = data["doc_id"]
     if data:
         msg.version += 1
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(msg)
     part_by_id = {p.id: p for p in proc.participants}
     return message_out(
@@ -644,8 +619,7 @@ def delete_message(
     if msg is None or msg.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Сообщение не найдено")
     db.delete(msg)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Фрагменты (свободный слой) ────────────────────────────────────────────────
@@ -660,8 +634,6 @@ def _span_steps(db: Session, process_id: uuid.UUID, from_order: int, to_order: i
         )
         .count()
     )
-
-
 
 
 @router.post(
@@ -697,8 +669,7 @@ def create_fragment(
         ],
     )
     db.add(frag)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(frag)
     return fragment_out(frag)
 
@@ -751,8 +722,7 @@ def update_fragment(
         frag.branches = [
             ProcessFragmentBranch(start_order=b.start_order, guard=b.guard) for b in new_branches
         ]
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
     db.refresh(frag)
     return fragment_out(frag)
 
@@ -773,8 +743,7 @@ def delete_fragment(
     if frag is None or frag.process_id != proc.id:
         raise HTTPException(status_code=404, detail="Фрагмент не найден")
     db.delete(frag)
-    _touch(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, process=True)
 
 
 # ── Композитор: каналы между парой участников ─────────────────────────────────

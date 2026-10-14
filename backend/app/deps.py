@@ -26,6 +26,7 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.view_state import bump_graph_rev, bump_meta_rev, bump_process_rev
 
 # Недоступный проект неотличим от несуществующего: существование не выдаём.
 PROJECT_NOT_FOUND = "Проект не найден"
@@ -185,3 +186,27 @@ def touch_project(db: Session, project: Project, user_id: uuid.UUID | None) -> N
     project.updated_at = datetime.now(UTC)
     project.updated_by_id = user_id
     db.add(project)
+
+
+def commit_change(
+    db: Session,
+    project: Project,
+    user_id: uuid.UUID | None,
+    *,
+    graph: bool = False,
+    meta: bool = False,
+    process: bool = False,
+) -> None:
+    """Смысловая правка проекта целиком (аудит Q-23: три строки в ~50 ручках): курсоры
+    поллинга того, что изменилось, — graph_rev (схема: узлы, связи, раскладка),
+    meta_rev (мета узла: атрибуты, доки, факты), process_rev (процессы); кто и когда
+    менял (touch_project); коммит. Курсоры разведены намеренно: чужой курсор дал бы
+    соседней странице ложный тост или рефетч."""
+    if graph:
+        bump_graph_rev(db, project)
+    if meta:
+        bump_meta_rev(db, project)
+    if process:
+        bump_process_rev(db, project)
+    touch_project(db, project, user_id)
+    db.commit()

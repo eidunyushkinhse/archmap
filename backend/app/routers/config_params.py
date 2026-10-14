@@ -30,12 +30,12 @@ from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     name_taken,
     node_or_404,
     owned_or_404,
     require_project_editor,
-    touch_project,
 )
 from app.models.config_param import ConfigParam
 from app.models.node import Node
@@ -140,9 +140,7 @@ def create_param(
         raise HTTPException(status_code=409, detail="Параметр с таким именем уже есть")
     param = ConfigParam(node_id=node.id, **payload.model_dump())
     db.add(param)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(param)
     return param
 
@@ -169,8 +167,7 @@ def update_param(
             setattr(param, field, value)
         param.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(param)
     return param
 
@@ -186,6 +183,4 @@ def delete_param(
     node = node_or_404(db, node_id, project)
     param = _scoped_param(db, node, param_id)
     db.delete(param)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)

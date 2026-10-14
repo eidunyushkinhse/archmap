@@ -14,7 +14,11 @@ from app import demo_limits
 from app.config_import import ConfigPlan, apply_config_plan, build_config_plan
 from app.config_prompt import build_config_prompt
 from app.database import get_db
-from app.deps import get_current_project, require_project_editor, touch_project
+from app.deps import (
+    commit_change,
+    get_current_project,
+    require_project_editor,
+)
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
@@ -85,6 +89,5 @@ def config_import_apply(
     apply_config_plan(db, plan, payload.overwrite)
     if plan.report.params_written:
         bump_meta_rev(db, project)  # конфигурация — мета узла
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     return plan.report

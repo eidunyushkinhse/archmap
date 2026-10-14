@@ -15,7 +15,11 @@ from sqlalchemy.orm import Session
 
 from app import demo_limits, tree
 from app.database import get_db
-from app.deps import get_current_project, require_project_editor, touch_project
+from app.deps import (
+    commit_change,
+    get_current_project,
+    require_project_editor,
+)
 from app.docs_import import (
     DocsPlan,
     MmdOverride,
@@ -168,8 +172,7 @@ def docs_import_apply(
     done = apply_docs_plan(db, plan)
     if any(done):
         bump_meta_rev(db, project)  # доки/спеки — мета узла: поллинг страницы увидит
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     report.applied = True
     report.created_docs = done.created
     report.filled_docs = done.filled

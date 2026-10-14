@@ -11,6 +11,7 @@ from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     node_or_404,
     require_project_editor,
@@ -130,9 +131,7 @@ def create_node(
         )
     # мир вида родителя изменился (новый локал ± строка позиции): fence + курсор
     bump_view_version(db, project.id, payload.parent_id)
-    bump_graph_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, graph=True)
     db.refresh(node)
     _mark_has_children(db, [node])  # только что создан — детей нет, но для единообразия
     return node
@@ -192,9 +191,7 @@ def restore_nodes(
     }
     for vid in touched_views:
         bump_view_version(db, project.id, vid)
-    bump_graph_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, graph=True)
 
 
 # Эти маршруты должны быть до /{node_id}, иначе FastAPI не доберётся до них
@@ -442,8 +439,7 @@ def update_node(
             bump_graph_rev(db, project)
         if meta_changed:
             bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(node)
     _mark_has_children(db, [node])
     return node

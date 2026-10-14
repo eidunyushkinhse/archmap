@@ -8,6 +8,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     require_project_editor,
     scoped_edge,
@@ -46,9 +47,7 @@ def create_edge(
     # project_id проставляем сервером из текущего проекта (концы уже проверены в нём).
     edge = Edge(**payload.model_dump(), project_id=project.id)
     db.add(edge)
-    bump_graph_rev(db, project)  # курсор поллинга: связь меняет картинку уровней
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, graph=True)  # курсор поллинга: связь меняет картинку уровней
     db.refresh(edge)
     return edge
 
@@ -98,8 +97,7 @@ def update_edge(
     if data:
         edge.version += 1
         bump_graph_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(edge)
     return edge
 

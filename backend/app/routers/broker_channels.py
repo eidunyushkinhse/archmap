@@ -26,12 +26,12 @@ from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     name_taken,
     node_or_404,
     owned_or_404,
     require_project_editor,
-    touch_project,
 )
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
@@ -189,9 +189,7 @@ def create_channel(
         raise HTTPException(status_code=409, detail="Канал с таким именем уже есть")
     channel = BrokerChannel(node_id=node.id, **payload.model_dump())
     db.add(channel)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(channel)
     return channel
 
@@ -219,8 +217,7 @@ def update_channel(
             setattr(channel, field, value)
         channel.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(channel)
     return channel
 
@@ -236,9 +233,7 @@ def delete_channel(
     node = _broker_node(db, node_id, project)
     channel = _scoped_channel(db, node, channel_id)
     db.delete(channel)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 # ── Поля сообщений ────────────────────────────────────────────────────────────
@@ -263,9 +258,7 @@ def create_field(
         raise HTTPException(status_code=409, detail="Поле с таким именем уже есть в канале")
     field = ChannelField(channel_id=channel.id, **payload.model_dump())
     db.add(field)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(field)
     return field
 
@@ -293,8 +286,7 @@ def update_field(
         for attr, value in data.items():
             setattr(field, attr, value)
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(field)
     return field
 
@@ -314,6 +306,4 @@ def delete_field(
     channel = _scoped_channel(db, node, channel_id)
     field = _scoped_field(db, channel, field_id)
     db.delete(field)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)

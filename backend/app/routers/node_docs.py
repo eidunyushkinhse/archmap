@@ -17,11 +17,11 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     name_taken,
     node_or_404,
     require_project_editor,
-    touch_project,
 )
 from app.models.business_process import BusinessProcess
 from app.models.node import Node
@@ -181,9 +181,7 @@ def create_doc(
         content=payload.content,
     )
     db.add(doc)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(doc)
     return doc
 
@@ -211,8 +209,7 @@ def update_doc(
             setattr(doc, field, value)
         doc.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(doc)
     return doc
 
@@ -228,9 +225,7 @@ def delete_doc(
     node = node_or_404(db, node_id, project)
     doc = _scoped_doc(db, node, doc_id)
     db.delete(doc)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 @router.post("/distribute", response_model=DistributeDocsOut)
@@ -282,6 +277,5 @@ def distribute_docs(
 
     if moved_docs or spec_moved:
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     return DistributeDocsOut(moved_docs=moved_docs, spec_moved=spec_moved)

@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 
 from app import demo_limits
 from app.database import get_db
-from app.deps import get_current_project, require_project_editor, touch_project
+from app.deps import (
+    commit_change,
+    get_current_project,
+    require_project_editor,
+)
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
@@ -108,6 +112,5 @@ def recon_import_apply(
     apply_recon_plan(db, plan)
     if plan.report.created:
         bump_meta_rev(db, project)  # схемы логики — мета узла: поллинг страницы увидит
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     return plan.report

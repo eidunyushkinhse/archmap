@@ -25,12 +25,12 @@ from app.data_refs import catalog_for_project, doc_ref_hits
 from app.database import get_db
 from app.deps import (
     check_cas,
+    commit_change,
     get_current_project,
     name_taken,
     node_or_404,
     owned_or_404,
     require_project_editor,
-    touch_project,
 )
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
@@ -180,9 +180,7 @@ def create_table(
         description=payload.description,
     )
     db.add(table)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(table)
     return table
 
@@ -210,8 +208,7 @@ def update_table(
             setattr(table, field, value)
         table.version += 1
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(table)
     return table
 
@@ -227,9 +224,7 @@ def delete_table(
     node = node_or_404(db, node_id, project)
     table = _scoped_table(db, node, table_id)
     db.delete(table)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
 
 
 # ── Колонки ───────────────────────────────────────────────────────────────────
@@ -252,9 +247,7 @@ def create_column(
         raise HTTPException(status_code=409, detail="Колонка с таким именем уже есть в таблице")
     column = DbColumn(table_id=table.id, **payload.model_dump())
     db.add(column)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
     db.refresh(column)
     return column
 
@@ -284,8 +277,7 @@ def update_column(
         for field, value in data.items():
             setattr(column, field, value)
         bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id)
     db.refresh(column)
     return column
 
@@ -307,6 +299,4 @@ def delete_column(
     if column is None or column.table_id != table.id:
         raise HTTPException(status_code=404, detail="Колонка не найдена")
     db.delete(column)
-    bump_meta_rev(db, project)
-    touch_project(db, project, user.id)
-    db.commit()
+    commit_change(db, project, user.id, meta=True)
