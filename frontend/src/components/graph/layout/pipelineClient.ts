@@ -23,11 +23,21 @@
 // Живой драг НЕ здесь: useLiveDragHandles остаётся синхронным на главном потоке
 // (ему нужен кадр-в-кадр; он скоуплен и дёшев). Тесты и дамп-гейты импортируют
 // чистый модуль pipeline напрямую.
-import { computeViewLayout, type PipelineInput, type PipelineOutput } from "./pipeline";
+import type { PipelineInput, PipelineOutput } from "./pipeline";
+import { lazyOnce } from "../../../lib/lazyOnce";
 // vite-канонический импорт воркера (?worker): и dev, и build дают конструктор.
 // Синтаксис new Worker(new URL(...)) в dev у rolldown-vite падал «_Worker is not
 // a constructor» МИМО try/catch — не использовать.
 import PipelineWorker from "./pipeline.worker.ts?worker";
+
+// Счёт на главном потоке — запасной путь (воркер недоступен или упал), поэтому сам
+// конвейер грузится лениво: статический импорт держал его во входном чанке, который
+// качается уже на экране входа (аудит R-18). Воркер везёт свою копию конвейера.
+const loadPipeline = lazyOnce(() => import("./pipeline"));
+
+function computeViewLayout(input: PipelineInput): Promise<PipelineOutput> {
+  return loadPipeline().then((m) => m.computeViewLayout(input));
+}
 
 // Самые тяжёлые реальные сцены считаются до ~8 с (холодные корни, замеры эпика
 // роутера) — сторож с большим запасом.
