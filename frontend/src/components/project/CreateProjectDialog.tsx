@@ -11,8 +11,9 @@ import PromptCopyButton from "../docsImport/PromptCopyButton";
 import ImportPane from "./ImportPane";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
-import { UnfixableFold, toDecisions, useRemainderAnswers } from "./remainder";
+import { toDecisions, useRemainderAnswers } from "./remainder";
 import type { Answer } from "./remainder";
+import { FactLines, ReportTail } from "./ImportReportParts";
 import "./createProject.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { CopyFailed, copyText } from "../../lib/copyText";
@@ -490,8 +491,6 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
 // Отчёт применения ввоза: сколько чего приехало и что не разрешилось. Показывается
 // вместо панели — из него уходят в проект кнопкой «Открыть проект».
 function ImportReport({ result }: { result: ArchiveImportResult }) {
-  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
-  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
   return (
     <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
@@ -499,30 +498,9 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
       </div>
       <div>Объектов: {result.nodes} · связей: {result.edges}</div>
       <div>Схем логики: {result.docs_created} · спек: {result.specs_applied}</div>
-      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
-      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
-      {result.channel_stubs > 0 && (
-        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
-      )}
+      <FactLines result={result} />
       {result.config && <div>Параметров конфигурации: {result.config.params_written}</div>}
-      {result.processes.length > 0 && (
-        <div>
-          Процессов: {result.processes.length} · привязок шагов: {linked}
-          {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
-          )}
-        </div>
-      )}
-      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
-      {result.resolved_conflicts > 0 && (
-        <div>
-          Разрешено споров содержимого: {result.resolved_conflicts}
-        </div>
-      )}
-      {/* Сырого списка «Замечания» нет (Ф2г-2): то, что требует рук, — той же
-          свёрткой, что в превью; информация о сделанном видна по счётчикам. Сырые
-          строки (result.warnings) остаются в ответе для MCP. */}
-      <UnfixableFold items={result.unfixable} after />
+      <ReportTail result={result} />
     </div>
   );
 }

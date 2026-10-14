@@ -22,6 +22,7 @@ import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
 import { statusState } from "./importRemarks";
+import { FactLines, ReportTail } from "./ImportReportParts";
 import {
   BulkBox, RemainderBlock, StatusLine, UnfixableFold, bulkAnswers,
   hasMineDisputes, splitErrorLine, toDecisions, useRemainderAnswers,
@@ -389,8 +390,6 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
 // Отчёт применения: «сколько записей тронуто» (форма догрузки), отчёты семей —
 // родные. То, что придётся поправить руками, — свёрткой до закрытия окна.
 function ApplyReport({ result }: { result: IntoApplyOut }) {
-  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
-  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
   return (
     <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
@@ -405,33 +404,14 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
         {result.docs_replaced > 0 && ` · заменено: ${result.docs_replaced}`}
         {" · спек: "}{result.specs_applied}
       </div>
-      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
-      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
-      {result.channel_stubs > 0 && (
-        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
-      )}
+      <FactLines result={result} />
       {result.config && (
         <div>
           Параметров конфигурации: {result.config.params_written}
           {result.params_replaced > 0 && ` · заменено: ${result.params_replaced}`}
         </div>
       )}
-      {result.processes.length > 0 && (
-        <div>
-          Процессов: {result.processes.length} · привязок шагов: {linked}
-          {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
-          )}
-        </div>
-      )}
-      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
-      {result.resolved_conflicts > 0 && (
-        <div>Разрешено споров содержимого: {result.resolved_conflicts}</div>
-      )}
-      {/* Сырого списка «Замечания» нет (Ф2г-2): информация о сделанном видна по
-          счётчикам выше, а то, что требует рук, — пунктами той же свёртки, что в
-          превью. Сырые строки (result.warnings) остаются в ответе для MCP. */}
-      <UnfixableFold items={result.unfixable} after />
+      <ReportTail result={result} />
     </div>
   );
 }
