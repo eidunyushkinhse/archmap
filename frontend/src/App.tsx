@@ -63,6 +63,9 @@ function routeFromHash(): Route {
   return route;
 }
 
+// Плашка экрана входа, когда сессия закончилась сама (токен истёк), а не по выходу.
+export const SESSION_EXPIRED_NOTICE = "Сессия истекла — войдите снова.";
+
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
   const [route, setRoute] = useState<Route>(routeFromHash);
@@ -110,19 +113,21 @@ export default function App() {
     [],
   );
 
-  // Демо-стенд: прочий 401 (токен гостя истёк) — на экран демо-входа без плашки.
-  // Выйти гостю иначе нечем: меню профиля у него нет. Вне демо ничего не меняется.
+  // Прочий 401 (токен истёк или испорчен) — на экран входа. Раньше это делал только
+  // демо-стенд, а вне демо страницы молча оставались пустыми (аудит R-15). Вне демо —
+  // плашка с причиной, и адрес страницы сохраняется: после входа человек вернётся
+  // туда же. Гость демо — на «Все проекты» без плашки: его новая песочница — другой проект.
   const demoMode = authConfig?.demo_mode ?? false;
   useEffect(() => {
-    if (!demoMode) return;
+    if (!authenticated) return;
     return onUnauthorized(() => {
       clearToken();
       setCurrentProjectId(null);
-      setLoginNotice(null);
+      setLoginNotice(demoMode ? null : SESSION_EXPIRED_NOTICE);
       setAuthenticated(false);
-      window.location.hash = "/projects";
+      if (demoMode) window.location.hash = "/projects";
     });
-  }, [demoMode]);
+  }, [authenticated, demoMode]);
 
   function navigate(hash: string) {
     window.location.hash = hash;

@@ -52,8 +52,8 @@ export function onAccountBlocked(listener: BlockedListener): () => void {
   return () => { blockedListeners.delete(listener); };
 }
 
-// Подписчики прочего 401 (токен истёк или испорчен). Слушает только App демо-стенда:
-// выйти гостю иначе нечем, меню профиля у него нет. Вне демо поведение прежнее.
+// Подписчики прочего 401 (токен истёк или испорчен). Слушает App: выходит на экран
+// входа (вне демо — с плашкой «Сессия истекла»).
 const unauthorizedListeners = new Set<() => void>();
 
 export function onUnauthorized(listener: () => void): () => void {
