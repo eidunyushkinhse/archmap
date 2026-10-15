@@ -5,6 +5,7 @@ import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { useBusyAction } from "../../ui/useBusyAction";
 
 /**
  * Редактирование проекта: урезанная версия CreateProjectDialog — только «Название»
@@ -21,25 +22,16 @@ interface Props {
 export default function EditProjectDialog({ project, onClose, onSaved }: Props) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сохранить проект");
 
   const canSubmit = name.trim().length > 0 && !busy;
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await projectsApi.update(project.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-      });
-      onSaved();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сохранить проект");
-      setBusy(false);
-    }
+    await run(() => projectsApi.update(project.id, {
+      name: name.trim(),
+      description: description.trim() || null,
+    }).then(onSaved));
   }
 
   return (

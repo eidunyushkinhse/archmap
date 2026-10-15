@@ -1,4 +1,4 @@
-// Подтверждения управления проектом: архив, возврат из архива, удаление навсегда.
+// Окна управления проектом: архив, возврат из архива, удаление навсегда, правка.
 // Успех зовёт onDone, и кнопка остаётся занятой, пока окно закрывается (второй щелчок
 // не повторит запрос); отказ бэка показывается под текстом, и можно повторить.
 import { render, screen, waitFor } from "@testing-library/react";
@@ -6,11 +6,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../project/ProjectDialogs";
+import EditProjectDialog from "../project/EditProjectDialog";
 import { projectsApi } from "../../api/projects";
 import type { Project } from "../../types";
 
 vi.mock("../../api/projects", () => ({
-  projectsApi: { archive: vi.fn(), restore: vi.fn(), remove: vi.fn() },
+  projectsApi: { archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), update: vi.fn() },
 }));
 // Нативный <dialog> в jsdom не открывается — прозрачная обёртка (паттерн соседних тестов).
 vi.mock("../../ui/Modal", () => ({
@@ -83,5 +84,32 @@ describe("DeleteForeverDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Удалить навсегда" }));
     expect(await screen.findByText("Имя не совпало")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить навсегда" })).toBeEnabled();
+  });
+});
+
+describe("EditProjectDialog", () => {
+  it("поля предзаполнены; успех уносит обрезанные значения, зовёт onSaved и держит кнопку занятой", async () => {
+    vi.mocked(projectsApi.update).mockResolvedValue(project);
+    const onSaved = vi.fn();
+    render(<EditProjectDialog project={{ ...project, description: "Старое" }} onClose={vi.fn()} onSaved={onSaved} />);
+    const name = screen.getByDisplayValue("Ярмарка");
+    await userEvent.clear(name);
+    await userEvent.type(name, "  Ярмарка v2 ");
+    await userEvent.clear(screen.getByDisplayValue("Старое"));
+    await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+    expect(projectsApi.update).toHaveBeenCalledWith("p1", { name: "Ярмарка v2", description: null });
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Сохранение…" })).toBeDisabled();
+  });
+
+  it("пустое название — кнопка заперта; отказ бэка показывается, и можно повторить", async () => {
+    vi.mocked(projectsApi.update).mockRejectedValue(new Error("Имя занято"));
+    render(<EditProjectDialog project={project} onClose={vi.fn()} onSaved={vi.fn()} />);
+    const name = screen.getByDisplayValue("Ярмарка");
+    await userEvent.clear(name);
+    expect(screen.getByRole("button", { name: "Сохранить" })).toBeDisabled();
+    await userEvent.type(name, "Плёнка{Enter}");
+    expect(await screen.findByText("Имя занято")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Сохранить" })).toBeEnabled();
   });
 });
