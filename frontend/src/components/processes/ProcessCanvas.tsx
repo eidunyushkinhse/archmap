@@ -7,7 +7,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
-import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessMessage, ProcessParticipant } from "../../types";
+import type { FragmentKind, MessageCreate, NodeStatus, ProcessMessage, ProcessParticipant } from "../../types";
 import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
@@ -18,12 +18,14 @@ import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
 import { ViewHint } from "./SchemaViewChrome";
 import ProcessToolbar from "./ProcessToolbar";
 import SequenceDiagram from "./SequenceDiagram";
-import { deriveActivations, newBranchRow } from "./sequence/layout";
-import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
+import { deriveActivations } from "./sequence/layout";
+import { detailToSeq } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
 import { useProcessDetail } from "./useProcessDetail";
+import type { ProcessEditCtx } from "./editCtx";
+import { fragmentEdits } from "./fragmentEdits";
 import { useProcessHistory } from "./useProcessHistory";
-import { useOverlayStack, type Overlay, type OverlayKind, type OverlayOf } from "./useOverlayStack";
+import { useOverlayStack, type Overlay, type OverlayKind } from "./useOverlayStack";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
 import "./processes.css";
 import { noAutofill } from "../../ui/noAutofill";
@@ -58,10 +60,11 @@ interface MessageSnapshot {
 }
 
 export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
+  const proc = useProcessDetail(id, onChanged, syncRev);
   const {
     detail, error, reload, setOptimistic, runMutation,
     sortedMessages, msgById, fragById, partById, nodeOfPart, nextOrder,
-  } = useProcessDetail(id, onChanged, syncRev);
+  } = proc;
   // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
   // концов связи через предков живёт там, и вторая реализация на клиенте
   // разошлась бы с валидатором. Обновляем, когда картина могла измениться:
@@ -87,6 +90,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
+  const editCtx: ProcessEditCtx = {
+    id, proc, hist, overlays: { open: openOverlay, close: closeOverlay, update: updateOverlay },
+  };
   // Узел → участник в СВЕЖЕМ состоянии: нужен для восстановления сообщений после
   // undo (id участника при пересоздании меняется, node_id — нет). Непривязанных
   // участников тут нет: восстанавливать их шаги всё равно нечем.
@@ -566,150 +572,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       }
     }, "Не удалось удалить сообщение");
   }
-  async function createFragment(kind: FragmentKind, fromRow: number, toRow: number, guard: string) {
-    if (!detail) return;
-    const sorted = sortedMessages;
-    if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
-    const payload = {
-      kind, from_order: sorted[fromRow].order, to_order: sorted[toRow].order, guard: guard.trim() || null, branches: [],
-    };
-    await runMutation(async () => {
-      const created = await processesApi.addFragment(id, payload);
-      let fid = created.id;
-      hist.push({
-        label: "Добавление фрагмента",
-        undo: () => processesApi.removeFragment(id, fid),
-        redo: async () => {
-          const r = await processesApi.addFragment(id, payload);
-          fid = r.id;
-        },
-      });
-      closeOverlay("frag");
-    }, "Не удалось добавить фрагмент");
-  }
-  // Правка охвата фрагмента протягиванием грани. Диаграмма отдаёт индексы СТРОК —
-  // переводим их в order сообщений (фрагмент хранит диапазон позиций, как и при
-  // создании). Границы держит бэк: from_order ≤ to_order.
-  async function resizeFragment(fid: string, fromRow: number, toRow: number) {
-    if (!detail) return;
-    const frag = fragById.get(fid);
-    if (!frag) return;
-    const sorted = sortedMessages;
-    if (fromRow < 0 || toRow >= sorted.length || fromRow > toRow) return;
-    const next = { from_order: sorted[fromRow].order, to_order: sorted[toRow].order };
-    const prev = { from_order: frag.from_order, to_order: frag.to_order };
-    // Оптимистично: рамка остаётся на новом месте, не мигая обратно до ответа.
-    setOptimistic({
-      ...detail,
-      fragments: detail.fragments.map((x) => (x.id === fid ? { ...x, ...next } : x)),
-    });
-    await runMutation(async () => {
-      await processesApi.updateFragment(id, fid, next);
-      hist.push({
-        label: "Охват фрагмента",
-        undo: async () => { await processesApi.updateFragment(id, fid, prev); },
-        redo: async () => { await processesApi.updateFragment(id, fid, next); },
-      });
-    }, "Не удалось изменить охват фрагмента");
-  }
-
-  // Общая запись правки ветвей: и границы, и условия, и снятие. Ветви правятся
-  // ЦЕЛИКОМ одним списком — тогда откат возвращает набор разом (иначе undo половинчатый).
-  async function patchBranches(fid: string, branches: BranchIn[]) {
-    if (!detail) return;
-    const frag = fragById.get(fid);
-    if (!frag) return;
-    // Единственная точка записи — здесь же держим порядок: бэк требует строго
-    // возрастающих границ, а новая ветвь не обязана быть последней.
-    const next = orderedBranches(branches);
-    const prev = frag.branches.map((b) => ({ start_order: b.start_order, guard: b.guard }));
-    setOptimistic({
-      ...detail,
-      fragments: detail.fragments.map((x) =>
-        x.id === fid ? { ...x, branches: next.map((b) => ({ start_order: b.start_order, guard: b.guard ?? null })) } : x,
-      ),
-    });
-    await runMutation(async () => {
-      await processesApi.updateFragment(id, fid, { branches: next });
-      hist.push({
-        label: "Ветки «иначе»",
-        undo: async () => { await processesApi.updateFragment(id, fid, { branches: prev }); },
-        redo: async () => { await processesApi.updateFragment(id, fid, { branches: next }); },
-      });
-    }, "Не удалось изменить ветки «иначе»");
-  }
-
-  // Перенос границы ветви: строка → order (как и у охвата). Остальные ветви на месте.
-  async function moveBranch(fid: string, index: number, row: number) {
-    if (!detail) return;
-    const frag = fragById.get(fid);
-    if (!frag || index < 0 || index >= frag.branches.length) return;
-    const sorted = sortedMessages;
-    if (row < 0 || row >= sorted.length) return;
-    await patchBranches(
-      fid,
-      frag.branches.map((b, k) => (k === index ? { ...b, start_order: sorted[row].order } : b)),
-    );
-  }
-
-  // Сохранение карточки: заводим НОВУЮ ветвь (index=null — границу ставим сами) либо
-  // правим условие существующей.
-  async function saveBranch(edit: OverlayOf<"branch">) {
-    if (!detail) return;
-    const frag = fragById.get(edit.fid);
-    if (!frag) return;
-    const sorted = sortedMessages;
-    // Строка = число сообщений с меньшим order — ровно как в проекции диаграммы
-    // (fromDetail). findIndex здесь врал бы: order удалённого сообщения дал бы −1.
-    const rowOf = (order: number) => sorted.filter((m) => m.order < order).length;
-    const guard = edit.guard.trim() || null;
-    if (edit.index != null) {
-      closeOverlay("branch");
-      await patchBranches(
-        edit.fid,
-        frag.branches.map((b, k) => (k === edit.index ? { ...b, guard } : b)),
-      );
-      return;
-    }
-    const row = newBranchRow(
-      rowOf(frag.from_order),
-      rowOf(frag.to_order),
-      frag.branches.map((b) => rowOf(b.start_order)),
-    );
-    if (row == null || row >= sorted.length) return;
-    closeOverlay("branch");
-    await patchBranches(edit.fid, [
-      ...frag.branches,
-      { start_order: sorted[row].order, guard },
-    ]);
-  }
-
-  async function removeFragment(fid: string) {
-    const f = fragById.get(fid);
-    await runMutation(async () => {
-      await processesApi.removeFragment(id, fid);
-      closeOverlay("delFrag");
-      if (f) {
-        const payload = {
-          kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard,
-          // Ветви восстанавливаем вместе с фрагментом: без них undo вернул бы alt
-          // без ветвлений, и это выглядело бы как потеря работы.
-          branches: f.branches.map((b) => ({ start_order: b.start_order, guard: b.guard })),
-        };
-        let restoredId: string | null = null;
-        hist.push({
-          label: "Удаление фрагмента",
-          undo: async () => {
-            const r = await processesApi.addFragment(id, payload);
-            restoredId = r.id;
-          },
-          redo: async () => {
-            if (restoredId) await processesApi.removeFragment(id, restoredId);
-          },
-        });
-      }
-    }, "Не удалось удалить фрагмент");
-  }
+  const { createFragment, resizeFragment, patchBranches, moveBranch, saveBranch, removeFragment } =
+    fragmentEdits(editCtx);
 
   // Одно окно стека. Закрытие любого — dismiss/closeOverlay его вида: «Отмена», клик по
   // подложке и Escape делают одно и то же.
