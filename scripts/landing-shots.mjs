@@ -7,6 +7,11 @@
 //   node scripts/landing-shots.mjs --only hero,status   # выборочно (имена — ниже, в SHOTS)
 //   node scripts/landing-shots.mjs --out /tmp/shots     # другой каталог
 //   node scripts/landing-shots.mjs --project "Имя"      # другой проект (по умолчанию «… v2»)
+// Кадры shot-* — запасная анимация видео на лендинге; crop-* — врезки (вкладки «Не только
+// схема», карточка «Схемы с навигацией», импорт). Снимать лучше на КОПИИ эталона («Новый
+// проект» → «Копия», корень переразложен «Переразложить уровень», «Сервис уведомлений»
+// раскрыт): сам эталон «… v2» не трогаем — из него пересобирается демо-шаблон, а ручные
+// позиции его корня дают кадру статусов налезающие узлы.
 // Учётка — ARCHMAP_USERNAME/ARCHMAP_PASSWORD из окружения, иначе из mcp/.env
 // (учётка демо-проекта). Токен в вывод не печатается.
 //
@@ -457,6 +462,49 @@ async function shootClip(page, file, clip) {
   console.log(`  ✓ ${file} ${size.w}×${size.h}, ${(statSync(path).size / 1024).toFixed(0)} КБ`);
 }
 
+// ── Врезки вкладок «Не только схема» ─────────────────────────────────────────
+// Окно вкладок на лендинге ~590×384 (16:10.4, object-fit: contain): врезка — блок
+// интерфейса шириной ~800 CSS px (окно съёмки 960 px), на сайте он идёт в масштабе ~0.75
+// и читается. Высота — не больше пропорции окна, лишнее снизу отрезается.
+const STAGE_RATIO = 16 / 10.4;
+async function shootBox(page, file, box, pad = 0, maxWidth = Infinity) {
+  const width = Math.round(Math.min(box.width + 2 * pad, maxWidth));
+  const height = Math.round(Math.min(box.height + 2 * pad, width / STAGE_RATIO));
+  await shootClip(page, file, { x: Math.round(box.x - pad), y: Math.round(box.y - pad), width, height });
+}
+// Левую панель (дерево) — в рельс: блоку страницы достаётся вся ширина окна
+async function collapseTree(page) {
+  await page.getByRole("button", { name: "Свернуть панель" }).first().click();
+  await page.locator('button[title="Развернуть панель"]').first().waitFor();
+  await page.waitForTimeout(400);
+}
+// Просмотрщик схемы (usePanZoom): колесо масштабирует вокруг курсора с шагом 1.15 —
+// крутим над точкой, пока подпись масштаба не дойдёт до target %, затем тащим схему
+// левой кнопкой на (dx, dy).
+async function zoomViewer(page, at, target) {
+  const pct = async () => Number((await page.locator("dialog[open]").getByText(/^\d+%$/).first().textContent()).replace("%", ""));
+  await page.mouse.move(at.x, at.y);
+  for (let i = 0; i < 20 && (await pct()) < target; i++) {
+    await page.mouse.wheel(0, -100);
+    await page.waitForTimeout(150);
+  }
+  return pct();
+}
+async function dragViewer(page, from, dx, dy) {
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x + dx, from.y + dy, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+}
+// Рамка узла mermaid-схемы в окне просмотра: flowchart — g.node с текстом text
+async function svgNodeBox(page, text) {
+  const n = page.locator("dialog[open] svg g.node").filter({ hasText: text }).first();
+  await n.waitFor();
+  return n.boundingBox();
+}
+const centerOf = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
+
 // Что карточка «Схемы с навигацией» показывает из кадра 640×480 при object-fit: cover
 // по центру (замер вёрстки лендинга v7): весь кадр; три колонки (~300×300) — средние
 // 462 px по ширине; одна колонка на ~700 px (628×220) — полоса 224 px по высоте; телефон
@@ -505,7 +553,7 @@ const SHOTS = {
   // API Gateway (REST) и к Kafka — с подписями. «БД заказов» в кадр не входит: она тоже
   // ребёнок контейнера и стоит у его правого края, через ~525 единиц от Order API, —
   // с ней заголовки в карточке ~300 px мельчают до 5–7 px.
-  "depth-card": { size: [1400, 1100], async run(page, s) {
+  "depth-canvas": { size: [1400, 1100], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orders}`);
     const card = await scrollCardToTop(page, "Схема");
     // кнопки зума, мини-карта и прочие панели холста — не в кадр (только в этой сцене)
@@ -537,7 +585,7 @@ const SHOTS = {
     // связей наружу (от API Gateway, к Kafka) не обязательны: линии пересекают рамку в
     // любом случае, а подпись в каждом окне либо целиком видна, либо целиком скрыта.
     const req = unite(api, one(/^Сервис заказов$/));
-    const plan = planFrame(req, texts, area, 12, CARD_WINDOWS, [0]);
+    const plan = planFrame(req, texts, area, 12, CARD_WINDOWS, [0], 1.4);
     if (!plan) throw new Error("не нашлось кадра без разрезанных подписей");
     await applyView(page, canvas, plan.z, area.x - plan.x0 * plan.z, area.y - plan.y0 * plan.z);
     await settle(page, 300);
@@ -549,10 +597,10 @@ const SHOTS = {
       (area.x + w[2] - v1.tx) / v1.k, (area.y + w[3] - v1.ty) / v1.k)).map((t) => t.text))];
     ["файл", "три колонки", "~700 px", "телефон"].forEach((label, i) => {
       const cut = cutIn(CARD_WINDOWS[i]);
-      if (cut.length) (i === 0 ? warnings : notes).push(`crop-depth-card.png, ${label}: краем режутся надписи — ${cut.join("; ")}`);
+      if (cut.length) (i === 0 ? warnings : notes).push(`crop-depth-canvas.png, ${label}: краем режутся надписи — ${cut.join("; ")}`);
     });
     console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок узла ≈ ${(13 * v1.k).toFixed(1)} px`);
-    await shootClip(page, "crop-depth-card.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
+    await shootClip(page, "crop-depth-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
   } },
 
   // Страница Order API: конфигурация (страница упирается в конец — на кадре заодно
@@ -673,7 +721,104 @@ const SHOTS = {
     // Поле вставки — к началу текста (после вставки оно прокручено к каретке в конце)
     await dlg.locator("textarea").last().evaluate((t) => { t.scrollTop = 0; });
     await shoot(page, "shot-import.png");
+    // Врезка «Вставьте файлы» (колонка ~420 px, высота по картинке): правая колонка окна —
+    // файлы, вставка, вопрос слияния и неактивное «Создать проект» до решения.
+    const ta = await dlg.locator("textarea").last().boundingBox();
+    const box = await dlg.boundingBox();
+    const left = Math.round(ta.x - 20);
+    await shootClip(page, "crop-import.png", { x: left, y: Math.round(box.y), width: Math.round(box.x + box.width - left), height: Math.round(box.height) });
     await dlg.getByRole("button", { name: "Отмена" }).click();
+  } },
+
+  // ── Врезки вкладок: каждая — блок интерфейса крупно (STAGE_RATIO, см. shootBox) ──
+  // Схема логики «Создание заказа»: окно просмотра, схема приближена над развилкой
+  // «Позиций не больше лимита?» — видны заголовок окна, начало схемы и обе ветки (та же
+  // логика, что текстом в блоке «Для агента» на лендинге).
+  "crop-logic": { size: [960, 760], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
+    await page.locator(`button[title="Открыть схему «${DOC_LOGIC}»"]`).click();
+    const dlg = page.locator("dialog[open]");
+    await dlg.locator("svg").first().waitFor();
+    await settle(page, 600);
+    await zoomViewer(page, centerOf(await svgNodeBox(page, "Позиций не больше")), 68);
+    // Проверка лимита (узел над развилкой) — сразу под заголовок окна; тащим за пустое поле
+    const box = await dlg.boundingBox();
+    const head = await dlg.getByRole("button", { name: "Изменить" }).boundingBox();
+    const check = await svgNodeBox(page, "Проверить число");
+    await dragViewer(page, { x: box.x + 60, y: box.y + box.height / 2 }, 0, head.y + head.height + 28 - check.y);
+    await shootBox(page, "crop-logic.png", box);
+  } },
+
+  // Спецификация Order API: окно Swagger, операция создания заказа раскрыта.
+  "crop-openapi": { size: [960, 760], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
+    await page.locator('.np-card:has(h3:text-is("OpenAPI")) .np-doc-row').click();
+    const dlg = page.locator("dialog[open]");
+    await dlg.locator(".opblock-summary").first().click();
+    await dlg.locator(".opblock.is-open").first().waitFor();
+    await settle(page, 800);
+    // Кадр — до примера тела запроса: в узком окне Swagger раскладывает его столбцами
+    const box = await dlg.boundingBox();
+    const code = await dlg.locator(".opblock.is-open .highlight-code").first().boundingBox();
+    await shootBox(page, "crop-openapi.png", { ...box, height: code.y - box.y - 12 });
+  } },
+
+  // ER-диаграмма БД заказов во весь экран, приближена к таблице orders и её связям.
+  "crop-db": { size: [960, 760], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.ordersDb}`);
+    await page.getByRole("button", { name: "Показать диаграмму" }).click();
+    const card = await scrollCardToTop(page, "Структура");
+    await card.locator("svg").first().waitFor();
+    await card.getByText("во весь экран").click();
+    const dlg = page.locator("dialog[open]");
+    await dlg.locator("svg").first().waitFor();
+    await settle(page, 600);
+    // Таблица orders — почти во всю ширину окна, по центру; выше неё в кадре — линии
+    // связей и низ таблиц order_items и order_saga, которые на неё ссылаются
+    const box = await dlg.boundingBox();
+    const entity = () => dlg.locator('svg g.node[id*="-entity-orders-"]').first().boundingBox();
+    let e = await entity();
+    for (let i = 0; i < 20 && e.width * 1.15 <= box.width * 0.92; i++) {
+      await page.mouse.move(e.x + e.width / 2, e.y);
+      await page.mouse.wheel(0, -100);
+      await page.waitForTimeout(150);
+      e = await entity();
+    }
+    await dragViewer(page, { x: box.x + 40, y: box.y + box.height - 40 },
+      box.x + box.width / 2 - (e.x + e.width / 2), box.y + 300 - e.y);
+    await shootBox(page, "crop-db.png", box);
+  } },
+
+  // Канал Kafka catalog.product-events: тип, гарантия, хранение, поля сообщения.
+  "crop-broker": { size: [960, 900], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.kafka}`);
+    await collapseTree(page);
+    await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] .bch-chev`).click();
+    await scrollCardToTop(page, "Каналы");
+    await settle(page, 400);
+    const card = await page.locator('.np-card:has(h3:text-is("Каналы"))').first().boundingBox();
+    // Кадр — до кнопки «+ Поле»: ниже начинается список публикаторов, его край резался бы
+    const add = await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] button`, { hasText: "Поле" }).first().boundingBox();
+    await shootBox(page, "crop-broker.png", { ...card, height: add.y + add.height + 20 - card.y });
+  } },
+
+  // Конфигурация Order API: параметры, дефолты из кода, «что переключает», пометки «зависит».
+  "crop-config": { size: [960, 900], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
+    await collapseTree(page);
+    const card = await scrollCardToTop(page, "Конфигурация");
+    await settle(page, 400);
+    await shootBox(page, "crop-config.png", await card.boundingBox());
+  } },
+
+  // Ссылка на источник: свойства Order API на его странице — якорь (репозиторий и путь).
+  "crop-anchor": { size: [960, 900], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
+    await collapseTree(page);
+    await page.getByText("github.com/yarmarka/orders").first().waitFor();
+    const card = await scrollCardToTop(page, "Свойства");
+    await settle(page, 400);
+    await shootBox(page, "crop-anchor.png", await card.boundingBox(), 0, 660); // значения — в левой части карточки
   } },
 };
 
