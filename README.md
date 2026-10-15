@@ -104,3 +104,13 @@ cd ..
 ## Как ведётся разработка
 
 ArchMap разрабатывается одним человеком вместе с ИИ-агентами. Каждая доработка начинается с плана в `docs/`, проходит гейт тестов и принимается вживую. Инструкции для агентов лежат в [CLAUDE.md](CLAUDE.md).
+
+## Лицензия
+
+ArchMap распространяется под [GNU Affero General Public License v3.0](LICENSE) (`AGPL-3.0-only`). Пользоваться, менять и ставить ArchMap у себя можно свободно, в том числе в компании. Если вы даёте другим работать с изменённой версией по сети, откройте им её исходный код.
+
+Движок раскладки elkjs распространяется под Eclipse Public License 2.0, поэтому к AGPL добавлено разрешение по её разделу 7:
+
+> Additional permission under GNU AGPL version 3 section 7
+>
+> If you modify this Program, or any covered work, by linking or combining it with elkjs (or a modified version of that library), containing parts covered by the terms of the Eclipse Public License 2.0, the licensors of this Program grant you additional permission to convey the resulting work. Corresponding Source for a non-source form of such a combination shall include the source code for the parts of elkjs used as well as that of the covered work.

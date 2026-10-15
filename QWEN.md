@@ -134,6 +134,7 @@ archmap/
 ├── DEV.md                 # локальный запуск: подробности и ручной режим
 ├── DEPLOY.md              # установка в OpenShift/Kubernetes и на сервер (закрытый контур), обновление, журналы, копии
 ├── README.md              # витрина репозитория
+├── LICENSE                # AGPL-3.0-only (решение 2026-10-15); разрешение раздела 7 для elkjs (EPL-2.0) — в README
 ├── spec.md                # продуктовая спецификация
 ├── tasks.md               # живые задачи и бэклог
 ├── .mcp.json              # MCP-серверы: LSP (python-lsp, typescript-lsp) + archmap (учётка — в mcp/.env);
