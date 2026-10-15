@@ -26,9 +26,9 @@ import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
-import NodeDocsList, { StubMark } from "../components/NodeDocsList";
+import NodeDocsList from "../components/NodeDocsList";
+import { DocRowLabel, OwnerSplitRow } from "../components/docRow";
 import UndescribedDocs from "../components/UndescribedDocs";
-import { KIND_LABEL } from "../components/docsList";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
@@ -557,11 +557,7 @@ function NodePageInner({
                             className="np-doc-row"
                             onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
                           >
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                            <span className={`np-doc-chip np-doc-chip--${d.kind}`}>{KIND_LABEL[d.kind]}</span>
-                            {!d.described && <StubMark />}
-                            {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
-                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                            <DocRowLabel name={d.name} kind={d.kind} stub={!d.described} operation={d.operation} />
                           </button>
                         ))}
                       </div>
@@ -685,8 +681,7 @@ function NodePageInner({
                         У контейнера осталась собственная OpenAPI-спецификация, распределите её по дочерним сервисам
                       </p>
                       <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                        <DocRowLabel name="Спецификация" />
                       </button>
                       {isArchitect && (
                         <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
@@ -758,8 +753,7 @@ function NodePageInner({
                     </p>
                   )}
                   <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+                    <DocRowLabel name="Спецификация" />
                   </button>
                 </>
               ) : (
@@ -886,27 +880,14 @@ function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
   onNavigateNode: (id: string) => void;
 }) {
   return (
-    <div className="np-doc-split">
-      <button
-        type="button"
-        className="np-doc-split-main"
-        onClick={() => onOpen({ mode: "flowchart", docId: doc.id, child })}
-        title={`Открыть схему «${doc.name}»`}
-      >
-        <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
-        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-        {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-      </button>
-      <button
-        type="button"
-        className="np-doc-split-child"
-        onClick={() => onNavigateNode(child.id)}
-        title={`Перейти к объекту «${child.name}»`}
-      >
-        от {child.name} →
-      </button>
-    </div>
+    <OwnerSplitRow
+      openTitle={`Открыть схему «${doc.name}»`}
+      onOpen={() => onOpen({ mode: "flowchart", docId: doc.id, child })}
+      owner={child}
+      onNavigateNode={onNavigateNode}
+    >
+      <DocRowLabel name={doc.name} kind={doc.kind} operation={doc.operation} />
+    </OwnerSplitRow>
   );
 }
 
@@ -919,25 +900,14 @@ function SpecSplitRow({ child, onOpen, onNavigateNode }: {
   onNavigateNode: (id: string) => void;
 }) {
   return (
-    <div className="np-doc-split">
-      <button
-        type="button"
-        className="np-doc-split-main"
-        onClick={() => onOpen(child)}
-        title={`Открыть спецификацию «${child.name}»`}
-      >
-        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-      </button>
-      <button
-        type="button"
-        className="np-doc-split-child"
-        onClick={() => onNavigateNode(child.id)}
-        title={`Перейти к объекту «${child.name}»`}
-      >
-        от {child.name} →
-      </button>
-    </div>
+    <OwnerSplitRow
+      openTitle={`Открыть спецификацию «${child.name}»`}
+      onOpen={() => onOpen(child)}
+      owner={child}
+      onNavigateNode={onNavigateNode}
+    >
+      <DocRowLabel name="Спецификация" />
+    </OwnerSplitRow>
   );
 }
 
@@ -1074,9 +1044,10 @@ function ProcessesSection({ nodeId, onNavigateProcess }: {
             onClick={() => onNavigateProcess?.(p.id)}
             title={`Открыть процесс «${p.name}»`}
           >
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}</span>
-            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
+            <DocRowLabel
+              name={p.name}
+              note={`${p.message_count} ${plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}`}
+            />
           </button>
         ))}
       </div>

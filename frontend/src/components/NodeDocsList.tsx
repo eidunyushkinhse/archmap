@@ -21,7 +21,8 @@ import type { CSSProperties, MouseEvent } from "react";
 import type { NodeDocKind, NodeDocMeta, NodeDocUsage } from "../types";
 import { ChevronDownIcon } from "../ui/icons";
 import { plural } from "../ui/plural";
-import { KIND_LABEL, OPEN_LIMIT } from "./docsList";
+import { OPEN_LIMIT } from "./docsList";
+import { DocRowLabel } from "./docRow";
 import { useShrinkAnchor } from "./useShrinkAnchor";
 
 // Порядок групп — тот же, что у вида схемы во всём проекте: операция → воркер.
@@ -167,10 +168,7 @@ function DocRow({ doc, onOpen, usage, onOpenProcess }: {
           onClick={() => onOpen(doc.id)}
           title={`Открыть схему «${doc.name}»`}
         >
-          <span style={rowName}>{doc.name}</span>
-          <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-          {doc.operation && <span style={rowOperation}>{doc.operation}</span>}
-          <span style={rowOpen}>открыть →</span>
+          <DocRowLabel name={doc.name} kind={doc.kind} operation={doc.operation} />
         </button>
         {used.length > 0 && (
           <button
@@ -207,26 +205,8 @@ function DocRow({ doc, onOpen, usage, onOpenProcess }: {
   );
 }
 
-// Метка заглушки: схема в списке есть, а тела у неё нет — список операций от агента
-// создал её строкой перечня (docs/plan-recon.md). Спокойный пунктирный контур, а НЕ
-// красная тревога: неописанная точка входа — нормальное состояние работы по списку,
-// а не ошибка. В списках «Логики» больше не стоит (заглушки живут отдельным блоком);
-// остаётся у собственных (grandfather) схем контейнера — там список предупреждения,
-// и что именно переезжает к детям, видеть полезно.
-export function StubMark() {
-  return <span style={stubMark}>не описана</span>;
-}
-
 // ── inline-стили строк и заголовков групп ─────────────────────────────
 const groupCount: CSSProperties = { fontSize: 12, fontWeight: 400, color: "#94a3b8" };
-const rowName: CSSProperties = { fontWeight: 600, fontSize: 13 };
-const rowOperation: CSSProperties = { fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" };
-const rowOpen: CSSProperties = { marginLeft: "auto", fontSize: 12, color: "#94a3b8" };
-const stubMark: CSSProperties = {
-  flex: "none", fontSize: 11, fontWeight: 600, color: "#64748b",
-  background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 5, padding: "1px 6px",
-  whiteSpace: "nowrap",
-};
 // Счётчик «в N процессах» — знание, а не действие: спокойный серый; раскрытие
 // подсписка — его единственная работа.
 const usageBtn: CSSProperties = { color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" };
