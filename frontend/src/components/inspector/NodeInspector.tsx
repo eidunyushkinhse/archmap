@@ -3,7 +3,7 @@
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
 import { canHaveChildren } from "../../types";
@@ -13,7 +13,7 @@ import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AnchorField from "../anchor/AnchorField";
 import MetaRow from "./MetaRow";
 import { META_ICON } from "./metaIcons";
-import { useContainerChildren } from "../../pages/useContainerChildren";
+import { aggregateTech, useDescendants } from "../../pages/useContainerChildren";
 import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
@@ -57,7 +57,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // Агрегированная технология потомков для контейнера: по правилам у контейнера
   // нет своей технологии — показываем сумму технологий потомков, read-only
   // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
-  const container = useContainerChildren(node.id, isContainer);
+  const { descendants } = useDescendants(node.id, isContainer);
+  const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
+  const techLoading = isContainer && descendants === null;
 
   // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
   // плодит пустых записей истории).
@@ -239,8 +241,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           <MetaRow icon={META_ICON.tech} label="Технология">
             {isContainer ? (
               // Контейнер: агрегированная технология потомков, только чтение.
-              <span className={"insp-value" + (container.aggTech ? "" : " insp-value--empty")}>
-                {container.loading ? "…" : container.aggTech || "не указана"}
+              <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
+                {techLoading ? "…" : aggTech || "не указана"}
               </span>
             ) : isArchitect ? (
               <span className="insp-value">
