@@ -10,7 +10,7 @@
 # корневая ФС может быть только для чтения: писать приложению нужно лишь в /tmp.
 
 # Базовые образы — тег для чтения, digest для воспроизводимости; обновляет Dependabot
-FROM --platform=$BUILDPLATFORM node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 AS front
+FROM --platform=$BUILDPLATFORM node:22-slim@sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392 AS front
 WORKDIR /src/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
