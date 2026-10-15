@@ -3,7 +3,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import NodeTreePanel, { NODE_DRAG_MIME, NODE_MOVE_MIME } from "../NodeTreePanel";
+import NodeTreePanel from "../NodeTreePanel";
+import { NODE_DRAG_MIME, NODE_MOVE_MIME } from "../nodeTree.mime";
 import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 
