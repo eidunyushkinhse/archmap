@@ -3,11 +3,11 @@
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
 import { nodesApi, nodeDocsApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
-import { getNodeColors, STATUS_META } from "../components/graph/colors";
+import { getNodeColors } from "../components/graph/colors";
 import { ChevronDownIcon } from "../ui/icons";
 import { useNodePatch } from "./useNodePatch";
 import { usePersistenceHost } from "./usePersistenceHost";
@@ -26,7 +26,6 @@ import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import AddDocsMenu from "../components/AddDocsMenu";
-import AnchorField from "../components/anchor/AnchorField";
 import NodeDocsList, { StubMark } from "../components/NodeDocsList";
 import UndescribedDocs from "../components/UndescribedDocs";
 import { KIND_LABEL } from "../components/docsList";
@@ -42,7 +41,7 @@ import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, vis
 import { plural } from "../ui/plural";
 import "./NodePage.css";
 import { noAutofill } from "../ui/noAutofill";
-import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../components/nodeTerms";
+import NodeProperties from "../components/nodePage/NodeProperties";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -177,8 +176,6 @@ function NodePageInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [shapeOpen, setShapeOpen] = useState(false);
   // Оверлей документации. `child` задан, когда открываем доку/спеку РЕБЁНКА прямо
   // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
   // контексте ребёнка (его id/имя/спека), а не контейнера. create — новая схема
@@ -456,186 +453,13 @@ function NodePageInner({
         {patch.error && <p className="np-conflict">{patch.error}</p>}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Свойства</h3>
-          <div className="np-props">
-            {/* Тип. Архитектор меняет форму прямо здесь (импорт мог ошибиться в
-                типе — кейс «Monitored Hosts» с типом «Пользователь»). Запреты на
-                стороне сервера: контейнером бывает только сервис, базу с описанной
-                структурой не увести (спека N4а); причина отказа — плашкой выше. */}
-            <span className="np-term">Тип</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <span className="np-selwrap">
-                  <button
-                    type="button"
-                    className="np-select"
-                    onClick={() => setShapeOpen((o) => !o)}
-                    aria-haspopup="listbox"
-                    aria-expanded={shapeOpen}
-                  >
-                    {SHAPE_LABEL[patch.shape]}
-                    <ChevronDownIcon />
-                  </button>
-                  {shapeOpen && (
-                    <>
-                      <div className="np-backdrop" onClick={() => setShapeOpen(false)} />
-                      <ul className="np-menu">
-                        {SHAPE_ORDER.map((sh) => (
-                          <li key={sh} onClick={() => { setShapeOpen(false); patch.pickShape(sh); }}>
-                            {SHAPE_LABEL[sh]}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </span>
-              ) : (
-                SHAPE_LABEL[shape]
-              )}
-            </span>
-
-            {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
-                N2а): чужой продукт/сторона, а не «вне системы» — границу системы
-                выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4).
-                Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
-                сервис — активный синий, чужой — серый, как точка у наблюдателя ниже.
-                Данные не инвертируются — только вид. */}
-            <span className="np-term" title={EXTERNAL_HINT}>Размещение</span>
-            <span className="np-value" title={EXTERNAL_HINT}>
-              {isArchitect ? (
-                <button type="button" className="np-toggle" onClick={patch.toggleExternal} aria-pressed={!patch.isExternal}>
-                  <span className={"np-switch" + (patch.isExternal ? "" : " is-on")} />
-                  {patch.isExternal ? "Внешний" : "Внутренний"}
-                </button>
-              ) : (
-                <>
-                  <span className="np-dot" style={{ background: node.is_external ? "#9ca3af" : "#2563eb", display: "inline-block", marginRight: 6 }} />
-                  {node.is_external ? "Внешний" : "Внутренний"}
-                </>
-              )}
-            </span>
-
-            {/* Статус */}
-            <span className="np-term">Статус</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <span className="np-selwrap">
-                  <button
-                    type="button"
-                    className="np-select"
-                    onClick={() => setStatusOpen((o) => !o)}
-                  >
-                    <span className="np-dot" style={{ background: statusDotColor(patch.status, patch.isExternal) }} />
-                    {STATUS_META[patch.status].label}
-                    <ChevronDownIcon />
-                  </button>
-                  {statusOpen && (
-                    <>
-                      <div className="np-backdrop" onClick={() => setStatusOpen(false)} />
-                      <ul className="np-menu">
-                        {STATUS_ORDER.map((st) => (
-                          <li key={st} onClick={() => { setStatusOpen(false); patch.pickStatus(st); }}>
-                            <span className="np-dot" style={{ background: statusDotColor(st, patch.isExternal) }} />
-                            {STATUS_META[st].label}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </span>
-              ) : (
-                <>
-                  <span className="np-dot" style={{ background: statusDotColor(node.status, node.is_external), display: "inline-block", marginRight: 6 }} />
-                  {STATUS_META[node.status].label}
-                </>
-              )}
-            </span>
-
-            {/* Роль */}
-            <span className="np-term">Роль</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <input
-                  {...noAutofill("node-page-2")}
-                  className="np-field"
-                  value={patch.role}
-                  onChange={(e) => patch.setRole(e.target.value)}
-                  onBlur={patch.commitRole}
-                  placeholder="сервис, БД, брокер…"
-                />
-              ) : (
-                node.role || <span className="np-value--empty">не указана</span>
-              )}
-            </span>
-
-            {/* Технология (не для персон) */}
-            {shape !== "person" && (
-              <>
-                <span className="np-term">Технология</span>
-                <span className="np-value">
-                  {isContainer ? (
-                    // Правила контейнеров: своей технологии нет — агрегированный
-                    // список уникальных технологий детей, только чтение.
-                    container.loading ? (
-                      <span className="np-value--empty">загрузка…</span>
-                    ) : container.aggTech !== "" ? (
-                      container.aggTech
-                    ) : (
-                      <span className="np-value--empty">не указана</span>
-                    )
-                  ) : isArchitect ? (
-                    <input
-                      {...noAutofill("node-page-3")}
-                      className="np-field"
-                      value={patch.technology}
-                      onChange={(e) => patch.setTechnology(e.target.value)}
-                      onBlur={patch.commitTech}
-                      placeholder="Python, Kafka, Redis…"
-                    />
-                  ) : (
-                    node.technology || <span className="np-value--empty">не указана</span>
-                  )}
-                </span>
-              </>
-            )}
-
-            {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. Стоит
-                среди свойств, а не в служебном углу: у ручного и агентского узла
-                поведение при импорте разное, и разницу должно быть видно. */}
-            {/* Терм без np-term--top: модификатор (align-self: start + отступ сверху)
-                нужен textarea описания, а здесь значение — строка с текстом, и
-                сетка выравнивает её с термом по базовой линии; с модификатором
-                подпись уезжала ниже значения (замечание пользователя 2026-09-04). */}
-            <span className="np-term">Якорь</span>
-            <span className="np-value">
-              <AnchorField
-                source={node.source}
-                isArchitect={isArchitect}
-                onSave={patch.commitSource}
-              />
-            </span>
-
-            {/* Описание — последняя строка таблицы свойств */}
-            <span className="np-term np-term--top">Описание</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <textarea
-                  {...noAutofill("node-page-4")}
-                  className="np-field np-fieldarea"
-                  value={patch.description}
-                  onChange={(e) => patch.setDescription(e.target.value)}
-                  onBlur={patch.commitDesc}
-                  placeholder="Описание объекта"
-                />
-              ) : (
-                <span style={{ lineHeight: 1.55 }}>
-                  {node.description || <span className="np-value--empty">нет описания</span>}
-                </span>
-              )}
-            </span>
-          </div>
-        </div>
+        <NodeProperties
+          patch={patch}
+          isArchitect={isArchitect}
+          isContainer={isContainer}
+          techLoading={container.loading}
+          aggTech={container.aggTech}
+        />
 
         {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}
         <div className="np-card">
@@ -1168,19 +992,6 @@ function EdgeRow({
 
 // ── Вспомогательные ─────────────────────────────────────────────────
 
-
-// Внешность — относительно контура организации, не системы (спека N2а).
-const EXTERNAL_HINT =
-  "Внешний — чужой продукт или чужая сторона относительно ОРГАНИЗАЦИИ (SaaS, " +
-  "third-party, клиент). Свои сотрудники и свои серверы — внутренние, даже вне " +
-  "границы системы: границу системы выражает дерево, а не этот флаг";
-
-
-
-function statusDotColor(status: NodeStatus, isExternal: boolean): string {
-  if (status === "existing") return isExternal ? "#9ca3af" : "#9ca3af";
-  return getNodeColors(isExternal, 0, status).bg;
-}
 
 // Глиф формы для шапки страницы (20×20, белый на цветном фоне).
 function HeaderGlyph({ shape, container }: { shape: NodeShape; container: boolean }) {
