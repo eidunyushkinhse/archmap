@@ -26,12 +26,9 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
-import type {
-  ViewMetaState, LocateRequest,
-  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
-  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
-} from "../components/graph/types";
+import type { LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
+import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
@@ -148,7 +145,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const gestureActiveRef = useRef(false);
   const layoutRetrySeq = useRef(0);
   const [layoutRetry, setLayoutRetry] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
+    patch: LayoutPatch; token: number;
   } | null>(null);
 
   // Locate-подсветка узла (Ф11): пульс ~2.5с при открытии редактора со страницы.
@@ -228,14 +225,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       setLoadError({ error: e, retry });
       return undefined;
     }
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const path: AncestorRef[] = [];
-    let cur: Node | undefined = byId.get(level);
-    while (cur) {
-      path.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-      cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-    }
-    return path;
+    return chainTo(all, level).map(ancestorRef);
   }
 
   // Начальная загрузка: breadcrumb по nodeId + граф уровня
@@ -284,7 +274,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     };
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError: plain-function, бандл пересобирается с ним (поведение не меняется).
-  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
+  function handlePersistConflict(patch: LayoutPatch) {
     void resyncOnPersistError().then(() => {
       setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
     });
@@ -401,13 +391,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     if (onLevel) { setSelectedObject({ kind: "node", node: onLevel }); return; }
     const all = await nodesApi.getAll();
     if (seq !== inspectSeq.current) return;
-    const byId = new Map(all.map((n) => [n.id, n]));
-    const node = byId.get(id);
+    const node = all.find((n) => n.id === id);
     if (!node) return;
-    const chain: Node[] = [];
-    for (let p = node.parent_id ? byId.get(node.parent_id) : undefined; p; p = p.parent_id ? byId.get(p.parent_id) : undefined) {
-      chain.unshift(p);
-    }
+    const chain = chainTo(all, node.parent_id);
     if (currentParentId === null || chain.some((a) => a.id === currentParentId)) {
       setSelectedObject({ kind: "node", node });
       return;
@@ -417,7 +403,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       ghost: {
         id: node.id, name: node.name, role: node.role, technology: node.technology, is_external: node.is_external,
         shape: node.shape, status: node.status, node_depth: chain.length, has_children: node.has_children,
-        child_count: node.child_count, ancestors: chain.map((a) => ({ id: a.id, name: a.name, is_external: a.is_external })),
+        child_count: node.child_count, ancestors: chain.map(ancestorRef),
         is_ghost: true,
       },
     });
@@ -683,8 +669,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const levelGhosts = useMemo(() =>
     liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId: currentParentId }).ghosts,
     [edges, endpoints, nodes, currentParentId]);
+  // Что не предлагать в выборе «связь вне уровня»: сам источник и всё, что уже на уровне.
+  // Мемо: выбор держит от набора свой фильтр, и новый Set на каждый рендер редактора
+  // пересобирал бы его впустую.
+  const outExcludeIds = useMemo(
+    () => new Set<string>(outPicker ? [outPicker.sourceId, ...nodes.map((n) => n.id), ...levelGhosts.map((g) => g.id)] : []),
+    [outPicker, nodes, levelGhosts],
+  );
 
-  const linkedHighlight = useMemo((): { kind: "node" | "edge"; id: string } | null => {
+  const linkedHighlight = useMemo((): LinkedHighlight | null => {
     if (!selectedObject) return null;
     if (selectedObject.kind === "edge") return { kind: "edge", id: selectedObject.edge.id };
     if (selectedObject.kind === "ghost") return { kind: "node", id: selectedObject.ghost.id };
@@ -855,6 +848,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             лист → прыжок на слой родителя + выделение + пульс) и внизу есть
             секция «Добавить объект» — единственное отличие от дерева страниц. */}
         <NodeTreePanel
+          mode="editor"
           isArchitect={isArchitect}
           reloadToken={treeReload}
           currentNodeId={currentParentId}
@@ -1000,7 +994,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         <CrossLevelEdgePicker title="Связь с объектом вне уровня"
           sourceId={outPicker.sourceId} sourceLabel={outPicker.sourceName ?? findNodeLabel(outPicker.sourceId)}
           loadNodes={() => nodesApi.getAll()} scopeKey="all" rootParentId={null} slotPlaceholder="Объект вне уровня…"
-          excludeIds={new Set<string>([outPicker.sourceId, ...nodes.map((n) => n.id), ...levelGhosts.map((g) => g.id)])}
+          excludeIds={outExcludeIds}
           onClose={() => setOutPicker(null)}
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }} />
       )}

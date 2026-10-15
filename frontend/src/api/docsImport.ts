@@ -3,8 +3,9 @@ import type {
   ChannelsImportReport,
   ConfigImportReport,
   DataImportReport,
+  DocsFile,
   DocsImportReport,
-  NodeDocKind,
+  DocsOverride,
   PromptVariant,
   ReconImportReport,
 } from "../types";
@@ -13,11 +14,6 @@ import type {
 // archmap-docs и применение. Пакет — самодостаточные файлы: схема логики .mmd с
 // метаданными в шапке, файл спеки OpenAPI. Файла-описи нет (docs/plan-docs-mmd.md),
 // поэтому запрос несёт node_id: объект, для которого открыто окно.
-export interface DocsFile {
-  name: string;
-  content: string;
-}
-
 export interface DocsPromptParams {
   nodeId?: string | null; // поддерево; null/undefined — весь проект
   include: "logic" | "api" | "both";
@@ -35,15 +31,6 @@ export interface DocsPromptParams {
 // «api» — только OpenAPI-спеки. Раздельные окна дозаливки (DocsAgentModal /
 // SpecAgentPanel) не смешивают сущности. Без only бэк строит полный план.
 export type DocsOnly = "logic" | "api";
-
-/** Правка строки превью: пользователь исправил имя или вид схемы перед записью.
- *  Раньше вид правился ПЕРЕЗАПИСЬЮ текста манифеста — манифеста больше нет. */
-export interface DocsOverride {
-  file: string;
-  name?: string;
-  kind?: NodeDocKind;
-  node?: string;
-}
 
 export interface DocsImportParams {
   files: DocsFile[];

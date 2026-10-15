@@ -7,8 +7,8 @@
 // перезаписи всегда «перезаписывать»: окно открывают, чтобы получить новую спеку.
 // Применение НЕ кладётся в undo — страховка: превью до записи.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { DocsImportReport } from "../../types";
-import { docsImportApi, type DocsFile } from "../../api/docsImport";
+import type { DocsFile, DocsImportReport } from "../../types";
+import { docsImportApi } from "../../api/docsImport";
 import { useDocsFiles } from "./useDocsFiles";
 import {
   ACTION_LABEL, countAction, inputFingerprint, useRepeatedInput, rightCol, grayLine, footRow,

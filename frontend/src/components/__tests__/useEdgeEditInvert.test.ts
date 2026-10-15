@@ -39,3 +39,23 @@ describe("useEdgeEdit: инверсия", () => {
     expect(result.current.srcLabel).toBe("Оплата");
   });
 });
+
+describe("useEdgeEdit: выбор конца в пикере", () => {
+  it("выбранный узел — подпись сразу, коммит с новым концом", async () => {
+    vi.mocked(edgesApi.update).mockReset();
+    vi.mocked(edgesApi.update).mockResolvedValue({ ...initial, target_id: "c", version: 2 } as never);
+    const { result } = renderHook(() => useEdgeEdit(initial, vi.fn()));
+    act(() => { result.current.pickEnd("target", "c", "Доставка"); });
+    expect(result.current.tgtLabel).toBe("Доставка");
+    await waitFor(() => expect(edgesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(edgesApi.update).mock.calls[0][1]).toMatchObject({ source_id: "a", target_id: "c", base_version: 1 });
+  });
+
+  it("очистка пикера конец не коммитит — связь без конца не сохранить", () => {
+    vi.mocked(edgesApi.update).mockReset();
+    const { result } = renderHook(() => useEdgeEdit(initial, vi.fn()));
+    act(() => { result.current.pickEnd("source", ""); });
+    expect(result.current.sourceId).toBe("");
+    expect(edgesApi.update).not.toHaveBeenCalled();
+  });
+});

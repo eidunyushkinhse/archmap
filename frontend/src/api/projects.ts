@@ -1,6 +1,6 @@
 import type {
   ArchiveImportResult, ImportPromptOut, IntoApplyOut, IntoPreviewOut, Project,
-  ProjectCreate, ProjectMember, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPreviewOut,
+  ProjectCreate, ProjectMember, ProjectUpdate, PromptVariant, SyncApplyOut, SyncPolicies, SyncPreviewOut,
   UnifiedPreviewOut, UserBrief,
 } from "../types";
 // Форма ответов на вопросы остатка слияния (Ф-E). В OpenAPI её нет: бэк принимает
@@ -9,15 +9,6 @@ import type {
 // Импорт ТОЛЬКО типовой (стирается компиляцией): api-слой не тянет за собой UI.
 import type { DecisionsPayload } from "../components/project/remainder/questions";
 import { api } from "./client";
-
-/** Что синку разрешено трогать (зеркало SyncPolicies бэка; дефолты — там же). */
-export interface SyncPolicies {
-  update_descriptions: boolean;
-  update_names: boolean;
-  sync_components: boolean;
-  mark_missing_deprecated: boolean;
-  restore_returned: boolean;
-}
 
 /**
  * Ответы разбора остатка в форму применения. Пустой словарь (и null — «отвечать

@@ -14,26 +14,20 @@ import {
   ViewportPortal,
   type Node as RFNode,
   type Edge as RFEdge,
-  type Viewport,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import "./LevelGraph.css";
-import { UndoIcon, RedoIcon, RelayoutIcon, EdgeLabelsIcon } from "../ui/icons";
+import { ExitUpTile, HistoryToolbar, ViewToolbar } from "./graph/CanvasToolbars";
+import DropOverlays from "./graph/DropOverlays";
+import { useConnectTargets } from "./graph/interaction/useConnectTargets";
 import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
-import { canHaveChildren } from "../types";
 import { distToPolyline } from "./graph/edgePath";
 
 /** Допуск попадания двойного клика в линию соседней связи (общее плечо, E95), px холста. */
 const SHARED_HIT_TOL = 4;
-import { NODE_W, NODE_H, OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
+import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
-import type {
-  WrappedEdgeData,
-  BlockData, GhostData, ContainerData,
-  LocateRequest,
-  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
-  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
-} from "./graph/types";
+import type { BlockData, GhostData, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, WrappedEdgeData } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
 import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
@@ -45,21 +39,23 @@ import { getCurrentProjectId } from "../api/projectScope";
 import { layoutSig } from "./graph/layout/layoutSig";
 import { assembleRfGraph } from "./graph/assembleRf";
 import { reconcileNodes, reconcileEdges } from "./graph/reconcileRf";
-import { NodeShapeSvg } from "./graph/shapes";
 import { nodeTypes } from "./graph/nodes";
 import { edgeTypes } from "./graph/edges";
 import { EdgeJumpProvider } from "./graph/EdgeJumpContext";
-import { ReconnectProvider, type RehangEdge, type RehangEnd, type RehangHandlers } from "./graph/ReconnectContext";
+import { ReconnectProvider } from "./graph/ReconnectContext";
 import ConnectionLine from "./graph/ConnectionLine";
 import { LevelBoundary, AlignmentGuides } from "./graph/boundaries";
 import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
-import { useHistory } from "./graph/interaction/useHistory";
-import type { History } from "./graph/interaction/useHistory";
+import { useLevelHistory } from "./graph/interaction/useLevelHistory";
+import { useLevelDragLifecycle } from "./graph/interaction/useLevelDragLifecycle";
+import { useLevelRehang } from "./graph/interaction/useLevelRehang";
+import { SCHEMA_FIT_OPTIONS, useLevelAutoFit } from "./graph/interaction/useLevelAutoFit";
+import { useFarZoom } from "./graph/interaction/useFarZoom";
 import { useCanvasDelete } from "./graph/interaction/useCanvasDelete";
-import { useEdgeConnect, type ConnectTarget } from "./graph/interaction/useEdgeConnect";
+import { useEdgeConnect } from "./graph/interaction/useEdgeConnect";
 import QuickConnectPreview from "./graph/QuickConnectPreview";
 import { useLayoutAnimation, type LayoutGate } from "./graph/interaction/useLayoutAnimation";
 import { ANIM_MOVE_MS } from "./graph/interaction/layoutAnimation";
@@ -72,7 +68,10 @@ import { useLiveDragHandles, type LiveHandleInputs } from "./graph/interaction/u
 import { useLevelPersistence } from "./graph/interaction/useLevelPersistence";
 import { useLevelDrill } from "./graph/interaction/useLevelDrill";
 import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
+import { useOncePerViewToast } from "./graph/interaction/useOncePerViewToast";
+import CanvasNotice from "./graph/CanvasNotice";
 import { emitTourEvent } from "./tour/tourBus";
+import { diag } from "./graph/layout/diag";
 
 // --- Основной компонент ---
 
@@ -81,30 +80,24 @@ import { emitTourEvent } from "./tour/tourBus";
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
 const EMPTY_VIEW_LAYOUT: ViewLayout = {};
 
-// Опции центрирования страничных схем (fitOnLoad/fitOnExpand и кнопка «Центрировать»
-// встроенных блоков): единый источник, чтобы авто-фит и ручное центрирование давали
-// идентичный вид. maxZoom 1.0 — не раздувать разреженные схемы (1–2 узла) крупнее
-// натурального размера, но и не мельчить (прежние 0.85 оставляли схемы «мелко»).
-const SCHEMA_FIT_OPTIONS = { padding: 0.1, maxZoom: 1.0 };
 // ПРЕДЕЛ ОТДАЛЕНИЯ (CV2 v2, решение пользователя 2026-10-12): дефолтные 0.5 React Flow
 // упирались на больших уровнях — ни колесом, ни «Центрировать» (fitView тоже не
 // опускается ниже minZoom) всю схему было не увидеть. 0.05 — узел 190 px становится
 // ~10 px: даже уровень на 6000 px умещается в окно с запасом. Ниже FAR_ZOOM холст в
-// дальнем режиме (см. handleViewportChange).
+// дальнем режиме (см. useFarZoom).
 const MIN_ZOOM = 0.05;
-const FAR_ZOOM = 0.4;
-// Тихое окно авто-центрирования: фит стартует, когда после последнего RF-коммита
-// прошло не меньше FIT_QUIET_MS (анимация не бьётся о коммиты), но не дольше
-// FIT_ATTEMPTS попыток по 140ms (не откладываем вечно при непрерывных изменениях).
-const FIT_QUIET_MS = 300;
-const FIT_ATTEMPTS = 10;
-// Срок годности запроса на анимированное центрирование (autoFitRef). Обычный путь
-// «взвели → пришёл свежий прогон → анимация осела → фит» укладывается в ~2–3с даже
-// на нагруженной схеме. Потолок нужен там, где ожидаемого прогона НЕ будет:
-// «Переразложить» на уже авто-разложенной схеме раскладку не меняет (скип по
-// layoutSig), эффект не перезапускается — и протухший запрос иначе сработал бы на
-// следующей смене раскладки (например, после драга), дёрнув схему без причины.
-const AUTO_FIT_TTL_MS = 8_000;
+// Пропсы <ReactFlow> — модульными константами (аудит F-57): литерал в JSX — новый объект
+// на каждый рендер, а массивы клавиш и кнопок панорамы React Flow сверяет по ссылке и
+// перевешивает на них слушатели.
+// Редактор-карта не зумит ближе 0.85 при фите — вход на разреженный уровень не подлетает.
+const EDITOR_FIT_OPTIONS = { padding: 0.2, maxZoom: 0.85 };
+// «Центрировать» страничных схем — тот же вид, что авто-фит, и с той же плавностью.
+const SCHEMA_FIT_ANIMATED = { ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS };
+const DEFAULT_VIEWPORT = { x: 60, y: 60, zoom: 0.85 };
+// Панорамирование ПРАВОЙ кнопкой мыши (код 2).
+const PAN_RIGHT_BUTTON = [2];
+const MULTI_SELECT_KEYS = ["Control", "Meta"];
+const PRO_OPTIONS = { hideAttribution: true };
 
 interface LevelGraphProps {
   nodes: AppNode[];
@@ -133,7 +126,7 @@ interface LevelGraphProps {
   isArchitect: boolean;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
-  linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
+  linkedHighlight?: LinkedHighlight | null;
   // Счётчик чтений уровня с сервера (растёт на каждую мутацию): сигнал «кэш детей
   // раскрытых рамок протух». Ответ /graph детей рамок не несёт, поэтому без него
   // удалённый/созданный внутри рамки объект остаётся на холсте до ухода с уровня.
@@ -298,18 +291,18 @@ function LevelGraphInner({
   // раскладке (отображаемые узлы = локалы + гости; мастер-рёбра = groupArr).
   // Реф читает оркестратор анимации (честное отключение), стейт — разовый тост.
   const overloadedRef = useRef(false);
-  const [overloadToastOpen, setOverloadToastOpen] = useState(false);
-  const overloadToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const overloadToast = useOncePerViewToast();
   // ТОСТ СТУПЕНЕЙ БЮДЖЕТА РАБОТ (Ф5 эпика router-opt, спека perf.md P13) — по образцу
   // разового тоста перегрузки P8. Ступень бюджета означает, что часть стадий качества
   // стрелок принесена в жертву потолку работ; молчаливая деградация запрещена ровно так
   // же, как молчаливое отключение анимаций.
-  const [budgetToastOpen, setBudgetToastOpen] = useState(false);
-  const budgetToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const budgetToast = useOncePerViewToast();
   // Разовый совет о грязи стрелок на перегруженной сцене (P15) — только тем, кто
   // может двигать узлы: совет «подёргайте узлы» наблюдателю невыполним.
-  const [dirtyToastOpen, setDirtyToastOpen] = useState(false);
-  const dirtyToastShownRef = useRef(new Set<string>()); // ключ — вид (containerId)
+  const dirtyToast = useOncePerViewToast();
+  const { show: showOverloadToast } = overloadToast;
+  const { show: showBudgetToast } = budgetToast;
+  const { show: showDirtyToast } = dirtyToast;
   // Занятость конвейера (P4): счётчик прогонов в полёте; бейдж «Считаю
   // раскладку…» проявляется CSS-задержкой INDICATE_AFTER_MS=300мс (LevelGraph.css).
   const [computing, setComputing] = useState(0);
@@ -426,51 +419,11 @@ function LevelGraphInner({
   // и drop-шаблона).
   const { guides, setGuides, clearGuides } = useAlignmentGuides();
 
-  // История Undo/Redo (Ctrl+Z / Ctrl+Shift+Z). На основном канвасе её поднимают в
-  // страницу-хозяин (туда же кладутся структурные команды и дисптчеры с кросс-уровневым
-  // редиректом); ownHistory — фолбэк для страниц (EmbeddedSchemaBlock), где истории не нужно.
-  const ownHistory = useHistory();
-  const baseHistory = historyProp ?? ownHistory;
-  // Команды этого канваса (перемещения) ШТАМПУЕМ текущим containerId,
-  // чтобы кросс-уровневый Undo знал, на какой уровень вернуть пользователя перед откатом.
-  // Адаптер оборачивает только push; остальные методы — как есть.
-  const history = useMemo<History>(
-    () => ({
-      ...baseHistory,
-      push: (cmd) => baseHistory.push({ ...cmd, level: containerId ?? null }),
-    }),
-    [baseHistory, containerId],
-  );
-  // Клавиши/кнопки зовут дисптчеры из MapEditorPage (кросс-уровневый редирект). В контекст-
-  // модалке дисптчеров нет — там Undo/Redo и так не показываются. Мемоизируем, чтобы не
-  // пересоздавать слушатель клавиш на каждый рендер. Undo/Redo — ручной жест: изменённые
-  // пересчётом стрелки перерисовываются анимированно (noteGesture).
-  const runUndo = useMemo(
-    () => () => { noteGesture(); (onUndo ?? history.undo)(); },
-    [onUndo, history, noteGesture],
-  );
-  const runRedo = useMemo(
-    () => () => { noteGesture(); (onRedo ?? history.redo)(); },
-    [onRedo, history, noteGesture],
-  );
-
-  // Клавиши Undo/Redo — ГЛОБАЛЬНО на window (не через onKeyDown канваса): у .lg-canvas
-  // нет tabIndex, поэтому его onKeyDown срабатывает лишь при фокусе внутри холста, а
-  // Ctrl+Z жмут и без выбранного узла (фокус на body). Только архитектор и не контекст
-  // (read-only). В полях ввода не перехватываем — там нативная отмена текста.
-  useEffect(() => {
-    if (!isArchitect || !canArrange) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      const t = document.activeElement as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
-      const key = e.key.toLowerCase();
-      if (key === "z" && !e.shiftKey) { e.preventDefault(); runUndo(); }
-      else if ((key === "z" && e.shiftKey) || key === "y") { e.preventDefault(); runRedo(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isArchitect, canArrange, runUndo, runRedo]);
+  // История Undo/Redo: адаптер со штампом уровня, запуск отмены/повтора и глобальные
+  // клавиши (только архитектор и не контекст — read-only).
+  const { history, runUndo, runRedo } = useLevelHistory({
+    historyProp, onUndo, onRedo, containerId, noteGesture, keysEnabled: isArchitect && canArrange,
+  });
 
   // Магнитное выравнивание узлов при драге + персист позиции по отпусканию.
   // commitLayout — стабильной обёрткой: команды undo/redo, которые useSnapAlignment
@@ -494,101 +447,25 @@ function LevelGraphInner({
   const liveHandleInputs = useRef<LiveHandleInputs | null>(null);
   const liveDragHandles = useLiveDragHandles({ inputsRef: liveHandleInputs, setRfEdges });
 
-  // Идёт ли драг узлов/рамки выделения. На время драга замораживаем реестр «мостиков»
-  // (paused у EdgeJumpProvider): иначе его пересчёт каждый кадр перерисовывал бы ВСЕ
-  // рёбра по два прохода — лаги и краш на хаотичном мультидраге многих узлов. Старт —
-  // на onNodeDragStart/onSelectionDragStart, сброс — в обёртках над стоп-обработчиками.
-  const [dragging, setDragging] = useState(false);
-  // Зеркало для СИНХРОННОГО чтения вне рендера (таймер фоновой уборки P14): стейт
-  // виден только следующему рендеру, а таймеру нужен факт «драг в полёте» сейчас.
-  const draggingRef = useRef(false);
-  useEffect(() => { draggingRef.current = dragging; });
-
   // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): их rect производен от
   // детей, перемещение содержимого = перемещение самих узлов. ЖИВОЙ bbox-follow
   // рамок при драге ребёнка — оверлей в useFrameFollowOverlay (вынесен при распиле Ф2).
   const frameFollow = useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes });
-  const handleNodeDragStart = useCallback(
-    (_e: unknown, n: RFNode, ns: RFNode[]) => {
-      setDragging(true);
-      if (gestureActiveRef) gestureActiveRef.current = true; // поллинг этапа 1: рефетч не врывается в жест
-      cancelAnim(); // transition раскрытия не должен цеплять жест — мгновенно доиграть
-      const grp = ns.length > 0 ? ns : [n];
-      liveDragHandles.begin(rfNodes, rfEdges); // база позиций узлов + снимок маршрутов на старте
-      noteDragStart(grp); // фиксируем «старые» позиции для инверсии перемещения
-      frameFollow.snapshotPads(); // паддинги рамок для живого bbox-follow
-      frameFollow.begin(grp); // скрыть рамки-предки, включить живой оверлей
-    },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
-  );
-  const handleSelectionDragStart = useCallback(
-    (_e: unknown, ns: RFNode[]) => {
-      setDragging(true);
-      if (gestureActiveRef) gestureActiveRef.current = true;
-      cancelAnim();
-      liveDragHandles.begin(rfNodes, rfEdges);
-      noteDragStart(ns);
-      frameFollow.snapshotPads();
-      frameFollow.begin(ns);
-    },
-    [liveDragHandles, rfNodes, rfEdges, noteDragStart, frameFollow, cancelAnim, gestureActiveRef],
-  );
-  const handleNodeDrag = useCallback(
-    (_e: unknown, _n: RFNode, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
-    [liveDragHandles, frameFollow],
-  );
-  const handleSelectionDrag = useCallback(
-    (_e: unknown, ns: RFNode[]) => { liveDragHandles.move(ns); frameFollow.follow(ns); },
-    [liveDragHandles, frameFollow],
-  );
-  // Отпускание драга: persistGroup сам кладёт ОДНУ команду на весь жест;
-  // beginGroup/commitGroup вокруг — страховка, чтобы сопутствующие push-и
-  // (если появятся) не разбили жест на несколько шагов Undo.
-  const handleNodeDragStopP = useCallback(
-    (e: unknown, n: RFNode, ns: RFNode[]) => {
-      setDragging(false);
-      frameFollow.finalize(); // рамки: финальный bbox одним setState + вернуть видимость
-      noteGesture(); // изменённые пересчётом стрелки перерисовать анимированно
-      history.beginGroup();
-      try {
-        // персист первым: нужен факт записи — жест без неё (нетто-сдвига нет)
-        // не сменит viewLayout и не запустит пересчёт, поэтому живое превью
-        // рёбер откатывается к состоянию старта (иначе висело бы насовсем)
-        const committed = handleNodeDragStop(e, n, ns);
-        if (!committed) liveDragHandles.restore();
-        else {
-          dragScopeRef.current = [n.id]; // пересчёт заскоуплен на перетащенный узел
-          emitTourEvent({ type: "node-drag-end", ids: [n.id] }); // ждёт обучающий тур демо
-        }
-      } finally {
-        liveDragHandles.end();
-        history.commitGroup("Перемещение группы");
-        if (gestureActiveRef) gestureActiveRef.current = false;
-      }
-    },
-    [liveDragHandles, handleNodeDragStop, history, frameFollow, noteGesture, gestureActiveRef],
-  );
-  const handleSelectionDragStopP = useCallback(
-    (e: unknown, ns: RFNode[]) => {
-      setDragging(false);
-      frameFollow.finalize();
-      noteGesture();
-      history.beginGroup();
-      try {
-        const committed = handleSelectionDragStop(e, ns);
-        if (!committed) liveDragHandles.restore();
-        else {
-          dragScopeRef.current = ns.map((x) => x.id); // скоуп на всю перетащенную группу
-          emitTourEvent({ type: "node-drag-end", ids: ns.map((x) => x.id) }); // ждёт обучающий тур демо
-        }
-      } finally {
-        liveDragHandles.end();
-        history.commitGroup("Перемещение группы");
-        if (gestureActiveRef) gestureActiveRef.current = false;
-      }
-    },
-    [liveDragHandles, handleSelectionDragStop, history, frameFollow, noteGesture, gestureActiveRef],
-  );
+  // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
+  // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
+  // обнуляет — следующий прогон (не дроп) считает всё целиком.
+  const dragScopeRef = useRef<string[] | null>(null);
+  // Старт, ход и отпускание драга узлов и рамки выделения; dragging замораживает
+  // реестр «мостиков» на время жеста, draggingRef читает таймер фоновой уборки (P14).
+  const {
+    dragging, draggingRef,
+    handleNodeDragStart, handleSelectionDragStart, handleNodeDrag, handleSelectionDrag,
+    handleNodeDragStopP, handleSelectionDragStopP,
+  } = useLevelDragLifecycle({
+    rfNodes, rfEdges, history, liveDragHandles, frameFollow, noteDragStart,
+    handleNodeDragStop, handleSelectionDragStop, cancelAnim, noteGesture,
+    gestureActiveRef, dragScopeRef,
+  });
 
   // Удаление выбранного узла с клавиатуры через подтверждение.
   const { handleKeyDown } = useCanvasDelete({
@@ -596,67 +473,9 @@ function LevelGraphInner({
   });
 
 
-  // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
-  // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
-  // потомка); лист (block без детей или гость) — связываем напрямую; распорка — игнор.
-  const resolveTarget = useCallback(
-    (id: string): ConnectTarget => {
-      const n = rfNodes.find((x) => x.id === id);
-      if (!n) return null;
-      if (n.type === "container") return { kind: "into", name: (n.data as ContainerData).name };
-      if (n.type === "block") {
-        const an = (n.data as BlockData).appNode;
-        // зона входа — только сервис с детьми; БД/брокер связываем напрямую
-        return an.has_children && canHaveChildren(an.shape)
-          ? { kind: "into", name: an.name }
-          : { kind: "direct" };
-      }
-      if (n.type === "ghost") return { kind: "direct" };
-      return null; // spacer и прочее
-    },
-    [rfNodes],
-  );
-
-  // Имя ОТОБРАЖАЕМОГО узла по id — для заголовков модалок создания связи. Дети
-  // раскрытых локальных контейнеров известны только холсту (кэш localChildren),
-  // поэтому имена концов уезжают вместе с жестом, а не разрешаются в MapEditorPage.
-  const displayNameOf = useCallback(
-    (id: string): string | undefined => {
-      const n = rfNodes.find((x) => x.id === id);
-      if (!n) return undefined;
-      if (n.type === "block") return (n.data as BlockData).appNode.name;
-      if (n.type === "ghost") return (n.data as GhostData).appNode.name;
-      if (n.type === "container") return (n.data as ContainerData).name;
-      return undefined;
-    },
-    [rfNodes],
-  );
-
-  // ПЕРЕПРИВЯЗКА КОНЦА-В-РАМКУ (эпик «связи, упирающиеся в рамку», edge.md E1a). Тянуть
-  // можно только конец, упёршийся в рамку (сборка помечает такие рёбра
-  // data.reconnectEnds), и только на узел ВНУТРИ ЭТОЙ ЖЕ рамки: её дети — единственные,
-  // кому связь может принадлежать «точнее». Промах мимо такого узла = жест отменён:
-  // ничего не пишем, рендер идёт из прежней раскладки, и конец возвращается на рамку
-  // (связь никогда не остаётся с одним концом). Ручку рисует само ребро на точке
-  // роутера (RehangAnchor, Ф5) и зовёт эти правила через ReconnectProvider.
-  const isValidRehangTarget = useCallback((edge: RehangEdge, end: RehangEnd, nodeId: string): boolean => {
-    // читаем ПОСЛЕДНЮЮ раскладку через ref: колбэк живёт дольше одного прогона
-    const l = layoutLatestRef.current;
-    if (!l || !canStructure) return false;
-    const frameId = end === "source" ? edge.source : edge.target;
-    if (!l.frameEnds.includes(frameId)) return false;
-    const other = end === "source" ? edge.target : edge.source;
-    if (nodeId === other) return false; // сам на себя — не связь
-    const frames = [...l.guestFrames, ...(l.levelFrame ? [l.levelFrame] : [])];
-    const frame = frames.find((f) => f.id === frameId);
-    return frame != null && frame.memberIds.has(nodeId); // цель вне рамки — промах
-  }, [canStructure]);
-  const reconnectFrameEnd = useCallback((edge: RehangEdge, end: RehangEnd, toNodeId: string) => {
-    if (!isValidRehangTarget(edge, end, toNodeId)) return;
-    if (edge.memberIds.length === 0) return;
-    const frameId = end === "source" ? edge.source : edge.target;
-    onReconnectFrameEnd?.(edge.memberIds, end, frameId, toNodeId);
-  }, [isValidRehangTarget, onReconnectFrameEnd]);
+  // Узлы холста как концы новой связи: цель протяжки («зона входа» / напрямую) и имя
+  // отображаемого узла для заголовков окон создания связи.
+  const { resolveTarget, displayNameOf } = useConnectTargets(rfNodes);
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
@@ -670,17 +489,11 @@ function LevelGraphInner({
     onExitUp: (s) => onExitUp?.(s, displayNameOf(s)),
   });
 
-  // Идёт перевес конца (ручка на ребре): класс холста прячет стрелки-глифы протяжки и
-  // включает подсветку допустимой цели. Метка перевеса для потока протяжки — та же,
-  // что ставила RF-ручка (handleReconnectStart/End: иначе отпускание конца на узле
-  // открывало бы ещё и окно «Новая связь»).
-  const [rehanging, setRehanging] = useState(false);
-  const rehangHandlers = useMemo<RehangHandlers>(() => ({
-    isValidTarget: isValidRehangTarget,
-    reconnect: reconnectFrameEnd,
-    onStart: () => { handleReconnectStart(); setRehanging(true); },
-    onEnd: () => { handleReconnectEnd(); setRehanging(false); },
-  }), [isValidRehangTarget, reconnectFrameEnd, handleReconnectStart, handleReconnectEnd]);
+  // Перепривязка конца-в-рамку (edge.md E1a): правила попадания, перевес и признак
+  // «идёт перевес» для класса холста; ручку рисует ребро (RehangAnchor).
+  const { rehanging, rehangHandlers } = useLevelRehang({
+    layoutLatestRef, canStructure, onReconnectFrameEnd, handleReconnectStart, handleReconnectEnd,
+  });
 
   // «Быстрая связь»: стрелка-кнопка у хэндла предлагает связать с подходящим соседом.
   // Стейт наведения, подбор цели (qcCandidate → QuickConnectPreview в JSX) и стабильные
@@ -756,10 +569,6 @@ function LevelGraphInner({
     scene: PrevScene;
     version: number;
   } | null>(null);
-  // Скоуп пересчёта после драга (фикс дрейфа): id узлов последнего жеста. computeNow
-  // передаёт их конвейеру (роутятся только их рёбра, остальные — из prevRoutes) и сразу
-  // обнуляет — следующий прогон (не дроп) считает всё целиком.
-  const dragScopeRef = useRef<string[] | null>(null);
   // ПЕРСИСТНЫЙ КЭШ МАРШРУТОВ ВИДА (Ф2 эпика router-opt, спека perf.md P11): маршруты
   // последнего АВТОРИТЕТНОГО прогона этого вида, пережившие уход с вида и перезагрузку.
   // Открытие уровня — единственный сценарий без prev (гистерезис и скоуп бессильны):
@@ -811,20 +620,14 @@ function LevelGraphInner({
     overloadedRef.current = overloaded;
     if (overloaded) {
       const viewKey = containerId ?? "__root__";
-      if (!overloadToastShownRef.current.has(viewKey)) {
-        overloadToastShownRef.current.add(viewKey); // разовый тост на вид (P8)
-        setOverloadToastOpen(true);
-      }
+      showOverloadToast(viewKey); // разовый тост на вид (P8)
       // Разовый совет о грязи стрелок (P15, пожелание пользователя 2026-09-01):
       // на перегруженной сцене холодная раскладка грубее, а выправляет её именно
       // серия правок (скоуп E84 → невидимая уборка P14 → чистый гистерезис под
       // следующим действием). Совет выполним только тому, кто может двигать узлы.
       // Уборка сюда не доходит (setLayout не зовёт — apply не срабатывает), так
       // что «сам всплывший» тост невозможен (аксиома P14).
-      if (isArchitect && canArrange && !dirtyToastShownRef.current.has(viewKey)) {
-        dirtyToastShownRef.current.add(viewKey);
-        setDirtyToastOpen(true);
-      }
+      if (isArchitect && canArrange) showDirtyToast(viewKey);
     }
     // Применение состоялось — интенты раскрытий отражены на холсте, гвард
     // прокликивания (P5) отпускает накопленные id.
@@ -836,7 +639,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
@@ -868,7 +671,7 @@ function LevelGraphInner({
     // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
     // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
     // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
-    const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
+    const w = diag;
     w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
     w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
     // ИНДИКАЦИЯ ЗАНЯТОСТИ (P4) — но НЕ для уборки: бейдж «Считаю раскладку…» и
@@ -961,13 +764,7 @@ function LevelGraphInner({
       // законсервированная в кэше, невозможна.
       // Уборка тостов НЕ показывает: её геометрию пользователь не видит (на экран она
       // не идёт), а всплывшее без действия предупреждение — то же «само происходит».
-      if (budgetDegraded && !cleanup) {
-        const viewKey = containerId ?? "__root__";
-        if (!budgetToastShownRef.current.has(viewKey)) {
-          budgetToastShownRef.current.add(viewKey);
-          setBudgetToastOpen(true);
-        }
-      }
+      if (budgetDegraded && !cleanup) showBudgetToast(containerId ?? "__root__");
       // СНИМОК ГИСТЕРЕЗИСА — И ДЛЯ УБОРКИ (P14): её маршруты чистые, а позиции она не
       // меняла, поэтому снимок сцены (из ЕЁ результата, как у всех прогонов) совпадает
       // с экранной сценой — дифф следующего драга остаётся честным. Именно эта запись
@@ -1039,7 +836,7 @@ function LevelGraphInner({
     // idleCleanup ссылочно стабилен (useMemo в хуке) — identity computeNow от него не
     // дрожит, эффект раскладки не перезапускается.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- nodeSizesRef — стабильный ref из useLevelMeasure (читается по .current), в deps не нужен
-  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup]);
+  }, [nodes, endpoints, containerId, viewLayout, edges, expanded, localChildren, stableAncestorIds, sizesVersion, isReadOnly, idleCleanup, showBudgetToast]);
   useEffect(() => { computeNowRef.current = computeNow; });
   // Инвалидация на размонтирование: полёт не должен персистить интенты после ухода
   // со страницы (прежняя cancelled-семантика закрывала это cleanup'ом эффекта).
@@ -1066,18 +863,8 @@ function LevelGraphInner({
     isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
   });
 
-  // ПРИГЛАШАЮЩАЯ РАМКА ПУСТОГО СЛОЯ (эпик «связи, упирающиеся в рамку»): пока тянут
-  // шаблон, её внутренность светится зелёным — «первый узел кладут сюда»; когда центр
-  // будущего узла оказывается внутри, зелёный становится выразительнее.
-  // Подсветка ЧИСТО ВИЗУАЛЬНАЯ (canvas.md CV20a): в цели дропа рамка уровня не входит и
-  // семантику не меняет — на пустом слое любой дроп и так создаёт ребёнка контейнера,
-  // чью рамку видно. Хит-тест — тот же, что у рамок-целей: центр будущего узла в rect.
+  // Рамка уровня, когда слой пуст: приглашение «первый узел кладут сюда» (CV20a).
   const emptyLevelFrame = layout && layout.nodes.length === 0 ? layout.levelFrame : undefined;
-  const emptyFrameHit = !!emptyLevelFrame && !!dropPreview && (() => {
-    const cx = dropPreview.x + NODE_W / 2, cy = dropPreview.y + NODE_H / 2;
-    const r = emptyLevelFrame.rect;
-    return cx >= r.x && cx <= r.x + r.w && cy >= r.y && cy <= r.y + r.h;
-  })();
 
   // Двойной клик — единственный триггер меты (правая панель); одиночный — только
   // штатное выделение RF. Отзывается ЛЮБОЙ узел — сплошная фигура на схеме: локальный
@@ -1144,93 +931,22 @@ function LevelGraphInner({
     if (next) setRfEdges(next);
   }, [linkedHighlight, getEdges, setRfEdges]);
 
-  // АДАПТИВНАЯ ТОЛЩИНА РАМОК ПОД ЗУМ: рамки (нативные C4-boundary и compound-рамки
-  // раскрытий) рисуются 1px-пунктиром в координатах графа — на сильном отдалении
-  // физический 1px тает до долей экранного пикселя и рамка исчезает. Держим на холсте
-  // CSS-переменную --lg-frame-bw = max(1, 1/zoom)px: при приближении рамка остаётся
-  // прежним аккуратным 1px, при отдалении растёт физически ровно настолько, чтобы на
-  // экране оставаться ~1px. Пишем императивно (не через стейт) — зум не должен
-  // ре-рендерить граф; квант 0.25px гасит дёрганье стилей на каждом тике колеса.
-  // ДАЛЬНИЙ РЕЖИМ (решение пользователя 2026-10-12 — предел отдаления снят): ниже
-  // FAR_ZOOM холст получает атрибут data-far — линии стрелок держат экранную толщину
-  // (vector-effect), а сетка точек прячется (на отдалении она сливалась в серую муть).
-  // Тоже императивно, по тому же тику вьюпорта. Атрибут, а не класс: className корня
-  // пишет React на каждом рендере и стёр бы класс, поставленный мимо него.
+  // Отклик на зум без ре-рендера графа: толщина рамок держит ~1px на экране, ниже
+  // FAR_ZOOM — дальний режим (data-far). Корень холста — canvasRef.
   const canvasRef = useRef<HTMLDivElement>(null);
-  const frameBwRef = useRef(0);
-  const farRef = useRef(false);
-  const handleViewportChange = useCallback((vp: Viewport) => {
-    const far = vp.zoom < FAR_ZOOM;
-    if (far !== farRef.current) {
-      farRef.current = far;
-      if (far) canvasRef.current?.setAttribute("data-far", "1");
-      else canvasRef.current?.removeAttribute("data-far");
-    }
-    const bw = Math.round(Math.max(1, 1 / vp.zoom) * 4) / 4;
-    if (bw === frameBwRef.current) return;
-    frameBwRef.current = bw;
-    canvasRef.current?.style.setProperty("--lg-frame-bw", `${bw}px`);
-  }, []);
+  const handleViewportChange = useFarZoom(canvasRef);
 
   // Уровень рендерим даже пустым: тогда сразу видна канва (точки) и в неё можно
   // дропнуть первый узел, а зум остаётся «отдалённым» (defaultViewport ниже),
   // без скачка к гигантскому fitView на единственном узле.
   const hasGraphContent = nodes.length + endpoints.length > 0;
 
-  // Авто-центрирование страничных схем (fitOnLoad/fitOnExpand). Раскладка двухфазная
-  // (фолбэк-габариты → замер → пере-прогон), поэтому фитим НЕ на первом проходе, а по
-  // оседании: дебаунс на смене layout/sizesVersion ловит последний прогон в окне.
-  //  - Загрузка (fitOnLoad): одноразово (didLoadFitRef), после первого замера
-  //    (sizesVersion ≥ 1), БЕЗ анимации — правит «спозание» декларативного fitView,
-  //    который сгорает на первом проходе и оставляет схему «вверху и мелко».
-  //  - Раскрытие/сворачивание/«Переразложить» (fitOnExpand): по запросу autoFitRef
-  //    (взводят commitExpanded и эффект relayoutToken), С анимацией
-  //    (duration = ANIM_MOVE_MS) — по оседании переезда узлов.
-  // Оба — через SCHEMA_FIT_OPTIONS (== кнопка «Центрировать»). Не fitOnLoad/Expand
-  // (редактор-карта) — эффект no-op, центрирование редактора не меняется.
-  useEffect(() => {
-    if ((!fitOnLoad && !fitOnExpand) || !hasGraphContent) return;
-    let cancelled = false;
-    let timer = 0;
-    const attempt = (n: number) => {
-      timer = window.setTimeout(() => {
-        if (cancelled) return;
-        // ТИХОЕ ОКНО: фит стартует, только когда после последнего RF-коммита
-        // (apply/drawIn/маски) прошло FIT_QUIET_MS — иначе анимация центрирования
-        // начинается внутри тяжёлого коммита (первые кадры задержаны) и бьётся о
-        // последующие (фризы посреди анимации; трейс 2026-08-06). Не тихо и лимит
-        // попыток не исчерпан — ждём дальше; исчерпан — фитим как есть (лучше
-        // поздно и чуть дёргано, чем никогда).
-        if (performance.now() - lastRfCommitRef.current < FIT_QUIET_MS && n < FIT_ATTEMPTS) {
-          attempt(n + 1);
-          return;
-        }
-        if (!didLoadFitRef.current && fitOnLoad && sizesVersion >= 1) {
-          didLoadFitRef.current = true;
-          fitView(SCHEMA_FIT_OPTIONS);
-          return;
-        }
-        // Фит по запросу — только когда анимация ОСЕЛА (!animActive). Иначе при
-        // сворачивании fitView ловит промежуточную фазу схлопывания (потомки ещё
-        // стягиваются в точку) и считает viewport по ним, а не по итоговому
-        // свёрнутому составу — схема «уезжает в угол». По оседании (animActive=false)
-        // эффект перезапускается и фит считается по финальным узлам — одинаково для
-        // раскрытия, сворачивания и переразкладки. Протухший запрос (AUTO_FIT_TTL_MS)
-        // гасим молча: ожидавшегося прогона не случилось, центрировать нечего.
-        if (autoFitRef.current !== null && fitOnExpand && !animActive) {
-          const stale = performance.now() - autoFitRef.current > AUTO_FIT_TTL_MS;
-          autoFitRef.current = null;
-          if (!stale) fitView({ ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS });
-        }
-      }, 140);
-    };
-    attempt(0);
-    return () => { cancelled = true; window.clearTimeout(timer); };
-    // animActive — флаг анимации раскрытия/сворачивания/переезда: фит ждёт её
-    // оседания. relayoutToken в зависимостях НЕТ намеренно: запрос взводится в
-    // момент сброса, а фитить надо по ПРИШЕДШЕЙ раскладке (layout) — перезапуск
-    // по токену стартовал бы отсчёт до рефетча и центрировал старую геометрию.
-  }, [layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, animActive]);
+  // Авто-центрирование страничных схем (fitOnLoad/fitOnExpand): по оседании двухфазной
+  // раскладки, в тихом окне после RF-коммитов; редактору-карте — no-op.
+  useLevelAutoFit({
+    layout, sizesVersion, hasGraphContent, fitOnLoad, fitOnExpand, fitView, animActive,
+    lastRfCommitRef, didLoadFitRef, autoFitRef,
+  });
 
   return (
     <div
@@ -1293,28 +1009,7 @@ function LevelGraphInner({
           скрыт у наблюдателя. Обе зовут дисптчеры из MapEditorPage (кросс-уровневый
           редирект); на страницах (undo-бандл не передан) — локальная ownHistory. */}
       {isArchitect && canArrange && (
-        <div style={{ position: "absolute", top: 14, left: 14, zIndex: 5 }}>
-          <div className="lg-seg">
-            <button
-              type="button"
-              onClick={runUndo}
-              disabled={!history.canUndo()}
-              title="Отменить · Ctrl+Z"
-              aria-label="Отменить"
-            >
-              <UndoIcon />
-            </button>
-            <button
-              type="button"
-              onClick={runRedo}
-              disabled={!history.canRedo()}
-              title="Вернуть · Ctrl+Shift+Z"
-              aria-label="Вернуть"
-            >
-              <RedoIcon />
-            </button>
-          </div>
-        </div>
+        <HistoryToolbar onUndo={runUndo} onRedo={runRedo} canUndo={history.canUndo()} canRedo={history.canRedo()} />
       )}
       {/* ПРАВЫЙ верхний угол: «Переразложить» (архитектор, передан onRelayout) +
           тумблер «Скрыть подписи связей» (CV32, все роли — просмотровый режим, не
@@ -1322,61 +1017,17 @@ function LevelGraphInner({
           Редактор-карта не передаёт onRelayout И владеет тумблером сама (управляемый
           mode.edgeLabelsHidden): её угол холста занят рейлом алертов (AL10), поэтому
           там обе кнопки живут в топбаре, а здесь угол остаётся пустым. */}
-      {(edgeLabelsHiddenMode === undefined || (isArchitect && onRelayout)) && (
-        <div style={{ position: "absolute", top: 14, right: 14, zIndex: 5 }}>
-          <div className="lg-seg">
-            {isArchitect && onRelayout && (
-              <button
-                type="button"
-                onClick={onRelayout}
-                title="Переразложить уровень"
-                aria-label="Переразложить"
-              >
-                <RelayoutIcon />
-              </button>
-            )}
-            {edgeLabelsHiddenMode === undefined && (
-              <button
-                type="button"
-                onClick={toggleEdgeLabels}
-                aria-pressed={labelsHidden}
-                title={labelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
-                aria-label="Подписи связей"
-              >
-                <EdgeLabelsIcon off={labelsHidden} />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <ViewToolbar
+        onRelayout={isArchitect ? onRelayout : undefined}
+        labels={edgeLabelsHiddenMode === undefined ? { hidden: labelsHidden, onToggle: toggleEdgeLabels } : undefined}
+      />
       {/* Легенда статусов и переключатель «Вид схемы» живут в правой панели схемы
           (MapEditorPage → ObjectInspector); оверлея на холсте больше нет. */}
       {/* Плитка «вне уровня»: полоса у верхнего края холста, видна только при
           протягивании НОВОЙ связи на не-корневом уровне. Отпустил на неё конец
           стрелки → выбор дальнего конца из всей схемы (useEdgeConnect ловит дроп по
           data-exit-up). Не объект графа, а элемент интерфейса. */}
-      {connecting && containerId && (
-        <div className="lg-exit-up" data-exit-up>
-          <span className="lg-exit-up-node">
-            <span className="lg-exit-up-ico" aria-hidden>
-              <svg
-                width={12}
-                height={12}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={2.4}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M12 19 V5" />
-                <path d="M6 11 L12 5 L18 11" />
-              </svg>
-            </span>
-            Объект вне уровня
-          </span>
-        </div>
-      )}
+      {connecting && containerId && <ExitUpTile />}
       {/* Индикация занятости конвейера (перф-эпик Ф2, P4): бейдж проявляется
           CSS-задержкой 300мс (INDICATE_AFTER_MS) — короткие пересчёты не мигают.
           Работает и на пустом холсте первого показа (layout ещё null). */}
@@ -1388,51 +1039,33 @@ function LevelGraphInner({
       )}
       {/* Разовый тост перегруженной сцены (P8): честное предупреждение об
           отключении анимаций — один на вход в перегруженный вид. */}
-      {overloadToastOpen && (
-        <div className="lg-overload-toast" role="status">
-          <span>Схема перегружена: плавность не гарантируется, анимации могут отключаться.</span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setOverloadToastOpen(false)}
-            aria-label="Закрыть предупреждение"
-          >✕</button>
-        </div>
+      {overloadToast.open && (
+        <CanvasNotice tone="overload" closeLabel="Закрыть предупреждение" onClose={overloadToast.close}>
+          Схема перегружена: плавность не гарантируется, анимации могут отключаться.
+        </CanvasNotice>
       )}
       {/* Запись расположения не прошла (аудит R-11): схема вернулась к сохранённой. */}
       {persistFailed && (
-        <div className="lg-overload-toast" role="alert">
-          <span>Не удалось сохранить расположение — схема вернулась к последней сохранённой версии.</span>
-          <button className="lg-overload-close" onClick={dismissPersistFailed} aria-label="Закрыть сообщение">✕</button>
-        </div>
+        <CanvasNotice tone="overload" role="alert" closeLabel="Закрыть сообщение" onClose={dismissPersistFailed}>
+          Не удалось сохранить расположение — схема вернулась к последней сохранённой версии.
+        </CanvasNotice>
       )}
       {/* Разовый тост ступеней бюджета работ (P13): честное объявление о том, что
           раскладка стрелок упрощена ради потолка счёта. */}
-      {budgetToastOpen && (
-        <div className="lg-budget-toast" role="status">
-          <span>Сцена очень плотная: раскладка упрощена.</span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setBudgetToastOpen(false)}
-            aria-label="Закрыть предупреждение"
-          >✕</button>
-        </div>
+      {budgetToast.open && (
+        <CanvasNotice tone="budget" closeLabel="Закрыть предупреждение" onClose={budgetToast.close}>
+          Сцена очень плотная: раскладка упрощена.
+        </CanvasNotice>
       )}
       {/* Разовый совет о грязи стрелок на перегруженной сцене (P15): холодная
           раскладка грубее, выправит её серия правок (невидимая уборка +
           гистерезис, P14). Текст — пожелание пользователя 2026-09-01 дословно. */}
-      {dirtyToastOpen && (
-        <div className="lg-dirty-toast" role="status">
-          <span>
-            На вашей схеме очень много объектов, поэтому стрелки могут быть
-            расставлены неаккуратно. Подёргайте несколько узлов, и стрелки
-            выправятся сами.
-          </span>
-          <button
-            className="lg-overload-close"
-            onClick={() => setDirtyToastOpen(false)}
-            aria-label="Закрыть подсказку"
-          >✕</button>
-        </div>
+      {dirtyToast.open && (
+        <CanvasNotice tone="dirty" closeLabel="Закрыть подсказку" onClose={dirtyToast.close}>
+          На вашей схеме очень много объектов, поэтому стрелки могут быть
+          расставлены неаккуратно. Подёргайте несколько узлов, и стрелки
+          выправятся сами.
+        </CanvasNotice>
       )}
       {/* Реестр «мостиков»: рёбра внутри ReactFlow публикуют сюда геометрию и читают
           точки прыжков. Пауза — на драг И на фазу move анимации (иначе пересчёт реестра
@@ -1489,10 +1122,10 @@ function LevelGraphInner({
         // добавлять объекты. Страничные схемы (fitOnLoad): SCHEMA_FIT_OPTIONS — тот
         // же вид, что даст авто-фит по оседании и кнопка «Центрировать» (без скачка).
         fitView={hasGraphContent}
-        fitViewOptions={fitOnLoad ? SCHEMA_FIT_OPTIONS : { padding: 0.2, maxZoom: 0.85 }}
+        fitViewOptions={fitOnLoad ? SCHEMA_FIT_OPTIONS : EDITOR_FIT_OPTIONS}
         // Пустой уровень (fitView выключен) открывается слегка отдалённым — комфортно
         // бросить первый узел, не отъезжая вручную.
-        defaultViewport={{ x: 60, y: 60, zoom: 0.85 }}
+        defaultViewport={DEFAULT_VIEWPORT}
         // Контекст-схема и readOnly — без правки: раскладка предписана, drag
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
@@ -1508,10 +1141,10 @@ function LevelGraphInner({
         // (selectionOnDrag). Ctrl/⌘ добавляет/убирает узлы из выделения кликом.
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
         // частично. В read-only без драга узлов — панорамирование левой кнопкой.
-        panOnDrag={dragNodes ? [2] : (isReadOnly ? true : [2])}
+        panOnDrag={dragNodes ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
         selectionOnDrag={dragNodes && canArrange}
         selectionMode={SelectionMode.Partial}
-        multiSelectionKeyCode={["Control", "Meta"]}
+        multiSelectionKeyCode={MULTI_SELECT_KEYS}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —
         // штатный зум-по-даблклику отключаем, чтобы холст не подлетал на этом жесте
         zoomOnDoubleClick={false}
@@ -1520,13 +1153,13 @@ function LevelGraphInner({
         onViewportChange={handleViewportChange}
         // предел отдаления снят до MIN_ZOOM (CV2 v2); приближение — дефолт RF (2)
         minZoom={MIN_ZOOM}
-        proOptions={{ hideAttribution: true }}
+        proOptions={PRO_OPTIONS}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e5e7eb" />
         {/* Кнопка «Центрировать» (fit-view). Страничные схемы: SCHEMA_FIT_OPTIONS +
             плавность (duration = ANIM_MOVE_MS) — как авто-фит при раскрытии/сворачивании.
             Редактор-карта: undefined → прежнее поведение (дефолт RF, без cap). */}
-        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? { ...SCHEMA_FIT_OPTIONS, duration: ANIM_MOVE_MS } : undefined} />
+        <Controls fitViewOptions={(fitOnLoad || fitOnExpand) ? SCHEMA_FIT_ANIMATED : undefined} />
         {/* Границы уровней: вложенные рамки вокруг локальных узлов — по одной на
             каждого родителя из breadcrumb. Только на не-корневых уровнях. */}
         {containerId && ancestorIds.length > 0 && (
@@ -1546,75 +1179,8 @@ function LevelGraphInner({
         {/* Живой оверлей рамок на время драга: RF-рамки предков скрыты, их bbox рисуют
             div-ы хука useFrameFollowOverlay (императивно, без setState на тик). */}
         {frameFollow.overlay && <ViewportPortal>{frameFollow.overlay}</ViewportPortal>}
-        {/* Превью будущего узла: пустая рамка-форма с прозрачным телом. В
-            ViewportPortal координаты — в системе графа, поэтому рамка масштабируется
-            вместе с зумом (как реальный узел) и показывает точное место создания. */}
-        {dropPreview && (
-          <ViewportPortal>
-            <div
-              style={{
-                position: "absolute",
-                left: dropPreview.x,
-                top: dropPreview.y,
-                width: NODE_W,
-                height: NODE_H,
-                pointerEvents: "none",
-                zIndex: 5,
-                opacity: 0.85,
-              }}
-            >
-              <NodeShapeSvg shape={dropPreview.shape} bg="transparent" stroke="#475569" outline />
-            </div>
-          </ViewportPortal>
-        )}
-        {/* Приглашение пустого слоя: пока тянут шаблон, внутренность рамки родителя
-            светится зелёным; когда центр будущего узла внутри — заметнее. */}
-        {emptyLevelFrame && dropPreview && (
-          <ViewportPortal>
-            <div
-              // стабильный хук для тестов: idle — приглашение, hit — центр узла внутри
-              data-empty-frame-hint={emptyFrameHit ? "hit" : "idle"}
-              style={{
-                position: "absolute",
-                left: emptyLevelFrame.rect.x,
-                top: emptyLevelFrame.rect.y,
-                width: emptyLevelFrame.rect.w,
-                height: emptyLevelFrame.rect.h,
-                // border-box + радиус 12 — как у .lg-frame: заливка ложится ровно внутрь
-                boxSizing: "border-box",
-                pointerEvents: "none",
-                zIndex: 4,
-                borderRadius: 12,
-                background: emptyFrameHit ? "rgba(34, 197, 94, 0.16)" : "rgba(34, 197, 94, 0.06)",
-                border: `2px solid ${emptyFrameHit ? "#22c55e" : "rgba(34, 197, 94, 0.35)"}`,
-                transition: "background 0.12s ease, border-color 0.12s ease",
-              }}
-            />
-          </ViewportPortal>
-        )}
-        {/* Индикация цели дропа в раскрытую рамку: подсвечиваем её контур («рамка
-            раскрывается шире под новый узел» — узел станет ребёнком её контейнера). */}
-        {dropTargetFrame && (
-          <ViewportPortal>
-            <div
-              style={{
-                position: "absolute",
-                left: dropTargetFrame.rect.x,
-                top: dropTargetFrame.rect.y,
-                width: dropTargetFrame.rect.w,
-                height: dropTargetFrame.rect.h,
-                // border-box + тот же радиус (12), что у .lg-frame — контур подсветки
-                // ложится ровно на контур рамки (иначе бордер уезжал наружу на 2px).
-                boxSizing: "border-box",
-                pointerEvents: "none",
-                zIndex: 4,
-                borderRadius: 12,
-                border: "2px solid #6366f1",
-                background: "rgba(99, 102, 241, 0.06)",
-              }}
-            />
-          </ViewportPortal>
-        )}
+        {/* Подсказки дропа шаблона: превью узла, приглашение пустого слоя, рамка-цель. */}
+        <DropOverlays preview={dropPreview} targetFrame={dropTargetFrame} emptyFrame={emptyLevelFrame?.rect} />
         {/* Превью «быстрой связи»: автоопределённая стрелка от хэндла к соседу. Гасим во
             время ручного протягивания (connecting), чтобы превью не накладывались. */}
         {qcCandidate && !connecting && (

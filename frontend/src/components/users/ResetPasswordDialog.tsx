@@ -2,8 +2,10 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser } from "../../types";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { useBusyAction } from "../../ui/useBusyAction";
 import { PASSWORD_HINT } from "./userLabels";
 
 /**
@@ -19,28 +21,20 @@ interface Props {
 
 export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сбросить пароль");
 
   const canSubmit = password.length > 0 && !busy;
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await adminApi.resetPassword(user.id, password);
-      onDone();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сбросить пароль");
-      setBusy(false);
-    }
+    await run(() => adminApi.resetPassword(user.id, password).then(onDone));
   }
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-      <h3 style={title}>Сбросить пароль</h3>
-      <p style={lead}>Новый пароль для «{user.username}». Передайте его человеку сами.</p>
+      <DialogTitle lead={<>Новый пароль для «{user.username}». Передайте его человеку сами.</>}>
+        Сбросить пароль
+      </DialogTitle>
 
       <label style={labelStyle} htmlFor="rp-password">Новый пароль</label>
       <input
@@ -67,7 +61,4 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
   );
 }
 
-const title: CSSProperties = { margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const lead: CSSProperties = { margin: "0 0 16px", fontSize: 14, color: "#475569", lineHeight: 1.5 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };
-const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

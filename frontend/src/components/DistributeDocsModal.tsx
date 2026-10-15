@@ -18,6 +18,7 @@ import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
 import "./inspector/inspector.css"; // классы insp-doc-chip для чипов вида схемы
+import DialogTitle from "../ui/DialogTitle";
 
 interface Props {
   nodeId: string;
@@ -55,8 +56,7 @@ export default function DistributeDocsModal({ nodeId, onClose, onApplied }: Prop
   if (failed) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 540 }}>
-        <h3 style={titleStyle}>Распределить по детям</h3>
-        <p style={failText}>Не удалось загрузить данные узла</p>
+        <DialogTitle lead="Не удалось загрузить данные узла">Распределить по детям</DialogTitle>
         <div style={footRow}>
           <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
         </div>
@@ -123,8 +123,7 @@ function DistributeForm({ data, onClose, onApplied }: {
   if (children.length === 0) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 540 }}>
-        <h3 style={titleStyle}>Распределить по детям</h3>
-        <p style={failText}>У контейнера нет детей — схемы и спеку некуда перенести.</p>
+        <DialogTitle lead="У контейнера нет детей — схемы и спеку некуда перенести.">Распределить по детям</DialogTitle>
         <div style={footRow}>
           <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
         </div>
@@ -134,11 +133,12 @@ function DistributeForm({ data, onClose, onApplied }: {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 540 }}>
-      <h3 style={titleStyle}>Распределить по детям</h3>
-      <p style={hintText}>
+      <DialogTitle lead={<>
         Собственные схемы логики и OpenAPI-спека контейнера будут перенесены выбранным
         детям. У контейнера не останется своей логики и спеки.
-      </p>
+      </>}>
+        Распределить по детям
+      </DialogTitle>
 
       {/* Схемы логики: строка на док — имя + выбор ребёнка-получателя */}
       {ownDocs.length > 0 && (
@@ -210,19 +210,6 @@ function DistributeForm({ data, onClose, onApplied }: {
 }
 
 /* --------------------------------- стили --------------------------------- */
-const titleStyle: CSSProperties = {
-  margin: "0 0 10px",
-  fontSize: 17,
-  fontWeight: 700,
-  color: "#1e293b",
-  lineHeight: 1.3,
-};
-const hintText: CSSProperties = {
-  margin: "0 0 12px",
-  fontSize: 13,
-  lineHeight: 1.45,
-  color: "#64748b",
-};
 const failText: CSSProperties = {
   color: "#475569",
   margin: "4px 0 0",

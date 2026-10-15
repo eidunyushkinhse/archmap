@@ -32,7 +32,8 @@ vi.mock("../../../api/nodes", () => ({
 
 import DemoTour from "../DemoTour";
 import { emitTourEvent, onTourFocusRequest, type TourFocus } from "../tourBus";
-import { getTourPaused, requestTourRestart, requestTourResume, tourKey } from "../tourStore";
+import { tourKey } from "../tourPersist";
+import { getTourPaused, requestTourRestart, requestTourResume } from "../tourStore";
 
 const KEY = tourKey(GUEST.id);
 const stored = () => JSON.parse(localStorage.getItem(KEY) ?? "null") as { status: string; step: string } | null;

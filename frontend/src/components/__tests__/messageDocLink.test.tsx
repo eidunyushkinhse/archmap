@@ -65,6 +65,7 @@ vi.mock("../inspector/DocOverlay", () => ({
       <span data-testid="ov-edit">{String(props.isArchitect)}</span>
       <button onClick={() => props.onDocEvent({ type: "edit" })}>ov-мутация</button>
       {props.onApplied && <button onClick={props.onApplied}>ov-агент</button>}
+      <button onClick={props.onClose}>ov-закрыть</button>
     </div>
   ),
 }));
@@ -234,13 +235,19 @@ describe("карточка шага: привязка к схеме логики
     await waitFor(() => expect(processesApi.messageDocs).toHaveBeenCalledTimes(2));
   });
 
-  it("Escape закрывает оверлей, а карточка шага остаётся", async () => {
-    // Оверлей стоит в стеке Escape ВЫШЕ карточки — иначе клавиша роняла бы обоих.
+  it("Escape над схемой — её, а не холста: закрывается схема, карточка шага остаётся", async () => {
+    // Схема логики — модалка ui/Modal: Escape закрывает её сама, через свой вопрос о
+    // несохранённой правке (аудит F-3). Холст клавишу не перехватывает — иначе гасил бы
+    // её cancel и закрывал схему молча — и карточку под ней не роняет.
     await открыть(ПРИВЯЗАН);
     await userEvent.click(await screen.findByRole("button", { name: "POST /orders" }));
 
     await userEvent.keyboard("{Escape}");
+    expect(screen.getByTestId("doc-overlay")).toBeTruthy();
+    expect(screen.getByText("Шаг сценария")).toBeTruthy();
 
+    // Собственное закрытие модалки (её Escape или крестик) снимает только её.
+    await userEvent.click(screen.getByRole("button", { name: "ov-закрыть" }));
     expect(screen.queryByTestId("doc-overlay")).toBeNull();
     expect(screen.getByText("Шаг сценария")).toBeTruthy();
   });

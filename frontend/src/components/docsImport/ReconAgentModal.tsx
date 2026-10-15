@@ -14,8 +14,8 @@
 // плоский столбец в нём так же нечитаем, как в витрине.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { PromptVariant, ReconAction, ReconImportReport, ReconItem } from "../../types";
-import { reconApi, type DocsFile } from "../../api/docsImport";
+import type { DocsFile, PromptVariant, ReconAction, ReconImportReport, ReconItem } from "../../types";
+import { reconApi } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import { KIND_LABEL, OPEN_LIMIT } from "../docsList";

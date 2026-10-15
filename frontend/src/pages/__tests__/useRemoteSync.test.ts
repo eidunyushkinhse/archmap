@@ -105,6 +105,21 @@ describe("useRemoteSync", () => {
     expect(onRemoteChange).toHaveBeenCalledTimes(1);
   });
 
+  it("фокус посреди идущего тика не теряется: сверка идёт сразу следом", async () => {
+    // Стартовый тик ещё ждёт ответа, а чужая правка уже случилась: фокус окна обязан
+    // дать ещё одну сверку, а не раствориться в «тик уже идёт».
+    let release: (v: { version: number; graph_rev: number; meta_rev: number; process_rev: number }) => void = () => {};
+    vi.mocked(viewsApi.state).mockImplementationOnce(() => new Promise((r) => { release = r; }));
+    const { onRemoteChange } = setup();
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    expect(viewsApi.state).toHaveBeenCalledTimes(1);
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 0, graph_rev: 5, meta_rev: 0, process_rev: 0 });
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+    await act(async () => { release({ version: 0, graph_rev: 0, meta_rev: 0, process_rev: 0 }); });
+    expect(viewsApi.state).toHaveBeenCalledTimes(2);
+    expect(onRemoteChange).toHaveBeenCalledTimes(1);
+  });
+
   it("гард: активен жест драга → запрос не уходит", async () => {
     setup({ gestureActiveRef: { current: true } });
     await tick();

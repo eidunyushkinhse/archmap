@@ -25,6 +25,7 @@
 // чистый модуль pipeline напрямую.
 import type { PipelineInput, PipelineOutput } from "./pipeline";
 import { lazyOnce } from "../../../lib/lazyOnce";
+import { diag } from "./diag";
 // vite-канонический импорт воркера (?worker): и dev, и build дают конструктор.
 // Синтаксис new Worker(new URL(...)) в dev у rolldown-vite падал «_Worker is not
 // a constructor» МИМО try/catch — не использовать.
@@ -129,10 +130,7 @@ export function computeViewLayoutOffThread(input: PipelineInput): Promise<Pipeli
   // ЗАХВАТ ВХОДА (перф-эпик 2026-08-20): __archmapCaptureInput = true (консоль/зонд) →
   // последний вход сохраняется для оффлайн-реплея профилирования
   // (__tests__/pipelineReplay.perf.test.ts; сериализация — perf-probe --capture).
-  const cap = globalThis as unknown as {
-    __archmapCaptureInput?: boolean; __archmapLastPipelineInput?: PipelineInput;
-  };
-  if (cap.__archmapCaptureInput) cap.__archmapLastPipelineInput = input;
+  if (diag.__archmapCaptureInput) diag.__archmapLastPipelineInput = input;
   const w = getWorker();
   if (!w) return computeViewLayout(input);
   const runId = ++seq;

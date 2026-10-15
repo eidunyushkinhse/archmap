@@ -11,8 +11,9 @@ import PromptCopyButton from "../docsImport/PromptCopyButton";
 import ImportPane from "./ImportPane";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
-import { UnfixableFold, buildQuestions, pruneAnswers, toDecisions } from "./remainder";
-import type { Answer, Answers } from "./remainder";
+import { toDecisions, useRemainderAnswers } from "./remainder";
+import type { Answer } from "./remainder";
+import { FactLines, ReportTail } from "./ImportReportParts";
 import "./createProject.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { CopyFailed, copyText } from "../../lib/copyText";
@@ -58,12 +59,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const [docNames, setDocNames] = useState<(string | null)[]>([]);
   // Архивные входы той же панели (.zip из «Экспорт проекта (zip)»).
   const [archives, setArchives] = useState<File[]>([]);
-  // Решения пользователя по спорам содержимого: id спора → «cand:<i>» | «all».
-  const [resolutions, setResolutions] = useState<Record<string, string>>({});
-  // Ответы на остальные вопросы разбора остатка (Ф-E): поля, концы связей,
-  // дорисованные связи, склейки. Живут рядом с резолюциями и так же переживают
-  // перезапрос превью — id вопроса детерминирован между превью и применением.
-  const [answers, setAnswers] = useState<Answers>({});
   // Сводка dry-run привязана к входам, для которых получена: устаревший ответ не
   // показываем и не засчитываем в готовность кнопки.
   const [preview, setPreview] = useState<
@@ -142,33 +137,11 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     : null;
   // Демо-стенд: проект из этих входов не поместится в пределы (считает сервер).
   const excess = fresh?.demo_excess ?? null;
-  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
-  // стабильность бандла архивов ниже (лишние ре-рендеры панели).
-  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
-  // Резолюции ПЕРЕЖИВАЮТ перезапрос: id спора стабилен при неизменном составе входов,
-  // и правка YAML-текста не должна стирать выбор по архивным спорам. Протухшие
-  // (спора больше нет) отбрасываем ПРИ РЕНДЕРЕ — паттерн «adjusting state when props
-  // change», а не зеркалящим эффектом.
-  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
-    setResolutions(Object.fromEntries(
-      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
-    ));
-  }
-  // Вопросы разбора остатка — производное от свежего превью, а не состояние.
-  const questions = useMemo(
-    () => (fresh === null ? [] : buildQuestions({
-      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder,
-    })),
-    [fresh],
-  );
-  // Ответы протухают тем же правилом, что и резолюции: правка YAML пересчитывает
-  // превью, и вопроса с этим id может больше не быть. Чистка ПРИ РЕНДЕРЕ (та же
-  // «adjusting state when props change»); без протухших pruneAnswers возвращает
-  // ту же ссылку, поэтому цикла setState нет.
-  if (fresh !== null) {
-    const живые = pruneAnswers(answers, questions);
-    if (живые !== answers) setAnswers(живые);
-  }
+  // Разбор остатка (Ф-E): решения по спорам содержимого (id спора → «cand:<i>» |
+  // «all») и ответы на остальные вопросы — поля, концы связей, дорисованные связи,
+  // склейки. Переживают перезапрос превью: правка YAML-текста не стирает выбор по
+  // архивным спорам, id вопроса детерминирован между превью и применением.
+  const { questions, answers, setAnswers, resolutions, setResolutions } = useRemainderAnswers(fresh);
   // П3: единственный вход и он архив — «копия одного архива», имя и описание берутся
   // из манифеста, поля не рендерятся вовсе.
   const fromManifest = fresh?.name_source === "manifest";
@@ -188,7 +161,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
     onResolve: (id: string, choice: string) =>
       setResolutions((cur) => ({ ...cur, [id]: choice })),
     unfixable: fresh?.remainder.unfixable ?? [],
-  }), [questions, answers, resolutions, fresh]);
+  }), [questions, answers, setAnswers, resolutions, setResolutions, fresh]);
 
   const canSubmit =
     importish
@@ -468,7 +441,6 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
         <div style={footer}>
           {error && <span style={{ flex: 1, color: "#dc2626", fontSize: 13, alignSelf: "center" }}>{error}</span>}
-          <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
           <button
             data-tour="create-project-submit"
             style={{ ...primaryBtn, whiteSpace: "nowrap", opacity: canSubmit ? 1 : 0.55 }}
@@ -479,6 +451,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
               : importish && unifiedResult ? "Открыть проект"
               : "Создать проект"}
           </button>
+          <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
         </div>
       </div>
     </Modal>
@@ -518,8 +491,6 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
 // Отчёт применения ввоза: сколько чего приехало и что не разрешилось. Показывается
 // вместо панели — из него уходят в проект кнопкой «Открыть проект».
 function ImportReport({ result }: { result: ArchiveImportResult }) {
-  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
-  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
   return (
     <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
@@ -527,30 +498,9 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
       </div>
       <div>Объектов: {result.nodes} · связей: {result.edges}</div>
       <div>Схем логики: {result.docs_created} · спек: {result.specs_applied}</div>
-      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
-      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
-      {result.channel_stubs > 0 && (
-        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
-      )}
+      <FactLines result={result} />
       {result.config && <div>Параметров конфигурации: {result.config.params_written}</div>}
-      {result.processes.length > 0 && (
-        <div>
-          Процессов: {result.processes.length} · привязок шагов: {linked}
-          {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
-          )}
-        </div>
-      )}
-      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
-      {result.resolved_conflicts > 0 && (
-        <div>
-          Разрешено споров содержимого: {result.resolved_conflicts}
-        </div>
-      )}
-      {/* Сырого списка «Замечания» нет (Ф2г-2): то, что требует рук, — той же
-          свёрткой, что в превью; информация о сделанном видна по счётчикам. Сырые
-          строки (result.warnings) остаются в ответе для MCP. */}
-      <UnfixableFold items={result.unfixable} after />
+      <ReportTail result={result} />
     </div>
   );
 }

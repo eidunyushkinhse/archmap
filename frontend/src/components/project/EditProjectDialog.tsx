@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
+import { useBusyAction } from "../../ui/useBusyAction";
 
 /**
  * Редактирование проекта: урезанная версия CreateProjectDialog — только «Название»
@@ -21,30 +22,21 @@ interface Props {
 export default function EditProjectDialog({ project, onClose, onSaved }: Props) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сохранить проект");
 
   const canSubmit = name.trim().length > 0 && !busy;
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await projectsApi.update(project.id, {
-        name: name.trim(),
-        description: description.trim() || null,
-      });
-      onSaved();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сохранить проект");
-      setBusy(false);
-    }
+    await run(() => projectsApi.update(project.id, {
+      name: name.trim(),
+      description: description.trim() || null,
+    }).then(onSaved));
   }
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 460, padding: 24 }}>
-      <h3 style={title}>Редактировать проект</h3>
+      <DialogTitle>Редактировать проект</DialogTitle>
 
       <label style={labelStyle}>Название</label>
       <input
@@ -65,7 +57,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
         placeholder="Коротко о схеме"
       />
 
-      {error && <p style={{ color: "#dc2626", fontSize: 13, margin: "8px 0 0" }}>{error}</p>}
+      {error && <p style={errText}>{error}</p>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.55 }} disabled={!canSubmit} onClick={submit}>
@@ -77,4 +69,3 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
   );
 }
 
-const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };

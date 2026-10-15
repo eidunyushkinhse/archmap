@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import Modal from "./Modal";
-import { dangerBtn, secondaryBtn } from "./styles";
+import { dangerBtn, errText, primaryBtn, secondaryBtn } from "./styles";
 
 /**
  * Базовый компонент подтверждения (danger-вид): строка заголовка с плашкой-
@@ -11,7 +11,9 @@ import { dangerBtn, secondaryBtn } from "./styles";
  *
  * Обёртка: variant="modal" (по умолчанию, обычные модалки) или variant="card"
  * (оверлей редактора процесса, где второй <dialog> вкладывать нельзя). scroll —
- * ограничение высоты с прокруткой для длинных списков.
+ * ограничение высоты с прокруткой для длинных списков. tone="neutral" — для
+ * неразрушающего, но требующего согласия шага («Привязать» при расхождении имён):
+ * главная кнопка синяя, а не красная; плашка-предупреждение остаётся.
  */
 
 // Знак-предупреждение (линейный SVG, наследует цвет плашки через currentColor).
@@ -37,13 +39,14 @@ interface Props {
   onCancel: () => void;
   variant?: "modal" | "card";
   scroll?: boolean;
+  tone?: "danger" | "neutral";
 }
 
 export default function ConfirmDialog({
   title, lead, children, error,
   confirmLabel, busyLabel, cancelLabel = "Отмена", busy = false,
   onConfirm, onCancel,
-  variant = "modal", scroll = false,
+  variant = "modal", scroll = false, tone = "danger",
 }: Props) {
   const body = (
     <>
@@ -55,7 +58,7 @@ export default function ConfirmDialog({
       {children}
       {error && <p style={errText}>{error}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-        <button onClick={onConfirm} disabled={busy} style={dangerBtn}>
+        <button onClick={onConfirm} disabled={busy} style={tone === "danger" ? dangerBtn : primaryBtn}>
           {busy && busyLabel ? busyLabel : confirmLabel}
         </button>
         <button onClick={onCancel} disabled={busy} style={secondaryBtn}>
@@ -116,9 +119,4 @@ const leadStyle: CSSProperties = {
   margin: "0 0 8px",
   fontSize: 14,
   lineHeight: 1.5,
-};
-const errText: CSSProperties = {
-  color: "#dc2626",
-  margin: "8px 0 0",
-  fontSize: 13,
 };

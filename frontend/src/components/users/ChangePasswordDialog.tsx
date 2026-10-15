@@ -1,8 +1,10 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { changePassword } from "../../api/auth";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { useBusyAction } from "../../ui/useBusyAction";
 
 /**
  * «Сменить пароль» из меню профиля (у всех): текущий пароль, новый и повтор.
@@ -18,8 +20,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [repeat, setRepeat] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сменить пароль");
   const [done, setDone] = useState(false);
 
   const mismatch = repeat.length > 0 && repeat !== newPassword;
@@ -27,23 +28,14 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await changePassword(oldPassword, newPassword);
-      setDone(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сменить пароль");
-    } finally {
-      setBusy(false);
-    }
+    // Успех сменяет вид окна на «Пароль изменён» — занятость формы там уже не видна.
+    await run(() => changePassword(oldPassword, newPassword).then(() => setDone(true)));
   }
 
   if (done) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-        <h3 style={title}>Пароль изменён</h3>
-        <p style={lead}>Со следующего входа действует новый пароль.</p>
+        <DialogTitle lead="Со следующего входа действует новый пароль.">Пароль изменён</DialogTitle>
         <button data-autofocus style={primaryBtn} onClick={onClose}>Готово</button>
       </Modal>
     );
@@ -53,7 +45,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-      <h3 style={title}>Сменить пароль</h3>
+      <DialogTitle>Сменить пароль</DialogTitle>
 
       <label style={labelStyle} htmlFor="cp-old">Текущий пароль</label>
       <input
@@ -103,7 +95,4 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   );
 }
 
-const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const lead: CSSProperties = { margin: "0 0 16px", fontSize: 14, color: "#475569", lineHeight: 1.5 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };
-const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

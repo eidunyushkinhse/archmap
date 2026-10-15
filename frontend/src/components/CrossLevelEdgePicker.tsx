@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactElement, ReactNode } from "react";
-import type { Edge, EdgeCreate, Node } from "../types";
+import type { Edge, Node } from "../types";
 import { compareByRank } from "../types";
-import { edgesApi } from "../api/nodes";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
-import { limitMessage } from "./demo/demoLimits";
-import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { useEdgeCreate } from "./useEdgeCreate";
 import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
@@ -55,12 +53,8 @@ export default function CrossLevelEdgePicker({
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   // "out" — связь sourceId→выбранный (по умолчанию); "in" — выбранный→sourceId
   const [direction, setDirection] = useState<"out" | "in">("out");
-  const [label, setLabel] = useState("");
-  const [technology, setTechnology] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Демо-стенд: проект упёрся в предел связей или объёма текста.
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
+  const { label, setLabel, technology, setTechnology, saving, error, setError, limit, create } =
+    useEdgeCreate(onCreated);
   // прокрутка к выбранной строке после выбора из поиска
   const pickedRowRef = useRef<HTMLDivElement | null>(null);
 
@@ -231,25 +225,10 @@ export default function CrossLevelEdgePicker({
       setError("Объект не может ссылаться сам на себя");
       return;
     }
-    setSaving(true);
-    setError(null);
-    setLimit(null);
-    try {
-      const data: EdgeCreate = {
-        source_id: direction === "out" ? sourceId : picked.id,
-        target_id: direction === "out" ? picked.id : sourceId,
-        label: label || null,
-        technology: technology || null,
-      };
-      const created = await edgesApi.create(data);
-      onCreated(created);
-    } catch (e: unknown) {
-      const refusal = limitMessage(e, "edge");
-      if (refusal) setLimit(refusal);
-      else setError(e instanceof Error ? e.message : "Ошибка создания связи");
-    } finally {
-      setSaving(false);
-    }
+    await create(
+      direction === "out" ? sourceId : picked.id,
+      direction === "out" ? picked.id : sourceId,
+    );
   }
 
   const pickedPath = picked ? pathOf(picked) : "";

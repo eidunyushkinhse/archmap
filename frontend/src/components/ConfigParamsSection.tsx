@@ -12,16 +12,15 @@
 // «Где используется» — разворот пометок «зависит от:» из схем логики ЭТОГО ЖЕ
 // объекта: сослаться на ручку может только его собственная схема, поэтому в строке
 // достаточно имени схемы (у таблиц и каналов там ещё и узел — там зовущий чужой).
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { configParamsApi } from "../api/nodes";
 import AddDocsMenu from "./AddDocsMenu";
 import InfoPopover from "../ui/InfoPopover";
 import ConfigAgentModal from "./docsImport/ConfigAgentModal";
 import type { ConfigParam, ConfigParamUsage } from "../types";
 import "./configParams.css";
-import { limitMessage } from "./demo/demoLimits";
-import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
+import { freeName, useFactRows } from "./useFactRows";
 import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
@@ -33,16 +32,6 @@ interface Props {
   allowed: boolean;
 }
 
-// Свободное имя вида «ПАРАМЕТР», «ПАРАМЕТР_2», … — чтобы «+ Параметр» не упиралась
-// в 409 уникальности при повторном нажатии.
-function freeName(base: string, taken: Set<string>): string {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) {
-    const candidate = `${base}_${i}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-}
-
 const TYPE_TITLE =
   "Тип значения: string, int, bool, duration, json — свободная строка, а не перечень: " +
   "конфиги слишком разные";
@@ -52,50 +41,16 @@ const DEFAULT_TITLE =
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
 export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Props) {
-  const [params, setParams] = useState<ConfigParam[] | null>(null);
-  const [usage, setUsage] = useState<ConfigParamUsage[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
+  const { rows: params, usage, error, limit, apply, reload } =
+    useFactRows(nodeId, configParamsApi, "Не удалось загрузить конфигурацию");
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
 
-  // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
-  // в теле эффекта даёт каскад рендеров (тот же приём, что в соседних секциях).
-  const [seq, setSeq] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    configParamsApi.list(nodeId)
-      .then((ps) => { if (alive) { setParams(ps); setError(null); } })
-      .catch(() => { if (alive) setError("Не удалось загрузить конфигурацию"); });
-    configParamsApi.usage(nodeId)
-      .then((u) => { if (alive) setUsage(u); })
-      .catch(() => { if (alive) setUsage([]); });
-    return () => { alive = false; };
-  }, [nodeId, seq]);
-
-  // Любая правка: применяем и перечитываем. Перечитывание — не лень: CAS-версия
-  // приходит с сервера, и локальная склейка разъехалась бы на первой же ошибке.
-  const apply = useCallback(async (fn: () => Promise<unknown>) => {
-    setLimit(null);
-    try {
-      await fn();
-      setError(null);
-    } catch (e) {
-      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
-      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
-      const refusal = limitMessage(e, "save");
-      if (refusal) setLimit(refusal);
-      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
-    }
-    setSeq((n) => n + 1);
-  }, []);
-
   const addParam = () => {
-    const taken = new Set((params ?? []).map((p) => p.name));
     // Поля с серверным дефолтом генерат делает ОБЯЗАТЕЛЬНЫМИ (openapi-typescript,
     // default-non-nullable) — заполняем теми же значениями явно.
     void apply(() => configParamsApi.create(nodeId, {
-      name: freeName("ПАРАМЕТР", taken),
+      name: freeName("ПАРАМЕТР", (params ?? []).map((p) => p.name)),
       value_type: "", required: false, default_value: "",
     }));
   };
@@ -187,7 +142,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
         <ConfigAgentModal
           nodeId={nodeId}
           onClose={() => setAgentOpen(false)}
-          onApplied={() => setSeq((n) => n + 1)}
+          onApplied={reload}
         />
       )}
     </div>

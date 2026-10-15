@@ -7,7 +7,7 @@
 // Воссоздание сущности при undo даёт НОВЫЙ id (у процессов нет restore-эндпоинта,
 // сохраняющего id). Поэтому каждая команда держит id в замыкании и обновляет его на
 // undo/redo, а парная операция бьёт по актуальному id — цепочка undo↔redo не рвётся.
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 export interface AsyncCommand {
   label: string; // человекочитаемая метка (для будущих тостов)
@@ -79,5 +79,10 @@ export function useProcessHistory(reload: () => void): ProcessHistory {
     sync();
   }, []);
 
-  return { push, undo, redo, clear, canUndo: flags.canUndo, canRedo: flags.canRedo, busy };
+  // Объект истории — мемо (аудит F-56): новый литерал на каждый рендер переподписывал
+  // слушатель Ctrl+Z холста (эффект зависит от истории) при каждом движении мыши.
+  return useMemo(
+    () => ({ push, undo, redo, clear, canUndo: flags.canUndo, canRedo: flags.canRedo, busy }),
+    [push, undo, redo, clear, flags, busy],
+  );
 }

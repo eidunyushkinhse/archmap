@@ -65,6 +65,19 @@ describe("useDocsFiles", () => {
     expect(result.current.active).toBe(0);
   });
 
+  // Аудит F-50: активный выставлялся вызовом setState изнутри апдейтера списка; теперь
+  // файлы и активный — одно состояние, и добавление делает активным последний файл.
+  it("добавленный файл становится активным, удаление до активного его сдвигает", () => {
+    const { result } = renderHook(() => useDocsFiles());
+    act(() => result.current.addFiles([
+      { name: "a", content: "1" }, { name: "b", content: "2" }, { name: "c", content: "3" },
+    ]));
+    expect(result.current.active).toBe(2);
+    act(() => result.current.removeFile(0));
+    expect(result.current.files.map((f) => f.name)).toEqual(["b", "c"]);
+    expect(result.current.active).toBe(1);
+  });
+
   // Аудит F-31: кнопкой «Загрузить файлы…» файл больше 2 МБ принимался и падал уже на
   // сервере — перетаскивание же его отбивало сразу.
   it("файл больше предела документа не читается, причина — в sizeError", () => {

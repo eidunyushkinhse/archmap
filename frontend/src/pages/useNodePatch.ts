@@ -1,7 +1,8 @@
-// CAS-правка полей узла по blur (паттерн NodeInspector, вынесен для переиспользования
-// на странице объекта). Коммитит полный NodeUpdate с base_version; при 409 подтягивает
-// свежие данные и показывает конфликт-баннер. БЕЗ undo (правки на страницах в историю
-// редактора не попадают — ТЗ, решение Ф8-Б).
+// CAS-правка полей узла по blur — общая для страницы объекта и правой панели редактора
+// (NodeInspector, аудит F-14). Коммитит полный NodeUpdate с base_version; при 409
+// подтягивает свежие данные и показывает конфликт-баннер. Своей истории у хука нет:
+// страница правки в Undo не кладёт (ТЗ, решение Ф8-Б), а панель редактора кладёт их
+// сама в onSaved — узел ДО правки приходит вторым аргументом.
 import { useCallback, useRef, useState } from "react";
 import type { Node, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
@@ -60,7 +61,7 @@ interface NodePatch {
 
 export function useNodePatch(
   initial: Node,
-  onSaved?: (saved: Node) => void,
+  onSaved?: (saved: Node, before: Node) => void,
 ): NodePatch {
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description ?? "");
@@ -113,7 +114,7 @@ export function useNodePatch(
         setNode(saved);
         setConflict(null);
         setError(null);
-        onSaved?.(saved);
+        onSaved?.(saved, before);
         return null;
       } catch (e: unknown) {
         if (rethrowLimit && isDemoLimit(e)) throw e;

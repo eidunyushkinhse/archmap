@@ -1,46 +1,41 @@
 // Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
 // (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { AncestorRef, GraphResponse, Node, NodeDocMeta, NodeDocUsage, NodeEdgeInfo, NodeShape, NodeStatus, NodeUpdate, ProcessListItem, ViewLayoutPayload } from "../types";
+import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
-import { nodesApi, nodeDocsApi, exportApi, viewsApi } from "../api/nodes";
+import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
-import { getNodeColors, STATUS_META } from "../components/graph/colors";
-import { ChevronDownIcon } from "../ui/icons";
+import { getNodeColors } from "../components/graph/colors";
 import { useNodePatch } from "./useNodePatch";
+import { ancestorRef, chainTo } from "./ancestorPath";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
-import { useRemoteSync } from "./useRemoteSync";
 import { useToast } from "./useToast";
 import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
-import { useShrinkAnchor } from "../components/useShrinkAnchor";
 import ConfigParamsSection from "../components/ConfigParamsSection";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
-import AddDocsMenu from "../components/AddDocsMenu";
-import AnchorField from "../components/anchor/AnchorField";
-import NodeDocsList, { StubMark } from "../components/NodeDocsList";
-import UndescribedDocs from "../components/UndescribedDocs";
-import { KIND_LABEL } from "../components/docsList";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
-import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
-import type { DocStage } from "../components/inspector/OpenApiPane";
-import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
-import type { LevelPersistenceProps, ViewMetaState } from "../components/graph/types";
-import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../components/pageSchema";
-import { plural } from "../ui/plural";
+import type { NavigateMap, ViewMetaState } from "../components/graph/types";
 import "./NodePage.css";
 import { noAutofill } from "../ui/noAutofill";
-import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../components/nodeTerms";
+import NodeProperties from "../components/nodePage/NodeProperties";
+import LogicSection from "../components/nodePage/LogicSection";
+import OpenApiSection from "../components/nodePage/OpenApiSection";
+import type { DocTarget } from "../components/nodePage/docTarget";
+import EdgeRow from "../components/nodePage/EdgeRow";
+import HeaderGlyph from "../components/nodePage/HeaderGlyph";
+import ProcessesSection from "../components/nodePage/ProcessesSection";
+import SchemaSection from "../components/nodePage/SchemaSection";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -70,7 +65,7 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
   // Навигация в редактор-карту
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   // Навигация в режим «Процессы» с выбором процесса (секция «Участвует в процессах»)
   onNavigateProcesses?: (processId: string) => void;
   // Удаление узла со страницы → редирект на родителя
@@ -84,18 +79,10 @@ async function loadNodePage(id: string): Promise<{ node: Node; ancestors: Ancest
     nodesApi.getAll(),
     nodesApi.getEdges(id),
   ]);
-  const byId = new Map(all.map((x) => [x.id, x]));
-  const ancestors: AncestorRef[] = [];
-  let cur = node.parent_id ? byId.get(node.parent_id) : undefined;
-  while (cur) {
-    ancestors.unshift({ id: cur.id, name: cur.name, is_external: cur.is_external });
-    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
-  }
-  return { node, ancestors, edges };
+  return { node, ancestors: chainTo(all, node.parent_id).map(ancestorRef), edges };
 }
 
 export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
-  const [confirming, setConfirming] = useState(false);
   // Отказ (404 — узел удалили, 403, сеть) — экран с причиной, а не вечная «Загрузка…»
   // (аудит R-2).
   const page = useAsyncLoad(nodeId, () => loadNodePage(nodeId));
@@ -122,8 +109,6 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       onNavigateMap={onNavigateMap}
       onNavigateProcesses={onNavigateProcesses}
       onNodeDeleted={onNodeDeleted}
-      confirming={confirming}
-      setConfirming={setConfirming}
       onEdgesReload={() => {
         // Сбой загрузки связей: список останется прежним, догонит поллинг/перезаход
         nodesApi.getEdges(nodeId).then((fresh) => page.update((d) => ({ ...d, edges: fresh }))).catch(() => {});
@@ -144,8 +129,6 @@ function NodePageInner({
   onNavigateMap,
   onNavigateProcesses,
   onNodeDeleted,
-  confirming,
-  setConfirming,
   onEdgesReload,
 }: {
   node: Node;
@@ -154,11 +137,9 @@ function NodePageInner({
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateProject: () => void;
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   onNavigateProcesses?: (processId: string) => void;
   onNodeDeleted?: (parentId: string | null) => void;
-  confirming: boolean;
-  setConfirming: (v: boolean) => void;
   onEdgesReload: () => void;
 }) {
   // Общий с секцией «Схема» курсор конкурентности (viewMeta): СОБСТВЕННЫЕ
@@ -187,17 +168,10 @@ function NodePageInner({
   const container = useContainerChildren(node.id, isContainer);
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [shapeOpen, setShapeOpen] = useState(false);
-  // Оверлей документации. `child` задан, когда открываем доку/спеку РЕБЁНКА прямо
-  // со страницы контейнера (из объединённого списка) — тогда оверлей работает в
-  // контексте ребёнка (его id/имя/спека), а не контейнера. create — новая схема
-  // («+ Добавить → Вручную» в «Логике»), stage — с чего открыть окно спеки
-  // («+ Добавить → Вручную / Через ИИ-агента» в «OpenAPI»).
-  const [doc, setDoc] = useState<{
-    mode: "flowchart" | "openapi"; docId?: string; create?: boolean; stage?: DocStage; child?: Node;
-  } | null>(null);
+  // Окно документации (Логика / OpenAPI); что именно открыть — DocTarget.
+  const [doc, setDoc] = useState<DocTarget | null>(null);
   // Модалка «Доки от агента» (BYOA, логика, пакетом): скоуп = текущий объект.
   // Одну схему через агента правят в её окне («Изменить → Через ИИ-агента»).
   const [docsAgent, setDocsAgent] = useState(false);
@@ -210,20 +184,9 @@ function NodePageInner({
   const [mutationToken, setMutationToken] = useState(0);
   // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
   const [distributeOpen, setDistributeOpen] = useState(false);
-  // Раскрытые группы схем/спек глубоких потомков (ключ «doc:<id ребёнка>» /
-  // «spec:<id ребёнка>»). Сбрасывается перемонтированием при смене узла.
-  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set());
-  // Сворачивание группы у низа страницы держит скролл (useShrinkAnchor).
-  const holdScroll = useShrinkAnchor();
-  const toggleGroup = useCallback((key: string, el: HTMLElement) => {
-    if (openGroups.has(key)) holdScroll(el);
-    setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }, [openGroups, holdScroll]);
+  const openDistribute = useCallback(() => setDistributeOpen(true), []);
+  const openDocsAgent = useCallback(() => setDocsAgent(true), []);
+  const openReconAgent = useCallback(() => setReconAgent(true), []);
   // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
   // (после успешного коммита заменяется на сохранённый — со свежей версией,
   // чтобы повторная правка не словила ложный 409).
@@ -329,63 +292,6 @@ function NodePageInner({
     container.reload();
   }, [container]);
 
-  // Меню «+ Добавить» секции «Логика»: вручную (окно схемы сразу в «Вручную»,
-  // схема создаётся только по «Сохранить») / через ИИ-агента (модалка режимом
-  // «Пакетом» по умолчанию; на «По одной» пользователь переключится в модалке сам) /
-  // «Составить список операций» — нулевой шаг: агент приносит не документацию, а
-  // ПЕРЕЧЕНЬ, и он ложится заглушками (docs/plan-recon.md). Оба агентских пути — в
-  // одной группе. Правила контейнеров: контейнеру новую логику создавать нельзя.
-  const addLogicMenu = !isContainer && allow.logic && isArchitect ? (
-    <AddDocsMenu
-      groups={[
-        [{ label: "Вручную", onSelect: () => setDoc({ mode: "flowchart", create: true }) }],
-        [
-          { label: "Через ИИ-агента", onSelect: () => setDocsAgent(true) },
-          { label: "Составить список операций", onSelect: () => setReconAgent(true) },
-        ],
-      ]}
-    />
-  ) : null;
-
-  // Схемы объекта делятся НАДВОЕ — производное в рендере (эффект с setState тут
-  // запрещён линтом и рассинхронился бы с метой). «Логика» показывает только
-  // описанные схемы (с телом); заглушки разведки — строки перечня без тела — это не
-  // схемы, а бэклог документирования, и живут они в блоке «Не описано» под чертой
-  // (решение пользователя 2026-09-03: витрина не смешивается с бэклогом, а счётчики
-  // «описано N из M» при физически разделённых списках лишние).
-  const describedDocs = useMemo(() => node.docs.filter((d) => d.described), [node.docs]);
-  const stubDocs = useMemo(() => node.docs.filter((d) => !d.described), [node.docs]);
-
-  // Открытие своей схемы из списка «Логики» (стабильная ссылка — список схем
-  // монолита длинный, лишних ре-рендеров ему не нужно).
-  const openDoc = useCallback((docId: string) => setDoc({ mode: "flowchart", docId }), []);
-
-  // Обратный индекс «используется в процессах» у СХЕМЫ (Ф8, У10): разворот привязок
-  // шагов на чтении. Узловой вопрос закрывает секция «Участвует в процессах», а при
-  // полусотне операций она не говорит, какие процессы висят на этой. Ошибка — молча
-  // пусто: индекс — украшение списка, а не его опора.
-  const [docUsage, setDocUsage] = useState<NodeDocUsage[]>([]);
-  useEffect(() => {
-    let alive = true;
-    nodeDocsApi.usage(node.id)
-      .then((u) => { if (alive) setDocUsage(u); })
-      .catch(() => { if (alive) setDocUsage([]); });
-    return () => { alive = false; };
-  }, [node.id]);
-
-  // Меню «+ Добавить» секции «OpenAPI» (когда спеки нет): окно спеки сразу в нужном
-  // режиме — «Вручную» (редактор) или «Через ИИ-агента» (панель агента). Когда спека
-  // есть, её обновляют в самом окне («Изменить»). Контейнеру спеку создавать нельзя
-  // (правила контейнеров).
-  const addSpecMenu = !isContainer && allow.spec && isArchitect ? (
-    <AddDocsMenu
-      groups={[
-        [{ label: "Вручную", onSelect: () => setDoc({ mode: "openapi", stage: "manual" }) }],
-        [{ label: "Через ИИ-агента", onSelect: () => setDoc({ mode: "openapi", stage: "agent" }) }],
-      ]}
-    />
-  ) : null;
-
   return (
     <div className="np-page">
       {metaToast && <div style={metaToastStyle}>Данные обновлены в другой сессии</div>}
@@ -467,186 +373,13 @@ function NodePageInner({
         {patch.error && <p className="np-conflict">{patch.error}</p>}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
-        <div className="np-card">
-          <h3 className="np-card-title">Свойства</h3>
-          <div className="np-props">
-            {/* Тип. Архитектор меняет форму прямо здесь (импорт мог ошибиться в
-                типе — кейс «Monitored Hosts» с типом «Пользователь»). Запреты на
-                стороне сервера: контейнером бывает только сервис, базу с описанной
-                структурой не увести (спека N4а); причина отказа — плашкой выше. */}
-            <span className="np-term">Тип</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <span className="np-selwrap">
-                  <button
-                    type="button"
-                    className="np-select"
-                    onClick={() => setShapeOpen((o) => !o)}
-                    aria-haspopup="listbox"
-                    aria-expanded={shapeOpen}
-                  >
-                    {SHAPE_LABEL[patch.shape]}
-                    <ChevronDownIcon />
-                  </button>
-                  {shapeOpen && (
-                    <>
-                      <div className="np-backdrop" onClick={() => setShapeOpen(false)} />
-                      <ul className="np-menu">
-                        {SHAPE_ORDER.map((sh) => (
-                          <li key={sh} onClick={() => { setShapeOpen(false); patch.pickShape(sh); }}>
-                            {SHAPE_LABEL[sh]}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </span>
-              ) : (
-                SHAPE_LABEL[shape]
-              )}
-            </span>
-
-            {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
-                N2а): чужой продукт/сторона, а не «вне системы» — границу системы
-                выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4).
-                Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
-                сервис — активный синий, чужой — серый, как точка у наблюдателя ниже.
-                Данные не инвертируются — только вид. */}
-            <span className="np-term" title={EXTERNAL_HINT}>Размещение</span>
-            <span className="np-value" title={EXTERNAL_HINT}>
-              {isArchitect ? (
-                <button type="button" className="np-toggle" onClick={patch.toggleExternal} aria-pressed={!patch.isExternal}>
-                  <span className={"np-switch" + (patch.isExternal ? "" : " is-on")} />
-                  {patch.isExternal ? "Внешний" : "Внутренний"}
-                </button>
-              ) : (
-                <>
-                  <span className="np-dot" style={{ background: node.is_external ? "#9ca3af" : "#2563eb", display: "inline-block", marginRight: 6 }} />
-                  {node.is_external ? "Внешний" : "Внутренний"}
-                </>
-              )}
-            </span>
-
-            {/* Статус */}
-            <span className="np-term">Статус</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <span className="np-selwrap">
-                  <button
-                    type="button"
-                    className="np-select"
-                    onClick={() => setStatusOpen((o) => !o)}
-                  >
-                    <span className="np-dot" style={{ background: statusDotColor(patch.status, patch.isExternal) }} />
-                    {STATUS_META[patch.status].label}
-                    <ChevronDownIcon />
-                  </button>
-                  {statusOpen && (
-                    <>
-                      <div className="np-backdrop" onClick={() => setStatusOpen(false)} />
-                      <ul className="np-menu">
-                        {STATUS_ORDER.map((st) => (
-                          <li key={st} onClick={() => { setStatusOpen(false); patch.pickStatus(st); }}>
-                            <span className="np-dot" style={{ background: statusDotColor(st, patch.isExternal) }} />
-                            {STATUS_META[st].label}
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </span>
-              ) : (
-                <>
-                  <span className="np-dot" style={{ background: statusDotColor(node.status, node.is_external), display: "inline-block", marginRight: 6 }} />
-                  {STATUS_META[node.status].label}
-                </>
-              )}
-            </span>
-
-            {/* Роль */}
-            <span className="np-term">Роль</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <input
-                  {...noAutofill("node-page-2")}
-                  className="np-field"
-                  value={patch.role}
-                  onChange={(e) => patch.setRole(e.target.value)}
-                  onBlur={patch.commitRole}
-                  placeholder="сервис, БД, брокер…"
-                />
-              ) : (
-                node.role || <span className="np-value--empty">не указана</span>
-              )}
-            </span>
-
-            {/* Технология (не для персон) */}
-            {shape !== "person" && (
-              <>
-                <span className="np-term">Технология</span>
-                <span className="np-value">
-                  {isContainer ? (
-                    // Правила контейнеров: своей технологии нет — агрегированный
-                    // список уникальных технологий детей, только чтение.
-                    container.loading ? (
-                      <span className="np-value--empty">загрузка…</span>
-                    ) : container.aggTech !== "" ? (
-                      container.aggTech
-                    ) : (
-                      <span className="np-value--empty">не указана</span>
-                    )
-                  ) : isArchitect ? (
-                    <input
-                      {...noAutofill("node-page-3")}
-                      className="np-field"
-                      value={patch.technology}
-                      onChange={(e) => patch.setTechnology(e.target.value)}
-                      onBlur={patch.commitTech}
-                      placeholder="Python, Kafka, Redis…"
-                    />
-                  ) : (
-                    node.technology || <span className="np-value--empty">не указана</span>
-                  )}
-                </span>
-              </>
-            )}
-
-            {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. Стоит
-                среди свойств, а не в служебном углу: у ручного и агентского узла
-                поведение при импорте разное, и разницу должно быть видно. */}
-            {/* Терм без np-term--top: модификатор (align-self: start + отступ сверху)
-                нужен textarea описания, а здесь значение — строка с текстом, и
-                сетка выравнивает её с термом по базовой линии; с модификатором
-                подпись уезжала ниже значения (замечание пользователя 2026-09-04). */}
-            <span className="np-term">Якорь</span>
-            <span className="np-value">
-              <AnchorField
-                source={node.source}
-                isArchitect={isArchitect}
-                onSave={patch.commitSource}
-              />
-            </span>
-
-            {/* Описание — последняя строка таблицы свойств */}
-            <span className="np-term np-term--top">Описание</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <textarea
-                  {...noAutofill("node-page-4")}
-                  className="np-field np-fieldarea"
-                  value={patch.description}
-                  onChange={(e) => patch.setDescription(e.target.value)}
-                  onBlur={patch.commitDesc}
-                  placeholder="Описание объекта"
-                />
-              ) : (
-                <span style={{ lineHeight: 1.55 }}>
-                  {node.description || <span className="np-value--empty">нет описания</span>}
-                </span>
-              )}
-            </span>
-          </div>
-        </div>
+        <NodeProperties
+          patch={patch}
+          isArchitect={isArchitect}
+          isContainer={isContainer}
+          techLoading={container.loading}
+          aggTech={container.aggTech}
+        />
 
         {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}
         <div className="np-card">
@@ -723,240 +456,36 @@ function NodePageInner({
           />
 
           {/* ── Логика (node_docs) ────────────────────────────────── */}
-          {(allow.logic || legacyLogic || container.docGroups.length > 0)
-            && (isArchitect || node.docs.length > 0 || container.docGroups.length > 0) && (
-            <div className="np-card">
-              <h3 className="np-card-title">Логика</h3>
-              {isContainer ? (
-                <>
-                  {/* Собственные (grandfather) схемы контейнера: по правилам у
-                      контейнера нет своей логики — предупреждение и перенос на
-                      детей модалкой «Распределить по детям». */}
-                  {node.docs.length > 0 && (
-                    <>
-                      <p className="np-warn">
-                        У контейнера остались собственные логические диаграммы, распределите их по дочерним сервисам
-                      </p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {node.docs.map((d) => (
-                          <button
-                            key={d.id}
-                            className="np-doc-row"
-                            onClick={() => setDoc({ mode: "flowchart", docId: d.id })}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: 13 }}>{d.name}</span>
-                            <span className={`np-doc-chip np-doc-chip--${d.kind}`}>{KIND_LABEL[d.kind]}</span>
-                            {!d.described && <StubMark />}
-                            {d.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{d.operation}</span>}
-                            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                          </button>
-                        ))}
-                      </div>
-                      {isArchitect && (
-                        <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
-                          Распределить по детям
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
-                      по непосредственным детям контейнера: собственные схемы ребёнка —
-                      плоские split-кнопки, схемы глубоких потомков — в раскрываемой
-                      группе под ребёнком. Левая часть split-кнопки открывает схему
-                      владельца напрямую, правая ведёт на его страницу. */}
-                  {container.docGroups.length > 0 && (
-                    <>
-                      {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {container.docGroups.map((group) => {
-                          const groupKey = `doc:${group.child.id}`;
-                          const open = openGroups.has(groupKey);
-                          return (
-                            <Fragment key={group.child.id}>
-                              {/* Собственные схемы ребёнка — плоско */}
-                              {group.own.map((doc) => (
-                                <DocSplitRow key={doc.id} doc={doc} child={group.child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                              ))}
-                              {/* Схемы глубоких потомков — кнопка-группа с шевроном */}
-                              {group.deep.length > 0 && (
-                                <div className="np-group">
-                                  <button
-                                    type="button"
-                                    className="np-doc-group-toggle"
-                                    onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
-                                    aria-expanded={open}
-                                  >
-                                    <GroupChevron open={open} />
-                                    {group.child.name}
-                                    <span className="np-doc-group-count">
-                                      {group.deep.length} {plural(group.deep.length, ["схема", "схемы", "схем"])}
-                                    </span>
-                                  </button>
-                                  {open && (
-                                    <div className="np-doc-group-body">
-                                      {group.deep.map(({ doc, child }) => (
-                                        <DocSplitRow key={`${child.id}:${doc.id}`} doc={doc} child={child} onOpen={setDoc} onNavigateNode={onNavigateNode} />
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </Fragment>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                  {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                  {!container.loading && node.docs.length === 0 && container.docGroups.length === 0 && (
-                    <p className="np-empty">
-                      Это контейнер, то есть абстракция. У него нет своей логики, она может быть у
-                      дочерних сервисов. Задокументируйте логику дочерних сервисов, и она будет
-                      отображаться здесь.
-                    </p>
-                  )}
-                </>
-              ) : (
-                <>
-                  {legacyLogic && (
-                    <p className="np-warn">
-                      Схемы логики описывают код сервиса, а у этого объекта его нет — перенесите их на сервис, который с ним работает
-                    </p>
-                  )}
-                  {/* Витрина — только ОПИСАННЫЕ схемы, группами по видам (после
-                      разведки монолита их может быть двести, и плоский столбец
-                      нечитаем; на маленьком объекте группы стартуют развёрнутыми).
-                      Одни заглушки и ни одной описанной — так выглядит объект сразу
-                      после разведки; «не заданы» тут соврало бы: перечень лежит ниже. */}
-                  {describedDocs.length === 0 ? (
-                    <p className="np-empty">
-                      {stubDocs.length > 0 ? "Описанных схем логики пока нет" : "Схемы логики не заданы"}
-                    </p>
-                  ) : (
-                    <NodeDocsList
-                      docs={describedDocs}
-                      onOpen={openDoc}
-                      usage={docUsage}
-                      onOpenProcess={onNavigateProcesses}
-                    />
-                  )}
-                  {addLogicMenu}
-                  {/* Бэклог документирования — заглушки разведки — под чертой, в той же
-                      карточке и свёрнутым: строка открывает окно схемы, «Описать» —
-                      уже там. Нет заглушек — нет блока. */}
-                  {stubDocs.length > 0 && (
-                    <UndescribedDocs
-                      docs={stubDocs}
-                      onOpen={openDoc}
-                      usage={docUsage}
-                      onOpenProcess={onNavigateProcesses}
-                    />
-                  )}
-                </>
-              )}
-            </div>
-          )}
+          <LogicSection
+            node={node}
+            isContainer={isContainer}
+            isArchitect={isArchitect}
+            allowed={allow.logic}
+            legacy={legacyLogic}
+            groups={container.docGroups}
+            loading={container.loading}
+            onOpen={setDoc}
+            onDistribute={openDistribute}
+            onDocsAgent={openDocsAgent}
+            onReconAgent={openReconAgent}
+            onNavigateNode={onNavigateNode}
+            onNavigateProcesses={onNavigateProcesses}
+          />
 
           {/* ── OpenAPI ───────────────────────────────────────────── */}
-          {(allow.spec || legacySpec || container.specGroups.length > 0)
-            && (isArchitect || node.openapi_spec || container.specGroups.length > 0) && (
-            <div className="np-card">
-              <h3 className="np-card-title">OpenAPI</h3>
-              {isContainer ? (
-                <>
-                  {/* Своя (grandfather) спека контейнера: по правилам спеки живут
-                      на атомарных детях — предупреждение и перенос одному ребёнку. */}
-                  {node.openapi_spec && (
-                    <>
-                      <p className="np-warn">
-                        У контейнера осталась собственная OpenAPI-спецификация, распределите её по дочерним сервисам
-                      </p>
-                      <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                      </button>
-                      {isArchitect && (
-                        <button type="button" className="np-addbtn" onClick={() => setDistributeOpen(true)}>
-                          Распределить по детям
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {/* Спеки потомков (дети и глубже), сгруппированные по непосредственным
-                      детям контейнера: спека самого ребёнка — плоская split-кнопка,
-                      спеки глубоких потомков — в раскрываемой группе под ребёнком. */}
-                  {container.specGroups.length > 0 && (
-                    <>
-                      {node.openapi_spec && <div className="np-sublabel">Спеки потомков</div>}
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {container.specGroups.map((group) => {
-                          const groupKey = `spec:${group.child.id}`;
-                          const open = openGroups.has(groupKey);
-                          return (
-                            <Fragment key={group.child.id}>
-                              {/* Спека самого ребёнка — плоско */}
-                              {group.own && (
-                                <SpecSplitRow child={group.child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                              )}
-                              {/* Спеки глубоких потомков — кнопка-группа с шевроном */}
-                              {group.deep.length > 0 && (
-                                <div className="np-group">
-                                  <button
-                                    type="button"
-                                    className="np-doc-group-toggle"
-                                    onClick={(e) => toggleGroup(groupKey, e.currentTarget)}
-                                    aria-expanded={open}
-                                  >
-                                    <GroupChevron open={open} />
-                                    {group.child.name}
-                                    <span className="np-doc-group-count">
-                                      {group.deep.length} {plural(group.deep.length, ["спека", "спеки", "спек"])}
-                                    </span>
-                                  </button>
-                                  {open && (
-                                    <div className="np-doc-group-body">
-                                      {group.deep.map((child) => (
-                                        <SpecSplitRow key={child.id} child={child} onOpen={openChildSpec} onNavigateNode={onNavigateNode} />
-                                      ))}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </Fragment>
-                          );
-                        })}
-                      </div>
-                    </>
-                  )}
-                  {container.loading && <p className="np-empty">Загрузка данных детей…</p>}
-                  {!container.loading && !node.openapi_spec && container.specGroups.length === 0 && (
-                    <p className="np-empty">
-                      Это контейнер, то есть абстракция. У него нет своих эндпоинтов, они могут быть
-                      у дочерних сервисов. Задокументируйте контракты дочерних сервисов, и они будут
-                      отображаться здесь.
-                    </p>
-                  )}
-                </>
-              ) : node.openapi_spec ? (
-                <>
-                  {legacySpec && (
-                    <p className="np-warn">
-                      OpenAPI описывает HTTP-API, который объект предоставляет сам, — у этого объекта его нет
-                    </p>
-                  )}
-                  <button className="np-doc-row" onClick={() => setDoc({ mode: "openapi" })}>
-                    <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-                    <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="np-empty">Спецификация не задана</p>
-                  {addSpecMenu}
-                </>
-              )}
-            </div>
-          )}
+          <OpenApiSection
+            spec={node.openapi_spec}
+            isContainer={isContainer}
+            isArchitect={isArchitect}
+            allowed={allow.spec}
+            legacy={legacySpec}
+            groups={container.specGroups}
+            loading={container.loading}
+            onOpen={setDoc}
+            onOpenChildSpec={openChildSpec}
+            onDistribute={openDistribute}
+            onNavigateNode={onNavigateNode}
+          />
         </div>
       </div>
 
@@ -1014,11 +543,8 @@ function NodePageInner({
           nodeId={node.id}
           nodeName={node.name}
           onClose={() => setDocsAgent(false)}
-          onApplied={() => {
-            // Дозаливка изменила мету доков узла — тянем свежий узел и
-            // применяем целиком (обновит секцию «Логика»).
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
-          }}
+          // Дозаливка изменила мету доков узла — свежий узел целиком (секция «Логика»).
+          onApplied={refreshNode}
         />
       )}
 
@@ -1030,11 +556,9 @@ function NodePageInner({
           nodeId={node.id}
           nodeName={node.name}
           onClose={() => setReconAgent(false)}
-          onApplied={() => {
-            // Заглушки — те же схемы логики: тянем свежий узел целиком, и секция
-            // «Логика» показывает их сразу, вместе со счётчиком «описано N из M».
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
-          }}
+          // Заглушки — те же схемы логики: свежий узел целиком, и секция «Логика»
+          // показывает их сразу.
+          onApplied={refreshNode}
         />
       )}
 
@@ -1057,10 +581,9 @@ function NodePageInner({
           onClose={() => setDistributeOpen(false)}
           onApplied={() => {
             // Перенос изменил мету узла (доки/спека ушли детям) и мету детей:
-            // тянем свежий узел (patch.refresh обновляет CAS-базу и значения
-            // полей — секции «Логика»/«OpenAPI» пересчитаются) и перезагружаем
-            // детей для объединения.
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+            // свежий узел (обновляет CAS-базу и значения полей — секции «Логика»/
+            // «OpenAPI» пересчитаются) и перезагрузка детей для объединения.
+            refreshNode();
             container.reload();
           }}
         />
@@ -1068,484 +591,3 @@ function NodePageInner({
     </div>
   );
 }
-
-// Split-кнопка схемы потомка в объединении контейнера: левая (широкая) часть
-// открывает схему владельца напрямую (в его контексте), правая (узкая) ведёт на
-// страницу владельца — доки принадлежат ему.
-function DocSplitRow({ doc, child, onOpen, onNavigateNode }: {
-  doc: NodeDocMeta;
-  child: Node;
-  onOpen: (target: { mode: "flowchart"; docId: string; child: Node }) => void;
-  onNavigateNode: (id: string) => void;
-}) {
-  return (
-    <div className="np-doc-split">
-      <button
-        type="button"
-        className="np-doc-split-main"
-        onClick={() => onOpen({ mode: "flowchart", docId: doc.id, child })}
-        title={`Открыть схему «${doc.name}»`}
-      >
-        <span style={{ fontWeight: 600, fontSize: 13 }}>{doc.name}</span>
-        <span className={`np-doc-chip np-doc-chip--${doc.kind}`}>{KIND_LABEL[doc.kind]}</span>
-        {doc.operation && <span style={{ fontSize: 12, color: "#64748b", fontFamily: "ui-monospace, monospace" }}>{doc.operation}</span>}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-      </button>
-      <button
-        type="button"
-        className="np-doc-split-child"
-        onClick={() => onNavigateNode(child.id)}
-        title={`Перейти к объекту «${child.name}»`}
-      >
-        от {child.name} →
-      </button>
-    </div>
-  );
-}
-
-// Split-кнопка спеки потомка в объединении контейнера: левая (широкая) часть
-// открывает спеку владельца напрямую (его CAS-контекст), правая (узкая) ведёт
-// на страницу владельца.
-function SpecSplitRow({ child, onOpen, onNavigateNode }: {
-  child: Node;
-  onOpen: (child: Node) => void;
-  onNavigateNode: (id: string) => void;
-}) {
-  return (
-    <div className="np-doc-split">
-      <button
-        type="button"
-        className="np-doc-split-main"
-        onClick={() => onOpen(child)}
-        title={`Открыть спецификацию «${child.name}»`}
-      >
-        <span style={{ fontWeight: 600, fontSize: 13 }}>Спецификация</span>
-        <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-      </button>
-      <button
-        type="button"
-        className="np-doc-split-child"
-        onClick={() => onNavigateNode(child.id)}
-        title={`Перейти к объекту «${child.name}»`}
-      >
-        от {child.name} →
-      </button>
-    </div>
-  );
-}
-
-// Строка таблицы связей: компактный read-only-вид. Архитектору клик по строке
-// открывает модалку-редактор связи (концы, направление, описание, технология);
-// наблюдателю строки не кликабельны. Колонки «Вызывающий»/«Вызываемый» (вместо
-// «Направление»/«Объект»): источник и цель связи из direction + other_node
-// (outgoing → текущий узел источник, incoming → цель). Чужой узел — ссылка
-// (переход), текущий — текст.
-function EdgeRow({
-  edge,
-  nodeName,
-  isArchitect,
-  onNavigateNode,
-  onEdit,
-}: {
-  edge: NodeEdgeInfo;
-  nodeName: string;
-  isArchitect: boolean;
-  onNavigateNode: (id: string) => void;
-  onEdit: (edgeId: string) => void;
-}) {
-  const isOut = edge.direction === "outgoing";
-
-  // stopPropagation: переход на чужой узел не должен открывать модалку строки
-  const otherLink = (
-    <button
-      className="np-edge-link"
-      onClick={(e) => { e.stopPropagation(); onNavigateNode(edge.other_node_id); }}
-    >
-      {edge.other_node_name}
-    </button>
-  );
-  const selfName = <span className="np-edge-self">{nodeName}</span>;
-  const caller = isOut ? selfName : otherLink;
-  const callee = isOut ? otherLink : selfName;
-
-  return (
-    <tr
-      className={isArchitect ? "np-edge-rowclick" : undefined}
-      onClick={isArchitect ? () => onEdit(edge.id) : undefined}
-      title={isArchitect ? "Редактировать связь" : undefined}
-    >
-      <td>{caller}</td>
-      <td className="np-edge-arrowcol">→</td>
-      <td>{callee}</td>
-      <td>{edge.label || <span className="np-value--empty">–</span>}</td>
-      <td>{edge.technology || <span className="np-value--empty">–</span>}</td>
-    </tr>
-  );
-}
-
-// ── Вспомогательные ─────────────────────────────────────────────────
-
-
-// Внешность — относительно контура организации, не системы (спека N2а).
-const EXTERNAL_HINT =
-  "Внешний — чужой продукт или чужая сторона относительно ОРГАНИЗАЦИИ (SaaS, " +
-  "third-party, клиент). Свои сотрудники и свои серверы — внутренние, даже вне " +
-  "границы системы: границу системы выражает дерево, а не этот флаг";
-
-
-
-function statusDotColor(status: NodeStatus, isExternal: boolean): string {
-  if (status === "existing") return isExternal ? "#9ca3af" : "#9ca3af";
-  return getNodeColors(isExternal, 0, status).bg;
-}
-
-// Глиф формы для шапки страницы (20×20, белый на цветном фоне).
-function HeaderGlyph({ shape, container }: { shape: NodeShape; container: boolean }) {
-  const c = {
-    fill: "none",
-    stroke: "#fff",
-    strokeWidth: 1.6,
-    strokeLinecap: "round" as const,
-    strokeLinejoin: "round" as const,
-  };
-  let body: React.ReactNode;
-  if (container) {
-    body = (
-      <>
-        <rect x={2} y={5} width={16} height={10} rx={2.5} {...c} />
-        <path d="M5 5 V3.5 a1.5 1.5 0 0 1 1.5-1.5 h7 A1.5 1.5 0 0 1 15 3.5 V5" {...c} />
-      </>
-    );
-  } else if (shape === "database") {
-    body = (
-      <>
-        <path d="M3 4 v9 a7 2.5 0 0 0 14 0 V4" {...c} />
-        <ellipse cx={10} cy={4.2} rx={7} ry={2.4} {...c} />
-      </>
-    );
-  } else if (shape === "broker") {
-    body = (
-      <>
-        <path d="M6 3 h8 a4 7 0 0 1 0 14 h-8 a4 7 0 0 1 0-14 Z" {...c} />
-        <path d="M6 3 a4 7 0 0 1 0 14" {...c} />
-      </>
-    );
-  } else if (shape === "person") {
-    body = (
-      <>
-        <circle cx={10} cy={6.5} r={3.2} {...c} />
-        <path d="M3.5 17 a 6.5 5.5 0 0 1 13 0" {...c} />
-      </>
-    );
-  } else {
-    body = <rect x={2.5} y={3} width={15} height={14} rx={3} {...c} />;
-  }
-  return <svg width={20} height={20} viewBox="0 0 20 20">{body}</svg>;
-}
-
-// Шеврон кнопки-группы (схемы/спеки глубоких потомков): смотрит вниз, когда
-// группа раскрыта, и вправо — когда свёрнута (CSS-трансформация).
-function GroupChevron({ open }: { open: boolean }) {
-  return (
-    <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
-      <ChevronDownIcon />
-    </span>
-  );
-}
-
-// ── Секция «Участвует в процессах» ─────────────────────────────────
-// Процессы, в которых участвует узел или его поддерево (GET /nodes/{id}/processes).
-// Пустая секция скрывается вовсе: участие в процессах — не обязательная мета.
-function ProcessesSection({ nodeId, onNavigateProcess }: {
-  nodeId: string;
-  onNavigateProcess?: (processId: string) => void;
-}) {
-  const [items, setItems] = useState<ProcessListItem[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    nodesApi.getNodeProcesses(nodeId)
-      .then((ps) => { if (alive) setItems(ps); })
-      .catch(() => { if (alive) setItems([]); });
-    return () => { alive = false; };
-  }, [nodeId]);
-  if (!items || items.length === 0) return null;
-  return (
-    <div className="np-card">
-      <h3 className="np-card-title">Участвует в процессах</h3>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {items.map((p) => (
-          <button
-            key={p.id}
-            className="np-doc-row"
-            onClick={() => onNavigateProcess?.(p.id)}
-            title={`Открыть процесс «${p.name}»`}
-          >
-            <span style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</span>
-            <span style={{ fontSize: 12, color: "#94a3b8" }}>{p.message_count} {plural(p.message_count, ["сообщение", "сообщения", "сообщений"])}</span>
-            <span style={{ marginLeft: "auto", fontSize: 12, color: "#94a3b8" }}>открыть →</span>
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── Секция «Схема» (single-schema) ──────────────────────────────────
-// Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
-// отдаёт его в формате СЫРОГО графа уровня: локалы = фокус + представители
-// соседей (связанные сиблинги), рёбра сырые, реестр концов с цепочками предков.
-// Раскладка — СОХРАНЁННЫЙ вид фокуса (context-graph отдаёт layout вида node.id +
-// его версию; первый вход без записей → свежий ELK). Рендерит штатный level-
-// конвейер без единой контекстной ветки; отличия от «отдельного проекта» — только
-// рамки реальных предков (ancestorIds) и цвета по реальной глубине (depth).
-// Архитектору доступна расстановка (драг + персист в вид фокуса, arrangeOnly);
-// структурная правка (создание/удаление) и наблюдатель — read-only, создание
-// связей — в редакторе-карте; мета существующих связей (концы, направление,
-// описание, технология) правится со страницы модалкой-редактором (EdgeEditModal).
-function SchemaSection({
-  node,
-  ancestors,
-  isArchitect,
-  onNavigateNode,
-  onNavigateMap,
-  onNodeChanged,
-  viewMeta,
-  mutationToken,
-}: {
-  node: Node;
-  ancestors: AncestorRef[];
-  isArchitect: boolean;
-  onNavigateNode: (id: string) => void;
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
-  // Узел изменён в другой сессии — страница освежает свои данные и показывает
-  // тост «Данные обновлены в другой сессии». Зовётся ОБОИМИ курсорами: meta_rev
-  // (атрибуты/доки/спеки) и graph_rev (структурные имя/форма, V48).
-  onNodeChanged?: () => void;
-  // Общий с страницей курсор конкурентности (страница тихо обновляет его после
-  // СВОИХ записей — echo-suppression, V53).
-  viewMeta: { current: ViewMetaState };
-  // Токен мутации страницы (правка связи в EdgeEditModal): изменившиеся стрелки
-  // перерисовываются анимированно (окно мутаций, AN28а).
-  mutationToken: number;
-}) {
-  const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
-  useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
-
-  const [graph, setGraph] = useState<GraphResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  // Последний отказ чтения схемы. Показывается, только пока схемы на экране нет
-  // (первичная загрузка, аудит R-2): раньше секция молча пропадала.
-  const [failure, setFailure] = useState<unknown>(null);
-  // Курсоры изменений для remote-sync И fence персиста: context-graph несёт
-  // version (вид фокуса) / graph_rev / meta_rev; рефетч обновляет курсоры. Свои
-  // записи раскладки (архитектор) обновляют курсор из ответа PUT — поллинг не даёт
-  // ложного тоста; чужие правки узла давятся сверкой содержимого в onNodeChanged.
-  const metaCursorRef = viewMeta; // алиас: eslint разрешает писать только в *Ref
-  // Флаг «идёт жест драга» для поллинга (рефетч не врывается в жест): его же
-  // ставит/снимает канвас через бандл персиста (архитектор).
-  const gestureActiveRef = useRef(false);
-  const [remoteToast, showRemoteToast] = useToast();
-
-  const refetch = useCallback((): Promise<void> => {
-    return nodesApi.getContextGraph(node.id)
-      .then((g) => {
-        metaCursorRef.current = { version: g.version, graphRev: g.graph_rev, metaRev: g.meta_rev };
-        setGraph(g);
-        setFailure(null);
-        setLoading(false);
-      })
-      .catch((e: unknown) => { setFailure(e); setLoading(false); });
-  }, [node.id, metaCursorRef]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- загрузка данных схемы
-    setLoading(true);
-    refetch();
-  }, [refetch]);
-
-  // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
-  // тихий рефетч контекста + тост «Схема обновлена в другой сессии»; meta_rev
-  // вырос → освежение узла (тост «Данные обновлены» — хозяин страница).
-  useRemoteSync({
-    currentParentId: null,
-    viewMeta: metaCursorRef,
-    gestureActiveRef,
-    onRemoteChange: () => {
-      refetch();
-      showRemoteToast();
-      // Структурные поля узла (имя/форма) двигают graph_rev, а НЕ meta_rev (V48):
-      // без этого зова чужая смена имени/типа перерисовывала схему, а «Свойства»
-      // страницы оставались старыми до перезахода. Канал тот же (сверка свежего
-      // узла по version+сигнатуре), поэтому лишнего тоста своя правка не даёт.
-      onNodeChanged?.();
-    },
-    onMetaChange: onNodeChanged
-      ? (rev) => {
-          metaCursorRef.current = { ...metaCursorRef.current, metaRev: rev };
-          onNodeChanged();
-        }
-      : undefined,
-  });
-
-  // ── Персист раскладки вида фокуса (архитектор) ────────────────────
-  // Зеркало записанных значений: канвас шлёт сохранённые батчи, кладём их в
-  // graph.layout — база дедупа/merge остаётся истиной (иначе «драг назад в исходную»
-  // гасился бы дедупом о протухшее зеркало). Спред меняет только layout — ссылки
-  // nodes/endpoints/edges те же, конвейер раскладки не перезапускается.
-  const handleLayoutChanged = useCallback(
-    (items: Record<string, ViewLayoutPayload | null>) => {
-      setGraph((g) => (g ? { ...g, layout: mergeViewLayout(g.layout, items) } : g));
-    },
-    [],
-  );
-
-  // Ресинк при ошибке персиста / перед переигровкой 409: перечитать контекст
-  // (курсоры + раскладка к истине). Замок resyncingRef — один inflight на серию.
-  const resyncingRef = useRef<Promise<void> | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- оркестрационный колбэк: осознанно plain-function (пересоздаётся каждый рендер), бандл пересобирается с ним — по образу MapEditorPage.
-  function resyncOnPersistError(): Promise<void> {
-    if (resyncingRef.current) return resyncingRef.current;
-    const p = refetch().finally(() => { resyncingRef.current = null; });
-    resyncingRef.current = p;
-    return p;
-  }
-  // 409 (вид фокуса изменён другой сессией): ресинк + одноразовая переигровка
-  // исходного патча от свежего зеркала (канал retryPatch, по образу MapEditorPage).
-  const layoutRetrySeq = useRef(0);
-  const [layoutRetry, setLayoutRetry] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
-  } | null>(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError.
-  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
-    void resyncOnPersistError().then(() => {
-      setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
-    });
-  }
-
-  // Бандл персиста — только архитектору; наблюдателю undefined → блок read-only
-  // (без драга), раскрытия стартуют свёрнутыми (ignorePersistedExpanded).
-  const persistence = useMemo<LevelPersistenceProps | undefined>(() => {
-    if (!isArchitect) return undefined;
-    return {
-      onLayoutChanged: handleLayoutChanged,
-      onPersistError: resyncOnPersistError,
-      onPersistConflict: handlePersistConflict,
-      retryPatch: layoutRetry,
-      viewMeta: metaCursorRef,
-      gestureActiveRef,
-    };
-  }, [isArchitect, handleLayoutChanged, resyncOnPersistError, handlePersistConflict, layoutRetry, metaCursorRef]);
-
-  // «Переразложить»: сброс раскладки вида фокуса → рефетч (свежий ELK). Реф-замок
-  // от повторных кликов (relayout идемпотентен, но незачем спамить ресинками).
-  const relayoutInflight = useRef(false);
-  // Токен свершившегося сброса: блок схемы анимирует переезд на авто-позиции.
-  const [relayoutToken, setRelayoutToken] = useState(0);
-  const handleRelayout = useCallback(() => {
-    if (relayoutInflight.current) return;
-    relayoutInflight.current = true;
-    nodesApi.relayoutContext(node.id)
-      .then(() => { setRelayoutToken((t) => t + 1); refetch(); })
-      .finally(() => { relayoutInflight.current = false; });
-  }, [node.id, refetch]);
-
-  // ДАННЫЕ СХЕМЫ = ответ сервера + СВОИ правки меты, влитые точечно (withOwnEdits,
-  // context.md X20): страница уже держит свежий узел (patch.node — ответ PATCH), и
-  // схема показывает новые форму/имя/статус/размещение СРАЗУ, без перезагрузки и без
-  // ремаунта холста. Производное — в рендере (useMemo), не эффектом: зеркалирование
-  // пропа в стейт разъезжается. Идентичность меняется ровно тогда, когда меняется
-  // граф или сам узел (тот же профиль, что у edges ниже).
-  const view = useMemo<GraphResponse | null>(
-    () => (graph ? withOwnEdits(graph, node) : null),
-    [graph, node],
-  );
-
-  // Рёбра уровня из GraphResponse (тот же маппинг, что у остальных потребителей
-  // графа уровня — pageSchema.toLevelEdges). Мемоизация: toLevelEdges создаёт новый
-  // массив при каждом вызове; без мемоизации проп edges менялся бы на каждый рендер
-  // (зеркало раскладки меняет только graph.layout, не nodes/endpoints/edges) и
-  // пересоздавал computeNow в LevelGraph — конвейер стартовал бы в промежуточном
-  // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
-  const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
-
-  if (loading) return <p className="np-empty">Загрузка схемы…</p>;
-  if (!view) {
-    if (failure === null) return null;
-    return (
-      <LoadError what="схему" error={failure}
-        onRetry={() => { setLoading(true); void refetch(); }} />
-    );
-  }
-
-  // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
-  // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
-  if (hasNoNeighbors(view, node.id) && !node.has_children) {
-    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор-карту
-    // (наполнить состав / создать связи — правка живёт только там).
-    return (
-      <div className="np-empty" style={{ textAlign: "center" }}>
-        Внешних связей нет — объект пока не взаимодействует с соседями.
-        <br />
-        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
-        {isArchitect && onNavigateMap && (
-          <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
-            {canHaveChildren(node.shape) && (
-              <button className="esb-edit" onClick={() => onNavigateMap(node.id)}>
-                Добавить компонент
-              </button>
-            )}
-            <button
-              className="esb-edit"
-              onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
-            >
-              Открыть в карте
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Высота до замера ширины: по числу видимых сущностей (локалы + внешние гости).
-  const height = schemaSectionHeight(visibleEntityGuess(view));
-  // Признак проектный, с сервера: на схеме одного объекта статусов может не быть,
-  // а в проекте переход идёт — переключатель вида нужен и здесь. Статусы читаем из
-  // view: свежепоставленный «планируется» обязан включить фильтр сразу.
-  const hasStatusInfo = showStatusControls(view.has_status_info, view.nodes, view.endpoints);
-
-  // «Редактировать» / «Открыть в карте» → родительский слой + подсветка + возврат (Ф11/Ф12).
-  const onEdit = onNavigateMap
-    ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
-    : undefined;
-
-  return (
-    <div style={{ position: "relative" }}>
-      {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
-      <EmbeddedSchemaBlock
-        nodes={view.nodes}
-        endpoints={view.endpoints}
-        edges={edges}
-        viewLayout={view.layout}
-        containerId={node.parent_id ?? null}
-        layoutViewId={node.id}
-        persistence={persistence}
-        ancestorNames={ancestors.map((a) => a.name)}
-        ancestorIds={ancestors.map((a) => a.id)}
-        depth={ancestors.length}
-        isArchitect={isArchitect}
-        schemaView={schemaView}
-        onSchemaViewChange={setSchemaView}
-        onNavigateNode={onNavigateNode}
-        onEdit={onEdit}
-        onRelayout={handleRelayout}
-        relayoutToken={relayoutToken}
-        mutationToken={mutationToken}
-        height={height}
-        showViewFilter={hasStatusInfo}
-      />
-    </div>
-  );
-}
-
-// Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
-const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };

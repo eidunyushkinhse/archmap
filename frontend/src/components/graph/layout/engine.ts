@@ -38,6 +38,7 @@ export const LEVEL_DIRECTION: FlowDirection = "DOWN";
 export const NODE_PLACEMENT = "NETWORK_SIMPLEX";
 import { assignEdgeHandles } from "./level";
 import type { LayoutEdge } from "../../../types";
+import { diag } from "./diag";
 
 // Общий ELK-инстанс. Берём bundled-сборку (elk.bundled.js) — она работает в main-thread
 // БЕЗ Web Worker, поэтому одинаково поднимается и в браузере (Vite), и в тестах (jsdom).
@@ -134,8 +135,7 @@ export async function layoutLevel(
   // подменяет/дополняет layoutOptions (алгоритм/зазоры). Выставляют только мокап-раннер
   // (__tests__/layoutMockup.perf.test.ts) и полигоны — в проде глобала нет. Входит в
   // сигнатуру кэша, чтобы варианты не отравляли друг друга.
-  const ovG = globalThis as unknown as { __archmapElkOverride?: Record<string, string> };
-  const override = ovG.__archmapElkOverride;
+  const override = diag.__archmapElkOverride;
 
   // Проверяем кэш ELK (оптимизация 2026-07-21)
   // габариты и плашки — в сигнатуре кэша: тот же граф с другими размерами — другая раскладка

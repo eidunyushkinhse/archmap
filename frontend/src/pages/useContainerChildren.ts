@@ -12,8 +12,10 @@
 // Непосредственные дети выводятся как подмножество потомков
 // (parent_id === nodeId) — они нужны модалке «Распределить по детям».
 //
-// Хук фетчит потомков только если узел — контейнер, и мемоизированно считает
-// группы. Переиспользуется NodePage.
+// Слои (аудит F-37): useDescendants грузит потомков, группировка и сводная технология —
+// чистые функции над ними, useContainerChildren — их композиция для страницы объекта.
+// Инспектору редактора нужна только технология: он берёт useDescendants и aggregateTech,
+// не считая групп впустую.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Node, NodeDocMeta } from "../types";
 import { compareByRank } from "../types";
@@ -55,111 +57,124 @@ export interface ContainerChildrenState {
   reload: () => void;
 }
 
-export function useContainerChildren(nodeId: string, isContainer: boolean): ContainerChildrenState {
-  // ВСЕ потомки (дети + внуки + глубже), без самого узла.
+// ВСЕ потомки узла (дети + внуки + глубже), без самого узла; null — ещё не загружены
+// (или загрузка выключена: узел не контейнер). Порядок как в дереве-навигаторе
+// (compareByRank) — стабильный порядок групп, записей внутри них и технологий.
+export function useDescendants(nodeId: string, enabled: boolean): {
+  descendants: Node[] | null;
+  // Перезагрузить потомков (после переноса grandfather-доков/спеки модалкой)
+  reload: () => void;
+} {
   const [descendants, setDescendants] = useState<Node[] | null>(null);
   // Счётчик перезагрузок: reload() наращивает его, эффект рефетчит потомков.
   const [seq, setSeq] = useState(0);
 
   useEffect(() => {
-    if (!isContainer) return; // не контейнер — потомков не запрашиваем
+    if (!enabled) return; // не контейнер — потомков не запрашиваем
     let alive = true;
     nodesApi.getDescendants(nodeId)
-      // Порядок как в дереве-навигаторе (compareByRank) — стабильный порядок
-      // групп и записей внутри них, а также агрегированной технологии.
       .then((ds) => { if (alive) setDescendants([...ds].sort(compareByRank)); })
       .catch(() => { if (alive) setDescendants([]); });
     return () => { alive = false; };
-  }, [nodeId, isContainer, seq]);
+  }, [nodeId, enabled, seq]);
 
   const reload = useCallback(() => setSeq((s) => s + 1), []);
+  return { descendants: enabled ? descendants : null, reload };
+}
+
+// Группировка доков/спек по непосредственным детям. Якорь потомка d —
+// непосредственный ребёнок контейнера, в чьём поддереве лежит d: подъём по
+// parent_id до parent_id === nodeId (сам непосредственный ребёнок — свой якорь).
+// own — данные самого якоря (плоские), deep — данные глубоких потомков (группа).
+function groupByDirectChild(
+  descendants: Node[], nodeId: string,
+): { docGroups: ContainerDocGroup[]; specGroups: ContainerSpecGroup[] } {
+  // Карта id → узел для подъёма по parent_id.
+  const byId = new Map<string, Node>(descendants.map((d) => [d.id, d]));
+  // Непосредственные дети (descendants уже отсортированы compareByRank):
+  // их порядок задаёт порядок групп.
+  const direct = descendants.filter((d) => d.parent_id === nodeId);
+
+  const docByAnchor = new Map<string, ContainerDocGroup>();
+  const specByAnchor = new Map<string, ContainerSpecGroup>();
+  for (const child of direct) {
+    docByAnchor.set(child.id, { child, own: [], deep: [] });
+    specByAnchor.set(child.id, { child, own: false, deep: [] });
+  }
+
+  const anchorOf = (d: Node): Node | null => {
+    let cur = d;
+    // Защита от зацикливания на битых данных: глубина не больше числа потомков.
+    for (let step = 0; cur.parent_id !== nodeId; step++) {
+      if (cur.parent_id === null || step > descendants.length) return null;
+      const parent = byId.get(cur.parent_id);
+      if (!parent) return null; // родитель не найден — потомок пропускается
+      cur = parent;
+    }
+    return cur;
+  };
+
+  for (const d of descendants) {
+    const anchor = anchorOf(d);
+    if (!anchor) continue;
+    const dg = docByAnchor.get(anchor.id);
+    const sg = specByAnchor.get(anchor.id);
+    if (!dg || !sg) continue;
+    const isSelf = d.id === anchor.id;
+    // Заглушки разведки (схемы без тела) в объединение не идут: бэклог
+    // документирования живёт на странице владельца (блок «Не описано»), а
+    // витрина контейнера — только описанные схемы потомков.
+    for (const doc of d.docs) {
+      if (!doc.described) continue;
+      if (isSelf) dg.own.push(doc);
+      else dg.deep.push({ doc, child: d });
+    }
+    // Спека считается только непустая
+    if ((d.openapi_spec ?? "").trim() !== "") {
+      if (isSelf) sg.own = true;
+      else sg.deep.push(d);
+    }
+  }
+
+  // Пустые группы не показываем; порядок — порядок непосредственных детей.
+  const docGroups: ContainerDocGroup[] = [];
+  const specGroups: ContainerSpecGroup[] = [];
+  for (const child of direct) {
+    const dg = docByAnchor.get(child.id);
+    if (dg && (dg.own.length > 0 || dg.deep.length > 0)) docGroups.push(dg);
+    const sg = specByAnchor.get(child.id);
+    if (sg && (sg.own || sg.deep.length > 0)) specGroups.push(sg);
+  }
+  return { docGroups, specGroups };
+}
+
+// Агрегированная технология: уникальные непустые технологии потомков, через
+// запятую. Порядок — по потомкам (compareByRank), дубликаты гасит Set.
+export function aggregateTech(descendants: Node[]): string {
+  const seen = new Set<string>();
+  for (const d of descendants) {
+    const t = (d.technology ?? "").trim();
+    if (t !== "") seen.add(t);
+  }
+  return [...seen].join(", ");
+}
+
+export function useContainerChildren(nodeId: string, isContainer: boolean): ContainerChildrenState {
+  const { descendants, reload } = useDescendants(nodeId, isContainer);
 
   // Непосредственные дети: потомки с parent_id === nodeId.
   const children = useMemo<Node[] | null>(
     () => (descendants === null ? null : descendants.filter((d) => d.parent_id === nodeId)),
     [descendants, nodeId],
   );
-
-  // Группировка доков/спек по непосредственным детям. Якорь потомка d —
-  // непосредственный ребёнок контейнера, в чьём поддереве лежит d: подъём по
-  // parent_id до parent_id === nodeId (сам непосредственный ребёнок — свой якорь).
-  // own — данные самого якоря (плоские), deep — данные глубоких потомков (группа).
-  const groups = useMemo<{ docGroups: ContainerDocGroup[]; specGroups: ContainerSpecGroup[] }>(() => {
-    if (!isContainer || !descendants) return { docGroups: [], specGroups: [] };
-
-    // Карта id → узел для подъёма по parent_id.
-    const byId = new Map<string, Node>(descendants.map((d) => [d.id, d]));
-    // Непосредственные дети (descendants уже отсортированы compareByRank):
-    // их порядок задаёт порядок групп.
-    const direct = descendants.filter((d) => d.parent_id === nodeId);
-
-    const docByAnchor = new Map<string, ContainerDocGroup>();
-    const specByAnchor = new Map<string, ContainerSpecGroup>();
-    for (const child of direct) {
-      docByAnchor.set(child.id, { child, own: [], deep: [] });
-      specByAnchor.set(child.id, { child, own: false, deep: [] });
-    }
-
-    const anchorOf = (d: Node): Node | null => {
-      let cur = d;
-      // Защита от зацикливания на битых данных: глубина не больше числа потомков.
-      for (let step = 0; cur.parent_id !== nodeId; step++) {
-        if (cur.parent_id === null || step > descendants.length) return null;
-        const parent = byId.get(cur.parent_id);
-        if (!parent) return null; // родитель не найден — потомок пропускается
-        cur = parent;
-      }
-      return cur;
-    };
-
-    for (const d of descendants) {
-      const anchor = anchorOf(d);
-      if (!anchor) continue;
-      const dg = docByAnchor.get(anchor.id);
-      const sg = specByAnchor.get(anchor.id);
-      if (!dg || !sg) continue;
-      const isSelf = d.id === anchor.id;
-      // Заглушки разведки (схемы без тела) в объединение не идут: бэклог
-      // документирования живёт на странице владельца (блок «Не описано»), а
-      // витрина контейнера — только описанные схемы потомков.
-      for (const doc of d.docs) {
-        if (!doc.described) continue;
-        if (isSelf) dg.own.push(doc);
-        else dg.deep.push({ doc, child: d });
-      }
-      // Спека считается только непустая
-      if ((d.openapi_spec ?? "").trim() !== "") {
-        if (isSelf) sg.own = true;
-        else sg.deep.push(d);
-      }
-    }
-
-    // Пустые группы не показываем; порядок — порядок непосредственных детей.
-    const docGroups: ContainerDocGroup[] = [];
-    const specGroups: ContainerSpecGroup[] = [];
-    for (const child of direct) {
-      const dg = docByAnchor.get(child.id);
-      if (dg && (dg.own.length > 0 || dg.deep.length > 0)) docGroups.push(dg);
-      const sg = specByAnchor.get(child.id);
-      if (sg && (sg.own || sg.deep.length > 0)) specGroups.push(sg);
-    }
-    return { docGroups, specGroups };
-  }, [isContainer, descendants, nodeId]);
-
-  // Агрегированная технология: уникальные непустые технологии потомков, через
-  // запятую. Порядок — по потомкам (compareByRank выше), дубликаты гасит Set.
-  const aggTech = useMemo(() => {
-    if (!isContainer || !descendants) return "";
-    const seen = new Set<string>();
-    for (const d of descendants) {
-      const t = (d.technology ?? "").trim();
-      if (t !== "") seen.add(t);
-    }
-    return [...seen].join(", ");
-  }, [isContainer, descendants]);
+  const groups = useMemo(
+    () => (descendants ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
+    [descendants, nodeId],
+  );
+  const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
 
   return {
-    children: isContainer ? children : null,
+    children,
     loading: isContainer && descendants === null,
     docGroups: groups.docGroups,
     specGroups: groups.specGroups,

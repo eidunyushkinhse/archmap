@@ -5,6 +5,7 @@
 // (текст ошибки в контейнер) — NodeModal не замечает разницы.
 import { useEffect, useId, useRef, useState } from "react";
 import { isHeavyChart, loadMermaid, MermaidLoadError, mermaidLoaded } from "./mermaidLoader";
+import "../ui/smallButton.css";
 
 // Статус парсинга для статус-строки редактора (Часть D ТЗ визуализации доков).
 export type MmdStatus =
@@ -100,7 +101,7 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
     return (
       <div className="doc-pvnote" role="status">
         Схема большая — отрисовка может занять время.{" "}
-        <button type="button" className="esb-edit" onClick={() => setForced(true)}>
+        <button type="button" className="btn-sm-primary" onClick={() => setForced(true)}>
           Показать всё равно
         </button>
       </div>

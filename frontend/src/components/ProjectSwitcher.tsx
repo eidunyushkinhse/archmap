@@ -30,7 +30,11 @@ export default function ProjectSwitcher({ projectId, isArchitect, onAllProjects,
   // Активные проекты — для имени текущего и списка дропдауна. Тянем при первом
   // открытии и держим (смена проекта ремаунтит шапку целиком).
   useEffect(() => {
-    void projectsApi.list(false).then(setProjects).catch(() => setProjects([]));
+    let alive = true;
+    projectsApi.list(false)
+      .then((ps) => { if (alive) setProjects(ps); })
+      .catch(() => { if (alive) setProjects([]); });
+    return () => { alive = false; };
   }, []);
 
   useDismiss(open, ref, setOpen);

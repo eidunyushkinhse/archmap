@@ -179,6 +179,22 @@ describe("DbStructureSection", () => {
     );
   });
 
+  // Аудит F-55: поля колонки неуправляемые и без ключа сброса — значение, сменившееся
+  // на сервере, после перечитывания не доезжало до поля.
+  it("колонка, переименованная на сервере, после перечитывания показывает новое имя", async () => {
+    vi.mocked(dbTablesApi.updateColumn).mockResolvedValue(column());
+    setup([table()]);
+    await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть колонки"));
+    expect(screen.getByDisplayValue("status")).toBeInTheDocument();
+    // Своя правка признака перечитывает таблицу, а другая сессия тем временем
+    // переименовала колонку.
+    vi.mocked(dbTablesApi.list).mockResolvedValue([table({ columns: [column({ name: "state" })] })]);
+    await userEvent.click(screen.getByLabelText("Первичный ключ"));
+    await waitFor(() => expect(screen.getByDisplayValue("state")).toBeInTheDocument());
+    expect(screen.queryByDisplayValue("status")).toBeNull();
+  });
+
   it("диаграмма показывается по кнопке и собирается из тех же записей", async () => {
     setup([table()]);
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());

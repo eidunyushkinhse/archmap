@@ -14,7 +14,7 @@
 конвейером.
 
 Код: бэк `app/routers/nodes.py` (get_node_context_graph, хелперы
-_read_view_layout/_ghost_registry); фронт `pages/NodePage.tsx` (SchemaSection),
+_read_view_layout/_ghost_registry); фронт `components/nodePage/SchemaSection.tsx` (секция «Схема» страницы объекта),
 `components/EmbeddedSchemaBlock.tsx`, дальше — обычный `LevelGraph` и
 `graph/layout/pipeline.ts` без контекстных веток. Легаси-эндпоинт
 `get_node_context` (проекция на фокус) жив для выключенного фиче-флага

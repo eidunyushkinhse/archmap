@@ -18,6 +18,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { computeViewLayout, edgeLabelMeta, type PipelineInput, type T4Diag } from "../src/components/graph/layout/pipeline";
 import { __routeCounters as rc } from "../src/components/graph/layout/orthoRoute";
 import { metaLabelBox } from "../src/components/graph/layout/labelBox";
+import { diag } from "../src/components/graph/layout/diag";
 import { NODE_W, NODE_H } from "../src/components/graph/constants";
 
 // ── аргументы ───────────────────────────────────────────────────────────────────
@@ -63,10 +64,7 @@ const M = (n: number): string => `${(n / 1e6).toFixed(2)}M`;
 const ms = (n: number): string => `${Math.round(n)}мс`;
 
 // ── трасса стадий ───────────────────────────────────────────────────────────────
-const traceG = globalThis as unknown as {
-  __ARCHMAP_TRACE?: (stage: string, msSpent: number) => void;
-  __ARCHMAP_T4_DIAG?: (d: T4Diag) => void;
-};
+const traceG = diag;
 let prev = snap();
 traceG.__ARCHMAP_TRACE = (stage, msSpent) => {
   const now = snap();

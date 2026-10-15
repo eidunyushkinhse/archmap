@@ -4,6 +4,7 @@ import { getMe } from "../../api/auth";
 import { projectsApi, usersApi } from "../../api/projects";
 import type { Project, ProjectMember, UserBrief } from "../../types";
 import ConfirmDialog from "../../ui/ConfirmDialog";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
@@ -59,17 +60,26 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
     setMembers(await projectsApi.members(project.id));
   }, [project.id]);
 
+  // Ответ по прежнему проекту (окно переоткрыли на другом) не применяем (аудит F-49).
   useEffect(() => {
+    let alive = true;
     projectsApi
       .members(project.id)
-      .then(setMembers)
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Не удалось загрузить участников"));
+      .then((ms) => { if (alive) setMembers(ms); })
+      .catch((e: unknown) => {
+        if (alive) setError(e instanceof Error ? e.message : "Не удалось загрузить участников");
+      });
+    return () => { alive = false; };
   }, [project.id]);
 
   // Список пользователей нужен только тому, кто добавляет и передаёт.
   useEffect(() => {
     if (!isOwner) return;
-    usersApi.list().then(setUsers).catch(() => setUsers([]));
+    let alive = true;
+    usersApi.list()
+      .then((us) => { if (alive) setUsers(us); })
+      .catch(() => { if (alive) setUsers([]); });
+    return () => { alive = false; };
   }, [isOwner]);
 
   const candidates = useMemo(() => addCandidates(users, members), [users, members]);
@@ -134,8 +144,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
   return (
     <>
       <Modal onClose={onClose} boxStyle={{ width: 520, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-        <h3 style={title}>Доступ к проекту</h3>
-        <p style={subtitle}>{project.name}</p>
+        <DialogTitle lead={project.name}>Доступ к проекту</DialogTitle>
 
         <label style={checkRow}>
           <input
@@ -273,8 +282,6 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
   );
 }
 
-const title: CSSProperties = { margin: 0, fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const subtitle: CSSProperties = { margin: "4px 0 16px", fontSize: 13.5, color: "#64748b" };
 const checkRow: CSSProperties = {
   display: "flex", alignItems: "flex-start", gap: 9, fontSize: 14, fontWeight: 600,
   color: "#1e293b", cursor: "pointer", marginBottom: 18,

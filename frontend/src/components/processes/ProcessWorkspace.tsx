@@ -85,8 +85,8 @@ export default function ProcessWorkspace({
       .catch((e: unknown) => { setError(e instanceof Error ? e.message : "Не удалось загрузить процессы"); return null; });
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- первичная загрузка при маунте
-  useEffect(() => { void reload(); }, []);
+  // Первичная загрузка: reload стабилен (без зависимостей), эффект идёт один раз при маунте.
+  useEffect(() => { void reload(); }, [reload]);
 
   // Поллинг курсора процессов (Д9): чужая сессия правит процесс — перечитываем
   // список и холст (syncRev дёргает reload канваса). Ритм тот же, что у

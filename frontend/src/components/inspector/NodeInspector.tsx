@@ -3,17 +3,18 @@
 // правка коммитится по blur (тексты) / сразу (toggle/статус) и ложится в Undo/Redo через
 // тот же onNodeSaved, что и модалка. Документация (схемы логики/OpenAPI) в редакторе
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
-import { useCallback, useRef, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
-import type { DeletionSnapshot, Node, NodeShape, NodeSource, NodeStatus, NodeUpdate } from "../../types";
+import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
+import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
 import { canHaveChildren } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
-import { nodesApi } from "../../api/nodes";
-import { ApiError, isConflict } from "../../api/client";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
 import AnchorField from "../anchor/AnchorField";
-import { useContainerChildren } from "../../pages/useContainerChildren";
+import MetaRow from "./MetaRow";
+import { META_ICON } from "./metaIcons";
+import { aggregateTech, useDescendants } from "../../pages/useContainerChildren";
+import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
@@ -36,142 +37,40 @@ const noticeStyle: CSSProperties = {
 };
 
 export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
-  // Локальные значения полей. Сбрасываются на смену выбора: ObjectInspector монтирует
-  // NodeInspector с key=node.id, поэтому при выборе другого узла компонент перемонтируется.
-  const [name, setName] = useState(node.name);
-  const [description, setDescription] = useState(node.description ?? "");
-  const [role, setRole] = useState(node.role ?? "");
-  const [technology, setTechnology] = useState(node.technology ?? "");
-  const [isExternal, setIsExternal] = useState(node.is_external);
-  const [status, setStatus] = useState<NodeStatus>(node.status);
+  // Правка по blur (тексты) / сразу (тогл, статус, тип) с CAS и 409-ресинком — тот же
+  // хук, что на странице объекта. Успешная правка ложится в Undo редактора: хук отдаёт
+  // узел ДО правки вторым аргументом. Значения полей сбрасываются на смену выбора:
+  // ObjectInspector монтирует NodeInspector с key=node.id. Плашки: conflict — 409
+  // (правка не применилась, данные обновлены с сервера), error — отказ с причиной
+  // (400: смена типа у узла с детьми / у базы с описанной структурой).
+  const patch = useNodePatch(node, (saved, before) => onNodeSaved(saved, false, before));
+  const { name, description, role, technology, isExternal, status, conflict, error } = patch;
   const [statusOpen, setStatusOpen] = useState(false);
   const [shapeOpen, setShapeOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  // Конфликт конкурентных сессий (409 CAS): правка не применилась, данные
-  // обновлены с сервера — пользователь повторяет правку поверх свежего.
-  const [conflict, setConflict] = useState<string | null>(null);
-  // Отказ сервера с причиной (400: смена типа у узла с детьми / у базы с описанной
-  // структурой). Гаснет при следующей успешной правке.
-  const [error, setError] = useState<string | null>(null);
-
-  // Узел ДО последней правки — для обратимой записи в историю. Обновляем после
-  // успешного коммита.
-  const beforeRef = useRef<Node>(node);
+  // Тип показываем из самого узла (пропа): он обновится тем же путём, что имя
+  // (onNodeSaved → данные узла в редакторе → холст), а при отказе 400 показанный тип
+  // остаётся прежним, потому что прошлое значение никто не перетирал.
   const shape = node.shape;
   const isPerson = shape === "person";
   const isContainer = canHaveChildren(shape) && node.has_children;
   // Агрегированная технология потомков для контейнера: по правилам у контейнера
   // нет своей технологии — показываем сумму технологий потомков, read-only
   // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
-  const container = useContainerChildren(node.id, isContainer);
+  const { descendants } = useDescendants(node.id, isContainer);
+  const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
+  const techLoading = isContainer && descendants === null;
 
-  // Единый коммит: собирает полный NodeUpdate из локального состояния + правленого поля
-  // (over перекрывает то, что ещё не доехало в стейт на момент blur). openapi_spec
-  // переносим из beforeRef без изменений — документацией управляет страница узла;
-  // схемы логики живут отдельным API (node_docs), не здесь.
-  // Возвращает ТЕКСТ ОТКАЗА или null при успехе: плашки панели оно выставляет
-  // само (как и раньше), а возврат нужен полю «Якорь» — там 422 показывается
-  // прямо под формой, где его исправляют. Остальные зовут через void.
-  const save = useCallback(
-    async (over: Partial<NodeUpdate>): Promise<string | null> => {
-      const before = beforeRef.current;
-      const payload: NodeUpdate = {
-        name: name.trim() || before.name,
-        description: description || null,
-        role: role || null,
-        technology: technology || null,
-        openapi_spec: before.openapi_spec,
-        is_external: isExternal,
-        shape: before.shape,
-        status,
-        ...over,
-        // CAS (этап 0 конкурентности): правка от версии последнего сохранённого;
-        // узел изменён другой сессией → 409 (ветка conflict ниже), не тихий LWW.
-        base_version: before.version,
-      };
-      try {
-        const saved = await nodesApi.update(node.id, payload);
-        onNodeSaved(saved, false, before);
-        beforeRef.current = saved;
-        setConflict(null);
-        setError(null);
-        return null;
-      } catch (e: unknown) {
-        if (!isConflict(e)) {
-          // Отказ с причиной (400: смена типа у узла с детьми / у базы со
-          // структурой). Раньше прочие ошибки уходили молча — правка «не
-          // срабатывала» без объяснения; показываем текст сервера плашкой. Внешность
-          // и статус коммитятся сразу по клику — откатываем их к сохранённым (аудит
-          // R-13), иначе панель показывала бы значение, которого в БД нет.
-          setConflict(null);
-          setIsExternal(beforeRef.current.is_external);
-          setStatus(beforeRef.current.status);
-          const текст = e instanceof ApiError ? e.message : "Правка не сохранена";
-          setError(текст);
-          return текст;
-        }
-        // 409: подтягиваем свежие данные (правка НЕ применилась — чужая работа цела),
-        // показываем плашку; в историю ничего не кладём (onNodeSaved не зовём).
-        try {
-          const fresh = await nodesApi.get(node.id);
-          beforeRef.current = fresh;
-          setName(fresh.name);
-          setDescription(fresh.description ?? "");
-          setRole(fresh.role ?? "");
-          setTechnology(fresh.technology ?? "");
-          setIsExternal(fresh.is_external);
-          setStatus(fresh.status);
-        } catch {
-          // узел могли удалить — уровень догонит поллинг/ресинк
-        }
-        setError(null);
-        const текст = "Узел изменён в другой сессии — данные обновлены, повторите правку";
-        setConflict(текст);
-        return текст;
-      }
-    },
-    [name, description, role, technology, isExternal, status, node.id, onNodeSaved],
-  );
-
-  // Коммитим только при реальном изменении (не плодим пустые записи истории). Пустое
-  // имя по blur откатываем к прежнему — оно обязательно.
-  const commitName = () => {
-    const t = name.trim();
-    if (!t) { setName(beforeRef.current.name); return; }
-    if (t === beforeRef.current.name) return;
-    void save({ name: t });
-  };
-  const commitDesc = () => {
-    if (description === (beforeRef.current.description ?? "")) return;
-    void save({ description: description || null });
-  };
-  const commitRole = () => {
-    if (role === (beforeRef.current.role ?? "")) return;
-    void save({ role: role || null });
-  };
-  const commitTech = () => {
-    if (technology === (beforeRef.current.technology ?? "")) return;
-    void save({ technology: technology || null });
-  };
-  const toggleExternal = () => {
-    const next = !isExternal;
-    setIsExternal(next);
-    void save({ is_external: next });
-  };
+  // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
+  // плодит пустых записей истории).
   const pickStatus = (st: NodeStatus) => {
     setStatusOpen(false);
-    if (st === status) return;
-    setStatus(st);
-    void save({ status: st });
+    patch.pickStatus(st);
   };
-  // Смена типа: локального зеркала у формы нет осознанно — значение показываем из
-  // самого узла (пропа), который обновится тем же путём, что имя (onNodeSaved →
-  // данные узла в редакторе → холст). Отказ 400 приезжает плашкой, и показанный
-  // тип остаётся прежним, потому что прошлое значение никто не перетирал.
   const pickShape = (sh: NodeShape) => {
     setShapeOpen(false);
     if (sh === shape) return;
-    void save({ shape: sh });
+    patch.pickShape(sh);
   };
 
   const statusDot = (st: NodeStatus) => (st === "existing" ? "#9ca3af" : getNodeColors(isExternal, 0, st).bg);
@@ -189,8 +88,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {...noAutofill("node-inspector-1")}
               className="insp-field insp-field--name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={commitName}
+              onChange={(e) => patch.setName(e.target.value)}
+              onBlur={patch.commitName}
             />
           ) : (
             <div className="insp-name">{node.name}</div>
@@ -207,8 +106,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           {...noAutofill("node-inspector-2")}
           className="insp-field insp-fieldarea"
           value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          onBlur={commitDesc}
+          onChange={(e) => patch.setDescription(e.target.value)}
+          onBlur={patch.commitDesc}
           placeholder="Описание"
         />
       ) : (
@@ -217,7 +116,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
       {/* Список меты «терм → значение» */}
       <dl className="insp-meta">
-        <Row icon={META_ICON.type} label="Тип">
+        <MetaRow icon={META_ICON.type} label="Тип">
           {isArchitect ? (
             <span className="insp-value">
               <span className="insp-selwrap">
@@ -254,15 +153,15 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           ) : (
             <span className="insp-value">{SHAPE_LABEL[shape]}</span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.placement} label="Размещение">
+        <MetaRow icon={META_ICON.placement} label="Размещение">
           {isArchitect ? (
             <span className="insp-value">
               {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
                   сервис — активный синий, чужой — серый, как точка у наблюдателя.
                   Подпись называет состояние, а не «что включает» тогл. */}
-              <button type="button" className="insp-toggle" onClick={toggleExternal} aria-pressed={!isExternal}>
+              <button type="button" className="insp-toggle" onClick={patch.toggleExternal} aria-pressed={!isExternal}>
                 <span className={"insp-switch" + (isExternal ? "" : " is-on")} />
                 {isExternal ? "Внешний" : "Внутренний"}
               </button>
@@ -273,9 +172,9 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {isExternal ? "Внешний" : "Внутренний"}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.status} label="Статус">
+        <MetaRow icon={META_ICON.status} label="Статус">
           {isArchitect ? (
             <span className="insp-value">
               <span className="insp-selwrap">
@@ -317,17 +216,17 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {STATUS_META[node.status].label}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
-        <Row icon={META_ICON.role} label="Роль">
+        <MetaRow icon={META_ICON.role} label="Роль">
           {isArchitect ? (
             <span className="insp-value">
               <input
                 {...noAutofill("node-inspector-3")}
                 className="insp-field"
                 value={role}
-                onChange={(e) => setRole(e.target.value)}
-                onBlur={commitRole}
+                onChange={(e) => patch.setRole(e.target.value)}
+                onBlur={patch.commitRole}
                 placeholder="сервис, БД, брокер…"
               />
             </span>
@@ -336,14 +235,14 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
               {node.role || "не указана"}
             </span>
           )}
-        </Row>
+        </MetaRow>
 
         {!isPerson && (
-          <Row icon={META_ICON.tech} label="Технология">
+          <MetaRow icon={META_ICON.tech} label="Технология">
             {isContainer ? (
               // Контейнер: агрегированная технология потомков, только чтение.
-              <span className={"insp-value" + (container.aggTech ? "" : " insp-value--empty")}>
-                {container.loading ? "…" : container.aggTech || "не указана"}
+              <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
+                {techLoading ? "…" : aggTech || "не указана"}
               </span>
             ) : isArchitect ? (
               <span className="insp-value">
@@ -351,8 +250,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                   {...noAutofill("node-inspector-4")}
                   className="insp-field"
                   value={technology}
-                  onChange={(e) => setTechnology(e.target.value)}
-                  onBlur={commitTech}
+                  onChange={(e) => patch.setTechnology(e.target.value)}
+                  onBlur={patch.commitTech}
                   placeholder="Python, Kafka, Redis…"
                 />
               </span>
@@ -361,7 +260,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 {node.technology || "не указана"}
               </span>
             )}
-          </Row>
+          </MetaRow>
         )}
       </dl>
 
@@ -373,7 +272,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       <AnchorField
         source={node.source}
         isArchitect={isArchitect}
-        onSave={(source: NodeSource | null) => save({ source })}
+        onSave={patch.commitSource}
       />
 
       {/* Документация: управление схемами логики и спеками — только на странице
@@ -404,37 +303,6 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
     </div>
   );
 }
-
-// Строка меты «терм → значение». dd — нейтральная флекс-ячейка; само значение несёт
-// класс .insp-value (его передаёт вызывающий — текст у наблюдателя / поле у архитектора).
-function Row({ icon, label, children }: { icon: ReactNode; label: string; children: ReactNode }) {
-  return (
-    <div className="insp-row">
-      <dt className="insp-term">
-        <span className="insp-term-ico">{icon}</span>
-        {label}
-      </dt>
-      <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>{children}</dd>
-    </div>
-  );
-}
-
-
-// Линейные иконки термов (16×16, currentColor). Порт META_ICON из NodeModal + flow/api/trash.
-const ms = {
-  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
-  stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
-} as const;
-const META_ICON: Record<"type" | "placement" | "status" | "role" | "tech" | "flow" | "api" | "trash", ReactNode> = {
-  type: <svg {...ms}><rect x="2.75" y="3.5" width="10.5" height="9" rx="1.5" /><path d="M2.75 6.25h10.5" /></svg>,
-  placement: <svg {...ms}><circle cx="8" cy="8" r="5.25" /><path d="M2.75 8h10.5" /><path d="M8 2.75c1.7 1.6 1.7 9 0 10.5c-1.7-1.5-1.7-8.9 0-10.5Z" /></svg>,
-  status: <svg {...ms}><path d="M1.75 8h2.5l1.6-3.8 2.2 7.2 1.7-5 1 1.6h3.5" /></svg>,
-  role: <svg {...ms}><path d="M4 2.9h8v10.2l-4-2.6-4 2.6Z" /></svg>,
-  tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  flow: <svg {...ms}><circle cx="4" cy="4" r="1.8" /><circle cx="12" cy="8" r="1.8" /><circle cx="4" cy="12" r="1.8" /><path d="M5.6 4H9a1.7 1.7 0 0 1 1.7 1.7v.6 M5.6 12H9a1.7 1.7 0 0 0 1.7-1.7v-.6" /></svg>,
-  api: <svg {...ms}><rect x="2" y="3" width="12" height="10" rx="1.5" /><path d="M5 6.5 3.5 8 5 9.5 M11 6.5 12.5 8 11 9.5 M8.6 5.7 7.4 10.3" /></svg>,
-  trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,
-};
 
 function ChevronDown() {
   return <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M6 9 L12 15 L18 9" /></svg>;

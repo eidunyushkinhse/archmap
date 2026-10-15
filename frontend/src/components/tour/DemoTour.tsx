@@ -21,9 +21,8 @@ import {
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
-import {
-  dropStaleTours, loadTour, markExitToPill, onTourRestart, onTourResume, saveTour, setTourPaused, takeExitToPill,
-} from "./tourStore";
+import { dropStaleTours, loadTour, saveTour } from "./tourPersist";
+import { markExitToPill, onTourRestart, onTourResume, setTourPaused, takeExitToPill } from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
@@ -204,13 +203,20 @@ function TourRuntime({ userId }: { userId: string }) {
 
   // ── «Обучение»: пройти заново. Свой проект уже есть («Новый проект» погашена) — короткий
   // проход по «Ярмарке». Признак берём свежим с сервера: кэш «кто я» мог устареть.
-  useEffect(() => onTourRestart(() => {
-    void fetchMe().catch(() => undefined).then(() => {
-      lastLevelRef.current = null;
-      setYarProjectId(undefined); // «Ярмарку» ищем заново: её могли переименовать
-      send({ reset: startState(getCanCreateProject() ? "full" : "short") });
+  // Ответ пришёл, когда тур уже перемонтирован (сменился гость — ключ TourRuntime), —
+  // не применяем (аудит F-8): новый тур начнётся сам.
+  useEffect(() => {
+    let alive = true;
+    const off = onTourRestart(() => {
+      void fetchMe().catch(() => undefined).then(() => {
+        if (!alive) return;
+        lastLevelRef.current = null;
+        setYarProjectId(undefined); // «Ярмарку» ищем заново: её могли переименовать
+        send({ reset: startState(getCanCreateProject() ? "full" : "short") });
+      });
     });
-  }), []);
+    return () => { alive = false; off(); };
+  }, []);
 
   // ── Пауза (docs/tasks/demo-tour-pause.md): клик по затемнению свернул тур в пилюлю ──
   // «Продолжить обучение»: шаг за паузу не продвинулся — назад, где её взяли (экран и

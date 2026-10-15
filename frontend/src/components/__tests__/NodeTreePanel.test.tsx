@@ -3,7 +3,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import NodeTreePanel, { NODE_DRAG_MIME, NODE_MOVE_MIME } from "../NodeTreePanel";
+import NodeTreePanel from "../NodeTreePanel";
+import { NODE_DRAG_MIME, NODE_MOVE_MIME } from "../nodeTree.mime";
 import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
 
@@ -45,7 +46,7 @@ describe("NodeTreePanel (плоский режим)", () => {
       node("api", { has_children: true, child_count: 2 }),
       node("db", { shape: "database" }),
     ]);
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
     expect(screen.getByText("DB")).toBeInTheDocument();
   });
@@ -53,7 +54,7 @@ describe("NodeTreePanel (плоский режим)", () => {
   it("клик по листу вызывает onNodePage", async () => {
     const onNodePage = vi.fn();
     vi.mocked(nodesApi.list).mockResolvedValue([node("leaf")]);
-    render(<NodeTreePanel onNodePage={onNodePage} isArchitect={false} />);
+    render(<NodeTreePanel mode="pages" onNodePage={onNodePage} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("LEAF")).toBeInTheDocument());
     await userEvent.click(screen.getByText("LEAF"));
     expect(onNodePage).toHaveBeenCalledWith(expect.objectContaining({ id: "leaf" }));
@@ -65,7 +66,7 @@ describe("NodeTreePanel (плоский режим)", () => {
       node("parent", { has_children: true, child_count: 1 }),
     ]);
     vi.mocked(nodesApi.getChildren).mockResolvedValue([node("child", { parent_id: "parent" })]);
-    render(<NodeTreePanel onDrillTo={onDrillTo} onPickLeaf={vi.fn()} isArchitect={false} />);
+    render(<NodeTreePanel mode="editor" onDrillTo={onDrillTo} onPickLeaf={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("PARENT")).toBeInTheDocument());
     await userEvent.click(screen.getByText("PARENT"));
     // Дрилл вызван с полным путём
@@ -78,7 +79,7 @@ describe("NodeTreePanel (плоский режим)", () => {
   it("поиск: debounce-запрос и рендер результатов", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([node("root")]);
     vi.mocked(nodesApi.search).mockResolvedValue([node("found", { name: "Найденный" })]);
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("ROOT")).toBeInTheDocument());
     const input = screen.getByPlaceholderText(/поиск/i);
     await userEvent.type(input, "найд");
@@ -91,7 +92,7 @@ describe("NodeTreePanel (плоский режим)", () => {
     const onCreateChild = vi.fn();
     vi.mocked(nodesApi.list).mockResolvedValue([node("svc", { shape: "service" })]);
     const { container } = render(
-      <NodeTreePanel onNodePage={vi.fn()} isArchitect onCreateChild={onCreateChild} />,
+      <NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect onCreateChild={onCreateChild} />,
     );
     await waitFor(() => expect(screen.getByText("SVC")).toBeInTheDocument());
     const addBtn = container.querySelector(".nt-add-child");
@@ -104,7 +105,7 @@ describe("NodeTreePanel (плоский режим)", () => {
     vi.mocked(nodesApi.list).mockResolvedValue([
       node("user", { shape: "person", name: "Покупатель" }),
     ]);
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("Покупатель")).toBeInTheDocument());
   });
 });
@@ -119,27 +120,27 @@ describe("NodeTreePanel: ручка переноса", () => {
 
   it("в редакторе у архитектора ручка есть на каждой строке", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
-    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
+    render(<NodeTreePanel mode="editor" onDrillTo={vi.fn()} onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
     await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
     expect(screen.getAllByLabelText(/Перенести/)).toHaveLength(2);
   });
 
   it("без onReparent (страницы) и у наблюдателя ручки нет", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
-    const { unmount } = render(<NodeTreePanel onNodePage={vi.fn()} isArchitect />);
+    const { unmount } = render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect />);
     await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
     expect(screen.queryByLabelText(/Перенести/)).toBeNull();
     unmount();
 
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
-    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect={false} />);
+    render(<NodeTreePanel mode="editor" onDrillTo={vi.fn()} onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect={false} />);
     await waitFor(() => expect(screen.getByText("API")).toBeInTheDocument());
     expect(screen.queryByLabelText(/Перенести/)).toBeNull();
   });
 
   it("dragstart кладёт id узла под СВОИМ mime, не под палитровым", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
-    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
+    render(<NodeTreePanel mode="editor" onDrillTo={vi.fn()} onPickLeaf={vi.fn()} onReparent={vi.fn()} isArchitect />);
     await waitFor(() => expect(screen.getByText("DB")).toBeInTheDocument());
     const data = new Map<string, string>();
     const dataTransfer = {
@@ -173,7 +174,7 @@ describe("NodeTreePanel: цели переноса", () => {
 
   async function scene(nodes: Node[], onReparent = vi.fn()) {
     vi.mocked(nodesApi.list).mockResolvedValue(nodes);
-    render(<NodeTreePanel onPickLeaf={vi.fn()} onReparent={onReparent} isArchitect />);
+    render(<NodeTreePanel mode="editor" onDrillTo={vi.fn()} onPickLeaf={vi.fn()} onReparent={onReparent} isArchitect />);
     await waitFor(() => expect(screen.getByText(nodes[0].name)).toBeInTheDocument());
     return onReparent;
   }

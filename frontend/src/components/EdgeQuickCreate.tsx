@@ -1,11 +1,8 @@
-import { useState } from "react";
-import type { Edge, EdgeCreate } from "../types";
-import { edgesApi } from "../api/nodes";
+import type { Edge } from "../types";
 import Modal from "../ui/Modal";
 import { labelStyle, input, primaryBtn, secondaryBtn } from "../ui/styles";
-import { limitMessage } from "./demo/demoLimits";
-import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
+import { useEdgeCreate } from "./useEdgeCreate";
 import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
@@ -30,34 +27,8 @@ interface Props {
 export default function EdgeQuickCreate({
   sourceId, targetId, sourceLabel, targetLabel, onClose, onCreated,
 }: Props) {
-  const [label, setLabel] = useState("");
-  const [technology, setTechnology] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Демо-стенд: проект упёрся в предел связей или объёма текста.
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
-
-  async function handleCreate() {
-    setSaving(true);
-    setError(null);
-    setLimit(null);
-    try {
-      const data: EdgeCreate = {
-        source_id: sourceId,
-        target_id: targetId,
-        label: label || null,
-        technology: technology || null,
-      };
-      const created = await edgesApi.create(data);
-      onCreated(created);
-    } catch (e: unknown) {
-      const refusal = limitMessage(e, "edge");
-      if (refusal) setLimit(refusal);
-      else setError(e instanceof Error ? e.message : "Ошибка создания связи");
-    } finally {
-      setSaving(false);
-    }
-  }
+  const { label, setLabel, technology, setTechnology, saving, error, limit, create } =
+    useEdgeCreate(onCreated);
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400 }}>
@@ -91,7 +62,7 @@ export default function EdgeQuickCreate({
         </p>
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={handleCreate} disabled={saving} style={primaryBtn}>
+        <button onClick={() => void create(sourceId, targetId)} disabled={saving} style={primaryBtn}>
           {saving ? "Создание..." : "Создать связь"}
         </button>
         <button onClick={onClose} style={secondaryBtn}>Отмена</button>

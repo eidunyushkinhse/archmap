@@ -118,6 +118,21 @@ describe("ConfigParamsSection", () => {
     );
   });
 
+  it("отказ правки показан текстом, а список перечитан с сервера", async () => {
+    vi.mocked(configParamsApi.update).mockRejectedValue(new Error("Параметр с таким именем уже есть"));
+    renderSection();
+
+    const поле = await screen.findByDisplayValue("FEATURE_NEW_CHECKOUT");
+    await userEvent.clear(поле);
+    await userEvent.type(поле, "ДРУГОЕ_ИМЯ");
+    await userEvent.tab();
+
+    expect(await screen.findByText("Параметр с таким именем уже есть")).toBeInTheDocument();
+    // CAS-версия приходит с сервера — после любой правки, и неудачной тоже, список
+    // перечитывается, а не склеивается локально.
+    await waitFor(() => expect(configParamsApi.list).toHaveBeenCalledTimes(2));
+  });
+
   it("«+ Параметр» не упирается в занятое имя", async () => {
     vi.mocked(configParamsApi.create).mockResolvedValue(param({ id: "p2" }));
     renderSection({ params: [param({ name: "ПАРАМЕТР" })] });

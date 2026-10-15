@@ -3,10 +3,11 @@
 // созданных объектов и их подстановка, короткий проход при уже созданном проекте.
 import { describe, it, expect } from "vitest";
 import {
-  availability, canGoBack, expandTarget, focusTarget, onScreen, parseTourState, reduceTour, screenHash, startState,
+  availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
   stepTexts, stepTotal, treeExpandTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
+import { parseTourState } from "../tourPersist";
 import { parseTourRoute } from "../tourRoute";
 import {
   FULL_SEQUENCE, STEPS, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_SELLER, YAR_SYSTEM,

@@ -8,9 +8,11 @@ import type { ReactNode } from "react";
 import type { BrokerChannel, DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
 import { canHaveChildren } from "../../types";
 import { brokerChannelsApi, edgesApi, nodesApi } from "../../api/nodes";
-import NodeSearchPicker from "../NodeSearchPicker";
 import { ShapeGlyph } from "../nodeTree.shared";
 import { useEdgeEdit } from "./useEdgeEdit";
+import EdgeEndRow from "./EdgeEndRow";
+import MetaRow from "./MetaRow";
+import { META_ICON } from "./metaIcons";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
 
@@ -28,11 +30,8 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     labelText, setLabelText,
     technology, setTechnology,
     channel, setChannel,
-    sourceId, setSourceId,
-    targetId, setTargetId,
-    srcLabel, setSrcLabel,
-    tgtLabel, setTgtLabel,
-    error, setError, commit,
+    sourceId, targetId, srcLabel, tgtLabel,
+    error, setError, commit, pickEnd,
   } = useEdgeEdit({
     id: edge.id,
     label: edge.label ?? null,
@@ -112,89 +111,52 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
     <div>
       <div className="insp-block-label">Связь</div>
       <dl className="insp-meta">
-        {/* Откуда */}
-        <div className={"insp-row" + (isArchitect ? " insp-row--top" : "")}>
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.source}</span>Откуда</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0 }}>
-            {isArchitect ? (
-              <NodeSearchPicker
-                value={sourceId}
-                initialLabel={srcLabel}
-                onChange={(id, lbl) => { setSourceId(id); if (lbl != null) setSrcLabel(lbl); if (id) void commit({ source_id: id }); }}
-              />
-            ) : (
-              <span className="insp-value">{endGlyph(sourceId)}<span className="insp-endname">{srcLabel}</span></span>
-            )}
-          </dd>
-        </div>
-        {/* Куда */}
-        <div className={"insp-row" + (isArchitect ? " insp-row--top" : "")}>
-          <dt className="insp-term"><span className="insp-term-ico">{ICON.target}</span>Куда</dt>
-          <dd style={{ margin: 0, flex: 1, minWidth: 0 }}>
-            {isArchitect ? (
-              <NodeSearchPicker
-                value={targetId}
-                initialLabel={tgtLabel}
-                onChange={(id, lbl) => { setTargetId(id); if (lbl != null) setTgtLabel(lbl); if (id) void commit({ target_id: id }); }}
-              />
-            ) : (
-              <span className="insp-value">{endGlyph(targetId)}<span className="insp-endname">{tgtLabel}</span></span>
-            )}
-          </dd>
-        </div>
-        {/* Описание */}
+        <EdgeEndRow end="source" value={sourceId} label={srcLabel} glyph={endGlyph(sourceId)}
+          onPick={isArchitect ? (id, lbl) => pickEnd("source", id, lbl) : undefined} />
+        <EdgeEndRow end="target" value={targetId} label={tgtLabel} glyph={endGlyph(targetId)}
+          onPick={isArchitect ? (id, lbl) => pickEnd("target", id, lbl) : undefined} />
         {(isArchitect || labelText) && (
-          <div className="insp-row">
-            <dt className="insp-term"><span className="insp-term-ico">{ICON.desc}</span>Описание</dt>
-            <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
-              {isArchitect ? (
-                <span className="insp-value">
-                  {/* многострочное описание: textarea (лимит — модель, String(256));
-                      переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
-                  <textarea {...noAutofill("edge-inspector-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
-                    onChange={(e) => setLabelText(e.target.value)}
-                    onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
-                </span>
-              ) : (
-                <span className="insp-value insp-value--pre">{labelText}</span>
-              )}
-            </dd>
-          </div>
+          <MetaRow icon={META_ICON.desc} label="Описание">
+            {isArchitect ? (
+              <span className="insp-value">
+                {/* многострочное описание: textarea (лимит — модель, String(256));
+                    переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
+                <textarea {...noAutofill("edge-inspector-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
+                  onChange={(e) => setLabelText(e.target.value)}
+                  onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
+              </span>
+            ) : (
+              <span className="insp-value insp-value--pre">{labelText}</span>
+            )}
+          </MetaRow>
         )}
         {/* Канал брокера: показываем, только если хотя бы один конец — брокер.
             Наблюдателю — как остальные поля: строкой и только когда заполнено. */}
         {brokerEnds.length > 0 && (isArchitect || channel) && (
-          <div className="insp-row">
-            <dt className="insp-term"><span className="insp-term-ico">{ICON.channel}</span>Канал</dt>
-            <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-              {isArchitect ? (
-                <span className="insp-value">
-                  <input {...noAutofill("edge-inspector-2")} className="insp-field" value={channel} maxLength={256}
-                    onChange={(e) => setChannel(e.target.value)}
-                    onBlur={() => void commit({ channel })} placeholder="топик / очередь" />
-                </span>
-              ) : (
-                <span className="insp-value">{channel}</span>
-              )}
-              {channelHint}
-            </dd>
-          </div>
+          <MetaRow icon={META_ICON.channel} label="Канал" layout="column">
+            {isArchitect ? (
+              <span className="insp-value">
+                <input {...noAutofill("edge-inspector-2")} className="insp-field" value={channel} maxLength={256}
+                  onChange={(e) => setChannel(e.target.value)}
+                  onBlur={() => void commit({ channel })} placeholder="топик / очередь" />
+              </span>
+            ) : (
+              <span className="insp-value">{channel}</span>
+            )}
+            {channelHint}
+          </MetaRow>
         )}
-        {/* Технология */}
         {(isArchitect || technology) && (
-          <div className="insp-row">
-            <dt className="insp-term"><span className="insp-term-ico">{ICON.tech}</span>Технология</dt>
-            <dd style={{ margin: 0, flex: 1, minWidth: 0, display: "flex" }}>
-              {isArchitect ? (
-                <span className="insp-value">
-                  <input {...noAutofill("edge-inspector-3")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
-                    onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
-                </span>
-              ) : (
-                <span className="insp-value">{technology}</span>
-              )}
-            </dd>
-          </div>
+          <MetaRow icon={META_ICON.tech} label="Технология">
+            {isArchitect ? (
+              <span className="insp-value">
+                <input {...noAutofill("edge-inspector-3")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
+                  onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
+              </span>
+            ) : (
+              <span className="insp-value">{technology}</span>
+            )}
+          </MetaRow>
         )}
       </dl>
 
@@ -202,7 +164,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
 
       {isArchitect && (
         <button type="button" className="insp-del" onClick={handleDelete} disabled={deleting}>
-          {ICON.trash} {deleting ? "Удаление…" : "Удалить связь"}
+          {META_ICON.trash} {deleting ? "Удаление…" : "Удалить связь"}
         </button>
       )}
     </div>
@@ -220,17 +182,3 @@ function channelKnown(name: string, channels: BrokerChannel[]): boolean {
     (c) => c.name === name || (c.group_name !== "" && `${c.group_name}.${c.name}` === name),
   );
 }
-
-const ms = {
-  width: 16, height: 16, viewBox: "0 0 16 16", fill: "none",
-  stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round",
-} as const;
-const ICON: Record<"source" | "target" | "desc" | "tech" | "channel" | "trash", ReactNode> = {
-  source: <svg {...ms}><circle cx="3.5" cy="8" r="2.25" /><path d="M6 8h7" /><path d="M10.5 5.4 13.2 8l-2.7 2.6" /></svg>,
-  target: <svg {...ms}><path d="M2.8 8h7" /><path d="M7.3 5.4 10 8l-2.7 2.6" /><circle cx="12.5" cy="8" r="2.25" /></svg>,
-  desc: <svg {...ms}><path d="M8.4 2.6 13 7.2a1.3 1.3 0 0 1 0 1.8l-3.9 3.9a1.3 1.3 0 0 1-1.8 0L2.7 8.3V4a1.3 1.3 0 0 1 1.3-1.3Z" /><circle cx="5.6" cy="5.5" r=".9" fill="currentColor" stroke="none" /></svg>,
-  tech: <svg {...ms}><path d="M6 5.4 3 8l3 2.6" /><path d="M10 5.4 13 8l-3 2.6" /></svg>,
-  // Канал: конверт события (та же метафора, что у секции каналов брокера).
-  channel: <svg {...ms}><rect x="2.2" y="4" width="11.6" height="8" rx="1.3" /><path d="M2.2 5 8 8.9 13.8 5" /></svg>,
-  trash: <svg {...ms} width={15} height={15}><path d="M3 4.2h10 M5.5 4.2V3h5v1.2 M4.2 4.2l.6 8.3a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9l.6-8.3" /></svg>,
-};

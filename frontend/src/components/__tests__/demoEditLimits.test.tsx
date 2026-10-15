@@ -30,7 +30,12 @@ vi.mock("../../api/nodes", () => ({
 vi.mock("../../api/processes", () => ({
   processesApi: { list: vi.fn(), create: vi.fn(), duplicate: vi.fn(), remove: vi.fn() },
 }));
-vi.mock("../../api/docsImport", () => ({ docsImportApi: { prompt: vi.fn() } }));
+// Окна фактов описывают свою семью при загрузке модуля (FactAgentModal) — ручки
+// семей должны существовать в моке, даже если тест их не зовёт.
+vi.mock("../../api/docsImport", () => ({
+  docsImportApi: { prompt: vi.fn() },
+  dataImportApi: {}, channelsImportApi: {}, configImportApi: {},
+}));
 vi.mock("../../api/dataRefs", () => ({ dataRefsApi: { preview: vi.fn(() => Promise.resolve([])) } }));
 vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } 
 import type { DragEvent } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import type { NodeShape } from "../../../types";
-import { NODE_DRAG_MIME } from "../../NodeTreePanel";
+import { NODE_DRAG_MIME } from "../../nodeTree.mime";
 import { NODE_W, NODE_H } from "../constants";
 import { snapNode } from "./snap";
 import type { Guides } from "./useAlignmentGuides";

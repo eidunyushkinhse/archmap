@@ -1,6 +1,6 @@
-import { useCallback, useState } from "react";
 import { nodesApi } from "../api/nodes";
 import ConfirmDialog from "../ui/ConfirmDialog";
+import { useBusyAction } from "../ui/useBusyAction";
 
 /**
  * Подтверждение команды «Переразложить уровень» (own-on-first-render, Ф2).
@@ -24,20 +24,8 @@ interface Props {
 }
 
 export default function RelayoutConfirm({ containerId, levelName, onCancel, onDone }: Props) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const confirm = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await nodesApi.relayoutLevel(containerId);
-      onDone();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось переразложить уровень");
-      setBusy(false);
-    }
-  }, [containerId, onDone]);
+  const { busy, error, run } = useBusyAction("Не удалось переразложить уровень");
+  const confirm = () => run(() => nodesApi.relayoutLevel(containerId).then(onDone));
 
   const where = levelName ? `«${levelName}»` : "корневой схемы";
 

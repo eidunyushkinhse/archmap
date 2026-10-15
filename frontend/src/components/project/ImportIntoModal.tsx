@@ -22,11 +22,12 @@ import {
   head, sub, chipsRow, chip, chipBtn, chipX, dropHint, grayLine, footRow,
 } from "../docsImport/agentModalShared";
 import { statusState } from "./importRemarks";
+import { FactLines, ReportTail } from "./ImportReportParts";
 import {
-  BulkBox, RemainderBlock, StatusLine, UnfixableFold, buildQuestions, bulkAnswers,
-  hasMineDisputes, pruneAnswers, splitErrorLine, toDecisions,
+  BulkBox, RemainderBlock, StatusLine, UnfixableFold, bulkAnswers,
+  hasMineDisputes, splitErrorLine, toDecisions, useRemainderAnswers,
 } from "./remainder";
-import type { Answer, Answers } from "./remainder";
+import type { Answer } from "./remainder";
 import { anchorKind, basisLabel } from "../anchor/anchorText";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
@@ -112,10 +113,6 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
     { forFiles: File[]; key: number; res: IntoPreviewOut } | null
   >(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [resolutions, setResolutions] = useState<Record<string, string>>({});
-  // Ответы на остальные вопросы разбора остатка (Ф-E) — рядом с резолюциями и по
-  // тем же правилам: переживают перезапрос превью, протухшие отбрасываются.
-  const [answers, setAnswers] = useState<Answers>({});
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
   // Отчёт применения показываем В ОКНЕ: замечания догрузки (промахи адресов,
@@ -156,29 +153,11 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
   const checking = files.length > 0 && fresh === null && !tooBig;
   // Демо-стенд: после догрузки проект выйдет за предел (считает сервер в превью).
   const excess = fresh?.demo_excess ?? null;
-  // Мемо, а не выражение: пустой литерал каждый рендер срывал бы ссылочную
-  // стабильность зависимых мемо ниже.
-  const conflicts = useMemo(() => fresh?.family_conflicts ?? [], [fresh]);
-  // Резолюции ПЕРЕЖИВАЮТ перезапрос превью (в том числе после 409): id спора
-  // стабилен, пока состав входов и живое знание те же. Протухшие отбрасываем ПРИ
-  // РЕНДЕРЕ — паттерн «adjusting state when props change», а не зеркалящим эффектом.
-  if (fresh && Object.keys(resolutions).some((id) => !conflicts.some((c) => c.id === id))) {
-    setResolutions(Object.fromEntries(
-      Object.entries(resolutions).filter(([id]) => conflicts.some((c) => c.id === id)),
-    ));
-  }
-  // Вопросы разбора — производное от свежего превью. Сноска о связи в контейнер
-  // здесь говорит «после догрузки»: проект уже создан (mode).
-  const questions = useMemo(
-    () => (fresh === null ? [] : buildQuestions({
-      family_conflicts: fresh.family_conflicts, remainder: fresh.remainder, mode: "into",
-    })),
-    [fresh],
-  );
-  if (fresh !== null) {
-    const живые = pruneAnswers(answers, questions);
-    if (живые !== answers) setAnswers(живые);
-  }
+  // Разбор остатка (Ф-E): резолюции споров и ответы на остальные вопросы переживают
+  // перезапрос превью, в том числе после 409. Сноска о связи в контейнер здесь
+  // говорит «после догрузки»: проект уже создан (mode).
+  const { questions, answers, setAnswers, resolutions, setResolutions } =
+    useRemainderAnswers(fresh, "into");
   // Массовые действия имеют смысл только там, где спорят С ЖИВЫМ: спор двух архивов
   // между собой «моим» не разрешить.
   const withMine = hasMineDisputes(questions);
@@ -411,8 +390,6 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
 // Отчёт применения: «сколько записей тронуто» (форма догрузки), отчёты семей —
 // родные. То, что придётся поправить руками, — свёрткой до закрытия окна.
 function ApplyReport({ result }: { result: IntoApplyOut }) {
-  const linked = result.processes.reduce((s, p) => s + p.doc_linked, 0);
-  const unresolved = result.processes.reduce((s, p) => s + p.doc_unresolved, 0);
   return (
     <div style={{ fontSize: 13, color: "#334155", lineHeight: 1.6 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: "#0f172a", marginBottom: 8 }}>
@@ -427,33 +404,14 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
         {result.docs_replaced > 0 && ` · заменено: ${result.docs_replaced}`}
         {" · спек: "}{result.specs_applied}
       </div>
-      {result.db && <div>Таблиц БД: {result.db.tables_written}</div>}
-      {result.channels && <div>Каналов брокеров: {result.channels.channels_written}</div>}
-      {result.channel_stubs > 0 && (
-        <div>Каналов брокеров заведено по связям схемы: {result.channel_stubs} (без описания)</div>
-      )}
+      <FactLines result={result} />
       {result.config && (
         <div>
           Параметров конфигурации: {result.config.params_written}
           {result.params_replaced > 0 && ` · заменено: ${result.params_replaced}`}
         </div>
       )}
-      {result.processes.length > 0 && (
-        <div>
-          Процессов: {result.processes.length} · привязок шагов: {linked}
-          {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
-          )}
-        </div>
-      )}
-      {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
-      {result.resolved_conflicts > 0 && (
-        <div>Разрешено споров содержимого: {result.resolved_conflicts}</div>
-      )}
-      {/* Сырого списка «Замечания» нет (Ф2г-2): информация о сделанном видна по
-          счётчикам выше, а то, что требует рук, — пунктами той же свёртки, что в
-          превью. Сырые строки (result.warnings) остаются в ответе для MCP. */}
-      <UnfixableFold items={result.unfixable} after />
+      <ReportTail result={result} />
     </div>
   );
 }

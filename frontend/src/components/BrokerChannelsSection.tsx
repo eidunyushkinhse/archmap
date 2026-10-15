@@ -9,19 +9,17 @@
 //
 // Правки идут по blur/change поштучно (как инлайн-поля свойств узла), без формы и
 // кнопки «Сохранить»: каналов много, а правка — точечная.
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import { useRef, useState } from "react";
 import { brokerChannelsApi } from "../api/nodes";
 import AddDocsMenu from "./AddDocsMenu";
 import ChannelsAgentModal from "./docsImport/ChannelsAgentModal";
 import { useCollapse } from "./useCollapse";
-import { useFlipRows } from "./useFlipRows";
 import { useShrinkAnchor } from "./useShrinkAnchor";
+import FactGroups from "./FactGroups";
+import { freeName, useFactRows, useToggleSet } from "./useFactRows";
 import { ChevronDownIcon } from "../ui/icons";
 import type { BrokerChannel, ChannelField, ChannelUsage } from "../types";
 import "./brokerChannels.css";
-import { limitMessage } from "./demo/demoLimits";
-import type { LimitMessage } from "./demo/demoLimits";
 import { LimitNotice } from "./demo/DemoLimitNotice";
 import { noAutofill } from "../ui/noAutofill";
 
@@ -31,16 +29,6 @@ interface Props {
   // из файла без адреса «# archmap-node:».
   nodeName: string;
   isArchitect: boolean;
-}
-
-// Свободное имя вида «канал», «канал_2», … — чтобы «+ Канал» не упиралась в 409
-// уникальности при повторном нажатии.
-function freeName(base: string, taken: Set<string>): string {
-  if (!taken.has(base)) return base;
-  for (let i = 2; ; i++) {
-    const candidate = `${base}_${i}`;
-    if (!taken.has(candidate)) return candidate;
-  }
 }
 
 // Подсказки терминов вынесены в константы: одни и те же слова стоят в placeholder и в
@@ -61,90 +49,35 @@ const KEY_TITLE =
   "Ключ партиционирования: по нему определяется порядок применения событий одной сущности";
 
 export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }: Props) {
-  const [channels, setChannels] = useState<BrokerChannel[] | null>(null);
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState<LimitMessage | null>(null);
+  // Обратный индекс (usage): кто публикует и кто потребляет каналы этого брокера.
+  // Разворот пометок из схем логики вызывающих — ответ на «кого сломает изменение
+  // формата».
+  const { rows: channels, usage, error, limit, apply, reload } =
+    useFactRows(nodeId, brokerChannelsApi, "Не удалось загрузить каналы");
+  const [open, toggleOpen] = useToggleSet();
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
-  // Свёрнутые группы (по умолчанию раскрыты — иначе структура выглядит пустой).
-  const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set());
-  // Обратный индекс: кто публикует и кто потребляет каналы этого брокера. Разворот
-  // пометок из схем логики вызывающих — ответ на «кого сломает изменение формата».
-  const [usage, setUsage] = useState<ChannelUsage[]>([]);
   // Сворачивание укорачивает страницу, и внизу скролл упирается в новый конец —
   // содержимое уезжает из-под курсора. Якорь придерживает позицию (см. хук).
   const holdScroll = useShrinkAnchor();
-  // Переезд карточки между плоским списком и группой анимируем (FLIP): без этого она
-  // мгновенно оказывается в другом месте и это читается как рывок.
-  const listRef = useRef<HTMLDivElement>(null);
-
-  // Перезагрузка — через счётчик, а не вызовом загрузчика из эффекта: setState прямо
-  // в теле эффекта даёт каскад рендеров (тот же приём, что в DbStructureSection).
-  const [seq, setSeq] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    brokerChannelsApi.list(nodeId)
-      .then((cs) => { if (alive) { setChannels(cs); setError(null); } })
-      .catch(() => { if (alive) setError("Не удалось загрузить каналы"); });
-    brokerChannelsApi.usage(nodeId)
-      .then((u) => { if (alive) setUsage(u); })
-      .catch(() => { if (alive) setUsage([]); });
-    return () => { alive = false; };
-  }, [nodeId, seq]);
-
-  // Любая правка: применяем на сервере и перечитываем список. Перечитывание — не лень,
-  // а необходимость: CAS-версия канала и порядок полей приходят с сервера, и локальная
-  // склейка разъезжалась бы с ними на первой же ошибке.
-  const apply = useCallback(async (fn: () => Promise<unknown>) => {
-    setLimit(null);
-    try {
-      await fn();
-      setError(null);
-    } catch (e) {
-      // Демо-стенд: правка упёрлась в предел проекта — отдельной плашкой с жирным
-      // началом (docs/tasks/demo-mode.md); прочие отказы — как раньше.
-      const refusal = limitMessage(e, "save");
-      if (refusal) setLimit(refusal);
-      else setError(e instanceof Error && e.message ? e.message : "Правка не прошла");
-    }
-    setSeq((n) => n + 1);
-  }, [setSeq]);
 
   const addChannel = () => {
-    const taken = new Set((channels ?? []).map((c) => c.name));
     // Поля с серверным дефолтом генерат делает ОБЯЗАТЕЛЬНЫМИ (openapi-typescript,
     // default-non-nullable) — заполняем теми же значениями явно.
     void apply(() => brokerChannelsApi.create(nodeId, {
-      name: freeName("канал", taken),
+      name: freeName("канал", (channels ?? []).map((c) => c.name)),
       group_name: "", kind: "", partition_key: "", delivery: "", retention: "",
     }));
   };
 
   const addField = (channel: BrokerChannel) => {
-    const taken = new Set(channel.fields.map((f) => f.name));
     void apply(() => brokerChannelsApi.createField(nodeId, channel.id, {
-      name: freeName("поле", taken),
+      name: freeName("поле", channel.fields.map((f) => f.name)),
       type: "",
       required: false,
       order: channel.fields.length,
     }));
   };
-
-  // Каналы по группам (vhost/namespace/account — см. подпись поля). Пустая группа идёт
-  // первой: у Kafka такого уровня нет вовсе, и она там единственная.
-  const grouped: [string, BrokerChannel[]][] = [];
-  for (const c of channels ?? []) {
-    const bucket = grouped.find(([k]) => k === c.group_name);
-    if (bucket) bucket[1].push(c);
-    else grouped.push([c.group_name, [c]]);
-  }
-  grouped.sort(([a], [b]) => (a === "" ? -1 : b === "" ? 1 : a.localeCompare(b)));
-
-  // Подпись перестройки для FLIP — только про ПЕРЕЕЗД карточек: свёртка группы позиций
-  // не меняет (тело едет само), и включать её сюда незачем.
-  const flipKey = (channels ?? []).map((c) => `${c.id}:${c.group_name}`).join("|");
-  useFlipRows(listRef, flipKey);
 
   const renderChannel = (c: BrokerChannel) => (
     <ChannelCard
@@ -157,11 +90,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
       onToggle={(el) => {
         // Придерживаем скролл ДО правки: свернуть — значит укоротить страницу.
         if (open.has(c.id)) holdScroll(el);
-        setOpen((prev) => {
-          const next = new Set(prev);
-          if (next.has(c.id)) next.delete(c.id); else next.add(c.id);
-          return next;
-        });
+        toggleOpen(c.id);
       }}
       apply={apply}
       onAddField={() => addField(c)}
@@ -182,43 +111,19 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
       <h3 className="np-card-title">Каналы</h3>
       {error && <p className="np-warn">{error}</p>}
       {limit && <LimitNotice message={limit} />}
-      <div ref={listRef}>
-      {(channels ?? []).length === 0 ? (
-        <p className="np-empty">Каналы не описаны</p>
-      ) : grouped.length > 1 ? (
-        // Группы показываем ТОЛЬКО когда они реально заданы: у брокеров без такого
-        // уровня (Kafka) лишняя вложенность была бы шумом — то же правило, что у
-        // разделов базы.
-        grouped.map(([group, list]) => (
-          <div key={group} className="bch-group np-group">
-            {/* Те же классы, что у групп доков на странице объекта: раскрывашка должна
-                выглядеть как соседние, а не как своя выдумка. */}
-            <button
-              type="button"
-              className="np-doc-group-toggle"
-              aria-expanded={!closedGroups.has(group)}
-              onClick={(e) => {
-                if (!closedGroups.has(group)) holdScroll(e.currentTarget);
-                setClosedGroups((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(group)) next.delete(group); else next.add(group);
-                  return next;
-                });
-              }}
-            >
-              <span className="np-doc-group-chev"
-                style={{ transform: closedGroups.has(group) ? "rotate(-90deg)" : "none" }}>
-                <ChevronDownIcon />
-              </span>
-              {group || "без группы"}
-            </button>
-            <GroupBody open={!closedGroups.has(group)}>{list.map(renderChannel)}</GroupBody>
-          </div>
-        ))
-      ) : (
-        <div className="bch-channels">{(channels ?? []).map(renderChannel)}</div>
-      )}
-      </div>
+      {/* Каналы по группам (vhost/namespace/account — см. подпись поля). */}
+      <FactGroups
+        items={channels ?? []}
+        idOf={(c) => c.id}
+        groupOf={(c) => c.group_name}
+        ungrouped="без группы"
+        groupClass="bch-group"
+        bodyClass="bch-groupbody"
+        flatClass="bch-channels"
+        empty={<p className="np-empty">Каналы не описаны</p>}
+        holdScroll={holdScroll}
+        render={renderChannel}
+      />
       {isArchitect && (
         <div className="bch-actions">
           {/* Тот же вход, что у «Логики», «OpenAPI» и структуры базы: одна кнопка с
@@ -238,25 +143,9 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
           nodeId={nodeId}
           nodeName={nodeName}
           onClose={() => setAgentOpen(false)}
-          onApplied={() => setSeq((n) => n + 1)}
+          onApplied={reload}
         />
       )}
-    </div>
-  );
-}
-
-// Тело группы: высоту ведёт ОНО САМО, а список и карточка секции живут с auto и
-// следуют за ним (разбор ловушки — в GroupBody у DbStructureSection).
-function GroupBody({ open, children }: { open: boolean; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const show = useCollapse(ref, open);
-  if (!show) return null;
-  // Анимируем ГОЛУЮ обёртку, вся косметика — на внутреннем блоке: у блока с
-  // padding/border ставить ему border-box-высоту нельзя (он content-box), а его margin
-  // в height не входит вовсе — и то, и другое давало прыжок соседей.
-  return (
-    <div ref={ref} className="anim-box">
-      <div className="bch-groupbody">{children}</div>
     </div>
   );
 }
@@ -343,7 +232,7 @@ function ChannelCard({
       </div>
 
       {showBody && (
-        // Голая обёртка ведёт высоту, косметика — на .bch-body (см. GroupBody).
+        // Голая обёртка ведёт высоту, косметика — на .bch-body (см. GroupBody в FactGroups).
         <div ref={bodyRef} className="anim-box">
           <div className="bch-body">
           {/* Мета доставки — ради неё канал отдельная сущность, а не «таблица». Именно
@@ -492,11 +381,15 @@ function FieldRow({
       </div>
     );
   }
+  // Поля неуправляемые, версии у поля сообщения нет: ключ — серверное значение (аудит
+  // F-55), как у колонок базы.
   return (
     <div className="bch-field">
       <input {...noAutofill("broker-channels-section-8")} className="np-field bch-fname" defaultValue={field.name}
+        key={`n:${field.id}:${field.name}`}
         onBlur={(e) => { if (e.target.value !== field.name) patch({ name: e.target.value }); }} />
       <input {...noAutofill("broker-channels-section-9")} className="np-field bch-ftype" placeholder="тип" defaultValue={field.type}
+        key={`t:${field.id}:${field.type}`}
         onBlur={(e) => { if (e.target.value !== field.type) patch({ type: e.target.value }); }} />
       {/* Подпись «обяз.» называет шапка — в каждой строке она читалась бы столбиком-шумом. */}
       <input type="checkbox" className="bch-check" checked={field.required}
@@ -506,6 +399,7 @@ function FieldRow({
           перечень значений — это и есть ответ на «что означает это событие». */}
       <input {...noAutofill("broker-channels-section-10")} className="np-field bch-fdesc" placeholder="смысл значения"
         defaultValue={field.description ?? ""}
+        key={`d:${field.id}:${field.description ?? ""}`}
         onBlur={(e) => {
           if (e.target.value !== (field.description ?? "")) patch({ description: e.target.value });
         }} />
