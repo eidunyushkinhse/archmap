@@ -31,7 +31,7 @@ config = context.config
 # interpolation syntax». Само приложение такой URL читает как есть.
 config.set_main_option("sqlalchemy.url", settings.database_url.replace("%", "%%"))
 
-# Ключ блокировки миграций. В OpenShift несколько подов стартуют разом, и каждый
+# Ключ блокировки миграций. В Kubernetes несколько подов стартуют разом, и каждый
 # init-контейнер выполняет `alembic upgrade head`: блокировка ставит их в очередь,
 # второй дождётся первого и найдёт схему уже на head.
 MIGRATION_LOCK_KEY = 0x41524348  # «ARCH»

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: archmap
+description: ArchMap — многоуровневые архитектурные схемы, бизнес-процессы и документация из кода
+type: application
+# Версии проставляет выпуск (.github/workflows/release.yml) по тегу vX.Y.Z
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://archmap.tech
+sources:
+  - https://github.com/eidunyushkinhse/archmap
+keywords:
+  - architecture
+  - c4
+  - documentation
+annotations:
+  artifacthub.io/license: AGPL-3.0-only

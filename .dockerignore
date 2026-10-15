@@ -1,11 +1,10 @@
-# Контекст сборки образа Docker Compose (deploy/compose/Dockerfile) — только то, что
-# нужно образу: фронт, бэкенд и скрипты старта. Образ OpenShift собирается из поставки
-# со своим контекстом, этот файл его не касается.
+# Контекст сборки образа (Dockerfile в корне) — только то, что нужно образу: фронт,
+# бэкенд и скрипты старта.
 *
 !frontend/
 !backend/
 !deploy/preflight.py
-!deploy/compose/
+!deploy/docker/
 frontend/node_modules
 frontend/dist
 frontend/dist-*

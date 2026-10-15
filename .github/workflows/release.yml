@@ -1,0 +1,80 @@
+# Выпуск по тегу vX.Y.Z (или vX.Y.Z-rc.N): образ ghcr.io/eidunyushkinhse/archmap для
+# linux/amd64 и linux/arm64 и Helm-чарт oci://ghcr.io/eidunyushkinhse/charts/archmap той же
+# версии. Каждая архитектура собирается на своём раннере GitHub (без эмуляции), затем теги
+# архитектур сводятся в один мультиархитектурный. «latest» — только у выпусков без суффикса.
+# Первая публикация создаёт пакеты закрытыми: открыть их — Package settings → visibility.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+env:
+  IMAGE: ghcr.io/eidunyushkinhse/archmap
+
+jobs:
+  image:
+    name: Образ ${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Версия из тега
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "тег $GITHUB_REF_NAME не vX.Y.Z"; exit 1; }
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - name: Сборка и публикация
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker build --pull --build-arg VERSION="$VERSION" --build-arg REVISION="$GITHUB_SHA" \
+            -t "$IMAGE:$VERSION-${{ matrix.arch }}" .
+          docker push "$IMAGE:$VERSION-${{ matrix.arch }}"
+
+  manifest:
+    name: Мультиархитектурный тег
+    needs: image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Сведение архитектур
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tags=(-t "$IMAGE:$v")
+          [[ "$v" == *-* ]] || tags+=(-t "$IMAGE:latest")
+          docker buildx imagetools create "${tags[@]}" "$IMAGE:$v-amd64" "$IMAGE:$v-arm64"
+          docker buildx imagetools inspect "$IMAGE:$v"
+
+  chart:
+    name: Helm-чарт
+    needs: manifest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Helm по версии и контрольной сумме
+        run: |
+          curl -fsSL --retry 3 -o /tmp/helm.tgz https://get.helm.sh/helm-v3.18.4-linux-amd64.tar.gz
+          echo "f8180838c23d7c7d797b208861fecb591d9ce1690d8704ed1e4cb8e2add966c1  /tmp/helm.tgz" | sha256sum -c -
+          tar -xzf /tmp/helm.tgz -C /tmp linux-amd64/helm && sudo install /tmp/linux-amd64/helm /usr/local/bin/helm
+      - name: Упаковка и публикация
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          helm package deploy/helm/archmap --version "$v" --app-version "$v" -d /tmp/chart
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push "/tmp/chart/archmap-$v.tgz" oci://ghcr.io/eidunyushkinhse/charts

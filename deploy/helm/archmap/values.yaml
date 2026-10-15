@@ -1,0 +1,111 @@
+# ArchMap в Kubernetes (DEPLOY.md, «Kubernetes»). Обязательно только одно: адрес базы
+# PostgreSQL 15+ — database.url или database.existingSecret. Чарт базу не ставит.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/eidunyushkinhse/archmap
+  # Пусто — appVersion чарта
+  tag: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+database:
+  # postgresql://пользователь:пароль@хост:5432/база (спецсимволы пароля — %-кодированием)
+  url: ""
+  # Или готовый Secret с адресом (тогда url не нужен)
+  existingSecret: ""
+  existingSecretKey: database-url
+
+secretKey:
+  # Ключ подписи токенов входа, не короче 32 символов. Пусто — чарт создаст случайный при
+  # установке и сохранит его при обновлениях (в том же Secret, что и адрес базы).
+  value: ""
+  existingSecret: ""
+  existingSecretKey: secret-key
+
+config:
+  # Открытая регистрация. false — учётки заводит администратор на экране «Пользователи»,
+  # первого — команда из NOTES (archmap-admin create-admin).
+  allowSignup: false
+  # Предел запроса в МБ (импорт файлов и архивов). Прокси перед ArchMap должен пропускать
+  # не меньше — у Ingress-контроллеров это настройка контроллера.
+  maxRequestMb: 64
+  # Неудачные попытки входа в минуту с одного адреса (0 — без ограничения)
+  loginAttemptsPerMinute: 10
+  # Адрес клиента для лимитов — последний в X-Forwarded-For: его дописывает Ingress или
+  # Gateway. Без прокси перед подом (Service типа LoadBalancer/NodePort) — false.
+  trustForwardedFor: true
+  # Рабочих процессов uvicorn в поде
+  workers: 2
+  # Разрешённые CORS-источники через запятую. Интерфейс и API на одном адресе — не нужно.
+  corsOrigins: ""
+
+# Дополнительные переменные окружения (полный список — backend/.env.example)
+extraEnv: []
+#  - name: DEMO_MODE
+#    value: "true"
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  # Контроллер должен пропускать ответ до 300 с (импорт больших архивов) и тело запроса до
+  # config.maxRequestMb — у каждого контроллера это свои аннотации, их задают здесь.
+  annotations: {}
+  hosts:
+    - host: archmap.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: archmap-tls
+  #    hosts:
+  #      - archmap.example.com
+
+# Gateway API (gateway.networking.k8s.io/v1): маршрут к уже настроенному Gateway кластера
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+  #  - name: main-gateway
+  #    namespace: gateway-system
+  hostnames: []
+  #  - archmap.example.com
+  # Предел ответа: импорт больших архивов идёт до нескольких минут
+  timeout: 300s
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
+
+# Под без root и привилегий: подходит для Pod Security «restricted»
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

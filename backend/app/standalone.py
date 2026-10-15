@@ -1,7 +1,8 @@
-"""ArchMap одним процессом: бэкенд сам отдаёт собранный фронт (DEPLOY.md, «OpenShift»).
+"""ArchMap одним процессом: бэкенд сам отдаёт собранный фронт (образ из Dockerfile).
 
-На сервере перед бэкендом стоит nginx (deploy/install.sh). В OpenShift его нет:
-снаружи Route, за ним сразу этот модуль, и он делает то же, что делал nginx:
+На сервере перед бэкендом стоит nginx (deploy/install.sh). В контейнере его нет:
+снаружи Gateway/Ingress Kubernetes (или ничего — Docker Compose), за ним сразу этот
+модуль, и он делает то же, что делал nginx:
 
 - в API уходят только /api/…, /health и /ready; остальное — файлы сборки фронта, а неизвестный
   путь отдаёт index.html: маршруты интерфейса живут в браузере. Swagger и openapi.json
@@ -38,7 +39,7 @@ IMMUTABLE = "public, max-age=31536000, immutable"
 # страницы нельзя (frame-ancestors), подмены <base> и плагинов нет. Полная политика
 # источников пока только наблюдает (Report-Only): mermaid и swagger вставляют стили, и
 # нарушения сначала надо увидеть в консоли браузера, а не сломать ими страницу. HSTS —
-# забота того, кто держит TLS (Route OpenShift, nginx в TLS-ветке).
+# забота того, кто держит TLS (Gateway/Ingress, nginx в TLS-ветке).
 SECURITY_HEADERS: tuple[tuple[str, str], ...] = (
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "same-origin"),

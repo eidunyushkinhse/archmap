@@ -278,7 +278,7 @@ def test_заголовки_безопасности_и_у_отказов(client
 
 
 def test_nginx_серверной_поставки_пишет_те_же_заголовки():
-    # Две поставки — две копии значений: standalone (OpenShift) и render_nginx в
+    # Две поставки — две копии значений: standalone (образ) и render_nginx в
     # deploy/install.sh (сервер). Расхождение здесь видно сразу.
     install = (Path(__file__).resolve().parents[2] / "deploy" / "install.sh").read_text()
     for name, value in SECURITY_HEADERS:

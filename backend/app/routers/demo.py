@@ -21,7 +21,7 @@ router = APIRouter(prefix="/demo", tags=["demo"])
 def start_sandbox(request: Request, db: Session = Depends(get_db)) -> Token:
     """Завести песочницу: гость + его копия демо-проекта.
 
-    Адрес — последний в X-Forwarded-For (его дописывает nginx или роутер OpenShift,
+    Адрес — последний в X-Forwarded-For (его дописывает nginx или Gateway/Ingress,
     подделать его клиент не может), см. rate_limit.client_address."""
     if not settings.demo_mode:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
