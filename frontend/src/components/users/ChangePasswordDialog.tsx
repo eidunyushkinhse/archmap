@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import { changePassword } from "../../api/auth";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { useBusyAction } from "../../ui/useBusyAction";
@@ -34,8 +35,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   if (done) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-        <h3 style={title}>Пароль изменён</h3>
-        <p style={lead}>Со следующего входа действует новый пароль.</p>
+        <DialogTitle lead="Со следующего входа действует новый пароль.">Пароль изменён</DialogTitle>
         <button data-autofocus style={primaryBtn} onClick={onClose}>Готово</button>
       </Modal>
     );
@@ -45,7 +45,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-      <h3 style={title}>Сменить пароль</h3>
+      <DialogTitle>Сменить пароль</DialogTitle>
 
       <label style={labelStyle} htmlFor="cp-old">Текущий пароль</label>
       <input
@@ -95,6 +95,4 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   );
 }
 
-const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const lead: CSSProperties = { margin: "0 0 16px", fontSize: 14, color: "#475569", lineHeight: 1.5 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };

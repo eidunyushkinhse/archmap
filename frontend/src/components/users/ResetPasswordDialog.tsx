@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser } from "../../types";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { useBusyAction } from "../../ui/useBusyAction";
@@ -31,8 +32,9 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-      <h3 style={title}>Сбросить пароль</h3>
-      <p style={lead}>Новый пароль для «{user.username}». Передайте его человеку сами.</p>
+      <DialogTitle lead={<>Новый пароль для «{user.username}». Передайте его человеку сами.</>}>
+        Сбросить пароль
+      </DialogTitle>
 
       <label style={labelStyle} htmlFor="rp-password">Новый пароль</label>
       <input
@@ -59,6 +61,4 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
   );
 }
 
-const title: CSSProperties = { margin: "0 0 10px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
-const lead: CSSProperties = { margin: "0 0 16px", fontSize: 14, color: "#475569", lineHeight: 1.5 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };

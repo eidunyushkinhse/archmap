@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser, UserRole } from "../../types";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { useBusyAction } from "../../ui/useBusyAction";
@@ -36,7 +37,7 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 420, padding: 24 }}>
-      <h3 style={title}>Новый пользователь</h3>
+      <DialogTitle>Новый пользователь</DialogTitle>
 
       <label style={labelStyle} htmlFor="nu-login">Логин</label>
       <input
@@ -88,7 +89,6 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
   );
 }
 
-const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
 const checkRow: CSSProperties = {
   display: "flex", alignItems: "center", gap: 8, margin: "2px 0 14px",
   fontSize: 14, color: "#1e293b", cursor: "pointer",
