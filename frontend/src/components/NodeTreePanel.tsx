@@ -16,59 +16,62 @@ import { useNodeSearch } from "./useNodeSearch";
 
 /**
  * Дерево объектов отражает иерархию по parent_id. По умолчанию видны только
- * корни; дети подгружаются лениво по клику на шеврон. Клик по строке ведёт на
- * страницу объекта (onNodePage) либо навигирует внутри редактора-карты
- * (контейнер → onDrillTo, лист → onPickLeaf); выбор узла с детьми попутно
- * раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
- * В редакторе внизу добавляется секция-палитра «Добавить объект» (единственное
- * отличие от дерева страниц).
+ * корни; дети подгружаются лениво по клику на шеврон. Режим задаётся явно (аудит
+ * F-7; раньше угадывался по тому, какие колбэки переданы): в дереве страниц клик по
+ * строке ведёт на страницу объекта, в редакторе-карте — навигирует внутри него
+ * (контейнер → onDrillTo, лист → onPickLeaf). Выбор узла с детьми попутно раскрывает
+ * его ветку. Персоны стоят в общей иерархии наравне с прочими. Только в редакторе —
+ * перенос строк и секция-палитра «Добавить объект».
  */
 
-interface Props {
-  // клик по промежуточному узлу (есть дети) → провалиться на его слой основной схемы;
-  // path — полный путь от корня до узла включительно
-  onDrillTo?: (path: Node[]) => void;
-  // pages_pivot: клик по ЛЮБОМУ узлу → его страница (включает плоский дизайн)
-  onNodePage?: (node: Node) => void;
-  // редактор-карта: клик по листу → показать на холсте (прыжок на слой узла,
-  // выделение, locate). Включает тот же плоский дизайн, что и страничный режим
-  // (поиск, «+», персоны, подсветка текущего узла), но клик навигирует внутри
-  // редактора: контейнер → onDrillTo(path), лист → onPickLeaf(node).
-  onPickLeaf?: (node: Node) => void;
-  // pages_pivot: «+» на строке → создать дочерний объект (модалка, авто-позиция)
-  onCreateChild?: (parentId: string) => void;
-  // Перенос узла на другой уровень перетаскиванием строки. Передаёт ТОЛЬКО
-  // редактор-карта — этим же и гейтится жест: в оболочке страниц ручки нет.
-  onReparent?: (node: Node, newParentId: string | null) => void;
-  // секция «Добавить узел» показывается только архитектору
-  isArchitect: boolean;
-  // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
-  // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
-  onTemplateDrag?: (shape: NodeShape | null) => void;
-  // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла в
-  // MapEditorPage): дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
-  reloadToken?: number;
-  // pages_pivot: id узла, чья страница СЕЙЧАС открыта (из ProjectShell.nodeId;
-  // null — домашняя страница проекта). Дерево подсвечивает его строку и при смене
-  // автоматически раскрывает ветку до этого узла (переход двойным кликом со схемы).
-  currentNodeId?: string | null;
-}
+type ModeProps =
+  | {
+      mode: "pages";
+      // клик по ЛЮБОМУ узлу → его страница
+      onNodePage: (node: Node) => void;
+    }
+  | {
+      mode: "editor";
+      // клик по промежуточному узлу (есть дети) → провалиться на его слой основной
+      // схемы; path — полный путь от корня до узла включительно
+      onDrillTo: (path: Node[]) => void;
+      // клик по листу → показать на холсте (прыжок на слой узла, выделение, locate)
+      onPickLeaf: (node: Node) => void;
+      // Перенос узла на другой уровень перетаскиванием строки (ручка — у архитектора).
+      onReparent?: (node: Node, newParentId: string | null) => void;
+      // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
+      // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
+      onTemplateDrag?: (shape: NodeShape | null) => void;
+    };
 
-export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCreateChild, onReparent, isArchitect, onTemplateDrag, reloadToken, currentNodeId }: Props) {
-  // pages_pivot: плоское дерево без секций/палитры, с поиском, «+» и персонами
-  const pagesMode = !!onNodePage;
-  // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
-  const editorMode = !!onPickLeaf;
+type Props = ModeProps & {
+  // «+» на строке → создать дочерний объект (модалка, авто-позиция); «+» и палитра
+  // видны только архитектору
+  onCreateChild?: (parentId: string) => void;
+  isArchitect: boolean;
+  // сигнал внешней перезагрузки дерева (инкремент после создания/удаления узла):
+  // дерево перечитывает корни и раскрытые ветки, не сворачиваясь.
+  reloadToken?: number;
+  // id узла, чья страница (или слой редактора) СЕЙЧАС открыта; null — корень проекта.
+  // Дерево подсвечивает его строку и при смене раскрывает ветку до этого узла.
+  currentNodeId?: string | null;
+};
+
+export default function NodeTreePanel(props: Props) {
+  const { onCreateChild, isArchitect, reloadToken, currentNodeId } = props;
+  const pagesMode = props.mode === "pages";
+  // Колбэки редактора-карты (в дереве страниц их нет).
+  const editor = props.mode === "editor" ? props : null;
 
   const {
     roots, loadingRoots, childrenById, expanded, loadingId, leaves, allById, pathTo,
     expandBranch, toggle, treeScrollRef,
   } = useLazyTree(reloadToken, currentNodeId);
   // Перенос узла на другой уровень перетаскиванием строки (только редактор-карта).
-  const reparent = useTreeReparent(allById, pathTo, onReparent);
+  const reparent = useTreeReparent(allById, pathTo, editor?.onReparent);
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
   // Драг шаблона из палитры: на это время панель накрывается «корзиной».
-  const paletteDrag = usePaletteDrag(onTemplateDrag);
+  const paletteDrag = usePaletteDrag(editor?.onTemplateDrag);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -89,9 +92,9 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
   const navigateFlat = (node: Node) => {
-    if (onNodePage) { onNodePage(node); return; }
-    if (canHaveChildren(node.shape) && node.has_children) onDrillTo?.(pathTo(node));
-    else onPickLeaf?.(node);
+    if (props.mode === "pages") { props.onNodePage(node); return; }
+    if (canHaveChildren(node.shape) && node.has_children) props.onDrillTo(pathTo(node));
+    else props.onPickLeaf(node);
   };
 
   // Контекст строки дерева. Строка живёт отдельным компонентом (nodeTree.Row):
@@ -102,7 +105,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     pagesMode, isArchitect, onCreateChild,
     onSelect: (node) => { navigateFlat(node); if (canHaveChildren(node.shape) && node.has_children) void expandBranch(node); },
     onToggle: (node) => { void toggle(node); },
-    drag: onReparent && isArchitect ? { onStart: reparent.onRowDragStart, onEnd: reparent.onRowDragEnd } : undefined,
+    drag: editor?.onReparent && isArchitect ? { onStart: reparent.onRowDragStart, onEnd: reparent.onRowDragEnd } : undefined,
     movingId: reparent.moving?.id ?? null,
     dropTargetId: reparent.dropTargetId,
     onDragOverRow: reparent.onRowDragOver,
@@ -199,7 +202,7 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
             {/* Палитра «Добавить объект» — только в редакторе; ЕДИНСТВЕННОЕ
                 отличие плоского дерева редактора от дерева страниц. */}
-            {editorMode && isArchitect && (
+            {editor && isArchitect && (
               <PaletteSection
                 open={openSections.has("add")}
                 onToggle={() => toggleSection("add")}

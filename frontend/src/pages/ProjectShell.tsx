@@ -199,6 +199,7 @@ export default function ProjectShell({
         ) : (
           <>
             <NodeTreePanel
+              mode="pages"
               isArchitect={isArchitect}
               reloadToken={treeReload}
               currentNodeId={nodeId}

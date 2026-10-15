@@ -845,6 +845,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
             лист → прыжок на слой родителя + выделение + пульс) и внизу есть
             секция «Добавить объект» — единственное отличие от дерева страниц. */}
         <NodeTreePanel
+          mode="editor"
           isArchitect={isArchitect}
           reloadToken={treeReload}
           currentNodeId={currentParentId}

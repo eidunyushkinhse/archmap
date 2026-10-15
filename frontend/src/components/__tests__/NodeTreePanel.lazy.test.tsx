@@ -32,14 +32,14 @@ describe("NodeTreePanel: ленивое дерево", () => {
   it("сигнал перезагрузки перечитывает корни и раскрытые ветки, не сворачивая их", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([node("box", { has_children: true, child_count: 1 })]);
     vi.mocked(nodesApi.getChildren).mockResolvedValue([node("a1", { parent_id: "box" })]);
-    const { rerender } = render(<NodeTreePanel onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} reloadToken={0} />);
+    const { rerender } = render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} reloadToken={0} />);
     fireEvent.click(await screen.findByText("BOX"));
     await screen.findByText("A1");
 
     vi.mocked(nodesApi.getChildren).mockResolvedValue([
       node("a1", { parent_id: "box" }), node("a2", { parent_id: "box" }),
     ]);
-    rerender(<NodeTreePanel onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} reloadToken={1} />);
+    rerender(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} reloadToken={1} />);
 
     await screen.findByText("A2");
     expect(nodesApi.list).toHaveBeenCalledTimes(2);
@@ -49,7 +49,7 @@ describe("NodeTreePanel: ленивое дерево", () => {
 
   it("первый рендер не считается перезагрузкой — корни читаются один раз", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([node("solo")]);
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} reloadToken={5} />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} reloadToken={5} />);
     await screen.findByText("SOLO");
     expect(nodesApi.list).toHaveBeenCalledTimes(1);
   });
@@ -65,7 +65,7 @@ describe("NodeTreePanel: ленивое дерево", () => {
     vi.mocked(nodesApi.getChildren).mockImplementation(async (id: string) =>
       id === "root" ? [byId.mid] : id === "mid" ? [byId.leaf] : []);
 
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect={false} currentNodeId="leaf" />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} currentNodeId="leaf" />);
 
     const leaf = await screen.findByText("LEAF");
     expect(leaf.closest(".nt-row")).toHaveClass("nt-row--current");
@@ -78,7 +78,7 @@ describe("NodeTreePanel: ленивое дерево", () => {
   it("контейнер без детей помечается листом — шеврон не раскрывается в пустоту", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([node("box", { has_children: true, child_count: 1 })]);
     vi.mocked(nodesApi.getChildren).mockResolvedValue([]);
-    const { container } = render(<NodeTreePanel onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} />);
+    const { container } = render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} />);
     fireEvent.click(await screen.findByText("BOX"));
     await waitFor(() => expect(nodesApi.getChildren).toHaveBeenCalledWith("box"));
     await waitFor(() => expect(container.querySelector(".nt-chevspacer")).not.toBeNull());
@@ -104,7 +104,7 @@ describe("NodeTreePanel: палитра шаблонов", () => {
   it("драг шаблона: форма под своим MIME, превью у схемы, «корзина» — со следующего кадра", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([]);
     const onTemplateDrag = vi.fn();
-    render(<NodeTreePanel onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect onTemplateDrag={onTemplateDrag} />);
+    render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect onTemplateDrag={onTemplateDrag} />);
     const card = (await screen.findByTitle("Перетащить «База данных» на схему"));
     const transfer = dt();
 
@@ -123,11 +123,11 @@ describe("NodeTreePanel: палитра шаблонов", () => {
 
   it("палитры нет у наблюдателя и в дереве страниц", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([]);
-    const { unmount } = render(<NodeTreePanel onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} />);
+    const { unmount } = render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} />);
     await screen.findByText("Нет объектов");
     expect(screen.queryByText("Добавить объект")).toBeNull();
     unmount();
-    render(<NodeTreePanel onNodePage={vi.fn()} isArchitect />);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect />);
     await screen.findByText("Нет объектов");
     expect(screen.queryByText("Добавить объект")).toBeNull();
   });
