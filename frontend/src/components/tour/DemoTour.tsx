@@ -21,9 +21,8 @@ import {
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
-import {
-  dropStaleTours, loadTour, markExitToPill, onTourRestart, onTourResume, saveTour, setTourPaused, takeExitToPill,
-} from "./tourStore";
+import { dropStaleTours, loadTour, saveTour } from "./tourPersist";
+import { markExitToPill, onTourRestart, onTourResume, setTourPaused, takeExitToPill } from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
