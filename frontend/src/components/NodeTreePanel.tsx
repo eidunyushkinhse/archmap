@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { CSSProperties, DragEvent } from "react";
-import { nodesApi } from "../api/nodes";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren, compareByRank } from "../types";
+import { canHaveChildren } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
+import { useLazyTree } from "./nodeTree.useLazyTree";
 import { useNodeSearch } from "./useNodeSearch";
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
@@ -163,15 +163,10 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   // редактор-карта: тот же плоский дизайн, но клик — навигация внутри редактора
   const editorMode = !!onPickLeaf;
 
-  const [roots, setRoots] = useState<Node[]>([]);
-  const [loadingRoots, setLoadingRoots] = useState(true);
-  // загруженные дети по id родителя (отсутствие ключа = ещё не грузили)
-  const [childrenById, setChildrenById] = useState<Record<string, Node[]>>({});
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [loadingId, setLoadingId] = useState<Set<string>>(new Set());
-  // узлы, у которых has_children=true, но после отсева персон детей не осталось —
-  // показываем их как листья, чтобы шеврон не раскрывался в пустоту
-  const [leaves, setLeaves] = useState<Set<string>>(new Set());
+  const {
+    roots, loadingRoots, childrenById, expanded, loadingId, leaves, allById, pathTo,
+    expandBranch, toggle, treeScrollRef,
+  } = useLazyTree(reloadToken, currentNodeId);
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
   // идёт ли перетаскивание шаблона из палитры → панель закрывается «корзиной»
   const [dragging, setDragging] = useState(false);
@@ -203,28 +198,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
   const { found: foundNodes, searching } = useNodeSearch(searchQuery, 250);
   const searchResults = searchQuery.trim() ? foundNodes : null;
 
-  // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
-  // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
-  const allById = useMemo(() => {
-    const m = new Map<string, Node>();
-    for (const r of roots) m.set(r.id, r);
-    for (const kids of Object.values(childrenById)) for (const k of kids) m.set(k.id, k);
-    return m;
-  }, [roots, childrenById]);
-
-  // Путь от корня до узла включительно (по цепочке parent_id среди загруженных узлов).
-  const pathTo = (node: Node): Node[] => {
-    const path: Node[] = [];
-    const seen = new Set<string>();
-    let cur: Node | undefined = node;
-    while (cur && !seen.has(cur.id)) {
-      seen.add(cur.id);
-      path.unshift(cur);
-      cur = cur.parent_id ? allById.get(cur.parent_id) : undefined;
-    }
-    return path;
-  };
-
   // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
   const navigateFlat = (node: Node) => {
@@ -232,148 +205,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     if (canHaveChildren(node.shape) && node.has_children) onDrillTo?.(pathTo(node));
     else onPickLeaf?.(node);
   };
-
-  // Персоны отсеиваются только в legacy-аккордеоне (дерево про детализацию);
-  // в плоском дереве (страницы/редактор) стоят в общей иерархии наравне с прочими.
-  const fitNodes = (ns: Node[]): Node[] => ns.sort(compareByRank);
-
-  useEffect(() => {
-    let alive = true;
-    nodesApi
-      .list(null)
-      .then((ns) => { if (alive) setRoots(fitNodes(ns)); })
-      .finally(() => { if (alive) setLoadingRoots(false); });
-    return () => { alive = false; };
-  }, []);
-
-  // Перезагрузка по внешнему сигналу (создан/удалён узел): перечитываем корни и
-  // детей УЖЕ раскрытых веток, чтобы новый узел появился без сворачивания дерева.
-  // Путь к нему не разворачиваем — если его родитель свёрнут, у того лишь появится
-  // шеврон. expanded читаем снимком на момент сигнала (в deps не включаем).
-  const reloadSkipRef = useRef(false);
-  useEffect(() => {
-    // первый прогон — это монтирование; корни грузит эффект выше, повтор не нужен
-    if (!reloadSkipRef.current) { reloadSkipRef.current = true; return; }
-    let alive = true;
-    (async () => {
-      const ns = fitNodes(await nodesApi.list(null));
-      if (!alive) return;
-      setRoots(ns);
-      const ids = [...expanded];
-      const fetched = await Promise.all(
-        ids.map((id) =>
-          nodesApi.getChildren(id)
-            .then((k) => [id, fitNodes(k)] as const)
-            .catch(() => [id, [] as Node[]] as const),
-        ),
-      );
-      if (!alive) return;
-      setChildrenById((prev) => {
-        const next = { ...prev };
-        for (const [id, kids] of fetched) next[id] = kids;
-        return next;
-      });
-    })();
-    return () => { alive = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadToken]);
-
-  // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
-  // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
-  const treeScrollRef = useRef<HTMLDivElement>(null);
-  // id узла, к которому уже скроллили (не дёргаем скролл повторно при каждом
-  // изменении expanded/childrenById в ходе автораскрытия).
-  const scrolledToRef = useRef<string | null>(null);
-
-  // При смене открытой страницы раскрываем ветку до этого узла: обход вверх через
-  // nodesApi.get (parent_id) собирает цепочку предков, затем сверху вниз догружаем
-  // детей каждого предка (тем же путём, что и toggle) и раскрываем их. Ленивая
-  // загрузка дерева при этом сохраняется — тянем только нужную ветку.
-  useEffect(() => {
-    if (!currentNodeId) return;
-    let alive = true;
-    void (async () => {
-      // 1. Цепочка id от корня до текущего узла (включительно).
-      const chain: string[] = [];
-      const guard = new Set<string>();
-      let curId: string | null = currentNodeId;
-      while (curId && !guard.has(curId)) {
-        guard.add(curId);
-        chain.unshift(curId);
-        const n: Node = allById.get(curId) ?? (await nodesApi.get(curId));
-        if (!alive) return;
-        curId = n.parent_id;
-      }
-      // 2. Предки (все, кроме самого узла) — раскрыть сверху вниз.
-      for (const id of chain.slice(0, -1)) {
-        if (!alive) return;
-        let kids = childrenById[id];
-        if (kids === undefined) {
-          // Фиксируем в const: TS не сужает let-переменную внутри замыкания
-          const fetched = fitNodes(await nodesApi.getChildren(id));
-          if (!alive) return;
-          setChildrenById((p) => ({ ...p, [id]: fetched }));
-          kids = fetched;
-        }
-        if (kids.length > 0) setExpanded((p) => new Set(p).add(id));
-        else setLeaves((p) => new Set(p).add(id));
-      }
-    })();
-    return () => { alive = false; };
-    // allById/childrenById читаются снимком на момент смены страницы (свежесть не
-    // критична: промах по кэшу = лишний fetch, не некорректность) — как в reload-эффекте.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentNodeId]);
-
-  // Скролл к подсвеченной строке — когда узел стал видим (после автораскрытия).
-  // Повторяем на изменениях expanded/childrenById, пока строка не появится; скроллим
-  // один раз на узел (scrolledToRef).
-  useEffect(() => {
-    if (!currentNodeId) { scrolledToRef.current = null; return; }
-    if (scrolledToRef.current === currentNodeId) return;
-    const raf = requestAnimationFrame(() => {
-      const el = treeScrollRef.current?.querySelector(".nt-row--current");
-      if (el) {
-        el.scrollIntoView({ block: "nearest", behavior: "smooth" });
-        scrolledToRef.current = currentNodeId;
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [currentNodeId, expanded, childrenById]);
-
-  // Раскрыть ветку (дети подгружаются лениво). Идемпотентна: уже раскрытую ветку
-  // не сворачивает (сворачивание — только шевроном).
-  async function expandBranch(node: Node) {
-    const id = node.id;
-    if (expanded.has(id)) return;
-    let kids = childrenById[id];
-    if (kids === undefined) {
-      setLoadingId((p) => new Set(p).add(id));
-      try {
-        // Фиксируем в const: TS не сужает let-переменную внутри замыкания
-        const fetched = fitNodes(await nodesApi.getChildren(id));
-        setChildrenById((p) => ({ ...p, [id]: fetched }));
-        kids = fetched;
-      } finally {
-        setLoadingId((p) => { const n = new Set(p); n.delete(id); return n; });
-      }
-    }
-    // После отсева персон показывать нечего (legacy) — помечаем узел листом
-    if (kids.length === 0) {
-      setLeaves((p) => new Set(p).add(id));
-      return;
-    }
-    setExpanded((p) => new Set(p).add(id));
-  }
-
-  // Клик по шеврону: раскрыть/свернуть.
-  async function toggle(node: Node) {
-    if (expanded.has(node.id)) {
-      setExpanded((p) => { const n = new Set(p); n.delete(node.id); return n; });
-      return;
-    }
-    await expandBranch(node);
-  }
 
   // Контекст строки дерева. Строка живёт отдельным компонентом (nodeTree.Row):
   // объявленная ВНУТРИ панели, она ремаунтилась бы на каждый рендер и срывала бы
