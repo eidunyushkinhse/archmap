@@ -414,6 +414,14 @@ sudo ./deploy/install.sh --server-name demo.example.org \
 бэкенд берёт последним в `X-Forwarded-For`: его дописывает nginx, так что подделать адрес
 клиент не может.
 
+Сервер, открытый в интернет, перебирают сразу: на стенде за первую неделю было почти 87 тысяч
+попыток подобрать пароль SSH. Вход — только по ключу (файл в `/etc/ssh/sshd_config.d/`, который
+читается раньше `50-cloud-init.conf`: `PasswordAuthentication no`, `PermitRootLogin
+prohibit-password`), входящие — только 22, 80 и 443 (`ufw default deny incoming`, затем `ufw
+allow` на эти порты и на агента мониторинга провайдера с его адресов). Включая файрвол по SSH,
+поставьте страховку `systemd-run --on-active=600 --unit=ufw-rescue ufw disable` и снимите её
+(`systemctl stop ufw-rescue.timer`), когда новое соединение пройдёт.
+
 ## Резервные копии
 
 Всё состояние ArchMap — в базе, на диске приложение ничего не хранит.
