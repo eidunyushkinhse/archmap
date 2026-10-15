@@ -3,11 +3,11 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
-import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessDetail, ProcessMessage, ProcessParticipant } from "../../types";
+import type { BranchIn, FragmentKind, MessageCreate, NodeStatus, ProcessMessage, ProcessParticipant } from "../../types";
 import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
@@ -21,6 +21,7 @@ import SequenceDiagram from "./SequenceDiagram";
 import { deriveActivations, newBranchRow } from "./sequence/layout";
 import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
+import { useProcessDetail } from "./useProcessDetail";
 import { useProcessHistory } from "./useProcessHistory";
 import { useOverlayStack, type Overlay, type OverlayKind, type OverlayOf } from "./useOverlayStack";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
@@ -57,8 +58,10 @@ interface MessageSnapshot {
 }
 
 export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
-  const [detail, setDetail] = useState<ProcessDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    detail, error, reload, setOptimistic, runMutation,
+    sortedMessages, msgById, fragById, partById, nodeOfPart, nextOrder,
+  } = useProcessDetail(id, onChanged, syncRev);
   // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
   // концов связи через предков живёт там, и вторая реализация на клиенте
   // разошлась бы с валидатором. Обновляем, когда картина могла измениться:
@@ -82,64 +85,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
 
-  // Номер последнего чтения процесса (аудит F-49): применяется только ответ последнего
-  // начатого — поздний ответ раннего чтения не перетирает свежее. Оптимистичная правка
-  // (порядок, подпись, рамка, ветви) — тоже «новее» любого чтения в полёте: её ставит
-  // setOptimistic, и ответ, выпущенный до неё, не вернёт на экран прежний порядок.
-  const loadSeqRef = useRef(0);
-  const fetchDetail = useCallback((after?: () => void) => {
-    const seq = ++loadSeqRef.current;
-    processesApi
-      .get(id)
-      .then((d) => {
-        if (seq === loadSeqRef.current) setDetail(d);
-        after?.();
-      })
-      .catch((e: unknown) => {
-        if (seq === loadSeqRef.current) setError(e instanceof Error ? e.message : "Не удалось загрузить процесс");
-      });
-  }, [id]);
-  const setOptimistic = useCallback((d: ProcessDetail) => {
-    loadSeqRef.current++;
-    setDetail(d);
-  }, []);
-
-  // Перечитать после своей правки и сообщить воркспейсу «мы изменили» (список рейла).
-  const reload = useCallback(() => fetchDetail(onChanged), [fetchDetail, onChanged]);
-
-  // Чужая правка (Д9): поллинг воркспейса заметил рост process_rev — перечитываем
-  // процесс. Без onChanged: список рейла воркспейс уже перечитал сам, а сигналить
-  // «мы изменили» о чужой правке незачем. Значение счётчика на маунте чужой правкой не
-  // считается: процесс прочитает первичная загрузка (иначе ремаунт читал его дважды).
-  const seenSyncRev = useRef(syncRev);
-  useEffect(() => {
-    if (syncRev === seenSyncRev.current) return;
-    seenSyncRev.current = syncRev;
-    fetchDetail();
-  }, [syncRev, fetchDetail]);
-
-  // Первичная загрузка. Смену процесса воркспейс делает через key-remount (свежее
-  // состояние оверлеев/истории), поэтому id за время жизни компонента не меняется —
-  // [id] здесь эквивалентно «только маунт». setDetail — только в ответе чтения;
-  // начальный fetch без onChanged (изменений ещё нет).
-  useEffect(() => { fetchDetail(); }, [fetchDetail]);
-
   // Undo/Redo: каждая мутация регистрирует обратимую команду (компенсирующий вызов API).
   const hist = useProcessHistory(reload);
-  // Каркас мутации процесса (аудит F-18): работа — запрос и команда истории, затем
-  // процесс перечитывается. Отказ тоже перечитывает: оптимистичный порядок, рамка или
-  // подпись возвращаются к истине (БД не изменилась), а частично применённая серия
-  // (несколько участников подряд) — к тому, что реально записано. Успех снимает прежнюю
-  // ошибку — раньше её текст висел до ухода со страницы (F-36).
-  async function runMutation(work: () => Promise<void>, failText: string): Promise<void> {
-    try {
-      await work();
-      setError(null);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : failText);
-    }
-    reload();
-  }
   // Узел → участник в СВЕЖЕМ состоянии: нужен для восстановления сообщений после
   // undo (id участника при пересоздании меняется, node_id — нет). Непривязанных
   // участников тут нет: восстанавливать их шаги всё равно нечем.
@@ -182,25 +129,6 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     () => (detail ? detail.messages.filter((m) => m.invalid_reason === "edge_deleted").length : 0),
     [detail],
   );
-  const nextOrder = useMemo(
-    () => (detail ? detail.messages.reduce((mx, m) => Math.max(mx, m.order), -1) + 1 : 0),
-    [detail],
-  );
-  // Шаги в порядке сценария и поиск шага/фрагмента по id — для правок ниже (раньше
-  // каждая сортировала и искала заново, аудит F-63).
-  const sortedMessages = useMemo(
-    () => (detail ? [...detail.messages].sort((a, b) => a.order - b.order) : []),
-    [detail],
-  );
-  const msgById = useMemo(() => new Map((detail?.messages ?? []).map((m) => [m.id, m])), [detail]);
-  const fragById = useMemo(() => new Map((detail?.fragments ?? []).map((f) => [f.id, f])), [detail]);
-  // Участник по id и его узел: сообщения теперь ссылаются на УЧАСТНИКОВ.
-  const partById = useMemo(() => {
-    const m: Record<string, ProcessParticipant> = {};
-    if (detail) for (const p of detail.participants) m[p.id] = p;
-    return m;
-  }, [detail]);
-  const nodeOfPart = useCallback((pid: string) => partById[pid]?.node_id ?? null, [partById]);
   const delPart = overlay("delPart")?.part ?? null;
   const delLinks = useMemo(() => {
     if (!detail || !delPart) return [];
