@@ -95,68 +95,307 @@ const CHANNEL_REASON: Record<UnresolvedChannelRefAlert["reason"], string> = {
   unknown_field: "поля нет в канале",
 };
 
+// Куда ведёт строка раздела: к объекту, связи или группе на схеме — либо в процесс
+// (чинить там, а не на холсте).
+type Go = { locate: LocateTarget } | { process: string };
+
+// Переходы, переданные вызывающей стороной; нет перехода — строки не кликабельны.
+interface Nav {
+  locate?: (target: LocateTarget) => void;
+  openProcess?: (processId: string) => void;
+}
+
+interface SectionSpec<T> {
+  title: string;
+  items: (a: Alerts) => T[];
+  // Вклад раздела в общий счёт рекомендаций; по умолчанию — проблема на запись.
+  problems?: (items: T[]) => number;
+  key: (item: T, i: number) => string | number;
+  go: (item: T, i: number) => Go;
+  body: (item: T, i: number) => ReactNode;
+}
+
+// Раздел со стёртым типом записей: пятнадцать разных классов живут одним списком, и
+// общий счёт считается по нему же (аудит F-35: раньше — деструктуризация, сумма из
+// пятнадцати слагаемых и пятнадцать <Section> тремя несвязанными списками; забытое
+// слагаемое не проявилось бы ничем).
+interface AlertSection {
+  problems: (a: Alerts) => number;
+  render: (a: Alerts, nav: Nav) => ReactNode;
+}
+
+function section<T>(spec: SectionSpec<T>): AlertSection {
+  return {
+    problems: (a) => {
+      const items = spec.items(a);
+      return spec.problems ? spec.problems(items) : items.length;
+    },
+    render: (a, { locate, openProcess }) => {
+      const items = spec.items(a);
+      return (
+        <Section key={spec.title} title={spec.title} count={items.length}>
+          {items.map((item, i) => {
+            const go = spec.go(item, i);
+            const onClick = "locate" in go
+              ? locate && (() => locate(go.locate))
+              : openProcess && (() => openProcess(go.process));
+            return (
+              <Item key={spec.key(item, i)} hint={"process" in go ? "Открыть процесс" : undefined} onClick={onClick}>
+                {spec.body(item, i)}
+              </Item>
+            );
+          })}
+        </Section>
+      );
+    },
+  };
+}
+
+const toNode = (id: string): Go => ({ locate: { kind: "node", id } });
+const toEdge = (id: string): Go => ({ locate: { kind: "edge", id } });
+
+// Шаг процесса в строке: процесс и подпись, ниже — концы (и, если нужно, канал).
+function stepLine(m: { process_name: string; caption: string | null }) {
+  return (
+    <span className="sa-line">
+      <span className="sa-where">{m.process_name}:</span>{" "}
+      {m.caption ? `«${m.caption}»` : "без подписи"}
+    </span>
+  );
+}
+
+// Порядок списка — порядок разделов в панели.
+const ALERT_SECTIONS: AlertSection[] = [
+  section({
+    title: "Объекты без связей",
+    items: (a: Alerts) => a.disconnected_nodes,
+    key: (d) => d.node_id,
+    go: (d) => toNode(d.node_id),
+    body: (d) => d.node_name,
+  }),
+  section({
+    title: "Связи в контейнер",
+    items: (a: Alerts) => a.intermediate_edges,
+    key: (e) => e.edge_id,
+    go: (e) => toEdge(e.edge_id),
+    body: (e) => (
+      <span className="sa-row">
+        <span className={e.source_is_intermediate ? "sa-strong" : undefined}>{e.source_name}</span>
+        <span className="sa-muted">→</span>
+        <span className={e.target_is_intermediate ? "sa-strong" : undefined}>{e.target_name}</span>
+      </span>
+    ),
+  }),
+  // Связи узла с его же потомком: иерархия вложенность уже выразила. Отдельно от
+  // «связей в контейнер» — там конец уточняют до компонента, здесь совет
+  // ПРОТИВОПОЛОЖЕН: не «уточните конец», а «удалите или перевесьте». Строка ведёт К СВЯЗИ.
+  section({
+    title: "Связи в собственный компонент",
+    items: (a: Alerts) => a.descendant_edges,
+    key: (e) => e.edge_id,
+    go: (e) => toEdge(e.edge_id),
+    body: (e) => {
+      const part = e.source_is_part ? e.source_name : e.target_name;
+      const whole = e.source_is_part ? e.target_name : e.source_name;
+      return (
+        <>
+          <span className="sa-line">
+            <span className="sa-where">{e.source_name} → {e.target_name}:</span>{" "}
+            <span className="sa-strong">«{part}»</span> входит в «{whole}»
+          </span>
+          <span className="sa-hint">
+            иерархия уже выражает вложенность, удалите связь или перевесьте её
+          </span>
+        </>
+      );
+    },
+  }),
+  // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
+  // связь, 3 → 2 и т.д. В общее число рекомендаций идёт groups − 1 (число проблем), а
+  // в число самого раздела — фактическое число групп. Общее число на экран не
+  // выводится: оно лишь зажигает точку на кнопке и решает, пуста ли панель.
+  section({
+    title: "Изолированные группы",
+    items: (a: Alerts) => a.isolated_groups,
+    problems: (groups) => Math.max(0, groups.length - 1),
+    key: (_grp, i) => i,
+    go: (grp) => ({ locate: { kind: "group", ids: grp.node_ids } }),
+    body: (grp, i) => <><span className="sa-where">Группа {i + 1}:</span> {grp.node_names.join(", ")}</>,
+  }),
+  // Контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather): каждая запись — одна проблема
+  // (схемы/спеку надо распределить по детям). Что именно осталось, строка НЕ уточняет:
+  // конкретное предупреждение с путём исправления ждёт на странице объекта.
+  section({
+    title: "Контейнеры со своей документацией",
+    items: (a: Alerts) => a.container_own_docs,
+    key: (c) => c.node_id,
+    go: (c) => toNode(c.node_id),
+    body: (c) => c.node_name,
+  }),
+  // Пометка обещает факт («пишет: orders.status»), а структура его не подтверждает.
+  // Единственное место, где видна битая КОЛОНКА — обратный индекс базы показывает такую
+  // пометку как обращение к таблице целиком. Строка ведёт к узлу-ВЛАДЕЛЬЦУ дока:
+  // чинится текст у него, а не структура базы.
+  section({
+    title: "Обращения к неописанным данным",
+    items: (a: Alerts) => a.unresolved_data_refs,
+    key: (r) => `${r.doc_id}:${r.mode}:${r.ref}`,
+    go: (r) => toNode(r.node_id),
+    body: (r) => (
+      <span className="sa-line">
+        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-strong">„{r.ref}“</span>: {REF_REASON[r.reason]}
+      </span>
+    ),
+  }),
+  // Событийный близнец предыдущего раздела: пометка обещала канал, а структура брокеров
+  // его не знает. Отдельный класс — чинится другими словами (см. CHANNEL_REASON); строка
+  // так же ведёт к узлу-ВЛАДЕЛЬЦУ дока.
+  section({
+    title: "Обращения к неописанным каналам",
+    items: (a: Alerts) => a.unresolved_channel_refs,
+    key: (r) => `${r.doc_id}:${r.mode}:${r.ref}`,
+    go: (r) => toNode(r.node_id),
+    body: (r) => (
+      <span className="sa-line">
+        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-strong">„{r.ref}“</span>: {CHANNEL_REASON[r.reason]}
+      </span>
+    ),
+  }),
+  // Третья семья пометок: обещала ручку, а её у ОБЪЕКТА нет (искать больше негде —
+  // параметры принадлежат самому сервису), поэтому и место починки ровно одно. Причины у
+  // класса нет: она единственная. Класс заведомо ловит и ПРОЗУ («зависит от: нагрузки»)
+  // — так задумано (маркер с двоеточием обещает факт), и подсказка называет оба выхода,
+  // иначе строка читалась бы как шум.
+  section({
+    title: "Обращения к неописанным параметрам",
+    items: (a: Alerts) => a.unresolved_config_refs,
+    key: (r) => `${r.doc_id}:${r.ref}`,
+    go: (r) => toNode(r.node_id),
+    body: (r) => (
+      <span className="sa-line">
+        <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
+        <span className="sa-strong">„{r.ref}“</span>: параметра нет в конфигурации
+        объекта: опишите его или, если это обычная фраза, уберите двоеточие
+      </span>
+    ),
+  }),
+  // Стрелка в брокер обязана назвать топик (решение №4): шов «стрелка ↔ структура
+  // брокера» держат алерты, а не FK, — это единственное место, где он виден. Строка
+  // ведёт К СВЯЗИ — канал правится в её инспекторе, а не в структуре брокера.
+  section({
+    title: "Связи с брокером без канала",
+    items: (a: Alerts) => a.broker_edge_channels,
+    key: (b) => b.edge_id,
+    go: (b) => toEdge(b.edge_id),
+    body: (b) => (
+      <span className="sa-line">
+        <span className="sa-where">{b.source_name} → {b.target_name}:</span>{" "}
+        {/* Тексты причин разные по СМЫСЛУ починки: «не указан» — дописать
+            канал в инспекторе; «не найден» — опечатка либо канал не описан
+            в структуре брокера (и тогда чинят её). */}
+        {b.reason === "missing" ? (
+          "канал не указан"
+        ) : (
+          <>канал <span className="sa-strong">«{b.channel}»</span> не найден у брокера «{b.broker_name}»</>
+        )}
+      </span>
+    ),
+  }),
+  // Повисшие сообщения процессов: связь под сообщением удалили из схемы. Чинить на
+  // холсте нечего — строка ведёт В ПРОЦЕСС.
+  section({
+    title: "Незадокументированные сообщения",
+    items: (a: Alerts) => a.dangling_messages,
+    key: (m) => m.message_id,
+    go: (m) => ({ process: m.process_id }),
+    body: (m) => <>{stepLine(m)}<span className="sa-hint">{m.from_name} → {m.to_name}</span></>,
+  }),
+  // Шаги, у которых пропало ПЛЕЧО канала: связь на месте, но она стала асинхронной, а у
+  // такой «ответа» не бывает. Отдельно от повисших: «Восстановить связи» тут бессильна —
+  // чинится возвратом синхронности либо удалением шага.
+  section({
+    title: "Ответ на асинхронном канале",
+    items: (a: Alerts) => a.orphan_legs,
+    key: (m) => m.message_id,
+    go: (m) => ({ process: m.process_id }),
+    body: (m) => (
+      <>
+        {stepLine(m)}
+        <span className="sa-hint">
+          {m.from_name} → {m.to_name}
+          {m.edge_label ? ` · канал «${m.edge_label}»` : ""}
+        </span>
+      </>
+    ),
+  }),
+  // Участники процессов без узла схемы: линия жизни есть, объекта архитектуры за ней нет
+  // (импорт не сопоставил имя либо узел удалили). Чинится привязкой на шапке.
+  section({
+    title: "Незадокументированные участники",
+    items: (a: Alerts) => a.unbound_participants,
+    key: (p) => p.participant_id,
+    go: (p) => ({ process: p.process_id }),
+    body: (p) => (
+      <span className="sa-row">
+        <span className="sa-where">{p.process_name}:</span>
+        <span className="sa-strong">{p.name}</span>
+      </span>
+    ),
+  }),
+  // Шаги процессов без привязки к схеме логики — алерт ПОЛНОТЫ (Р4 «шумно, зато
+  // консистентно»): не «сломалось», а «не документировано», гаснет привязкой шагов.
+  section({
+    title: "Шаги без схемы логики",
+    items: (a: Alerts) => a.unlinked_messages,
+    key: (m) => m.message_id,
+    go: (m) => ({ process: m.process_id }),
+    body: (m) => <>{stepLine(m)}<span className="sa-hint">{m.from_name} → {m.to_name}</span></>,
+  }),
+  // Объекты с заглушками разведки (схемы без тела) — та же полнота, но ОДНА строка на
+  // объект с числом заглушек: две сотни строк после разведки монолита были бы стеной, а
+  // не сигналом. Построчный бэклог — на странице объекта (блок «Не описано»).
+  section({
+    title: "Объекты с неописанными схемами логики",
+    items: (a: Alerts) => a.undescribed_docs,
+    key: (u) => u.node_id,
+    go: (u) => toNode(u.node_id),
+    body: (u) => (
+      <span className="sa-row">
+        <span>{u.node_name}</span>
+        <span className="sa-muted">{u.count} {plural(u.count, ["схема", "схемы", "схем"])}</span>
+      </span>
+    ),
+  }),
+  // Люди внутри системы: каждый вложенный человек — одна проблема (вынести в корень).
+  section({
+    title: "Пользователи внутри контейнера",
+    items: (a: Alerts) => a.persons_inside,
+    key: (p) => p.node_id,
+    go: (p) => toNode(p.node_id),
+    body: (p) => (
+      <span className="sa-row">
+        <span className="sa-strong">{p.node_name}</span>
+        <span className="sa-muted">внутри</span>
+        <span>{p.parent_name}</span>
+      </span>
+    ),
+  }),
+];
+
 export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 32, placement = "header" }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  const disconnected = alerts.disconnected_nodes;
-  const intermediate = alerts.intermediate_edges;
-  // Связи узла с его же потомком: иерархия вложенность уже выразила. Отдельно от
-  // «связей в контейнер» — там конец уточняют до компонента, здесь связь лишняя целиком.
-  const descendant = alerts.descendant_edges;
-  const isolated = alerts.isolated_groups;
-  // Правила контейнеров: контейнер с СОБСТВЕННЫМИ доками/спекой (grandfather) —
-  // каждая такая запись = 1 проблема (схемы/спеку надо распределить по детям).
-  const containerOwn = alerts.container_own_docs;
-  // Люди внутри системы: каждый вложенный человек — одна проблема (вынести в корень).
-  const personsInside = alerts.persons_inside;
-  // Повисшие сообщения процессов: связь под сообщением удалили из схемы.
-  const dangling = alerts.dangling_messages;
-  // Участники процессов без узла схемы: линия жизни есть, объекта архитектуры за ней
-  // нет (импорт не сопоставил имя либо узел удалили). Чинится привязкой на шапке.
-  const unbound = alerts.unbound_participants;
-  // Шаги, у которых пропало ПЛЕЧО канала: связь на месте, но она стала асинхронной,
-  // а у такой «ответа» не бывает. Отдельно от повисших: «Восстановить связи» тут
-  // бессильна — чинится возвратом синхронности либо удалением шага.
-  const orphanLegs = alerts.orphan_legs;
-  // Пометки обращений, не нашедшие свою таблицу: текст обещает факт, а структура его
-  // не подтверждает. Единственное место, где видна битая КОЛОНКА — обратный индекс
-  // базы показывает такую пометку как обращение к таблице целиком.
-  const unresolvedRefs = alerts.unresolved_data_refs;
-  // То же для событий: пометка обещала канал, а структура брокеров его не знает.
-  // Отдельный класс — чинится другими словами (см. CHANNEL_REASON).
-  const unresolvedChannelRefs = alerts.unresolved_channel_refs;
-  // И то же для конфигурации: пометка обещала ручку, а её у ОБЪЕКТА нет (искать
-  // больше негде — параметры принадлежат самому сервису). Причины у класса нет:
-  // она единственная, поэтому и в записи её не передают.
-  const unresolvedConfigRefs = alerts.unresolved_config_refs;
-  // Связи с брокером, не назвавшие канал (или назвавшие неизвестный): шов «стрелка ↔
-  // структура брокера» держат алерты, а не FK, — это единственное место, где он виден.
-  const brokerEdges = alerts.broker_edge_channels;
-  // Шаги процессов без привязки к схеме логики — алерт ПОЛНОТЫ (Р4 «шумно, зато
-  // консистентно»): не «сломалось», а «не документировано», гаснет привязкой шагов.
-  const unlinkedMessages = alerts.unlinked_messages;
-  // Объекты с заглушками разведки (схемы без тела) — та же полнота, но ОДНА запись
-  // на объект: две сотни строк после разведки монолита были бы стеной, а не сигналом.
-  const undescribedDocs = alerts.undescribed_docs;
-  // Изолированные группы — это «не хватает (групп − 1) связей»: 2 группы → 1 недостающая
-  // связь, 3 → 2 и т.д. В общее число рекомендаций идёт groups − 1 (число проблем), а
-  // в число самого раздела — фактическое число групп (см. ниже). Общее число на экран
-  // не выводится: оно лишь зажигает точку на кнопке и решает, пуста ли панель.
-  const isolatedProblems = Math.max(0, isolated.length - 1);
-  const total =
-    disconnected.length + intermediate.length + descendant.length + isolatedProblems +
-    containerOwn.length + personsInside.length + dangling.length + unbound.length +
-    orphanLegs.length + unresolvedRefs.length + unresolvedChannelRefs.length +
-    unresolvedConfigRefs.length + brokerEdges.length + unlinkedMessages.length +
-    undescribedDocs.length;
+  const total = ALERT_SECTIONS.reduce((n, s) => n + s.problems(alerts), 0);
 
   useDismiss(open, ref, setOpen);
 
-  // Клик по пункту ведёт к цели (на страницу объекта или в редактор) — переход
-  // уводит с текущего экрана, поэтому панель сразу закрываем.
-  const locate = (target: LocateTarget) => {
-    setOpen(false);
-    onLocate?.(target);
+  // Клик по пункту ведёт к цели (на страницу объекта, в редактор или в процесс) —
+  // переход уводит с текущего экрана, поэтому панель сразу закрываем.
+  const nav: Nav = {
+    locate: onLocate && ((target) => { setOpen(false); onLocate(target); }),
+    openProcess: onOpenProcess && ((id) => { setOpen(false); onOpenProcess(id); }),
   };
 
   return (
@@ -185,231 +424,7 @@ export default function SchemaAlerts({ alerts, onLocate, onOpenProcess, size = 3
           {/* Пустые разделы не рендерятся, поэтому при нуле ниже ничего нет. */}
           {total === 0 && <div className="sa-empty">Рекомендаций нет. Схема описана полностью.</div>}
 
-          <Section title="Объекты без связей" count={disconnected.length}>
-            {disconnected.map((d) => (
-              <Item key={d.node_id} onClick={onLocate && (() => locate({ kind: "node", id: d.node_id }))}>
-                {d.node_name}
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Связи в контейнер" count={intermediate.length}>
-            {intermediate.map((e) => (
-              <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
-                <span className="sa-row">
-                  <span className={e.source_is_intermediate ? "sa-strong" : undefined}>{e.source_name}</span>
-                  <span className="sa-muted">→</span>
-                  <span className={e.target_is_intermediate ? "sa-strong" : undefined}>{e.target_name}</span>
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          {/* Связь узла с его же потомком: совет тут ПРОТИВОПОЛОЖЕН соседней секции —
-              не «уточните конец», а «удалите или перевесьте». Строка ведёт К СВЯЗИ. */}
-          <Section title="Связи в собственный компонент" count={descendant.length}>
-            {descendant.map((e) => {
-              const part = e.source_is_part ? e.source_name : e.target_name;
-              const whole = e.source_is_part ? e.target_name : e.source_name;
-              return (
-                <Item key={e.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: e.edge_id }))}>
-                  <span className="sa-line">
-                    <span className="sa-where">{e.source_name} → {e.target_name}:</span>{" "}
-                    <span className="sa-strong">«{part}»</span> входит в «{whole}»
-                  </span>
-                  <span className="sa-hint">
-                    иерархия уже выражает вложенность, удалите связь или перевесьте её
-                  </span>
-                </Item>
-              );
-            })}
-          </Section>
-
-          <Section title="Изолированные группы" count={isolated.length}>
-            {isolated.map((grp, i) => (
-              <Item key={i} onClick={onLocate && (() => locate({ kind: "group", ids: grp.node_ids }))}>
-                <span className="sa-where">Группа {i + 1}:</span> {grp.node_names.join(", ")}
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Контейнеры со своей документацией" count={containerOwn.length}>
-            {/* Что именно осталось (доки/спека) в строке НЕ уточняем: конкретное
-                предупреждение с путём исправления ждёт на странице объекта. */}
-            {containerOwn.map((c) => (
-              <Item key={c.node_id} onClick={onLocate && (() => locate({ kind: "node", id: c.node_id }))}>
-                {c.node_name}
-              </Item>
-            ))}
-          </Section>
-
-          {/* Пометка обещает факт («пишет: orders.status»), а структура его не
-              подтверждает. Строка ведёт к узлу-ВЛАДЕЛЬЦУ дока: чинится текст у него,
-              а не структура базы. */}
-          <Section title="Обращения к неописанным данным" count={unresolvedRefs.length}>
-            {unresolvedRefs.map((r) => (
-              <Item
-                key={`${r.doc_id}:${r.mode}:${r.ref}`}
-                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span>: {REF_REASON[r.reason]}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          {/* Событийный близнец предыдущей секции: строка так же ведёт к узлу-
-              ВЛАДЕЛЬЦУ дока — чинится текст пометки у него, а не структура брокера. */}
-          <Section title="Обращения к неописанным каналам" count={unresolvedChannelRefs.length}>
-            {unresolvedChannelRefs.map((r) => (
-              <Item
-                key={`${r.doc_id}:${r.mode}:${r.ref}`}
-                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span>: {CHANNEL_REASON[r.reason]}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          {/* Третья семья пометок. Отличие от двух соседних — в тексте починки: цель
-              искать негде, кроме самого объекта, поэтому и предлагается ровно одно
-              место. Класс заведомо ловит и ПРОЗУ («зависит от: нагрузки») — так
-              задумано (маркер с двоеточием обещает факт), и подсказка называет оба
-              выхода, иначе строка читалась бы как шум. */}
-          <Section title="Обращения к неописанным параметрам" count={unresolvedConfigRefs.length}>
-            {unresolvedConfigRefs.map((r) => (
-              <Item
-                key={`${r.doc_id}:${r.ref}`}
-                onClick={onLocate && (() => locate({ kind: "node", id: r.node_id }))}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-                  <span className="sa-strong">„{r.ref}“</span>: параметра нет в конфигурации
-                  объекта: опишите его или, если это обычная фраза, уберите двоеточие
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          {/* Стрелка в брокер обязана назвать топик (решение №4): строка ведёт К СВЯЗИ —
-              канал правится в её инспекторе, а не в структуре брокера. */}
-          <Section title="Связи с брокером без канала" count={brokerEdges.length}>
-            {brokerEdges.map((b) => (
-              <Item key={b.edge_id} onClick={onLocate && (() => locate({ kind: "edge", id: b.edge_id }))}>
-                <span className="sa-line">
-                  <span className="sa-where">{b.source_name} → {b.target_name}:</span>{" "}
-                  {/* Тексты причин разные по СМЫСЛУ починки: «не указан» — дописать
-                      канал в инспекторе; «не найден» — опечатка либо канал не описан
-                      в структуре брокера (и тогда чинят её). */}
-                  {b.reason === "missing" ? (
-                    "канал не указан"
-                  ) : (
-                    <>канал <span className="sa-strong">«{b.channel}»</span> не найден у брокера «{b.broker_name}»</>
-                  )}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Незадокументированные сообщения" count={dangling.length}>
-            {dangling.map((m) => (
-              <Item
-                key={m.message_id}
-                hint="Открыть процесс"
-                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{m.process_name}:</span>{" "}
-                  {m.caption ? `«${m.caption}»` : "без подписи"}
-                </span>
-                <span className="sa-hint">
-                  {m.from_name} → {m.to_name}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Ответ на асинхронном канале" count={orphanLegs.length}>
-            {orphanLegs.map((m) => (
-              <Item
-                key={m.message_id}
-                hint="Открыть процесс"
-                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{m.process_name}:</span>{" "}
-                  {m.caption ? `«${m.caption}»` : "без подписи"}
-                </span>
-                <span className="sa-hint">
-                  {m.from_name} → {m.to_name}
-                  {m.edge_label ? ` · канал «${m.edge_label}»` : ""}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Незадокументированные участники" count={unbound.length}>
-            {unbound.map((p) => (
-              <Item
-                key={p.participant_id}
-                hint="Открыть процесс"
-                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(p.process_id); })}
-              >
-                <span className="sa-row">
-                  <span className="sa-where">{p.process_name}:</span>
-                  <span className="sa-strong">{p.name}</span>
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Шаги без схемы логики" count={unlinkedMessages.length}>
-            {unlinkedMessages.map((m) => (
-              <Item
-                key={m.message_id}
-                hint="Открыть процесс"
-                onClick={onOpenProcess && (() => { setOpen(false); onOpenProcess(m.process_id); })}
-              >
-                <span className="sa-line">
-                  <span className="sa-where">{m.process_name}:</span>{" "}
-                  {m.caption ? `«${m.caption}»` : "без подписи"}
-                </span>
-                <span className="sa-hint">
-                  {m.from_name} → {m.to_name}
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Объекты с неописанными схемами логики" count={undescribedDocs.length}>
-            {/* Одна строка на объект с числом заглушек: построчный бэклог — на странице
-                объекта (блок «Не описано»), сюда его не тащим. */}
-            {undescribedDocs.map((u) => (
-              <Item key={u.node_id} onClick={onLocate && (() => locate({ kind: "node", id: u.node_id }))}>
-                <span className="sa-row">
-                  <span>{u.node_name}</span>
-                  <span className="sa-muted">{u.count} {plural(u.count, ["схема", "схемы", "схем"])}</span>
-                </span>
-              </Item>
-            ))}
-          </Section>
-
-          <Section title="Пользователи внутри контейнера" count={personsInside.length}>
-            {personsInside.map((p) => (
-              <Item key={p.node_id} onClick={onLocate && (() => locate({ kind: "node", id: p.node_id }))}>
-                <span className="sa-row">
-                  <span className="sa-strong">{p.node_name}</span>
-                  <span className="sa-muted">внутри</span>
-                  <span>{p.parent_name}</span>
-                </span>
-              </Item>
-            ))}
-          </Section>
+          {ALERT_SECTIONS.map((s) => s.render(alerts, nav))}
         </div>
       )}
     </div>
