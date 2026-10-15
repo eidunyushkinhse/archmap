@@ -103,6 +103,11 @@ export type SyncPreviewOut = Schemas["SyncPreviewOut"];
 export type TransitionPreview = Schemas["TransitionPreviewOut"];
 export type TransitionApplyOut = Schemas["TransitionApplyOut"];
 export type SyncApplyOut = Schemas["SyncApplyOut"];
+// Что синку разрешено трогать — поля политик формы применения (дефолты — на бэке).
+export type SyncPolicies = Pick<
+  Schemas["SyncApplyIn"],
+  "update_descriptions" | "update_names" | "sync_components" | "mark_missing_deprecated" | "restore_returned"
+>;
 export type SyncNodeAction = Schemas["SyncNodeActionOut"];
 export type SyncEdgeAction = Schemas["SyncEdgeActionOut"];
 
@@ -148,6 +153,9 @@ export type DistributeDocsOut = Schemas["DistributeDocsOut"];
 
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];
+// Файл пакета агента (имя и текст) и правка строки превью (имя, вид, объект схемы).
+export type DocsFile = Schemas["DocsFileIn"];
+export type DocsOverride = Schemas["DocsOverrideIn"];
 
 // Точка ортогональной ломаной стрелки в координатах графа (чисто фронтовое:
 // авто-маршруты роутера; в контракте геометрии стрелок больше нет).

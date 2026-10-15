@@ -14,8 +14,8 @@
 // «не перезаписывать» в модалке.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import type { DocsImportReport, NodeDocKind } from "../../types";
-import { docsImportApi, type DocsFile, type DocsOverride } from "../../api/docsImport";
+import type { DocsFile, DocsImportReport, DocsOverride, NodeDocKind } from "../../types";
+import { docsImportApi } from "../../api/docsImport";
 import { validateMermaid } from "../mermaidLoader";
 import MermaidRenderer from "../MermaidRenderer";
 import { useDocsFiles } from "./useDocsFiles";

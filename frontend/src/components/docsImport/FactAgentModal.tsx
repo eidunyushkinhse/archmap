@@ -8,8 +8,8 @@
 // потребляет:», «зависит от:» приезжают внутри схем логики, окном дозаливки доков.
 // Применение НЕ кладётся в undo — страховка: превью + дефолт «не перезаписывать».
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PromptVariant } from "../../types";
-import type { DataImportParams, DocsFile } from "../../api/docsImport";
+import type { DocsFile, PromptVariant } from "../../types";
+import type { DataImportParams } from "../../api/docsImport";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
 import {

@@ -11,8 +11,8 @@
 // Слева — тот же промпт «Из репозитория» (его запускают в каждом репозитории
 // системы), справа — файлы прогона, политики и план.
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { PromptVariant, SyncApplyOut, SyncPreviewOut } from "../../types";
-import { projectsApi, type SyncPolicies } from "../../api/projects";
+import type { PromptVariant, SyncApplyOut, SyncPolicies, SyncPreviewOut } from "../../types";
+import { projectsApi } from "../../api/projects";
 import { ApiError, isDemoLimit } from "../../api/client";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";

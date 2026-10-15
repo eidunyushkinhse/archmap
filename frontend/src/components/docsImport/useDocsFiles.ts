@@ -4,7 +4,7 @@
 // текста / удаление. Имя — идентичность: повторная загрузка файла с тем же
 // именем замещает старый (не плодим дубли).
 import { useReducer, useState } from "react";
-import type { DocsFile } from "../../api/docsImport";
+import type { DocsFile } from "../../types";
 import { fileTooBigMessage } from "../demo/demoLimits";
 import { bytesLimitText, MAX_FILE_BYTES } from "./useFileDrop";
 
