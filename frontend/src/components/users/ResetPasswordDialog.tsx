@@ -4,6 +4,7 @@ import { adminApi } from "../../api/admin";
 import type { AdminUser } from "../../types";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { useBusyAction } from "../../ui/useBusyAction";
 import { PASSWORD_HINT } from "./userLabels";
 
 /**
@@ -19,22 +20,13 @@ interface Props {
 
 export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сбросить пароль");
 
   const canSubmit = password.length > 0 && !busy;
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await adminApi.resetPassword(user.id, password);
-      onDone();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сбросить пароль");
-      setBusy(false);
-    }
+    await run(() => adminApi.resetPassword(user.id, password).then(onDone));
   }
 
   return (

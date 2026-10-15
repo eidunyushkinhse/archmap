@@ -121,7 +121,8 @@ describe("ResetPasswordDialog", () => {
     await userEvent.type(screen.getByLabelText("Новый пароль"), "reset-pass-1");
     await userEvent.click(screen.getByRole("button", { name: "Сбросить" }));
     expect(adminApi.resetPassword).toHaveBeenCalledWith("u-ivan", "reset-pass-1");
-    expect(onDone).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: "Сохранение…" })).toBeDisabled();
   });
 
   it("короткий пароль: текст бэка в окне", async () => {
@@ -132,5 +133,6 @@ describe("ResetPasswordDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сбросить" }));
     expect(await screen.findByText("Пароль должен быть не короче 8 символов")).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Сбросить" })).toBeEnabled();
   });
 });
