@@ -1,7 +1,7 @@
 import { useState } from "react";
-import type { CSSProperties } from "react";
 import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
+import DialogTitle from "../../ui/DialogTitle";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
@@ -36,7 +36,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 460, padding: 24 }}>
-      <h3 style={title}>Редактировать проект</h3>
+      <DialogTitle>Редактировать проект</DialogTitle>
 
       <label style={labelStyle}>Название</label>
       <input
@@ -69,4 +69,3 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
   );
 }
 
-const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
