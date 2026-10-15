@@ -4,6 +4,7 @@ import { adminApi } from "../../api/admin";
 import type { AdminUser, UserRole } from "../../types";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { useBusyAction } from "../../ui/useBusyAction";
 import { PASSWORD_HINT, ROLE_LABEL, ROLES } from "./userLabels";
 
 /**
@@ -22,22 +23,13 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
   const [role, setRole] = useState<UserRole>("viewer");
   const [isAdmin, setIsAdmin] = useState(false);
   const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось создать пользователя");
 
   const canSubmit = username.trim().length > 0 && password.length > 0 && !busy;
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const user = await adminApi.create({ username: username.trim(), role, is_admin: isAdmin, password });
-      onCreated(user);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось создать пользователя");
-      setBusy(false);
-    }
+    await run(() => adminApi.create({ username: username.trim(), role, is_admin: isAdmin, password }).then(onCreated));
   }
 
   const onEnter = (e: React.KeyboardEvent) => { if (e.key === "Enter") void submit(); };

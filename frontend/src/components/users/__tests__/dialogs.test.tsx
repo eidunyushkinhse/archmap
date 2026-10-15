@@ -1,6 +1,6 @@
 // Окна админки и профиля: «Сменить пароль», «Новый пользователь», «Сбросить пароль».
 // Проверяем, что уходит в API и как показываются отказы бэка.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -87,7 +87,9 @@ describe("NewUserDialog", () => {
       is_admin: true,
       password: "temp-pass-1",
     });
-    expect(onCreated).toHaveBeenCalledWith(created);
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    // окно закрывает родитель — до тех пор кнопка не оживает (второй щелчок не повторит запрос)
+    expect(screen.getByRole("button", { name: "Создание…" })).toBeDisabled();
   });
 
   it("по умолчанию — наблюдатель без админки; кнопка неактивна без логина и пароля", async () => {
@@ -106,6 +108,7 @@ describe("NewUserDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Создать" }));
     expect(await screen.findByText("Пользователь с таким логином уже есть")).toBeInTheDocument();
     expect(onCreated).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Создать" })).toBeEnabled();
   });
 });
 
