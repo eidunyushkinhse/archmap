@@ -13,9 +13,8 @@
 // Колбэки СТАБИЛЬНЫ: reload хозяина берётся из последнего рендера (latest-ref), поэтому
 // бандл persistence больше не пересобирается на каждый рендер страницы.
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import type { ViewLayoutPayload } from "../types";
+import type { LayoutPatch } from "../components/graph/types";
 
-type LayoutPatch = Record<string, Partial<ViewLayoutPayload> | null>;
 
 export function usePersistenceHost(reload: () => Promise<unknown>): {
   resync: () => Promise<void>;

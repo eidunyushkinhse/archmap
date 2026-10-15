@@ -14,10 +14,8 @@
 // остаётся в cbRef владельца — это триггер выделения, а не его подсветка.
 import { useEffect } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
-import type { WrappedEdgeData } from "../types";
+import type { LinkedHighlight, WrappedEdgeData } from "../types";
 
-// Что открыто в правой панели — цель устойчивой подсветки. Гость сводится к kind:"node".
-export type LinkedHighlight = { kind: "node" | "edge"; id: string };
 
 // Перенос RF-выделения на НЕСУЩЕЕ ребро выбранной связи (та же резолюция «член
 // пучка → отрисованный мастер», что в эффекте ниже). Возвращает новый массив с

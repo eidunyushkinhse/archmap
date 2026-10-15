@@ -27,13 +27,7 @@ import { distToPolyline } from "./graph/edgePath";
 const SHARED_HIT_TOL = 4;
 import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
-import type {
-  WrappedEdgeData,
-  BlockData, GhostData,
-  LocateRequest,
-  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
-  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
-} from "./graph/types";
+import type { BlockData, GhostData, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, WrappedEdgeData } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
 import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
@@ -132,7 +126,7 @@ interface LevelGraphProps {
   isArchitect: boolean;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
-  linkedHighlight?: { kind: "node" | "edge"; id: string } | null;
+  linkedHighlight?: LinkedHighlight | null;
   // Счётчик чтений уровня с сервера (растёт на каждую мутацию): сигнал «кэш детей
   // раскрытых рамок протух». Ответ /graph детей рамок не несёт, поэтому без него
   // удалённый/созданный внутри рамки объект остаётся на холсте до ухода с уровня.

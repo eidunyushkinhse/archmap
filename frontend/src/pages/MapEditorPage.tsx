@@ -26,11 +26,7 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
-import type {
-  ViewMetaState, LocateRequest,
-  LevelPersistenceProps, LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks,
-  LevelDeleteCallbacks, LevelDropProps, LevelUndoProps,
-} from "../components/graph/types";
+import type { LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
@@ -149,7 +145,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const gestureActiveRef = useRef(false);
   const layoutRetrySeq = useRef(0);
   const [layoutRetry, setLayoutRetry] = useState<{
-    patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number;
+    patch: LayoutPatch; token: number;
   } | null>(null);
 
   // Locate-подсветка узла (Ф11): пульс ~2.5с при открытии редактора со страницы.
@@ -278,7 +274,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     };
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- см. resyncOnPersistError: plain-function, бандл пересобирается с ним (поведение не меняется).
-  function handlePersistConflict(patch: Record<string, Partial<ViewLayoutPayload> | null>) {
+  function handlePersistConflict(patch: LayoutPatch) {
     void resyncOnPersistError().then(() => {
       setLayoutRetry({ patch, token: ++layoutRetrySeq.current });
     });
@@ -674,7 +670,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId: currentParentId }).ghosts,
     [edges, endpoints, nodes, currentParentId]);
 
-  const linkedHighlight = useMemo((): { kind: "node" | "edge"; id: string } | null => {
+  const linkedHighlight = useMemo((): LinkedHighlight | null => {
     if (!selectedObject) return null;
     if (selectedObject.kind === "edge") return { kind: "edge", id: selectedObject.edge.id };
     if (selectedObject.kind === "ghost") return { kind: "node", id: selectedObject.ghost.id };

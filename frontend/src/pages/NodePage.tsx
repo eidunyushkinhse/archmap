@@ -25,7 +25,7 @@ import DocsAgentModal from "../components/docsImport/DocsAgentModal";
 import ReconAgentModal from "../components/docsImport/ReconAgentModal";
 import DocOverlay from "../components/inspector/DocOverlay";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
-import type { ViewMetaState } from "../components/graph/types";
+import type { NavigateMap, ViewMetaState } from "../components/graph/types";
 import "./NodePage.css";
 import { noAutofill } from "../ui/noAutofill";
 import NodeProperties from "../components/nodePage/NodeProperties";
@@ -65,7 +65,7 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
   // Навигация в редактор-карту
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   // Навигация в режим «Процессы» с выбором процесса (секция «Участвует в процессах»)
   onNavigateProcesses?: (processId: string) => void;
   // Удаление узла со страницы → редирект на родителя
@@ -137,7 +137,7 @@ function NodePageInner({
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
   onNavigateProject: () => void;
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   onNavigateProcesses?: (processId: string) => void;
   onNodeDeleted?: (parentId: string | null) => void;
   onEdgesReload: () => void;

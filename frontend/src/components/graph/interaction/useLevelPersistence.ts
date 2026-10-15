@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { viewsApi } from "../../../api/nodes";
 import { isConflict } from "../../../api/client";
 import type { ViewLayout, ViewLayoutPayload } from "../../../types";
-import type { ViewMetaState } from "../types";
+import type { LayoutPatch, ViewMetaRef } from "../types";
 import { planPersistFailure, type CommitOrigin } from "./persistGuard";
 
 interface UseLevelPersistenceArgs {
@@ -43,26 +43,26 @@ interface UseLevelPersistenceArgs {
   onPersistError?: (e: unknown) => void | Promise<void>;
   // канал переигровки 409 user-батча: исходный патч уходит НАВЕРХ, ресинк + возврат
   // пропом retryPatch (см. комментарий к пропу LevelGraph)
-  onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
+  onPersistConflict?: (patch: LayoutPatch) => void;
   // зеркало записанных значений родителю (ЕДИНСТВЕННЫЙ канал зеркалирования раскладки)
   onLayoutChanged?: (items: Record<string, ViewLayoutPayload | null>) => void;
   // живой снимок версий (fence записей): читается при каждой записи, обновляется из PUT
-  viewMeta?: { current: ViewMetaState };
+  viewMeta?: ViewMetaRef;
   // запрос переигровки 409 user-батча (одноразов по token)
-  retryPatch?: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
+  retryPatch?: { patch: LayoutPatch; token: number } | null;
 }
 
 export interface LevelPersistence {
   // Единая запись раскладки: дедуп+merge поверх зеркала → PUT + зеркало родителю.
   // origin "derived" при 409 НЕ переигрывается (конвейер пересчитает сам).
   commitLayout: (
-    patch: Record<string, Partial<ViewLayoutPayload> | null>,
+    patch: LayoutPatch,
     origin?: CommitOrigin,
     isRetry?: boolean,
   ) => boolean;
   // Стабильная обёртка для долгоживущих замыканий (команды undo/redo): всегда зовёт
   // СВЕЖИЙ commitLayout (дедуп сравнивает с актуальным зеркалом, а не со снимком).
-  commitLayoutStable: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => boolean;
+  commitLayoutStable: (patch: LayoutPatch) => boolean;
   // Последняя запись раскладки не прошла (не 409-переигровка): холст показывает плашку
   // — раньше узлы после ресинка молча прыгали назад (аудит R-11). Одна на серию отказов,
   // гаснет на следующей удачной записи или по крестику.
@@ -87,7 +87,7 @@ export function useLevelPersistence({
   const persistFenced = useCallback(
     (
       items: Record<string, ViewLayoutPayload | null>,
-      patch: Record<string, Partial<ViewLayoutPayload> | null>,
+      patch: LayoutPatch,
       origin: CommitOrigin,
       isRetry: boolean,
     ): void => {
@@ -116,7 +116,7 @@ export function useLevelPersistence({
   );
   const commitLayout = useCallback(
     (
-      patch: Record<string, Partial<ViewLayoutPayload> | null>,
+      patch: LayoutPatch,
       origin: CommitOrigin = "user",
       isRetry = false,
     ): boolean => {
@@ -164,7 +164,7 @@ export function useLevelPersistence({
   const commitLayoutRef = useRef(commitLayout);
   useEffect(() => { commitLayoutRef.current = commitLayout; });
   const commitLayoutStable = useCallback(
-    (patch: Record<string, Partial<ViewLayoutPayload> | null>) => commitLayoutRef.current(patch),
+    (patch: LayoutPatch) => commitLayoutRef.current(patch),
     [],
   );
 

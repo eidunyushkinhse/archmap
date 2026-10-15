@@ -7,7 +7,7 @@ import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
 import EmbeddedSchemaBlock from "../components/EmbeddedSchemaBlock";
-import type { LevelPersistenceProps } from "../components/graph/types";
+import type { LevelPersistenceProps, NavigateMap } from "../components/graph/types";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../components/schemaView";
 import { useLevelSchema } from "./useLevelSchema";
 import { usePersistenceHost } from "./usePersistenceHost";
@@ -24,7 +24,7 @@ interface Props {
   isArchitect: boolean;
   onNavigateNode: (nodeId: string) => void;
   // «Редактировать» над схемой → редактор-карта на корневом уровне
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   // Клик по процессу в списке → режим «Процессы» с выбором процесса
   onNavigateProcesses?: (processId: string) => void;
 }

@@ -6,9 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GhostNode, Node, ViewLayout, Edge, LevelEdge } from "../types";
 import LevelGraph from "./LevelGraph";
-import type {
-  LevelModeFlags, LevelDrillCallbacks, LevelEdgeCallbacks, LevelPersistenceProps,
-} from "./graph/types";
+import type { LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LinkedHighlight } from "./graph/types";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
 import { SchemaViewFilter } from "./SchemaViewFilter";
 import SchemaLegend from "./SchemaLegend";
@@ -136,7 +134,7 @@ export default function EmbeddedSchemaBlock({
     [nodes, endpoints],
   );
   const linkedHighlight = useMemo(
-    (): { kind: "node" | "edge"; id: string } | null =>
+    (): LinkedHighlight | null =>
       selectedEdge ? { kind: "edge", id: selectedEdge.id } : null,
     [selectedEdge],
   );

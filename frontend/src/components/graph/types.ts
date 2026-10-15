@@ -12,6 +12,19 @@ import type { History } from "./interaction/useHistory";
 // Живой снимок версий конкурентности (этап 0/1, docs/archive/plan-concurrency.md):
 // version — fence вида, graphRev — курсор изменений проекта.
 export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
+// Ссылка на живой снимок: страница тихо обновляет его после СВОИХ записей
+// (echo-suppression, V53), холст и поллинг читают.
+export type ViewMetaRef = { current: ViewMetaState };
+
+// Патч раскладки вида: строка вида по id (null — удалить строку).
+export type LayoutPatch = Record<string, Partial<ViewLayoutPayload> | null>;
+
+// Что открыто в правой панели — цель устойчивой подсветки. Гость сводится к kind:"node".
+export type LinkedHighlight = { kind: "node" | "edge"; id: string };
+
+// Переход в редактор-карту на слой level (null — корень): locate — объект для
+// подсветки, ret — куда вернуть кнопкой «назад».
+export type NavigateMap = (level: string | null, opts?: { locate?: string; ret?: string }) => void;
 
 // Запрос фокуса на объекте/связи/группе. ids: для node — [nodeId]; для edge — [edgeId];
 // для group — id всех узлов кластера. token — монотонный счётчик из MapEditorPage.
@@ -214,13 +227,13 @@ export interface LevelPersistenceProps {
   // Фоновый персист упал — родитель возвращает зеркало к истине (ресинк уровня из БД).
   onPersistError?: (e: unknown) => void | Promise<void>;
   // Живой снимок версий (fence записей): читается при каждой записи, обновляется из PUT.
-  viewMeta?: { current: ViewMetaState };
+  viewMeta?: ViewMetaRef;
   // Флаг «идёт жест драга» для поллинга: рефетч не врывается в жест. Реф — ноль ре-рендеров.
   gestureActiveRef?: { current: boolean };
   // Канал переигровки 409 user-батча: исходный патч уходит НАВЕРХ (ресинк + возврат патча).
-  onPersistConflict?: (patch: Record<string, Partial<ViewLayoutPayload> | null>) => void;
+  onPersistConflict?: (patch: LayoutPatch) => void;
   // Запрос переигровки 409 user-батча (одноразов по token).
-  retryPatch?: { patch: Record<string, Partial<ViewLayoutPayload> | null>; token: number } | null;
+  retryPatch?: { patch: LayoutPatch; token: number } | null;
 }
 
 // Флаги режима канваса (read-only / расстановка / центрирование / вид схемы).

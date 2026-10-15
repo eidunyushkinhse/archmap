@@ -9,7 +9,7 @@
 // возврат фокуса сверяет немедленно. Поллят обе роли (наблюдателю — живость).
 import { useEffect, useRef } from "react";
 import { viewsApi } from "../api/nodes";
-import type { ViewMetaState } from "../components/graph/types";
+import type { ViewMetaRef } from "../components/graph/types";
 import { isConnectionError, setOffline } from "../lib/connection";
 
 export const POLL_MS = 10_000;
@@ -123,7 +123,7 @@ export function startPollLoop(
 
 export function useRemoteSync(opts: {
   currentParentId: string | null;
-  viewMeta: { current: ViewMetaState };
+  viewMeta: ViewMetaRef;
   gestureActiveRef: { current: boolean };
   onRemoteChange: () => void;
   // Рост meta_rev относительно известного (viewMeta.metaRev) — мета узла

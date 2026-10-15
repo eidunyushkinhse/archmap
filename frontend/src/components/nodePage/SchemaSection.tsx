@@ -10,7 +10,7 @@ import { useRemoteSync } from "../../pages/useRemoteSync";
 import { useToast } from "../../pages/useToast";
 import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
-import type { LevelPersistenceProps, ViewMetaState } from "../graph/types";
+import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
 import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
@@ -39,14 +39,14 @@ export default function SchemaSection({
   ancestors: AncestorRef[];
   isArchitect: boolean;
   onNavigateNode: (id: string) => void;
-  onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap?: NavigateMap;
   // Узел изменён в другой сессии — страница освежает свои данные и показывает
   // тост «Данные обновлены в другой сессии». Зовётся ОБОИМИ курсорами: meta_rev
   // (атрибуты/доки/спеки) и graph_rev (структурные имя/форма, V48).
   onNodeChanged?: () => void;
   // Общий с страницей курсор конкурентности (страница тихо обновляет его после
   // СВОИХ записей — echo-suppression, V53).
-  viewMeta: { current: ViewMetaState };
+  viewMeta: ViewMetaRef;
   // Токен мутации страницы (правка связи в EdgeEditModal): изменившиеся стрелки
   // перерисовываются анимированно (окно мутаций, AN28а).
   mutationToken: number;

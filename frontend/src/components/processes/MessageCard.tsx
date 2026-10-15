@@ -28,6 +28,7 @@ import type { DocChoice, ProcessMessage, ProcessParticipant } from "../../types"
 import { BPT } from "./tokens";
 import { stepDoc } from "./stepDoc";
 import { noAutofill } from "../../ui/noAutofill";
+import type { StepDoc } from "./stepDoc";
 
 interface Props {
   processId: string;
@@ -43,7 +44,7 @@ interface Props {
   onLinkDoc: (docId: string | null) => void;
   // Провал в привязанную схему (У7): сам оверлей рендерит РОДИТЕЛЬ — у него стек
   // Escape, и карточка не должна закрыться вместе с оверлеем.
-  onOpenDoc: (doc: { docId: string; nodeId: string; nodeName: string }) => void;
+  onOpenDoc: (doc: StepDoc) => void;
   // Ревизия каталога: родитель бампает её после правок схем в оверлее — имя или
   // состав схем могли измениться, и строка привязки не должна показывать старьё.
   catalogRev: number;

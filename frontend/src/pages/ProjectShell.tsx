@@ -24,6 +24,7 @@ import BrandLink from "../ui/BrandLink";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
 import { safeLocal, safeSession } from "../lib/safeStorage";
+import type { NavigateMap } from "../components/graph/types";
 
 type WorkMode = "schema" | "proc";
 const MODE_KEY = "archmap_mode";
@@ -40,7 +41,7 @@ interface Props {
   // Навигация внутри проекта
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
-  onNavigateMap: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
+  onNavigateMap: NavigateMap;
 }
 
 export default function ProjectShell({

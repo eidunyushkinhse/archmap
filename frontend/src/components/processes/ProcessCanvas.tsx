@@ -11,7 +11,7 @@ import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
 import MessageCard from "./MessageCard";
-import ParticipantDeleteConfirm from "./ParticipantDeleteConfirm";
+import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
 import { ViewHint } from "./SchemaViewChrome";
@@ -115,7 +115,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     [detail],
   );
   const delPart = overlay("delPart")?.part ?? null;
-  const delLinks = useMemo(() => {
+  const delLinks = useMemo((): DelLink[] => {
     if (!detail || !delPart) return [];
     return detail.messages
       .filter((m) => m.from_participant_id === delPart.id || m.to_participant_id === delPart.id)
@@ -125,7 +125,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         return {
           id: m.id,
           label: m.caption || m.technology || "сообщение",
-          dir: (outgoing ? "к" : "от") as "к" | "от",
+          dir: outgoing ? "к" : "от",
           other: partById[other]?.name ?? other,
         };
       });

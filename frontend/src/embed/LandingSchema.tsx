@@ -9,9 +9,7 @@ import type { MouseEvent } from "react";
 import LevelGraph from "../components/LevelGraph";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
-import type {
-  LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps,
-} from "../components/graph/types";
+import type { LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LinkedHighlight } from "../components/graph/types";
 import type { LevelEdge, ViewLayout, ViewLayoutPayload } from "../types";
 import type { LandingScene } from "./scene";
 import "../components/EmbeddedSchemaBlock.css";
@@ -92,7 +90,7 @@ export default function LandingSchema({ scene }: { scene: LandingScene }) {
     [graph],
   );
   const linkedHighlight = useMemo(
-    (): { kind: "node" | "edge"; id: string } | null =>
+    (): LinkedHighlight | null =>
       selectedEdge ? { kind: "edge", id: selectedEdge.id } : null,
     [selectedEdge],
   );
