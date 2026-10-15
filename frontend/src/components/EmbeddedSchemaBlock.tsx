@@ -13,6 +13,7 @@ import SchemaLegend from "./SchemaLegend";
 import type { SchemaView } from "./schemaView";
 import { responsiveCanvasHeight } from "./pageSchema";
 import "./EmbeddedSchemaBlock.css";
+import "../ui/smallButton.css";
 
 interface Props {
   nodes: Node[];
@@ -190,7 +191,7 @@ export default function EmbeddedSchemaBlock({
             верхний угол) — единообразно с редактором-картой. Здесь осталась только
             «Редактировать» (переход в редактор-карту). */}
         {isArchitect && onEdit && (
-          <button className="esb-edit" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
+          <button className="btn-sm-primary" data-tour="schema-edit" onClick={onEdit}>Редактировать</button>
         )}
       </div>
 

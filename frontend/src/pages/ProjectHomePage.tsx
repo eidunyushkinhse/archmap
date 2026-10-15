@@ -18,6 +18,7 @@ import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
 import { plural } from "../ui/plural";
 import "./NodePage.css";
+import "../ui/smallButton.css";
 
 interface Props {
   projectId: string;
@@ -174,7 +175,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
                   {isArchitect && (
                     <>
                       <br />
-                      <button className="esb-edit" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
+                      <button className="btn-sm-primary" style={{ marginTop: 10 }} onClick={() => onNavigateMap?.(null)}>
                         Начать наполнение
                       </button>
                     </>

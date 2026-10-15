@@ -12,6 +12,7 @@ import EmbeddedSchemaBlock from "../EmbeddedSchemaBlock";
 import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } from "../schemaView";
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
 import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
+import "../../ui/smallButton.css";
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
@@ -194,12 +195,12 @@ export default function SchemaSection({
         {isArchitect && onNavigateMap && (
           <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
             {canHaveChildren(node.shape) && (
-              <button className="esb-edit" onClick={() => onNavigateMap(node.id)}>
+              <button className="btn-sm-primary" onClick={() => onNavigateMap(node.id)}>
                 Добавить компонент
               </button>
             )}
             <button
-              className="esb-edit"
+              className="btn-sm-primary"
               onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
             >
               Открыть в карте
