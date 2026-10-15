@@ -11,7 +11,9 @@
 // схема», карточка «Схемы с навигацией», импорт). Снимать лучше на КОПИИ эталона («Новый
 // проект» → «Копия», корень переразложен «Переразложить уровень», «Сервис уведомлений»
 // раскрыт): сам эталон «… v2» не трогаем — из него пересобирается демо-шаблон, а ручные
-// позиции его корня дают кадру статусов налезающие узлы.
+// позиции его корня дают кадру статусов налезающие узлы. Кадр depth-canvas снимается
+// ТОЛЬКО на копии: в ней через интерфейс готовится схема страницы «Сервиса поиска» (что
+// именно — в комментарии сцены).
 // Учётка — ARCHMAP_USERNAME/ARCHMAP_PASSWORD из окружения, иначе из mcp/.env
 // (учётка демо-проекта). Токен в вывод не печатается.
 //
@@ -63,6 +65,12 @@ const N = {
   sms: "SMS-рассыльщик",
   notifWorker: "Notification worker",
   notifDb: "БД уведомлений",
+  // кадр карточки «Схемы с навигацией» (depth-canvas)
+  search: "Сервис поиска",
+  searchApi: "Search API",
+  elastic: "Elasticsearch",
+  catalog: "Сервис каталога",
+  gateway: "API Gateway",
 };
 const DOC_LOGIC = "Создание заказа";
 const CHANNEL = "catalog.product-events";
@@ -171,7 +179,6 @@ async function resolveScene(token) {
 // ── Браузер ──────────────────────────────────────────────────────────────────
 const blocked = [];   // попытки записи, оборванные сторожем
 const warnings = [];  // артефакты и прочие замечания по кадрам
-const notes = [];     // справки (не ошибки): что видно кадру на разных ширинах сайта
 // Лупа «🔍» на узлах и рамках — эмодзи: без шрифта с ним (fonts-noto-color-emoji или
 // NotoColorEmoji.ttf в ~/.local/share/fonts) Chromium рисует вместо неё квадрат.
 if (!spawnSync("fc-list", [":charset=1f50d", "family"]).stdout?.toString().trim()) {
@@ -505,11 +512,11 @@ async function svgNodeBox(page, text) {
 }
 const centerOf = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
 
-// Что карточка «Схемы с навигацией» показывает из кадра 640×480 при object-fit: cover
-// по центру (замер вёрстки лендинга v7): весь кадр; три колонки (~300×300) — средние
-// 462 px по ширине; одна колонка на ~700 px (628×220) — полоса 224 px по высоте; телефон
-// (348×220) — полоса 404 px.
-const CARD_WINDOWS = [[0, 0, 640, 480], [89, 0, 551, 480], [0, 128, 640, 352], [0, 38, 640, 442]];
+// Что карточка «Схемы с навигацией» показывает из кадра 840×560: окно картинки на лендинге
+// той же пропорции 3:2 (object-fit: contain) на любой ширине — 466×311 в три колонки
+// (от 1420 px), 404–639 px в карточке-строке (900–1419 px), до 807×538 в одну колонку,
+// 348×232 на телефоне, — то есть кадр целиком, без обрезки.
+const CARD_WINDOWS = [[0, 0, 840, 560]];
 
 // ── Кадры ────────────────────────────────────────────────────────────────────
 // Каждый кадр — своё окно (размер по ТЗ) в свежем контексте браузера.
@@ -546,60 +553,65 @@ const SHOTS = {
     await shoot(page, "shot-depth.png");
   } },
 
-  // Врезка для карточки «Схемы с навигацией»: раскрытый контейнер крупно, кадр 4:3
-  // (640×480 CSS → 1280×960) — только холст, без панелей и кнопок. Раскрытие — на
-  // странице «Сервиса заказов», как в depth: на корне карты клик лупой пишет вид в БД.
-  // В кадре: рамка с чипом «🔍 Сервис заказов ×», внутри Order API, связи наружу — от
-  // API Gateway (REST) и к Kafka — с подписями. «БД заказов» в кадр не входит: она тоже
-  // ребёнок контейнера и стоит у его правого края, через ~525 единиц от Order API, —
-  // с ней заголовки в карточке ~300 px мельчают до 5–7 px.
-  "depth-canvas": { size: [1400, 1100], async run(page, s) {
-    await go(page, `/p/${s.pid}/nodes/${s.ids.orders}`);
+  // Врезка для карточки «Схемы с навигацией». Мысль кадра: контейнер раскрывается прямо на
+  // схеме — внутри рамки видны его части, соседи остаются на местах, а связи доходят до
+  // конкретной части. Кадр 3:2 (840×560 CSS → 1680×1120), только холст: схема страницы
+  // «Сервиса поиска», он раскрыт лупой — в рамке «🔍 Сервис поиска ×» рядом Elasticsearch и
+  // Search API; над ними свёрнутый контейнер «Сервис каталога» (лупа, «1 из 4»: связь идёт от
+  // его «Индексатора товаров») и API Gateway; обе стрелки входят в рамку сверху, каждая к своему
+  // объекту. Кадр — ровно эта группа: рамка «Маркетплейса», в которую она вложена, остаётся за
+  // краем, иначе две пунктирные рамки спорят, какая из них раскрыта.
+  // ⚠ Только на КОПИИ эталона, подготовленной через интерфейс: открыта страница «Сервиса
+  // поиска» (первый показ вида сам пишет раскладку), он раскрыт лупой на её схеме, Search API
+  // перетащен под API Gateway, а Elasticsearch — под «Сервис каталога», в ряд с Search API.
+  // Страничные схемы стартуют свёрнутыми, и клик лупой по уже сохранённому раскрытию гасится
+  // дедупом — в БД не пишет. На эталоне «… v2» эта страница не открывалась: сторож оборвёт её
+  // первую запись, и кадр провалится.
+  "depth-canvas": { size: [1600, 1300], async run(page, s) {
+    await go(page, `/p/${s.pid}/nodes/${s.ids.search}`);
     const card = await scrollCardToTop(page, "Схема");
     // кнопки зума, мини-карта и прочие панели холста — не в кадр (только в этой сцене)
     await page.addStyleTag({ content: ".react-flow__controls, .react-flow__minimap, .react-flow__panel { display: none !important; }" });
     await card.locator(".esb-activate").click();
-    const node = card.locator(`.react-flow__node[data-id="${s.ids.orders}"]`);
+    const node = card.locator(`.react-flow__node[data-id="${s.ids.search}"]`);
     await node.hover();
     await node.locator('button[title="Раскрыть содержимое"]').click();
-    await card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`).waitFor();
+    await card.locator(`.react-flow__node[data-id="${s.ids.searchApi}"]`).waitFor();
     await settle(page);
     const canvas = card.locator(".react-flow").first();
     const cb = await canvas.boundingBox();
     // кадр — по центру холста: его кнопки по углам остаются снаружи
-    const area = { w: 640, h: 480 };
+    const area = { w: 840, h: 560 };
     area.x = Math.round((cb.width - area.w) / 2);
     area.y = Math.round((cb.height - area.h) / 2);
-    if (area.x < 100 || area.y < 0) throw new Error(`холст ${Math.round(cb.width)}×${Math.round(cb.height)} мал для кадра 640×480`);
+    if (area.x < 100 || area.y < 0) throw new Error(`холст ${Math.round(cb.width)}×${Math.round(cb.height)} мал для кадра ${area.w}×${area.h}`);
     const texts = await flowTexts(canvas);
     const v0 = await rfView(canvas);
     const toFlow = (b) => ({ x0: (b.x - cb.x - v0.tx) / v0.k, y0: (b.y - cb.y - v0.ty) / v0.k, x1: (b.x + b.width - cb.x - v0.tx) / v0.k, y1: (b.y + b.height - cb.y - v0.ty) / v0.k });
-    const api = toFlow(await card.locator(`.react-flow__node[data-id="${s.ids.orderApi}"]`).boundingBox());
-    const one = (re) => {
-      const hits = texts.filter((t) => re.test(t.text));
-      if (!hits.length) throw new Error(`на холсте нет надписи ${re}`);
-      // ближайшая к Order API (одноимённые надписи бывают и в других местах)
-      return hits.sort((a, b) => Math.hypot(a.x0 - api.x0, a.y0 - api.y0) - Math.hypot(b.x0 - api.x0, b.y0 - api.y0))[0];
-    };
-    // Обязательное — Order API и чип рамки («🔍 » — отдельный текстовый узел). Подписи
-    // связей наружу (от API Gateway, к Kafka) не обязательны: линии пересекают рамку в
-    // любом случае, а подпись в каждом окне либо целиком видна, либо целиком скрыта.
-    const req = unite(api, one(/^Сервис заказов$/));
-    const plan = planFrame(req, texts, area, 12, CARD_WINDOWS, [0], 1.4);
+    const flowOf = async (id) => toFlow(await card.locator(`.react-flow__node[data-id="${id}"]`).boundingBox());
+    const frame = await flowOf(s.ids.search);
+    const [es, sa, cat, gw] = await Promise.all([s.ids.elastic, s.ids.searchApi, s.ids.catalog, s.ids.gateway].map(flowOf));
+    // Расстановка подготовленной копии: дети в ряд, каждый сосед над «своим» ребёнком
+    const mid = (b) => (b.x0 + b.x1) / 2;
+    const w = es.x1 - es.x0;
+    const arranged = Math.abs(es.y0 - sa.y0) < w * 0.1 && es.x1 < sa.x0 && cat.y1 < frame.y0 && gw.y1 < frame.y0 &&
+      Math.abs(mid(cat) - mid(es)) < w * 0.25 && Math.abs(mid(gw) - mid(sa)) < w * 0.25;
+    if (!arranged) throw new Error("на схеме страницы «Сервиса поиска» не та расстановка — кадр снимается на подготовленной копии (см. комментарий сцены)");
+    const req = unite(unite(frame, cat), gw);
+    const plan = planFrame(req, texts, area, 14, CARD_WINDOWS, [0], 2);
     if (!plan) throw new Error("не нашлось кадра без разрезанных подписей");
     await applyView(page, canvas, plan.z, area.x - plan.x0 * plan.z, area.y - plan.y0 * plan.z);
     await settle(page, 300);
-    // проверка по факту: в самом файле ни одна надпись не режется краем (иначе ⚠); что
-    // срезают края карточки на других ширинах — справкой (ℹ): при cover это неизбежно
+    // проверка по факту: в самом файле ни одна надпись не режется краем (иначе ⚠)
     const v1 = await rfView(canvas);
     const now = await flowTexts(canvas);
-    const cutIn = (w) => [...new Set(now.filter((t) => cutBy(t, (area.x + w[0] - v1.tx) / v1.k, (area.y + w[1] - v1.ty) / v1.k,
-      (area.x + w[2] - v1.tx) / v1.k, (area.y + w[3] - v1.ty) / v1.k)).map((t) => t.text))];
-    ["файл", "три колонки", "~700 px", "телефон"].forEach((label, i) => {
-      const cut = cutIn(CARD_WINDOWS[i]);
-      if (cut.length) (i === 0 ? warnings : notes).push(`crop-depth-canvas.png, ${label}: краем режутся надписи — ${cut.join("; ")}`);
-    });
-    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок узла ≈ ${(13 * v1.k).toFixed(1)} px`);
+    const win = CARD_WINDOWS[0];
+    const cut = [...new Set(now.filter((t) => cutBy(t, (area.x + win[0] - v1.tx) / v1.k, (area.y + win[1] - v1.ty) / v1.k,
+      (area.x + win[2] - v1.tx) / v1.k, (area.y + win[3] - v1.ty) / v1.k)).map((t) => t.text))];
+    if (cut.length) warnings.push(`crop-depth-canvas.png: краем режутся надписи — ${cut.join("; ")}`);
+    // на лендинге кадр уменьшается до 466 px (три колонки) и 348 px (телефон)
+    const title = 13 * v1.k;
+    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок узла ≈ ${title.toFixed(1)} px в кадре, ${(title * 466 / area.w).toFixed(1)} px в три колонки, ${(title * 348 / area.w).toFixed(1)} px на телефоне`);
     await shootClip(page, "crop-depth-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
   } },
 
@@ -853,6 +865,5 @@ await browser.close();
 console.log("\nИтог:");
 for (const r of results) console.log(r.error ? `  ✗ ${r.shot}: ${r.error}` : `  ${r.file}  ${r.w}×${r.h}`);
 for (const w of warnings) console.log(`  ⚠ ${w}`);
-for (const n of notes) console.log(`  ℹ ${n}`);
 for (const b of blocked) console.log(`  ⛔ ${b.shot}: ${b.method} ${b.path} (оборвано, в БД не дошло)`);
 if (blocked.length || results.some((r) => r.error)) process.exit(1);

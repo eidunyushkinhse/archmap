@@ -179,8 +179,13 @@
         UID 10001, корень только для чтения) для Compose и Kubernetes, Helm-чарт
         deploy/helm/archmap (Secret с сохранением ключа, init-миграции, Ingress/HTTPRoute, Pod
         Security restricted), проверка в kind deploy/helm/e2e-kind.sh (CI-джоба helm), выпуск по
-        тегу vX.Y.Z — release.yml (образ и чарт в GHCR). Первый тег версии — за пользователем;
-        после первой публикации пакеты GHCR открыть (Package settings → visibility).
+        тегу vX.Y.Z — release.yml (образ и чарт в GHCR). ВЫПУСК v0.1.0 — 2026-10-16 (решение
+        пользователя): ghcr.io/eidunyushkinhse/archmap:0.1.0 и :latest (amd64/arm64) и чарт
+        oci://ghcr.io/eidunyushkinhse/charts/archmap 0.1.0 — публичны сразу (анонимный pull 200).
+        Лендинг 2026-10-16: шире на больших экранах (контент до 1280 px, видео не крупнее кадра
+        по плотности экрана), блок уровней без наползания (container query), карточка «Схемы с
+        навигацией» — новый кадр «Сервиса поиска» (раскрытая рамка, стрелки к частям; сцена
+        depth-canvas только на копии), «Поставить себе» — Kubernetes вместо OpenShift.
         ПРОД ЗАКРЫТОГО КОНТУРА — БЕЗ ALEMBIC (требование девопса пользователя 2026-09-30;
         в тестовом контуре Alembic допустим): разработка остаётся на Alembic, для прода
         пакет везёт changelog Liquibase, собранный скриптом (стартовый снимок схемы + по
