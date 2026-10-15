@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     frontend_dir: str = ""
     max_request_mb: int = 64
     login_attempts_per_minute: int = 10
+    # Адрес клиента для лимитов брать из X-Forwarded-For (его дописывает прокси перед
+    # ArchMap: nginx поставки, роутер OpenShift). Без прокси (docker compose) — false:
+    # заголовок тогда присылает сам клиент и обходит им лимиты.
+    trust_forwarded_for: bool = True
 
     model_config = SettingsConfigDict(env_file=".env")
 

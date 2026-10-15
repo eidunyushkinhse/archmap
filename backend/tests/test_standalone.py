@@ -190,6 +190,15 @@ def test_подделанный_адрес_в_начале_заголовка_н
     assert _login(client, "неверный", forwarded="3.3.3.3, 10.0.0.5").status_code == 429
 
 
+def test_без_прокси_заголовок_адреса_не_обходит_лимит(make_client, user, monkeypatch):
+    # docker compose: перед ArchMap нет прокси, X-Forwarded-For целиком от клиента
+    monkeypatch.setattr(settings, "trust_forwarded_for", False)
+    client = make_client(login_attempts_per_minute=2)
+    for fake in ("1.1.1.1", "2.2.2.2"):
+        assert _login(client, "неверный", forwarded=fake).status_code == 401
+    assert _login(client, PASSWORD, forwarded="3.3.3.3").status_code == 429
+
+
 def test_удачные_входы_лимит_не_съедают(make_client, user):
     client = make_client(login_attempts_per_minute=2)
     for _ in range(4):

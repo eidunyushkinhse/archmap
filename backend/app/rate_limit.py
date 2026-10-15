@@ -13,6 +13,8 @@ from collections import deque
 from starlette.datastructures import Headers
 from starlette.types import Scope
 
+from app.config import settings
+
 
 def client_address(scope: Scope) -> str:
     """Адрес человека для лимитов: последний в X-Forwarded-For — его дописывает наш
@@ -21,11 +23,15 @@ def client_address(scope: Scope) -> str:
 
     Одна функция на все лимиты (аудит M4, P-17): адрес из соединения (request.client)
     зависит от доверия uvicorn прокси, и при FORWARDED_ALLOW_IPS=* (образ OpenShift) это
-    ПЕРВЫЙ адрес заголовка — его клиент выбирает сам."""
-    forwarded = ",".join(Headers(scope=scope).getlist("x-forwarded-for"))
-    last = forwarded.rsplit(",", 1)[-1].strip()
-    if last:
-        return last
+    ПЕРВЫЙ адрес заголовка — его клиент выбирает сам.
+
+    Без прокси перед ArchMap (TRUST_FORWARDED_FOR=false, docker compose) заголовок целиком
+    от клиента — тогда только адрес соединения."""
+    if settings.trust_forwarded_for:
+        forwarded = ",".join(Headers(scope=scope).getlist("x-forwarded-for"))
+        last = forwarded.rsplit(",", 1)[-1].strip()
+        if last:
+            return last
     client = scope.get("client")
     return client[0] if client else "unknown"
 
