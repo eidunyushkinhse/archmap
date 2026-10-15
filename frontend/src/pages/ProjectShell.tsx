@@ -25,6 +25,7 @@ import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
 import { safeLocal, safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
+import DialogTitle from "../ui/DialogTitle";
 
 type WorkMode = "schema" | "proc";
 const MODE_KEY = "archmap_mode";
@@ -258,14 +259,13 @@ export default function ProjectShell({
       {/* Подтверждение перехода в редактор для алертов про несколько объектов */}
       {editorConfirmTarget && (
         <Modal onClose={() => setEditorConfirmTarget(null)} boxStyle={{ width: 420 }}>
-          <h3 style={{ margin: "0 0 10px", fontSize: 17, fontWeight: 700, color: "#1e293b", lineHeight: 1.3 }}>
-            Открыть в редакторе?
-          </h3>
-          <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: "#475569" }}>
+          <DialogTitle lead={<>
             Это замечание касается нескольких объектов — перейти к нему можно только
             в редакторе-карте.
-          </p>
-          <div style={{ display: "flex", gap: 8, marginTop: 18 }}>
+          </>}>
+            Открыть в редакторе?
+          </DialogTitle>
+          <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Ок</button>
             <button type="button" onClick={() => setEditorConfirmTarget(null)} style={secondaryBtn}>Отмена</button>
           </div>

@@ -18,6 +18,7 @@ import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
 import { primaryBtn, secondaryBtn, dangerBtn } from "../ui/styles";
 import { plural } from "../ui/plural";
+import DialogTitle from "../ui/DialogTitle";
 
 interface Props {
   onClose: () => void;
@@ -71,13 +72,12 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "84vh", overflowY: "auto" }}>
-      <h3 style={{ margin: "0 0 6px", fontSize: 17, fontWeight: 700, color: "#1e293b" }}>
-        Принять переход
-      </h3>
-      <p style={hint}>
+      <DialogTitle lead={<>
         Запланированное станет существующим, а выводимое из эксплуатации — исчезнет
         из схемы. Действие затрагивает весь проект и отменить его нельзя.
-      </p>
+      </>}>
+        Принять переход
+      </DialogTitle>
 
       {failed && <p style={errorText}>Не удалось посчитать, что изменится. Закройте окно и попробуйте снова.</p>}
       {!preview && !failed && <p style={hint}>Считаем, что изменится…</p>}

@@ -17,6 +17,7 @@ import MetaRow from "./inspector/MetaRow";
 import { META_ICON } from "./inspector/metaIcons";
 import "./inspector/inspector.css";
 import { noAutofill } from "../ui/noAutofill";
+import DialogTitle from "../ui/DialogTitle";
 
 interface Props {
   edgeId: string;
@@ -61,8 +62,7 @@ export default function EdgeEditModal({ edgeId, onClose, onChanged }: Props) {
   if (failed) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 480 }}>
-        <h3 style={titleStyle}>Связь</h3>
-        <p style={failText}>Не удалось загрузить данные связи</p>
+        <DialogTitle lead="Не удалось загрузить данные связи">Связь</DialogTitle>
         <div style={footRow}>
           <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
         </div>
@@ -147,7 +147,7 @@ function EdgeEditForm({ data, onClose, onChanged }: {
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 480 }}>
-      <h3 style={titleStyle}>Редактирование связи</h3>
+      <DialogTitle>Редактирование связи</DialogTitle>
       <dl className="insp-meta" style={{ borderTop: "none" }}>
         <EdgeEndRow key={`src-${invertSeq}`} end="source" value={sourceId} label={srcLabel}
           onPick={(id, lbl) => pickEnd("source", id, lbl)} />
@@ -212,13 +212,6 @@ function EdgeEditForm({ data, onClose, onChanged }: {
   );
 }
 
-const titleStyle: CSSProperties = {
-  margin: "0 0 12px",
-  fontSize: 17,
-  fontWeight: 700,
-  color: "#1e293b",
-  lineHeight: 1.3,
-};
 const failText: CSSProperties = {
   color: "#475569",
   margin: "4px 0 0",
