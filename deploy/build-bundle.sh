@@ -4,8 +4,8 @@
 #   deploy/build-bundle.sh              → dist-bundle/archmap-<дата>-<коммит>-linux-x86_64.tar.gz
 #   deploy/build-bundle.sh --worktree   → пробная сборка из рабочего дерева (с незакоммиченным)
 # Внутри: переносной CPython со всеми зависимостями, бэкенд, собранный фронт и скрипты
-# установки. Серверу не нужны ни интернет, ни свой Python, ни Node.js. Тот же архив —
-# контекст сборки образа для OpenShift (deploy/openshift/Dockerfile, deploy/build-image.sh).
+# установки. Серверу не нужны ни интернет, ни свой Python, ни Node.js. Образ для Docker и
+# Kubernetes собирается не отсюда, а из исходников (Dockerfile в корне).
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
@@ -87,8 +87,11 @@ say "Бэкенд и скрипты установки"
 mkdir -p "$STAGE/backend"
 cp -a "$SRC/backend/app" "$SRC/backend/alembic" "$SRC/backend/alembic.ini" \
   "$SRC/backend/requirements-prod.txt" "$SRC/backend/requirements-prod.lock" "$STAGE/backend/"
-cp -a "$SRC/deploy" "$STAGE/deploy"
-rm -f "$STAGE/deploy/build-bundle.sh" "$STAGE/deploy/build-image.sh"
+# Из deploy/ — только то, что нужно серверу (образ и Helm-чарт ставятся иначе)
+mkdir -p "$STAGE/deploy"
+for f in install.sh archmap.service archmap.env.example archmap-admin backup.py preflight.py runenv.py; do
+  cp -a "$SRC/deploy/$f" "$STAGE/deploy/"
+done
 cp "$SRC/DEPLOY.md" "$STAGE/"
 printf '%s\n' "$VERSION" > "$STAGE/VERSION"
 find "$STAGE/backend" "$STAGE/deploy" -name __pycache__ -prune -exec rm -rf {} +
