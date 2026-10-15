@@ -17,6 +17,7 @@
 // конвейер смотрит по id).
 import { useCallback, useRef, useState } from "react";
 import type { Node as RFNode, NodeChange, ReactFlowInstance } from "@xyflow/react";
+import { diag } from "../layout/diag";
 
 interface UseLevelMeasureArgs {
   // базовый обработчик изменений RF (useSnapAlignment): пропускаем через себя
@@ -63,8 +64,7 @@ export function useLevelMeasure({
     }
     if (changed) {
       nodeSizesRef.current = merged;
-      const dbg = window as unknown as { __archmapSizesVersion?: number };
-      dbg.__archmapSizesVersion = (dbg.__archmapSizesVersion ?? 0) + 1;
+      diag.__archmapSizesVersion = (diag.__archmapSizesVersion ?? 0) + 1;
       setSizesVersion((v) => v + 1);
     }
   }, [handleNodesChange, getInternalNode]);

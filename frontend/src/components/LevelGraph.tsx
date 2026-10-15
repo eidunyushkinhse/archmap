@@ -77,6 +77,7 @@ import { useIdleCleanup } from "./graph/interaction/useIdleCleanup";
 import { useOncePerViewToast } from "./graph/interaction/useOncePerViewToast";
 import CanvasNotice from "./graph/CanvasNotice";
 import { emitTourEvent } from "./tour/tourBus";
+import { diag } from "./graph/layout/diag";
 
 // --- Основной компонент ---
 
@@ -676,7 +677,7 @@ function LevelGraphInner({
     // Счётчик «раскладка в полёте» — сигнал занятости для полигона (dump-levels ждёт
     // нуля перед снятием сигнатуры): раскладка двухфазная (фолбэк-габариты → замер →
     // пере-прогон), и без явного сигнала снапшот ловил межфазное состояние.
-    const w = window as unknown as { __archmapLayoutInflight?: number; __archmapLayoutRuns?: number };
+    const w = diag;
     w.__archmapLayoutInflight = (w.__archmapLayoutInflight ?? 0) + 1;
     w.__archmapLayoutRuns = (w.__archmapLayoutRuns ?? 0) + 1;
     // ИНДИКАЦИЯ ЗАНЯТОСТИ (P4) — но НЕ для уборки: бейдж «Считаю раскладку…» и

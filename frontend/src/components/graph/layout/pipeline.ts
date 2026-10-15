@@ -57,6 +57,7 @@ import { metaLabelBox } from "./labelBox";
 import { pathCrossesRects, arcFractionAtPoint } from "../edgePath";
 import { computeIncrementalScope, type PrevScene } from "./incrementalScope";
 import { widenNodesForLabels } from "./widenForLabels";
+import { diag } from "./diag";
 
 // Результат раскладки, который потребляет эффект сборки RF-узлов/рёбер в LevelGraph.
 export type LayoutResult = {
@@ -358,8 +359,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // ТРАССИРОВКА СТАДИЙ (перф-эпик 2026-08-20): необязательный хук __ARCHMAP_TRACE на
   // globalThis получает пары «стадия → мс» (оффлайн-реплей профилирования, см.
   // __tests__/pipelineReplay.perf.test.ts). Без хука mark — мёртвый no-op.
-  const traceG = globalThis as unknown as { __ARCHMAP_TRACE?: (stage: string, ms: number) => void };
-  const trace = traceG.__ARCHMAP_TRACE;
+  const trace = diag.__ARCHMAP_TRACE;
   let traceT = trace ? performance.now() : 0;
   const mark = (stage: string): void => {
     if (!trace) return;
@@ -879,8 +879,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // этом байт-в-байт прежний (при заданном scopeNodeIds авто-скоуп не считается вовсе).
   const scoped = scopeSet !== null || autoScopeEdges !== null;
   {
-    const diagG = globalThis as unknown as { __ARCHMAP_SCOPE_DIAG?: (d: ScopeDiag) => void };
-    diagG.__ARCHMAP_SCOPE_DIAG?.({
+    diag.__ARCHMAP_SCOPE_DIAG?.({
       candidates: routeCandidates.size,
       changedNodes: scopeStats.changedNodes,
       rawScope: scopeStats.rawScope,
@@ -1189,8 +1188,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // ДИАГНОСТИЧЕСКИЙ ХУК T4 (Ф0): по образцу __ARCHMAP_TRACE — без выставленного
     // хука мёртвый no-op, ни одного лишнего вычисления в проде. Всё содержимое
     // (в т.ч. лестница inset'ов глубины вреза) считается только здесь.
-    const diagG = globalThis as unknown as { __ARCHMAP_T4_DIAG?: (d: T4Diag) => void };
-    const t4diag = diagG.__ARCHMAP_T4_DIAG;
+    const t4diag = diag.__ARCHMAP_T4_DIAG;
     // Хук зовётся ОДИН раз в конце блока — числа финальной починки известны только там.
     let diagPayload: T4Diag | null = null;
     if (t4diag) {
@@ -1300,8 +1298,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // СТОРОЖ ЗАМОРОЗКИ (E84): что пришлось чинить страховке restoreFrozen. Инвариант —
   // нули: стадии обязаны видеть замороженные плечи неподвижными сами. Без хука — no-op.
   {
-    const diagG = globalThis as unknown as { __ARCHMAP_FROZEN_DIAG?: (d: FrozenDiag) => void };
-    diagG.__ARCHMAP_FROZEN_DIAG?.({ frozen: frozenRoutes.size, ...frozenDrift });
+    diag.__ARCHMAP_FROZEN_DIAG?.({ frozen: frozenRoutes.size, ...frozenDrift });
   }
   return budget;
   };
