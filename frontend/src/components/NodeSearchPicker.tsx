@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { canHaveChildren } from "../types";
-import { nodesApi } from "../api/nodes";
 import { input } from "../ui/styles";
 import { CloseIcon } from "../ui/icons";
 import { ShapeGlyph } from "./nodeTree.shared";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
+import { useNodeSearch } from "./useNodeSearch";
 
 /**
  * Поиск узла по имени среди всех уровней. Используется для выбора концов связи —
@@ -24,42 +24,25 @@ export default function NodeSearchPicker({
   onChange: (id: string, label?: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Node[]>([]);
   const [selected, setSelected] = useState<{ id: string; label: string } | null>(
     value ? { id: value, label: initialLabel ?? value } : null,
   );
   // Подсветка пункта под курсором (инлайн-стилями :hover недоступен).
   const [hovered, setHovered] = useState<string | null>(null);
 
-  // Дебаунс-поиск: при пустом query результаты НЕ трогаем (показ — производный
-  // `shown` ниже), эффект только фетчит. Пустой query невозможен «извне»: компонент
-  // используется лишь в EdgeInspector с value-UUID существующей связи, а очистку
-  // (clear) сам же зануляет локально — поэтому зеркалящего value→selected эффекта нет.
-  useEffect(() => {
-    if (!query.trim()) return;
-    // Ответ устаревшего запроса не применяем (аудит F-53): набрали дальше — прежний
-    // поиск, ответивший позже свежего, перетёр бы его результаты.
-    let alive = true;
-    const timer = setTimeout(async () => {
-      try {
-        const data = await nodesApi.search(query);
-        if (alive) setResults(data);
-      } catch {
-        if (alive) setResults([]);
-      }
-    }, 300);
-    return () => { alive = false; clearTimeout(timer); };
-  }, [query]);
-
+  // Дебаунс-поиск (общий с деревом объектов). Компонент используется лишь в
+  // EdgeInspector с value-UUID существующей связи, а очистку (clear) сам же зануляет
+  // локально — поэтому зеркалящего value→selected эффекта нет.
+  const search = useNodeSearch(query, 300);
   // Что показываем в дропдауне: при пустом query — ничего (производное, не стейт).
-  const shown = query.trim() ? results : [];
+  const shown = query.trim() ? (search.found ?? []) : [];
 
   function select(node: Node) {
     const label = node.name + (node.role ? ` (${node.role})` : "");
     setSelected({ id: node.id, label });
     onChange(node.id, label);
     setQuery("");
-    setResults([]);
+    search.reset();
   }
 
   function clear() {

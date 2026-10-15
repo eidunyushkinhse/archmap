@@ -8,6 +8,7 @@ import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { ChevronIcon, CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
+import { useNodeSearch } from "./useNodeSearch";
 
 // MIME-тип данных перетаскивания шаблона узла. На схеме (LevelGraph) по нему
 // читается выбранная форма из dataTransfer.
@@ -198,13 +199,9 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
 
   // ── Поиск (pages_pivot) ──────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
-  // Найденное по ПОСЛЕДНЕМУ непустому запросу. Показывать ли его — производное от
-  // запроса и считается в рендере: гашение результатов на пустой строке эффектом
-  // было синхронным setState внутри эффекта (каскад рендеров).
-  const [foundNodes, setFoundNodes] = useState<Node[] | null>(null);
-  const [searching, setSearching] = useState(false);
-  const searchTrimmed = searchQuery.trim();
-  const searchResults = searchTrimmed ? foundNodes : null;
+  // Дебаунс-поиск (общий с выбором конца связи), результат — плоский список совпадений.
+  const { found: foundNodes, searching } = useNodeSearch(searchQuery, 250);
+  const searchResults = searchQuery.trim() ? foundNodes : null;
 
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден и
   // кликабелен в дереве, все его предки раскрыты → их Node-объекты уже здесь.
@@ -280,20 +277,6 @@ export default function NodeTreePanel({ onDrillTo, onNodePage, onPickLeaf, onCre
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadToken]);
-
-  // Поиск (pages_pivot / редактор): debounce 250ms, результат — плоский список совпадений.
-  useEffect(() => {
-    if (!searchTrimmed) return;
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      setSearching(true);
-      nodesApi.search(searchTrimmed)
-        .then((ns) => { if (alive) setFoundNodes(ns); })
-        .catch(() => { if (alive) setFoundNodes([]); })
-        .finally(() => { if (alive) setSearching(false); });
-    }, 250);
-    return () => { alive = false; window.clearTimeout(timer); };
-  }, [searchTrimmed]);
 
   // ── Авто-раскрытие до текущей страницы (п.2) + подсветка (п.1) ────
   // Контейнер дерева (pages_pivot) — для скролла к подсвеченной строке.
