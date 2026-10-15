@@ -36,6 +36,11 @@ touch_mcp=false
 if grep -q '^frontend/' <<<"$staged"; then touch_front=true; fi
 if grep -q '^backend/'  <<<"$staged"; then touch_back=true;  fi
 if grep -q '^mcp/'      <<<"$staged"; then touch_mcp=true;   fi
+# Сентинелы MCP читают исходники фронта (панель алертов, фасад типов, тексты якоря):
+# их правка гоняет и MCP-гейт, иначе CI падал молча (фаза 7 аудита, ALERT_SECTIONS).
+# Список берётся из самих тестов — новый сентинел подхватится без правки хука.
+mcp_watch="$(grep -rhoE 'frontend/src/[A-Za-z0-9_./-]+' mcp/tests 2>/dev/null | sort -u || true)"
+if [ -n "$mcp_watch" ] && grep -qxFf <(printf '%s\n' "$mcp_watch") <<<"$staged"; then touch_mcp=true; fi
 # Скрипты: shell — bash -n, python поставки — ruff бэкенда
 scripts_sh="$(grep -E '^(deploy/.*\.sh|scripts/.*\.sh|scripts/git-hooks/[^/]+|dev\.sh|stop\.sh)$' <<<"$staged" || true)"
 scripts_py="$(grep -E '^deploy/.*\.py$' <<<"$staged" || true)"

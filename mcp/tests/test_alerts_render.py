@@ -22,11 +22,12 @@ PANEL = Path(__file__).resolve().parents[2] / "frontend/src/components/SchemaAle
 
 
 def panel_titles() -> list[str]:
-    """Заголовки секций панели В ПОРЯДКЕ JSX — сентинел против расхождения.
+    """Заголовки секций панели В ПОРЯДКЕ списка ALERT_SECTIONS — сентинел против
+    расхождения (раздел панели — запись `section({ title: "…", … })`, аудит F-35).
 
     Панель переименовали или переставили — падает этот тест, а не доверие
     пользователя к сводке агента."""
-    return re.findall(r"<Section[^>]*title=\"([^\"]+)\"", PANEL.read_text(encoding="utf-8"))
+    return re.findall(r'section\(\{\s*title: "([^"]+)"', PANEL.read_text(encoding="utf-8"))
 
 
 def u(n: int) -> str:
