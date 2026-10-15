@@ -18,11 +18,11 @@ from app.config import settings
 
 def client_address(scope: Scope) -> str:
     """Адрес человека для лимитов: последний в X-Forwarded-For — его дописывает наш
-    прокси (nginx серверной поставки, роутер OpenShift), а первые значения присылает
+    прокси (nginx серверной поставки, Gateway/Ingress в Kubernetes), а первые значения присылает
     клиент и может подделать. Без заголовка — адрес соединения.
 
     Одна функция на все лимиты (аудит M4, P-17): адрес из соединения (request.client)
-    зависит от доверия uvicorn прокси, и при FORWARDED_ALLOW_IPS=* (образ OpenShift) это
+    зависит от доверия uvicorn прокси, и при FORWARDED_ALLOW_IPS=* это
     ПЕРВЫЙ адрес заголовка — его клиент выбирает сам.
 
     Без прокси перед ArchMap (TRUST_FORWARDED_FOR=false, docker compose) заголовок целиком

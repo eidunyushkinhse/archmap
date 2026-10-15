@@ -27,14 +27,14 @@ class Settings(BaseSettings):
     demo_max_sandboxes: int = 300
     # Сколько песочниц в час можно завести с одного адреса (счётчик в памяти процесса).
     demo_start_per_ip_per_hour: int = 10
-    # Режим одного процесса (app/standalone.py, OpenShift без nginx): каталог сборки
+    # Режим одного процесса (app/standalone.py, образ без nginx): каталог сборки
     # фронта, предел размера запроса в МБ и сколько неудачных попыток входа в минуту
     # пропускать с одного адреса (0 — без ограничения).
     frontend_dir: str = ""
     max_request_mb: int = 64
     login_attempts_per_minute: int = 10
     # Адрес клиента для лимитов брать из X-Forwarded-For (его дописывает прокси перед
-    # ArchMap: nginx поставки, роутер OpenShift). Без прокси (docker compose) — false:
+    # ArchMap: nginx поставки, Gateway/Ingress в Kubernetes). Без прокси (docker compose) — false:
     # заголовок тогда присылает сам клиент и обходит им лимиты.
     trust_forwarded_for: bool = True
 

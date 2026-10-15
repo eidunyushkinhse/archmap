@@ -116,7 +116,7 @@ export interface paths {
          * Start Sandbox
          * @description Завести песочницу: гость + его копия демо-проекта.
          *
-         *     Адрес — последний в X-Forwarded-For (его дописывает nginx или роутер OpenShift,
+         *     Адрес — последний в X-Forwarded-For (его дописывает nginx или Gateway/Ingress,
          *     подделать его клиент не может), см. rate_limit.client_address.
          */
         post: operations["start_sandbox_api_v1_demo_start_post"];

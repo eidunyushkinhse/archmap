@@ -1,14 +1,12 @@
 # Развёртывание ArchMap
 
-ArchMap разворачивается в OpenShift или Kubernetes из готового образа либо на обычный
-Linux-сервер из архива. Интернет при установке не нужен, внешних запросов приложение
-не делает.
+Три способа — от «попробовать» до своего кластера. Внешних запросов приложение не делает.
 
-- [OpenShift и Kubernetes](#openshift-и-kubernetes) — образ и манифесты, nginx не нужен.
+- [Docker Compose](#docker-compose) — одна команда на своей машине: ArchMap и PostgreSQL в
+  двух контейнерах.
+- [Kubernetes](#kubernetes) — Helm-чарт и образ для linux/amd64 и linux/arm64.
 - [Сервер без Kubernetes](#сервер-без-kubernetes) — архив с переносным Python, служба
-  systemd и nginx.
-- [Docker Compose](#docker-compose) — попробовать на своей машине одной командой: образ
-  собирается из исходников, поэтому нужен интернет.
+  systemd и nginx; ставится и на сервер без интернета.
 
 ## Docker Compose
 
@@ -65,162 +63,131 @@ CREATE DATABASE archmap OWNER archmap ENCODING 'UTF8' TEMPLATE template0;
 `%` → `%25`, `#` → `%23`, `?` → `%3F`. Если PostgreSQL требует TLS, допишите к адресу
 `?sslmode=require`.
 
-## OpenShift и Kubernetes
+## Kubernetes
 
-В поде один процесс отдаёт и API, и интерфейс. Снаружи — Route с TLS на роутере. Перед
-стартом приложения init-контейнер проверяет базу и применяет миграции.
+Helm-чарт `deploy/helm/archmap`. В поде один процесс отдаёт и API, и интерфейс; перед его
+стартом init-контейнер проверяет базу и применяет миграции. Под работает без root и
+привилегий, с корневой ФС только для чтения — проходит Pod Security «restricted». База
+PostgreSQL — своя, внешняя (см. «Что нужно в любом случае»): чарт её не ставит.
 
 ### Что нужно
 
-- Проект (namespace) с правами на создание Deployment, Service, Route, Secret и ConfigMap
-  и на `oc exec`: роль `edit` или `admin`.
-- Реестр, из которого кластер берёт образы: внутренний реестр OpenShift или реестр контура.
-  На машине, с которой образ туда загружают, — Docker, Podman или skopeo.
-- Сетевой доступ из подов к PostgreSQL: сетевые политики и межсетевые экраны.
-- Квота: на под 0,2 CPU и 512 МБ в запросах, до 2 CPU и 1 ГБ в лимитах.
-- Только x86_64.
+- Kubernetes 1.25 или новее (в CI чарт ставится в kind), Helm 3.8+.
+- Способ опубликовать сервис с TLS: Gateway API (HTTPRoute к Gateway кластера) или
+  Ingress-контроллер.
+- Сетевой доступ из подов к PostgreSQL.
+- Ресурсы пода по умолчанию: запрос 0,1 CPU и 256 МБ, предел 1 ГБ.
 
-### Сборка
+### Образ
 
-На машине с интернетом, Docker или Podman и всем, что нужно для сборки поставки
-(Linux x86_64, git, Node.js 22+, curl), из репозитория:
+Готовый — `ghcr.io/eidunyushkinhse/archmap:<версия>` для linux/amd64 и linux/arm64,
+чарт — `oci://ghcr.io/eidunyushkinhse/charts/archmap`; выпускаются по тегам версий.
+Чарт по умолчанию берёт образ своей версии.
 
+Свой образ — из исходников, в свой реестр:
 ```bash
-deploy/build-image.sh
+docker build -t registry.example.com/archmap:1.0.0 .
+docker push registry.example.com/archmap:1.0.0
 ```
-
-Получится `dist-bundle/archmap-<дата>-<коммит>-openshift.tar.gz` (около 100 МБ) и файл с его
-контрольной суммой. Внутри — образ `archmap-image.tar` (формат `docker save`), манифесты
-`openshift/` с уже проставленной версией образа и эта инструкция.
-
-Базовый образ — Red Hat UBI 9 minimal. Свой базовый образ (Linux x86_64 с glibc 2.17+,
-zlib и libstdc++): `BASE_IMAGE=… deploy/build-image.sh`.
-
-Если образы в контуре разрешено собирать только своими средствами, рядом лежит обычная
-поставка `archmap-<дата>-<коммит>-linux-x86_64.tar.gz`: она же контекст сборки. Внутри
-контура, без интернета, нужен только базовый образ:
-
-```bash
-tar -xzf archmap-*-linux-x86_64.tar.gz && cd archmap-*-linux-x86_64
-docker build -f deploy/openshift/Dockerfile --build-arg BASE_IMAGE=… -t archmap:$(cat VERSION) .
-```
+и при установке `--set image.repository=registry.example.com/archmap --set image.tag=1.0.0`.
+В кластер без интернета образ и чарт переносят обычным путём: `docker pull` (или `skopeo
+copy`) готового образа в свой реестр и `helm pull oci://ghcr.io/eidunyushkinhse/charts/archmap
+--version <версия>` — архив чарта ставится как локальный файл.
 
 ### Установка
 
-1. Проверьте и распакуйте пакет:
+1. Адрес базы и (по желанию) ключ подписи — в Secret:
    ```bash
-   sha256sum -c archmap-*-openshift.tar.gz.sha256
-   tar -xzf archmap-*-openshift.tar.gz && cd archmap-*-openshift
+   kubectl create namespace archmap
+   kubectl -n archmap create secret generic archmap-db \
+     --from-literal=database-url='postgresql://archmap:ПАРОЛЬ@pg.example.com:5432/archmap'
    ```
-2. Загрузите образ в реестр — skopeo или Docker (у Podman те же команды, что у Docker):
+   Ключ подписи токенов входа чарт создаст сам и сохранит при обновлениях. Свой —
+   `secretKey.existingSecret` (Secret с ключом `secret-key`, не короче 32 символов).
+2. Установите чарт. С Gateway API:
    ```bash
-   skopeo copy docker-archive:archmap-image.tar \
-     docker://registry.example.local/archmap/archmap:$(cat VERSION)
+   helm install archmap oci://ghcr.io/eidunyushkinhse/charts/archmap -n archmap \
+     --set database.existingSecret=archmap-db \
+     --set httpRoute.enabled=true \
+     --set 'httpRoute.parentRefs[0].name=main-gateway' \
+     --set 'httpRoute.parentRefs[0].namespace=gateway-system' \
+     --set 'httpRoute.hostnames[0]=archmap.example.com' \
+     --wait
    ```
+   С Ingress вместо HTTPRoute — `ingress.enabled=true`, `ingress.className`, `ingress.hosts`
+   и `ingress.tls` (как у обычных чартов). Из клона репозитория вместо
+   `oci://…` — `./deploy/helm/archmap`. Все настройки — в `deploy/helm/archmap/values.yaml`.
+3. Проверка и первый администратор (пароль команда спросит дважды):
    ```bash
-   docker load -i archmap-image.tar
-   docker tag archmap:$(cat VERSION) registry.example.local/archmap/archmap:$(cat VERSION)
-   docker push registry.example.local/archmap/archmap:$(cat VERSION)
+   helm test archmap -n archmap
+   kubectl -n archmap exec -it deploy/archmap -c archmap -- archmap-admin create-admin admin
    ```
-   Внутренний реестр OpenShift принимает образы через маршрут `default-route` в проекте
-   `openshift-image-registry`, если администраторы кластера его открыли. Вход:
-   `docker login -u $(oc whoami) -p $(oc whoami -t) <адрес маршрута>`. Изнутри кластера
-   образ тогда называется `image-registry.openshift-image-registry.svc:5000/<проект>/archmap`.
-3. Впишите адрес образа без версии в `openshift/kustomization.yaml` (`images` → `newName`).
-   Своё имя хоста — `spec.host` в `openshift/route.yaml`; без него OpenShift выдаст имя вида
-   `archmap-<проект>.apps.<домен кластера>`.
-4. Создайте секрет с адресом базы и ключом подписи токенов:
-   ```bash
-   oc project <проект>
-   oc create secret generic archmap-secrets \
-     --from-literal=DATABASE_URL='postgresql://archmap:ПАРОЛЬ@pg.example.local:5432/archmap' \
-     --from-literal=SECRET_KEY="$(openssl rand -hex 32)"
-   ```
-   Без openssl ключ даст `python3 -c "import secrets; print(secrets.token_hex(32))"`.
-5. Примените манифесты и дождитесь запуска:
-   ```bash
-   oc apply -k openshift/
-   oc rollout status deploy/archmap
-   ```
-6. Создайте первого администратора — пароль команда спросит дважды:
-   ```bash
-   oc exec -it deploy/archmap -- python3 -m app.admin create-admin <логин>
-   ```
-7. Адрес покажет `oc get route archmap`. Откройте его, войдите и заведите людей на экране
-   «Пользователи» (меню профиля). Почты нет: временный пароль администратор передаёт
-   сам, человек меняет его в меню профиля.
+4. Откройте адрес, войдите и заведите людей на экране «Пользователи» (меню профиля). Почты
+   нет: временный пароль администратор передаёт сам, человек меняет его в меню профиля.
+
+**Что требуется от Gateway или Ingress.** TLS; ответ до 300 с (ввоз большого архива) — у
+HTTPRoute чарт задаёт `timeouts.request` сам, у Ingress это аннотации контроллера в
+`ingress.annotations`; тело запроса не меньше `config.maxRequestMb` (64 МБ); адрес клиента
+дописывается последним в `X-Forwarded-For` (так делают все распространённые контроллеры) —
+по нему считаются попытки входа. Если перед подом нет прокси (Service типа LoadBalancer
+наружу), задайте `config.trustForwardedFor=false`: иначе заголовок присылает сам клиент.
 
 ### Что где
 
 | Объект | Что это |
 |---|---|
-| Deployment `archmap` | под: init-контейнер `migrate` (проверка базы и миграции) и приложение на порту 8080 |
-| Service и Route `archmap` | вход снаружи: TLS на роутере, http → https, ответ до 300 с |
-| Secret `archmap-secrets` | `DATABASE_URL` и `SECRET_KEY`; создаётся командой, в файлах его нет |
-| ConfigMap `archmap-settings-<хэш>` | несекретные настройки из `openshift/settings.env` |
+| Deployment `archmap` | init-контейнер `migrate` (проверка базы и миграции) и приложение на порту 8080 |
+| Service `archmap` | порт 80 внутри кластера |
+| Secret `archmap` | `database-url` (если нет `database.existingSecret`) и `secret-key` |
+| HTTPRoute или Ingress `archmap` | вход снаружи, если включён |
 
 ### Настройки
 
-Несекретные — в `openshift/settings.env`. После правки выполните `oc apply -k openshift/`:
-поды перезапустятся сами.
-
-| Переменная | По умолчанию | Что задаёт |
+| Значение чарта | По умолчанию | Что задаёт |
 |---|---|---|
-| `ALLOW_SIGNUP` | `false` | самостоятельная регистрация; в закрытом контуре выключена |
-| `WEB_CONCURRENCY` | `2` | рабочих процессов в поде |
-| `LOGIN_ATTEMPTS_PER_MINUTE` | `10` | неудачных попыток входа в минуту с адреса, дальше отказ; `0` — без ограничения |
-| `MAX_REQUEST_MB` | `64` | предел размера запроса (ввоз архива проекта) |
+| `config.allowSignup` | `false` | самостоятельная регистрация |
+| `config.workers` | `2` | рабочих процессов uvicorn в поде |
+| `config.loginAttemptsPerMinute` | `10` | неудачных попыток входа в минуту с адреса, дальше отказ; `0` — без ограничения |
+| `config.maxRequestMb` | `64` | предел размера запроса (ввоз архива проекта) |
+| `config.trustForwardedFor` | `true` | адрес клиента — последний в `X-Forwarded-For` (за Gateway/Ingress) |
+| `extraEnv` | — | другие переменные из `backend/.env.example` |
+| `replicaCount` | `1` | число подов; миграции при этом идут по очереди (блокировка в базе) |
 
-`DATABASE_URL` и `SECRET_KEY` живут в секрете: после правки выполните
-`oc rollout restart deploy/archmap`. Смена `SECRET_KEY` разлогинит всех.
-
-Каждый рабочий процесс держит до 15 соединений с PostgreSQL. Сверьте
-`max_connections` базы с произведением «реплики × WEB_CONCURRENCY × 15».
-
-Попытки входа каждый процесс считает сам. Поэтому реальный предел — значение
-`LOGIN_ATTEMPTS_PER_MINUTE`, умноженное на число процессов во всех подах. Удачные входы
-не считаются.
+Каждый рабочий процесс держит до 15 соединений с PostgreSQL: сверьте `max_connections`
+базы с произведением «реплики × workers × 15». Попытки входа каждый процесс считает сам,
+поэтому реальный предел — `loginAttemptsPerMinute`, умноженное на число процессов во всех
+подах. Удачные входы не считаются.
 
 ### Обновление
 
-1. Сделайте резервную копию базы (см. ниже).
-2. Загрузите образ новой версии в реестр, как в шаге 2 установки.
-3. Поменяйте версию (`newTag`) в своём `openshift/kustomization.yaml` и выполните
-   `oc apply -k openshift/`.
+Сделайте резервную копию базы (см. ниже) и обновите релиз:
+```bash
+helm upgrade archmap oci://ghcr.io/eidunyushkinhse/charts/archmap -n archmap --version <новая> --reuse-values --wait
+```
+Новый под сначала применяет миграции в init-контейнере, затем сменяет старый. Миграции
+ArchMap аддитивные: старый под до остановки работает и с новой схемой. Ключ подписи
+сохраняется — пользователей не разлогинит.
 
-Свою копию каталога `openshift/` удобно хранить отдельно: при обновлении в ней меняется
-только `newTag`. Под пересоздаётся: старый останавливается, новый применяет миграции и
-стартует. Перерыв — несколько секунд.
-
-**Откат.** Верните прежний `newTag` и выполните `oc apply -k openshift/`. Если новая версия
-уже изменила схему базы, сначала восстановите базу из резервной копии.
+**Откат.** `helm rollback archmap -n archmap`. Если новая версия уже изменила схему так,
+что прежний код с ней не работает, сначала восстановите базу из резервной копии.
 
 ### Если что-то не так
 
 - **Под в `Init:Error` или `Init:CrashLoopBackOff`.** Init-контейнер не прошёл проверку
-  базы или миграции: `oc logs <под> -c migrate`. Сообщение «БАЗА: …» называет, что
-  поправить: подключение, версию, кодировку или права.
-- **`ImagePullBackOff`.** Неверный адрес образа в `kustomization.yaml` или у проекта нет
-  доступа к реестру (pull secret).
-- **`CreateContainerConfigError`.** Нет секрета `archmap-secrets`.
-- **Долгий ввоз обрывается.** Роутер ждёт ответа 300 с: аннотация
-  `haproxy.router.openshift.io/timeout` в `route.yaml`.
-- **«Слишком много попыток входа».** Если все пользователи приходят через один прокси
-  (один адрес), поднимите `LOGIN_ATTEMPTS_PER_MINUTE`.
+  базы или миграции: `kubectl -n archmap logs <под> -c migrate`. Сообщение «БАЗА: …»
+  называет, что поправить: подключение, версию, кодировку или права.
+- **`ImagePullBackOff`.** Неверный `image.repository`/`image.tag` или у namespace нет доступа
+  к реестру (`imagePullSecrets`).
+- **`CreateContainerConfigError`.** Нет Secret из `database.existingSecret` или в нём другое
+  имя ключа (`database.existingSecretKey`).
+- **Долгий ввоз обрывается или отвечает 413.** Тайм-аут или предел тела у Gateway/Ingress —
+  см. «Что требуется от Gateway или Ingress».
+- **«Слишком много попыток входа» у всех сразу.** Перед подом прокси, а
+  `config.trustForwardedFor=false`: все пользователи видны одним адресом.
 - **Администратор потерял доступ.**
-  `oc exec -it deploy/archmap -- python3 -m app.admin create-admin <логин> --reset-password`:
+  `kubectl -n archmap exec -it deploy/archmap -c archmap -- archmap-admin create-admin <логин> --reset-password`:
   команда делает пользователя администратором, снимает блокировку и задаёт новый пароль.
-- **Журнал приложения.** `oc logs deploy/archmap`.
-
-### Kubernetes без OpenShift
-
-Команды те же, с `kubectl` вместо `oc`. Route в Kubernetes нет: уберите `route.yaml` из
-`kustomization.yaml` и опубликуйте Service своим Ingress. Нужны TLS, ответ до 300 с, тело
-запроса до 64 МБ и адрес клиента последним в `X-Forwarded-For`: по нему считаются попытки
-входа и старты песочниц демо. Ingress обязан дописывать (или заменять) этот заголовок — без
-прокси перед приложением клиент подставит в него любой адрес. Журнал uvicorn при
-`FORWARDED_ALLOW_IPS=*` показывает первый адрес заголовка; чтобы и он был честным,
-задайте в `FORWARDED_ALLOW_IPS` адреса Ingress вместо `*`.
+- **Журнал приложения.** `kubectl -n archmap logs deploy/archmap`.
 
 ## Сервер без Kubernetes
 
@@ -359,8 +326,8 @@ MaxRetentionSec=90day
 пропадает. Если журналы собирает центральная система, забирайте их из journald и nginx
 штатным агентом сбора.
 
-В OpenShift журнал — `oc logs deploy/archmap` (бэкенд пишет только в stdout); сколько он
-хранится, решает сбор журналов кластера.
+В Kubernetes журнал — `kubectl logs deploy/archmap` (бэкенд пишет только в stdout); сколько
+он хранится, решает сбор журналов кластера.
 
 ### Если что-то не так
 
@@ -437,23 +404,25 @@ pg_restore --clean --if-exists -h pg.example.local -U archmap -d archmap archmap
 ## Безопасность
 
 - Регистрации нет (`ALLOW_SIGNUP=false`): учётки заводит администратор.
-- Неудачные попытки входа ограничены: в OpenShift — самим приложением, на сервере — nginx.
+- Неудачные попытки входа ограничены: в Kubernetes и Docker Compose — самим приложением, на
+  сервере — nginx.
 - Swagger и описание API наружу не отдаются.
-- В OpenShift под работает от произвольного UID без привилегий (SCC restricted-v2), корневая
-  файловая система только для чтения, токен сервис-аккаунта в под не монтируется.
+- В Kubernetes под работает без root и привилегий (UID 10001, все capabilities сброшены,
+  seccomp RuntimeDefault) и проходит Pod Security «restricted»; корневая файловая система
+  только для чтения, токен сервис-аккаунта в под не монтируется.
 - На сервере служба работает от непривилегированного пользователя `archmap`, система для
   неё только для чтения; ядро, устройства, пространства имён и привилегии для неё закрыты
   песочницей systemd (`systemd-analyze security archmap` — около 1.5, «OK»). Если своя
   среда требует ослабить ограничение, делайте это через `systemctl edit archmap`: сам юнит
   перезаписывается при обновлении.
 - Без TLS пароли и токены идут открытым текстом — так можно только в доверенном тестовом сегменте.
-- Заголовки безопасности у каждого ответа — и в OpenShift (их ставит приложение), и на
+- Заголовки безопасности у каждого ответа — и в контейнере (их ставит приложение), и на
   сервере (их пишет nginx): `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`,
   `Permissions-Policy` без камеры, микрофона и геолокации, `Content-Security-Policy` с
   `frame-ancestors 'none'` — ArchMap нельзя встроить в чужую страницу (iframe). Полная
   политика источников пока в режиме `Content-Security-Policy-Report-Only`: нарушения видны в
   консоли браузера, но ничего не блокируют. HSTS на сервере nginx ставит в TLS-ветке; в
-  OpenShift HSTS задаётся на Route (аннотация `haproxy.router.openshift.io/hsts_header`).
+  Kubernetes его задаёт тот, кто держит TLS (Gateway или Ingress-контроллер).
 - На сервере nginx ограничивает и регистрацию (3 в минуту с адреса), и старт песочницы
   демо (6 в минуту); версию nginx не называет (`server_tokens off`).
 - Установщик не перезаписывает уже существующий конфиг nginx: заголовки и лимиты новой

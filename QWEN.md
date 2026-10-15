@@ -11,10 +11,12 @@
 - Зависимости поставки: backend/requirements-prod.lock с хэшами (pip --require-hashes);
   обновления предлагает Dependabot (.github/dependabot.yml)
 - CI: GitHub Actions (.github/workflows/ci.yml) — зеркало pre-commit-гейта плюс сборка фронта,
-  дрейф api.gen.ts против app.openapi(), аудит зависимостей, проверка скриптов
-- Деплой: закрытый контур — OpenShift/Kubernetes (deploy/openshift) или сервер с systemd и nginx
-  (deploy/install.sh), см. DEPLOY.md; публичный стенд — https://archmap.tech (лендинг) и
-  https://demo.archmap.tech (DEMO_MODE) на серверной поставке
+  дрейф api.gen.ts против app.openapi(), аудит зависимостей, проверка скриптов, Docker Compose
+  и Helm-чарт в kind; выпуск по тегу vX.Y.Z — release.yml (образ amd64/arm64 и чарт в GHCR)
+- Деплой: Docker Compose (compose.yaml), Kubernetes — Helm-чарт deploy/helm/archmap и образ
+  ghcr.io/eidunyushkinhse/archmap (ванильный Kubernetes, без привязки к дистрибутиву), сервер с
+  systemd и nginx (deploy/install.sh), см. DEPLOY.md; публичный стенд — https://archmap.tech
+  (лендинг) и https://demo.archmap.tech (DEMO_MODE) на серверной поставке
 
 Структура проекта (проверено 2026-10-14)
 archmap/
@@ -84,7 +86,7 @@ archmap/
 │   │   ├── project_cards.py  # карточки списка «Проекты» (счётчики, мини-граф, роль)
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
-│   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (OpenShift без nginx)
+│   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
 │   ├── tests/             # pytest (70 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
@@ -117,10 +119,12 @@ archmap/
 │   ├── install.sh         # сервер: systemd, nginx, копия базы перед миграциями, откат релиза по /ready
 │   ├── archmap.service / archmap.env.example / archmap-admin  # юнит с песочницей systemd, шаблон настроек, команды
 │   ├── backup.py / preflight.py / runenv.py  # pg_dump перед миграциями; проверка базы; чтение archmap.env
-│   ├── build-image.sh     # образ и пакет для OpenShift (нужен Docker или Podman)
-│   ├── openshift/         # Dockerfile (UBI 9 minimal), манифесты kustomize, settings.env
-│   └── compose/           # образ из исходников для compose.yaml: Dockerfile, старт (ключ в томе,
-│                          # preflight, миграции), archmap-admin; без прокси — TRUST_FORWARDED_FOR=false
+│   ├── docker/            # старт образа: ключ подписи (из env или тома /data), preflight и миграции
+│   │                      # (MIGRATE_ON_START), archmap-admin
+│   └── helm/              # Helm-чарт archmap (Secret, init-миграции, Ingress/HTTPRoute, Pod Security
+│                          # «restricted») и e2e-kind.sh — установка в kind (CI-джоба helm, так же локально)
+├── Dockerfile             # единый образ для Compose и Kubernetes: amd64/arm64, UID 10001, корень только
+│                          # для чтения, базовые образы по digest (Dependabot)
 ├── compose.yaml           # «Поставить себе»: docker compose up -d → :8080 (ArchMap + PostgreSQL; CI-джоба compose)
 ├── docs/
 │   ├── specs/             # нормативные спеки движка (11 файлов + README)
@@ -135,7 +139,7 @@ archmap/
 ├── .github/               # CI (workflows/ci.yml) и Dependabot (dependabot.yml)
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
 ├── DEV.md                 # локальный запуск: подробности и ручной режим
-├── DEPLOY.md              # установка в OpenShift/Kubernetes и на сервер (закрытый контур), обновление, журналы, копии
+├── DEPLOY.md              # установка: Docker Compose, Kubernetes (Helm), сервер; обновление, журналы, копии
 ├── README.md              # витрина репозитория
 ├── LICENSE                # AGPL-3.0-only (решение 2026-10-15); разрешение раздела 7 для elkjs (EPL-2.0) — в README
 ├── spec.md                # продуктовая спецификация
@@ -150,7 +154,9 @@ archmap/
 - Поднять весь сервис:   ./dev.sh         (бэк+фронт+миграции одной командой)
 - Остановить:            ./stop.sh        (или Ctrl+C в терминале с dev.sh)
 - Поставка на сервер:    deploy/build-bundle.sh   (→ dist-bundle/*.tar.gz; установка — DEPLOY.md)
-- Образ для OpenShift:   deploy/build-image.sh    (→ dist-bundle/*-openshift.tar.gz: образ + манифесты; нужен Docker или Podman)
+- Образ:                 docker build -t archmap .   (Dockerfile в корне; готовые версии — GHCR по тегу vX.Y.Z)
+- Helm-чарт в kind:      deploy/helm/e2e-kind.sh  (KIND/HELM/KUBECTL — пути к утилитам; NODE_IMAGE=kindest/node:v1.34.11
+    на Docker Desktop с cgroup v1; KEEP=1 — оставить кластер)
 - Docker Compose:        docker compose up -d --build  (→ http://localhost:8080; первый админ —
     docker compose exec archmap archmap-admin create-admin admin; DEPLOY.md «Docker Compose»)
 - Запуск фронта:         cd frontend && npm run dev
