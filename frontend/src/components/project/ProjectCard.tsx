@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Project } from "../../types";
 import SchemaPreview from "./SchemaPreview";
 import { useDismiss } from "../../ui/useDismiss";
+import "./projectCard.css";
 
 /**
  * Карточка проекта на лендинге: превью схемы, имя и описание, кто и когда менял,
@@ -28,14 +29,8 @@ export default function ProjectCard({
   onRestore: () => void;
   onDelete: () => void;
 }) {
-  const [hover, setHover] = useState(false);
   return (
-    <div
-      data-tour={`project:${project.id}`}
-      style={{ ...card, transform: hover ? "translateY(-2px)" : "none", boxShadow: hover ? "0 12px 28px rgba(15,23,42,.12)" : "0 1px 2px rgba(15,23,42,.06)" }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    >
+    <div data-tour={`project:${project.id}`} className="project-card" style={card}>
       <div style={{ position: "relative" }}>
         <button style={cardPreviewBtn} onClick={onOpen} title="Открыть проект">
           <SchemaPreview preview={project.preview} />
@@ -112,19 +107,13 @@ function CardMenu({
   );
 }
 
-// Пункт дропдауна ⋯ с подсветкой активной зоны по ховеру (инлайн-стили :hover не
-// умеют — держим состояние). Danger-пункт («Удалить») подсвечивается красноватым.
+// Пункт дропдауна ⋯ с подсветкой активной зоны по ховеру (projectCard.css).
+// Danger-пункт («Удалить») подсвечивается красноватым.
 function MenuItem({ label, danger, onClick }: { label: string; danger?: boolean; onClick: () => void }) {
-  const [hover, setHover] = useState(false);
   return (
     <button
-      style={{
-        ...menuItem,
-        color: danger ? "#dc2626" : "#1e293b",
-        background: hover ? (danger ? "#fef2f2" : "#f1f5f9") : "transparent",
-      }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      className={"project-card-menuitem" + (danger ? " project-card-menuitem--danger" : "")}
+      style={{ ...menuItem, color: danger ? "#dc2626" : "#1e293b" }}
       onClick={onClick}
     >
       {label}
@@ -163,8 +152,9 @@ const cardMenu: CSSProperties = {
   border: "1px solid #e2e8f0", borderRadius: 10, boxShadow: "0 16px 40px rgba(15,23,42,.16)",
   padding: 6, zIndex: 5,
 };
+// Фон пункта — в projectCard.css: инлайновый перебивал бы :hover.
 const menuItem: CSSProperties = {
-  display: "block", width: "100%", textAlign: "left", padding: "8px 10px", background: "none",
+  display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
   border: "none", borderRadius: 7, fontSize: 13.5, cursor: "pointer",
 };
 const cardBody: CSSProperties = {
