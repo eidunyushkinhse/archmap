@@ -3,7 +3,7 @@
 // роли: тумблер «Редактировать/Готово» (только архитектор) переключает inline-правку.
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { edgesApi, nodesApi } from "../../api/nodes";
 import { processesApi } from "../../api/processes";
@@ -22,6 +22,7 @@ import { deriveActivations, newBranchRow } from "./sequence/layout";
 import { detailToSeq, orderedBranches } from "./sequence/fromDetail";
 import { BPT, BROKEN } from "./tokens";
 import { useProcessHistory } from "./useProcessHistory";
+import { useOverlayStack, type Overlay, type OverlayKind, type OverlayOf } from "./useOverlayStack";
 import { readSchemaView, writeSchemaView, type SchemaView } from "../schemaView";
 import "./processes.css";
 import { noAutofill } from "../../ui/noAutofill";
@@ -58,54 +59,25 @@ interface MessageSnapshot {
 export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditing, onChanged, onOpenNode, syncRev }: Props) {
   const [detail, setDetail] = useState<ProcessDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Пара для композитора задаётся drag-to-connect на схеме (node_id источника/цели).
-  const [composer, setComposer] = useState<{ from: string; to: string } | null>(null);
   // Куда можно завести сообщение — ключи «откуда>куда». Ответ БЭКА: проекция
   // концов связи через предков живёт там, и вторая реализация на клиенте
   // разошлась бы с валидатором. Обновляем, когда картина могла измениться:
   // вход в правку, закрытие композитора (там же переключают тип канала),
   // перезагрузка процесса.
   const [directions, setDirections] = useState<Set<string>>(new Set());
-  // Самосообщение (внутренняя операция): node_id участника, на котором его создаём.
-  const [selfMsg, setSelfMsg] = useState<string | null>(null);
-  const [selfCaption, setSelfCaption] = useState("");
-  const [partPanel, setPartPanel] = useState(false);
   // Режим выбора диапазона под фрагмент: выбран тип, ждём протягивания по сообщениям.
   const [fragSelect, setFragSelect] = useState<FragmentKind | null>(null);
-  // Диапазон выбран (индексы строк), ждём ввода условия перед созданием.
-  const [pendingFrag, setPendingFrag] = useState<{ kind: FragmentKind; fromRow: number; toRow: number } | null>(null);
-  const [fragGuard, setFragGuard] = useState("");
-  const [delFrag, setDelFrag] = useState<string | null>(null);
-  // Карточка ветви «иначе»: id фрагмента + номер ветви. index=null — заводим НОВУЮ
-  // (границу ставим сами, см. saveBranch).
-  const [branchEdit, setBranchEdit] = useState<{ fid: string; index: number | null } | null>(null);
-  const [branchGuard, setBranchGuard] = useState("");
-  // Привязка непривязанного участника: id участника, которому ищем узел.
-  const [bindPart, setBindPart] = useState<string | null>(null);
-  // Расхождение имён: узел выбран, но зовётся иначе, чем участник в диаграмме.
-  // Спрашиваем до записи — иначе имя из диаграммы исчезло бы молча.
-  const [bindConfirm, setBindConfirm] = useState<
-    { participantId: string; nodeId: string; nodeName: string; partName: string } | null
-  >(null);
   // Итог подхвата каналов — показываем строкой: молча подхватить и промолчать значит
   // скрыть, что часть шагов осталась сломанной.
   const [bindNote, setBindNote] = useState<string | null>(null);
-  // Карточка шага: правка подписи + удаление. Клик по стрелке/подписи ведёт сюда —
-  // раньше он открывал ТОЛЬКО «Удалить сообщение?», и задать подпись было нечем.
-  const [msgEdit, setMsgEdit] = useState<string | null>(null);
-  const [msgCaption, setMsgCaption] = useState("");
-  // Провал из карточки шага в привязанную схему логики (У7): состояние здесь, а не в
-  // карточке — оверлей должен стоять В СТЕКЕ Escape выше карточки, иначе Escape в
-  // нативном <dialog> закрыл бы заодно и её. Окно открывается просмотром; правка —
-  // его же кнопкой «Изменить» (вьюер v2), своего переключателя здесь больше нет.
-  const [docView, setDocView] = useState<
-    { docId: string; nodeId: string; nodeName: string } | null
-  >(null);
   // Ревизия каталога схем карточки: правка в оверлее меняет имена/состав схем.
   const [docCatalogRev, setDocCatalogRev] = useState(0);
-  const [delPart, setDelPart] = useState<ProcessParticipant | null>(null);
-  const [delPartBusy, setDelPartBusy] = useState(false);
-  const [delPartErr, setDelPartErr] = useState<string | null>(null);
+  // Окна поверх холста — одним стеком в порядке открытия (композитор, карточки шага,
+  // ветки, фрагмента, подтверждения, привязка, панель участников, схема логики).
+  // Провал из карточки шага в схему логики (У7) ложится выше карточки: закрывается
+  // схема, карточка остаётся.
+  const { stack: overlayStack, get: overlay, open: openOverlay, close: closeOverlay, update: updateOverlay } =
+    useOverlayStack();
   // Вид схемы — общий с C4-схемой ключ ЭТОГО проекта (в другом проекте свой).
   const [view, setView] = useState<SchemaView>(readSchemaView);
   useEffect(() => { writeSchemaView(view); }, [view]);
@@ -229,6 +201,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     return m;
   }, [detail]);
   const nodeOfPart = useCallback((pid: string) => partById[pid]?.node_id ?? null, [partById]);
+  const delPart = overlay("delPart")?.part ?? null;
   const delLinks = useMemo(() => {
     if (!detail || !delPart) return [];
     return detail.messages
@@ -371,13 +344,14 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const partName = partById[participantId]?.name ?? "";
     try {
       const node = await nodesApi.get(nodeId);
-      setBindPart(null);
+      closeOverlay("bindPart");
       if (node.name !== partName) {
-        setBindConfirm({ participantId, nodeId, nodeName: node.name, partName });
+        // Расхождение имён: спрашиваем до записи — иначе имя из диаграммы исчезло бы молча.
+        openOverlay({ kind: "bindConfirm", participantId, nodeId, nodeName: node.name, partName });
         return;
       }
     } catch {
-      setBindPart(null); // узел не прочитался — привяжем и покажем ошибку бэка, если что
+      closeOverlay("bindPart"); // узел не прочитался — привяжем и покажем ошибку бэка, если что
     }
     await bindParticipant(participantId, nodeId);
   }
@@ -407,8 +381,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   }
 
   async function bindParticipant(participantId: string, nodeId: string) {
-    setBindPart(null);
-    setBindConfirm(null);
+    closeOverlay("bindPart");
+    closeOverlay("bindConfirm");
     await runMutation(async () => {
       const res = await processesApi.bindParticipant(id, participantId, nodeId);
       setBindNote(
@@ -456,26 +430,22 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       void removeParticipant(p);
       return;
     }
-    setDelPartErr(null);
-    setDelPart(p);
+    openOverlay({ kind: "delPart", part: p, busy: false, error: null });
   }
   async function removeParticipant(p: ProcessParticipant) {
     await runMutation(async () => {
       await doRemoveParticipant(p);
     }, "Не удалось удалить участника");
   }
-  async function confirmRemoveParticipant() {
-    if (!delPart) return;
-    setDelPartBusy(true);
-    setDelPartErr(null);
+  async function confirmRemoveParticipant(p: ProcessParticipant) {
+    updateOverlay("delPart", (o) => ({ ...o, busy: true, error: null }));
     try {
-      await doRemoveParticipant(delPart);
-      setDelPart(null);
+      await doRemoveParticipant(p);
+      closeOverlay("delPart");
       reload();
     } catch (e: unknown) {
-      setDelPartErr(e instanceof Error ? e.message : "Не удалось удалить участника");
-    } finally {
-      setDelPartBusy(false);
+      const text = e instanceof Error ? e.message : "Не удалось удалить участника";
+      updateOverlay("delPart", (o) => ({ ...o, busy: false, error: text }));
     }
   }
   // Перечитать карту направлений. Вне режима правки индикация не нужна — не ходим.
@@ -489,32 +459,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
 
   useEffect(() => { reloadDirections(); }, [reloadDirections, detail]);
 
-  // Закрыть ВЕРХНИЙ открытый оверлей. Порядок списка = порядок наложения: сверху то,
-  // что открывается поверх остального (подтверждение привязки лежит над пикером).
-  // Каждая строка повторяет ровно то, что делает «Отмена»/клик по подложке своего
-  // оверлея, — второй логики закрытия не заводим.
-  const closeTopOverlay = useCallback((): boolean => {
-    const stack: [boolean, () => void][] = [
-      // Оверлей схемы — над карточкой шага: Escape закрывает его, карточка остаётся.
-      [!!docView, () => setDocView(null)],
-      [!!bindConfirm, () => setBindConfirm(null)],
-      [!!bindPart, () => setBindPart(null)],
-      // Идущее удаление не бросаем — как и клик по подложке.
-      [!!delPart && !delPartBusy, () => setDelPart(null)],
-      [!!msgEdit, () => setMsgEdit(null)],
-      [!!branchEdit, () => setBranchEdit(null)],
-      [!!pendingFrag, () => setPendingFrag(null)],
-      [!!delFrag, () => setDelFrag(null)],
-      [!!selfMsg, () => setSelfMsg(null)],
-      [!!composer, () => { setComposer(null); reloadDirections(); }],
-      [!!partPanel, () => setPartPanel(false)],
-    ];
-    const top = stack.find(([open]) => open);
-    if (!top) return false;
-    top[1]();
-    return true;
-  }, [docView, bindConfirm, bindPart, delPart, delPartBusy, msgEdit, branchEdit,
-      pendingFrag, delFrag, selfMsg, composer, partPanel, reloadDirections]);
+  // Закрыть окно — ровно то же, что его «Отмена» и клик по подложке; второй логики
+  // закрытия не заводим. Композитор при закрытии перечитывает направления: в нём
+  // переключают тип канала.
+  const dismiss = useCallback((kind: OverlayKind) => {
+    closeOverlay(kind);
+    if (kind === "composer") reloadDirections();
+  }, [closeOverlay, reloadDirections]);
 
   // Escape закрывает верхний оверлей — как все окна проекта (ui/Modal.tsx получает это
   // даром от нативного <dialog>). Здесь оверлеи — обычные div: вложенные <dialog> в
@@ -523,14 +474,23 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
   // Escape не работал бы почти нигде, у всех карточек поле autoFocus. Исключение одно
   // и то же, что у браузера: во время IME-композиции Escape отменяет НАБОР и до окна
   // не доходит. С Ctrl+Z не спорим: там обработчик требует Ctrl/Cmd, здесь — нет.
+  // Схема логики сверху — сама ui/Modal, и Escape принадлежит ей: несохранённая правка
+  // спрашивает, прежде чем закрыться (решение 2026-09-29). Перехват здесь гасил её
+  // cancel (preventDefault) и закрывал окно молча. Идущее удаление участника Escape не
+  // бросает — как и клик по подложке.
+  const topOverlay = overlayStack.at(-1) ?? null;
   useEffect(() => {
+    if (!topOverlay || topOverlay.kind === "doc") return;
+    const { kind } = topOverlay;
+    const held = topOverlay.kind === "delPart" && topOverlay.busy;
     function onEsc(e: KeyboardEvent) {
       if (e.key !== "Escape" || e.isComposing) return;
-      if (closeTopOverlay()) e.preventDefault();
+      e.preventDefault();
+      if (!held) dismiss(kind);
     }
     document.addEventListener("keydown", onEsc);
     return () => document.removeEventListener("keydown", onEsc);
-  }, [closeTopOverlay]);
+  }, [topOverlay, dismiss]);
 
   function handleMessageAdded(created: ProcessMessage, payload: MessageCreate) {
     let mid = created.id;
@@ -575,18 +535,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           mid = r.id;
         },
       });
-      setSelfMsg(null);
-      setSelfCaption("");
+      closeOverlay("self");
     }, "Не удалось добавить рефлексивное сообщение");
   }
   // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
   // пустое поле означает ровно «подписи нет», а не «взять метку связи».
-  async function saveCaption(mid: string) {
+  async function saveCaption(mid: string, caption: string) {
     if (!detail) return;
     const m = msgById.get(mid);
     if (!m) return;
-    const next = msgCaption.trim() || null;
-    setMsgEdit(null);
+    const next = caption.trim() || null;
+    closeOverlay("msg");
     if (next === m.caption) return; // ничего не меняли — не мусорим в истории
     const prev = m.caption;
     setOptimistic({
@@ -645,7 +604,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const m = msgById.get(mid);
     await runMutation(async () => {
       await processesApi.removeMessage(id, mid);
-      setMsgEdit(null);
+      closeOverlay("msg");
       // Записываем в историю ТОЛЬКО восстановимое. Шаг без канала (связь удалили из
       // схемы) и шаг непривязанного участника воссоздать нечем: addMessage требует
       // edge_id у всего, кроме самосообщения. Прежде запись всё равно попадала в
@@ -697,8 +656,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           fid = r.id;
         },
       });
-      setPendingFrag(null);
-      setFragGuard("");
+      closeOverlay("frag");
     }, "Не удалось добавить фрагмент");
   }
   // Правка охвата фрагмента протягиванием грани. Диаграмма отдаёт индексы СТРОК —
@@ -766,21 +724,22 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     );
   }
 
-  // Сохранение карточки: заводим НОВУЮ ветвь либо правим условие существующей.
-  async function saveBranch() {
-    if (!branchEdit || !detail) return;
-    const frag = fragById.get(branchEdit.fid);
+  // Сохранение карточки: заводим НОВУЮ ветвь (index=null — границу ставим сами) либо
+  // правим условие существующей.
+  async function saveBranch(edit: OverlayOf<"branch">) {
+    if (!detail) return;
+    const frag = fragById.get(edit.fid);
     if (!frag) return;
     const sorted = sortedMessages;
     // Строка = число сообщений с меньшим order — ровно как в проекции диаграммы
     // (fromDetail). findIndex здесь врал бы: order удалённого сообщения дал бы −1.
     const rowOf = (order: number) => sorted.filter((m) => m.order < order).length;
-    const guard = branchGuard.trim() || null;
-    if (branchEdit.index != null) {
-      setBranchEdit(null);
+    const guard = edit.guard.trim() || null;
+    if (edit.index != null) {
+      closeOverlay("branch");
       await patchBranches(
-        branchEdit.fid,
-        frag.branches.map((b, k) => (k === branchEdit.index ? { ...b, guard } : b)),
+        edit.fid,
+        frag.branches.map((b, k) => (k === edit.index ? { ...b, guard } : b)),
       );
       return;
     }
@@ -790,8 +749,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       frag.branches.map((b) => rowOf(b.start_order)),
     );
     if (row == null || row >= sorted.length) return;
-    setBranchEdit(null);
-    await patchBranches(branchEdit.fid, [
+    closeOverlay("branch");
+    await patchBranches(edit.fid, [
       ...frag.branches,
       { start_order: sorted[row].order, guard },
     ]);
@@ -801,7 +760,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     const f = fragById.get(fid);
     await runMutation(async () => {
       await processesApi.removeFragment(id, fid);
-      setDelFrag(null);
+      closeOverlay("delFrag");
       if (f) {
         const payload = {
           kind: f.kind, from_order: f.from_order, to_order: f.to_order, guard: f.guard,
@@ -824,6 +783,284 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }, "Не удалось удалить фрагмент");
   }
 
+  // Одно окно стека. Закрытие любого — dismiss/closeOverlay его вида: «Отмена», клик по
+  // подложке и Escape делают одно и то же.
+  function renderOverlay(o: Overlay): ReactNode {
+    switch (o.kind) {
+      // Композитор сообщения — по центру видимой области.
+      case "composer":
+        if (!detail) return null;
+        return (
+          <>
+            <div style={overlayDim} onClick={() => dismiss("composer")} />
+            <div style={overlayCenter}>
+              <MessageComposer
+                processId={id}
+                participants={detail.participants}
+                fromNode={o.from}
+                toNode={o.to}
+                defaultOrder={nextOrder}
+                onClose={() => dismiss("composer")}
+                onAdded={handleMessageAdded}
+              />
+            </div>
+          </>
+        );
+      // Самосообщение: ввод подписи внутренней операции.
+      case "self":
+        if (!detail) return null;
+        return (
+          <PromptCard
+            title={`Рефлексивное сообщение · ${partById[o.pid]?.name ?? o.pid}`}
+            hint="Действие участника над самим собой (без связи в C4) — внутренняя операция."
+            autofillKey="process-canvas-1"
+            value={o.caption}
+            onChange={(caption) => updateOverlay("self", (x) => ({ ...x, caption }))}
+            placeholder="напр. валидация заказа"
+            inputStyle={fragInput}
+            submitLabel="Добавить"
+            onSubmit={() => void createSelfMessage(o.pid, o.caption)}
+            onCancel={() => closeOverlay("self")}
+          />
+        );
+      // Карточка шага — свой модуль: у неё есть состояние (каталог схем, поиск), а холст
+      // и без того велик.
+      case "msg": {
+        const m = msgById.get(o.mid);
+        if (!detail || !m) return null;
+        return (
+          <>
+            <div style={overlayDim} onClick={() => closeOverlay("msg")} />
+            <div style={overlayCenter}>
+              <MessageCard
+                processId={id}
+                msg={m}
+                participants={detail.participants}
+                returnLegs={detail.messages.filter(
+                  (x) => x.edge_id === m.edge_id && x.leg === "return",
+                ).length}
+                caption={o.caption}
+                onCaptionChange={(caption) => updateOverlay("msg", (x) => ({ ...x, caption }))}
+                onSaveCaption={() => void saveCaption(o.mid, o.caption)}
+                onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
+                onLinkDoc={(docId) => void linkDoc(o.mid, docId)}
+                onOpenDoc={(doc) => openOverlay({ kind: "doc", ...doc })}
+                catalogRev={docCatalogRev}
+                onRemove={() => void removeMessage(o.mid)}
+                onClose={() => closeOverlay("msg")}
+              />
+            </div>
+          </>
+        );
+      }
+      // Провал в схему логики (У7/У8): окно открывается просмотром, правка — его же
+      // «Изменить» (Вручную | Через ИИ-агента). Колбэки настоящие, не заглушки (ловушка
+      // У8): onDocEvent и onApplied перечитывают процесс (имя схемы в шаге, SET NULL при
+      // удалении) и каталог карточки. Спекой этот оверлей не занимается — колбэка записи
+      // спеки нет.
+      case "doc":
+        return (
+          <DocOverlay
+            mode="flowchart"
+            nodeId={o.nodeId}
+            nodeName={o.nodeName}
+            isArchitect={isArchitect}
+            initialDocId={o.docId}
+            onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
+            onApplied={() => { setDocCatalogRev((r) => r + 1); reload(); }}
+            onClose={() => closeOverlay("doc")}
+          />
+        );
+      // Подтверждение удаления участника (со списком связей на схеме). Идущее удаление
+      // клик по подложке не бросает.
+      case "delPart":
+        return (
+          <>
+            <div style={overlayDim} onClick={() => { if (!o.busy) closeOverlay("delPart"); }} />
+            <div style={overlayCenter}>
+              <ParticipantDeleteConfirm
+                name={o.part.name}
+                links={delLinks}
+                deleting={o.busy}
+                error={o.error}
+                onConfirm={() => void confirmRemoveParticipant(o.part)}
+                onCancel={() => closeOverlay("delPart")}
+              />
+            </div>
+          </>
+        );
+      // Ветвь «иначе»: условие + снятие ветви.
+      case "branch":
+        if (!detail) return null;
+        return (
+          <PromptCard
+            title={o.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
+            hint={o.index == null
+              ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
+              : `Ветка ${o.index + 2} у этого alt`}
+            autofillKey="process-canvas-2"
+            value={o.guard}
+            onChange={(guard) => updateOverlay("branch", (x) => ({ ...x, guard }))}
+            placeholder="условие ветки, напр. «отказ»"
+            inputClassName="bp-input"
+            submitLabel={o.index == null ? "Добавить" : "Сохранить"}
+            onSubmit={() => void saveBranch(o)}
+            onCancel={() => closeOverlay("branch")}
+            extra={o.index != null && (
+              <button
+                className="bp-btn-ghost"
+                style={{ marginRight: "auto", color: "#dc2626" }}
+                onClick={() => {
+                  const frag = fragById.get(o.fid);
+                  closeOverlay("branch");
+                  if (frag) void patchBranches(o.fid, frag.branches.filter((_, k) => k !== o.index));
+                }}
+              >
+                Убрать ветку
+              </button>
+            )}
+          />
+        );
+      // Фрагмент: ввод условия для ВЫБРАННОГО диапазона.
+      case "frag":
+        if (!detail) return null;
+        return (
+          <PromptCard
+            title={`Фрагмент «${o.frag}»`}
+            hint={`${o.fromRow === o.toRow
+              ? `Сообщение ${o.fromRow + 1}`
+              : `Сообщения ${o.fromRow + 1}–${o.toRow + 1}`} · условие (показывается у рамки)`}
+            autofillKey="process-canvas-3"
+            value={o.guard}
+            onChange={(guard) => updateOverlay("frag", (x) => ({ ...x, guard }))}
+            placeholder="напр. оплата прошла"
+            inputStyle={fragInput}
+            submitLabel="Добавить"
+            onSubmit={() => void createFragment(o.frag, o.fromRow, o.toRow, o.guard)}
+            onCancel={() => closeOverlay("frag")}
+          />
+        );
+      // Подтверждение удаления фрагмента (клик по его шапке).
+      case "delFrag":
+        return (
+          <>
+            <div style={overlayDim} onClick={() => closeOverlay("delFrag")} />
+            <div style={overlayCenter}>
+              <div style={confirmCard}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить фрагмент?</div>
+                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
+                  <button className="bp-btn-ghost" onClick={() => closeOverlay("delFrag")}>Отмена</button>
+                  <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeFragment(o.fid)}>
+                    Удалить
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      // Расхождение имён: спрашиваем ДО записи, иначе имя из диаграммы пропало бы
+      // молча. После привязки действует имя узла — схема источник истины.
+      case "bindConfirm":
+        return (
+          <>
+            <div style={overlayDim} onClick={() => closeOverlay("bindConfirm")} />
+            <div style={overlayCenter}>
+              <div style={confirmCard}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 6 }}>
+                  Имена расходятся
+                </div>
+                <div style={{ fontSize: 12.5, color: BPT.mut, marginBottom: 14, lineHeight: 1.5 }}>
+                  В диаграмме участник назывался «{o.partName}», а узел схемы —
+                  «{o.nodeName}». После привязки будет действовать имя узла:
+                  схема — источник истины.
+                </div>
+                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                  <button className="bp-btn-ghost" onClick={() => closeOverlay("bindConfirm")}>Отмена</button>
+                  <button
+                    className="bp-btn-primary"
+                    onClick={() => void bindParticipant(o.participantId, o.nodeId)}
+                  >
+                    Привязать
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      // Привязка непривязанного участника: тот же пикер дерева, что и у добавления —
+      // выбранный узел не добавляет линию жизни, а достаётся существующей.
+      case "bindPart":
+        if (!detail) return null;
+        return (
+          <>
+            <div style={overlayDim} onClick={() => closeOverlay("bindPart")} />
+            <div style={overlayCenter}>
+              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
+                    Привязать «{partById[o.pid]?.name ?? "участника"}»
+                  </div>
+                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("bindPart")}>
+                    <IcoClose s={14} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
+                  Участник пришёл из импорта или потерял узел при удалении. Выберите, какому
+                  объекту схемы он соответствует.
+                </div>
+                <ParticipantPicker
+                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                  onAdd={(ids) => { if (ids[0]) void requestBind(o.pid, ids[0]); }}
+                />
+              </div>
+            </div>
+          </>
+        );
+      // Управление участниками.
+      case "parts":
+        if (!detail) return null;
+        return (
+          <>
+            <div style={overlayDim} onClick={() => closeOverlay("parts")} />
+            <div style={overlayCenter}>
+              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
+                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => closeOverlay("parts")}>
+                    <IcoClose s={14} />
+                  </button>
+                </div>
+                {detail.participants.length > 0 && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 140, overflow: "auto" }}>
+                    {[...detail.participants]
+                      .sort((a, b) => a.order - b.order)
+                      .map((p) => (
+                        <div key={p.id} style={partRow}>
+                          <span style={{ color: p.node_id ? (p.is_external ? BPT.mut : BPT.sec) : BROKEN.ink, display: "inline-flex" }}>
+                            {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
+                          </span>
+                          <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
+                          <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
+                            <IcoClose s={13} />
+                          </button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: BPT.mut, marginBottom: 6 }}>
+                  Добавить из дерева схемы
+                </div>
+                <ParticipantPicker
+                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
+                  onAdd={(ids) => void addParticipants(ids)}
+                />
+              </div>
+            </div>
+          </>
+        );
+    }
+  }
+
   // ── Тулбар над диаграммой ─────────────────────────────────────────
   const toolbar = (
     <ProcessToolbar
@@ -837,7 +1074,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
       fragSelect={fragSelect}
       onFragSelect={(k) => setFragSelect((cur) => (cur === k ? null : k))}
       canFragment={!!detail && detail.messages.length > 0}
-      onAddParticipant={() => setPartPanel(true)}
+      onAddParticipant={() => openOverlay({ kind: "parts" })}
       history={hist}
       hasStatus={hasStatus}
       view={view}
@@ -880,18 +1117,17 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               ghost={editing}
               selectMode={editing ? fragSelect : null}
               onSelectRange={editing ? (from, to) => {
-                setFragSelect((kind) => {
-                  if (kind) { setPendingFrag({ kind, fromRow: from, toRow: to }); setFragGuard(""); }
-                  return null;
-                });
+                // Диапазон выбран (индексы строк) — ждём ввода условия перед созданием.
+                if (fragSelect) openOverlay({ kind: "frag", frag: fragSelect, fromRow: from, toRow: to, guard: "" });
+                setFragSelect(null);
               } : undefined}
-              onFragmentClick={editing ? (fid) => setDelFrag(fid) : undefined}
+              onFragmentClick={editing ? (fid) => openOverlay({ kind: "delFrag", fid }) : undefined}
               onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
               onMoveBranch={editing ? (fid, index, row) => void moveBranch(fid, index, row) : undefined}
               onEditBranch={editing ? (fid, index) => {
                 const frag = fragById.get(fid);
-                setBranchGuard(index != null ? (frag?.branches[index]?.guard ?? "") : "");
-                setBranchEdit({ fid, index });
+                const guard = index != null ? (frag?.branches[index]?.guard ?? "") : "";
+                openOverlay({ kind: "branch", fid, index, guard });
               } : undefined}
               onConnect={editing ? (fromPid, toPid) => {
                 // Граница слоёв: диаграмма говорит УЧАСТНИКАМИ, композитор и
@@ -900,26 +1136,26 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 const to = nodeOfPart(toPid);
                 // У непривязанного участника узла нет, значит нет и каналов — открывать
                 // композитор не на чем.
-                if (from && to) setComposer({ from, to });
+                if (from && to) openOverlay({ kind: "composer", from, to });
               } : undefined}
               canConnect={editing ? (fromPid, toPid) => {
                 const from = nodeOfPart(fromPid);
                 const to = nodeOfPart(toPid);
                 return !!from && !!to && directions.has(`${from}>${to}`);
               } : undefined}
-              onSelfConnect={editing ? (pid) => { setSelfMsg(pid); setSelfCaption(""); } : undefined}
+              onSelfConnect={editing ? (pid) => openOverlay({ kind: "self", pid, caption: "" }) : undefined}
+              // Карточка шага: правка подписи и удаление.
               onMessageClick={editing ? (mid) => {
-                setMsgCaption(detail?.messages.find((m) => m.id === mid)?.caption ?? "");
-                setMsgEdit(mid);
+                openOverlay({ kind: "msg", mid, caption: msgById.get(mid)?.caption ?? "" });
               } : undefined}
               // Просмотр: шаг со схемой логики открывает её — тем же оверлеем, что
               // провал из карточки шага в правке.
               onOpenDoc={editing ? undefined : (mid) => {
                 const m = msgById.get(mid);
                 const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
-                if (doc) setDocView(doc);
+                if (doc) openOverlay({ kind: "doc", ...doc });
               }}
-              onBindParticipant={editing ? (pid) => setBindPart(pid) : undefined}
+              onBindParticipant={editing ? (pid) => openOverlay({ kind: "bindPart", pid }) : undefined}
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}
               onDeleteParticipant={editing ? (pid) => {
@@ -945,271 +1181,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </div>
         )}
 
-        {/* Композитор сообщения — оверлей по центру видимой области */}
-        {composer && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setComposer(null)} />
-            <div style={overlayCenter}>
-              <MessageComposer
-                processId={id}
-                participants={detail.participants}
-                fromNode={composer.from}
-                toNode={composer.to}
-                defaultOrder={nextOrder}
-                onClose={() => { setComposer(null); reloadDirections(); }}
-                onAdded={handleMessageAdded}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Самосообщение: ввод подписи внутренней операции */}
-        {selfMsg && detail && (
-          <PromptCard
-            title={`Рефлексивное сообщение · ${partById[selfMsg]?.name ?? selfMsg}`}
-            hint="Действие участника над самим собой (без связи в C4) — внутренняя операция."
-            autofillKey="process-canvas-1"
-            value={selfCaption}
-            onChange={setSelfCaption}
-            placeholder="напр. валидация заказа"
-            inputStyle={fragInput}
-            submitLabel="Добавить"
-            onSubmit={() => void createSelfMessage(selfMsg, selfCaption)}
-            onCancel={() => setSelfMsg(null)}
-          />
-        )}
-
-        {/* Карточка шага — свой модуль: у неё появилось состояние (каталог схем,
-            поиск), а холст и без того велик. */}
-        {msgEdit && detail && (() => {
-          const m = msgById.get(msgEdit);
-          if (!m) return null;
-          return (
-            <>
-              <div style={overlayDim} onClick={() => setMsgEdit(null)} />
-              <div style={overlayCenter}>
-                <MessageCard
-                  processId={id}
-                  msg={m}
-                  participants={detail.participants}
-                  returnLegs={detail.messages.filter(
-                    (x) => x.edge_id === m.edge_id && x.leg === "return",
-                  ).length}
-                  caption={msgCaption}
-                  onCaptionChange={setMsgCaption}
-                  onSaveCaption={() => void saveCaption(msgEdit)}
-                  onSetChannelSync={(edgeId, next) => void setChannelSync(edgeId, next)}
-                  onLinkDoc={(docId) => void linkDoc(msgEdit, docId)}
-                  onOpenDoc={setDocView}
-                  catalogRev={docCatalogRev}
-                  onRemove={() => void removeMessage(msgEdit)}
-                  onClose={() => setMsgEdit(null)}
-                />
-              </div>
-            </>
-          );
-        })()}
-
-        {/* Провал из карточки шага в схему логики (У7/У8): окно открывается
-            просмотром, правка — его же «Изменить» (Вручную | Через ИИ-агента).
-            Колбэки настоящие, не заглушки (ловушка У8): onDocEvent и onApplied
-            перечитывают процесс (имя схемы в шаге, SET NULL при удалении) и каталог
-            карточки. Спекой этот оверлей не занимается — колбэка записи спеки нет. */}
-        {docView && (
-          <DocOverlay
-            mode="flowchart"
-            nodeId={docView.nodeId}
-            nodeName={docView.nodeName}
-            isArchitect={isArchitect}
-            initialDocId={docView.docId}
-            onDocEvent={() => { setDocCatalogRev((r) => r + 1); reload(); }}
-            onApplied={() => { setDocCatalogRev((r) => r + 1); reload(); }}
-            onClose={() => setDocView(null)}
-          />
-        )}
-
-        {/* Подтверждение удаления участника (со списком связей на схеме) */}
-        {delPart && (
-          <>
-            <div style={overlayDim} onClick={() => { if (!delPartBusy) setDelPart(null); }} />
-            <div style={overlayCenter}>
-              <ParticipantDeleteConfirm
-                name={delPart.name}
-                links={delLinks}
-                deleting={delPartBusy}
-                error={delPartErr}
-                onConfirm={() => void confirmRemoveParticipant()}
-                onCancel={() => setDelPart(null)}
-              />
-            </div>
-          </>
-        )}
-
-        {/* Ветвь «иначе»: условие + снятие ветви */}
-        {branchEdit && detail && (
-          <PromptCard
-            title={branchEdit.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
-            hint={branchEdit.index == null
-              ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
-              : `Ветка ${branchEdit.index + 2} у этого alt`}
-            autofillKey="process-canvas-2"
-            value={branchGuard}
-            onChange={setBranchGuard}
-            placeholder="условие ветки, напр. «отказ»"
-            inputClassName="bp-input"
-            submitLabel={branchEdit.index == null ? "Добавить" : "Сохранить"}
-            onSubmit={() => void saveBranch()}
-            onCancel={() => setBranchEdit(null)}
-            extra={branchEdit.index != null && (
-              <button
-                className="bp-btn-ghost"
-                style={{ marginRight: "auto", color: "#dc2626" }}
-                onClick={() => {
-                  const { fid, index } = branchEdit;
-                  const frag = fragById.get(fid);
-                  setBranchEdit(null);
-                  if (frag) void patchBranches(fid, frag.branches.filter((_, k) => k !== index));
-                }}
-              >
-                Убрать ветку
-              </button>
-            )}
-          />
-        )}
-
-        {/* Фрагмент: ввод условия для ВЫБРАННОГО диапазона */}
-        {pendingFrag && detail && (
-          <PromptCard
-            title={`Фрагмент «${pendingFrag.kind}»`}
-            hint={`${pendingFrag.fromRow === pendingFrag.toRow
-              ? `Сообщение ${pendingFrag.fromRow + 1}`
-              : `Сообщения ${pendingFrag.fromRow + 1}–${pendingFrag.toRow + 1}`} · условие (показывается у рамки)`}
-            autofillKey="process-canvas-3"
-            value={fragGuard}
-            onChange={setFragGuard}
-            placeholder="напр. оплата прошла"
-            inputStyle={fragInput}
-            submitLabel="Добавить"
-            onSubmit={() => void createFragment(pendingFrag.kind, pendingFrag.fromRow, pendingFrag.toRow, fragGuard)}
-            onCancel={() => setPendingFrag(null)}
-          />
-        )}
-
-        {/* Подтверждение удаления фрагмента (клик по его шапке) */}
-        {delFrag && (
-          <>
-            <div style={overlayDim} onClick={() => setDelFrag(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить фрагмент?</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setDelFrag(null)}>Отмена</button>
-                  <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeFragment(delFrag)}>
-                    Удалить
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Управление участниками */}
-        {/* Расхождение имён: спрашиваем ДО записи, иначе имя из диаграммы пропало бы
-            молча. После привязки действует имя узла — схема источник истины. */}
-        {bindConfirm && (
-          <>
-            <div style={overlayDim} onClick={() => setBindConfirm(null)} />
-            <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 6 }}>
-                  Имена расходятся
-                </div>
-                <div style={{ fontSize: 12.5, color: BPT.mut, marginBottom: 14, lineHeight: 1.5 }}>
-                  В диаграмме участник назывался «{bindConfirm.partName}», а узел схемы —
-                  «{bindConfirm.nodeName}». После привязки будет действовать имя узла:
-                  схема — источник истины.
-                </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => setBindConfirm(null)}>Отмена</button>
-                  <button
-                    className="bp-btn-primary"
-                    onClick={() => void bindParticipant(bindConfirm.participantId, bindConfirm.nodeId)}
-                  >
-                    Привязать
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Привязка непривязанного участника: тот же пикер дерева, что и у добавления —
-            выбранный узел не добавляет линию жизни, а достаётся существующей. */}
-        {bindPart && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setBindPart(null)} />
-            <div style={overlayCenter}>
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>
-                    Привязать «{partById[bindPart]?.name ?? "участника"}»
-                  </div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => setBindPart(null)}>
-                    <IcoClose s={14} />
-                  </button>
-                </div>
-                <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Участник пришёл из импорта или потерял узел при удалении. Выберите, какому
-                  объекту схемы он соответствует.
-                </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => { if (ids[0]) void requestBind(bindPart, ids[0]); }}
-                />
-              </div>
-            </div>
-          </>
-        )}
-
-        {partPanel && detail && (
-          <>
-            <div style={overlayDim} onClick={() => setPartPanel(false)} />
-            <div style={overlayCenter}>
-              <div style={{ ...confirmCard, width: 380, textAlign: "left" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: BPT.head }}>Участники</div>
-                  <button className="bp-iconbtn" style={{ width: 26, height: 26 }} onClick={() => setPartPanel(false)}>
-                    <IcoClose s={14} />
-                  </button>
-                </div>
-                {detail.participants.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10, maxHeight: 140, overflow: "auto" }}>
-                    {[...detail.participants]
-                      .sort((a, b) => a.order - b.order)
-                      .map((p) => (
-                        <div key={p.id} style={partRow}>
-                          <span style={{ color: p.node_id ? (p.is_external ? BPT.mut : BPT.sec) : BROKEN.ink, display: "inline-flex" }}>
-                            {p.shape ? <C4Glyph shape={p.shape} s={15} /> : <IcoBrokenLink s={13} />}
-                          </span>
-                          <span style={{ fontSize: 13, color: BPT.head, flex: 1 }}>{p.name}</span>
-                          <button style={partX} title="Убрать" onClick={() => requestRemoveParticipant(p)}>
-                            <IcoClose s={13} />
-                          </button>
-                        </div>
-                      ))}
-                  </div>
-                )}
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: BPT.mut, marginBottom: 6 }}>
-                  Добавить из дерева схемы
-                </div>
-                <ParticipantPicker
-                  added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
-                  onAdd={(ids) => void addParticipants(ids)}
-                />
-              </div>
-            </div>
-          </>
-        )}
+        {/* Окна поверх холста — в порядке открытия: открытое позже ложится сверху. */}
+        {overlayStack.map((o) => <Fragment key={o.kind}>{renderOverlay(o)}</Fragment>)}
       </div>
     </div>
   );
