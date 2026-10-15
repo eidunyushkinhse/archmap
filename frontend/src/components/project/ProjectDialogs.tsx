@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
-import { dangerBtn, input, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { dangerBtn, errText, input, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 
 /** Подтверждения управления проектом: архив (обратимо), восстановление, удаление
@@ -34,7 +34,6 @@ function useAction(onDone: () => void) {
 
 const title: CSSProperties = { margin: "0 0 10px", fontSize: 17, fontWeight: 700, color: "#0f172a" };
 const lead: CSSProperties = { color: "#475569", margin: "0 0 16px", fontSize: 14, lineHeight: 1.5 };
-const err: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };
 const row: CSSProperties = { display: "flex", gap: 8, marginTop: 8 };
 // Нейтральная тёмная кнопка для обратимого архивирования (не красная).
 const darkBtn: CSSProperties = { ...primaryBtn, background: "#334155" };
@@ -45,7 +44,7 @@ export function ArchiveDialog({ project, onClose, onDone }: BaseProps) {
     <Modal onClose={onClose} boxStyle={{ width: 440, padding: 24 }}>
       <h3 style={title}>Отправить «{project.name}» в архив?</h3>
       <p style={lead}>Схема сохранится — проект можно вернуть из архива в любой момент.</p>
-      {error && <p style={err}>{error}</p>}
+      {error && <p style={errText}>{error}</p>}
       <div style={row}>
         <button style={darkBtn} disabled={busy} onClick={() => run(() => projectsApi.archive(project.id))}>
           {busy ? "…" : "В архив"}
@@ -62,7 +61,7 @@ export function RestoreDialog({ project, onClose, onDone }: BaseProps) {
     <Modal onClose={onClose} boxStyle={{ width: 440, padding: 24 }}>
       <h3 style={title}>Вернуть «{project.name}» из архива?</h3>
       <p style={lead}>Проект снова появится среди активных.</p>
-      {error && <p style={err}>{error}</p>}
+      {error && <p style={errText}>{error}</p>}
       <div style={row}>
         <button style={primaryBtn} disabled={busy} onClick={() => run(() => projectsApi.restore(project.id))}>
           {busy ? "…" : "Вернуть"}
@@ -92,7 +91,7 @@ export function DeleteForeverDialog({ project, onClose, onDone }: BaseProps) {
         onChange={(e) => setConfirmName(e.target.value)}
         placeholder={project.name}
       />
-      {error && <p style={err}>{error}</p>}
+      {error && <p style={errText}>{error}</p>}
       <div style={row}>
         <button
           style={{ ...dangerBtn, opacity: unlocked ? 1 : 0.5 }}

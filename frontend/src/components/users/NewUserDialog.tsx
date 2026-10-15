@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import { adminApi } from "../../api/admin";
 import type { AdminUser, UserRole } from "../../types";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { PASSWORD_HINT, ROLE_LABEL, ROLES } from "./userLabels";
 
 /**
@@ -102,4 +102,3 @@ const checkRow: CSSProperties = {
   fontSize: 14, color: "#1e293b", cursor: "pointer",
 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8", lineHeight: 1.45 };
-const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

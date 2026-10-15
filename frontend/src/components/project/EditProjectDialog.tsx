@@ -3,7 +3,7 @@ import type { CSSProperties } from "react";
 import type { Project } from "../../types";
 import { projectsApi } from "../../api/projects";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { noAutofill } from "../../ui/noAutofill";
 
 /**
@@ -65,7 +65,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
         placeholder="Коротко о схеме"
       />
 
-      {error && <p style={{ color: "#dc2626", fontSize: 13, margin: "8px 0 0" }}>{error}</p>}
+      {error && <p style={errText}>{error}</p>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.55 }} disabled={!canSubmit} onClick={submit}>

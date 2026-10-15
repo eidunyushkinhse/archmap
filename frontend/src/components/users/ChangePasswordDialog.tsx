@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { CSSProperties } from "react";
 import { changePassword } from "../../api/auth";
 import Modal from "../../ui/Modal";
-import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 
 /**
  * «Сменить пароль» из меню профиля (у всех): текущий пароль, новый и повтор.
@@ -106,4 +106,3 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 const title: CSSProperties = { margin: "0 0 16px", fontSize: 18, fontWeight: 700, color: "#0f172a" };
 const lead: CSSProperties = { margin: "0 0 16px", fontSize: 14, color: "#475569", lineHeight: 1.5 };
 const hint: CSSProperties = { margin: "-4px 0 0", fontSize: 12.5, color: "#94a3b8" };
-const errText: CSSProperties = { color: "#dc2626", fontSize: 13, margin: "8px 0 0" };

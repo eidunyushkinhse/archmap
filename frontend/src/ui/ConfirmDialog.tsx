@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import Modal from "./Modal";
-import { dangerBtn, secondaryBtn } from "./styles";
+import { dangerBtn, errText, secondaryBtn } from "./styles";
 
 /**
  * Базовый компонент подтверждения (danger-вид): строка заголовка с плашкой-
@@ -116,9 +116,4 @@ const leadStyle: CSSProperties = {
   margin: "0 0 8px",
   fontSize: 14,
   lineHeight: 1.5,
-};
-const errText: CSSProperties = {
-  color: "#dc2626",
-  margin: "8px 0 0",
-  fontSize: 13,
 };
