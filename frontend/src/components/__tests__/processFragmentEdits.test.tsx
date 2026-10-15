@@ -156,7 +156,7 @@ describe("правки фрагментов процесса", () => {
   it("удаление фрагмента: откат возвращает его вместе с ветвями", async () => {
     await open();
     await userEvent.click(screen.getByText("click-f1"));
-    await userEvent.click(await screen.findByRole("button", { name: "Удалить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Да, удалить" }));
     await waitFor(() => expect(processesApi.removeFragment).toHaveBeenCalledWith("p1", "f1"));
     await waitFor(() => expect(screen.queryByText("Удалить фрагмент?")).toBeNull());
     expect(lastCmd()?.label).toBe("Удаление фрагмента");

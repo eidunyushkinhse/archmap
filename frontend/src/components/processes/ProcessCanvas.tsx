@@ -11,6 +11,7 @@ import MessageComposer from "../MessageComposer";
 import DocOverlay from "../inspector/DocOverlay";
 import { stepDoc } from "./stepDoc";
 import MessageCard from "./MessageCard";
+import ConfirmDialog from "../../ui/ConfirmDialog";
 import ParticipantDeleteConfirm, { type DelLink } from "./ParticipantDeleteConfirm";
 import ParticipantPicker from "./ParticipantPicker";
 import { C4Glyph, IcoBrokenLink, IcoClose } from "./icons";
@@ -348,15 +349,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           <>
             <div style={overlayDim} onClick={() => closeOverlay("delFrag")} />
             <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head }}>Удалить фрагмент?</div>
-                <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => closeOverlay("delFrag")}>Отмена</button>
-                  <button className="bp-btn-primary" style={{ background: "#dc2626", borderColor: "#dc2626" }} onClick={() => void removeFragment(o.fid)}>
-                    Удалить
-                  </button>
-                </div>
-              </div>
+              <ConfirmDialog
+                variant="card"
+                title="Удалить фрагмент?"
+                confirmLabel="Да, удалить"
+                onConfirm={() => void removeFragment(o.fid)}
+                onCancel={() => closeOverlay("delFrag")}
+              />
             </div>
           </>
         );
@@ -367,25 +366,19 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           <>
             <div style={overlayDim} onClick={() => closeOverlay("bindConfirm")} />
             <div style={overlayCenter}>
-              <div style={confirmCard}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: BPT.head, marginBottom: 6 }}>
-                  Имена расходятся
-                </div>
-                <div style={{ fontSize: 12.5, color: BPT.mut, marginBottom: 14, lineHeight: 1.5 }}>
+              <ConfirmDialog
+                variant="card"
+                tone="neutral"
+                title="Имена расходятся"
+                lead={<>
                   В диаграмме участник назывался «{o.partName}», а узел схемы —
                   «{o.nodeName}». После привязки будет действовать имя узла:
                   схема — источник истины.
-                </div>
-                <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button className="bp-btn-ghost" onClick={() => closeOverlay("bindConfirm")}>Отмена</button>
-                  <button
-                    className="bp-btn-primary"
-                    onClick={() => void bindParticipant(o.participantId, o.nodeId)}
-                  >
-                    Привязать
-                  </button>
-                </div>
-              </div>
+                </>}
+                confirmLabel="Привязать"
+                onConfirm={() => void bindParticipant(o.participantId, o.nodeId)}
+                onCancel={() => closeOverlay("bindConfirm")}
+              />
             </div>
           </>
         );
