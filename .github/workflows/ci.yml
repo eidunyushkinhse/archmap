@@ -147,12 +147,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Синтаксис shell-скриптов
         run: |
-          for f in dev.sh stop.sh deploy/*.sh scripts/*.sh scripts/git-hooks/pre-commit; do
+          for f in dev.sh stop.sh deploy/*.sh deploy/compose/*.sh deploy/compose/archmap-admin scripts/*.sh scripts/git-hooks/pre-commit; do
             bash -n "$f" || exit 1
           done
       - name: shellcheck (ошибки)
         # Только уровень error: предупреждения разбираются отдельно, не лавиной в гейт (M13).
-        run: shellcheck --severity=error dev.sh stop.sh deploy/*.sh scripts/*.sh scripts/git-hooks/pre-commit
+        run: shellcheck --severity=error dev.sh stop.sh deploy/*.sh deploy/compose/*.sh deploy/compose/archmap-admin scripts/*.sh scripts/git-hooks/pre-commit
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
@@ -161,3 +161,28 @@ jobs:
       - name: QWEN.md собран из CLAUDE.md
         # Правила двух агентов расходились на 173 строки (аудит P-7): источник теперь один.
         run: python3 scripts/agent-docs.py --check
+
+  compose:
+    # Команда «Поставить себе» с лендинга и README: образ из исходников, база, миграции,
+    # ключ подписи, первый администратор — всё, что увидит человек после docker compose up.
+    name: Docker Compose (сборка образа и старт с базой)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - name: Сборка и старт (ждёт healthcheck /ready)
+        run: docker compose up -d --build --wait --wait-timeout 180
+      - name: Интерфейс и API отвечают
+        run: |
+          curl -fsS http://localhost:8080/ready
+          curl -fsS http://localhost:8080/ | grep -q 'id="root"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/v1/auth/me)" = 401
+      - name: Первый администратор и вход
+        run: |
+          printf 'ci-admin-password-1\nci-admin-password-1\n' | docker compose exec -T archmap archmap-admin create-admin admin
+          curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'username=admin&password=ci-admin-password-1' | grep -q access_token
+      - name: Журнал контейнеров
+        if: failure()
+        run: docker compose logs --no-color

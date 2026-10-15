@@ -78,6 +78,19 @@ ArchMap не встраивает собственную ИИ-модель. По
 
 ## Быстрый старт
 
+Попробовать ArchMap у себя проще всего в Docker: нужны Docker с Compose и интернет для сборки образа.
+
+```bash
+git clone https://github.com/eidunyushkinhse/archmap.git
+cd archmap
+docker compose up -d
+docker compose exec archmap archmap-admin create-admin admin
+```
+
+Интерфейс откроется на http://localhost:8080. Подробности — в [DEPLOY.md](DEPLOY.md#docker-compose).
+
+### Для разработки
+
 Нужны Python 3.12+, Node.js 22+ (версия — в `.nvmrc`) и запущенный PostgreSQL.
 
 ```bash

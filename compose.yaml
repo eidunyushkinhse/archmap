@@ -1,0 +1,43 @@
+# ArchMap одной командой (DEPLOY.md, «Docker Compose»):
+#   docker compose up -d                                          → http://localhost:8080
+#   docker compose exec archmap archmap-admin create-admin admin  # первый администратор
+# Данные — в томах db (PostgreSQL) и data (ключ подписи входа). Порт меняет ARCHMAP_PORT,
+# пароль базы — POSTGRES_PASSWORD (оба можно положить в .env рядом с этим файлом).
+name: archmap
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: archmap
+      POSTGRES_USER: archmap
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-archmap}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archmap -d archmap"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  archmap:
+    build:
+      context: .
+      dockerfile: deploy/compose/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://archmap:${POSTGRES_PASSWORD:-archmap}@db:5432/archmap
+      # Учётки заводит администратор на экране «Пользователи»
+      ALLOW_SIGNUP: "false"
+    ports:
+      - "${ARCHMAP_PORT:-8080}:8080"
+    volumes:
+      - data:/data
+
+volumes:
+  db:
+  data:

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Команды администрирования в контейнере ArchMap (app/admin.py), например первый
+# администратор:  docker compose exec archmap archmap-admin create-admin admin
+set -eu
+. /opt/archmap/deploy/secret.sh
+cd /opt/archmap/backend
+exec python3 -m app.admin "$@"

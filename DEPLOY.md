@@ -7,6 +7,37 @@ Linux-сервер из архива. Интернет при установке
 - [OpenShift и Kubernetes](#openshift-и-kubernetes) — образ и манифесты, nginx не нужен.
 - [Сервер без Kubernetes](#сервер-без-kubernetes) — архив с переносным Python, служба
   systemd и nginx.
+- [Docker Compose](#docker-compose) — попробовать на своей машине одной командой: образ
+  собирается из исходников, поэтому нужен интернет.
+
+## Docker Compose
+
+ArchMap и PostgreSQL в двух контейнерах на одной машине. Нужны Docker с Compose v2 и
+интернет: образ собирается из исходников, Node.js и Python ставятся внутри сборки.
+
+```bash
+git clone https://github.com/eidunyushkinhse/archmap.git
+cd archmap
+docker compose up -d
+docker compose exec archmap archmap-admin create-admin admin
+```
+
+Первая сборка занимает несколько минут. Интерфейс — http://localhost:8080: войдите
+администратором, остальных пользователей заведите на экране «Пользователи».
+
+- **Данные** — в томах `archmap_db` (база) и `archmap_data` (ключ подписи входа: создаётся
+  при первом старте; свой ключ задаёт переменная `SECRET_KEY` сервиса `archmap`).
+- **Порт и пароль базы** — переменные `ARCHMAP_PORT` и `POSTGRES_PASSWORD` в файле `.env`
+  рядом с `compose.yaml`. Пароль задаётся до первого запуска: PostgreSQL запоминает его при
+  создании тома.
+- **Обновление:** `git pull && docker compose up -d --build` — миграции применяются при
+  старте контейнера.
+- **Копия базы:** `docker compose exec db pg_dump -U archmap -Fc archmap > archmap.dump`.
+- **Доступ для других.** Контейнер отдаёт http без TLS. Чтобы открыть ArchMap коллегам,
+  поставьте перед ним обратный прокси с TLS. Прокси дописывает адрес клиента в
+  `X-Forwarded-For`; тогда задайте сервису `archmap` `TRUST_FORWARDED_FOR: "true"`, иначе
+  лимит попыток входа посчитает всех пользователей одним адресом прокси. Без прокси
+  оставьте `false`: заголовок присылал бы сам клиент и обходил им лимит.
 
 ## Что нужно в любом случае
 

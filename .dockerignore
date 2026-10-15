@@ -1,0 +1,19 @@
+# Контекст сборки образа Docker Compose (deploy/compose/Dockerfile) — только то, что
+# нужно образу: фронт, бэкенд и скрипты старта. Образ OpenShift собирается из поставки
+# со своим контекстом, этот файл его не касается.
+*
+!frontend/
+!backend/
+!deploy/preflight.py
+!deploy/compose/
+frontend/node_modules
+frontend/dist
+frontend/dist-*
+frontend/coverage
+backend/venv
+backend/tests
+backend/.env
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache

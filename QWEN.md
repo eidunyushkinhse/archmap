@@ -118,7 +118,10 @@ archmap/
 │   ├── archmap.service / archmap.env.example / archmap-admin  # юнит с песочницей systemd, шаблон настроек, команды
 │   ├── backup.py / preflight.py / runenv.py  # pg_dump перед миграциями; проверка базы; чтение archmap.env
 │   ├── build-image.sh     # образ и пакет для OpenShift (нужен Docker или Podman)
-│   └── openshift/         # Dockerfile (UBI 9 minimal), манифесты kustomize, settings.env
+│   ├── openshift/         # Dockerfile (UBI 9 minimal), манифесты kustomize, settings.env
+│   └── compose/           # образ из исходников для compose.yaml: Dockerfile, старт (ключ в томе,
+│                          # preflight, миграции), archmap-admin; без прокси — TRUST_FORWARDED_FOR=false
+├── compose.yaml           # «Поставить себе»: docker compose up -d → :8080 (ArchMap + PostgreSQL; CI-джоба compose)
 ├── docs/
 │   ├── specs/             # нормативные спеки движка (11 файлов + README)
 │   ├── tasks/             # ТЗ фич (демо-режим и тур, доступ к проектам, админка, вход, поиск…)
@@ -148,6 +151,8 @@ archmap/
 - Остановить:            ./stop.sh        (или Ctrl+C в терминале с dev.sh)
 - Поставка на сервер:    deploy/build-bundle.sh   (→ dist-bundle/*.tar.gz; установка — DEPLOY.md)
 - Образ для OpenShift:   deploy/build-image.sh    (→ dist-bundle/*-openshift.tar.gz: образ + манифесты; нужен Docker или Podman)
+- Docker Compose:        docker compose up -d --build  (→ http://localhost:8080; первый админ —
+    docker compose exec archmap archmap-admin create-admin admin; DEPLOY.md «Docker Compose»)
 - Запуск фронта:         cd frontend && npm run dev
 - Запуск бэкенда:        cd backend && ./venv/bin/uvicorn app.main:app --reload
 - Миграции (создать):    cd backend && ./venv/bin/alembic revision --autogenerate -m "название"
