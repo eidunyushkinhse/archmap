@@ -22,9 +22,7 @@ services:
       retries: 30
 
   archmap:
-    build:
-      context: .
-      dockerfile: deploy/compose/Dockerfile
+    build: .
     restart: unless-stopped
     depends_on:
       db:

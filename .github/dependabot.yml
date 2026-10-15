@@ -69,3 +69,16 @@ updates:
       frontend:
         patterns: ["*"]
         update-types: ["minor", "patch"]
+
+  # Базовые образы Dockerfile (node, python) закреплены digest'ами — Dependabot двигает их
+  # в пределах тега (22-slim, 3.12-slim); смена версии Python/Node — отдельным решением.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+    groups:
+      images:
+        patterns: ["*"]
