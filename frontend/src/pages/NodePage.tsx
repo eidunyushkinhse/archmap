@@ -90,7 +90,6 @@ async function loadNodePage(id: string): Promise<{ node: Node; ancestors: Ancest
 }
 
 export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
-  const [confirming, setConfirming] = useState(false);
   // Отказ (404 — узел удалили, 403, сеть) — экран с причиной, а не вечная «Загрузка…»
   // (аудит R-2).
   const page = useAsyncLoad(nodeId, () => loadNodePage(nodeId));
@@ -117,8 +116,6 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
       onNavigateMap={onNavigateMap}
       onNavigateProcesses={onNavigateProcesses}
       onNodeDeleted={onNodeDeleted}
-      confirming={confirming}
-      setConfirming={setConfirming}
       onEdgesReload={() => {
         // Сбой загрузки связей: список останется прежним, догонит поллинг/перезаход
         nodesApi.getEdges(nodeId).then((fresh) => page.update((d) => ({ ...d, edges: fresh }))).catch(() => {});
@@ -139,8 +136,6 @@ function NodePageInner({
   onNavigateMap,
   onNavigateProcesses,
   onNodeDeleted,
-  confirming,
-  setConfirming,
   onEdgesReload,
 }: {
   node: Node;
@@ -152,8 +147,6 @@ function NodePageInner({
   onNavigateMap?: (level: string | null, opts?: { locate?: string; ret?: string }) => void;
   onNavigateProcesses?: (processId: string) => void;
   onNodeDeleted?: (parentId: string | null) => void;
-  confirming: boolean;
-  setConfirming: (v: boolean) => void;
   onEdgesReload: () => void;
 }) {
   // Общий с секцией «Схема» курсор конкурентности (viewMeta): СОБСТВЕННЫЕ
@@ -182,6 +175,7 @@ function NodePageInner({
   const container = useContainerChildren(node.id, isContainer);
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [shapeOpen, setShapeOpen] = useState(false);
@@ -1009,11 +1003,8 @@ function NodePageInner({
           nodeId={node.id}
           nodeName={node.name}
           onClose={() => setDocsAgent(false)}
-          onApplied={() => {
-            // Дозаливка изменила мету доков узла — тянем свежий узел и
-            // применяем целиком (обновит секцию «Логика»).
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
-          }}
+          // Дозаливка изменила мету доков узла — свежий узел целиком (секция «Логика»).
+          onApplied={refreshNode}
         />
       )}
 
@@ -1025,11 +1016,9 @@ function NodePageInner({
           nodeId={node.id}
           nodeName={node.name}
           onClose={() => setReconAgent(false)}
-          onApplied={() => {
-            // Заглушки — те же схемы логики: тянем свежий узел целиком, и секция
-            // «Логика» показывает их сразу, вместе со счётчиком «описано N из M».
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
-          }}
+          // Заглушки — те же схемы логики: свежий узел целиком, и секция «Логика»
+          // показывает их сразу.
+          onApplied={refreshNode}
         />
       )}
 
@@ -1052,10 +1041,9 @@ function NodePageInner({
           onClose={() => setDistributeOpen(false)}
           onApplied={() => {
             // Перенос изменил мету узла (доки/спека ушли детям) и мету детей:
-            // тянем свежий узел (patch.refresh обновляет CAS-базу и значения
-            // полей — секции «Логика»/«OpenAPI» пересчитаются) и перезагружаем
-            // детей для объединения.
-            void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
+            // свежий узел (обновляет CAS-базу и значения полей — секции «Логика»/
+            // «OpenAPI» пересчитаются) и перезагрузка детей для объединения.
+            refreshNode();
             container.reload();
           }}
         />
