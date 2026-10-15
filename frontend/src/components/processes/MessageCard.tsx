@@ -307,8 +307,8 @@ export default function MessageCard({
         <button className="bp-btn-ghost" style={{ marginRight: "auto", color: "#dc2626" }} onClick={onRemove}>
           Удалить
         </button>
-        <button className="bp-btn-ghost" onClick={onClose}>Отмена</button>
         <button className="bp-btn-primary" onClick={onSaveCaption}>Сохранить</button>
+        <button className="bp-btn-ghost" onClick={onClose}>Отмена</button>
       </div>
     </div>
   );

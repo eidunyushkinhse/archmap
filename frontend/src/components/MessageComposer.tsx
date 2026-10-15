@@ -255,14 +255,14 @@ export default function MessageComposer({
           </div>
 
           <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
-            <button className="bp-btn-ghost" onClick={onClose}>
-              Отмена
-            </button>
             <button className="bp-btn-primary" onClick={() => void addSchemaEdge()} disabled={busy}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <IcoLink s={14} />
                 {busy ? "Добавляем…" : "Добавить связь в схему"}
               </span>
+            </button>
+            <button className="bp-btn-ghost" onClick={onClose}>
+              Отмена
             </button>
           </div>
         </div>
@@ -337,11 +337,11 @@ export default function MessageComposer({
             ))}
           </div>
           <div style={{ display: "flex", gap: 8, padding: "12px 14px 14px", justifyContent: "flex-end", borderTop: "1px solid " + BPT.line2, marginTop: 10 }}>
-            <button className="bp-btn-ghost" onClick={onClose}>
-              Отмена
-            </button>
             <button className="bp-btn-primary" onClick={() => void add()} disabled={!sel || busy}>
               Добавить сообщение
+            </button>
+            <button className="bp-btn-ghost" onClick={onClose}>
+              Отмена
             </button>
           </div>
         </>

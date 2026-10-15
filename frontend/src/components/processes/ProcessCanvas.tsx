@@ -615,7 +615,7 @@ const fragHintBar: CSSProperties = {
 };
 // Карточка «одно поле» поверх холста: рефлексивное сообщение, ветка «иначе», условие
 // фрагмента (аудит F-2: три копии одной разметки). Enter — то же, что основная кнопка;
-// extra — кнопка слева от «Отмена» (у ветки — «Убрать ветку»).
+// extra — кнопка у левого края (у ветки — «Убрать ветку»); главная — перед «Отмена».
 function PromptCard({
   title, hint, autofillKey, value, onChange, placeholder, inputStyle, inputClassName,
   submitLabel, onSubmit, onCancel, extra,
@@ -652,8 +652,8 @@ function PromptCard({
           />
           <div style={{ display: "flex", gap: 8, marginTop: 14, justifyContent: "flex-end" }}>
             {extra}
-            <button className="bp-btn-ghost" onClick={onCancel}>Отмена</button>
             <button className="bp-btn-primary" onClick={onSubmit}>{submitLabel}</button>
+            <button className="bp-btn-ghost" onClick={onCancel}>Отмена</button>
           </div>
         </div>
       </div>
