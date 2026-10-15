@@ -1,0 +1,15 @@
+ArchMap {{ .Chart.AppVersion }} установлен: {{ include "archmap.fullname" . }} в {{ .Release.Namespace }}.
+
+{{- if .Values.ingress.enabled }}
+Адрес: {{ range .Values.ingress.hosts }}http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }} {{ end }}
+{{- else if .Values.httpRoute.enabled }}
+Адрес: {{ range .Values.httpRoute.hostnames }}{{ . }} {{ end }}(маршрут HTTPRoute к Gateway кластера)
+{{- else }}
+Снаружи сервис не опубликован (ingress и httpRoute выключены). Проверить локально:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "archmap.fullname" . }} 8080:{{ .Values.service.port }}
+  → http://localhost:8080
+{{- end }}
+
+Первый администратор (пароль спросит дважды):
+  kubectl -n {{ .Release.Namespace }} exec -it deploy/{{ include "archmap.fullname" . }} -c archmap -- archmap-admin create-admin admin
+Остальных пользователей заводит администратор на экране «Пользователи».
