@@ -4,7 +4,7 @@
 // Движок (SequenceDiagram), композитор и вся механика — переиспользованы как есть
 // (drag-to-connect, хэндл «себе», покраска по статусу узла). Бэкенд/модель не трогаем.
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import { processesApi } from "../../api/processes";
 import type { FragmentKind, NodeStatus } from "../../types";
 import MessageComposer from "../MessageComposer";
@@ -463,6 +463,57 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
     }
   }
 
+  // Колбэки диаграммы по режиму (аудит F-39): в правке — правки, в просмотре их нет вовсе
+  // (по их отсутствию диаграмма прячет ручки, «призраков» и перетаскивания), зато шаг со
+  // схемой логики открывает её — тем же оверлеем, что провал из карточки шага в правке.
+  // Раньше — четырнадцать тернарников `editing ? cb : undefined`, по одному на проп.
+  const diagramModeProps: Partial<ComponentProps<typeof SequenceDiagram>> = editing ? {
+    selectMode: fragSelect,
+    onSelectRange: (from, to) => {
+      // Диапазон выбран (индексы строк) — ждём ввода условия перед созданием.
+      if (fragSelect) openOverlay({ kind: "frag", frag: fragSelect, fromRow: from, toRow: to, guard: "" });
+      setFragSelect(null);
+    },
+    onFragmentClick: (fid) => openOverlay({ kind: "delFrag", fid }),
+    onResizeFragment: (fid, from, to) => void resizeFragment(fid, from, to),
+    onMoveBranch: (fid, index, row) => void moveBranch(fid, index, row),
+    onEditBranch: (fid, index) => {
+      const frag = fragById.get(fid);
+      const guard = index != null ? (frag?.branches[index]?.guard ?? "") : "";
+      openOverlay({ kind: "branch", fid, index, guard });
+    },
+    onConnect: (fromPid, toPid) => {
+      // Граница слоёв: диаграмма говорит УЧАСТНИКАМИ, композитор и
+      // направления — узлами C4. Перевод делаем здесь, в одном месте.
+      const from = nodeOfPart(fromPid);
+      const to = nodeOfPart(toPid);
+      // У непривязанного участника узла нет, значит нет и каналов — открывать
+      // композитор не на чем.
+      if (from && to) openOverlay({ kind: "composer", from, to });
+    },
+    canConnect: (fromPid, toPid) => {
+      const from = nodeOfPart(fromPid);
+      const to = nodeOfPart(toPid);
+      return !!from && !!to && directions.has(`${from}>${to}`);
+    },
+    onSelfConnect: (pid) => openOverlay({ kind: "self", pid, caption: "" }),
+    // Карточка шага: правка подписи и удаление.
+    onMessageClick: (mid) => openOverlay({ kind: "msg", mid, caption: msgById.get(mid)?.caption ?? "" }),
+    onBindParticipant: (pid) => openOverlay({ kind: "bindPart", pid }),
+    onDeleteParticipant: (pid) => {
+      const p = partById[pid];
+      if (p) requestRemoveParticipant(p);
+    },
+    onReorderParticipants: (ids) => void reorderParticipants(ids),
+    onReorderMessages: (ids) => void reorderMessages(ids),
+  } : {
+    onOpenDoc: (mid) => {
+      const m = msgById.get(mid);
+      const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
+      if (doc) openOverlay({ kind: "doc", ...doc });
+    },
+  };
+
   // ── Тулбар над диаграммой ─────────────────────────────────────────
   const toolbar = (
     <ProcessToolbar
@@ -517,55 +568,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               fragments={seq.fragments}
               view={view}
               ghost={editing}
-              selectMode={editing ? fragSelect : null}
-              onSelectRange={editing ? (from, to) => {
-                // Диапазон выбран (индексы строк) — ждём ввода условия перед созданием.
-                if (fragSelect) openOverlay({ kind: "frag", frag: fragSelect, fromRow: from, toRow: to, guard: "" });
-                setFragSelect(null);
-              } : undefined}
-              onFragmentClick={editing ? (fid) => openOverlay({ kind: "delFrag", fid }) : undefined}
-              onResizeFragment={editing ? (fid, from, to) => void resizeFragment(fid, from, to) : undefined}
-              onMoveBranch={editing ? (fid, index, row) => void moveBranch(fid, index, row) : undefined}
-              onEditBranch={editing ? (fid, index) => {
-                const frag = fragById.get(fid);
-                const guard = index != null ? (frag?.branches[index]?.guard ?? "") : "";
-                openOverlay({ kind: "branch", fid, index, guard });
-              } : undefined}
-              onConnect={editing ? (fromPid, toPid) => {
-                // Граница слоёв: диаграмма говорит УЧАСТНИКАМИ, композитор и
-                // направления — узлами C4. Перевод делаем здесь, в одном месте.
-                const from = nodeOfPart(fromPid);
-                const to = nodeOfPart(toPid);
-                // У непривязанного участника узла нет, значит нет и каналов — открывать
-                // композитор не на чем.
-                if (from && to) openOverlay({ kind: "composer", from, to });
-              } : undefined}
-              canConnect={editing ? (fromPid, toPid) => {
-                const from = nodeOfPart(fromPid);
-                const to = nodeOfPart(toPid);
-                return !!from && !!to && directions.has(`${from}>${to}`);
-              } : undefined}
-              onSelfConnect={editing ? (pid) => openOverlay({ kind: "self", pid, caption: "" }) : undefined}
-              // Карточка шага: правка подписи и удаление.
-              onMessageClick={editing ? (mid) => {
-                openOverlay({ kind: "msg", mid, caption: msgById.get(mid)?.caption ?? "" });
-              } : undefined}
-              // Просмотр: шаг со схемой логики открывает её — тем же оверлеем, что
-              // провал из карточки шага в правке.
-              onOpenDoc={editing ? undefined : (mid) => {
-                const m = msgById.get(mid);
-                const doc = m ? stepDoc(m, detail?.participants ?? []) : null;
-                if (doc) openOverlay({ kind: "doc", ...doc });
-              }}
-              onBindParticipant={editing ? (pid) => openOverlay({ kind: "bindPart", pid }) : undefined}
               // Переход на страницу объекта — не правка: доступен и в просмотре.
               onOpenNode={onOpenNode}
-              onDeleteParticipant={editing ? (pid) => {
-                const p = partById[pid];
-                if (p) requestRemoveParticipant(p);
-              } : undefined}
-              onReorderParticipants={editing ? (nodeIds) => void reorderParticipants(nodeIds) : undefined}
-              onReorderMessages={editing ? (ids) => void reorderMessages(ids) : undefined}
+              {...diagramModeProps}
             />
           </div>
         )}
