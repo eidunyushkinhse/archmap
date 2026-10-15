@@ -669,6 +669,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const levelGhosts = useMemo(() =>
     liftEdgesToLevel({ edges, endpoints, localIds: new Set(nodes.map((n) => n.id)), containerId: currentParentId }).ghosts,
     [edges, endpoints, nodes, currentParentId]);
+  // Что не предлагать в выборе «связь вне уровня»: сам источник и всё, что уже на уровне.
+  // Мемо: выбор держит от набора свой фильтр, и новый Set на каждый рендер редактора
+  // пересобирал бы его впустую.
+  const outExcludeIds = useMemo(
+    () => new Set<string>(outPicker ? [outPicker.sourceId, ...nodes.map((n) => n.id), ...levelGhosts.map((g) => g.id)] : []),
+    [outPicker, nodes, levelGhosts],
+  );
 
   const linkedHighlight = useMemo((): LinkedHighlight | null => {
     if (!selectedObject) return null;
@@ -987,7 +994,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
         <CrossLevelEdgePicker title="Связь с объектом вне уровня"
           sourceId={outPicker.sourceId} sourceLabel={outPicker.sourceName ?? findNodeLabel(outPicker.sourceId)}
           loadNodes={() => nodesApi.getAll()} scopeKey="all" rootParentId={null} slotPlaceholder="Объект вне уровня…"
-          excludeIds={new Set<string>([outPicker.sourceId, ...nodes.map((n) => n.id), ...levelGhosts.map((g) => g.id)])}
+          excludeIds={outExcludeIds}
           onClose={() => setOutPicker(null)}
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }} />
       )}
