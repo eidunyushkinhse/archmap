@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 import { changePassword } from "../../api/auth";
 import Modal from "../../ui/Modal";
 import { errText, input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
+import { useBusyAction } from "../../ui/useBusyAction";
 
 /**
  * «Сменить пароль» из меню профиля (у всех): текущий пароль, новый и повтор.
@@ -18,8 +19,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   const [oldPassword, setOldPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [repeat, setRepeat] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useBusyAction("Не удалось сменить пароль");
   const [done, setDone] = useState(false);
 
   const mismatch = repeat.length > 0 && repeat !== newPassword;
@@ -27,16 +27,8 @@ export default function ChangePasswordDialog({ onClose }: Props) {
 
   async function submit() {
     if (!canSubmit) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await changePassword(oldPassword, newPassword);
-      setDone(true);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Не удалось сменить пароль");
-    } finally {
-      setBusy(false);
-    }
+    // Успех сменяет вид окна на «Пароль изменён» — занятость формы там уже не видна.
+    await run(() => changePassword(oldPassword, newPassword).then(() => setDone(true)));
   }
 
   if (done) {
