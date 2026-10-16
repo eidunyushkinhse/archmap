@@ -10,7 +10,9 @@
   },
   "scripts": {
     "build": "node src/build.ts",
-    "dev": "node src/build.ts --serve",
+    "dev": "node src/server.ts --dev",
+    "start": "node src/server.ts",
+    "password": "node src/server.ts --set-password",
     "report": "node src/build.ts --report",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\"",

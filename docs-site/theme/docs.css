@@ -1,6 +1,7 @@
 /* Тема документации ArchMap. Палитра и типографика — как у приложения (frontend/src/ui/styles.ts,
    pageChrome.ts, LoginPage.css): одна светлая тема, slate-нейтрали, синий акцент #2563eb,
-   системный шрифт, радиусы 8–12, мягкие тени. */
+   системный шрифт, радиусы 6–12, мягкие тени. Дерево страниц слева повторяет дерево объектов
+   продукта (NodeTreePanel.css: строки .nt-*, шеврон-зона, направляющая вложенности). */
 :root {
   --ink: #0f172a;
   --ink-2: #1e293b;
@@ -16,14 +17,13 @@
   --blue: #2563eb;
   --blue-ink: #1d4ed8;
   --blue-soft: #eff6ff;
+  --blue-mark: #dbeafe;
   --blue-line: #93c5fd;
   --code-bg: #0f172a;
   --sans: system-ui, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "JetBrains Mono", Consolas, monospace;
   --top-h: 56px;
-  --side-w: 264px;
-  --outline-w: 216px;
-  --wrap: 1440px;
+  --side-w: 300px;
   --gut: clamp(16px, 3vw, 32px);
   color-scheme: light;
 }
@@ -43,12 +43,30 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
-/* Подвал прижат к низу и на коротких страницах */
-.shell, .home-main, .main-solo { flex: 1 0 auto; width: 100%; }
 
 a { color: var(--blue); }
 
 :focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
+
+/* Кнопки — как в приложении (ui/styles.ts, index.css .btn-soft) */
+.btn-primary, .btn-soft, .btn-danger {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.1;
+  padding: 9px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--blue-ink); }
+.btn-soft { background: var(--panel-2); color: var(--mute); border-color: var(--line); }
+.btn-soft:hover:not(:disabled) { background: var(--line); border-color: #cbd5e1; }
+.btn-danger { background: #fff; color: #dc2626; border-color: #fecaca; }
+.btn-danger:hover:not(:disabled) { background: #fef2f2; border-color: #fca5a5; }
+button:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ── Шапка ──────────────────────────────────────────────────────────────────── */
 .top {
@@ -60,9 +78,7 @@ a { color: var(--blue); }
   border-bottom: 1px solid var(--line);
 }
 .top-in {
-  max-width: var(--wrap);
   height: 100%;
-  margin: 0 auto;
   padding: 0 var(--gut);
   display: flex;
   align-items: center;
@@ -96,40 +112,7 @@ a { color: var(--blue); }
 .brand-div { width: 1px; height: 22px; background: var(--line); margin: 0 4px; }
 .brand-sub { font-size: 14.5px; font-weight: 600; color: var(--mute); }
 
-.guides {
-  display: flex;
-  flex: none;
-  gap: 2px;
-  padding: 3px;
-  margin-left: 6px;
-  background: var(--panel-2);
-  border-radius: 10px;
-}
-.guide-tab {
-  padding: 5px 12px;
-  border-radius: 8px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--mute);
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.guide-tab:hover { color: var(--ink); }
-.guide-tab.active { background: var(--paper); color: var(--ink); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1); }
-
 .top-right { display: flex; align-items: center; gap: 10px; margin-left: auto; min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
-.top-link {
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--mute);
-  text-decoration: none;
-  padding: 6px 8px;
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.top-link:hover { background: var(--panel-2); color: var(--ink); }
-.top-icon { display: inline-flex; padding: 7px; }
 
 .menu-btn {
   display: none;
@@ -147,8 +130,67 @@ a { color: var(--blue); }
 }
 .menu-btn:hover { background: var(--panel-2); }
 
+/* Авторский режим: кнопки появляются только у вошедшего автора (их ставит docs.js) */
+.author-slot { display: flex; align-items: center; gap: 8px; }
+.author-slot:empty { display: none; }
+.author-btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--blue-ink);
+  background: var(--blue-soft);
+  border: 1px solid var(--blue-line);
+  border-radius: 8px;
+  padding: 6px 12px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.author-btn:hover { background: var(--blue-mark); }
+.author-menu { position: relative; }
+.author-menu-btn {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--mute);
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.author-menu-btn:hover { background: var(--panel-2); color: var(--ink); }
+.author-menu-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 200px;
+  padding: 6px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  z-index: 50;
+}
+.author-menu-pop[hidden] { display: none; }
+.author-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink-3);
+  background: none;
+  border: none;
+  border-radius: 7px;
+  padding: 8px 10px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.author-menu-item:hover { background: var(--panel-2); color: var(--ink); }
+
 /* Поиск */
-.search { position: relative; flex: 0 1 340px; min-width: 150px; }
+.search { position: relative; flex: 0 1 300px; min-width: 150px; }
 .search input {
   width: 100%;
   height: 34px;
@@ -192,13 +234,7 @@ a { color: var(--blue); }
   z-index: 50;
 }
 .search-pop[hidden] { display: none; }
-.sr {
-  display: block;
-  padding: 8px 10px;
-  border-radius: 8px;
-  color: var(--ink);
-  text-decoration: none;
-}
+.sr { display: block; padding: 8px 10px; border-radius: 8px; color: var(--ink); text-decoration: none; }
 .sr:hover, .sr[aria-selected="true"] { background: var(--blue-soft); }
 .sr-head { display: flex; align-items: baseline; gap: 8px; font-size: 14px; }
 .sr-title { font-weight: 600; }
@@ -218,100 +254,74 @@ a { color: var(--blue); }
 .sr mark { background: rgba(37, 99, 235, 0.14); color: inherit; border-radius: 3px; padding: 0 1px; }
 .sr-empty { padding: 14px 12px; font-size: 14px; color: var(--mute-2); }
 
-/* ── Каркас: навигация · статья · оглавление ────────────────────────────────── */
+/* ── Каркас: дерево · статья ────────────────────────────────────────────────── */
 .shell {
-  max-width: var(--wrap);
-  margin: 0 auto;
-  padding: 0 var(--gut);
+  flex: 1 0 auto;
+  width: 100%;
   display: grid;
-  grid-template-columns: var(--side-w) minmax(0, 1fr) var(--outline-w);
-  gap: 0 44px;
+  grid-template-columns: var(--side-w) minmax(0, 1fr);
   align-items: start;
 }
-.main { min-width: 0; padding: 26px 0 56px; }
-.main-solo { max-width: 800px; margin: 0 auto; padding: 32px var(--gut) 56px; }
-.article { max-width: 760px; }
+.main { min-width: 0; padding: 26px var(--gut) 56px; }
+.article { max-width: 780px; }
 
-/* Навигация руководства */
+/* Панель дерева — как NodeTreePanel: фон #fbfcfd, правая граница, строки .nt-* */
 .side {
   position: sticky;
   top: var(--top-h);
   height: calc(100vh - var(--top-h));
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 22px 14px 40px 0;
-  border-right: 1px solid var(--line-soft);
-  font-size: 14px;
+  padding: 10px 0 40px;
+  background: #fbfcfd;
+  border-right: 1px solid var(--line);
   scrollbar-width: thin;
 }
-.side-guides { display: none; }
-.side-guide {
+.tree { display: block; }
+.nt-row {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 9px 10px;
-  margin-bottom: 12px;
-  border-radius: 10px;
-  background: var(--panel);
-  color: var(--ink);
-  font-weight: 700;
-  font-size: 13.5px;
-  text-decoration: none;
-  line-height: 1.25;
-}
-.side-guide:hover { background: var(--panel-2); }
-.side-guide.active { color: var(--blue-ink); }
-.role-ico { flex: none; color: var(--blue); }
-.side-nav { display: flex; flex-direction: column; gap: 1px; }
-.side-item {
-  display: block;
-  padding: 6px 10px;
-  border-radius: 8px;
-  color: var(--ink-3);
-  text-decoration: none;
-  line-height: 1.35;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-.side-item:hover { background: var(--panel-2); color: var(--ink); }
-.side-item.active { background: var(--blue-soft); color: var(--blue-ink); font-weight: 600; }
-.side-group { margin-top: 14px; }
-.side-group-title {
-  display: block;
-  padding: 4px 10px;
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--mute-2);
-  text-decoration: none;
-}
-a.side-group-title:hover, a.side-group-title.active { color: var(--blue-ink); }
-.side-depth-1 .side-item { padding-left: 20px; }
-
-/* Оглавление */
-.outline {
-  position: sticky;
-  top: var(--top-h);
-  max-height: calc(100vh - var(--top-h));
-  overflow-y: auto;
-  padding: 26px 0 40px 16px;
+  gap: 7px;
+  padding: 5px 8px 5px 2px;
+  margin: 0 6px;
+  border-radius: 6px;
   font-size: 13px;
-  scrollbar-width: thin;
+  line-height: 1.3;
+  color: var(--ink-3);
+  cursor: pointer;
 }
-.outline-title { font-size: 11.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--mute-2); margin: 0 0 8px; }
-.outline ul { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--line); }
-.outline li a {
-  display: block;
-  padding: 4px 0 4px 12px;
-  margin-left: -1px;
-  border-left: 2px solid transparent;
-  color: var(--mute);
-  text-decoration: none;
-  line-height: 1.4;
+.nt-row:hover { background: var(--blue-soft); }
+.nt-row:hover .nt-name, .nt-row:hover .nt-glyph { color: var(--blue-ink); }
+.nt-row--current, .nt-row--current:hover { background: var(--blue-mark); box-shadow: inset 2px 0 0 var(--blue); }
+.nt-row--current .nt-name, .nt-row--current .nt-glyph { color: var(--blue-ink); font-weight: 600; }
+/* Длинные названия переносятся (в дереве объектов продукта — усечение, но названия
+   страниц документации длиннее имён узлов и должны читаться целиком) */
+.nt-link { display: flex; align-items: flex-start; gap: 7px; flex: 1; min-width: 0; color: inherit; text-decoration: none; }
+.nt-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nt-name--container { font-weight: 600; color: var(--ink-2); }
+.nt-glyph { flex: none; display: inline-flex; align-items: center; margin-top: 2.5px; color: var(--mute-2); }
+.nt-chevzone {
+  width: 26px;
+  align-self: stretch;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: -5px 0;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--faint);
 }
-.outline li.ol-3 a { padding-left: 24px; font-size: 12.5px; }
-.outline li a:hover { color: var(--ink); }
-.outline li a.active { color: var(--blue-ink); border-left-color: var(--blue); font-weight: 600; }
+.nt-chevhit { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; transition: background 0.12s ease, color 0.12s ease; }
+.nt-chevzone:hover .nt-chevhit { background: var(--blue-mark); color: var(--blue-ink); }
+.nt-chev { display: inline-block; line-height: 1; transition: transform 0.12s ease; }
+.nt-chev svg { display: block; }
+.nt-node--open > .nt-row .nt-chev { transform: rotate(90deg); }
+.nt-chevspacer { width: 26px; flex: none; }
+.nt-children { margin-left: 21px; padding-left: 6px; border-left: 1px solid #e6eaf0; }
+.nt-children[hidden] { display: none; }
 
 /* Крошки */
 .crumbs {
@@ -466,100 +476,71 @@ a.side-group-title:hover, a.side-group-title.active { color: var(--blue-ink); }
 .details summary { padding: 11px 0; font-weight: 600; color: var(--ink); cursor: pointer; }
 .details[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 12px; }
 
-/* Разделы на титульной странице руководства */
-.sections { margin-top: 36px; }
-.sections-title { margin-bottom: 14px !important; }
-.sec-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.sec-card {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  text-decoration: none !important;
-  color: var(--ink);
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-}
-.sec-card:hover { border-color: var(--blue-line); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06); }
-.sec-title { font-weight: 600; color: var(--blue-ink); }
+/* Списки разделов (главная, титульная руководства) */
+.sections { margin-top: 32px; }
+.sections-title { margin-bottom: 10px !important; }
+.sec-list { list-style: none; margin: 0; padding: 0; }
+.sec-list li { padding: 9px 0; border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 2px; }
+.sec-list li:first-child { border-top: none; }
+.sec-list a { font-weight: 600; text-decoration: none; }
 .sec-desc { font-size: 14px; line-height: 1.45; color: var(--mute); }
 
-/* Подвал статьи */
-.article-foot { max-width: 760px; margin-top: 36px; }
-.edit { display: inline-flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--mute-2); text-decoration: none; }
-.edit:hover { color: var(--blue-ink); }
-.pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
-.pager a {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 12px 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  text-decoration: none;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
-}
-.pager a:hover { border-color: var(--blue-line); box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06); }
-.pager-next { text-align: right; align-items: flex-end; }
-.pager-label { font-size: 12px; color: var(--mute-2); }
-.pager-title { font-size: 14.5px; font-weight: 600; color: var(--blue-ink); }
+/* Соседи страницы */
+.pager { display: flex; justify-content: space-between; gap: 16px; max-width: 780px; margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--line-soft); font-size: 14px; }
+.pager a { text-decoration: none; font-weight: 600; color: var(--blue-ink); }
+.pager a:hover { text-decoration: underline; }
+.pager-next { text-align: right; margin-left: auto; }
 
 /* Подвал сайта */
 .foot { border-top: 1px solid var(--line); background: var(--panel); font-size: 13px; color: var(--mute-2); }
-.foot-in { max-width: var(--wrap); margin: 0 auto; padding: 16px var(--gut); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.foot-in { padding: 14px var(--gut); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .foot-links { display: flex; gap: 18px; }
 .foot a { color: var(--mute); text-decoration: none; }
 .foot a:hover { color: var(--blue-ink); }
 
-/* ── Главная ────────────────────────────────────────────────────────────────── */
-.home-main { max-width: 1040px; margin: 0 auto; padding: 56px var(--gut) 72px; }
-.hero h1 { margin: 0 0 14px; font-size: 42px; line-height: 1.1; font-weight: 800; letter-spacing: -0.03em; color: var(--ink); text-wrap: balance; }
-.hero-text { max-width: 720px; font-size: 17.5px; line-height: 1.55; color: var(--mute); }
-.hero-text p { margin: 0 0 12px; }
-.guide-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 36px; }
-.guide-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 22px 22px 18px;
+/* ── Вход автора ────────────────────────────────────────────────────────────── */
+.login-page { background: var(--panel); }
+.login-main { flex: 1 0 auto; display: flex; align-items: flex-start; justify-content: center; padding: 64px var(--gut); }
+.login-card {
+  width: min(420px, 100%);
+  padding: 28px 28px 24px;
+  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--paper);
-  color: var(--ink);
-  text-decoration: none;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease, transform 0.12s ease;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
 }
-.guide-card:hover { border-color: var(--blue-line); box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08); transform: translateY(-1px); }
-.guide-card-ico { display: inline-flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 10px; background: var(--blue-soft); color: var(--blue); }
-.guide-card-ico .role-ico { width: 22px; height: 22px; }
-.guide-card-title { font-size: 18px; font-weight: 700; letter-spacing: -0.01em; }
-.guide-card-desc { font-size: 14.5px; line-height: 1.5; color: var(--mute); flex: 1; }
-.guide-card-more { font-size: 14px; font-weight: 600; color: var(--blue-ink); margin-top: 6px; }
-.home-links { display: flex; flex-wrap: wrap; gap: 10px 26px; margin-top: 36px; font-size: 14.5px; }
-.home-links a { color: var(--mute); text-decoration: none; }
-.home-links a:hover { color: var(--blue-ink); }
+.login-card h1 { margin: 0 0 8px; font-size: 22px; font-weight: 800; letter-spacing: -0.02em; color: var(--ink); }
+.login-hint { margin: 0 0 18px; font-size: 14px; line-height: 1.5; color: var(--mute); }
+.login-form { display: flex; flex-direction: column; gap: 8px; }
+.login-form label { font-size: 13px; font-weight: 600; color: var(--mute); }
+.login-form input {
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+}
+.login-form input:focus { outline: none; border-color: var(--blue-line); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+.login-form .btn-primary { margin-top: 8px; align-self: flex-start; }
+.login-error { margin: 4px 0 0; font-size: 13.5px; color: #dc2626; }
+.login-error code { font-family: var(--mono); font-size: 0.92em; }
 
 /* ── Адаптив ────────────────────────────────────────────────────────────────── */
 @media (max-width: 1180px) {
-  .shell { grid-template-columns: var(--side-w) minmax(0, 1fr); }
-  .outline { display: none; }
-  .top-link:not(.top-icon), .search-kbd { display: none; }
+  .search-kbd { display: none; }
   .search input { padding-right: 12px; }
 }
 
 @media (max-width: 920px) {
-  .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  :root { --side-w: 300px; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
   .menu-btn { display: inline-flex; }
-  .guides { display: none; }
   .side {
     position: fixed;
     left: 0;
     top: var(--top-h);
-    width: min(320px, 88vw);
-    padding: 16px 14px 40px;
-    background: var(--paper);
-    border-right: 1px solid var(--line);
+    width: min(var(--side-w), 88vw);
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.16);
     transform: translateX(-100%);
     transition: transform 0.2s ease;
@@ -569,25 +550,15 @@ a.side-group-title:hover, a.side-group-title.active { color: var(--blue-ink); }
   .side-backdrop { position: fixed; inset: var(--top-h) 0 0; background: rgba(15, 23, 42, 0.3); opacity: 0; pointer-events: none; transition: opacity 0.2s ease; z-index: 34; }
   body.menu-open .side-backdrop { opacity: 1; pointer-events: auto; }
   body.menu-open { overflow: hidden; }
-  .side-guides { display: block; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
-  .side-guides-title { padding: 0 10px 6px; font-size: 11.5px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--mute-2); }
-  .side-guides-item { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 8px; color: var(--ink-3); text-decoration: none; }
-  .side-guides-item:hover { background: var(--panel-2); }
-  .side-guides-item.active { color: var(--blue-ink); font-weight: 600; background: var(--blue-soft); }
-  .guide-cards { grid-template-columns: 1fr; }
-  .hero h1 { font-size: 32px; }
-  .home-main { padding-top: 36px; }
 }
 
 @media (max-width: 760px) {
-  .brand-div, .brand-sub, .top-link:not(.top-icon) { display: none; }
-  .search { width: auto; flex: 1 1 auto; }
-  .search-kbd { display: none; }
+  .brand-div, .brand-sub { display: none; }
+  .search { flex: 1 1 auto; }
   .search-pop { position: fixed; left: var(--gut); right: var(--gut); top: calc(var(--top-h) + 4px); width: auto; }
   .article h1 { font-size: 27px; }
-  .sec-grid, .pager { grid-template-columns: 1fr; }
-  .pager-next { text-align: left; align-items: flex-start; }
   .main { padding-top: 18px; }
+  .author-btn { padding: 6px 9px; }
 }
 
 @media (max-width: 420px) {

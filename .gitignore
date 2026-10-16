@@ -17,6 +17,8 @@ node_modules/
 frontend/dist/
 frontend/dist-embed/
 docs-site/dist/
+# Сервер документации: ключ подписи сессий автора (.env с паролем — общим правилом .env)
+docs-site/.data/
 dist-bundle/
 frontend/dist-ssr/
 *.local

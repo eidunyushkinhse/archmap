@@ -1,53 +1,71 @@
-// Поведение сайта документации: навигация-ящик на узких экранах, подсветка оглавления,
-// кнопки «Копировать» у кода, поиск (MiniSearch и индекс грузятся при первом обращении).
+// Поведение сайта документации: дерево страниц (раскрытие веток, память раскрытий), ящик
+// дерева на узких экранах, кнопки «Копировать» у кода, поиск (MiniSearch и индекс грузятся
+// при первом обращении), авторский режим — кнопки правки у вошедшего автора.
 (() => {
   "use strict";
 
-  // ── Ящик навигации ───────────────────────────────────────────────────────────
+  // ── Дерево страниц ──────────────────────────────────────────────────────────
+  const OPEN_KEY = "docs.tree.open";
+  const readOpen = () => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(OPEN_KEY) || "[]"));
+    } catch {
+      return new Set();
+    }
+  };
+  const writeOpen = (set) => {
+    try {
+      localStorage.setItem(OPEN_KEY, JSON.stringify([...set]));
+    } catch {
+      /* хранилище недоступно — раскрытия живут до перезагрузки */
+    }
+  };
+  const tree = document.querySelector(".tree");
+  if (tree) {
+    const open = readOpen();
+    const setOpen = (node, isOpen) => {
+      node.classList.toggle("nt-node--open", isOpen);
+      const kids = node.querySelector(":scope > .nt-children");
+      if (kids) kids.hidden = !isOpen;
+      const btn = node.querySelector(":scope > .nt-row [data-toggle]");
+      if (btn) {
+        btn.setAttribute("aria-expanded", String(isOpen));
+        btn.setAttribute("aria-label", isOpen ? "Свернуть ветку" : "Развернуть ветку");
+      }
+    };
+    // Ветки, раскрытые в разметке (путь к текущей странице), запоминаются; остальные —
+    // как оставил посетитель в прошлый раз
+    for (const node of tree.querySelectorAll(".nt-node")) {
+      const file = node.dataset.file;
+      if (!file || !node.querySelector(":scope > .nt-children")) continue;
+      if (node.classList.contains("nt-node--open")) open.add(file);
+      else if (open.has(file)) setOpen(node, true);
+    }
+    writeOpen(open);
+    tree.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-toggle]");
+      if (!btn) return;
+      ev.preventDefault();
+      const node = btn.closest(".nt-node");
+      const isOpen = !node.classList.contains("nt-node--open");
+      setOpen(node, isOpen);
+      if (isOpen) open.add(node.dataset.file);
+      else open.delete(node.dataset.file);
+      writeOpen(open);
+    });
+    const current = tree.querySelector(".nt-row--current");
+    if (current && typeof current.scrollIntoView === "function") current.scrollIntoView({ block: "center" });
+  }
+
+  // ── Ящик дерева на узких экранах ────────────────────────────────────────────
   const menuBtn = document.querySelector("[data-menu]");
-  const setMenu = (open) => {
-    document.body.classList.toggle("menu-open", open);
-    if (menuBtn) menuBtn.setAttribute("aria-expanded", String(open));
+  const setMenu = (isOpen) => {
+    document.body.classList.toggle("menu-open", isOpen);
+    if (menuBtn) menuBtn.setAttribute("aria-expanded", String(isOpen));
   };
   if (menuBtn) menuBtn.addEventListener("click", () => setMenu(!document.body.classList.contains("menu-open")));
   const backdrop = document.querySelector("[data-menu-close]");
   if (backdrop) backdrop.addEventListener("click", () => setMenu(false));
-
-  // Текущий пункт навигации — в видимой области
-  const activeItem = document.querySelector(".side-item.active, .side-group-title.active");
-  if (activeItem && typeof activeItem.scrollIntoView === "function") {
-    activeItem.scrollIntoView({ block: "center" });
-  }
-
-  // ── Оглавление: подсветка раздела, который на экране ─────────────────────────
-  const outlineLinks = Array.from(document.querySelectorAll("[data-outline]"));
-  if (outlineLinks.length) {
-    const targets = outlineLinks
-      .map((a) => ({ a, el: document.getElementById(a.dataset.outline) }))
-      .filter((x) => x.el);
-    let ticking = false;
-    const update = () => {
-      ticking = false;
-      const line = 96;
-      let current = targets[0];
-      for (const t of targets) {
-        if (t.el.getBoundingClientRect().top <= line) current = t;
-        else break;
-      }
-      // Страница докручена до конца — активен последний раздел, даже если он короткий
-      if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2) {
-        current = targets[targets.length - 1];
-      }
-      for (const t of targets) t.a.classList.toggle("active", t === current);
-    };
-    window.addEventListener("scroll", () => {
-      if (!ticking) {
-        ticking = true;
-        requestAnimationFrame(update);
-      }
-    }, { passive: true });
-    update();
-  }
 
   // ── Копирование кода ─────────────────────────────────────────────────────────
   for (const pre of document.querySelectorAll(".article pre")) {
@@ -71,6 +89,43 @@
       }
     });
     pre.appendChild(btn);
+  }
+
+  // ── Авторский режим ──────────────────────────────────────────────────────────
+  // Маркер docs_author ставит сервер при входе; сам вход — по адресу /login, ссылок на него нет.
+  const isAuthor = /(^|;\s*)docs_author=1(;|$)/.test(document.cookie);
+  const slot = document.querySelector("[data-author-slot]");
+  if (isAuthor && slot && !document.body.classList.contains("editor-page")) {
+    const file = document.body.dataset.file;
+    if (file) {
+      const edit = document.createElement("a");
+      edit.className = "author-btn";
+      edit.href = "/edit/?file=" + encodeURIComponent(file);
+      edit.textContent = "Редактировать";
+      slot.appendChild(edit);
+    }
+    const menu = document.createElement("div");
+    menu.className = "author-menu";
+    menu.innerHTML =
+      '<button type="button" class="author-menu-btn" aria-haspopup="true" aria-expanded="false">Автор ▾</button>'
+      + '<div class="author-menu-pop" hidden>'
+      + '<a class="author-menu-item" href="/edit/">Редактор</a>'
+      + '<button type="button" class="author-menu-item" data-logout>Выйти</button>'
+      + "</div>";
+    slot.appendChild(menu);
+    const btn = menu.querySelector(".author-menu-btn");
+    const pop = menu.querySelector(".author-menu-pop");
+    btn.addEventListener("click", () => {
+      pop.hidden = !pop.hidden;
+      btn.setAttribute("aria-expanded", String(!pop.hidden));
+    });
+    document.addEventListener("click", (ev) => {
+      if (!menu.contains(ev.target)) pop.hidden = true;
+    });
+    menu.querySelector("[data-logout]").addEventListener("click", async () => {
+      await fetch("/logout", { method: "POST", headers: { "X-Requested-With": "docs" } });
+      location.reload();
+    });
   }
 
   // ── Поиск ────────────────────────────────────────────────────────────────────
@@ -122,7 +177,6 @@
     const re = new RegExp("(" + words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|") + ")", "giu");
     return esc(text).replace(re, "<mark>$1</mark>");
   };
-  // Кусок текста вокруг первого совпадения
   const snippet = (text, words) => {
     const low = text.toLowerCase();
     let at = -1;

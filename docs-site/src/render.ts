@@ -1,18 +1,19 @@
 // HTML-шаблоны сайта документации. Внешний вид — как у самого ArchMap (ui/styles.ts,
-// pageChrome.ts): светлая тема, slate-нейтрали, синий акцент #2563eb, системный шрифт,
-// логотип-знак из ui/icons.tsx. Три колонки: навигация руководства · статья · оглавление.
+// pageChrome.ts, NodeTreePanel.css): светлая тема, slate-нейтрали, синий акцент #2563eb,
+// системный шрифт, логотип-знак из ui/icons.tsx. Слева — дерево страниц в стиле дерева
+// объектов продукта (строки .nt-*), справа — статья. Авторские элементы (кнопки правки)
+// в разметке отсутствуют: их добавляет docs.js, когда видит cookie автора.
 import { navPath } from "./content.ts";
 import { escapeHtml as h } from "./html.ts";
-import type { Guide, Heading, NavItem, Page, Site } from "./types.ts";
+import type { Guide, NavItem, Page, Site } from "./types.ts";
 
 export const SITE = {
   name: "ArchMap",
   docsTitle: "Документация",
+  homeLabel: "Домашняя страница",
   productUrl: "https://archmap.tech",
   demoUrl: "https://demo.archmap.tech",
   repoUrl: "https://github.com/eidunyushkinhse/archmap",
-  releasesUrl: "https://github.com/eidunyushkinhse/archmap/releases",
-  editBase: "https://github.com/eidunyushkinhse/archmap/edit/main/docs-site/content/",
 };
 
 // Адреса статики с версией в query (кэш браузера сбрасывается при любой правке файла)
@@ -20,6 +21,8 @@ export interface Assets {
   css: string;
   hljs: string;
   js: string;
+  editorCss: string;
+  editorJs: string;
   favicon: string;
   search: string;
 }
@@ -33,24 +36,17 @@ const ICON_SEARCH =
   '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>';
 const ICON_MENU =
   '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>';
-const ICON_GITHUB =
-  '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.17c-3.2.7-3.87-1.37-3.87-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.09 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.52 11.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>';
-const ICON_EDIT =
-  '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L18.5 9.5l-4-4L4 16z"/><path d="m13 7 4 4"/></svg>';
 
-// Значки ролей для карточек и шапки навигации (ключ — папка руководства)
-const ROLE_ICONS: Record<string, string> = {
-  user: '<circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6 8-6s8 2 8 6"/>',
-  architect: '<circle cx="6.5" cy="7" r="2.6"/><rect x="13" y="13.5" width="6.5" height="6" rx="1.5"/><path d="m8.5 9 4.5 4.5"/><path d="M4 17h5M6.5 14.5v5"/>',
-  admin: '<path d="M12 3 4.5 6v5c0 4.5 3.2 8 7.5 10 4.3-2 7.5-5.5 7.5-10V6z"/><path d="m9.5 12 1.8 1.8 3.5-3.6"/>',
-};
-const ROLE_ICON_DEFAULT = '<path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z"/><path d="M4 18V5.5M8 7h8M8 11h6"/>';
+// Глифы дерева — те же, что в дереве объектов продукта (nodeTree.shared.tsx):
+// контейнер — «коробка с крышкой», лист — прямоугольник; плюс дом для главной.
+const GLYPH_ATTRS = 'fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"';
+const GLYPH_CONTAINER = `<span class="nt-glyph"><svg width="14" height="12" viewBox="0 0 14 12"><rect x="1" y="3.5" width="12" height="7.5" rx="2" ${GLYPH_ATTRS}/><path d="M3.5 3.5 V2 a1 1 0 0 1 1-1 h5 a1 1 0 0 1 1 1 v1.5" ${GLYPH_ATTRS}/></svg></span>`;
+const GLYPH_LEAF = `<span class="nt-glyph"><svg width="14" height="12" viewBox="0 0 14 12"><rect x="1.5" y="1.5" width="11" height="9" rx="2" ${GLYPH_ATTRS}/></svg></span>`;
+const GLYPH_HOME = `<span class="nt-glyph"><svg width="14" height="12" viewBox="0 0 14 12"><path d="M1.5 6.2 7 1.5l5.5 4.7M3 5v5.5h8V5" ${GLYPH_ATTRS}/></svg></span>`;
+const CHEVRON =
+  '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6 L15 12 L9 18"/></svg>';
 
-function roleIcon(key: string): string {
-  return `<svg class="role-ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ROLE_ICONS[key] ?? ROLE_ICON_DEFAULT}</svg>`;
-}
-
-function head(title: string, description: string, a: Assets): string {
+export function head(title: string, description: string, a: Assets, extraCss = ""): string {
   return `<!doctype html>
 <html lang="ru">
 <head>
@@ -61,67 +57,81 @@ function head(title: string, description: string, a: Assets): string {
 <link rel="icon" type="image/svg+xml" href="${a.favicon}">
 <link rel="stylesheet" href="${a.css}">
 <link rel="stylesheet" href="${a.hljs}">
+${extraCss ? `<link rel="stylesheet" href="${extraCss}">` : ""}
 </head>`;
 }
 
-function header(site: Site, active: Guide | null, withMenu: boolean): string {
-  const tabs = site.guides
-    .map((g) => `<a class="guide-tab${g === active ? " active" : ""}" href="${g.index.url}"${g === active ? ' aria-current="page"' : ""}>${h(g.short)}</a>`)
-    .join("");
+// Шапка: логотип, «Документация», поиск. Правый край — слот автора (заполняет docs.js).
+export function header(withMenu: boolean, withSearch: boolean, subtitle = SITE.docsTitle): string {
   return `<header class="top">
 <div class="top-in">
-${withMenu ? `<button type="button" class="menu-btn" data-menu aria-label="Открыть навигацию" aria-expanded="false">${ICON_MENU}</button>` : ""}
-<a class="brand" href="/">${LOGO}<span class="brand-word">Arch<b>Map</b></span><span class="brand-div"></span><span class="brand-sub">${h(SITE.docsTitle)}</span></a>
-<nav class="guides" aria-label="Руководства">${tabs}</nav>
+${withMenu ? `<button type="button" class="menu-btn" data-menu aria-label="Открыть дерево страниц" aria-expanded="false">${ICON_MENU}</button>` : ""}
+<a class="brand" href="/">${LOGO}<span class="brand-word">Arch<b>Map</b></span><span class="brand-div"></span><span class="brand-sub">${h(subtitle)}</span></a>
 <div class="top-right">
-<div class="search" data-search>
+${withSearch ? `<div class="search" data-search>
 <span class="search-ico">${ICON_SEARCH}</span>
-<input type="search" placeholder="Поиск по документации" aria-label="Поиск по документации" autocomplete="off" spellcheck="false">
+<input type="search" placeholder="Поиск" aria-label="Поиск по документации" autocomplete="off" spellcheck="false">
 <kbd class="search-kbd" aria-hidden="true">Ctrl K</kbd>
 <div class="search-pop" role="listbox" hidden></div>
-</div>
-<a class="top-link" href="${SITE.productUrl}">archmap.tech</a>
-<a class="top-link top-icon" href="${SITE.repoUrl}" aria-label="Репозиторий на GitHub" title="GitHub">${ICON_GITHUB}</a>
+</div>` : ""}
+<div class="author-slot" data-author-slot></div>
 </div>
 </div>
 </header>`;
 }
 
-function navList(items: NavItem[], page: Page, depth: number): string {
-  let out = "";
-  for (const it of items) {
-    if (it.kind === "page") {
-      const active = it.page === page;
-      out += `<a class="side-item${active ? " active" : ""}" href="${it.page.url}"${active ? ' aria-current="page"' : ""}>${h(it.page.title)}</a>`;
-    } else {
-      const active = it.index === page;
-      const title = it.index
-        ? `<a class="side-group-title${active ? " active" : ""}" href="${it.index.url}">${h(it.title)}</a>`
-        : `<div class="side-group-title">${h(it.title)}</div>`;
-      out += `<div class="side-group side-depth-${depth}">${title}${navList(it.items, page, depth + 1)}</div>`;
-    }
-  }
-  return out;
+// ── Дерево страниц (стиль дерева объектов продукта) ──────────────────────────────
+function treeRow(opts: { page: Page; label: string; glyph: string; current: boolean; children: string; open: boolean; container: boolean }): string {
+  const { page, label, glyph, current, children, open, container } = opts;
+  const chev = children
+    ? `<button type="button" class="nt-chevzone" data-toggle aria-expanded="${open}" aria-label="${open ? "Свернуть ветку" : "Развернуть ветку"}"><span class="nt-chevhit"><span class="nt-chev">${CHEVRON}</span></span></button>`
+    : '<span class="nt-chevspacer"></span>';
+  return `<div class="nt-node${open ? " nt-node--open" : ""}" data-file="${h(page.file)}">
+<div class="nt-row${current ? " nt-row--current" : ""}">${chev}<a class="nt-link" href="${page.url}"${current ? ' aria-current="page"' : ""}>${glyph}<span class="nt-name${container ? " nt-name--container" : ""}">${h(label)}</span></a></div>
+${children ? `<div class="nt-children"${open ? "" : " hidden"}>${children}</div>` : ""}
+</div>`;
 }
 
-function sidebar(site: Site, guide: Guide, page: Page): string {
-  const guidesList = site.guides
-    .map((g) => `<a class="side-guides-item${g === guide ? " active" : ""}" href="${g.index.url}">${roleIcon(g.key)}<span>${h(g.title)}</span></a>`)
+function navTree(items: NavItem[], active: Page | null, openFiles: Set<string>): string {
+  return items
+    .map((it) => {
+      if (it.kind === "page") {
+        return treeRow({ page: it.page, label: it.page.title, glyph: GLYPH_LEAF, current: it.page === active, children: "", open: false, container: false });
+      }
+      const kids = navTree(it.items, active, openFiles);
+      if (!it.index) {
+        // Раздел без index.md: подпись без ссылки
+        return `<div class="nt-node nt-node--open"><div class="nt-row"><span class="nt-chevspacer"></span><span class="nt-link nt-link--plain">${GLYPH_CONTAINER}<span class="nt-name nt-name--container">${h(it.title)}</span></span></div><div class="nt-children">${kids}</div></div>`;
+      }
+      const open = openFiles.has(it.index.file);
+      return treeRow({ page: it.index, label: it.title, glyph: GLYPH_CONTAINER, current: it.index === active, children: kids, open, container: true });
+    })
     .join("");
-  return `<aside class="side" id="side" aria-label="Навигация по руководству">
-<div class="side-guides"><div class="side-guides-title">Руководства</div>${guidesList}</div>
-<a class="side-guide${guide.index === page ? " active" : ""}" href="${guide.index.url}">${roleIcon(guide.key)}<span>${h(guide.title)}</span></a>
-<nav class="side-nav">${navList(guide.nav, page, 0)}</nav>
-</aside>`;
 }
 
-function outline(headings: Heading[]): string {
-  const items = headings.filter((x) => x.level === 2 || x.level === 3);
-  if (items.length < 2) return '<aside class="outline" aria-hidden="true"></aside>';
-  const li = items
-    .map((x) => `<li class="ol-${x.level}"><a href="#${h(x.id)}" data-outline="${h(x.id)}">${h(x.text)}</a></li>`)
+// Какие ветки раскрыты в разметке: путь к текущей странице (остальное — по памяти браузера)
+function openBranches(site: Site, active: Page | null): Set<string> {
+  const open = new Set<string>();
+  if (!active) return open;
+  const guide = site.guides.find((g) => g.key === active.guide);
+  if (!guide) return open;
+  open.add(guide.index.file);
+  for (const s of navPath(guide.nav, active)) if (s.index) open.add(s.index.file);
+  if (active.file.endsWith("/index.md")) open.add(active.file);
+  return open;
+}
+
+export function treeHtml(site: Site, active: Page | null): string {
+  const open = openBranches(site, active);
+  const home = treeRow({ page: site.home, label: SITE.homeLabel, glyph: GLYPH_HOME, current: site.home === active, children: "", open: false, container: false });
+  const guides = site.guides
+    .map((g) => treeRow({ page: g.index, label: g.title, glyph: GLYPH_CONTAINER, current: g.index === active, children: navTree(g.nav, active, open), open: open.has(g.index.file), container: true }))
     .join("");
-  return `<aside class="outline" aria-label="Содержание страницы"><div class="outline-title">На этой странице</div><ul>${li}</ul></aside>`;
+  const standalone = site.pages
+    .filter((p) => p.guide === null && p !== site.home)
+    .map((p) => treeRow({ page: p, label: p.title, glyph: GLYPH_LEAF, current: p === active, children: "", open: false, container: false }))
+    .join("");
+  return `<nav class="tree" aria-label="Страницы документации">${home}${guides}${standalone}</nav>`;
 }
 
 function crumbs(parts: { title: string; url: string | null }[]): string {
@@ -134,149 +144,75 @@ function crumbs(parts: { title: string; url: string | null }[]): string {
 }
 
 function pager(prev: Page | null, next: Page | null): string {
-  const prevHtml = prev
-    ? `<a class="pager-prev" href="${prev.url}" rel="prev"><span class="pager-label">← Назад</span><span class="pager-title">${h(prev.title)}</span></a>`
-    : "<span></span>";
-  const nextHtml = next
-    ? `<a class="pager-next" href="${next.url}" rel="next"><span class="pager-label">Дальше →</span><span class="pager-title">${h(next.title)}</span></a>`
-    : "<span></span>";
-  return `<nav class="pager" aria-label="Соседние страницы">${prevHtml}${nextHtml}</nav>`;
+  if (!prev && !next) return "";
+  const p = prev ? `<a class="pager-prev" href="${prev.url}" rel="prev">← ${h(prev.title)}</a>` : "<span></span>";
+  const n = next ? `<a class="pager-next" href="${next.url}" rel="next">${h(next.title)} →</a>` : "<span></span>";
+  return `<nav class="pager" aria-label="Соседние страницы">${p}${n}</nav>`;
 }
 
-// Карточки разделов на титульной странице руководства — строятся из навигации, руками
-// список не ведётся
+// Список разделов на титульной странице руководства — из навигации, руками не ведётся
 function guideSections(guide: Guide): string {
-  const cards = guide.nav.map((it) => {
-    if (it.kind === "page") {
-      return `<a class="sec-card" href="${it.page.url}"><span class="sec-title">${h(it.page.title)}</span><span class="sec-desc">${h(it.page.description)}</span></a>`;
-    }
-    const first = it.index ?? (it.items.find((x) => x.kind === "page") as Extract<NavItem, { kind: "page" }> | undefined)?.page;
-    const count = it.items.length;
-    const desc = it.index?.description || `${count} ${plural(count, "страница", "страницы", "страниц")}`;
-    return first
-      ? `<a class="sec-card" href="${first.url}"><span class="sec-title">${h(it.title)}</span><span class="sec-desc">${h(desc)}</span></a>`
-      : "";
+  const items = guide.nav.map((it) => {
+    const page = it.kind === "page" ? it.page : it.index ?? (it.items.find((x) => x.kind === "page") as Extract<NavItem, { kind: "page" }> | undefined)?.page;
+    if (!page) return "";
+    const title = it.kind === "page" ? it.page.title : it.title;
+    const desc = it.kind === "page" ? it.page.description : it.index?.description ?? "";
+    return `<li><a href="${page.url}">${h(title)}</a>${desc ? `<span class="sec-desc">${h(desc)}</span>` : ""}</li>`;
   });
-  if (!cards.length) return "";
-  return `<section class="sections"><h2 class="sections-title">Разделы</h2><div class="sec-grid">${cards.join("")}</div></section>`;
+  if (!items.length) return "";
+  return `<section class="sections"><h2 class="sections-title">В этом руководстве</h2><ul class="sec-list">${items.join("")}</ul></section>`;
 }
 
-function plural(n: number, one: string, few: string, many: string): string {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return one;
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
-  return many;
-}
-
-function editLink(page: Page): string {
-  return `<a class="edit" href="${SITE.editBase}${page.file}" target="_blank" rel="noopener">${ICON_EDIT}Предложить правку</a>`;
+// Список руководств на главной
+function homeGuides(site: Site): string {
+  const items = site.guides
+    .map((g) => `<li><a href="${g.index.url}">${h(g.title)}</a>${g.description ? `<span class="sec-desc">${h(g.description)}</span>` : ""}</li>`)
+    .join("");
+  return items ? `<section class="sections"><h2 class="sections-title">Руководства</h2><ul class="sec-list">${items}</ul></section>` : "";
 }
 
 function footer(): string {
   return `<footer class="foot"><div class="foot-in">
 <span>${h(SITE.name)} · ${h(SITE.docsTitle)}</span>
-<span class="foot-links"><a href="${SITE.demoUrl}">Демо-стенд</a><a href="${SITE.repoUrl}">GitHub</a><a href="${SITE.releasesUrl}">Выпуски</a></span>
+<span class="foot-links"><a href="${SITE.productUrl}">archmap.tech</a><a href="${SITE.demoUrl}">Демо-стенд</a><a href="${SITE.repoUrl}">GitHub</a></span>
 </div></footer>`;
 }
 
-function scripts(a: Assets): string {
-  return `<script src="${a.js}" defer></script>`;
-}
-
-// Страница руководства: навигация · статья · оглавление
-export function renderPage(site: Site, guide: Guide, page: Page, prev: Page | null, next: Page | null, a: Assets): string {
+// Любая страница: дерево слева, статья справа
+export function renderPage(site: Site, page: Page, prev: Page | null, next: Page | null, a: Assets): string {
   const r = page.render;
-  const html = r?.html ?? "";
-  const isIndex = guide.index === page;
-  const sections = navPath(guide.nav, page);
-  const crumbParts: { title: string; url: string | null }[] = [
-    { title: SITE.docsTitle, url: "/" },
-    { title: guide.title, url: guide.index.url },
-    ...sections.map((s) => ({ title: s.title, url: s.index?.url ?? null })),
-  ];
-  if (!isIndex) crumbParts.push({ title: page.title, url: null });
-  const title = isIndex ? `${page.title} · ${SITE.name}` : `${page.title} · ${guide.title} · ${SITE.name}`;
+  const guide = site.guides.find((g) => g.key === page.guide) ?? null;
+  const isHome = page === site.home;
+  const isGuideIndex = guide?.index === page;
+  const crumbParts: { title: string; url: string | null }[] = [{ title: SITE.homeLabel, url: "/" }];
+  if (guide) {
+    crumbParts.push({ title: guide.title, url: guide.index.url });
+    for (const s of navPath(guide.nav, page)) crumbParts.push({ title: s.title, url: s.index?.url ?? null });
+  }
+  if (!isHome && !isGuideIndex) crumbParts.push({ title: page.title, url: null });
+  if (isGuideIndex) crumbParts.pop();
+  if (isGuideIndex && guide) crumbParts.push({ title: guide.title, url: null });
+  const title = isHome ? `${page.title}` : guide && !isGuideIndex ? `${page.title} · ${guide.title} · ${SITE.name}` : `${page.title} · ${SITE.name}`;
   return `${head(title, page.description, a)}
-<body class="docs" data-search-url="${a.search}">
-${header(site, guide, true)}
+<body class="docs" data-search-url="${a.search}" data-file="${h(page.file)}">
+${header(true, true)}
 <div class="shell">
-${sidebar(site, guide, page)}
+<aside class="side" id="side">${treeHtml(site, page)}</aside>
 <main class="main" id="main">
-${crumbs(crumbParts)}
+${isHome ? "" : crumbs(crumbParts)}
 <article class="article">
 <h1>${h(page.title)}</h1>
 ${page.description ? `<p class="lead">${h(page.description)}</p>` : ""}
-${html}
-${isIndex ? guideSections(guide) : ""}
+${r?.html ?? ""}
+${isHome ? homeGuides(site) : ""}
+${isGuideIndex && guide ? guideSections(guide) : ""}
 </article>
-<div class="article-foot">
-${editLink(page)}
 ${pager(prev, next)}
-</div>
 </main>
-${outline(r?.headings ?? [])}
 </div>
 <div class="side-backdrop" data-menu-close></div>
 ${footer()}
-${scripts(a)}
-</body>
-</html>
-`;
-}
-
-// Главная: заголовок, вводный текст из index.md и карточки руководств
-export function renderHome(site: Site, a: Assets): string {
-  const page = site.home;
-  const cards = site.guides
-    .map(
-      (g) => `<a class="guide-card" href="${g.index.url}">
-<span class="guide-card-ico">${roleIcon(g.key)}</span>
-<span class="guide-card-title">${h(g.title)}</span>
-<span class="guide-card-desc">${h(g.description)}</span>
-<span class="guide-card-more">Открыть →</span>
-</a>`,
-    )
-    .join("");
-  return `${head(`${page.title} · ${SITE.name}`, page.description, a)}
-<body class="docs home" data-search-url="${a.search}">
-${header(site, null, false)}
-<main class="home-main" id="main">
-<section class="hero">
-<h1>${h(page.title)}</h1>
-<div class="hero-text">${page.render?.html ?? ""}</div>
-</section>
-<section class="guide-cards">${cards}</section>
-<section class="home-links">
-<a href="${SITE.demoUrl}">Попробовать на демо-стенде</a>
-<a href="${SITE.productUrl}">Сайт ArchMap</a>
-<a href="${SITE.repoUrl}">Исходный код на GitHub</a>
-<a href="${SITE.releasesUrl}">Выпуски</a>
-</section>
-</main>
-${footer()}
-${scripts(a)}
-</body>
-</html>
-`;
-}
-
-// Корневая страница вне руководств (например, content/changelog.md): шапка и статья без навигации
-export function renderStandalone(site: Site, page: Page, a: Assets): string {
-  return `${head(`${page.title} · ${SITE.name}`, page.description, a)}
-<body class="docs standalone" data-search-url="${a.search}">
-${header(site, null, false)}
-<main class="main main-solo" id="main">
-${crumbs([{ title: SITE.docsTitle, url: "/" }, { title: page.title, url: null }])}
-<article class="article">
-<h1>${h(page.title)}</h1>
-${page.description ? `<p class="lead">${h(page.description)}</p>` : ""}
-${page.render?.html ?? ""}
-</article>
-<div class="article-foot">${editLink(page)}</div>
-</main>
-${footer()}
-${scripts(a)}
+<script src="${a.js}" defer></script>
 </body>
 </html>
 `;
@@ -284,16 +220,127 @@ ${scripts(a)}
 
 export function renderNotFound(site: Site, a: Assets): string {
   return `${head(`Страница не найдена · ${SITE.name}`, "", a)}
-<body class="docs standalone" data-search-url="${a.search}">
-${header(site, null, false)}
-<main class="main main-solo" id="main">
+<body class="docs" data-search-url="${a.search}">
+${header(true, true)}
+<div class="shell">
+<aside class="side" id="side">${treeHtml(site, null)}</aside>
+<main class="main" id="main">
 <article class="article">
 <h1>Страница не найдена</h1>
-<p class="lead">Такой страницы в документации нет — возможно, она переехала. Начните с <a href="/">главной</a> или воспользуйтесь поиском.</p>
+<p class="lead">Такой страницы в документации нет — возможно, она переехала. Выберите нужную в дереве слева или воспользуйтесь поиском.</p>
 </article>
 </main>
+</div>
+<div class="side-backdrop" data-menu-close></div>
 ${footer()}
-${scripts(a)}
+<script src="${a.js}" defer></script>
+</body>
+</html>
+`;
+}
+
+// Вход автора. Ссылок на эту страницу нигде нет: адрес /login автор набирает сам.
+export function renderLogin(a: Assets, opts: { error: string | null; next: string; configured: boolean }): string {
+  const body = opts.configured
+    ? `<form method="post" action="/login" class="login-form">
+<input type="hidden" name="next" value="${h(opts.next)}">
+<label for="pw">Пароль автора</label>
+<input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+${opts.error ? `<p class="login-error">${h(opts.error)}</p>` : ""}
+<button type="submit" class="btn-primary">Войти</button>
+</form>`
+    : `<p class="login-error">Вход не настроен: задайте пароль автора командой <code>npm run password</code> (или переменной DOCS_AUTHOR_PASSWORD) и перезапустите сервер.</p>`;
+  return `${head(`Вход автора · ${SITE.name}`, "", a)}
+<body class="docs login-page">
+${header(false, false, "Вход автора")}
+<main class="login-main">
+<div class="login-card">
+<h1>Вход для автора</h1>
+<p class="login-hint">Читателям вход не нужен: документация открыта. Войдя, вы сможете править страницы прямо в браузере.</p>
+${body}
+</div>
+</main>
+</body>
+</html>
+`;
+}
+
+// Редактор автора: каркас, содержимое грузит editor.js через API
+export function renderEditor(a: Assets): string {
+  return `${head(`Редактор · ${SITE.docsTitle} · ${SITE.name}`, "", a, a.editorCss)}
+<body class="docs editor-page">
+${header(false, false, "Редактор")}
+<div class="ed" id="ed">
+<aside class="ed-side">
+<div class="ed-side-actions">
+<button type="button" class="btn-soft" data-new="page">+ Страница</button>
+<button type="button" class="btn-soft" data-new="fragment">+ Фрагмент</button>
+</div>
+<div class="ed-tree" data-tree></div>
+</aside>
+<main class="ed-main" data-main>
+<div class="ed-empty" data-empty><p>Выберите страницу в дереве слева или создайте новую.</p></div>
+<form class="ed-form" data-form hidden>
+<div class="ed-fields">
+<input class="ed-title" name="title" placeholder="Название страницы" autocomplete="off" required>
+<input class="ed-desc" name="description" placeholder="Описание одной фразой — подзаголовок страницы и текст в поиске" autocomplete="off">
+<div class="ed-fields-row">
+<label>Порядок <input name="order" type="number" min="0" step="1" class="ed-order"></label>
+<label data-short-wrap hidden>Короткое имя <input name="short" class="ed-short" autocomplete="off"></label>
+<span class="ed-file" data-file-label></span>
+</div>
+</div>
+<div class="ed-toolbar">
+<select class="ed-insert" data-insert-fragment><option value="">Вставить фрагмент…</option></select>
+<select class="ed-insert" data-insert-link><option value="">Ссылка на страницу…</option></select>
+<select class="ed-insert" data-insert-block>
+<option value="">Блок…</option>
+<option value="note">Примечание</option>
+<option value="tip">Совет</option>
+<option value="warning">Внимание</option>
+<option value="danger">Осторожно</option>
+<option value="details">Свёрнутый блок</option>
+</select>
+<label class="btn-soft ed-upload">Картинка<input type="file" accept="image/*" data-upload hidden></label>
+<span class="ed-grow"></span>
+<span class="ed-views" role="group" aria-label="Вид">
+<button type="button" class="ed-view-btn" data-view="source" aria-pressed="false">Текст</button>
+<button type="button" class="ed-view-btn" data-view="split" aria-pressed="true">Текст + просмотр</button>
+<button type="button" class="ed-view-btn" data-view="preview" aria-pressed="false">Просмотр</button>
+</span>
+</div>
+<div class="ed-panes" data-panes>
+<textarea class="ed-source" name="body" spellcheck="true" data-source></textarea>
+<div class="ed-preview"><article class="article" data-preview></article></div>
+</div>
+<div class="ed-bottom">
+<button type="submit" class="btn-primary" data-save>Сохранить</button>
+<span class="ed-status" data-status></span>
+<span class="ed-grow"></span>
+<a class="ed-link" data-open target="_blank" rel="noopener">Открыть страницу ↗</a>
+<button type="button" class="btn-danger" data-delete>Удалить</button>
+</div>
+<div class="ed-problems" data-problems hidden></div>
+<div class="ed-usage" data-usage hidden></div>
+</form>
+</main>
+</div>
+<dialog class="ed-dialog" data-new-dialog>
+<form method="dialog" class="ed-dialog-form" data-new-form>
+<h2 data-new-title>Новая страница</h2>
+<label>Где <select name="parent" data-new-parent></select></label>
+<label>Название <input name="title" autocomplete="off" required></label>
+<label>Адрес (латиницей) <input name="slug" pattern="[a-z0-9-]+" autocomplete="off" required></label>
+<label data-new-kind-wrap><input type="checkbox" name="section"> Раздел с подстраницами (папка с index.md)</label>
+<p class="login-error" data-new-error hidden></p>
+<div class="ed-dialog-actions">
+<button type="submit" class="btn-primary" value="create">Создать</button>
+<button type="button" class="btn-soft" value="cancel" data-new-cancel>Отмена</button>
+</div>
+</form>
+</dialog>
+<script src="${a.js}" defer></script>
+<script src="${a.editorJs}" defer></script>
 </body>
 </html>
 `;
