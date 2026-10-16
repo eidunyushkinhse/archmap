@@ -4,6 +4,8 @@
 // фокуса из окна (клик по лендингу вокруг iframe) возвращают его в покой. Отличия от
 // страничного блока: тулбара нет, блок занимает всё окно iframe, расстановка и раскрытия
 // живут в памяти вкладки (staticBackend), двойной клик по узлу никуда не ведёт.
+// startActive — холст сразу включён: на телефоне лендинг грузит схему по тапу на её
+// картинку, и этот тап уже был приглашением — второго не нужно.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import LevelGraph from "../components/LevelGraph";
@@ -27,10 +29,10 @@ function lensHintCss(nodeId: string): string {
     + `@media (prefers-reduced-motion: reduce){${sel}{animation:none;box-shadow:0 0 0 3px rgba(255,255,255,.75)}}`;
 }
 
-export default function LandingSchema({ scene }: { scene: LandingScene }) {
+export default function LandingSchema({ scene, startActive = false }: { scene: LandingScene; startActive?: boolean }) {
   const { graph } = scene;
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(false);
+  const [active, setActive] = useState(startActive);
   // Подсказка на лупе держится, пока посетитель ни разу не раскрыл контейнер
   const [hinted, setHinted] = useState(true);
   // Зеркало раскладки вида: сюда холст пишет перетаскивания и раскрытия (onLayoutChanged)

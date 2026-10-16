@@ -14,6 +14,7 @@ if (!rootEl) throw new Error("Корневой элемент #root не най�
 
 createRoot(rootEl).render(
   <StrictMode>
-    <LandingSchema scene={SCENE} />
+    {/* embed.html?active — холст сразу включён (лендинг на телефоне, после тапа по картинке) */}
+    <LandingSchema scene={SCENE} startActive={new URLSearchParams(window.location.search).has("active")} />
   </StrictMode>,
 );
