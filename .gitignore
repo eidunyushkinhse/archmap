@@ -16,6 +16,7 @@ htmlcov/
 node_modules/
 frontend/dist/
 frontend/dist-embed/
+docs-site/dist/
 dist-bundle/
 frontend/dist-ssr/
 *.local

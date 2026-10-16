@@ -1,0 +1,27 @@
+{
+  "name": "archmap-docs",
+  "private": true,
+  "version": "0.1.0",
+  "license": "AGPL-3.0-only",
+  "description": "Пользовательская документация ArchMap (docs.archmap.tech): генератор статического сайта из Markdown",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node src/build.ts",
+    "dev": "node src/build.ts --serve",
+    "report": "node src/build.ts --report",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.0.0",
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.0",
+    "minisearch": "^7.1.2",
+    "typescript": "^6.0.0"
+  }
+}
