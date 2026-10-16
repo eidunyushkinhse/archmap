@@ -186,10 +186,10 @@ if (!spawnSync("fc-list", [":charset=1f50d", "family"]).stdout?.toString().trim(
 }
 const results = [];   // { file, w, h } | { shot, error }
 
-async function newPage(browser, token, pid, w, h, shot) {
+async function newPage(browser, token, pid, w, h, shot, dsf = DSF) {
   const ctx = await browser.newContext({
     viewport: { width: w, height: h },
-    deviceScaleFactor: DSF,
+    deviceScaleFactor: dsf,
     colorScheme: "light",
     locale: "ru-RU",
     timezoneId: "Europe/Moscow",
@@ -474,10 +474,45 @@ async function shootClip(page, file, clip) {
 // интерфейса шириной ~800 CSS px (окно съёмки 960 px), на сайте он идёт в масштабе ~0.75
 // и читается. Высота — не больше пропорции окна, лишнее снизу отрезается.
 const STAGE_RATIO = 16 / 10.4;
-async function shootBox(page, file, box, pad = 0, maxWidth = Infinity) {
-  const width = Math.round(Math.min(box.width + 2 * pad, maxWidth));
-  const height = Math.round(Math.min(box.height + 2 * pad, width / STAGE_RATIO));
-  await shootClip(page, file, { x: Math.round(box.x - pad), y: Math.round(box.y - pad), width, height });
+// Врезка «плоским окном»: блок интерфейса без своих скруглений, рамки и тени — рамку и
+// скругление рисует окно вкладок лендинга, и в углах не выступает подложка (затемнение под
+// окном, фон страницы). Кадр ровно в пропорции окна: при переключении вкладок картинка не
+// прыгает. Короткий блок добирается своим белым фоном; строка текста на нижнем крае кадра
+// скрывается целиком (cutText), а не режется пополам — у схем край холста естественен.
+async function shootFlat(page, file, target, { maxWidth = Infinity, cutText = true } = {}) {
+  await page.addStyleTag({ content: "dialog::backdrop{background:transparent!important}" });
+  await target.evaluate((e) => {
+    for (const [k, v] of [["border-radius", "0"], ["box-shadow", "none"], ["border-color", "transparent"], ["outline", "none"]]) {
+      e.style.setProperty(k, v, "important");
+    }
+  });
+  let box = await target.boundingBox();
+  const width = Math.round(Math.min(box.width, maxWidth));
+  const height = Math.round(width / STAGE_RATIO);
+  if (box.height < height) {
+    await target.evaluate((e, h) => e.style.setProperty("min-height", `${h}px`, "important"), height);
+    box = await target.boundingBox();
+  }
+  const clip = { x: Math.round(box.x), y: Math.round(box.y), width, height };
+  if (cutText) {
+    // По текстовым узлам, а не по элементам: текст бывает прямо в ячейке рядом с вложенными
+    await target.evaluate((e, edge) => {
+      const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
+      for (let n; (n = w.nextNode());) {
+        if (!n.textContent.trim()) continue;
+        const rg = document.createRange();
+        rg.selectNodeContents(n);
+        for (const r of rg.getClientRects()) {
+          if (r.top < edge && r.bottom > edge) { n.parentElement.style.setProperty("visibility", "hidden", "important"); break; }
+        }
+      }
+    }, clip.y + clip.height);
+  }
+  await shootClip(page, file, clip);
+}
+// Пилюля масштаба просмотрщика схем (− 80% + □) — в углу кадра её срезал бы край
+async function hideZoomPill(dlg) {
+  await dlg.locator('button[aria-label="Увеличить"]').first().evaluate((b) => { b.parentElement.style.visibility = "hidden"; });
 }
 // Левую панель (дерево) — в рельс: блоку страницы достаётся вся ширина окна
 async function collapseTree(page) {
@@ -742,7 +777,7 @@ const SHOTS = {
     await dlg.getByRole("button", { name: "Отмена" }).click();
   } },
 
-  // ── Врезки вкладок: каждая — блок интерфейса крупно (STAGE_RATIO, см. shootBox) ──
+  // ── Врезки вкладок: каждая — блок интерфейса крупно (STAGE_RATIO, см. shootFlat) ──
   // Схема логики «Создание заказа»: окно просмотра, схема приближена над развилкой
   // «Позиций не больше лимита?» — видны заголовок окна, начало схемы и обе ветки (та же
   // логика, что текстом в блоке «Для агента» на лендинге).
@@ -758,21 +793,21 @@ const SHOTS = {
     const head = await dlg.getByRole("button", { name: "Изменить" }).boundingBox();
     const check = await svgNodeBox(page, "Проверить число");
     await dragViewer(page, { x: box.x + 60, y: box.y + box.height / 2 }, 0, head.y + head.height + 28 - check.y);
-    await shootBox(page, "crop-logic.png", box);
+    await hideZoomPill(dlg);
+    await shootFlat(page, "crop-logic.png", dlg, { cutText: false });
   } },
 
-  // Спецификация Order API: окно Swagger, операция создания заказа раскрыта.
+  // Спецификация Order API: окно Swagger, операция создания заказа раскрыта, тело запроса —
+  // вкладкой «Schema» (пример значения в узком окне Swagger раскладывает столбцами).
   "crop-openapi": { size: [960, 760], async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
     await page.locator('.np-card:has(h3:text-is("OpenAPI")) .np-doc-row').click();
     const dlg = page.locator("dialog[open]");
     await dlg.locator(".opblock-summary").first().click();
     await dlg.locator(".opblock.is-open").first().waitFor();
+    await dlg.locator(".opblock.is-open").getByRole("tab", { name: "Schema" }).first().click();
     await settle(page, 800);
-    // Кадр — до примера тела запроса: в узком окне Swagger раскладывает его столбцами
-    const box = await dlg.boundingBox();
-    const code = await dlg.locator(".opblock.is-open .highlight-code").first().boundingBox();
-    await shootBox(page, "crop-openapi.png", { ...box, height: code.y - box.y - 12 });
+    await shootFlat(page, "crop-openapi.png", dlg);
   } },
 
   // ER-диаграмма БД заказов во весь экран, приближена к таблице orders и её связям.
@@ -798,7 +833,8 @@ const SHOTS = {
     }
     await dragViewer(page, { x: box.x + 40, y: box.y + box.height - 40 },
       box.x + box.width / 2 - (e.x + e.width / 2), box.y + 300 - e.y);
-    await shootBox(page, "crop-db.png", box);
+    await hideZoomPill(dlg);
+    await shootFlat(page, "crop-db.png", dlg, { cutText: false });
   } },
 
   // Канал Kafka catalog.product-events: тип, гарантия, хранение, поля сообщения.
@@ -808,10 +844,7 @@ const SHOTS = {
     await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] .bch-chev`).click();
     await scrollCardToTop(page, "Каналы");
     await settle(page, 400);
-    const card = await page.locator('.np-card:has(h3:text-is("Каналы"))').first().boundingBox();
-    // Кадр — до кнопки «+ Поле»: ниже начинается список публикаторов, его край резался бы
-    const add = await page.locator(`.bch-channel[data-flip-id="${s.channelId}"] button`, { hasText: "Поле" }).first().boundingBox();
-    await shootBox(page, "crop-broker.png", { ...card, height: add.y + add.height + 20 - card.y });
+    await shootFlat(page, "crop-broker.png", page.locator('.np-card:has(h3:text-is("Каналы"))').first());
   } },
 
   // Конфигурация Order API: параметры, дефолты из кода, «что переключает», пометки «зависит».
@@ -820,17 +853,19 @@ const SHOTS = {
     await collapseTree(page);
     const card = await scrollCardToTop(page, "Конфигурация");
     await settle(page, 400);
-    await shootBox(page, "crop-config.png", await card.boundingBox());
+    await shootFlat(page, "crop-config.png", card);
   } },
 
   // Ссылка на источник: свойства Order API на его странице — якорь (репозиторий и путь).
-  "crop-anchor": { size: [960, 900], async run(page, s) {
+  // Кадр уже карточки (значения — в её левой части): плотность выше, чтобы в пикселях он был
+  // не уже соседних врезок (1696 px) и на сайте заполнял окно вкладок так же, как они.
+  "crop-anchor": { size: [960, 900], dsf: 2 * 848 / 660, async run(page, s) {
     await go(page, `/p/${s.pid}/nodes/${s.ids.orderApi}`);
     await collapseTree(page);
     await page.getByText("github.com/yarmarka/orders").first().waitFor();
     const card = await scrollCardToTop(page, "Свойства");
     await settle(page, 400);
-    await shootBox(page, "crop-anchor.png", await card.boundingBox(), 0, 660); // значения — в левой части карточки
+    await shootFlat(page, "crop-anchor.png", card, { maxWidth: 660 }); // значения — в левой части карточки
   } },
 };
 
@@ -850,7 +885,7 @@ for (const [name, shot] of Object.entries(SHOTS)) {
   if (ONLY && !ONLY.includes(name)) continue;
   console.log(`• ${name}`);
   const before = blocked.length;
-  const { ctx, page } = await newPage(browser, token, scene.pid, shot.size[0], shot.size[1], name);
+  const { ctx, page } = await newPage(browser, token, scene.pid, shot.size[0], shot.size[1], name, shot.dsf);
   try {
     await shot.run(page, scene);
   } catch (e) {
