@@ -136,14 +136,18 @@ archmap/
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   ├── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 │   └── plan-audit-2026-10.md # аудит 2026-10-13: реестр находок (безопасность, надёжность, зависимости, дубли) и план фаз 0–8
-├── docs-site/             # пользовательская документация (docs.archmap.tech): свой генератор статики, README.md — правила
-│   ├── content/           # Markdown: index.md (главная), user/ architect/ admin/ (руководство = папка с index.md),
-│   │                      # _shared/ (фрагменты для включений — единый источник истины), images/
-│   ├── src/               # генератор на TypeScript, Node исполняет без сборки: markdown.ts (markdown-it: включения
-│   │                      # <!--@include: …-->, ссылки на .md → адреса, якоря {#id}, блоки ::: note|tip|warning|danger|
-│   │                      # details, figure), content.ts (обход, навигация, проверка ссылок/якорей/файлов), render.ts
-│   │                      # (шаблоны в стиле приложения), build.ts (CLI), serve.ts (dev-сервер), *.test.ts (node --test)
-│   └── theme/             # docs.css, docs.js (ящик навигации, оглавление, копирование кода, поиск MiniSearch), hljs.css
+├── docs-site/             # пользовательская документация (docs.archmap.tech): свой движок-вики, README.md — правила
+│   ├── content/           # Markdown: index.md («Домашняя страница»), user/ architect/ admin/ (руководство = папка с
+│   │                      # index.md), _shared/ (фрагменты для включений — единый источник истины), images/
+│   ├── src/               # TypeScript, Node исполняет без сборки: markdown.ts (markdown-it: включения <!--@include: …-->,
+│   │                      # ссылки на .md → адреса, якоря {#id}, блоки ::: note|tip|warning|danger|details, figure),
+│   │                      # content.ts (обход, навигация, проверка ссылок/якорей/файлов), site.ts (подготовка и запись
+│   │                      # dist/), render.ts (шаблоны: дерево страниц в стиле дерева объектов, статья, вход, редактор),
+│   │                      # auth.ts (пароль scrypt, сессия HMAC в cookie, лимит попыток), server.ts (сервер: статика,
+│   │                      # скрытый вход /login, редактор /edit/, API правок с пересборкой, watcher), build.ts (CLI
+│   │                      # статической сборки для CI), *.test.ts (node --test)
+│   ├── theme/             # docs.css/docs.js (дерево, ящик, поиск MiniSearch, кнопки автора по cookie), editor.css/editor.js
+│   └── .env.example       # DOCS_AUTHOR_PASSWORD_HASH (npm run password), DOCS_SESSION_SECRET, DOCS_PORT, DOCS_TRUST_PROXY
 ├── .claude/               # LSP-серверы (mcp-servers/), агент-исполнитель (agents/), строка статуса, settings.json
 ├── .github/               # CI (workflows/ci.yml) и Dependabot (dependabot.yml)
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
@@ -173,9 +177,11 @@ archmap/
 - Миграции (применить):  cd backend && ./venv/bin/alembic upgrade head
 - Тесты бэкенда:         cd backend && ./venv/bin/python -m pytest -q
 - Тесты фронта:          cd frontend && npx vitest run
-- Документация (сайт):   cd docs-site && npm run dev   (→ http://localhost:8800, пересборка по правке content/ и
-    theme/); npm run build → docs-site/dist (битая ссылка, якорь или файл — ошибка сборки); npm run report —
-    карта фрагментов «текст → страницы»; npm run check — типы и тесты генератора; правила авторов — docs-site/README.md
+- Документация (сайт):   cd docs-site && npm run dev   (→ http://localhost:8800: сервер с авторским режимом,
+    пересборка по правке content/ и theme/, перезагрузка вкладок); npm run password — пароль автора (хэш в .env);
+    вход — /login (ссылок нет), редактор — /edit/; npm start — то же без перезагрузки (стенд); npm run build →
+    docs-site/dist (битая ссылка, якорь или файл — ошибка сборки, CI); npm run report — карта фрагментов
+    «текст → страницы»; npm run check — типы и тесты; правила авторов — docs-site/README.md
 - Живая схема лендинга:  cd frontend && npm run build:embed   (→ frontend/dist-embed; снимок сцены —
     node scripts/landing-embed-scene.mjs при поднятом ./dev.sh)
 - Типизация фронта:      cd frontend && npx tsc -b
