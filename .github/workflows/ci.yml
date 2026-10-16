@@ -162,6 +162,29 @@ jobs:
         # Правила двух агентов расходились на 173 строки (аудит P-7): источник теперь один.
         run: python3 scripts/agent-docs.py --check
 
+  docs:
+    # Сайт документации (docs-site): генератор типизирован и покрыт тестами, сборка
+    # падает на битой ссылке, якоре или файле — так проверяется само содержимое.
+    name: Docs (типы + тесты генератора + сборка с проверкой ссылок)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Типы и тесты генератора
+        run: npm run check
+      - name: Сборка (битая ссылка, якорь или файл — ошибка)
+        run: npm run build
+
   compose:
     # Команда «Поставить себе» с лендинга и README: образ из исходников, база, миграции,
     # ключ подписи, первый администратор — всё, что увидит человек после docker compose up.
