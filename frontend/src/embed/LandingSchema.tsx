@@ -57,13 +57,16 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
   }, [active]);
 
   // Первый клик и включает холст, и доходит до кнопки под курсором (лупа, «Свернуть»):
-  // иначе раскрытие контейнера стоило бы посетителю двух кликов.
+  // иначе раскрытие контейнера стоило бы посетителю двух кликов. Только до кнопок самого
+  // холста: «Готово» стоит на месте приглашения, и клик по приглашению нажимал бы его —
+  // холст тут же выключался обратно (повторное «Попробовать» после «Готово» не работало).
   const activate = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     const { clientX, clientY } = e;
     setActive(true);
     requestAnimationFrame(() => {
       const target = document.elementFromPoint(clientX, clientY)?.closest("button");
-      if (target && wrapRef.current?.contains(target)) target.click();
+      const canvas = wrapRef.current?.querySelector(".esb-canvas");
+      if (target && canvas?.contains(target)) target.click();
     });
   }, []);
 
