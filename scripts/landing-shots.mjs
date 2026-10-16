@@ -743,7 +743,8 @@ const SHOTS = {
   // Импорт YAML: «Новый проект» → «Импорт» (из свитчера проектов — фоном демо-проект,
   // а не список всех проектов), пара YAML, живой статус и разбор остатка. НИЧЕГО не
   // создаётся: имени нет, кнопка «Создать проект» неактивна, окно закрываем «Отменой».
-  import: { size: [1600, 1200], async run(page, s) {
+  // Окно выше остальных: врезке нужен блок вопросов целиком в видимой части тела модалки.
+  import: { size: [1600, 1500], async run(page, s) {
     await go(page, `/p/${s.pid}`);
     await page.locator("button", { hasText: PROJECT_NAME }).first().click();
     await page.getByRole("button", { name: "Новый проект" }).click();
@@ -768,12 +769,37 @@ const SHOTS = {
     // Поле вставки — к началу текста (после вставки оно прокручено к каретке в конце)
     await dlg.locator("textarea").last().evaluate((t) => { t.scrollTop = 0; });
     await shoot(page, "shot-import.png");
-    // Врезка «Вставьте файлы» (колонка ~420 px, высота по картинке): правая колонка окна —
-    // файлы, вставка, вопрос слияния и неактивное «Создать проект» до решения.
-    const ta = await dlg.locator("textarea").last().boundingBox();
-    const box = await dlg.boundingBox();
-    const left = Math.round(ta.x - 20);
-    await shootClip(page, "crop-import.png", { x: left, y: Math.round(box.y), width: Math.round(box.x + box.width - left), height: Math.round(box.height) });
+    // Врезка блока «Доверить агенту» — ОПРОСНИК: строка статуса «Не всё сошлось идеально»
+    // и блок вопросов целиком (вопрос, варианты, сноска, «Назад/Дальше»), без чипов файлов
+    // и вставки YAML — они новому пользователю ни о чём не говорят (замечание владельца
+    // 2026-10-16). Тело модалки прокручивается к строке статуса, поле вокруг — белое поле
+    // окна, рамку и тень рисует сам лендинг.
+    const PAD = 16;
+    const status = dlg.locator(".rq-st").first();
+    const block = dlg.locator(".rq-block").first();
+    const view = await status.evaluate((el, pad) => {
+      let sc = el.parentElement;
+      while (sc && !(sc.scrollHeight > sc.clientHeight + 20 && /auto|scroll/.test(getComputedStyle(sc).overflowY))) sc = sc.parentElement;
+      if (!sc) throw new Error("не нашлось прокручиваемой колонки окна");
+      // Тело окна — фиксированные 560 px, блок вопросов целиком в них не влезает: на время
+      // врезки тело выше (оформление кадра, как min-height в shootFlat; данных не касается).
+      sc.parentElement.style.setProperty("height", "1000px", "important");
+      sc.scrollTop += el.getBoundingClientRect().top - sc.getBoundingClientRect().top - pad;
+      // Свёртка «Придется подправить вручную» под блоком в кадр не входит, а её верх
+      // попадал бы в нижнее поле врезки — прячем всё, что ниже блока.
+      for (let n = sc.querySelector(".rq-block")?.nextElementSibling; n; n = n.nextElementSibling) {
+        n.style.setProperty("visibility", "hidden", "important");
+      }
+      return sc.getBoundingClientRect().bottom;
+    }, PAD);
+    await page.waitForTimeout(300);
+    const st = await status.boundingBox();
+    const bl = await block.boundingBox();
+    if (bl.y + bl.height + PAD > view) throw new Error("блок вопросов не помещается в видимую часть окна — увеличьте высоту окна кадра");
+    await shootClip(page, "crop-import.png", {
+      x: Math.round(bl.x - PAD), y: Math.round(st.y - PAD),
+      width: Math.round(bl.width + 2 * PAD), height: Math.round(bl.y + bl.height - st.y + 2 * PAD),
+    });
     await dlg.getByRole("button", { name: "Отмена" }).click();
   } },
 
