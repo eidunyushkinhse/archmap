@@ -17,7 +17,8 @@
   ghcr.io/eidunyushkinhse/archmap (ванильный Kubernetes, без привязки к дистрибутиву), сервер с
   systemd и nginx (deploy/install.sh), см. DEPLOY.md; публичный стенд — https://archmap.tech
   (лендинг) и https://demo.archmap.tech (DEMO_MODE) на серверной поставке; пользовательская документация —
-  docs-site/ (будущий docs.archmap.tech; с 2026-10-16 прототип на localhost)
+  ОТДЕЛЬНЫЙ репозиторий github.com/eidunyushkinhse/archmap-docs (docs.archmap.tech; вынесена из
+  docs-site/ 2026-10-16, локально — ../archmap-docs; у него свои CLAUDE.md и README.md)
 
 Структура проекта (проверено 2026-10-14)
 archmap/
@@ -136,18 +137,6 @@ archmap/
 │   ├── tasks-archive.md   # журнал закрытых задач
 │   ├── plan-refactoring.md # план рефакторинга по итогам аудита 2026-08-01
 │   └── plan-audit-2026-10.md # аудит 2026-10-13: реестр находок (безопасность, надёжность, зависимости, дубли) и план фаз 0–8
-├── docs-site/             # пользовательская документация (docs.archmap.tech): свой движок-вики, README.md — правила
-│   ├── content/           # Markdown: index.md («Домашняя страница»), user/ architect/ admin/ (руководство = папка с
-│   │                      # index.md), _shared/ (фрагменты для включений — единый источник истины), images/
-│   ├── src/               # TypeScript, Node исполняет без сборки: markdown.ts (markdown-it: включения <!--@include: …-->,
-│   │                      # ссылки на .md → адреса, якоря {#id}, блоки ::: note|tip|warning|danger|details, figure),
-│   │                      # content.ts (обход, навигация, проверка ссылок/якорей/файлов), site.ts (подготовка и запись
-│   │                      # dist/), render.ts (шаблоны: дерево страниц в стиле дерева объектов, статья, вход, редактор),
-│   │                      # auth.ts (пароль scrypt, сессия HMAC в cookie, лимит попыток), server.ts (сервер: статика,
-│   │                      # скрытый вход /login, редактор /edit/, API правок с пересборкой, watcher), build.ts (CLI
-│   │                      # статической сборки для CI), *.test.ts (node --test)
-│   ├── theme/             # docs.css/docs.js (дерево, ящик, поиск MiniSearch, кнопки автора по cookie), editor.css/editor.js
-│   └── .env.example       # DOCS_AUTHOR_PASSWORD_HASH (npm run password), DOCS_SESSION_SECRET, DOCS_PORT, DOCS_TRUST_PROXY
 ├── .claude/               # LSP-серверы (mcp-servers/), агент-исполнитель (agents/), строка статуса, settings.json
 ├── .github/               # CI (workflows/ci.yml) и Dependabot (dependabot.yml)
 ├── dev.sh / stop.sh       # запуск/остановка всего стека
@@ -178,11 +167,9 @@ archmap/
 - Миграции (применить):  cd backend && ./venv/bin/alembic upgrade head
 - Тесты бэкенда:         cd backend && ./venv/bin/python -m pytest -q
 - Тесты фронта:          cd frontend && npx vitest run
-- Документация (сайт):   cd docs-site && npm run dev   (→ http://localhost:8800: сервер с авторским режимом,
-    пересборка по правке content/ и theme/, перезагрузка вкладок); npm run password — пароль автора (хэш в .env);
-    вход — /login (ссылок нет), редактор — /edit/; npm start — то же без перезагрузки (стенд); npm run build →
-    docs-site/dist (битая ссылка, якорь или файл — ошибка сборки, CI); npm run report — карта фрагментов
-    «текст → страницы»; npm run check — типы и тесты; правила авторов — docs-site/README.md
+- Документация (сайт):   отдельный репозиторий ../archmap-docs (github.com/eidunyushkinhse/archmap-docs):
+    там npm run dev → http://localhost:8800, вход автора /login, редактор /edit/, правки коммитит сам
+    сервер; команды и правила — его README.md и CLAUDE.md
 - Живая схема лендинга:  cd frontend && npm run build:embed   (→ frontend/dist-embed; снимок сцены —
     node scripts/landing-embed-scene.mjs при поднятом ./dev.sh)
 - Типизация фронта:      cd frontend && npx tsc -b

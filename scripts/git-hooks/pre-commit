@@ -6,7 +6,6 @@
 #   скрипты поставки и разработки (deploy/*.sh|*.py, scripts/*.sh, хук, dev.sh, stop.sh)
 #              → bash -n + ruff (аудит P-33: раньше их не видел никто)
 #   CLAUDE.md, QWEN.md, scripts/agent-docs.py → QWEN.md собран из CLAUDE.md (аудит P-7)
-#   docs-site/* → типы + тесты генератора + сборка (битые ссылки и якоря — блок)
 # NB: именно `tsc -b`, не `tsc --noEmit`. Корневой tsconfig.json — solution-config
 # (files:[], только references) → `tsc --noEmit` НИЧЕГО не проверяет (тихо exit 0).
 # `tsc -b` идёт по ссылкам на tsconfig.app/node.json и реально типизирует src.
@@ -34,11 +33,9 @@ fi
 touch_front=false
 touch_back=false
 touch_mcp=false
-touch_docs=false
 if grep -q '^frontend/'  <<<"$staged"; then touch_front=true; fi
 if grep -q '^backend/'   <<<"$staged"; then touch_back=true;  fi
 if grep -q '^mcp/'       <<<"$staged"; then touch_mcp=true;   fi
-if grep -q '^docs-site/' <<<"$staged"; then touch_docs=true;  fi
 # Сентинелы MCP читают исходники фронта (панель алертов, фасад типов, тексты якоря):
 # их правка гоняет и MCP-гейт, иначе CI падал молча (фаза 7 аудита, ALERT_SECTIONS).
 # Список берётся из самих тестов — новый сентинел подхватится без правки хука.
@@ -114,19 +111,6 @@ if $touch_mcp; then
     say "MCP: pytest…"
     ( cd mcp && ./venv/bin/python -m pytest -q )
     ok "MCP-гейт зелёный."
-  fi
-fi
-
-# --- Документация: типы и тесты генератора, сборка с проверкой ссылок ---
-if $touch_docs; then
-  if [ ! -d docs-site/node_modules ]; then
-    warn "docs-site/node_modules нет — пропускаю гейт документации (cd docs-site && npm ci)."
-  else
-    say "Документация: типы и тесты генератора…"
-    ( cd docs-site && npm run --silent check )
-    say "Документация: сборка с проверкой ссылок…"
-    ( cd docs-site && npm run --silent build )
-    ok "Гейт документации зелёный."
   fi
 fi
 
