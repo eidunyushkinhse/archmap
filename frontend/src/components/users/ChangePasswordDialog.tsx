@@ -41,10 +41,8 @@ export default function ChangePasswordDialog({ onClose }: Props) {
     );
   }
 
-  const onEnter = (e: React.KeyboardEvent) => { if (e.key === "Enter") void submit(); };
-
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 400, padding: 24 }}>
       <DialogTitle>Сменить пароль</DialogTitle>
 
       <label style={labelStyle} htmlFor="cp-old">Текущий пароль</label>
@@ -56,7 +54,6 @@ export default function ChangePasswordDialog({ onClose }: Props) {
         style={input}
         value={oldPassword}
         onChange={(e) => setOldPassword(e.target.value)}
-        onKeyDown={onEnter}
       />
 
       <label style={labelStyle} htmlFor="cp-new">Новый пароль</label>
@@ -67,7 +64,6 @@ export default function ChangePasswordDialog({ onClose }: Props) {
         style={input}
         value={newPassword}
         onChange={(e) => setNewPassword(e.target.value)}
-        onKeyDown={onEnter}
       />
 
       <label style={labelStyle} htmlFor="cp-repeat">Повторите новый пароль</label>
@@ -78,7 +74,6 @@ export default function ChangePasswordDialog({ onClose }: Props) {
         style={input}
         value={repeat}
         onChange={(e) => setRepeat(e.target.value)}
-        onKeyDown={onEnter}
       />
       <p style={hint}>Не короче 8 символов</p>
 

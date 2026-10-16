@@ -1,11 +1,17 @@
 import { useEffect, useRef } from "react";
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { CloseIcon } from "./icons";
 import "./modal.css";
 
 interface ModalProps {
   // Единственный канал закрытия: Escape и крестик (клик по подложке не закрывает).
   onClose: () => void;
+  // Подтверждение окна с клавиатуры: Enter в однострочном поле, Ctrl/Cmd+Enter в
+  // многострочном (там Enter — перенос строки). Передают окна с полями ввода; это тот
+  // же обработчик, что у главной кнопки, и с тем же гардом «занято/заперта»: Enter не
+  // делает того, чего не даёт кнопка. Окнам без полей (подтверждения) не нужен — там
+  // Enter и так нажимает кнопку в фокусе.
+  onSubmit?: () => void;
   // Показывать крестик ✕. Дефолт true; false только у NodeDeleteConfirm.
   closeButton?: boolean;
   // Переопределения геометрии бокса: width/maxHeight/overflowY уходят на <dialog>,
@@ -17,6 +23,26 @@ interface ModalProps {
 // Ключи boxStyle, которые относятся к внутренней обёртке (она несёт padding и
 // раскладку контента), а не к самому <dialog> (он несёт размер бокса).
 const WRAPPER_KEYS = ["padding", "display", "flexDirection"] as const;
+
+// Типы <input>, где Enter — не «готово»: флажки, переключатели, файлы, кнопки, ползунки.
+// Текстовые — всё остальное (text, password, search, number, email, url…).
+const NON_TEXT_INPUT = new Set(["checkbox", "radio", "file", "button", "submit", "reset", "range", "color", "image"]);
+
+/**
+ * Тот ли это Enter, которым подтверждают окно. Поле, которое само обработало клавишу
+ * (комбобокс выбрал подсказку и погасил событие), и набор через IME (isComposing: Enter
+ * завершает подстановку, а не ввод) окно не подтверждают. Enter с модификатором в
+ * однострочном поле — тоже нет (Shift/Alt+Enter ничего не значат, но и не «готово»).
+ */
+function isSubmitKey(e: KeyboardEvent<HTMLElement>): boolean {
+  if (e.key !== "Enter" || e.defaultPrevented || e.nativeEvent.isComposing) return false;
+  const t = e.target;
+  if (t instanceof HTMLTextAreaElement) return e.ctrlKey || e.metaKey;
+  if (t instanceof HTMLInputElement) {
+    return !NON_TEXT_INPUT.has(t.type) && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+  }
+  return false;
+}
 
 /**
  * Общая модалка на нативном <dialog> + showModal(): top-layer (zIndex не нужен),
@@ -32,6 +58,7 @@ const WRAPPER_KEYS = ["padding", "display", "flexDirection"] as const;
  */
 export default function Modal({
   onClose,
+  onSubmit,
   closeButton = true,
   boxStyle,
   children,
@@ -82,6 +109,13 @@ export default function Modal({
       }}
       // Страховка: если диалог всё же закрылся нативно (повторный Escape в Chrome)
       onClose={() => onClose()}
+      // Enter в поле всплывает сюда от любого потомка; preventDefault — чтобы поле в
+      // <form> (если окно когда-нибудь его заведёт) не отправило её нативно второй раз.
+      onKeyDown={onSubmit ? (e) => {
+        if (!isSubmitKey(e)) return;
+        e.preventDefault();
+        onSubmit();
+      } : undefined}
     >
       {closeButton && (
         <button onClick={onClose} className="app-close" style={closeBtn} aria-label="Закрыть">

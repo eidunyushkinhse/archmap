@@ -33,10 +33,8 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
     await run(() => adminApi.create({ username: username.trim(), role, is_admin: isAdmin, password }).then(onCreated));
   }
 
-  const onEnter = (e: React.KeyboardEvent) => { if (e.key === "Enter") void submit(); };
-
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 420, padding: 24 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 420, padding: 24 }}>
       <DialogTitle>Новый пользователь</DialogTitle>
 
       <label style={labelStyle} htmlFor="nu-login">Логин</label>
@@ -47,7 +45,6 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
         style={input}
         value={username}
         onChange={(e) => setUsername(e.target.value)}
-        onKeyDown={onEnter}
       />
 
       <label style={labelStyle} htmlFor="nu-role">Роль</label>
@@ -73,7 +70,6 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
         style={input}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        onKeyDown={onEnter}
       />
       <p style={hint}>{PASSWORD_HINT}. Передайте пароль человеку сами, сменить его можно в меню профиля.</p>
 

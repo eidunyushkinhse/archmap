@@ -31,7 +31,7 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
   }
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 400, padding: 24 }}>
       <DialogTitle lead={<>Новый пароль для «{user.username}». Передайте его человеку сами.</>}>
         Сбросить пароль
       </DialogTitle>
@@ -45,7 +45,6 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
         style={input}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
       />
       <p style={hint}>{PASSWORD_HINT}</p>
 

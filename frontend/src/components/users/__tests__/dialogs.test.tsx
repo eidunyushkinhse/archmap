@@ -2,7 +2,6 @@
 // Проверяем, что уходит в API и как показываются отказы бэка.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import ChangePasswordDialog from "../ChangePasswordDialog";
 import NewUserDialog from "../NewUserDialog";
@@ -15,9 +14,8 @@ vi.mock("../../../api/auth", () => ({ changePassword: vi.fn() }));
 vi.mock("../../../api/admin", () => ({
   adminApi: { create: vi.fn(), resetPassword: vi.fn() },
 }));
-vi.mock("../../../ui/Modal", () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
+// Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
+// идёт через него.
 
 const ivan: AdminUser = {
   id: "u-ivan",
@@ -67,6 +65,18 @@ describe("ChangePasswordDialog", () => {
     expect(await screen.findByText("Неверный текущий пароль")).toBeInTheDocument();
     // окно осталось открытым с формой — можно поправить и повторить
     expect(screen.getByRole("button", { name: "Сменить" })).toBeEnabled();
+  });
+
+  it("Enter в поле — как «Сменить»; пока повтор не совпал, клавиша молчит", async () => {
+    vi.mocked(changePassword).mockResolvedValue(undefined);
+    render(<ChangePasswordDialog onClose={vi.fn()} />);
+    await fill("old-password", "new-password-1", "new-password-2{Enter}");
+    expect(changePassword).not.toHaveBeenCalled();
+    const repeat = screen.getByLabelText("Повторите новый пароль");
+    await userEvent.clear(repeat);
+    await userEvent.type(repeat, "new-password-1{Enter}");
+    expect(changePassword).toHaveBeenCalledWith("old-password", "new-password-1");
+    expect(await screen.findByText("Пароль изменён")).toBeInTheDocument();
   });
 });
 

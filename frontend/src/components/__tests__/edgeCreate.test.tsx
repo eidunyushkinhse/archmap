@@ -14,10 +14,8 @@ import { ApiError } from "../../api/client";
 import type { Edge, Node } from "../../types";
 
 vi.mock("../../api/nodes", () => ({ edgesApi: { create: vi.fn() } }));
-// Нативный <dialog> в jsdom не открывается — та же замена, что в тестах окон.
-vi.mock("../../ui/Modal", () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+// Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
+// идёт через него.
 
 const created = { id: "e1", source_id: "a", target_id: "b", version: 1 } as Edge;
 
@@ -55,6 +53,16 @@ describe("EdgeQuickCreate", () => {
     expect(await screen.findByText("Связь между этими объектами уже есть")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Создать связь" })).toBeEnabled();
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it("Enter в поле подтверждает, как «Создать связь»", async () => {
+    vi.mocked(edgesApi.create).mockResolvedValue(created);
+    const onCreated = open();
+    await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka..."), "gRPC{Enter}");
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    expect(edgesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      source_id: "a", target_id: "b", technology: "gRPC",
+    }));
   });
 });
 
@@ -106,5 +114,20 @@ describe("CrossLevelEdgePicker", () => {
     await userEvent.click(screen.getByRole("button", { name: "Создать связь" }));
     await waitFor(() => expect(edgesApi.create).toHaveBeenCalledOnce());
     expect(vi.mocked(edgesApi.create).mock.calls[0][0]).toMatchObject({ source_id: "b", target_id: "a" });
+  });
+
+  it("Enter: без выбранного конца молчит, с выбранным — создаёт", async () => {
+    vi.mocked(edgesApi.create).mockResolvedValue(created);
+    const onCreated = open();
+    await screen.findByText("Оплата");
+    const tech = () => screen.getByPlaceholderText("REST, Kafka…");
+    await userEvent.type(tech(), "gRPC{Enter}");
+    expect(edgesApi.create).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByText("Оплата"));
+    await userEvent.type(tech(), "{Enter}");
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
+    expect(edgesApi.create).toHaveBeenCalledWith(expect.objectContaining({
+      source_id: "a", target_id: "b", technology: "gRPC",
+    }));
   });
 });

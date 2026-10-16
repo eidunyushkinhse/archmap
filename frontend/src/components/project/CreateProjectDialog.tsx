@@ -253,6 +253,9 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Например, «Платёжная платформа»"
+        // Enter подтверждает ТОЛЬКО здесь, а не через Modal.onSubmit: на табе «Импорт»
+        // в этом же окне живут поля вопросов остатка и форм связей, где Enter — не
+        // «создать проект».
         onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
       />
       <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>

@@ -35,7 +35,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
   }
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 460, padding: 24 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 460, padding: 24 }}>
       <DialogTitle>Редактировать проект</DialogTitle>
 
       <label style={labelStyle}>Название</label>
@@ -45,7 +45,6 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
         style={input}
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") void submit(); }}
       />
 
       <label style={labelStyle}>Описание <span style={{ color: "#94a3b8", fontWeight: 400 }}>(необязательно)</span></label>

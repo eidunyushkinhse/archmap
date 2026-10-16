@@ -29,9 +29,11 @@ export default function EdgeQuickCreate({
 }: Props) {
   const { label, setLabel, technology, setTechnology, saving, error, limit, create } =
     useEdgeCreate(onCreated);
+  // Одно действие у кнопки и у Enter в поле; во время создания — ни то ни другое.
+  const submit = () => { if (!saving) void create(sourceId, targetId); };
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 400 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 400 }}>
       <h2 style={{ margin: "0 0 6px", fontSize: 18, color: "#1e293b" }}>Новая связь</h2>
       <p style={{ margin: "0 0 16px", color: "#475569", fontSize: 14 }}>
         {sourceLabel} → {targetLabel}
@@ -62,7 +64,7 @@ export default function EdgeQuickCreate({
         </p>
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={() => void create(sourceId, targetId)} disabled={saving} style={primaryBtn}>
+        <button onClick={submit} disabled={saving} style={primaryBtn}>
           {saving ? "Создание..." : "Создать связь"}
         </button>
         <button onClick={onClose} style={secondaryBtn}>Отмена</button>

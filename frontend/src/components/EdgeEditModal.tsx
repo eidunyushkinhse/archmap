@@ -146,7 +146,9 @@ function EdgeEditForm({ data, onClose, onChanged }: {
   };
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 480 }}>
+    // Enter в поле (Ctrl+Enter в описании) — «Готово»; пока окно спрашивает об
+    // удалении, клавиша молчит: удаление подтверждают только кнопкой.
+    <Modal onClose={onClose} onSubmit={confirmDel ? undefined : handleDone} boxStyle={{ width: 480 }}>
       <DialogTitle>Редактирование связи</DialogTitle>
       <dl className="insp-meta" style={{ borderTop: "none" }}>
         <EdgeEndRow key={`src-${invertSeq}`} end="source" value={sourceId} label={srcLabel}

@@ -57,6 +57,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
   const footerClass = `modal-footer${atBottom ? " modal-footer--at-bottom" : ""}`;
 
   async function handleSave() {
+    if (saving) return; // Enter во время сохранения — как неактивная кнопка
     if (!name.trim()) {
       setError("Название обязательно");
       return;
@@ -98,7 +99,7 @@ export default function NodeModal({ parentId, shape: templateShape, initialPos, 
   }
 
   return (
-    <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
+    <Modal onClose={onClose} onSubmit={handleSave} closeButton={false} boxStyle={{ width: 560, maxHeight: "90vh", overflowY: "auto" }}>
       <div ref={topRef} style={{ height: 1 }} aria-hidden />
       <div className={headerClass}>
         <h2>Новый объект</h2>

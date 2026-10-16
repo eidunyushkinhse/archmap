@@ -55,8 +55,15 @@ if (!Element.prototype.setPointerCapture) {
 if (!window.scrollTo) window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
 if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = vi.fn();
 
-// HTMLDialogElement.showModal/close — Modal использует нативный <dialog>.
+// HTMLDialogElement.showModal/close — Modal использует нативный <dialog>. jsdom их не
+// реализует, а его UA-стили прячут закрытый диалог (dialog:not([open]) — display: none),
+// и role-запросы RTL не видят содержимого: открытие эмулируем атрибутом open — тогда
+// окно тестируется настоящим Modal (клавиши, крестик), без прозрачной подмены.
 if (typeof HTMLDialogElement !== "undefined") {
-  if (!HTMLDialogElement.prototype.showModal) HTMLDialogElement.prototype.showModal = vi.fn();
-  if (!HTMLDialogElement.prototype.close) HTMLDialogElement.prototype.close = vi.fn();
+  if (!HTMLDialogElement.prototype.showModal) {
+    HTMLDialogElement.prototype.showModal = function (this: HTMLDialogElement) { this.setAttribute("open", ""); };
+  }
+  if (!HTMLDialogElement.prototype.close) {
+    HTMLDialogElement.prototype.close = function (this: HTMLDialogElement) { this.removeAttribute("open"); };
+  }
 }

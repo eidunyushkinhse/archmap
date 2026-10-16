@@ -3,7 +3,6 @@
 // не повторит запрос); отказ бэка показывается под текстом, и можно повторить.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ArchiveDialog, DeleteForeverDialog, RestoreDialog } from "../project/ProjectDialogs";
 import EditProjectDialog from "../project/EditProjectDialog";
@@ -13,10 +12,8 @@ import type { Project } from "../../types";
 vi.mock("../../api/projects", () => ({
   projectsApi: { archive: vi.fn(), restore: vi.fn(), remove: vi.fn(), update: vi.fn() },
 }));
-// Нативный <dialog> в jsdom не открывается — прозрачная обёртка (паттерн соседних тестов).
-vi.mock("../../ui/Modal", () => ({
-  default: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-}));
+// Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
+// идёт через него.
 
 const project: Project = {
   id: "p1", name: "Ярмарка", description: null, archived_at: null,
@@ -84,6 +81,18 @@ describe("DeleteForeverDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Удалить навсегда" }));
     expect(await screen.findByText("Имя не совпало")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить навсегда" })).toBeEnabled();
+  });
+
+  it("Enter в поле имени: молчит, пока имя не совпало; совпало — удаляет", async () => {
+    vi.mocked(projectsApi.remove).mockResolvedValue(undefined);
+    const onDone = vi.fn();
+    render(<DeleteForeverDialog project={project} onClose={vi.fn()} onDone={onDone} />);
+    const field = screen.getByPlaceholderText("Ярмарка");
+    await userEvent.type(field, "Ярмар{Enter}");
+    expect(projectsApi.remove).not.toHaveBeenCalled();
+    await userEvent.type(field, "ка{Enter}");
+    expect(projectsApi.remove).toHaveBeenCalledWith("p1", "Ярмарка");
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   });
 });
 

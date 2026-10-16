@@ -10,9 +10,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import EdgeEditModal from "../EdgeEditModal";
 import { edgesApi, nodesApi } from "../../api/nodes";
 
-vi.mock("../../ui/Modal", () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+// Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
+// идёт через него.
 vi.mock("../NodeSearchPicker", () => ({ default: () => null }));
 vi.mock("../../api/nodes", () => ({
   edgesApi: { get: vi.fn(), list: vi.fn(), update: vi.fn(), delete: vi.fn() },
@@ -90,6 +89,33 @@ describe("EdgeEditModal: удаление связи", () => {
     await userEvent.click(del());
 
     expect(await screen.findByText("Связь занята")).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("EdgeEditModal: подтверждение по Enter", () => {
+  it("Enter в поле технологии — как «Готово»: коммит и закрытие", async () => {
+    vi.mocked(edgesApi.update).mockResolvedValue({ ...EDGE, technology: "gRPC", version: 2 } as never);
+    const { onClose, onChanged } = renderModal();
+    const tech = await screen.findByPlaceholderText("REST, gRPC, Kafka…");
+
+    await userEvent.clear(tech);
+    await userEvent.type(tech, "gRPC{Enter}");
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
+    expect(vi.mocked(edgesApi.update).mock.calls[0]?.[1]).toMatchObject({ technology: "gRPC" });
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it("пока окно спрашивает об удалении, Enter молчит", async () => {
+    const { onClose } = renderModal();
+    await screen.findByRole("button", { name: "Удалить" });
+    await userEvent.click(del());
+
+    await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka…"), "{Enter}");
+
+    expect(edgesApi.update).not.toHaveBeenCalled();
+    expect(edgesApi.delete).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
   });
 });

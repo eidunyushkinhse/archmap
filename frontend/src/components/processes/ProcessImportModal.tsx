@@ -87,8 +87,16 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
     ? preview.participants.filter((p) => !mapping[p.alias]).length
     : 0;
 
+  // Enter в поле названия (Ctrl+Enter в тексте диаграммы) — главная кнопка текущего
+  // шага: «Разобрать», после превью — «Импортировать»; с теми же гардами, что у кнопок.
+  const submit = () => {
+    if (busy || result) return;
+    if (preview) void doImport();
+    else if (text.trim()) void doPreview();
+  };
+
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 720 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 720 }}>
       <div style={{ fontSize: 15, fontWeight: 700, color: BPT.head, marginBottom: 12 }}>
         Импорт процесса из Mermaid
       </div>

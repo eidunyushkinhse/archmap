@@ -10,9 +10,8 @@ import ProcessImportModal from "../processes/ProcessImportModal";
 import { processesApi } from "../../api/processes";
 import type { ProcessImportPreview, ProcessImportResult } from "../../types";
 
-vi.mock("../../ui/Modal", () => ({
-  default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-}));
+// Modal настоящий (test-setup открывает <dialog> атрибутом open): подтверждение по Enter
+// идёт через него.
 vi.mock("../../api/processes", () => ({
   processesApi: { importPreview: vi.fn(), importProcess: vi.fn() },
 }));
@@ -59,6 +58,22 @@ describe("импорт процесса: превью", () => {
   it("пустой текст разбирать нечего", () => {
     renderModal();
     expect(screen.getByRole("button", { name: "Разобрать" })).toBeDisabled();
+  });
+
+  it("Enter в поле названия — кнопка текущего шага: «Разобрать», после превью — «Импортировать»", async () => {
+    renderModal();
+    const name = () => screen.getByPlaceholderText("Импортированный процесс");
+    await userEvent.type(name(), "Оплата{Enter}");
+    expect(processesApi.importPreview).not.toHaveBeenCalled(); // текста нет — кнопка заперта
+
+    await userEvent.type(textarea(), "sequenceDiagram");
+    await userEvent.type(name(), "{Enter}");
+    await screen.findByText("Участники: с чем сопоставились");
+    expect(processesApi.importPreview).toHaveBeenCalledWith({ text: "sequenceDiagram", name: "Оплата" });
+    expect(processesApi.importProcess).not.toHaveBeenCalled();
+
+    await userEvent.type(name(), "{Enter}");
+    await waitFor(() => expect(processesApi.importProcess).toHaveBeenCalledOnce());
   });
 
   it("разбор ничего не создаёт — только показывает", async () => {

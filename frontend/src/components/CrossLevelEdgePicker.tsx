@@ -232,9 +232,13 @@ export default function CrossLevelEdgePicker({
   }
 
   const pickedPath = picked ? pathOf(picked) : "";
+  // Enter в любом поле окна — как «Создать связь»; пока конец не выбран или идёт
+  // создание, кнопка неактивна, и клавиша молчит так же.
+  const canCreate = picked !== null && !saving;
+  const submit = () => { if (canCreate) void handleCreate(); };
 
   return (
-    <Modal onClose={onClose} boxStyle={{ width: 440 }}>
+    <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 440 }}>
       <h2 style={{ margin: subtitle ? "0 0 6px" : "0 0 16px", fontSize: 18, color: "#1e293b" }}>{title}</h2>
       {subtitle && <p style={{ margin: "0 0 16px", color: "#64748b", fontSize: 13 }}>{subtitle}</p>}
 
@@ -318,7 +322,7 @@ export default function CrossLevelEdgePicker({
         </p>
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={handleCreate} disabled={saving || !picked} style={primaryBtn}>
+        <button onClick={submit} disabled={!canCreate} style={primaryBtn}>
           {saving ? "Создание…" : "Создать связь"}
         </button>
         <button onClick={onClose} style={secondaryBtn}>Отмена</button>
