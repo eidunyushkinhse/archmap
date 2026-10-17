@@ -32,6 +32,9 @@ ProjectRole = Literal["owner", "editor", "reader"]
 UserRole = Literal["architect", "viewer"]
 USER_ROLES: tuple[UserRole, ...] = get_args(UserRole)
 
+# Срок личного токена доступа в днях (app/personal_tokens.py); «бессрочно» — null.
+TokenLifetimeDays = Literal[30, 90, 365]
+
 # Режим пометки обращения в тексте схемы логики: «читает:», «пишет:», «публикует:»,
 # «потребляет:», «зависит от:».
 DataRefMode = Literal["read", "write", "publish", "consume", "config"]
