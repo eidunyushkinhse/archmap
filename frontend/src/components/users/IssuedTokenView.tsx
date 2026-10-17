@@ -8,8 +8,9 @@ import { primaryBtn } from "../../ui/styles";
 
 /**
  * Вид «токен выпущен» окна «Токены для агентов»: секрет показывается ОДИН раз — здесь, с
- * готовыми строками подключения. Адрес — origin страницы + /mcp: тот же ArchMap, что
- * открыт в браузере (в dev /mcp проксирует Vite).
+ * готовыми строками подключения (Claude Code и Cursor; VS Code, Qwen Code и общий .mcp.json —
+ * в mcp/README.md). Адрес — origin страницы + /mcp: тот же ArchMap, что открыт в браузере
+ * (в dev /mcp проксирует Vite).
  */
 
 interface Props {
@@ -24,7 +25,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
   const { secret, token } = issued;
   const command = `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`;
   const json = JSON.stringify(
-    { mcpServers: { archmap: { type: "http", url, headers: { Authorization: `Bearer ${secret}` } } } },
+    { mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${secret}` } } } },
     null,
     2,
   );
@@ -61,7 +62,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
       {token.read_only && <p style={note}>Только чтение: агент сможет смотреть, но не менять.</p>}
       {block("secret", "Токен", secret)}
       {block("claude", "Claude Code — команда в терминале", command)}
-      {block("json", "Cursor и другие клиенты — mcp.json", json)}
+      {block("json", "Cursor — ~/.cursor/mcp.json", json)}
       {copyError && <p style={note}>Браузер не дал скопировать — выделите текст и скопируйте вручную.</p>}
       <div style={{ display: "flex", marginTop: 6 }}>
         <button data-autofocus style={primaryBtn} onClick={onDone}>Готово</button>

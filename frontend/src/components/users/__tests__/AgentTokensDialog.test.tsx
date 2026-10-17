@@ -72,7 +72,7 @@ describe("AgentTokensDialog", () => {
     );
     const json = JSON.parse(screen.getByTestId("issued-json").textContent ?? "") as unknown;
     expect(json).toEqual({
-      mcpServers: { archmap: { type: "http", url, headers: { Authorization: `Bearer ${SECRET}` } } },
+      mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${SECRET}` } } },
     });
     await userEvent.click(screen.getByRole("button", { name: "Готово" }));
     expect(onClose).toHaveBeenCalledTimes(1);
