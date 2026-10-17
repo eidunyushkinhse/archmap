@@ -9,6 +9,7 @@ from app.auth import (
     create_access_token,
     get_current_user,
     hash_password,
+    require_session_user,
     verify_password,
 )
 from app.config import settings
@@ -117,7 +118,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
 def change_password(
     payload: PasswordChange,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
     db: Session = Depends(get_db),
 ) -> None:
     """Смена своего пароля. Выданные токены остаются в силе: пароль в них не входит.

@@ -1,14 +1,16 @@
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from pwdlib import PasswordHash
 from pwdlib.hashers.bcrypt import BcryptHasher
 from sqlalchemy.orm import Session
 
+from app import personal_tokens
 from app.config import settings
-from app.database import get_db
+from app.database import as_utc, get_db
+from app.models.personal_token import PersonalToken
 from app.models.user import User
 from app.schemas.auth import TokenData
 
@@ -115,23 +117,54 @@ def _get_current_user(token: str, db: Session) -> User:
                 headers={"WWW-Authenticate": "Bearer"},
             )
         raise credentials_error
-    # Блокировка действует сразу, в том числе на уже выданный токен: флаг сверяется
-    # с БД на каждом запросе (роль берётся отсюда же, из строки БД, а не из токена).
+    _require_active(user)
+    if user.is_guest:
+        _touch_guest(db, user)
+    return user
+
+
+def _require_active(user: User) -> None:
+    """Блокировка действует сразу, в том числе на уже выданный токен: флаг сверяется
+    с БД на каждом запросе (роль берётся отсюда же, из строки БД, а не из токена)."""
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=BLOCKED_DETAIL,
             headers={"WWW-Authenticate": "Bearer"},
         )
-    if user.is_guest:
-        _touch_guest(db, user)
+
+
+def _personal_token_user(request: Request, secret: str, db: Session) -> User:
+    """Вход по личному токену (docs/plan-remote-mcp.md, Р4). Права — владельца, как у
+    его сессии; токен их только сужает: DELETE закрыт целиком, «только чтение» пускает
+    лишь безопасные методы, остальное — require_session_user на ручках.
+
+    Признак «запрос по токену» кладётся в request.state, а НЕ в ContextVar: эта
+    зависимость синхронная, FastAPI исполняет её в пуле потоков, и значение ContextVar
+    до ручки не дошло бы."""
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=personal_tokens.INVALID_DETAIL,
+        headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+    )
+    # На демо-стенде токенов нет (Р8): выпуск закрыт, а вход отвечает так же, как на
+    # чужой токен, — существование строк не выдаём.
+    if settings.demo_mode:
+        raise invalid
+    row = personal_tokens.find(db, secret)
+    if row is None:
+        raise invalid
+    user = db.get(User, row.user_id)
+    if user is None:
+        raise invalid
+    _require_active(user)
+    request.state.personal_token = row
+    if request.method == "DELETE":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.NO_DELETE_DETAIL)
+    if row.read_only and request.method not in personal_tokens.SAFE_METHODS:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.READ_ONLY_DETAIL)
+    personal_tokens.touch(db, row)
     return user
-
-
-def _aware(moment: datetime) -> datetime:
-    """Время с часовым поясом: SQLite (тесты) отдаёт timestamptz без пояса, а пишем
-    мы всегда UTC."""
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
 
 
 def _touch_guest(db: Session, user: User) -> None:
@@ -141,16 +174,39 @@ def _touch_guest(db: Session, user: User) -> None:
     всё равно была. Сессия в этот момент чистая (зависимость идёт до ручки)."""
     now = datetime.now(UTC)
     last = user.last_active_at
-    if last is not None and now - _aware(last) < GUEST_ACTIVITY_STEP:
+    if last is not None and now - as_utc(last) < GUEST_ACTIVITY_STEP:
         return
     user.last_active_at = now
     db.commit()
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+    request: Request, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
 ) -> User:
+    # Личный токен узнаётся по префиксу ДО разбора JWT: это не JWT, и ветка JWT дала бы
+    # невнятный 401.
+    if personal_tokens.is_personal_token(token):
+        return _personal_token_user(request, token, db)
     return _get_current_user(token, db)
+
+
+def personal_token_of(request: Request) -> PersonalToken | None:
+    """Токен, которым пришёл запрос, или None — запрос из сессии интерфейса.
+    Выставляет get_current_user; без него (зависимость не звалась) — None."""
+    row = getattr(request.state, "personal_token", None)
+    return row if isinstance(row, PersonalToken) else None
+
+
+def require_session_user(request: Request, user: User = Depends(get_current_user)) -> User:
+    """Пользователь сессии интерфейса: личным токеном сюда нельзя (Р4). Закрывает
+    управление токенами, пароль, администрирование и управление проектом на уровне
+    владельца: утёкшим токеном можно испортить знание (это откатывается правками), но
+    нельзя снести проект или выпустить себе новый токен."""
+    if personal_token_of(request) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.SESSION_ONLY_DETAIL
+        )
+    return user
 
 
 def require_architect(user: User = Depends(get_current_user)) -> User:
@@ -162,7 +218,7 @@ def require_architect(user: User = Depends(get_current_user)) -> User:
     return user
 
 
-def require_admin(user: User = Depends(get_current_user)) -> User:
+def require_admin(user: User = Depends(require_session_user)) -> User:
     """Права администратора: управление пользователями. Признак, а не роль, —
     администратор-наблюдатель проходит сюда, но не в require_architect."""
     if not user.is_admin:

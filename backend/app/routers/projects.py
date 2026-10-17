@@ -38,7 +38,7 @@ from app.access import (
     transfer_ownership,
     visible_projects,
 )
-from app.auth import get_current_user, require_architect
+from app.auth import get_current_user, require_architect, require_session_user
 from app.database import get_db
 from app.deps import project_for
 from app.identity import source_ref_dict
@@ -523,7 +523,7 @@ def update_project(
     project_id: uuid.UUID,
     payload: ProjectUpdate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectResponse:
     """Имя, описание и «Виден всем пользователям» — только владелец. Гостю демо-стенда
     открывать проект всем нельзя: 403."""
@@ -547,7 +547,7 @@ def update_project(
 def archive_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectResponse:
     """Мягкое удаление: проставляем archived_at. Данные сохраняются. Только владелец."""
     p, _ = project_for(db, user, project_id, need="owner")
@@ -562,7 +562,7 @@ def archive_project(
 def restore_project(
     project_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectResponse:
     """Вернуть из архива: archived_at = null. Только владелец."""
     p, _ = project_for(db, user, project_id, need="owner")
@@ -635,7 +635,7 @@ def put_member(
     user_id: uuid.UUID,
     payload: ProjectMemberIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectMemberOut:
     """Добавить участника или сменить ему роль (editor/reader). Только владелец.
     Владелец так не понижается: его роль меняет только передача владения."""
@@ -690,7 +690,7 @@ def transfer_project(
     project_id: uuid.UUID,
     payload: ProjectTransferIn,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectResponse:
     """Передать владение другому активному пользователю. Только владелец
     (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
