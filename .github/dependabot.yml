@@ -19,11 +19,16 @@ updates:
       actions:
         patterns: ["*"]
 
+  # Бэкенд и пакет MCP — одной записью: пакет archmap_mcp едет в поставке бэкенда (эндпоинт
+  # /mcp), и общие пины обязаны совпадать (tests/test_requirements_lock.py). Группа shared с
+  # group-by: dependency-name даёт ОДИН PR на зависимость сразу в обоих каталогах (иначе
+  # Dependabot шлёт по PR на каталог, и каждый падает на стороже). Остальное — группой
+  # python, PR на каталог. Зависимость попадает в первую подходящую группу.
   - package-ecosystem: pip
-    directory: /backend
+    directories: ["/backend", "/mcp"]
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 5
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
@@ -34,22 +39,11 @@ updates:
       - dependency-name: "ruff"
       - dependency-name: "mypy"
     groups:
-      backend:
-        patterns: ["*"]
+      shared:
+        patterns: ["mcp", "httpx", "pyyaml", "PyYAML", "pytest"]
         update-types: ["minor", "patch"]
-
-  - package-ecosystem: pip
-    directory: /mcp
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 3
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "ruff"
-      - dependency-name: "mypy"
-    groups:
-      mcp:
+        group-by: dependency-name
+      python:
         patterns: ["*"]
         update-types: ["minor", "patch"]
 

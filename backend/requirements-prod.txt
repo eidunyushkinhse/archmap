@@ -22,3 +22,11 @@ pydantic==2.14.1
 pydantic-settings==2.15.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
+# Удалённый MCP-сервер (/mcp в процессе бэкенда, docs/plan-remote-mcp.md): SDK протокола и
+# httpx — им инструменты пакета archmap_mcp ходят в HTTP API этого же процесса
+# (ASGITransport). Пины те же, что в mcp/requirements.txt (сторож —
+# tests/test_requirements_lock.py).
+mcp==1.30.0
+# httpx нужен и тестам (TestClient, прямые ASGI-тесты). Starlette 1.x советует httpx2 —
+# переход отдельным шагом.
+httpx==0.28.1
