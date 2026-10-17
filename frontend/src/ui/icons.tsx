@@ -44,24 +44,6 @@ export const ChevronDownIcon = ({ size = 12 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={2.2} aria-hidden
     style={{ marginLeft: 2 }}>
     <path d="M6 9 L12 15 L18 9" /></svg>);
-export const LogoutIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <path d="M15 4 H19 a1 1 0 0 1 1 1 V19 a1 1 0 0 1-1 1 H15" />
-    <path d="M10 17 L15 12 L10 7" /><path d="M15 12 H3" /></svg>);
-// Ключ — пункт меню профиля «Сменить пароль».
-export const KeyIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <circle cx="8" cy="15" r="4" /><path d="M11 12 L20 3" /><path d="M16 7 L19 10" /><path d="M18 5 L20 7" /></svg>);
-// Голова робота — пункт меню профиля «Токены для агентов» (подключение ИИ-агента).
-export const AgentIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8 V4.5" /><circle cx="12" cy="3.5" r="1" />
-    <path d="M9 13.5 V14.5" /><path d="M15 13.5 V14.5" /><path d="M2 13 V15" /><path d="M22 13 V15" /></svg>);
-// Двое людей — пункт меню профиля «Пользователи» (только администратору).
-export const UsersIcon = ({ size = 16 }: IcoProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
-    <circle cx="9" cy="8" r="3.5" /><path d="M2.5 20 a6.5 6.5 0 0 1 13 0" />
-    <path d="M16 4.6 a3.5 3.5 0 0 1 0 6.8" /><path d="M18 14 a6.5 6.5 0 0 1 3.5 6" /></svg>);
 // Крестик закрытия модалки — линейный SVG (две скрещённые линии), не текстовый ✕.
 export const CloseIcon = ({ size = 18 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
