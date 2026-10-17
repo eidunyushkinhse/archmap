@@ -211,7 +211,8 @@ async def test_сбой_инструмента_отвечает_текстом_�
 
     monkeypatch.setattr(tools, "call", broken)
 
-    text = await server.answer(client, "archmap_node", {})
+    reply = await server.answer(client, "archmap_node", {})
 
-    assert text.startswith("Сбой MCP-сервера ArchMap в инструменте archmap_node: KeyError")
-    assert "не ответ ArchMap" in text
+    assert reply.text.startswith("Сбой MCP-сервера ArchMap в инструменте archmap_node: KeyError")
+    assert "не ответ ArchMap" in reply.text
+    assert reply.outcome == "failed"

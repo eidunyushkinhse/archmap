@@ -3,7 +3,9 @@
 Тонкая обвязка: регистрирует каталог из tools.py и отдаёт результат текстом.
 Отказы ArchMap возвращаются агенту как текст с isError, а не как исключение
 протокола: агент должен ПРОЧИТАТЬ причину («проект не найден», «нет прав на
-правку этого проекта») и исправиться, а не получить обрыв вызова.
+правку этого проекта») и исправиться, а не получить обрыв вызова. isError при этом
+говорит клиенту и агенту, что вызов не удался, — отказ не принимается за результат
+(docs/plan-remote-mcp.md, Р12).
 """
 
 from __future__ import annotations
@@ -11,7 +13,8 @@ from __future__ import annotations
 import asyncio
 import sys
 import traceback
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import mcp.server.stdio
 import mcp.types as types
@@ -40,32 +43,55 @@ def build_server(client: ArchMapClient) -> Server:
         ]
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[types.TextContent]:
-        return [types.TextContent(type="text", text=await answer(client, name, arguments or {}))]
+    async def call_tool(name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
+        return (await answer(client, name, arguments or {})).result()
 
     return server
 
 
-async def answer(client: ArchMapClient, name: str, arguments: dict[str, Any]) -> str:
-    """Текст ответа инструмента — и при успехе, и при отказе: агент читает его как есть."""
+# Итог вызова: ok — ответ на вопрос (и «Проектов нет», и план превью «не пройдёт» —
+# тоже ответ); refused — отказ, который агент может исправить (права, «не найдено»,
+# конфликт версий, неверные данные, «не настроен»); failed — сбой самого сервера.
+Outcome = Literal["ok", "refused", "failed"]
+
+
+@dataclass(frozen=True)
+class Reply:
+    """Ответ инструмента: текст для агента и итог. Текст отказа агент читает так же, как
+    успех; итог решает isError и строку журнала удалённого режима — один источник."""
+
+    text: str
+    outcome: Outcome = "ok"
+
+    def result(self) -> types.CallToolResult:
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=self.text)],
+            isError=self.outcome != "ok",
+        )
+
+
+async def answer(client: ArchMapClient, name: str, arguments: dict[str, Any]) -> Reply:
+    """Ответ инструмента — и при успехе, и при отказе: агент читает текст как есть."""
     missing = client.config.missing()
     if missing:
-        return (
+        return Reply(
             "ArchMap не настроен: не заданы " + ", ".join(missing) + ". "
-            "Впишите их в mcp/.env (см. mcp/README.md) и перезапустите клиент."
+            "Впишите их в mcp/.env (см. mcp/README.md) и перезапустите клиент.",
+            "refused",
         )
     try:
-        return await tools.call(name, arguments, client)
+        return Reply(await tools.call(name, arguments, client))
     except ArchMapError as exc:
-        return str(exc)
+        return Reply(str(exc), "refused")
     except Exception as exc:
         # Не отказ ArchMap, а сбой самого сервера (неожиданный ответ, ошибка в коде):
         # голое «'id'» от KeyError модель приняла бы за ответ (аудит P-9). Стек — в
         # stderr, он уходит в журнал клиента.
         traceback.print_exc(file=sys.stderr)
-        return (
+        return Reply(
             f"Сбой MCP-сервера ArchMap в инструменте {name}: {type(exc).__name__}: {exc}. "
-            "Это не ответ ArchMap; подробности — в журнале MCP-клиента."
+            "Это не ответ ArchMap; подробности — в журнале MCP-клиента.",
+            "failed",
         )
 
 
