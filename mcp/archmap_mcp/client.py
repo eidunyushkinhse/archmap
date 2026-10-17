@@ -151,14 +151,14 @@ class ArchMapClient:
         if resp.status_code == 401:
             # Заблокированную учётку ArchMap называет прямо — этот текст агенту важнее
             # подсказки про переменные: менять пароль в .env бесполезно.
-            reason = _detail(resp)
+            reason = detail_text(resp)
             if "заблокирована" in reason:
                 raise ArchMapError(f"ArchMap отклонил логин: {reason}. Обратитесь к администратору.")
             raise ArchMapError(
                 "ArchMap отклонил логин: неверные ARCHMAP_USERNAME или ARCHMAP_PASSWORD."
             )
         if resp.status_code >= 400:
-            raise ArchMapError(f"Не удалось войти в ArchMap: {_detail(resp)}")
+            raise ArchMapError(f"Не удалось войти в ArchMap: {detail_text(resp)}")
         token = resp.json().get("access_token")
         if not token:
             raise ArchMapError("ArchMap не вернул токен доступа.")
@@ -210,7 +210,7 @@ class ArchMapClient:
         resp = await attempt()
         if resp.status_code == 401 and self._bearer is not None:
             # Заблокированную учётку ArchMap называет прямо: новый токен не поможет.
-            reason = _detail(resp)
+            reason = detail_text(resp)
             if "заблокирована" in reason:
                 raise ArchMapError(f"ArchMap отклонил токен: {reason}. Обратитесь к администратору.")
             raise ArchMapError(
@@ -225,19 +225,19 @@ class ArchMapClient:
             # Права решает роль в проекте (владелец, редактор, чтение), а создание
             # проектов — роль architect; причину называет сервер.
             raise ArchMapError(
-                f"Недостаточно прав: {_detail(resp)}. Роль учётки в каждом проекте "
+                f"Недостаточно прав: {detail_text(resp)}. Роль учётки в каждом проекте "
                 "показывает archmap_projects."
             )
         if resp.status_code == 404:
-            raise ArchMapError(f"Не найдено: {_detail(resp)}")
+            raise ArchMapError(f"Не найдено: {detail_text(resp)}")
         if resp.status_code == 409:
             raise ArchMapError(
-                f"Конфликт версий: {_detail(resp)}. Схему изменили — перечитайте её и повторите."
+                f"Конфликт версий: {detail_text(resp)}. Схему изменили — перечитайте её и повторите."
             )
         if resp.status_code == 422:
-            raise ArchMapError(f"ArchMap отклонил данные: {_detail(resp)}")
+            raise ArchMapError(f"ArchMap отклонил данные: {detail_text(resp)}")
         if resp.status_code >= 400:
-            raise ArchMapError(f"Ошибка ArchMap ({resp.status_code}): {_detail(resp)}")
+            raise ArchMapError(f"Ошибка ArchMap ({resp.status_code}): {detail_text(resp)}")
         return resp
 
     async def request(
@@ -282,7 +282,7 @@ class ArchMapClient:
         return resp.content
 
 
-def _detail(resp: httpx.Response) -> str:
+def detail_text(resp: httpx.Response) -> str:
     """Текст ошибки: ArchMap отвечает {"detail": ...}; у 422 FastAPI кладёт туда
     список полей — сворачиваем его в строку, чтобы агент прочёл причину."""
     try:
