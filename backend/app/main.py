@@ -33,6 +33,7 @@ from app.routers import (
     projects,
     recon,
     search,
+    tokens,
     users,
     views,
 )
@@ -96,6 +97,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(demo_router.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(users.router, prefix="/api/v1")
+app.include_router(tokens.router, prefix="/api/v1")
 app.include_router(projects.router, prefix="/api/v1")
 app.include_router(nodes.router, prefix="/api/v1")
 app.include_router(node_docs.router, prefix="/api/v1")

@@ -202,6 +202,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tokens
+         * @description Свои токены, новые сверху. Секретов здесь нет: их показывают один раз.
+         */
+        get: operations["list_tokens_api_v1_tokens_get"];
+        put?: never;
+        /**
+         * Create Token
+         * @description Выпустить токен. 409 — имя уже занято или токенов слишком много.
+         */
+        post: operations["create_token_api_v1_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Current Token
+         * @description Кто владелец токена, которым пришёл запрос. По сессии интерфейса — 404.
+         */
+        get: operations["current_token_api_v1_tokens_current_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke Token
+         * @description Отозвать свой токен: строка удаляется, следующий запрос им — 401. Чужой — 404:
+         *     существование чужих токенов не выдаём.
+         */
+        delete: operations["revoke_token_api_v1_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects": {
         parameters: {
             query?: never;
@@ -5574,6 +5639,75 @@ export interface components {
             /** Parent Name */
             parent_name: string;
         };
+        /** PersonalTokenCreate */
+        PersonalTokenCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Read Only
+             * @default false
+             */
+            read_only: boolean;
+            /**
+             * Lifetime Days
+             * @default 90
+             */
+            lifetime_days: (30 | 90 | 365) | null;
+        };
+        /**
+         * PersonalTokenCreated
+         * @description Ответ на выпуск: секрет показывается ОДИН раз, потом его не узнать никому.
+         */
+        PersonalTokenCreated: {
+            token: components["schemas"]["PersonalTokenOut"];
+            /** Secret */
+            secret: string;
+        };
+        /**
+         * PersonalTokenCurrent
+         * @description Токен, которым пришёл запрос, и его владелец (GET /tokens/current).
+         */
+        PersonalTokenCurrent: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Read Only */
+            read_only: boolean;
+            /** Username */
+            username: string;
+        };
+        /**
+         * PersonalTokenOut
+         * @description Токен в списке: без секрета — только префикс для опознания.
+         */
+        PersonalTokenOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Prefix */
+            prefix: string;
+            /** Read Only */
+            read_only: boolean;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Expires At */
+            expires_at: string | null;
+        };
         /** ProcessCreate */
         ProcessCreate: {
             /** Name */
@@ -7122,6 +7256,108 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserBrief"][];
+                };
+            };
+        };
+    };
+    list_tokens_api_v1_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalTokenOut"][];
+                };
+            };
+        };
+    };
+    create_token_api_v1_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PersonalTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalTokenCreated"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    current_token_api_v1_tokens_current_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalTokenCurrent"];
+                };
+            };
+        };
+    };
+    revoke_token_api_v1_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

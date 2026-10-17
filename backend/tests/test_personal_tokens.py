@@ -232,3 +232,89 @@ def test_предел_и_повтор_имени(db, scene):
     assert exc.value.detail == personal_tokens.LIMIT_DETAIL
     # у другого пользователя — свой счёт и свои имена
     personal_tokens.issue(db, scene["reader"].id, "Агент", False, 90)
+
+
+# ── API /api/v1/tokens ───────────────────────────────────────────────────────────
+
+TOKENS = "/api/v1/tokens"
+
+
+def test_выпуск_показывает_секрет_один_раз(client, db, scene):
+    owner = scene["owner"]
+    r = client.post(TOKENS, headers=_jwt(owner), json={"name": "  Claude Code  ", "read_only": True})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    secret = body["secret"]
+    assert secret.startswith("archmap_")
+    assert body["token"]["name"] == "Claude Code"
+    assert body["token"]["read_only"] is True
+    assert body["token"]["prefix"] == secret[:14]
+    assert body["token"]["expires_at"] is not None  # по умолчанию 90 дней
+    listed = client.get(TOKENS, headers=_jwt(owner))
+    assert listed.status_code == 200
+    assert [t["name"] for t in listed.json()] == ["Claude Code"]
+    assert secret not in listed.text
+    # секрет из ответа — рабочий
+    assert client.get(PROJECTS, headers=_h(secret)).status_code == 200
+
+
+def test_срок_из_словаря_или_бессрочно(client, db, scene):
+    h = _jwt(scene["owner"])
+    assert client.post(TOKENS, headers=h, json={"name": "a", "lifetime_days": 45}).status_code == 422
+    assert client.post(TOKENS, headers=h, json={"name": "   "}).status_code == 422
+    r = client.post(TOKENS, headers=h, json={"name": "b", "lifetime_days": None})
+    assert r.status_code == 201 and r.json()["token"]["expires_at"] is None
+
+
+def test_список_только_свои_отзыв_чужого_404(client, db, scene):
+    mine = client.post(TOKENS, headers=_jwt(scene["owner"]), json={"name": "мой"}).json()
+    client.post(TOKENS, headers=_jwt(scene["reader"]), json={"name": "чужой"})
+    assert [t["name"] for t in client.get(TOKENS, headers=_jwt(scene["owner"])).json()] == ["мой"]
+    token_id = mine["token"]["id"]
+    assert client.delete(f"{TOKENS}/{token_id}", headers=_jwt(scene["reader"])).status_code == 404
+    assert client.get(PROJECTS, headers=_h(mine["secret"])).status_code == 200
+    assert client.delete(f"{TOKENS}/{token_id}", headers=_jwt(scene["owner"])).status_code == 204
+    assert client.get(PROJECTS, headers=_h(mine["secret"])).status_code == 401
+    assert client.delete(f"{TOKENS}/{token_id}", headers=_jwt(scene["owner"])).status_code == 404
+
+
+def test_предел_и_повтор_имени_через_api_409(client, db, scene):
+    h = _jwt(scene["owner"])
+    assert client.post(TOKENS, headers=h, json={"name": "Агент"}).status_code == 201
+    r = client.post(TOKENS, headers=h, json={"name": "Агент"})
+    assert r.status_code == 409 and r.json()["detail"] == personal_tokens.NAME_TAKEN_DETAIL
+    for i in range(personal_tokens.MAX_PER_USER - 1):
+        assert client.post(TOKENS, headers=h, json={"name": f"Агент {i}"}).status_code == 201
+    r = client.post(TOKENS, headers=h, json={"name": "двадцать первый"})
+    assert r.status_code == 409 and r.json()["detail"] == personal_tokens.LIMIT_DETAIL
+
+
+def test_токенами_токенами_не_управляют(client, db, scene):
+    secret = _token(db, scene["owner"])
+    row = db.query(PersonalToken).one()
+    for method, url, body in (
+        ("GET", TOKENS, None),
+        ("POST", TOKENS, {"name": "ещё один"}),
+    ):
+        r = client.request(method, url, headers=_h(secret), json=body)
+        assert r.status_code == 403 and r.json()["detail"] == personal_tokens.SESSION_ONLY_DETAIL
+    r = client.delete(f"{TOKENS}/{row.id}", headers=_h(secret))
+    assert r.status_code == 403
+    assert db.query(PersonalToken).count() == 1
+
+
+def test_current_только_по_токену(client, db, scene):
+    secret = _token(db, scene["owner"], name="CI", read_only=True)
+    r = client.get(f"{TOKENS}/current", headers=_h(secret))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["username"] == "owner" and body["name"] == "CI" and body["read_only"] is True
+    assert body["prefix"] == secret[:14] and secret not in r.text
+    assert client.get(f"{TOKENS}/current", headers=_jwt(scene["owner"])).status_code == 404
+
+
+def test_на_демо_стенде_выпуска_нет(client, db, scene, monkeypatch):
+    monkeypatch.setattr(settings, "demo_mode", True)
+    r = client.post(TOKENS, headers=_jwt(scene["owner"]), json={"name": "Агент"})
+    assert r.status_code == 403 and r.json()["detail"] == personal_tokens.DEMO_DETAIL
+    assert db.query(PersonalToken).count() == 0
