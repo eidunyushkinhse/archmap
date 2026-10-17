@@ -40,13 +40,15 @@ WORKDIR /opt/archmap/backend
 COPY backend/alembic.ini ./
 COPY backend/alembic ./alembic
 COPY backend/app ./app
+# Пакет MCP-сервера (mcp/archmap_mcp) — рядом с app/: эндпоинт /mcp импортирует его прямо
+COPY mcp/archmap_mcp ./archmap_mcp
 COPY deploy/preflight.py /opt/archmap/deploy/
 COPY deploy/docker/secret.sh deploy/docker/entrypoint.sh /opt/archmap/deploy/
 COPY deploy/docker/archmap-admin /usr/local/bin/
 COPY --from=front /src/frontend/dist /opt/archmap/frontend
 # Байткод заранее: корневая ФС бывает только для чтения, а без него каждый рабочий
 # процесс компилировал бы модули на старте
-RUN python3 -m compileall -q /opt/archmap/backend/app \
+RUN python3 -m compileall -q /opt/archmap/backend/app /opt/archmap/backend/archmap_mcp \
     && echo "${VERSION}" > /opt/archmap/VERSION
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

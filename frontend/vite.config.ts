@@ -15,6 +15,12 @@ export default defineConfig({
         target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
+      // Удалённый MCP-сервер для ИИ-агентов: адрес из окна «Токены для агентов»
+      // (origin страницы + /mcp) работает и в dev.
+      '/mcp': {
+        target: `http://localhost:${backendPort}`,
+        changeOrigin: true,
+      },
     },
   },
   // Юнит- и компонентные тесты (vitest): чистые функции раскладки/проекции +

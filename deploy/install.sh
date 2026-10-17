@@ -316,6 +316,19 @@ $sec
         default_type application/json;
         return 429 '{"detail":"Слишком много запросов с вашего адреса. Подождите минуту и попробуйте снова."}';
     }
+    # Удалённый MCP-сервер для ИИ-агентов (личный токен в заголовке Authorization). Ответ —
+    # JSON, но вызов инструмента (превью крупного пакета) идёт дольше минуты; буферизация
+    # выключена на случай потокового ответа
+    location = /mcp {
+        proxy_pass http://archmap_backend;
+        proxy_read_timeout 300s;
+        proxy_buffering off;
+    }
+    # Метаданные OAuth — пока 404 JSON от бэкенда: клиенты MCP ищут их после 401 и не должны
+    # получить страницу интерфейса с кодом 200
+    location ^~ /.well-known/oauth- {
+        proxy_pass http://archmap_backend;
+    }
     location = /health {
         proxy_pass http://archmap_backend;
         access_log off;
@@ -343,6 +356,14 @@ EOF
 if [ "$WITH_NGINX" = 1 ]; then
   if [ -f "$NGINX_CONF" ] && [ -z "$SERVER_NAME" ]; then
     say "nginx: $NGINX_CONF уже есть — не трогаю"
+    # Конфиг от версии до удалённого MCP: /mcp ушёл бы в try_files и вернул 405 или страницу
+    if ! grep -qF "location = /mcp" "$NGINX_CONF"; then
+      warn "nginx: в $NGINX_CONF нет location = /mcp — ИИ-агенты не подключатся по адресу …/mcp.
+  Добавьте в server { … } рядом с location /api/ (DEPLOY.md, «Обновление»):
+    location = /mcp { proxy_pass http://archmap_backend; proxy_read_timeout 300s; proxy_buffering off; }
+    location ^~ /.well-known/oauth- { proxy_pass http://archmap_backend; }
+  затем: nginx -t && systemctl reload nginx. Или переустановите с --server-name."
+    fi
   elif [ -f "$NGINX_CONF" ] && ! head -1 "$NGINX_CONF" | grep -qF "$NGINX_MARK"; then
     warn "nginx: $NGINX_CONF написан не установщиком — не перезаписываю"
   else

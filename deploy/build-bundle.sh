@@ -51,7 +51,7 @@ STAGE="$WORK/$NAME"
 mkdir -p "$SRC" "$STAGE"
 
 say "Исходники ($([ "$FROM_WORKTREE" = 1 ] && echo "рабочее дерево" || echo "HEAD $COMMIT"))"
-PATHS=(backend frontend deploy DEPLOY.md)
+PATHS=(backend frontend deploy DEPLOY.md mcp/archmap_mcp)
 if [ "$FROM_WORKTREE" = 1 ]; then
   git ls-files -z --cached --others --exclude-standard -- "${PATHS[@]}" \
     | tar --null -T - -cf - | tar -xf - -C "$SRC"
@@ -87,6 +87,8 @@ say "Бэкенд и скрипты установки"
 mkdir -p "$STAGE/backend"
 cp -a "$SRC/backend/app" "$SRC/backend/alembic" "$SRC/backend/alembic.ini" \
   "$SRC/backend/requirements-prod.txt" "$SRC/backend/requirements-prod.lock" "$STAGE/backend/"
+# Пакет MCP-сервера — рядом с app/: эндпоинт /mcp импортирует его прямо
+cp -a "$SRC/mcp/archmap_mcp" "$STAGE/backend/archmap_mcp"
 # Из deploy/ — только то, что нужно серверу (образ и Helm-чарт ставятся иначе)
 mkdir -p "$STAGE/deploy"
 for f in install.sh archmap.service archmap.env.example archmap-admin backup.py preflight.py runenv.py; do

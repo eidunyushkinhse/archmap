@@ -283,3 +283,41 @@ def test_nginx_серверной_поставки_пишет_те_же_заго
     install = (Path(__file__).resolve().parents[2] / "deploy" / "install.sh").read_text()
     for name, value in SECURITY_HEADERS:
         assert f'add_header {name} \\"{value}\\" always;' in install, name
+
+
+# ── Удалённый MCP (docs/plan-remote-mcp.md, Р9) ──────────────────────────────
+
+
+def test_mcp_уходит_в_api_а_не_во_фронт(client):
+    # Без токена отвечает сам эндпоинт /mcp (401 JSON) — значит, дошло до API: фронт
+    # ответил бы 405 на POST, а index.html — страницей.
+    res = client.post("/mcp", headers={"Accept": "application/json, text/event-stream"}, json={})
+    assert res.status_code == 401
+    assert res.headers["content-type"].startswith("application/json")
+    assert res.headers["x-content-type-options"] == "nosniff"
+    assert client.get("/mcp").status_code == 405
+
+
+@pytest.mark.parametrize(
+    "path", ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server/mcp"]
+)
+def test_метаданные_oauth_404_json_а_не_страница(client, path):
+    res = client.get(path)
+    assert res.status_code == 404
+    assert res.json() == {"detail": "Not Found"}
+
+
+def test_nginx_ведёт_в_api_те_же_пути_что_standalone():
+    """Паритет маршрутов двух поставок: что standalone (образ) отдаёт API, то и nginx
+    сервера проксирует на бэкенд, а не в try_files интерфейса."""
+    install = (Path(__file__).resolve().parents[2] / "deploy" / "install.sh").read_text()
+    assert set(standalone.API_EXACT) == {"/health", "/ready", "/mcp"}
+    assert set(standalone.API_PREFIXES) == {"/api/", "/.well-known/oauth-"}
+    for path in standalone.API_EXACT:
+        assert f"location = {path} {{\n        proxy_pass http://archmap_backend;" in install, path
+    assert "location /api/ {\n        proxy_pass http://archmap_backend;" in install
+    assert "location ^~ /.well-known/oauth- {\n        proxy_pass http://archmap_backend;" in install
+    for path in ("/mcp", "/.well-known/oauth-protected-resource", "/api/v1/projects", "/health"):
+        assert standalone.is_api_path(path), path
+    for path in ("/mcp/", "/mcpx", "/.well-known/security.txt", "/p/123"):
+        assert not standalone.is_api_path(path), path
