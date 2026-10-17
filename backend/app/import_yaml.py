@@ -297,7 +297,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             return []
         sp = f"{path}.source"
         if raw_src.get("image") is not None or raw_src.get("deployment") is not None:
-            warnings.append(f"{sp}: образ и деплоймент больше не якорь — поле проигнорировано")
+            warnings.append(f"{sp}: образ и деплоймент больше не источник — поле проигнорировано")
         return source_keys(
             SourceRef(
                 repo=opt_str(raw_src, "repo", sp, 512),

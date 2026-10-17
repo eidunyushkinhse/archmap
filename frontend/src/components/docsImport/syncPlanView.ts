@@ -15,8 +15,8 @@ const FIELD_LABEL: Record<string, string> = {
   technology: "технология",
   shape: "форма",
   status: "статус",
-  // Якорь зовётся якорем везде — в карточке объекта, в ⓘ и здесь (Ф2 якорей).
-  source_ref: "якорь",
+  // Источник зовётся источником везде — в карточке объекта, в ⓘ и здесь (Ф2 якорей).
+  source_ref: "источник",
 };
 
 export interface PlanRow {

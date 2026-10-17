@@ -17,7 +17,7 @@ vi.mock("../../api/nodes", () => ({
     getDescendants: vi.fn(() => Promise.resolve([])),
     deletionSnapshot: vi.fn(),
     delete: vi.fn(),
-    // Живая нормализация якоря: форма поля «Якорь» зовёт её при вводе.
+    // Живая нормализация источника: форма поля «Источник» зовёт её при вводе.
     anchorPreview: vi.fn(),
   },
 }));
@@ -104,13 +104,13 @@ describe("NodeInspector: смена типа", () => {
 });
 
 
-// ── Якорь ───────────────────────────────────────────────────────────────────
-// Та же строка «Якорь», что и в карточке объекта (один компонент на оба места):
+// ── Источник ───────────────────────────────────────────────────────────────────
+// Та же строка «Источник», что и в карточке объекта (один компонент на оба места):
 // в редакторе она правится не выходя с карты и уходит тем же save с CAS.
-describe("NodeInspector: якорь", () => {
+describe("NodeInspector: источник", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("показывает якорь узла и правит его тем же PATCH с base_version", async () => {
+  it("показывает источник узла и правит его тем же PATCH с base_version", async () => {
     const n = makeNode({ shape: "service", source: { repo: null, path: null, host: "kafka" }, version: 3 });
     vi.mocked(nodesApi.anchorPreview).mockResolvedValue({
       source: { repo: "github.com/org/repo", path: null, host: null }, kind: "code", key: "git:github.com/org/repo",
@@ -134,7 +134,7 @@ describe("NodeInspector: якорь", () => {
     expect(cb.onNodeSaved).toHaveBeenCalled();
   });
 
-  it("наблюдателю якорь только читается", () => {
+  it("наблюдателю источник только читается", () => {
     const n = makeNode({ shape: "service", source: { repo: "github.com/org/repo", path: null, host: null } });
     render(<NodeInspector node={n} isArchitect={false} {...cb} />);
     expect(screen.getByText("код:")).toBeInTheDocument();

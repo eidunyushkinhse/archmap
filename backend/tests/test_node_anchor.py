@@ -86,7 +86,7 @@ class TestОтказы:
         with pytest.raises(HTTPException) as e:
             _patch(db, node, source=NodeSource(repo="github.com/org/repo", host="payments"))
         assert e.value.status_code == 422
-        assert "Якорь одного вида" in e.value.detail
+        assert "Источник одного вида" in e.value.detail
 
     def test_путь_без_репозитория(self, db):
         node = _node(db)

@@ -163,7 +163,7 @@ export default function AnchorField({ source, isArchitect, onSave }: Props) {
         if (e.key === "Escape") { e.stopPropagation(); setEditing(false); }
       }}
     >
-      <span className="anchor-tabs" role="radiogroup" aria-label="Вид якоря">
+      <span className="anchor-tabs" role="radiogroup" aria-label="Вид источника">
         {(["code", "dependency"] as Kind[]).map((k) => (
           <button
             key={k}

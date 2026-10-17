@@ -294,7 +294,7 @@ describe("архивные входы единой панели", () => {
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByText(/Без ваших решений не объединить/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «openapi» в разных источниках разные спеки с одинаковым названием."
+      "У объекта «openapi» в разных файлах разные спеки с одинаковым названием."
       + " Какую считаем правильной?");
     // Ничего не предвыбрано — дефолт бэка назван сноской, а не галкой.
     expect(screen.getByText(/Если не отвечать/).textContent).toContain(

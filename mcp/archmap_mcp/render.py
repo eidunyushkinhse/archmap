@@ -59,7 +59,7 @@ NO_ANCHOR = "нет — опознаётся по имени"
 
 
 def anchor_kind(source: dict[str, Any] | None) -> str | None:
-    """Вид якоря словом-ключом: code | dependency | None (якоря нет)."""
+    """Вид источника словом-ключом: code | dependency | None (источника нет)."""
     if not source:
         return None
     if source.get("repo"):
@@ -68,7 +68,7 @@ def anchor_kind(source: dict[str, Any] | None) -> str | None:
 
 
 def anchor_readable(source: dict[str, Any]) -> str:
-    """Якорь в человеческий вид: «github.com/org/repo, путь src/api» / «payments»."""
+    """Источник в человеческий вид: «github.com/org/repo, путь src/api» / «payments»."""
     if source.get("repo"):
         path = source.get("path")
         return f"{source['repo']}, путь {path}" if path else str(source["repo"])
@@ -76,7 +76,7 @@ def anchor_readable(source: dict[str, Any]) -> str:
 
 
 def anchor_value(source: dict[str, Any] | None) -> str:
-    """Значение поля «Якорь»: вид и сам якорь либо объяснение последствия."""
+    """Значение поля «Источник»: вид и сам источник либо объяснение последствия."""
     kind = anchor_kind(source)
     if not source or not kind:
         return NO_ANCHOR
@@ -86,15 +86,15 @@ def anchor_value(source: dict[str, Any] | None) -> str:
 def anchor_line(node: dict[str, Any]) -> str:
     """Строка карточки объекта. Читаем разобранный source, а не source_ref:
     ключ хранения — внутренность, агенту незачем разбирать его самому."""
-    return f"Якорь: {anchor_value(node.get('source'))}"
+    return f"Источник: {anchor_value(node.get('source'))}"
 
 
 def anchor_note(source: dict[str, Any] | None) -> str:
-    """Якорь НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
+    """Источник НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
     kind = anchor_kind(source)
     if source and kind:
-        return f"якорь: {KIND_LABEL[kind]} {anchor_readable(source)}"
-    return "якоря нет — будет опознаваться по имени"
+        return f"источник: {KIND_LABEL[kind]} {anchor_readable(source)}"
+    return "источника нет — будет опознаваться по имени"
 
 
 def basis_label(basis: str, path: str | None = None) -> str:
@@ -945,7 +945,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
     conflicts = data.get("conflicts") or []
     if conflicts:
         out.append("")
-        out.append(f"Конфликты файлов ({len(conflicts)}, оставлен первый источник):")
+        out.append(f"Конфликты файлов ({len(conflicts)}, оставлен первый файл):")
         out.extend("  • " + str(c) for c in conflicts)
 
     out.extend(problems(data))
@@ -1074,7 +1074,7 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
     without = int(c4.get("nodes_without_anchor") or 0)
     if without:
         out.append(
-            f"Без якоря: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
+            f"Без источника: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
             "будут опознаваться по имени"
         )
     for key, title in (
@@ -1234,7 +1234,7 @@ def into_preview(data: dict[str, Any]) -> str:
         out.append("Новые объекты:")
         for n in new_nodes:
             source = n.get("source")
-            tail = f" — якорь: {anchor_value(source)}" if anchor_kind(source) else " (без якоря)"
+            tail = f" — источник: {anchor_value(source)}" if anchor_kind(source) else " (без источника)"
             out.append(f"  • {n.get('path', '?')}{tail}")
     else:
         # Старое поле — запасной путь: контракты превью только дополняются, и

@@ -7,13 +7,13 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import InfoPopover from "../InfoPopover";
 
-const открыть = () => fireEvent.click(screen.getByRole("button", { name: "Что такое якорь" }));
+const открыть = () => fireEvent.click(screen.getByRole("button", { name: "Что такое источник" }));
 
 function отрисовать() {
   return render(
     <div>
       <button type="button">снаружи</button>
-      <InfoPopover label="Что такое якорь"><p>Пояснение</p></InfoPopover>
+      <InfoPopover label="Что такое источник"><p>Пояснение</p></InfoPopover>
     </div>,
   );
 }
@@ -21,7 +21,7 @@ function отрисовать() {
 describe("InfoPopover", () => {
   it("клик по кнопке раскрывает панель, повторный — прячет", () => {
     отрисовать();
-    const btn = screen.getByRole("button", { name: "Что такое якорь" });
+    const btn = screen.getByRole("button", { name: "Что такое источник" });
     expect(btn).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByRole("dialog")).toBeNull();
 

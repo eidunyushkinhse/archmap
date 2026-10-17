@@ -21,7 +21,7 @@ vi.mock("../../api/nodes", () => ({
     getContextGraph: vi.fn(),
     getNodeProcesses: vi.fn(),
     update: vi.fn(),
-    // Живая нормализация якоря (поле «Якорь» в «Свойствах»): форма зовёт её при
+    // Живая нормализация источника (поле «Источник» в «Свойствах»): форма зовёт её при
     // вводе. Мок модуля ЦЕЛИКОМ — забыть метод значит уронить форму на «не функция».
     anchorPreview: vi.fn(),
   },
@@ -930,11 +930,11 @@ describe("NodePage: «Логика» — описанные схемы, загл
 });
 
 
-// ── Якорь ───────────────────────────────────────────────────────────────────
-// Строка «Якорь» в «Свойствах»: до Ф1 (docs/plan-anchor-ux.md) якорь был скрытой
+// ── Источник ───────────────────────────────────────────────────────────────────
+// Строка «Источник» в «Свойствах»: до Ф1 (docs/plan-anchor-ux.md) источник был скрытой
 // метаданной прогона агента — ручной узел вёл себя при обновлениях иначе, чем
 // агентский с виду такой же, и увидеть этого было негде.
-describe("NodePage: якорь", () => {
+describe("NodePage: источник", () => {
   beforeEach(() => vi.clearAllMocks());
 
   function setupAnchor(over: Partial<Node> = {}, isArchitect = true) {
@@ -947,18 +947,18 @@ describe("NodePage: якорь", () => {
     return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
   }
 
-  it("якорь агентского узла показан видом и значением", async () => {
+  it("источник агентского узла показан видом и значением", async () => {
     setupAnchor({ source: { repo: "github.com/org/mono", path: "services/orders", host: null } });
     expect(await screen.findByText("код:")).toBeInTheDocument();
     expect(screen.getByText("github.com/org/mono, путь services/orders")).toBeInTheDocument();
   });
 
-  it("узел без якоря говорит, по чему его тогда узнают", async () => {
+  it("узел без источника говорит, по чему его тогда узнают", async () => {
     setupAnchor();
     expect(await screen.findByText("нет — опознаётся по имени")).toBeInTheDocument();
   });
 
-  it("правка якоря уходит PATCH-ом со своим CAS, не трогая прочих свойств", async () => {
+  it("правка источника уходит PATCH-ом со своим CAS, не трогая прочих свойств", async () => {
     vi.mocked(nodesApi.anchorPreview).mockResolvedValue({
       source: { repo: "github.com/org/repo", path: null, host: null }, kind: "code", key: "git:github.com/org/repo",
     });
@@ -978,14 +978,14 @@ describe("NodePage: якорь", () => {
       name: "Сервис оплаты",
       role: "ядро",
     });
-    // Форма ушла — на её месте свежий якорь из ответа сервера.
+    // Форма ушла — на её месте свежий источник из ответа сервера.
     expect(await screen.findByText("github.com/org/repo")).toBeInTheDocument();
   });
 
-  it("наблюдатель якорь видит, но не правит", async () => {
+  it("наблюдатель источник видит, но не правит", async () => {
     setupAnchor({ source: { repo: "github.com/org/repo", path: null, host: null } }, false);
     expect(await screen.findByText("код:")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Что такое якорь" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Что такое источник" })).toBeInTheDocument();
   });
 });

@@ -402,7 +402,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
           />
         )}
         {!checking && report !== null && report.conflicts.length > 0 && (
-          <NoteList title="Конфликты файлов (оставлен первый источник):" items={report.conflicts} />
+          <NoteList title="Конфликты файлов (оставлен первый файл):" items={report.conflicts} />
         )}
         {!checking && report !== null && report.warnings.length > 0 && (
           <NoteList title="Проверьте:" items={report.warnings} />

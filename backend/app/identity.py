@@ -288,7 +288,7 @@ def parse_source_patch(raw: dict[str, str | None] | None) -> str | None:
     if src.empty:
         return None  # объект без значимых полей — та же очистка, что и null
     if src.repo and src.host:
-        raise AnchorError("Якорь одного вида: либо код (репозиторий и путь), либо имя зависимости")
+        raise AnchorError("Источник одного вида: либо код (репозиторий и путь), либо имя зависимости")
     if src.path and not src.repo:
         raise AnchorError("Путь задаётся вместе с репозиторием")
     norm = normalized(src)

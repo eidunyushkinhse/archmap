@@ -38,7 +38,7 @@ archmap/
 │   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
-│   │   │   ├── anchor/    # поле и тексты якоря объекта (source_ref)
+│   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
 │   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
 │   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
@@ -75,7 +75,7 @@ archmap/
 │   │   ├── graph_queries.py / context_graph.py / alerts.py / connectivity.py  # граф уровня, контекст-схема, алерты
 │   │   ├── export.py / import_yaml.py / import_merge.py / merge_report.py / merge_warnings.py
 │   │   │                  # YAML C4: экспорт, импорт, слияние прогонов, отчёт и анализаторы слияния
-│   │   ├── identity.py / node_ref.py / name_match.py  # якорь объекта; адреса узлов (NodeIndex); «похоже на …»
+│   │   ├── identity.py / node_ref.py / name_match.py  # источник объекта; адреса узлов (NodeIndex); «похоже на …»
 │   │   ├── sync_plan.py / sync_apply.py  # синк живой схемы с прогоном агента
 │   │   ├── unified_import.py / unified_remarks.py / unified_preview.py / unified_apply.py / unified_into.py
 │   │   │                  # единый ввоз N входов: план, остаток и тексты, превью, применение, догрузка
@@ -248,7 +248,8 @@ Node (узел)
 - is_external — флаг «внешний узел» (на чужих уровнях — «гость»)
 - status      — жизненный цикл: existing | planned | deprecated
 - openapi_spec — OpenAPI YAML (опционально)
-- source_ref — ЯКОРЬ: чем ArchMap опознаёт объект при обновлениях из кода
+- source_ref — ИСТОЧНИК (в интерфейсе, документации и спеках; до 2026-10-17 — «якорь», в коде
+  понятие по-прежнему anchor/source_ref): чем ArchMap опознаёт объект при обновлениях из кода
   (мердж, догрузка, синк) вместо имени. Видов два: код (`git:repo#path`) и имя
   зависимости (`host:name`); в API — разобранным `source {repo, path, host}`,
   задаётся и чистится PATCH-полем `source` (app/identity.py, docs/plan-anchor-ux.md)

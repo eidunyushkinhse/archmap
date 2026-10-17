@@ -292,9 +292,9 @@ async def test_без_процессов_раздела_в_карточке_не
     assert f"/nodes/{NODE}/processes" in " ".join(paths(api))
 
 
-# ── Якорь объекта ────────────────────────────────────────────────────────────
+# ── Источник объекта ────────────────────────────────────────────────────────────
 #
-# Якорь — чем ArchMap опознаёт объект при обновлениях из кода. В карточке до Ф4
+# Источник — чем ArchMap опознаёт объект при обновлениях из кода. В карточке до Ф4
 # его не было вовсе: агент правил имя объекта, не зная, переживёт ли объект эту
 # правку как тот же самый или следующий прогон сделает из него дубль.
 
@@ -316,7 +316,7 @@ def anchored(api: FakeApi, source: dict[str, Any] | None, source_ref: str | None
     api.get(f"/nodes/{NODE}/config", [])
 
 
-async def test_карточка_печатает_якорь_кода(client: ArchMapClient, api: FakeApi) -> None:
+async def test_карточка_печатает_источник_кода(client: ArchMapClient, api: FakeApi) -> None:
     anchored(
         api,
         {"repo": "github.com/org/repo", "path": "src/api", "host": None},
@@ -325,7 +325,7 @@ async def test_карточка_печатает_якорь_кода(client: Arc
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Якорь: код github.com/org/repo, путь src/api" in out
+    assert "Источник: код github.com/org/repo, путь src/api" in out
 
 
 async def test_карточка_печатает_имя_зависимости(client: ArchMapClient, api: FakeApi) -> None:
@@ -333,23 +333,23 @@ async def test_карточка_печатает_имя_зависимости(c
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Якорь: имя зависимости postgres" in out
+    assert "Источник: имя зависимости postgres" in out
 
 
-async def test_без_якоря_карточка_называет_последствие(
+async def test_без_источника_карточка_называет_последствие(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     # Не «пусто», а по чему объект тогда узнают: молчание тут читается как
-    # «якорь есть», и агент правит имя, не зная цены правки.
+    # «источник есть», и агент правит имя, не зная цены правки.
     anchored(api, None, None)
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Якорь: нет — опознаётся по имени" in out
+    assert "Источник: нет — опознаётся по имени" in out
 
 
-async def test_слова_якоря_те_же_что_в_интерфейсе() -> None:
-    """N36 docs/specs/node.md: MCP и экран называют якорь одинаково. Судья —
+async def test_слова_источника_те_же_что_в_интерфейсе() -> None:
+    """N36 docs/specs/node.md: MCP и экран называют источник одинаково. Судья —
     сам словарь фронта (anchorText.ts), а не память автора теста."""
     text = (
         Path(__file__).resolve().parents[2]
@@ -359,4 +359,4 @@ async def test_слова_якоря_те_же_что_в_интерфейсе() 
     assert f'NO_ANCHOR = "{render.NO_ANCHOR}"' in text
     for word in render.BASIS_LABEL.values():
         assert f'"{word}"' in text
-    assert "якоря нет — будет опознаваться по имени" in text
+    assert "источника нет — будет опознаваться по имени" in text

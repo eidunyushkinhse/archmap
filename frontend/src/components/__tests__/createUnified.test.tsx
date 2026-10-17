@@ -200,7 +200,7 @@ describe("единый ввоз · создание проекта", () => {
       .toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных источниках разные схемы с одинаковым"
+      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
       + " названием. Какую считаем правильной?");
     expect(screen.getByText(/Если не отвечать/).textContent).toContain(
       "будут добавлены все схемы");

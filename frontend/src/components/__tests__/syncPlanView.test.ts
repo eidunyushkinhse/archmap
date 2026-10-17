@@ -53,7 +53,7 @@ describe("planSections", () => {
         { returned: false, path: "С / svc", action: "update", fields: ["name", "source_ref"], matched_by: "code" },
       ],
     });
-    expect(planSections(p)[0].rows[0].note).toBe("имя, якорь · нашли по коду");
+    expect(planSections(p)[0].rows[0].note).toBe("имя, источник · нашли по коду");
   });
 
   it("матч по имени показан даже без изменений полей — он слабее якорного", () => {
@@ -76,7 +76,7 @@ describe("planSections", () => {
     expect(planSections(p)[0].rows[0].note).toBe("нашли по имени на верхнем уровне");
   });
 
-  it("у новых объектов сказано, будет ли якорь и какой", () => {
+  it("у новых объектов сказано, будет ли источник и какой", () => {
     const p = preview({
       nodes: [
         { returned: false, path: "С / a", action: "create", fields: [],
@@ -86,9 +86,9 @@ describe("planSections", () => {
       ],
     });
     expect(planSections(p)[0].rows.map((r) => r.note)).toEqual([
-      "якорь: код github.com/org/a, путь src/api",
-      "якорь: имя зависимости postgres",
-      "якоря нет — будет опознаваться по имени",
+      "источник: код github.com/org/a, путь src/api",
+      "источник: имя зависимости postgres",
+      "источника нет — будет опознаваться по имени",
     ]);
   });
 });

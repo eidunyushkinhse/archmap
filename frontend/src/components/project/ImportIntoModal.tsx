@@ -371,9 +371,9 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
           {появятся.map((n) => (
             <div key={n.path} style={subRow}>
               {n.path}
-              {/* Без якоря объект будет опознаваться только по имени: следующая
+              {/* Без источника объект будет опознаваться только по имени: следующая
                   догрузка не узнает его, если имя изменится. */}
-              {anchorKind(n.source) === null && " (без якоря)"}
+              {anchorKind(n.source) === null && " (без источника)"}
             </div>
           ))}
           {preview.nodes_new > появятся.length && (

@@ -431,14 +431,14 @@ async def test_каждый_инструмент_описан_и_вызывае�
         assert callable(t["handler"])
 
 
-# ── Якорь в правках объекта ──────────────────────────────────────────────────
+# ── Источник в правках объекта ──────────────────────────────────────────────────
 
 def check_node_contract(schema: str, body: dict[str, object]) -> None:
     """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate)."""
     getattr(backend("schemas.node"), schema).model_validate(body)
 
 
-async def test_создание_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+async def test_создание_объекта_шлёт_источник(client: ArchMapClient, api: FakeApi) -> None:
     # Объект рождается опознаваемым из кода: без source в POST агенту пришлось бы
     # делать второй вызов, а до него объект жил бы «безымянным» для синка.
     api.post("/nodes", node("n7", "Оркестратор", source={"repo": "github.com/org/repo",
@@ -455,10 +455,10 @@ async def test_создание_объекта_шлёт_якорь(client: ArchM
     assert body["source"] == {"repo": "https://github.com/Org/Repo.git", "path": "./src/api/"}
     check_node_contract("NodeCreate", body)
     # Карточкой ответа агент видит, во что сервер привёл вставленный адрес клона.
-    assert "Якорь: код github.com/org/repo, путь src/api" in out
+    assert "Источник: код github.com/org/repo, путь src/api" in out
 
 
-async def test_создание_без_якоря_поля_source_не_шлёт(
+async def test_создание_без_источника_поля_source_не_шлёт(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     api.post("/nodes", node("n8", "Ручной"))
@@ -468,10 +468,10 @@ async def test_создание_без_якоря_поля_source_не_шлёт(
     )
 
     assert "source" not in json.loads(api.calls[-1].content)
-    assert "Якорь: нет — опознаётся по имени" in out
+    assert "Источник: нет — опознаётся по имени" in out
 
 
-async def test_правка_объекта_шлёт_якорь(client: ArchMapClient, api: FakeApi) -> None:
+async def test_правка_объекта_шлёт_источник(client: ArchMapClient, api: FakeApi) -> None:
     api.patch("/nodes/n2", node("n2", "Kafka", shape="broker",
                                 source={"repo": None, "path": None, "host": "kafka"}))
 
@@ -484,14 +484,14 @@ async def test_правка_объекта_шлёт_якорь(client: ArchMapCl
     body = json.loads(api.calls[-1].content)
     assert body == {"source": {"host": "kafka:9092"}}
     check_node_contract("NodeUpdate", body)
-    assert "Якорь: имя зависимости kafka" in out
+    assert "Источник: имя зависимости kafka" in out
 
 
 async def test_пустой_объект_source_доезжает_как_очистка(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     """⚠️ Фильтр «не None» отбросил бы {} вместе с незаполненными полями, и
-    просьба снять якорь провалилась бы МОЛЧА — с бодрым «обновлён» в ответе."""
+    просьба снять источник провалилась бы МОЛЧА — с бодрым «обновлён» в ответе."""
     api.patch("/nodes/n2", node("n2", "Ручной", source=None))
 
     out = await tools.call(
@@ -499,10 +499,10 @@ async def test_пустой_объект_source_доезжает_как_очис
     )
 
     assert json.loads(api.calls[-1].content) == {"source": {}}
-    assert "Якорь: нет — опознаётся по имени" in out
+    assert "Источник: нет — опознаётся по имени" in out
 
 
-async def test_якорь_без_прочих_полей_это_уже_правка(
+async def test_источник_без_прочих_полей_это_уже_правка(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     # «Нечего менять» должно оставаться правдой: source — полноценная правка.
@@ -519,7 +519,7 @@ async def test_якорь_без_прочих_полей_это_уже_прав�
 
 
 async def test_отказ_бэкенда_доезжает_текстом(client: ArchMapClient, api: FakeApi) -> None:
-    """422 про адрес среды — это ОБЪЯСНЕНИЕ, чем плох якорь, а не код ошибки:
+    """422 про адрес среды — это ОБЪЯСНЕНИЕ, чем плох источник, а не код ошибки:
     агент должен прочитать его и исправиться, а не гадать."""
     detail = (
         "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
@@ -538,16 +538,16 @@ async def test_отказ_бэкенда_доезжает_текстом(client:
     assert "принадлежат среде" in str(exc.value)
 
 
-async def test_каталог_объявляет_якорь_обоим_инструментам() -> None:
+async def test_каталог_объявляет_источник_обоим_инструментам() -> None:
     by_name = {t["name"]: t for t in tools.TOOLS}
     for name in ("archmap_create_node", "archmap_update_node"):
         props = by_name[name]["schema"]["properties"]
         assert set(props["source"]["properties"]) == {"repo", "path", "host"}
-        assert "снять якорь" in props["source"]["description"]
-    assert "якорь" in by_name["archmap_node"]["description"].lower()
+        assert "снять источник" in props["source"]["description"]
+    assert "источник" in by_name["archmap_node"]["description"].lower()
 
 
-async def test_план_синка_называет_основание_и_якоря(
+async def test_план_синка_называет_основание_и_источника(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     """Синк — единственное место, где ошибка опознания сразу пишется в живой
@@ -576,8 +576,8 @@ async def test_план_синка_называет_основание_и_яко
 
     assert "update: М / Заказы (description) — по коду" in out
     assert "update: М / Kafka — по имени зависимости" in out
-    assert "create: М / Оплата — якорь: код github.com/y/pay, путь svc" in out
-    assert "create: М / Ручной — якоря нет — будет опознаваться по имени" in out
+    assert "create: М / Оплата — источник: код github.com/y/pay, путь svc" in out
+    assert "create: М / Ручной — источника нет — будет опознаваться по имени" in out
 
 
 async def test_экспорт_отдаёт_сам_yaml_а_не_одну_шапку(

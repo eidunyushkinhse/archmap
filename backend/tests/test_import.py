@@ -870,7 +870,7 @@ def test_source_снятые_виды_якоря_игнорируются_с_п�
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == ["host:payments"]
     assert parsed.warnings == [
-        "nodes[0].source: образ и деплоймент больше не якорь — поле проигнорировано"
+        "nodes[0].source: образ и деплоймент больше не источник — поле проигнорировано"
     ]
 
 

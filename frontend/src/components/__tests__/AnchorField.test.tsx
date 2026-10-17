@@ -1,8 +1,8 @@
-// Поле «Якорь» (components/anchor/AnchorField.tsx) — видимость и управляемость
+// Поле «Источник» (components/anchor/AnchorField.tsx) — видимость и управляемость
 // того, что до Ф1 было скрытой метаданной прогона агента.
 //
 // Закрепляем ровно то, ради чего поле заведено: три состояния читаются словами
-// (в том числе «якоря нет» — с последствием, а не пустотой); ⓘ раскрывает
+// (в том числе «источника нет» — с последствием, а не пустотой); ⓘ раскрывает
 // принятый пользователем текст целиком (четыре абзаца); нормализация приходит
 // С СЕРВЕРА (форма не считает её сама и потому не может обещать не то, что
 // сохранится); отказ сервера остаётся под формой, а не уводит её со сцены;
@@ -27,7 +27,7 @@ function отрисовать(source: NodeSource | null, over: { isArchitect?: b
   return onSave;
 }
 
-const кнопкаПояснения = () => screen.getByRole("button", { name: "Что такое якорь" });
+const кнопкаПояснения = () => screen.getByRole("button", { name: "Что такое источник" });
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -47,7 +47,7 @@ describe("AnchorField — чтение", () => {
     expect(screen.getByText("payments")).toBeTruthy();
   });
 
-  it("без якоря сказано последствие, а не пустота", () => {
+  it("без источника сказано последствие, а не пустота", () => {
     отрисовать(null);
     expect(screen.getByText("нет — опознаётся по имени")).toBeTruthy();
   });
@@ -89,7 +89,7 @@ describe("AnchorField — правка", () => {
     expect(onSave).toHaveBeenCalledWith({ repo: "https://github.com/Org/Repo.git", path: null });
   });
 
-  it("переключение вида сохраняет якорь другого вида", async () => {
+  it("переключение вида сохраняет источник другого вида", async () => {
     const onSave = отрисовать(null);
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("radio", { name: "Имя зависимости" }));
@@ -112,7 +112,7 @@ describe("AnchorField — правка", () => {
     expect(screen.getByRole("button", { name: "Сохранить" })).toBeTruthy();
   });
 
-  it("«Очистить» снимает якорь", async () => {
+  it("«Очистить» снимает источник", async () => {
     const onSave = отрисовать({ repo: "github.com/org/repo", path: null, host: null });
     await userEvent.click(screen.getByRole("button", { name: "Очистить" }));
     expect(onSave).toHaveBeenCalledWith(null);
@@ -130,7 +130,7 @@ describe("AnchorField — правка", () => {
   it("пустая форма обещает очистку и сервер не тревожит", async () => {
     отрисовать(null);
     await userEvent.click(screen.getByRole("button", { name: "Изменить" }));
-    expect(screen.getByText("Если якоря не будет, то объект будет опознаваться по имени")).toBeTruthy();
+    expect(screen.getByText("Если источника не будет, то объект будет опознаваться по имени")).toBeTruthy();
     expect(preview).not.toHaveBeenCalled();
   });
 });

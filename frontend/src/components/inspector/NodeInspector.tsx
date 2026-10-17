@@ -264,11 +264,11 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         )}
       </dl>
 
-      {/* Якорь — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
+      {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
           меты, а отдельным блоком во всю ширину панели: в колонке значения
           (≈140px при терме 104px) репозиторий не помещается ни в чтении, ни в
           форме — рвался посреди слова. Тот же компонент, что в карточке объекта. */}
-      <div className="insp-block-label">Якорь</div>
+      <div className="insp-block-label">Источник</div>
       <AnchorField
         source={node.source}
         isArchitect={isArchitect}

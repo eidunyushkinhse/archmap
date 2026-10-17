@@ -168,7 +168,7 @@ describe("догрузка архива · превью и споры", () => {
     expect(screen.getByText("Не всё сошлось идеально")).toBeInTheDocument();
     expect(screen.queryByText("Споры содержимого (1)")).toBeNull();
     expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
-      "У объекта «Оформление заказа» в разных источниках разные схемы с одинаковым"
+      "У объекта «Оформление заказа» в разных файлах разные схемы с одинаковым"
       + " названием. Какую считаем правильной?");
     const моё = screen.getByRole("button", { name: "Из проекта" });
     const изАрхива = screen.getByRole("button", { name: "Из архива Ярмарка" });
@@ -375,7 +375,7 @@ describe("меню «Действия со схемой» · пункт догр
   });
 });
 
-describe("основание склейки и якоря новых (Ф2 docs/plan-anchor-ux.md)", () => {
+describe("основание склейки и источника новых (Ф2 docs/plan-anchor-ux.md)", () => {
   // Догрузка сопоставляет узлы ЯКОРЕМ, и до Ф2 самое спорное её решение — «это тот
   // же объект» — не показывалось вовсе: превью говорило только про новое.
   it("найденные в проекте названы с основанием каждой находки", async () => {
@@ -404,11 +404,11 @@ describe("основание склейки и якоря новых (Ф2 docs/p
     expect(screen.queryByText(/Найдено в проекте/)).not.toBeInTheDocument();
   });
 
-  it("у новых объектов помечено отсутствие якоря", async () => {
+  it("у новых объектов помечено отсутствие источника", async () => {
     await открыть(zip("b.zip"));
 
-    // Фикстура: у «billing» якорь-код есть, у его компонента — нет.
+    // Фикстура: у «billing» источник-код есть, у его компонента — нет.
     expect(await screen.findByText("Ярмарка / billing")).toBeInTheDocument();
-    expect(screen.getByText(/Ярмарка \/ billing \/ api \(без якоря\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Ярмарка \/ billing \/ api \(без источника\)/)).toBeInTheDocument();
   });
 });

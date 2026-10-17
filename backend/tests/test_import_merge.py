@@ -2432,8 +2432,8 @@ def test_предупреждение_разбора_доезжает_до_от�
 
     assert errors == []
     пары = list(zip(report.warnings, report.warning_files, strict=True))
-    свои = [(w, f) for w, f in пары if "больше не якорь" in w]
-    assert свои == [("nodes[0].children[0].source: образ и деплоймент больше не якорь "
+    свои = [(w, f) for w, f in пары if "больше не источник" in w]
+    assert свои == [("nodes[0].children[0].source: образ и деплоймент больше не источник "
                      "— поле проигнорировано", 1)]
 
 
