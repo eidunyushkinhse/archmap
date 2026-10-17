@@ -2,8 +2,9 @@
 # Проверка Helm-чарта в kind — тот же сценарий в CI (джоба helm-kind) и локально:
 #   образ из рабочего дерева → кластер kind → PostgreSQL в своём namespace → чарт в
 #   namespace со строгим Pod Security («restricted») → helm test → интерфейс и /ready
-#   через port-forward → первый администратор и вход → helm upgrade не меняет ключ подписи
-#   (выданный до обновления токен продолжает работать).
+#   через port-forward → первый администратор и вход → личный токен и /mcp (удалённый
+#   MCP-сервер) → helm upgrade не меняет ключ подписи (выданный до обновления токен
+#   продолжает работать).
 #
 #   deploy/helm/e2e-kind.sh
 # Переменные: KIND, HELM, KUBECTL — пути к утилитам; NODE_IMAGE — образ узла kind
@@ -104,6 +105,18 @@ login() {
     --data "username=admin&password=$PASSWORD" | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'
 }
 TOKEN="$(login)"
+
+say "Удалённый MCP: личный токен → /mcp tools/list"
+PAT="$(curl -fsS -X POST http://127.0.0.1:18080/api/v1/tokens -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' --data '{"name":"e2e"}' |
+  python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])')"
+MCP_LIST='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+curl -fsS -X POST http://127.0.0.1:18080/mcp -H "Authorization: Bearer $PAT" \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+  --data "$MCP_LIST" | grep -q archmap_projects || die "/mcp не отдал список инструментов"
+code="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:18080/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' --data "$MCP_LIST")"
+[ "$code" = 401 ] || die "/mcp без токена ответил $code вместо 401"
 
 say "helm upgrade: ключ подписи прежний, токен действует"
 "$HELM" --kube-context "kind-$CLUSTER" upgrade archmap "$ROOT/deploy/helm/archmap" -n "$NS" \
