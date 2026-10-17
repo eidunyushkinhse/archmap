@@ -29,7 +29,7 @@ SECRET = "archmap_caller-secret-value"
 
 def caller(read_only: bool = False) -> remote.Caller:
     return remote.Caller(
-        bearer=SECRET, username="arch", token="CI (archmap_calle…)", read_only=read_only, address="203.0.113.7"
+        bearer=SECRET, token_id="t1", username="arch", token="CI (archmap_calle…)", read_only=read_only, address="203.0.113.7"
     )
 
 

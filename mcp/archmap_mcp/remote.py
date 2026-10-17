@@ -46,6 +46,8 @@ class Caller:
 
     # Секрет — только для запросов в API; в repr (а значит, и в журнал) не попадает.
     bearer: str = field(repr=False)
+    # id строки токена: по нему клей считает предел запросов.
+    token_id: str
     username: str
     # Метка для журнала: имя токена и префикс.
     token: str
@@ -77,6 +79,7 @@ async def whoami(http: httpx.AsyncClient, base_url: str, bearer: str, address: s
     body = resp.json()
     return Caller(
         bearer=bearer,
+        token_id=str(body["id"]),
         username=str(body["username"]),
         token=f"{body['name']} ({body['prefix']}…)",
         read_only=bool(body["read_only"]),

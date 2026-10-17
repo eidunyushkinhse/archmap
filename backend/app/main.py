@@ -8,8 +8,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.routing import Route
 
-from app import demo, demo_limits
+from app import demo, demo_limits, mcp_http
 from app.column_limits import ValueTooLong
 from app.config import settings
 from app.database import get_db
@@ -43,11 +44,13 @@ from app.routers import demo as demo_router
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Фоновая уборка песочниц — только в демо-режиме (docs/tasks/demo-mode.md):
-    asyncio-задача раз в 10 минут, своя сессия БД на прогон."""
+    asyncio-задача раз в 10 минут, своя сессия БД на прогон. Удалённый MCP-сервер (/mcp) —
+    везде, кроме демо-режима (app/mcp_http.py)."""
     task = asyncio.create_task(demo.cleanup_loop()) if settings.demo_mode else None
     if settings.demo_mode:
         demo_limits.install()  # пределы проекта — слушатели сессии (app/demo_limits.py)
-    yield
+    async with mcp_http.running(_app):
+        yield
     if task is not None:
         task.cancel()
         with suppress(asyncio.CancelledError):
@@ -115,6 +118,11 @@ app.include_router(views.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(processes.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+
+
+# Удалённый MCP-сервер для ИИ-агентов (docs/plan-remote-mcp.md): Route с ASGI-объектом, а
+# не Mount — тот не ловит сам /mcp; методы режет обработчик (POST, остальное — 405).
+app.router.routes.append(Route("/mcp", endpoint=mcp_http.endpoint))
 
 
 @app.get("/health")
