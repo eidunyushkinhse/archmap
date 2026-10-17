@@ -134,7 +134,11 @@ endpoint = McpEndpoint()
 def _ensure_log_handler() -> None:
     """uvicorn настраивает только свои логгеры: без обработчика INFO из archmap.mcp
     пропал бы. Обработчик в stderr (его соберут journald и docker logs) — только если
-    журнал больше некому принять: иначе строки задвоились бы."""
+    журнал больше некому принять (под pytest его принимает caplog).
+
+    Свой обработчик — без передачи корню: SDK зовёт модульный logging.debug(), и Python
+    при пустом корневом логгере сам вешает на него basicConfig — каждая строка журнала
+    иначе печаталась бы дважды (полевая находка живого прогона)."""
     if log.level == logging.NOTSET:
         log.setLevel(logging.INFO)
     if log.handlers or logging.getLogger().handlers:
@@ -142,6 +146,7 @@ def _ensure_log_handler() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
     log.addHandler(handler)
+    log.propagate = False
 
 
 @asynccontextmanager
