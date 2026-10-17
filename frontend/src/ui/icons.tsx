@@ -52,6 +52,11 @@ export const LogoutIcon = ({ size = 16 }: IcoProps) => (
 export const KeyIcon = ({ size = 16 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
     <circle cx="8" cy="15" r="4" /><path d="M11 12 L20 3" /><path d="M16 7 L19 10" /><path d="M18 5 L20 7" /></svg>);
+// Голова робота — пункт меню профиля «Токены для агентов» (подключение ИИ-агента).
+export const AgentIcon = ({ size = 16 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>
+    <rect x="4" y="8" width="16" height="12" rx="3" /><path d="M12 8 V4.5" /><circle cx="12" cy="3.5" r="1" />
+    <path d="M9 13.5 V14.5" /><path d="M15 13.5 V14.5" /><path d="M2 13 V15" /><path d="M22 13 V15" /></svg>);
 // Двое людей — пункт меню профиля «Пользователи» (только администратору).
 export const UsersIcon = ({ size = 16 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} aria-hidden>

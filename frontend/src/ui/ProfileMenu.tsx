@@ -1,23 +1,25 @@
 import { useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
-import { KeyIcon, LogoutIcon, UsersIcon } from "./icons";
+import { AgentIcon, KeyIcon, LogoutIcon, UsersIcon } from "./icons";
 import { useDismiss } from "./useDismiss";
 
 // Меню профиля под аватаром (заменяет прежнюю кнопку «Выйти» в шапке). Аватар-кружок
 // с инициалом роли; по клику — поповер с бейджем роли и пунктами «Сменить пароль»,
-// «Пользователи» (только администратору) и «Выйти». Закрытие по клику вне / Escape.
-// Сам ничего не запрашивает: окно смены пароля и переход на экран «Пользователи» —
-// колбэки владельца (components/account/AccountMenu).
+// «Токены для агентов», «Пользователи» (только администратору) и «Выйти». Закрытие по
+// клику вне / Escape. Сам ничего не запрашивает: окна и переход на экран «Пользователи» —
+// колбэки владельца (components/users/AccountMenu).
 interface Props {
   role: string;
   onLogout: () => void;
   // Администратор видит пункт «Пользователи» (при переданном onOpenUsers).
   isAdmin?: boolean;
   onChangePassword?: () => void;
+  // Окно «Токены для агентов» — личные токены для подключения ИИ-агента к /mcp.
+  onOpenTokens?: () => void;
   onOpenUsers?: () => void;
 }
 
-export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangePassword, onOpenUsers }: Props) {
+export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangePassword, onOpenTokens, onOpenUsers }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   // инициал из роли («Архитектор» → «А», «Наблюдатель» → «Н»); пусто → «—»
@@ -61,6 +63,7 @@ export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangeP
             {isAdmin && <span style={adminBadge}>Администратор</span>}
           </div>
           {onChangePassword && item("Сменить пароль", <KeyIcon />, onChangePassword)}
+          {onOpenTokens && item("Токены для агентов", <AgentIcon />, onOpenTokens)}
           {isAdmin && onOpenUsers && item("Пользователи", <UsersIcon />, onOpenUsers)}
           <button
             className="pf-logout"

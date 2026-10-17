@@ -1,17 +1,21 @@
 // AccountMenu: меню профиля читает роль и признак администратора из кэша «кто я»
-// (api/auth) и открывает окно «Сменить пароль».
+// (api/auth) и открывает окна «Сменить пароль» и «Токены для агентов».
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import AccountMenu from "../AccountMenu";
 import { getIsAdmin, getUserRole } from "../../../api/auth";
+import { tokensApi } from "../../../api/tokens";
 
 vi.mock("../../../api/auth", () => ({
   getUserRole: vi.fn(() => "architect"),
   getIsAdmin: vi.fn(() => false),
   getIsGuest: vi.fn(() => false),
   changePassword: vi.fn(),
+}));
+vi.mock("../../../api/tokens", () => ({
+  tokensApi: { list: vi.fn(), create: vi.fn(), revoke: vi.fn() },
 }));
 // Модалка — прозрачная обёртка: jsdom не выставляет содержимое <dialog> в a11y-дерево.
 vi.mock("../../../ui/Modal", () => ({
@@ -49,5 +53,15 @@ describe("AccountMenu", () => {
     expect(screen.getByLabelText("Текущий пароль")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(screen.queryByLabelText("Текущий пароль")).not.toBeInTheDocument();
+  });
+
+  it("«Токены для агентов» открывает окно со списком, «Закрыть» закрывает", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    render(<AccountMenu onLogout={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText("Профиль"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для агентов" }));
+    expect(await screen.findByText("Токенов пока нет.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(screen.queryByText("Токенов пока нет.")).not.toBeInTheDocument();
   });
 });

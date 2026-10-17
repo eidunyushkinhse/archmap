@@ -218,6 +218,11 @@ export type Me = Schemas["MeResponse"];
 export type AuthConfig = Schemas["AuthConfig"];
 export type DemoLimits = Schemas["DemoLimits"];
 export type DemoExcess = Schemas["DemoExcess"];
+// Личные токены доступа для ИИ-агентов (/tokens, docs/plan-remote-mcp.md): строка списка
+// без секрета, выпуск и ответ на выпуск — секрет в нём показывается один раз.
+export type PersonalToken = Schemas["PersonalTokenOut"];
+export type PersonalTokenCreate = Schemas["PersonalTokenCreate"];
+export type PersonalTokenCreated = Schemas["PersonalTokenCreated"];
 // Админка пользователей (/admin/users): строка списка, создание, частичная правка.
 export type AdminUser = Schemas["AdminUser"];
 export type AdminUserCreate = Schemas["AdminUserCreate"];
