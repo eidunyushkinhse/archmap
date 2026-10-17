@@ -72,7 +72,8 @@ class Reply:
 
 async def answer(client: ArchMapClient, name: str, arguments: dict[str, Any]) -> Reply:
     """Ответ инструмента — и при успехе, и при отказе: агент читает текст как есть."""
-    missing = client.config.missing()
+    # С токеном (в удалённом режиме — всегда) настраивать нечего: учётка не нужна.
+    missing = [] if client.uses_token else client.config.missing()
     if missing:
         return Reply(
             "ArchMap не настроен: не заданы " + ", ".join(missing) + ". "

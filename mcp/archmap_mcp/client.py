@@ -4,14 +4,17 @@
 превратить отказ сервера в понятную агенту фразу. Никакой доменной логики —
 она в tools.py.
 
-Аутентификация: логин/пароль из окружения, токен добывается сам и живёт в
-памяти процесса. Пользователю негде взять JWT руками (выдачи токена в
-интерфейсе нет), поэтому просить его — значит отправить человека в DevTools.
+Аутентификация — один из двух способов:
+- личный токен доступа (ARCHMAP_TOKEN; меню профиля → «Токены для агентов»): уходит
+  заголовком как есть, без логина. Удалённый режим (/mcp) — всегда так: токен
+  вызывающего передаётся клиенту явно (bearer);
+- логин/пароль из окружения: JWT добывается сам и живёт в памяти процесса.
 """
 
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -52,21 +55,38 @@ def load_env_file(path: Path) -> dict[str, str]:
 class Config:
     """Настройки из окружения (и опционального mcp/.env). Проверяются при
     старте — сервер не должен подниматься «наполовину» и падать на первом же
-    вызове инструмента."""
+    вызове инструмента.
 
-    def __init__(self) -> None:
-        env_file = load_env_file(Path(__file__).resolve().parent.parent / ".env")
+    values — готовые настройки вместо окружения: так их задаёт удалённый режим
+    (Config.remote), которому окружение процесса бэкенда читать нельзя."""
+
+    def __init__(self, values: Mapping[str, str] | None = None) -> None:
+        if values is None:
+            env_file = load_env_file(Path(__file__).resolve().parent.parent / ".env")
+            values = {**env_file, **{k: v for k, v in os.environ.items() if v}}
 
         def get(name: str, default: str = "") -> str:
-            return os.environ.get(name) or env_file.get(name, default)
+            return values.get(name) or default
 
         self.base_url = get("ARCHMAP_URL", "http://localhost:8000").rstrip("/")
         self.username = get("ARCHMAP_USERNAME")
         self.password = get("ARCHMAP_PASSWORD")
+        # Личный токен доступа — замена логину и паролю: пароль в файле не нужен,
+        # токен отзывается в интерфейсе.
+        self.token = get("ARCHMAP_TOKEN")
         # Каталог, вне которого архив проекта не пишется (пусто — без ограничения).
         self.export_dir = get("ARCHMAP_EXPORT_DIR")
 
+    @classmethod
+    def remote(cls, base_url: str) -> Config:
+        """Удалённый режим (/mcp в процессе бэкенда): ни окружения, ни mcp/.env —
+        только адрес ArchMap. Учётка из .env (в dev она есть) увела бы вызовы агента
+        от имени чужого пользователя; каждый вызов идёт с токеном вызывающего."""
+        return cls({"ARCHMAP_URL": base_url})
+
     def missing(self) -> list[str]:
+        if self.token:
+            return []
         return [
             name
             for name, value in (
@@ -83,10 +103,19 @@ class ArchMapClient:
     Повтор нужен не для надёжности сети, а для протухшего токена: сессия агента
     живёт дольше срока жизни JWT, и без релогина длинный разговор обрывался бы
     посередине.
+
+    С личным токеном (bearer или ARCHMAP_TOKEN) — без логина и без повтора: 401
+    значит, что токен отозван или истёк, и повтор с ним же ничего не даст.
     """
 
-    def __init__(self, config: Config | None = None, http: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        config: Config | None = None,
+        http: httpx.AsyncClient | None = None,
+        bearer: str | None = None,
+    ) -> None:
         self.config = config or Config()
+        self._bearer = bearer or self.config.token or None
         # follow_redirects НЕ включаем намеренно (2026-09-05). Раньше это была
         # страховка от промаха в хвостовом слэше: коллекции на бэке были объявлены
         # неоднородно, и на «не тот» вариант FastAPI отвечал 307 с пустым телом —
@@ -96,7 +125,12 @@ class ArchMapClient:
         # 404 с текстом. Страховка стала бы маскировкой: с ней новый промах снова
         # прятался бы за молчаливым успехом.
         self._http = http or httpx.AsyncClient(timeout=TIMEOUT)
-        self._token: str | None = None
+        self._token: str | None = self._bearer
+
+    @property
+    def uses_token(self) -> bool:
+        """Вход личным токеном, а не логином и паролем."""
+        return self._bearer is not None
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -174,6 +208,15 @@ class ArchMapClient:
                 ) from exc
 
         resp = await attempt()
+        if resp.status_code == 401 and self._bearer is not None:
+            # Заблокированную учётку ArchMap называет прямо: новый токен не поможет.
+            reason = _detail(resp)
+            if "заблокирована" in reason:
+                raise ArchMapError(f"ArchMap отклонил токен: {reason}. Обратитесь к администратору.")
+            raise ArchMapError(
+                f"ArchMap отклонил токен: {reason}. Выпустите новый в меню профиля → "
+                "«Токены для агентов»."
+            )
         if resp.status_code == 401:
             self._token = await self._login()
             resp = await attempt()

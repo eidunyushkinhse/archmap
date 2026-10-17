@@ -89,9 +89,11 @@ def api() -> FakeApi:
 
 @pytest.fixture
 def client(api: FakeApi) -> ArchMapClient:
-    config = Config()
-    config.username, config.password = "arch", "secret"
-    config.base_url = "http://archmap.test"
+    # Настройки явные, а не из окружения и mcp/.env: токен в .env разработчика
+    # молча перевёл бы весь стенд в режим токена.
+    config = Config(
+        {"ARCHMAP_URL": "http://archmap.test", "ARCHMAP_USERNAME": "arch", "ARCHMAP_PASSWORD": "secret"}
+    )
     # Редиректы не следуем — как настоящий клиент (2026-09-05): коллекции без
     # хвостового слэша, промах формы пути обязан быть виден отказом, а не тихо
     # исправляться по дороге.

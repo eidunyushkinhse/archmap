@@ -103,8 +103,7 @@ async def test_ошибка_валидации_называет_поле(client:
 async def test_сервис_не_поднят_говорит_куда_смотреть() -> None:
     from archmap_mcp.client import Config
 
-    config = Config()
-    config.username, config.password, config.base_url = "a", "b", "http://archmap.test"
+    config = Config({"ARCHMAP_URL": "http://archmap.test", "ARCHMAP_USERNAME": "a", "ARCHMAP_PASSWORD": "b"})
 
     async def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
@@ -216,3 +215,77 @@ async def test_сбой_инструмента_отвечает_текстом_�
     assert reply.text.startswith("Сбой MCP-сервера ArchMap в инструменте archmap_node: KeyError")
     assert "не ответ ArchMap" in reply.text
     assert reply.outcome == "failed"
+
+
+# ── Личный токен (docs/plan-remote-mcp.md, Р11, Ф2.2) ─────────────────────────────
+
+
+def _token_client(api: FakeApi, **kw: str) -> ArchMapClient:
+    from archmap_mcp.client import Config
+
+    values = {"ARCHMAP_URL": "http://archmap.test", **kw}
+    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
+    return ArchMapClient(Config(values), http=http)
+
+
+async def test_токен_из_настроек_уходит_заголовком_без_логина(api: FakeApi) -> None:
+    client = _token_client(api, ARCHMAP_TOKEN="archmap_abc")
+    assert client.config.missing() == []
+
+    await client.request("GET", "/projects")
+
+    assert api.login_count == 0
+    assert [c.url.path for c in api.calls] == ["/api/v1/projects"]
+    assert api.calls[0].headers["Authorization"] == "Bearer archmap_abc"
+
+
+async def test_bearer_важнее_логина_и_пароля(api: FakeApi) -> None:
+    from archmap_mcp.client import Config
+
+    config = Config({"ARCHMAP_URL": "http://archmap.test", "ARCHMAP_USERNAME": "arch", "ARCHMAP_PASSWORD": "x"})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
+    client = ArchMapClient(config, http=http, bearer="archmap_caller")
+
+    await client.request("GET", "/projects")
+
+    assert api.login_count == 0
+    assert api.calls[0].headers["Authorization"] == "Bearer archmap_caller"
+
+
+async def test_отозванный_токен_без_повтора_и_с_подсказкой(api: FakeApi) -> None:
+    api.get("/projects", httpx.Response(401, json={"detail": "Токен недействителен: его отозвали"}))
+    client = _token_client(api, ARCHMAP_TOKEN="archmap_old")
+
+    with pytest.raises(ArchMapError) as exc:
+        await client.request("GET", "/projects")
+
+    assert api.login_count == 0 and len(api.calls) == 1
+    assert str(exc.value) == (
+        "ArchMap отклонил токен: Токен недействителен: его отозвали. "
+        "Выпустите новый в меню профиля → «Токены для агентов»."
+    )
+
+
+async def test_токен_заблокированной_учётки(api: FakeApi) -> None:
+    api.get("/projects", httpx.Response(401, json={"detail": "Учётная запись заблокирована"}))
+    client = _token_client(api, ARCHMAP_TOKEN="archmap_x")
+
+    with pytest.raises(ArchMapError, match="Обратитесь к администратору"):
+        await client.request("GET", "/projects")
+
+
+def test_удалённый_config_не_читает_окружение_и_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    from archmap_mcp import client as client_mod
+    from archmap_mcp.client import Config
+
+    def no_file(_path: object) -> dict[str, str]:
+        raise AssertionError("удалённый режим не читает mcp/.env")
+
+    monkeypatch.setattr(client_mod, "load_env_file", no_file)
+    for name, value in (("ARCHMAP_USERNAME", "u"), ("ARCHMAP_PASSWORD", "p"), ("ARCHMAP_TOKEN", "archmap_env")):
+        monkeypatch.setenv(name, value)
+
+    config = Config.remote("http://archmap.internal/")
+
+    assert config.base_url == "http://archmap.internal"
+    assert (config.username, config.password, config.token) == ("", "", "")
