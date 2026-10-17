@@ -3,7 +3,6 @@
   --text-h: #08060d;
   --bg: #fff;
   --border: #e5e4e7;
-  --code-bg: #f4f3ec;
   --accent: #aa3bff;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
@@ -13,7 +12,6 @@
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
 
   font: 18px/145% var(--sans);
   letter-spacing: 0.18px;
@@ -36,7 +34,6 @@
     --text-h: #f3f4f6;
     --bg: #16171d;
     --border: #2e303a;
-    --code-bg: #1f2028;
     --accent: #c084fc;
     --accent-bg: rgba(192, 132, 252, 0.15);
     --accent-border: rgba(192, 132, 252, 0.5);
@@ -99,20 +96,9 @@ p {
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
-}
+/* Глобального стиля code нет намеренно: правило из шаблона Vite (inline-flex, отступы,
+   фон) протекало в рендер Swagger UI, и пример тела запроса в окне спеки рассыпался
+   по столбцам. Свой вид code задаёт сам компонент (ui/ErrorBoundary). */
 
 /* Кнопки: курсор и единое состояние «неактивна». Инлайн-стили не умеют
    псевдоклассов, поэтому :disabled задаётся только здесь — зато сразу для ВСЕХ

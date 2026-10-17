@@ -98,9 +98,15 @@ const card: CSSProperties = {
 };
 const title: CSSProperties = { margin: "0 0 10px", fontSize: 18, color: "#1e293b" };
 const lead: CSSProperties = { margin: "0 0 12px", fontSize: 14, lineHeight: 1.5, color: "#475569" };
+// Глобального стиля code нет (index.css) — вид кода целиком здесь.
 const detail: CSSProperties = {
   display: "block",
+  fontFamily: "ui-monospace, Consolas, monospace",
   fontSize: 12,
+  lineHeight: "135%",
+  padding: "4px 8px",
+  borderRadius: 4,
+  background: "#f4f3ec",
   color: "#94a3b8",
   whiteSpace: "pre-wrap",
   wordBreak: "break-word",
