@@ -2,10 +2,12 @@
 
 Стек (проверено 2026-10-14 по package.json / requirements-prod.txt / pyproject.toml)
 - Frontend: React 19 + Vite 8 + TypeScript 6; холст — @xyflow/react 12 + elkjs, схемы логики — mermaid 12
-- Backend: Python 3.12 + FastAPI 0.143 (Starlette 1.8, Pydantic 2.14, uvicorn 0.54)
+- Backend: Python 3.12 + FastAPI 0.143 (Starlette 1.8, Pydantic 2.14, uvicorn 0.54); SDK MCP (mcp 1.30) —
+  в рантайме бэкенда: удалённый MCP-сервер /mcp живёт в его процессе
 - БД: PostgreSQL 15+ (localhost:5432, БД `archmap`; второй экземпляр в демо-режиме — `archmap_demo`)
 - ORM: SQLAlchemy 2.0 + Alembic (миграции)
-- Аутентификация: JWT (PyJWT + pwdlib[bcrypt])
+- Аутентификация: JWT (PyJWT + pwdlib[bcrypt]); личные токены доступа `archmap_…` для ИИ-агентов и скриптов
+  (в БД — sha256; без удалений и администрирования, «только чтение» — по методу)
 - Тесты: vitest (фронт), pytest (бэк — на in-memory SQLite; MCP — поверх подменённого httpx)
 - Линтеры: tsc + eslint + knip (фронт), ruff + mypy (бэк и MCP)
 - Зависимости поставки: backend/requirements-prod.lock с хэшами (pip --require-hashes);
@@ -25,7 +27,7 @@ archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
 │   │   ├── api/           # клиент бэкенда: client (общий запрос, 401, X-Project-Id), auth, admin, nodes,
-│   │   │                  # processes, projects, docsImport, dataRefs, projectScope
+│   │   │                  # processes, projects, docsImport, dataRefs, projectScope, tokens
 │   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
 │   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
 │   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
@@ -39,12 +41,12 @@ archmap/
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
-│   │   │   ├── users/     # меню профиля (смена пароля), окна экрана «Пользователи»
+│   │   │   ├── users/     # меню профиля (смена пароля, «Токены для агентов»), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
 │   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
 │   │   │   ├── tour/      # обучающий тур демо: шаги, машина состояний, слой подсказок, пилюля «Обучение»
 │   │   │   ├── nodePage/  # части страницы объекта: свойства, секции «Логика»/«OpenAPI»/«Схема», группы потомков
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 221 тестовый файл)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 224 тестовых файла)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel), алерты, фильтр вида
@@ -56,19 +58,22 @@ archmap/
 │   ├── scripts/           # replay-prof.ts, route-quality.ts — замеры роутера (npm run replay-prof / route-quality)
 │   ├── knip.json          # поиск мёртвого кода (npm run knip; в CI)
 │   ├── package.json
-│   └── vite.config.ts     # прокси /api → localhost:8000, vitest (jsdom), пороги покрытия
+│   └── vite.config.ts     # прокси /api и /mcp → localhost:8000, vitest (jsdom), пороги покрытия
 ├── backend/               # FastAPI
 │   ├── app/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
-│   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*
-│   │   ├── routers/       # 21 роутер /api/v1: auth, admin, users, demo, projects, nodes, edges, views, export, search,
+│   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
+│   │   │                  # personal_token
+│   │   ├── routers/       # 22 роутера /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import
-│   │   ├── schemas/       # Pydantic-контракт API (26 модулей; из него генерируется api.gen.ts)
-│   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health и /ready
+│   │   ├── schemas/       # Pydantic-контракт API (27 модулей; из него генерируется api.gen.ts)
+│   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
-│   │   ├── auth.py / deps.py / access.py  # JWT и пароли; общие зависимости (node_or_404, commit_change…); роль в проекте
+│   │   ├── auth.py / deps.py / access.py  # JWT, личные токены и пароли; общие зависимости (node_or_404, commit_change…); роль в проекте
+│   │   ├── personal_tokens.py / mcp_http.py  # личные токены (выпуск, поиск по хэшу, тексты запретов);
+│   │   │                  # /mcp — клей удалённого MCP (демо, метод, Origin, лимиты, проверка токена, lifespan)
 │   │   ├── database.py / column_limits.py / view_state.py  # сессия и пул; длины строк до flush (422, а не 500); CAS-версии
 │   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py
 │   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»
@@ -91,18 +96,21 @@ archmap/
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (70 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (74 тестовых файла, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
-├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки)
-│   ├── archmap_mcp/       # client.py (логин, скоуп, перевод отказов), tools.py (31 инструмент: чтение, поиск,
-│   │                      # промпты, превью → применение, точечные правки; удалений нет), render.py, server.py
+├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
+│   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (31 инструмент:
+│   │                      # чтение, поиск, промпты, превью → применение, точечные правки; удалений нет; удалённый
+│   │                      # набор — 28, без диска агента), remote.py (Streamable HTTP без состояния, журнал вызовов),
+│   │                      # render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
-│   ├── .env.example       # ARCHMAP_URL/USERNAME/PASSWORD → копировать в mcp/.env (в .gitignore)
-│   └── README.md          # каталог инструментов, подключение, HTTPS с корпоративным CA, сценарии
+│   ├── .env.example       # ARCHMAP_URL + ARCHMAP_TOKEN (или USERNAME/PASSWORD) → копировать в mcp/.env (в .gitignore)
+│   └── README.md          # удалённое и локальное подключение, токен, строки клиентов, каталог, HTTPS с корпоративным CA
 ├── scripts/
 │   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
 │   ├── setup-hooks.sh     # установка хука
