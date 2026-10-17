@@ -8,9 +8,9 @@ import { primaryBtn } from "../../ui/styles";
 
 /**
  * Вид «токен выпущен» окна «Токены для агентов»: секрет показывается ОДИН раз — здесь, с
- * готовыми строками подключения (Claude Code и Cursor; VS Code, Qwen Code и общий .mcp.json —
- * в mcp/README.md). Адрес — origin страницы + /mcp: тот же ArchMap, что открыт в браузере
- * (в dev /mcp проксирует Vite).
+ * готовой строкой подключения (вкладки Claude Code и Cursor; VS Code, Qwen Code и общий
+ * .mcp.json — в mcp/README.md). Адрес — origin страницы + /mcp: тот же ArchMap, что
+ * открыт в браузере (в dev /mcp проксирует Vite).
  */
 
 interface Props {
@@ -18,17 +18,27 @@ interface Props {
   onDone: () => void;
 }
 
+type Client = "claude" | "cursor";
+
+const CLIENTS: { id: Client; label: string; hint: string }[] = [
+  { id: "claude", label: "Claude Code", hint: "Команда в терминале" },
+  { id: "cursor", label: "Cursor", hint: "Файл ~/.cursor/mcp.json" },
+];
+
 export default function IssuedTokenView({ issued, onDone }: Props) {
+  const [client, setClient] = useState<Client>("claude");
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const url = `${window.location.origin}/mcp`;
-  const { secret, token } = issued;
-  const command = `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`;
-  const json = JSON.stringify(
-    { mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${secret}` } } } },
-    null,
-    2,
-  );
+  const { secret } = issued;
+  const connect: Record<Client, string> = {
+    claude: `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`,
+    cursor: JSON.stringify(
+      { mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${secret}` } } } },
+      null,
+      2,
+    ),
+  };
 
   async function copy(key: string, text: string) {
     setCopyError(false);
@@ -42,44 +52,86 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
     }
   }
 
-  const block = (key: string, label: string, text: string) => (
-    <div style={{ marginBottom: 14 }}>
-      <div style={blockHead}>
-        <span style={blockLabel}>{label}</span>
-        <button style={copyBtn} onClick={() => void copy(key, text)}>
-          {copied === key ? "Скопировано" : "Скопировать"}
-        </button>
-      </div>
-      <pre style={code} data-testid={`issued-${key}`}>{text}</pre>
-    </div>
+  const copyButton = (key: string, text: string) => (
+    <button style={copyBtn} onClick={() => void copy(key, text)}>
+      {copied === key ? "Скопировано" : "Скопировать"}
+    </button>
   );
 
   return (
     <Modal onClose={onDone} boxStyle={{ width: 600, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-      <DialogTitle lead="Скопируйте сейчас — потом токен не показать. Не кладите его в файлы, которые попадают в git.">
-        Токен «{token.name}» выпущен
-      </DialogTitle>
-      {token.read_only && <p style={note}>Только чтение: агент сможет смотреть, но не менять.</p>}
-      {block("secret", "Токен", secret)}
-      {block("claude", "Claude Code — команда в терминале", command)}
-      {block("json", "Cursor — ~/.cursor/mcp.json", json)}
+      <DialogTitle lead="Скопируйте его сейчас — больше он показан не будет.">Токен выпущен</DialogTitle>
+
+      <div style={tokenRow}>
+        <code style={tokenText} data-testid="issued-secret">{secret}</code>
+        {copyButton("secret", secret)}
+      </div>
+
+      <div style={connectHead}>
+        <span style={sectionLabel}>Подключение</span>
+        <div role="tablist" aria-label="Клиент" style={seg}>
+          {CLIENTS.map((c) => (
+            <button
+              key={c.id}
+              role="tab"
+              aria-selected={client === c.id}
+              style={segBtn(client === c.id)}
+              onClick={() => setClient(c.id)}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={codeBox}>
+        <div style={codeHead}>
+          <span style={hint}>{CLIENTS.find((c) => c.id === client)?.hint}</span>
+          {copyButton(client, connect[client])}
+        </div>
+        <pre style={code} data-testid={`issued-${client}`}>{connect[client]}</pre>
+      </div>
       {copyError && <p style={note}>Браузер не дал скопировать — выделите текст и скопируйте вручную.</p>}
-      <div style={{ display: "flex", marginTop: 6 }}>
+
+      <div style={{ display: "flex", marginTop: 20 }}>
         <button data-autofocus style={primaryBtn} onClick={onDone}>Готово</button>
       </div>
     </Modal>
   );
 }
 
-const blockHead: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 };
-const blockLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569" };
+const mono = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+const tokenRow: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 10, padding: "8px 8px 8px 12px",
+  border: "1px solid #e2e8f0", borderRadius: 8, background: "#f8fafc",
+};
+const tokenText: CSSProperties = {
+  flex: 1, minWidth: 0, fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
+  wordBreak: "break-all", userSelect: "all",
+};
 const copyBtn: CSSProperties = {
-  background: "none", border: "none", padding: "2px 2px", fontSize: 13, fontWeight: 600,
+  flex: "none", background: "none", border: "none", padding: "2px 4px", fontSize: 13, fontWeight: 600,
   color: "#2563eb", cursor: "pointer",
 };
-const code: CSSProperties = {
-  margin: 0, padding: "10px 12px", border: "1px solid #e2e8f0", borderRadius: 8, background: "#f8fafc",
-  fontSize: 12.5, lineHeight: 1.5, color: "#0f172a", whiteSpace: "pre-wrap", wordBreak: "break-all",
-  userSelect: "all",
+const connectHead: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "space-between", margin: "20px 0 8px",
 };
-const note: CSSProperties = { margin: "0 0 12px", fontSize: 13, color: "#64748b" };
+const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569" };
+// Переключатель — как «Как есть / Переход / Как будет» (.insp-seg--inline).
+const seg: CSSProperties = { display: "inline-flex", gap: 2, padding: 2, background: "#eceef1", borderRadius: 8 };
+const segBtn = (on: boolean): CSSProperties => ({
+  padding: "4px 10px", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer",
+  background: on ? "#fff" : "none", color: on ? "#2563eb" : "#475569",
+  boxShadow: on ? "0 1px 2px rgba(15,23,42,.12)" : "none",
+  transition: "background .12s, color .12s, box-shadow .12s",
+});
+const codeBox: CSSProperties = { border: "1px solid #e2e8f0", borderRadius: 8, background: "#f8fafc" };
+const codeHead: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "space-between",
+  padding: "6px 8px 6px 12px", borderBottom: "1px solid #e2e8f0",
+};
+const hint: CSSProperties = { fontSize: 12.5, color: "#64748b" };
+const code: CSSProperties = {
+  margin: 0, padding: "10px 12px", fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
+  whiteSpace: "pre-wrap", wordBreak: "break-all", userSelect: "all",
+};
+const note: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "#64748b" };

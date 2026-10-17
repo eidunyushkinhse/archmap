@@ -32,7 +32,7 @@ beforeEach(() => {
 });
 
 describe("AgentTokensDialog", () => {
-  it("список: имя, префикс, «только чтение», срок; имя нового — свободное «Агент 2»", async () => {
+  it("список: название, префикс, «только чтение», срок; название нового — свободное «Агент 2»", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([
       token(),
       token({ id: "t-2", name: "Читатель", prefix: "archmap_Ab1cd", read_only: true, expires_at: "2027-01-15T10:00:00+00:00" }),
@@ -43,34 +43,41 @@ describe("AgentTokensDialog", () => {
     expect(within(reader).getByText("только чтение")).toBeInTheDocument();
     expect(within(reader).getByText(/до 15 янв/)).toBeInTheDocument();
     const agent = screen.getByTestId("token-Агент");
-    expect(within(agent).getByText(/ещё не использовался · бессрочно/)).toBeInTheDocument();
+    expect(within(agent).getByText("не использовался · бессрочно")).toBeInTheDocument();
     expect(within(agent).queryByText("только чтение")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Имя — чтобы узнать токен в списке")).toHaveValue("Агент 2");
+    expect(screen.getByLabelText("Название")).toHaveValue("Агент 2");
   });
 
-  it("выпуск: уходят имя, «только чтение» и срок; секрет и строки подключения — один раз", async () => {
+  it("выпуск: уходят название, «только чтение» и срок; секрет и строки подключения — один раз", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     const issued = token({ name: "Ноутбук", read_only: true, expires_at: "2026-11-16T10:00:00+00:00" });
     vi.mocked(tokensApi.create).mockResolvedValue({ token: issued, secret: SECRET });
     const onClose = vi.fn();
     render(<AgentTokensDialog onClose={onClose} />);
-    expect(await screen.findByText("Токенов пока нет.")).toBeInTheDocument();
+    // пустой список не печатается, сразу форма
+    await waitFor(() => expect(tokensApi.list).toHaveBeenCalled());
+    expect(screen.queryByText("Новый токен")).not.toBeInTheDocument();
 
-    const name = screen.getByLabelText("Имя — чтобы узнать токен в списке");
+    const name = screen.getByLabelText("Название");
     await userEvent.clear(name);
     await userEvent.type(name, "  Ноутбук ");
-    await userEvent.click(screen.getByLabelText(/Только чтение/));
+    await userEvent.click(screen.getByLabelText("Только чтение"));
     await userEvent.selectOptions(screen.getByLabelText("Срок действия"), "30");
     await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
 
     expect(tokensApi.create).toHaveBeenCalledWith({ name: "Ноутбук", read_only: true, lifetime_days: 30 });
-    expect(await screen.findByText("Токен «Ноутбук» выпущен")).toBeInTheDocument();
+    expect(await screen.findByText("Токен выпущен")).toBeInTheDocument();
     const url = `${window.location.origin}/mcp`;
     expect(screen.getByTestId("issued-secret")).toHaveTextContent(SECRET);
     expect(screen.getByTestId("issued-claude")).toHaveTextContent(
       `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${SECRET}"`,
     );
-    const json = JSON.parse(screen.getByTestId("issued-json").textContent ?? "") as unknown;
+    // Cursor — второй вкладкой
+    expect(screen.queryByTestId("issued-cursor")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Cursor" }));
+    expect(screen.getByRole("tab", { name: "Cursor" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("issued-claude")).not.toBeInTheDocument();
+    const json = JSON.parse(screen.getByTestId("issued-cursor").textContent ?? "") as unknown;
     expect(json).toEqual({
       mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${SECRET}` } } },
     });
@@ -94,10 +101,10 @@ describe("AgentTokensDialog", () => {
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeEnabled();
   });
 
-  it("пустое имя — выпускать нечего", async () => {
+  it("пустое название — выпускать нечего", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     render(<AgentTokensDialog onClose={vi.fn()} />);
-    await userEvent.clear(await screen.findByLabelText("Имя — чтобы узнать токен в списке"));
+    await userEvent.clear(await screen.findByLabelText("Название"));
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
   });
 

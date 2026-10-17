@@ -44,6 +44,12 @@ function fmtDate(iso: string): string {
   return new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
 }
 
+// Строка под именем токена: когда пользовались и до какого числа действует.
+function tokenMeta(t: PersonalToken): string {
+  const used = t.last_used_at ? `использовался ${fmtDate(t.last_used_at)}` : "не использовался";
+  return `${used} · ${t.expires_at ? `до ${fmtDate(t.expires_at)}` : "бессрочно"}`;
+}
+
 export default function AgentTokensDialog({ onClose }: Props) {
   const tokens = useAsyncLoad("tokens", tokensApi.list);
   // null — имя ещё не трогали: подставляется свободное по умолчанию.
@@ -96,7 +102,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
   return (
     <>
       <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 560, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-        <DialogTitle lead="Личный токен подключает ИИ-агента (Claude Code, Cursor, VS Code) к ArchMap. Агент видит и правит то же, что и вы, но удалять ничего не может.">
+        <DialogTitle lead="С токеном ИИ-агент работает в ArchMap от вашего имени, но ничего не удаляет.">
           Токены для агентов
         </DialogTitle>
 
@@ -104,9 +110,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
           <LoadError what="токены" error={tokens.error} onRetry={tokens.reload} />
         ) : tokens.loading && tokens.data === null ? (
           <p style={muted}>Загрузка…</p>
-        ) : list.length === 0 ? (
-          <p style={muted}>Токенов пока нет.</p>
-        ) : (
+        ) : list.length > 0 && (
           <div style={listBox}>
             {list.map((t, i) => (
               <div key={t.id} style={{ ...row, borderTop: i === 0 ? "none" : row.borderTop }} data-testid={`token-${t.name}`}>
@@ -116,11 +120,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
                     <code style={prefixCell}>{t.prefix}…</code>
                     {t.read_only && <span style={roTag}>только чтение</span>}
                   </div>
-                  <div style={metaLine}>
-                    создан {fmtDate(t.created_at)} ·{" "}
-                    {t.last_used_at ? `последний раз ${fmtDate(t.last_used_at)}` : "ещё не использовался"} ·{" "}
-                    {t.expires_at ? `до ${fmtDate(t.expires_at)}` : "бессрочно"}
-                  </div>
+                  <div style={metaLine}>{tokenMeta(t)}</div>
                 </div>
                 <button
                   style={revokeBtn}
@@ -134,28 +134,34 @@ export default function AgentTokensDialog({ onClose }: Props) {
           </div>
         )}
 
-        <div style={sectionLabel}>Новый токен</div>
-        <label style={labelStyle} htmlFor="tok-name">Имя — чтобы узнать токен в списке</label>
-        <input
-          id="tok-name"
-          data-autofocus
-          style={input}
-          maxLength={64}
-          value={shownName}
-          onChange={(e) => setName(e.target.value)}
-        />
+        {list.length > 0 && <div style={sectionLabel}>Новый токен</div>}
+        <div style={fieldsRow}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <label style={labelStyle} htmlFor="tok-name">Название</label>
+            <input
+              id="tok-name"
+              data-autofocus
+              style={input}
+              maxLength={64}
+              value={shownName}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <div style={{ width: 150, flex: "none" }}>
+            <label style={labelStyle} htmlFor="tok-life">Срок действия</label>
+            <select id="tok-life" style={input} value={lifetime} onChange={(e) => setLifetime(e.target.value)}>
+              {LIFETIMES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+          </div>
+        </div>
         <label style={checkRow}>
           <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} />
-          <span>Только чтение — агент сможет смотреть, но не менять</span>
+          <span>Только чтение</span>
         </label>
-        <label style={labelStyle} htmlFor="tok-life">Срок действия</label>
-        <select id="tok-life" style={input} value={lifetime} onChange={(e) => setLifetime(e.target.value)}>
-          {LIFETIMES.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
-        </select>
 
         {issue.error && <p style={errText}>{issue.error}</p>}
 
-        <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
           <button style={{ ...primaryBtn, opacity: canIssue ? 1 : 0.55 }} disabled={!canIssue} onClick={() => void submit()}>
             {issue.busy ? "Выпускаем…" : "Выпустить токен"}
           </button>
@@ -167,7 +173,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
       {revoking && (
         <ConfirmDialog
           title={`Отозвать токен «${revoking.name}»?`}
-          lead="Агент с этим токеном сразу потеряет доступ к ArchMap. Вернуть токен нельзя — только выпустить новый."
+          lead="Агент с этим токеном сразу потеряет доступ."
           error={revokeError}
           confirmLabel="Отозвать"
           busyLabel="Отзываем…"
@@ -201,8 +207,9 @@ const revokeBtn: CSSProperties = {
   background: "none", border: "none", padding: "4px 2px", fontSize: 13, fontWeight: 600,
   color: "#dc2626", cursor: "pointer",
 };
-const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569", margin: "20px 0 8px" };
+const sectionLabel: CSSProperties = { fontSize: 13, fontWeight: 600, color: "#475569", margin: "20px 0 10px" };
+const fieldsRow: CSSProperties = { display: "flex", gap: 12, alignItems: "flex-start" };
 const checkRow: CSSProperties = {
-  display: "flex", alignItems: "flex-start", gap: 9, fontSize: 14, color: "#1e293b",
-  cursor: "pointer", margin: "2px 0 14px",
+  display: "inline-flex", alignItems: "center", gap: 8, fontSize: 14, color: "#1e293b",
+  cursor: "pointer", margin: "0 0 16px",
 };

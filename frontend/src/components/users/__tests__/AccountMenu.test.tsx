@@ -55,13 +55,13 @@ describe("AccountMenu", () => {
     expect(screen.queryByLabelText("Текущий пароль")).not.toBeInTheDocument();
   });
 
-  it("«Токены для агентов» открывает окно со списком, «Закрыть» закрывает", async () => {
+  it("«Токены для агентов» открывает окно, «Закрыть» закрывает", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     render(<AccountMenu onLogout={vi.fn()} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
     await userEvent.click(screen.getByRole("menuitem", { name: "Токены для агентов" }));
-    expect(await screen.findByText("Токенов пока нет.")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Название")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
-    expect(screen.queryByText("Токенов пока нет.")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Название")).not.toBeInTheDocument();
   });
 });
