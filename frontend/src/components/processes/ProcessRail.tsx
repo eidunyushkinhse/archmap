@@ -23,6 +23,9 @@ interface Props {
   isArchitect: boolean;
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
+  // Переименование: двойной клик по имени открывает поле, Enter или уход из поля
+  // сохраняют, Escape отменяет. Зовётся только с непустым и изменившимся именем.
+  onRename: (id: string, name: string) => void;
 }
 
 export default function ProcessRail({
@@ -36,10 +39,29 @@ export default function ProcessRail({
   isArchitect,
   onDuplicate,
   onDelete,
+  onRename,
 }: Props) {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
+  // Enter закрывает поле, а снятое поле может прислать ещё и blur: второй раз не сохраняем.
+  const renameClosed = useRef(false);
+
+  function startRename(p: ProcessListItem) {
+    renameClosed.current = false;
+    setMenuId(null);
+    setRenaming({ id: p.id, draft: p.name });
+  }
+
+  function finishRename(save: boolean) {
+    if (renameClosed.current || !renaming) return;
+    renameClosed.current = true;
+    setRenaming(null);
+    const name = renaming.draft.trim();
+    const old = processes?.find((p) => p.id === renaming.id)?.name;
+    if (save && name && name !== old) onRename(renaming.id, name);
+  }
 
   // Клик мимо открытого меню — закрыть.
   useEffect(() => {
@@ -107,7 +129,32 @@ export default function ProcessRail({
                 </span>
                 <span className="bp-proctext">
                   <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-                    <span className="bp-procname" style={{ minWidth: 0 }}>{p.name}</span>
+                    {renaming?.id === p.id ? (
+                      <input
+                        className="bp-procname-input"
+                        value={renaming.draft}
+                        maxLength={256}
+                        autoFocus
+                        aria-label="Имя процесса"
+                        onFocus={(e) => e.currentTarget.select()}
+                        onChange={(e) => setRenaming({ id: p.id, draft: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { e.preventDefault(); finishRename(true); }
+                          if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); finishRename(false); }
+                        }}
+                        onBlur={() => finishRename(true)}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <span
+                        className="bp-procname"
+                        style={{ minWidth: 0 }}
+                        onDoubleClick={isArchitect ? (e) => { e.stopPropagation(); startRename(p); } : undefined}
+                      >
+                        {p.name}
+                      </span>
+                    )}
                     {badge && <span style={pillStyle(badge.tone)}>{badge.t}</span>}
                   </span>
                   <span className="bp-procsub">

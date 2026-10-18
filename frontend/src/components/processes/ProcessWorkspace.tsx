@@ -173,6 +173,17 @@ export default function ProcessWorkspace({
     }
   }
 
+  async function onRename(id: string, name: string) {
+    // Имя меняем сразу, не дожидаясь ответа: иначе после Enter на миг мелькнуло бы прежнее.
+    setItems((cur) => cur && cur.map((p) => (p.id === id ? { ...p, name } : p)));
+    try {
+      await processesApi.update(id, { name });
+    } catch (e: unknown) {
+      if (!showLimit(e, "save")) setError(e instanceof Error ? e.message : "Не удалось переименовать процесс");
+    }
+    await reload();
+  }
+
   async function onDelete(id: string) {
     try {
       await processesApi.remove(id);
@@ -208,6 +219,7 @@ export default function ProcessWorkspace({
         isArchitect={isArchitect}
         onDuplicate={(id) => void onDuplicate(id)}
         onDelete={(id) => void onDelete(id)}
+        onRename={(id, name) => void onRename(id, name)}
       />
       {error && items === null ? (
         <div style={emptyWrap}>

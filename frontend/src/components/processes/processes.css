@@ -167,6 +167,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Поле переименования на месте имени: тот же шрифт, чтобы строка не прыгала. */
+.bp-procname-input {
+  flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
+  margin: -2px 0 -2px -5px;
+  padding: 1px 4px;
+  border: 1px solid #93c5fd;
+  border-radius: 5px;
+  outline: none;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
 .bp-procsub {
   font-size: 11px;
   color: #94a3b8;

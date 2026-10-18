@@ -38,6 +38,7 @@ from app.routers.processes import (
     reorder_participants,
     update_fragment,
     update_message,
+    update_process,
 )
 from app.schemas.process import (
     BranchIn,
@@ -47,6 +48,7 @@ from app.schemas.process import (
     MessageUpdate,
     ParticipantBind,
     ParticipantCreate,
+    ProcessUpdate,
     ReorderPayload,
 )
 
@@ -529,6 +531,30 @@ def test_мутации_процессов_двигают_свой_курсор(
     db.refresh(project)
     assert project.process_rev == было[0] + 1
     assert (project.graph_rev, project.meta_rev) == (было[1], было[2])
+
+
+def test_переименование_процесса_двигает_курсор_и_срезает_пробелы(db):
+    """Рейл переименовывает процесс двойным кликом: имя без пробелов по краям, правку
+    видят чужие сессии (process_rev)."""
+    proc = _process(db, name="Новый процесс")
+    project = ensure_project(db)
+    db.commit()
+    db.refresh(project)
+    было = project.process_rev
+
+    out = update_process(proc.id, ProcessUpdate(name="  Оплата заказа "),
+                         db=db, project=project, user=ensure_architect(db))
+
+    db.refresh(project)
+    assert out.name == "Оплата заказа"
+    assert project.process_rev == было + 1
+
+
+@pytest.mark.parametrize("name", [None, "", "   "])
+def test_пустое_имя_процесса_отклоняется_схемой(name):
+    """Явный null дал бы 500 на NOT NULL, пустая строка — безымянный процесс."""
+    with pytest.raises(ValueError):
+        ProcessUpdate(name=name)
 
 
 def test_ответ_на_ставшем_асинхронным_канале_перестаёт_быть_корректным(db):

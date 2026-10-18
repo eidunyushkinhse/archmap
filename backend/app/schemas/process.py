@@ -8,7 +8,7 @@ Literal-типы (leg/kind/shape/fragment.kind) — чтобы генерат т
 import uuid
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.domain_types import FragmentKind, MessageKind, MessageLeg, NodeShape
 from app.schemas.node import NodeStatus
@@ -31,6 +31,16 @@ class ProcessUpdate(BaseModel):
     # валидное значение, поэтому различаем «не передано» и «передано null»).
     name: str | None = None
     scope_node_id: uuid.UUID | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name_not_blank(cls, v: str | None) -> str:
+        # Переименование из рейла: явный null дал бы 500 на NOT NULL, пустая строка —
+        # безымянный процесс. Пробелы по краям срезаем.
+        name = (v or "").strip()
+        if not name:
+            raise ValueError("Имя процесса не может быть пустым")
+        return name
 
 
 class ProcessListItem(BaseModel):
