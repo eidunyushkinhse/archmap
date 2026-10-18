@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { CSSProperties } from "react";
 import { CopyFailed, copyText } from "../../lib/copyText";
 import type { PersonalTokenCreated } from "../../types";
@@ -95,7 +95,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
           {copyButton(client, connect[client])}
         </div>
         <pre style={code} data-testid={`issued-${client}`}>
-          {client === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliArgs}</> : connect[client]}
+          {client === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliWords(cliArgs)}</> : connect[client]}
         </pre>
       </div>
       {copyError && <p style={note}>Браузер не дал скопировать — выделите текст и скопируйте вручную.</p>}
@@ -140,7 +140,19 @@ const codeHead: CSSProperties = {
 const hint: CSSProperties = { fontSize: 12.5, color: "#64748b" };
 const code: CSSProperties = {
   margin: 0, padding: "10px 12px", fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
-  whiteSpace: "pre-wrap", wordBreak: "break-all", userSelect: "all",
+  // Перенос по пробелам, длинный токен — где придётся (break-all рвал и «--header»).
+  whiteSpace: "pre-wrap", overflowWrap: "anywhere", userSelect: "all",
 };
+// Опции «--header» и «--transport» не рвём на «--» и имя: браузер переносит после дефиса.
+// Только показ — копируется строка connect.cli как есть.
+function cliWords(text: string) {
+  return text.split(" ").map((w, i) => (
+    <Fragment key={i}>
+      {i > 0 && " "}
+      {w.startsWith("--") ? <span style={{ whiteSpace: "nowrap" }}>{w}</span> : w}
+    </Fragment>
+  ));
+}
+
 const stub: CSSProperties = { color: "#2563eb", fontWeight: 600 };
 const note: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "#64748b" };
