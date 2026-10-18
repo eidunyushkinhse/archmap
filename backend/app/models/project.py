@@ -21,7 +21,7 @@ class Project(Base):
     принадлежит ровно одному проекту и никогда не пересекается с другими. Одна
     организация без multi-tenant. Доступ — по участникам (ProjectMember, роли
     owner/editor/reader) и флагу visible_to_all; глобальная роль architect/viewer
-    решает только, можно ли создавать проекты (app/access.py).
+    решает, можно ли создавать проекты и быть в них owner/editor (app/access.py).
     """
 
     __tablename__ = "projects"

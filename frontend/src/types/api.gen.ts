@@ -616,6 +616,7 @@ export interface paths {
          * Put Member
          * @description Добавить участника или сменить ему роль (editor/reader). Только владелец.
          *     Владелец так не понижается: его роль меняет только передача владения.
+         *     «Пользователь» (глобальная роль viewer) бывает только читателем — 409.
          */
         put: operations["put_member_api_v1_projects__project_id__members__user_id__put"];
         post?: never;
@@ -641,7 +642,7 @@ export interface paths {
         put?: never;
         /**
          * Transfer Project
-         * @description Передать владение другому активному пользователю. Только владелец
+         * @description Передать владение другому активному архитектору. Только владелец
          *     (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
          *     прежний остаётся редактором. Ответ — карточка проекта глазами того, кто
          *     передавал: его my_role после передачи уже editor.
@@ -6828,8 +6829,9 @@ export interface components {
         };
         /**
          * UserBrief
-         * @description Пользователь в выборе участника проекта: только id и логин, без ролей и
-         *     признаков (это не админский список /admin/users).
+         * @description Пользователь в выборе участника проекта: id, логин и может ли он быть
+         *     редактором или владельцем (архитектор). Остальные признаки — только в админском
+         *     списке /admin/users.
          */
         UserBrief: {
             /**
@@ -6839,6 +6841,8 @@ export interface components {
             id: string;
             /** Username */
             username: string;
+            /** Can Edit */
+            can_edit: boolean;
         };
         /** UserCreate */
         UserCreate: {

@@ -2,6 +2,7 @@
 и API администратора /admin/users с защитами от потери управления."""
 
 import pytest
+from conftest import make_project
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
@@ -83,6 +84,18 @@ def test_create_admin_существующий_с_ролью(db, monkeypatch):
     create_admin(db, "ivan", role="architect")
     db.expire_all()
     assert db.query(User).filter(User.username == "ivan").one().role == "architect"
+
+
+def test_create_admin_владельца_проектов_не_понижает(db, monkeypatch):
+    ivan = _user(db, "ivan", role="architect")
+    make_project(db, "Ярмарка", owner=ivan)
+    db.commit()
+    _fake_getpass(monkeypatch)
+    with pytest.raises(AdminCommandError, match="владелец проектов «Ярмарка»"):
+        create_admin(db, "ivan", role="viewer")
+    db.rollback()
+    ivan = db.query(User).filter(User.username == "ivan").one()
+    assert ivan.role == "architect" and ivan.is_admin is False
 
 
 def test_create_admin_reset_password(db, monkeypatch):
@@ -229,8 +242,15 @@ def test_сменить_роль_действует_на_следующий_за
     h = _bearer(ivan)  # токен выписан архитектору и несёт его роль
     # Глобальная роль architect — это право СОЗДАВАТЬ проекты (docs/tasks/project-access.md).
     create = "/api/v1/projects"
-    assert client.post(create, headers=h, json={"name": "Ярмарка"}).status_code == 201
+    created = client.post(create, headers=h, json={"name": "Ярмарка"})
+    assert created.status_code == 201
 
+    # владельца проектов до «Пользователя» не понизить — сначала передать проекты
+    r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"role": "viewer"})
+    assert r.status_code == 409
+    transfer = f"/api/v1/projects/{created.json()['id']}/transfer"
+    anna = _user(db, "anna", role="architect")
+    assert client.post(transfer, headers=h, json={"user_id": str(anna.id)}).status_code == 200
     r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"role": "viewer"})
     assert r.status_code == 200 and r.json()["role"] == "viewer"
 

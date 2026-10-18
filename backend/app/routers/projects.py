@@ -9,8 +9,8 @@
 Доступ (docs/tasks/project-access.md): проект проверяется project_for по
 действующей роли в нём. Чтение — любой роли, правка схемы (синк, догрузка) —
 редактору, управление проектом (PATCH, архив, восстановление, удаление, участники,
-передача владения) — владельцу. Глобальная роль architect нужна только для
-СОЗДАНИЯ проекта.
+передача владения) — владельцу. Глобальная роль architect нужна для СОЗДАНИЯ
+проекта и для роли редактора или владельца в нём: «Пользователь» — только читатель.
 """
 
 import json
@@ -32,7 +32,10 @@ from sqlalchemy.orm import Session
 
 from app import demo, demo_limits
 from app.access import (
+    VIEWER_EDITOR_DETAIL,
+    VIEWER_OWNER_DETAIL,
     add_owner,
+    can_edit,
     effective_role,
     owner_member,
     transfer_ownership,
@@ -638,12 +641,15 @@ def put_member(
     user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectMemberOut:
     """Добавить участника или сменить ему роль (editor/reader). Только владелец.
-    Владелец так не понижается: его роль меняет только передача владения."""
+    Владелец так не понижается: его роль меняет только передача владения.
+    «Пользователь» (глобальная роль viewer) бывает только читателем — 409."""
     demo.deny_guest(user)  # гость демо-стенда не делится песочницей
     project_for(db, user, project_id, need="owner")
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
+    if payload.role == "editor" and not can_edit(target):
+        raise HTTPException(status_code=409, detail=VIEWER_EDITOR_DETAIL)
     member = db.get(ProjectMember, (project_id, user_id))
     if member is None:
         if not target.is_active:
@@ -692,7 +698,7 @@ def transfer_project(
     db: Session = Depends(get_db),
     user: User = Depends(require_session_user),  # токеном нельзя (Р4)
 ) -> ProjectResponse:
-    """Передать владение другому активному пользователю. Только владелец
+    """Передать владение другому активному архитектору. Только владелец
     (администратор тоже: в любом проекте он owner). Новый владелец становится owner,
     прежний остаётся редактором. Ответ — карточка проекта глазами того, кто
     передавал: его my_role после передачи уже editor."""
@@ -705,6 +711,8 @@ def transfer_project(
         raise HTTPException(
             status_code=409, detail="Пользователь заблокирован, передать ему проект нельзя"
         )
+    if not can_edit(target):
+        raise HTTPException(status_code=409, detail=VIEWER_OWNER_DETAIL)
     current = owner_member(db, project_id)
     if current is not None and current.user_id == target.id:
         raise HTTPException(status_code=409, detail="Этот пользователь уже владелец проекта")

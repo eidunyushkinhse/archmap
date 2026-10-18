@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.access import AccessError, set_global_role
 from app.auth import check_new_password, hash_password, require_admin
 from app.database import get_db
 from app.models.user import User
@@ -116,7 +117,11 @@ def update_user(
             raise _bad("Нельзя снять права с последнего администратора")
 
     if payload.role is not None:
-        user.role = payload.role
+        # Понижение до «Пользователя» гасит его редакторства, владельцу — отказ.
+        try:
+            set_global_role(db, user, payload.role)
+        except AccessError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from None
     if payload.is_admin is not None:
         user.is_admin = payload.is_admin
     if payload.is_active is not None:

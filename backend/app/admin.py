@@ -32,6 +32,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app import demo
+from app.access import AccessError, set_global_role
 from app.auth import hash_password, password_problem
 from app.database import SessionLocal
 from app.domain_types import USER_ROLES, UserRole
@@ -94,10 +95,13 @@ def create_admin(
     if reset_password:
         user.hashed_password = hash_password(read_new_password(prompt))
     was_blocked = not user.is_active
+    if role is not None:
+        try:
+            set_global_role(db, user, role)
+        except AccessError as exc:
+            raise AdminCommandError(exc.detail) from None
     user.is_admin = True
     user.is_active = True
-    if role is not None:
-        user.role = role
     db.commit()
 
     parts = [f"«{username}» теперь администратор, роль {user.role}"]

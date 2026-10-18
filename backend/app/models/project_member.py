@@ -8,9 +8,10 @@ from app.database import Base
 from app.domain_types import ProjectRole
 
 # Роли в проекте (docs/tasks/project-access.md): owner, editor, reader. Права внутри
-# проекта определяет ТОЛЬКО эта роль; глобальная роль architect/viewer решает лишь,
-# можно ли создавать новые проекты. Тип набора (ProjectRole) объявлен в контракте
-# app/schemas/project.py, здесь его держит CHECK в БД.
+# проекта определяет ТОЛЬКО эта роль; глобальная роль architect/viewer решает, можно
+# ли создавать новые проекты и быть owner/editor (viewer — только reader, app/access.py).
+# Тип набора (ProjectRole) объявлен в контракте app/schemas/project.py, здесь его держит
+# CHECK в БД.
 
 
 class ProjectMember(Base):

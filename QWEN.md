@@ -290,8 +290,9 @@ ProjectMember (участник проекта)
 - ключ (project_id → Project, user_id → User), оба CASCADE; role — owner | editor | reader
 - владелец ровно один (держит код app/access.py, передача — POST /projects/{id}/transfer)
 - права ВНУТРИ проекта решает только effective_role: админ → owner, участник → его
-  роль, visible_to_all → reader, иначе 404. Общая роль architect/viewer — только
-  право создавать проекты
+  роль, visible_to_all → reader, иначе 404. Общая роль: architect создаёт проекты и
+  бывает owner/editor/reader; viewer («Пользователь») — только reader (can_edit в
+  app/access.py: назначение, передача владения, понижение роли)
 
 ViewLayout / ViewState
 - view_layout: project_id, view_id, item_id, payload JSONB {x, y, expanded}

@@ -38,11 +38,13 @@ class MeResponse(BaseModel):
 
 
 class UserBrief(BaseModel):
-    """Пользователь в выборе участника проекта: только id и логин, без ролей и
-    признаков (это не админский список /admin/users)."""
+    """Пользователь в выборе участника проекта: id, логин и может ли он быть
+    редактором или владельцем (архитектор). Остальные признаки — только в админском
+    списке /admin/users."""
 
     id: uuid.UUID
     username: str
+    can_edit: bool
 
     model_config = {"from_attributes": True}
 
