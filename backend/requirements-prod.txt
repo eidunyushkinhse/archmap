@@ -6,7 +6,7 @@
 #   pip-compile --generate-hashes --strip-extras --no-emit-index-url \
 #     --output-file requirements-prod.lock requirements-prod.txt
 # Расхождение файла и lock ловит tests/test_requirements_lock.py.
-fastapi==0.143.0
+fastapi==0.143.2
 # Транзитивно через fastapi (у него starlette>=0.46 без потолка) — пин до lock-файла
 # поставки (аудит P-22), иначе сборка брала бы любую свежую.
 starlette==1.8.0
@@ -19,7 +19,7 @@ pwdlib[bcrypt]==0.3.1
 bcrypt==5.0.0
 python-multipart==0.0.32
 pydantic==2.14.1
-pydantic-settings==2.15.0
+pydantic-settings==2.16.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
 # Удалённый MCP-сервер (/mcp в процессе бэкенда, docs/plan-remote-mcp.md): SDK протокола и
