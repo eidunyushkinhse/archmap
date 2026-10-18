@@ -53,16 +53,17 @@ def _user(db, username: str, role: str = "architect") -> User:
 
 
 def _token(db, user: User, read_only: bool = False, name: str = "Агент") -> str:
-    secret = personal_tokens.issue(db, user.id, name, read_only, 90).secret
+    secret = personal_tokens.issue(db, user, name, read_only, 90).secret
     db.commit()
     return secret
 
 
 @pytest.fixture()
 def scene(db):
-    """editor — редактор «Ярмарки» (владелец — owner); «Плёнка» — чужой закрытый проект."""
+    """editor — редактор «Ярмарки» (владелец — owner); «Плёнка» — чужой закрытый проект.
+    editor — архитектор: токен «Пользователя» только читает (отдельный тест ниже)."""
     owner = _user(db, "owner")
-    editor = _user(db, "editor", role="viewer")
+    editor = _user(db, "editor")
     stranger = _user(db, "stranger")
     p = make_project(db, "Ярмарка", owner=owner)
     db.add(ProjectMember(project_id=p.id, user_id=editor.id, role="editor"))
@@ -98,6 +99,18 @@ def test_список_полным_токеном_28_только_чтение_1
     assert full.status_code == 200 and reader.status_code == 200
     assert len(full.json()["result"]["tools"]) == 28
     assert len(reader.json()["result"]["tools"]) == 13
+
+
+def test_пользователю_набор_только_чтения_даже_редактору(client, db, scene):
+    # токен выпущен архитектором, потом роль понизили до «Пользователя»
+    secret = _token(db, scene["editor"])
+    scene["editor"].role = "viewer"
+    db.commit()
+    tools = rpc(client, secret, "tools/list", {}).json()["result"]["tools"]
+    assert len(tools) == 13
+    result = call(client, secret, "archmap_create_node", {"project": str(scene["project"].id), "name": "Шлюз"})
+    assert result["isError"] is True
+    assert db.query(Node).count() == 0
 
 
 def test_initialize_называет_сервер(client, db, scene):

@@ -217,7 +217,8 @@ export interface paths {
         put?: never;
         /**
          * Create Token
-         * @description Выпустить токен. 409 — имя уже занято или токенов слишком много.
+         * @description Выпустить токен. 409 — имя уже занято или токенов слишком много; 403 —
+         *     «Пользователь» просит токен не только для чтения.
          */
         post: operations["create_token_api_v1_tokens_post"];
         delete?: never;

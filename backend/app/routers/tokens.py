@@ -3,6 +3,8 @@
 Выпустить, посмотреть свои и отозвать можно только из сессии интерфейса
 (require_session_user): утёкшим токеном нельзя выпустить себе новый. /current —
 наоборот, только по токену: по нему эндпоинт /mcp узнаёт владельца и вид токена.
+«Только чтение» в ответах — действующее (personal_tokens.read_only_for): у «Пользователя»
+оно у любого токена.
 """
 
 import uuid
@@ -36,19 +38,25 @@ def _deny_demo(user: User) -> None:
     demo.deny_guest(user)
 
 
+def _out(row: PersonalToken, user: User) -> PersonalTokenOut:
+    out = PersonalTokenOut.model_validate(row)
+    return out.model_copy(update={"read_only": personal_tokens.read_only_for(row, user)})
+
+
 @router.get("", response_model=list[PersonalTokenOut])
 def list_tokens(
     db: Session = Depends(get_db),
     user: User = Depends(require_session_user),
-) -> list[PersonalToken]:
+) -> list[PersonalTokenOut]:
     """Свои токены, новые сверху. Секретов здесь нет: их показывают один раз."""
     _deny_demo(user)
-    return (
+    rows = (
         db.query(PersonalToken)
         .filter(PersonalToken.user_id == user.id)
         .order_by(PersonalToken.created_at.desc())
         .all()
     )
+    return [_out(row, user) for row in rows]
 
 
 @router.post("", response_model=PersonalTokenCreated, status_code=status.HTTP_201_CREATED)
@@ -57,15 +65,18 @@ def create_token(
     db: Session = Depends(get_db),
     user: User = Depends(require_session_user),
 ) -> PersonalTokenCreated:
-    """Выпустить токен. 409 — имя уже занято или токенов слишком много."""
+    """Выпустить токен. 409 — имя уже занято или токенов слишком много; 403 —
+    «Пользователь» просит токен не только для чтения."""
     _deny_demo(user)
     try:
-        issued = personal_tokens.issue(db, user.id, payload.name, payload.read_only, payload.lifetime_days)
+        issued = personal_tokens.issue(db, user, payload.name, payload.read_only, payload.lifetime_days)
+    except personal_tokens.TokenForbidden as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=exc.detail) from None
     except personal_tokens.TokenError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from None
     db.commit()
     db.refresh(issued.token)
-    return PersonalTokenCreated(token=PersonalTokenOut.model_validate(issued.token), secret=issued.secret)
+    return PersonalTokenCreated(token=_out(issued.token, user), secret=issued.secret)
 
 
 @router.get("/current", response_model=PersonalTokenCurrent)
@@ -75,7 +86,11 @@ def current_token(request: Request, user: User = Depends(get_current_user)) -> P
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=SESSION_REQUEST_DETAIL)
     return PersonalTokenCurrent(
-        id=row.id, name=row.name, prefix=row.prefix, read_only=row.read_only, username=user.username
+        id=row.id,
+        name=row.name,
+        prefix=row.prefix,
+        read_only=personal_tokens.read_only_for(row, user),
+        username=user.username,
     )
 
 

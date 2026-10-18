@@ -44,7 +44,7 @@ def _user(db, username: str, role: str = "architect", **fields) -> User:
 
 
 def _token(db, user: User, name: str = "Агент", read_only: bool = False, days=90) -> str:
-    secret = personal_tokens.issue(db, user.id, name, read_only, days).secret
+    secret = personal_tokens.issue(db, user, name, read_only, days).secret
     db.commit()
     return secret
 
@@ -74,7 +74,7 @@ def scene(db):
 
 
 def test_секрет_не_хранится_только_хэш_и_префикс(db, scene):
-    issued = personal_tokens.issue(db, scene["owner"].id, "Агент", False, 90)
+    issued = personal_tokens.issue(db, scene["owner"], "Агент", False, 90)
     row = db.get(PersonalToken, issued.token.id)
     assert issued.secret.startswith("archmap_") and len(issued.secret) > 40
     assert row.token_hash == personal_tokens.secret_hash(issued.secret) != issued.secret
@@ -120,6 +120,34 @@ def test_только_чтение_пускает_лишь_безопасные_
     db.commit()
     r = client.patch(f"{NODES}/{node.id}", headers=_h(secret, p), json={"description": "x", "version": 1})
     assert r.status_code == 403
+
+
+def test_пользователю_токен_только_для_чтения(client, db, scene):
+    # «Пользователь» (viewer) может быть редактором проекта, но токен ему — только на чтение
+    viewer = _user(db, "viewer", role="viewer")
+    db.add(ProjectMember(project_id=scene["project"].id, user_id=viewer.id, role="editor"))
+    db.commit()
+    r = client.post(TOKENS, headers=_jwt(viewer), json={"name": "Агент"})
+    assert r.status_code == 403 and r.json()["detail"] == personal_tokens.VIEWER_READ_ONLY_DETAIL
+    assert db.query(PersonalToken).count() == 0
+    r = client.post(TOKENS, headers=_jwt(viewer), json={"name": "Агент", "read_only": True})
+    assert r.status_code == 201 and r.json()["token"]["read_only"] is True
+    secret = r.json()["secret"]
+    assert client.get(NODES, headers=_h(secret, scene["project"])).status_code == 200
+    r = client.post(NODES, headers=_h(secret, scene["project"]), json={"name": "нельзя"})
+    assert r.status_code == 403 and r.json()["detail"] == personal_tokens.READ_ONLY_DETAIL
+
+
+def test_понизили_до_пользователя_прежний_токен_только_читает(client, db, scene):
+    owner = scene["owner"]
+    secret = _token(db, owner)
+    owner.role = "viewer"
+    db.commit()
+    r = client.post(NODES, headers=_h(secret, scene["project"]), json={"name": "нельзя"})
+    assert r.status_code == 403 and r.json()["detail"] == personal_tokens.READ_ONLY_DETAIL
+    # в списке и для /mcp токен уже «только чтение»
+    assert [t["read_only"] for t in client.get(TOKENS, headers=_jwt(owner)).json()] == [True]
+    assert client.get(f"{TOKENS}/current", headers=_h(secret)).json()["read_only"] is True
 
 
 def test_удалять_токеном_нельзя_никаким(client, db, scene):
@@ -221,17 +249,17 @@ def test_на_демо_стенде_вход_по_токену_закрыт(clie
 
 def test_предел_и_повтор_имени(db, scene):
     owner = scene["owner"]
-    personal_tokens.issue(db, owner.id, "Агент", False, 90)
+    personal_tokens.issue(db, owner, "Агент", False, 90)
     with pytest.raises(personal_tokens.TokenError) as exc:
-        personal_tokens.issue(db, owner.id, "Агент", True, 30)
+        personal_tokens.issue(db, owner, "Агент", True, 30)
     assert exc.value.detail == personal_tokens.NAME_TAKEN_DETAIL
     for i in range(personal_tokens.MAX_PER_USER - 1):
-        personal_tokens.issue(db, owner.id, f"Агент {i}", False, None)
+        personal_tokens.issue(db, owner, f"Агент {i}", False, None)
     with pytest.raises(personal_tokens.TokenError) as exc:
-        personal_tokens.issue(db, owner.id, "лишний", False, 90)
+        personal_tokens.issue(db, owner, "лишний", False, 90)
     assert exc.value.detail == personal_tokens.LIMIT_DETAIL
     # у другого пользователя — свой счёт и свои имена
-    personal_tokens.issue(db, scene["reader"].id, "Агент", False, 90)
+    personal_tokens.issue(db, scene["reader"], "Агент", False, 90)
 
 
 # ── API /api/v1/tokens ───────────────────────────────────────────────────────────

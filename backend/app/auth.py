@@ -136,8 +136,9 @@ def _require_active(user: User) -> None:
 
 def _personal_token_user(request: Request, secret: str, db: Session) -> User:
     """Вход по личному токену (docs/plan-remote-mcp.md, Р4). Права — владельца, как у
-    его сессии; токен их только сужает: DELETE закрыт целиком, «только чтение» пускает
-    лишь безопасные методы, остальное — require_session_user на ручках.
+    его сессии; токен их только сужает: DELETE закрыт целиком, «только чтение» (и любой
+    токен «Пользователя») пускает лишь безопасные методы, остальное —
+    require_session_user на ручках.
 
     Признак «запрос по токену» кладётся в request.state, а НЕ в ContextVar: эта
     зависимость синхронная, FastAPI исполняет её в пуле потоков, и значение ContextVar
@@ -161,7 +162,7 @@ def _personal_token_user(request: Request, secret: str, db: Session) -> User:
     request.state.personal_token = row
     if request.method == "DELETE":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.NO_DELETE_DETAIL)
-    if row.read_only and request.method not in personal_tokens.SAFE_METHODS:
+    if personal_tokens.read_only_for(row, user) and request.method not in personal_tokens.SAFE_METHODS:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=personal_tokens.READ_ONLY_DETAIL)
     personal_tokens.touch(db, row)
     return user
