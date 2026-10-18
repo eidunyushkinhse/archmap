@@ -126,7 +126,7 @@ export default function App() {
   const demoMode = authConfig?.demo_mode ?? false;
   useEffect(() => {
     if (!authenticated) return;
-    return onUnauthorized(() => { resetSession(demoMode ? null : SESSION_EXPIRED_NOTICE, demoMode); });
+    return onUnauthorized((reason) => { resetSession(demoMode ? null : (reason ?? SESSION_EXPIRED_NOTICE), demoMode); });
   }, [authenticated, demoMode, resetSession]);
 
   function navigate(hash: string) {

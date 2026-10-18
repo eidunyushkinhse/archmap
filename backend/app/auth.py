@@ -31,6 +31,13 @@ SANDBOX_GONE_DETAIL = (
     "Начните заново, это займёт пару секунд."
 )
 
+# Отказ токену прежнего поколения: пароль сменили или сбросили, вход нужно повторить.
+SESSION_ENDED_DETAIL = "Пароль изменён. Войдите с новым паролем."
+
+# Номер поколения сессий пользователя в токене входа (User.session_version). Токен без
+# него выдан до появления поколений и считается поколением 0.
+SESSION_CLAIM = "sv"
+
 # Признак гостя в токене. Нужен только чтобы отличить «песочницу удалили» от битого
 # токена; права по нему не решаются никогда (их решает строка пользователя в БД).
 GUEST_CLAIM = "guest"
@@ -88,6 +95,19 @@ def create_access_token(data: dict, expire_minutes: int | None = None) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+def session_token(user: User) -> str:
+    """Токен входа пользователя: логин, роль и текущее поколение сессий."""
+    return create_access_token(
+        {"sub": user.username, "role": user.role, SESSION_CLAIM: user.session_version}
+    )
+
+
+def end_sessions(user: User) -> None:
+    """Закрыть все выданные входы пользователя: токены прежнего поколения отбиваются.
+    Коммит — на вызывающей стороне."""
+    user.session_version += 1
+
+
 def _get_current_user(token: str, db: Session) -> User:
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -102,6 +122,7 @@ def _get_current_user(token: str, db: Session) -> User:
             raise credentials_error
         token_data = TokenData(username=username, role=role)
         was_guest = payload.get(GUEST_CLAIM) is True
+        version = payload.get(SESSION_CLAIM, 0)
     except jwt.PyJWTError:
         # Детали JWT-ошибки наружу не отдаём — это всегда 401 «не авторизован».
         raise credentials_error from None
@@ -118,6 +139,12 @@ def _get_current_user(token: str, db: Session) -> User:
             )
         raise credentials_error
     _require_active(user)
+    if version != user.session_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=SESSION_ENDED_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     if user.is_guest:
         _touch_guest(db, user)
     return user

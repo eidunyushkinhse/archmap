@@ -35,7 +35,7 @@ export default function ChangePasswordDialog({ onClose }: Props) {
   if (done) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 400, padding: 24 }}>
-        <DialogTitle lead="Со следующего входа действует новый пароль.">Пароль изменён</DialogTitle>
+        <DialogTitle lead="Остальные активные сессии завершены.">Пароль изменён</DialogTitle>
         <button data-autofocus style={primaryBtn} onClick={onClose}>Готово</button>
       </Modal>
     );

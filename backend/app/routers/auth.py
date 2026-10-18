@@ -6,10 +6,11 @@ from app import demo
 from app.auth import (
     BLOCKED_DETAIL,
     check_new_password,
-    create_access_token,
+    end_sessions,
     get_current_user,
     hash_password,
     require_session_user,
+    session_token,
     verify_password,
 )
 from app.config import settings
@@ -65,8 +66,7 @@ def login(
     # постороннему, что такая учётка существует.
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=BLOCKED_DETAIL)
-    token = create_access_token({"sub": user.username, "role": user.role})
-    return Token(access_token=token)
+    return Token(access_token=session_token(user))
 
 
 @router.get("/me", response_model=MeResponse)
@@ -83,14 +83,16 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)) ->
     )
 
 
-@router.post("/password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/password", response_model=Token)
 def change_password(
     payload: PasswordChange,
     user: User = Depends(require_session_user),  # токеном нельзя (Р4)
     db: Session = Depends(get_db),
-) -> None:
-    """Смена своего пароля. Выданные токены остаются в силе: пароль в них не входит.
-    Гостю демо-стенда пароль не нужен и не известен: 403."""
+) -> Token:
+    """Смена своего пароля. Все прежние входы закрываются (их мог открыть тот, кто
+    узнал старый пароль), а этой сессии отдаётся новый токен — из неё не выкидывает.
+    Личные токены для MCP остаются в силе. Гостю демо-стенда пароль не нужен и не
+    известен: 403."""
     demo.deny_guest(user)
     if not verify_password(payload.old_password, user.hashed_password):
         raise HTTPException(
@@ -98,4 +100,6 @@ def change_password(
         )
     check_new_password(payload.new_password)
     user.hashed_password = hash_password(payload.new_password)
+    end_sessions(user)
     db.commit()
+    return Token(access_token=session_token(user))

@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.auth import (
+    SESSION_ENDED_DETAIL,
     _get_current_user,
     create_access_token,
     hash_password,
@@ -219,9 +220,28 @@ def test_смена_пароля(client, db):
         headers=_bearer(user),
         json={"old_password": PW, "new_password": "brand-new-pw"},
     )
-    assert r.status_code == 204
+    assert r.status_code == 200
     assert _login(client, "alice", "brand-new-pw").status_code == 200
     assert _login(client, "alice", PW).status_code == 401
+
+
+def test_смена_пароля_закрывает_прежние_входы_но_не_эту_сессию(client, db):
+    """Другой вход (например, того, кто узнал старый пароль) отбивается сразу, а эта
+    сессия продолжает работать с новым токеном из ответа."""
+    user = _add_user(db, "alice", role="viewer")
+    другой_вход = _login(client, "alice", PW).json()["access_token"]
+    r = client.post(
+        "/api/v1/auth/password",
+        headers=_bearer(user),
+        json={"old_password": PW, "new_password": "brand-new-pw"},
+    )
+    новый = r.json()["access_token"]
+
+    старый = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {другой_вход}"})
+    assert старый.status_code == 401
+    assert старый.json()["detail"] == SESSION_ENDED_DETAIL
+    assert client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {новый}"}).status_code == 200
+    assert client.get("/api/v1/auth/me", headers=_bearer(user)).status_code == 401
 
 
 def test_смена_пароля_неверный_старый(client, db):

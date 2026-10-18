@@ -2,8 +2,8 @@
 // из JWT, после — из «кто я»; 401 «Учётная запись заблокирована» из любого запроса
 // будит подписчиков onAccountBlocked (App выходит на экран входа).
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { clearToken, fetchAuthConfig, fetchMe, getIsAdmin, getMe, getUserRole, login, saveToken, startDemo, subscribeMe } from "../auth";
-import { api, ApiError, BLOCKED_DETAIL, onAccountBlocked, onUnauthorized } from "../client";
+import { changePassword, clearToken, fetchAuthConfig, fetchMe, getIsAdmin, getMe, getToken, getUserRole, login, saveToken, startDemo, subscribeMe } from "../auth";
+import { api, ApiError, BLOCKED_DETAIL, onAccountBlocked, onUnauthorized, SESSION_ENDED_DETAIL } from "../client";
 import { setCurrentProjectId } from "../projectScope";
 
 // JWT с нужной ролью в полезной нагрузке (подпись фронту не нужна).
@@ -84,6 +84,21 @@ describe("getUserRole / getIsAdmin", () => {
   });
 });
 
+describe("смена пароля", () => {
+  // Сервер закрывает прежние входы и отдаёт этой сессии новый токен: без замены
+  // следующий же запрос ушёл бы со старым и выкинул человека на экран входа.
+  it("новый токен из ответа заменяет старый, «кто я» остаётся", async () => {
+    saveToken(jwt("viewer"));
+    vi.stubGlobal("fetch", respond(200, { id: "u1", username: "ivan", role: "viewer", is_admin: false, is_guest: false, can_create_project: false }));
+    await fetchMe();
+    const fresh = jwt("viewer") + "2";
+    vi.stubGlobal("fetch", respond(200, { access_token: fresh, token_type: "bearer" }));
+    await changePassword("old-password", "new-password-1");
+    expect(getToken()).toBe(fresh);
+    expect(getMe()?.username).toBe("ivan");
+  });
+});
+
 describe("onAccountBlocked", () => {
   it("401 с текстом блокировки будит подписчика и всё равно бросает ApiError", async () => {
     const listener = vi.fn();
@@ -101,6 +116,33 @@ describe("onAccountBlocked", () => {
     await expect(api.get("/projects")).rejects.toBeInstanceOf(ApiError);
     vi.stubGlobal("fetch", respond(403, { detail: "Требуются права администратора" }));
     await expect(api.get("/admin/users")).rejects.toBeInstanceOf(ApiError);
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
+  it("пароль изменён: прочий 401 будит выход с причиной от сервера", async () => {
+    saveToken(jwt("viewer"));
+    const listener = vi.fn();
+    const unsubscribe = onUnauthorized(listener);
+    vi.stubGlobal("fetch", respond(401, { detail: SESSION_ENDED_DETAIL }));
+    await expect(api.get("/projects")).rejects.toBeInstanceOf(ApiError);
+    expect(listener).toHaveBeenCalledWith(SESSION_ENDED_DETAIL);
+    vi.stubGlobal("fetch", respond(401, { detail: "Недействительный токен" }));
+    await expect(api.get("/projects")).rejects.toBeInstanceOf(ApiError);
+    expect(listener).toHaveBeenLastCalledWith(null);
+    unsubscribe();
+  });
+
+  it("отказ старому токену после его замены сессию не завершает", async () => {
+    // Запрос ушёл со старым токеном, а пока он шёл, смена пароля положила новый.
+    saveToken(jwt("viewer"));
+    const listener = vi.fn();
+    const unsubscribe = onUnauthorized(listener);
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      saveToken(jwt("viewer") + "2");
+      return new Response(JSON.stringify({ detail: SESSION_ENDED_DETAIL }), { status: 401 });
+    }));
+    await expect(api.get("/projects")).rejects.toBeInstanceOf(ApiError);
     expect(listener).not.toHaveBeenCalled();
     unsubscribe();
   });

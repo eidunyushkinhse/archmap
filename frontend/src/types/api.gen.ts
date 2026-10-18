@@ -77,8 +77,10 @@ export interface paths {
         put?: never;
         /**
          * Change Password
-         * @description Смена своего пароля. Выданные токены остаются в силе: пароль в них не входит.
-         *     Гостю демо-стенда пароль не нужен и не известен: 403.
+         * @description Смена своего пароля. Все прежние входы закрываются (их мог открыть тот, кто
+         *     узнал старый пароль), а этой сессии отдаётся новый токен — из неё не выкидывает.
+         *     Личные токены для MCP остаются в силе. Гостю демо-стенда пароль не нужен и не
+         *     известен: 403.
          */
         post: operations["change_password_api_v1_auth_password_post"];
         delete?: never;
@@ -156,7 +158,8 @@ export interface paths {
         put?: never;
         /**
          * Reset Password
-         * @description Сброс пароля: новый задаёт администратор и передаёт человеку сам.
+         * @description Сброс пароля: новый задаёт администратор и передаёт человеку сам. Все активные
+         *     сессии пользователя завершаются; личные токены для MCP остаются в силе.
          */
         post: operations["reset_password_api_v1_admin_users__user_id__password_post"];
         delete?: never;
@@ -7017,11 +7020,13 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Token"];
+                };
             };
             /** @description Validation Error */
             422: {

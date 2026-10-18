@@ -43,24 +43,31 @@ export const BLOCKED_DETAIL = "Учётная запись заблокиров�
 export const SANDBOX_GONE_DETAIL =
   "Ваша песочница удалена: прошли сутки бездействия. Начните заново, это займёт пару секунд.";
 
+// Текст отказа токену прежнего поколения (SESSION_ENDED_DETAIL бэка, app/auth.py):
+// пароль сменили или сбросили, прежние входы закрыты.
+export const SESSION_ENDED_DETAIL = "Пароль изменён. Войдите с новым паролем.";
+
 // Подписчики «сессию закрыли с причиной» (учётку заблокировали, песочницу удалили):
 // App выходит на экран входа с этим текстом. Сигнал из общего клиента, а не из
 // каждой страницы: это застаёт человека на любом экране, в любом запросе.
 const blocked = createEmitter<string>();
 export const onAccountBlocked = blocked.on;
 
-// Подписчики прочего 401 (токен истёк или испорчен). Слушает App: выходит на экран
-// входа (вне демо — с плашкой «Сессия истекла»).
-const unauthorized = createEmitter();
+// Подписчики прочего 401 (токен истёк, испорчен или закрыт сменой пароля). Слушает App:
+// выходит на экран входа (вне демо — с плашкой причины). Значение — причина от сервера,
+// если она известна (пароль изменён), иначе null.
+const unauthorized = createEmitter<string | null>();
 export const onUnauthorized = unauthorized.on;
 
-function reportIfBlocked(status: number, detail: unknown): void {
-  if (status !== 401) return;
+// stale — пока запрос шёл, токен заменили (смена пароля в этой или другой вкладке):
+// отказ прежнему токену не означает конец сессии, следующий запрос уйдёт с новым.
+function reportIfBlocked(status: number, detail: unknown, stale: boolean): void {
+  if (status !== 401 || stale) return;
   if (detail === BLOCKED_DETAIL || detail === SANDBOX_GONE_DETAIL) {
     blocked.emit(detail);
     return;
   }
-  unauthorized.emit();
+  unauthorized.emit(detail === SESSION_ENDED_DETAIL ? detail : null);
 }
 
 // Тело отказа: detail бэка и необязательный машинный признак.
@@ -69,9 +76,9 @@ interface ErrorBody {
   code?: unknown;
 }
 
-async function readError(res: Response, session: boolean): Promise<ApiError> {
+async function readError(res: Response, session: boolean, sentToken: string | null): Promise<ApiError> {
   const error = (await res.json().catch(() => ({ detail: res.statusText }))) as ErrorBody;
-  if (session) reportIfBlocked(res.status, error.detail);
+  if (session) reportIfBlocked(res.status, error.detail, getToken() !== sentToken);
   // String() — как прежде: нестроковый detail (422 с перечнем) Error и раньше приводил к строке.
   const message = String(error.detail ?? "Неизвестная ошибка");
   return new ApiError(res.status, message, typeof error.code === "string" ? error.code : null);
@@ -107,12 +114,13 @@ function buildHeaders(path: string, options: RequestInit): HeadersInit {
 // токена и скоупа проекта, а 401 — отказ этой формы (неверный пароль), не сигнал App
 // «сессия истекла».
 async function request<T>(path: string, options: RequestInit = {}, session = true): Promise<T> {
+  const sentToken = getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
     headers: session ? buildHeaders(path, options) : (options.headers ?? {}),
   });
 
-  if (!res.ok) throw await readError(res, session);
+  if (!res.ok) throw await readError(res, session, sentToken);
 
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -120,8 +128,9 @@ async function request<T>(path: string, options: RequestInit = {}, session = tru
 
 // Бинарная выгрузка (zip-архив проекта): тот же auth/scope, но ответ — Blob.
 async function requestBlob(path: string): Promise<Blob> {
+  const sentToken = getToken();
   const res = await fetch(`${BASE_URL}${path}`, { headers: buildHeaders(path, {}) });
-  if (!res.ok) throw await readError(res, true);
+  if (!res.ok) throw await readError(res, true, sentToken);
   return res.blob();
 }
 

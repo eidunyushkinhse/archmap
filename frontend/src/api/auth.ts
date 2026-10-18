@@ -92,11 +92,14 @@ export function getIsAdmin(): boolean {
   return me?.is_admin ?? false;
 }
 
+/** Смена своего пароля. Сервер закрывает все прежние входы и отдаёт этой сессии новый
+ *  токен: кладём его на место старого. Человек тот же, поэтому «кто я» не сбрасываем. */
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {
-  await api.post<undefined>("/auth/password", {
+  const { access_token } = await api.post<Token>("/auth/password", {
     old_password: oldPassword,
     new_password: newPassword,
   });
+  safeLocal.setItem("access_token", access_token);
 }
 
 // ── Гость демо-стенда (docs/tasks/demo-mode.md) ──────────────────────────────

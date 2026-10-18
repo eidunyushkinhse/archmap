@@ -221,6 +221,15 @@ def test_блокировка_учётки_гасит_токен_сразу(clie
     assert r.json()["detail"] == BLOCKED_DETAIL
 
 
+def test_смена_пароля_личный_токен_не_гасит(client, db, scene):
+    """Пароль закрывает входы в браузере, а агент с личным токеном работает дальше:
+    токены выпускаются и отзываются отдельно."""
+    secret = _token(db, scene["owner"])
+    scene["owner"].session_version += 1
+    db.commit()
+    assert client.get(PROJECTS, headers=_h(secret)).status_code == 200
+
+
 def test_отметка_использования_не_чаще_минуты(client, db, scene):
     secret = _token(db, scene["owner"])
     row = db.query(PersonalToken).one()

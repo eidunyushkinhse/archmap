@@ -83,6 +83,14 @@ def test_create_admin_reset_password(db, monkeypatch):
     assert verify_password("brand-new-pw", user.hashed_password)
     assert not verify_password(OLD_PW, user.hashed_password)
     assert "пароль изменён" in итог
+    assert user.session_version == 1  # прежние входы закрыты
+
+
+def test_create_admin_без_сброса_пароля_входы_не_трогает(db):
+    _user(db, "ivan", role="viewer")
+    create_admin(db, "ivan")
+    db.expire_all()
+    assert db.query(User).filter(User.username == "ivan").one().session_version == 0
 
 
 def test_create_admin_пароли_не_совпадают(db, monkeypatch):
@@ -363,6 +371,19 @@ def test_сброс_пароля(client, db, boss):
     assert r.status_code == 204
     assert client.post("/api/v1/auth/login", data={"username": "ivan", "password": "reset-pass-1"}).status_code == 200
     assert client.post("/api/v1/auth/login", data={"username": "ivan", "password": OLD_PW}).status_code == 401
+
+
+def test_сброс_пароля_завершает_все_сессии_пользователя(client, db, boss):
+    ivan = _user(db, "ivan", role="viewer")
+    вход = client.post("/api/v1/auth/login", data={"username": "ivan", "password": OLD_PW}).json()
+    h = {"Authorization": f"Bearer {вход['access_token']}"}
+    assert client.get("/api/v1/auth/me", headers=h).status_code == 200
+
+    client.post(f"{USERS}/{ivan.id}/password", headers=_bearer(boss), json={"new_password": "reset-pass-1"})
+
+    assert client.get("/api/v1/auth/me", headers=h).status_code == 401
+    # Администратора, сбросившего пароль, это не касается.
+    assert client.get(USERS, headers=_bearer(boss)).status_code == 200
 
 
 def test_сброс_пароля_короткий_400(client, db, boss):

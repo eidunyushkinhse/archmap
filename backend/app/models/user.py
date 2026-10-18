@@ -1,7 +1,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, String
+from sqlalchemy import Boolean, DateTime, Enum, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -32,6 +32,12 @@ class User(Base):
     # токен перестаёт работать сразу — get_current_user сверяет флаг с БД.
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Поколение сессий: номер зашит в токен входа, и токен со старым номером отбивается.
+    # Смена и сброс пароля растят его — прежние входы закрываются сразу, а не по
+    # истечении срока токена. Личные токены для MCP от него не зависят.
+    session_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
     )
     # Гость демо-стенда (docs/tasks/demo-mode.md): учётка заводится кнопкой
     # «Попробовать без регистрации», пароль случайный и никому не показывается.

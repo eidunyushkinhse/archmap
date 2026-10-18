@@ -14,7 +14,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.access import AccessError, set_global_role
-from app.auth import check_new_password, hash_password, require_admin
+from app.auth import check_new_password, end_sessions, hash_password, require_admin
 from app.database import get_db
 from app.models.user import User
 from app.schemas.admin import AdminUser, AdminUserCreate, AdminUserUpdate, PasswordReset
@@ -142,8 +142,10 @@ def reset_password(
     db: Session = Depends(get_db),
     _admin: User = Depends(require_admin),
 ) -> None:
-    """Сброс пароля: новый задаёт администратор и передаёт человеку сам."""
+    """Сброс пароля: новый задаёт администратор и передаёт человеку сам. Все активные
+    сессии пользователя завершаются; личные токены для MCP остаются в силе."""
     user = _get_user(db, user_id)
     check_new_password(payload.new_password)
     user.hashed_password = hash_password(payload.new_password)
+    end_sessions(user)
     db.commit()

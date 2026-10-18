@@ -31,7 +31,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 
 from app import demo
-from app.auth import hash_password, password_problem
+from app.auth import end_sessions, hash_password, password_problem
 from app.database import SessionLocal
 from app.models.user import User
 
@@ -85,6 +85,7 @@ def create_admin(
 
     if reset_password:
         user.hashed_password = hash_password(read_new_password(prompt))
+        end_sessions(user)
     was_blocked = not user.is_active
     was_viewer = user.role != "architect"
     user.role = "architect"

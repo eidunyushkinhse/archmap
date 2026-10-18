@@ -32,7 +32,9 @@ export default function ResetPasswordDialog({ user, onClose, onDone }: Props) {
 
   return (
     <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 400, padding: 24 }}>
-      <DialogTitle lead={<>Новый пароль для «{user.username}». Передайте его человеку сами.</>}>
+      <DialogTitle
+        lead={<>Новый пароль для «{user.username}». Передайте его человеку сами. Все активные сессии пользователя будут завершены.</>}
+      >
         Сбросить пароль
       </DialogTitle>
 
