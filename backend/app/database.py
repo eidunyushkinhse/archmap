@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import UTC, datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -27,3 +28,9 @@ def get_db() -> Iterator[Session]:
         yield db
     finally:
         db.close()
+
+
+def as_utc(moment: datetime) -> datetime:
+    """Время из колонки DateTime(timezone=True) с часовым поясом: SQLite (тесты) отдаёт
+    его без пояса, а пишем мы всегда UTC."""
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)

@@ -13,7 +13,9 @@ import { noAutofill } from "../../ui/noAutofill";
  * Окно «Доступ к проекту» (docs/tasks/project-access.md): видимость всем,
  * участники с ролями, добавление по логину, передача владения. Управляет только
  * владелец (у администратора действующая роль в любом проекте тоже owner);
- * остальным окно показывает то же самое только для чтения.
+ * остальным окно показывает то же самое только для чтения. «Пользователь» (can_edit
+ * false) бывает только читателем: редактором его не назначить и проект ему не передать
+ * — правило держит бэк (app/access.py), окно лишь не предлагает лишнего.
  *
  * Состояние на сервере — источник правды: после каждой правки список участников
  * перечитывается, а карточка проекта (видимость, владелец, моя роль) берётся из
@@ -84,7 +86,9 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
 
   const candidates = useMemo(() => addCandidates(users, members), [users, members]);
   const owner = members.find((m) => m.role === "owner") ?? null;
-  const transferTargets = users.filter((u) => u.id !== owner?.user_id);
+  // Пока список пользователей не пришёл, ничего не запрещаем: последнее слово за бэком.
+  const canEdit = (userId: string) => users.find((u) => u.id === userId)?.can_edit ?? true;
+  const transferTargets = users.filter((u) => u.id !== owner?.user_id && u.can_edit);
   const transferUser = transferTargets.find((u) => u.id === transferTo) ?? null;
 
   // Одна обёртка для всех правок: занятость, ошибка, перечитать участников.
@@ -108,9 +112,13 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
     void act(async () => setProject(await projectsApi.update(project.id, { visible_to_all: next })));
   }
 
+  // Набран логин «Пользователя» — роль нового участника только «Читатель».
+  const typed = users.find((u) => u.username === login.trim()) ?? null;
+  const onlyReader = typed !== null && !typed.can_edit;
+  const addRole: EditableRole = onlyReader ? "reader" : newRole;
+
   function addMember() {
-    const name = login.trim();
-    const user = users.find((u) => u.username === name);
+    const user = typed;
     if (!user) {
       setError("Нет такого пользователя");
       return;
@@ -119,7 +127,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
       setError("Пользователь уже в проекте");
       return;
     }
-    void act(() => projectsApi.putMember(project.id, user.id, newRole)).then((ok) => {
+    void act(() => projectsApi.putMember(project.id, user.id, addRole)).then((ok) => {
       if (ok) setLogin("");
     });
   }
@@ -182,7 +190,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
                     disabled={busy}
                     onChange={(e) => void act(() => projectsApi.putMember(project.id, m.user_id, e.target.value as EditableRole))}
                   >
-                    <option value="editor">Редактор</option>
+                    <option value="editor" disabled={!canEdit(m.user_id)}>Редактор</option>
                     <option value="reader">Читатель</option>
                   </select>
                   <button
@@ -243,16 +251,17 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
               <select
                 aria-label="Роль нового участника"
                 style={roleSelect}
-                value={newRole}
+                value={addRole}
                 onChange={(e) => setNewRole(e.target.value as EditableRole)}
               >
-                <option value="editor">Редактор</option>
+                <option value="editor" disabled={onlyReader}>Редактор</option>
                 <option value="reader">Читатель</option>
               </select>
               <button style={primaryBtn} disabled={!login.trim() || busy} onClick={addMember}>
                 Добавить
               </button>
             </div>
+            {onlyReader && <span style={hint}>«Пользователь» может быть только читателем</span>}
           </div>
         ) : (
           <p style={readOnlyNote}>Менять доступ может владелец проекта.</p>

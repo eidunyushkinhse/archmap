@@ -4,11 +4,11 @@
 проекте (app/access.py). Подменена только сессия БД. Тестовые пользователи НЕ
 администраторы по умолчанию: админ «видит всё» и спрятал бы любой баг прав.
 
-Сцена: проект «Ярмарка» с владельцем owner, редактором editor (глобально viewer —
-viewer может быть редактором чужого проекта) и читателем reader (глобально
-architect — architect без роли редактора проект не правит). stranger — architect
-без участия, admin — администратор (глобально viewer) без участия, blocked —
-заблокированный.
+Сцена: проект «Ярмарка» с владельцем owner, редактором editor и читателем reader
+(все трое глобально architect — architect без роли редактора проект не правит).
+viewer — «Пользователь» без участия: в проектах он бывает только читателем.
+stranger — architect без участия, admin — администратор (всегда architect) без
+участия, blocked — заблокированный.
 """
 
 import uuid
@@ -17,7 +17,12 @@ import pytest
 from conftest import make_project
 from fastapi.testclient import TestClient
 
-from app.access import effective_role, effective_roles
+from app.access import (
+    VIEWER_EDITOR_DETAIL,
+    VIEWER_OWNER_DETAIL,
+    effective_role,
+    effective_roles,
+)
 from app.auth import create_access_token
 from app.database import get_db
 from app.deps import ProjectAccess, require_project_editor
@@ -66,10 +71,11 @@ def _member(db, project: Project, user: User, role: str) -> None:
 @pytest.fixture()
 def scene(db) -> dict:
     owner = _user(db, "owner")
-    editor = _user(db, "editor", role="viewer")
+    editor = _user(db, "editor")
     reader = _user(db, "reader")
     stranger = _user(db, "stranger")
-    admin = _user(db, "admin", role="viewer", is_admin=True)
+    viewer = _user(db, "viewer", role="viewer")
+    admin = _user(db, "admin", role="architect", is_admin=True)
     blocked = _user(db, "blocked", is_active=False)
     p = make_project(db, "Ярмарка", owner=owner)
     _member(db, p, editor, "editor")
@@ -82,6 +88,7 @@ def scene(db) -> dict:
         "editor": editor,
         "reader": reader,
         "stranger": stranger,
+        "viewer": viewer,
         "admin": admin,
         "blocked": blocked,
     }
@@ -279,7 +286,7 @@ def test_создатель_становится_владельцем(client, db
     assert card["visible_to_all"] is False
     assert _roles(db, uuid.UUID(card["id"])) == {"stranger": "owner"}
     # Создавать проекты может только глобальный architect.
-    assert client.post(PROJECTS, headers=_h(scene["editor"]), json={"name": "Нельзя"}).status_code == 403
+    assert client.post(PROJECTS, headers=_h(scene["viewer"]), json={"name": "Нельзя"}).status_code == 403
 
 
 def test_единый_импорт_делает_создателя_владельцем(db, scene):
@@ -411,17 +418,55 @@ def test_администратор_передаёт_владение(client, db
     assert "admin" not in roles
 
 
-# ── Глобальные роли внутри проекта не решают ─────────────────────────────────
+# ── Глобальная роль: кем можно быть в проекте ────────────────────────────────
 
 
-def test_viewer_редактор_правит(client, db, scene):
+def test_пользователь_только_читатель(client, db, scene):
+    p, viewer = scene["p"], scene["viewer"]
+    url = f"{PROJECTS}/{p.id}/members/{viewer.id}"
+    r = client.put(url, headers=_h(scene["owner"]), json={"role": "editor"})
+    assert r.status_code == 409 and r.json() == {"detail": VIEWER_EDITOR_DETAIL}
+    assert "viewer" not in _roles(db, p.id)
+    assert client.put(url, headers=_h(scene["owner"]), json={"role": "reader"}).status_code == 200
+    # и уже участника-читателя редактором не сделать — даже администратору
+    for who in ("owner", "admin"):
+        r = client.put(url, headers=_h(scene[who]), json={"role": "editor"})
+        assert r.status_code == 409
+    assert _roles(db, p.id)["viewer"] == "reader"
+    assert client.post(NODES, headers=_h(viewer, p), json={"name": "x"}).status_code == 403
+
+
+def test_пользователю_проект_не_передать(client, db, scene):
+    p = scene["p"]
+    r = client.post(
+        f"{PROJECTS}/{p.id}/transfer", headers=_h(scene["owner"]), json={"user_id": str(scene["viewer"].id)}
+    )
+    assert r.status_code == 409 and r.json() == {"detail": VIEWER_OWNER_DETAIL}
+    assert _roles(db, p.id)["owner"] == "owner" and "viewer" not in _roles(db, p.id)
+
+
+def test_понижение_до_пользователя_гасит_редакторства(client, db, scene):
     p, editor = scene["p"], scene["editor"]
-    assert editor.role == "viewer"
-    r = client.post(NODES, headers=_h(editor, p), json={"name": "от viewer"})
-    assert r.status_code == 201, r.text
-    node_id = r.json()["id"]
-    r = client.patch(f"{NODES}/{node_id}", headers=_h(editor, p), json={"description": "правка"})
-    assert r.status_code == 200, r.text
+    other = make_project(db, "Плёнка", owner=scene["stranger"])
+    _member(db, other, editor, "editor")
+    db.commit()
+    r = client.patch(f"/api/v1/admin/users/{editor.id}", headers=_h(scene["admin"]), json={"role": "viewer"})
+    assert r.status_code == 200 and r.json()["role"] == "viewer"
+    assert _roles(db, p.id)["editor"] == "reader" and _roles(db, other.id)["editor"] == "reader"
+    assert client.post(NODES, headers=_h(editor, p), json={"name": "x"}).status_code == 403
+    # обратное повышение редакторства не возвращает: роль в проекте выдаёт владелец
+    r = client.patch(f"/api/v1/admin/users/{editor.id}", headers=_h(scene["admin"]), json={"role": "architect"})
+    assert r.status_code == 200 and _roles(db, p.id)["editor"] == "reader"
+
+
+def test_владельца_проектов_не_понизить(client, db, scene):
+    owner = scene["owner"]
+    r = client.patch(f"/api/v1/admin/users/{owner.id}", headers=_h(scene["admin"]), json={"role": "viewer"})
+    assert r.status_code == 409
+    assert r.json() == {"detail": "owner — владелец проектов «Ярмарка». Сначала передайте их другому архитектору"}
+    db.expire_all()
+    assert db.get(User, owner.id).role == "architect"
+    assert _roles(db, scene["p"].id)["owner"] == "owner"
 
 
 def test_architect_не_участник_не_правит(client, db, scene):
@@ -439,6 +484,10 @@ def test_users_только_активные_и_только_логин(client, 
     r = client.get("/api/v1/users", headers=_h(scene["reader"]))
     assert r.status_code == 200
     body = r.json()
-    assert [u["username"] for u in body] == ["admin", "editor", "owner", "reader", "stranger"]
-    assert set(body[0]) == {"id", "username"}
+    assert [u["username"] for u in body] == ["admin", "editor", "owner", "reader", "stranger", "viewer"]
+    assert set(body[0]) == {"id", "username", "can_edit"}
+    # редактором и владельцем может быть только архитектор
+    assert {u["username"]: u["can_edit"] for u in body} == {
+        "admin": True, "editor": True, "owner": True, "reader": True, "stranger": True, "viewer": False,
+    }
     assert client.get("/api/v1/users").status_code == 401

@@ -61,6 +61,13 @@ files = ["app"]
 # 21 такое снято 2026-10-14), функция без аннотаций — ошибка.
 warn_unused_ignores = true
 disallow_untyped_defs = true
+# Пакет MCP-сервера (mcp/archmap_mcp) бэкенд импортирует ради /mcp (app/mcp_http.py). Его
+# строгость держит собственный гейт (mcp/pyproject.toml): здесь — только типы на границе.
+mypy_path = "../mcp"
+
+[[tool.mypy.overrides]]
+module = ["archmap_mcp", "archmap_mcp.*"]
+follow_imports = "silent"
 
 # Покрытие (аудит M12): CI гоняет python -m pytest --cov, порог — ratchet чуть ниже факта
 # (замер 2026-10-14: 96 %). Покрытие выросло — подними порог; упало — тесты к новому коду.

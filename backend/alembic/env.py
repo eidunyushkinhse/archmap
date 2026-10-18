@@ -11,6 +11,7 @@ import app.models.db_table
 import app.models.edge
 import app.models.node
 import app.models.node_doc
+import app.models.personal_token
 import app.models.process_fragment
 import app.models.process_message
 import app.models.process_participant

@@ -2,12 +2,13 @@ import { useState } from "react";
 import { getIsAdmin, getIsGuest, getUserRole } from "../../api/auth";
 import ProfileMenu from "../../ui/ProfileMenu";
 import TourHelpButton from "../tour/TourHelpButton";
+import AgentTokensDialog from "./AgentTokensDialog";
 import ChangePasswordDialog from "./ChangePasswordDialog";
 import { ROLE_LABEL } from "./userLabels";
 
 /**
- * Меню профиля в шапках экранов: ProfileMenu + окно «Сменить пароль». Роль и
- * признак администратора читает из кэша «кто я» (api/auth): App перерисовывает
+ * Меню профиля в шапках экранов: ProfileMenu + окна «Сменить пароль» и «Токены для
+ * MCP». Роль и признак администратора читает из кэша «кто я» (api/auth): App перерисовывает
  * дерево, когда пришёл ответ /auth/me, и меню видит свежие значения.
  * onOpenUsers не передают на самом экране «Пользователи» — вести некуда.
  * Гостю демо-стенда вместо меню — пилюля «Обучение»: пройти обучение заново
@@ -21,6 +22,7 @@ interface Props {
 
 export default function AccountMenu({ onLogout, onOpenUsers }: Props) {
   const [changingPassword, setChangingPassword] = useState(false);
+  const [tokensOpen, setTokensOpen] = useState(false);
   const isArchitect = getUserRole() === "architect";
   if (getIsGuest()) {
     return <TourHelpButton />;
@@ -32,9 +34,11 @@ export default function AccountMenu({ onLogout, onOpenUsers }: Props) {
         isAdmin={getIsAdmin()}
         onLogout={onLogout}
         onChangePassword={() => setChangingPassword(true)}
+        onOpenTokens={() => setTokensOpen(true)}
         onOpenUsers={onOpenUsers}
       />
       {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
+      {tokensOpen && <AgentTokensDialog readOnlyOnly={!isArchitect} onClose={() => setTokensOpen(false)} />}
     </>
   );
 }

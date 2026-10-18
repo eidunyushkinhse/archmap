@@ -28,9 +28,12 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
 
   const canSubmit = username.trim().length > 0 && password.length > 0 && !busy;
 
+  // Администратор всегда архитектор — полные права (правило держит бэк).
+  const shownRole: UserRole = isAdmin ? "architect" : role;
+
   async function submit() {
     if (!canSubmit) return;
-    await run(() => adminApi.create({ username: username.trim(), role, is_admin: isAdmin, password }).then(onCreated));
+    await run(() => adminApi.create({ username: username.trim(), role: shownRole, is_admin: isAdmin, password }).then(onCreated));
   }
 
   return (
@@ -51,7 +54,8 @@ export default function NewUserDialog({ onClose, onCreated }: Props) {
       <select
         id="nu-role"
         style={input}
-        value={role}
+        value={shownRole}
+        disabled={isAdmin}
         onChange={(e) => setRole(e.target.value as UserRole)}
       >
         {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}

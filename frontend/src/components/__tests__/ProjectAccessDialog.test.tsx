@@ -44,9 +44,11 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(projectsApi.members).mockResolvedValue(участники);
   vi.mocked(usersApi.list).mockResolvedValue([
-    { id: "u1", username: "owner" },
-    { id: "u2", username: "editor" },
-    { id: "u3", username: "stranger" },
+    { id: "u1", username: "owner", can_edit: true },
+    { id: "u2", username: "editor", can_edit: true },
+    { id: "u3", username: "stranger", can_edit: true },
+    // «Пользователь»: бывает только читателем
+    { id: "u4", username: "viewer", can_edit: false },
   ]);
   vi.mocked(projectsApi.putMember).mockResolvedValue({ user_id: "u3", username: "stranger", role: "editor" });
   vi.mocked(projectsApi.removeMember).mockResolvedValue(undefined);
@@ -89,7 +91,7 @@ describe("ProjectAccessDialog: владелец", () => {
     await waitFor(() =>
       expect(
         Array.from(document.querySelectorAll("#member-candidates option")).map((o) => (o as HTMLOptionElement).value),
-      ).toEqual(["stranger"]),
+      ).toEqual(["stranger", "viewer"]),
     );
 
     await userEvent.type(screen.getByPlaceholderText("Логин"), "stranger");
@@ -97,6 +99,27 @@ describe("ProjectAccessDialog: владелец", () => {
     await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     expect(projectsApi.putMember).toHaveBeenCalledWith("p1", "u3", "reader");
     await waitFor(() => expect(screen.getByPlaceholderText("Логин")).toHaveValue(""));
+  });
+
+  it("«Пользователя» — только читателем: «Редактор» закрыт, уходит reader", async () => {
+    открыть();
+    await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
+    const роль = screen.getByRole("combobox", { name: "Роль нового участника" });
+    expect(роль).toHaveValue("editor");
+    await userEvent.type(screen.getByPlaceholderText("Логин"), "viewer");
+    expect(роль).toHaveValue("reader");
+    expect(within(роль).getByRole("option", { name: "Редактор" })).toBeDisabled();
+    expect(screen.getByText("«Пользователь» может быть только читателем")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
+    expect(projectsApi.putMember).toHaveBeenCalledWith("p1", "u4", "reader");
+  });
+
+  it("у участника-«Пользователя» «Редактор» в выборе роли закрыт", async () => {
+    vi.mocked(projectsApi.members).mockResolvedValue([...участники, { user_id: "u4", username: "viewer", role: "reader" }]);
+    открыть();
+    const роль = await screen.findByRole("combobox", { name: "Роль viewer" });
+    await waitFor(() => expect(within(роль).getByRole("option", { name: "Редактор" })).toBeDisabled());
+    expect(within(screen.getByTestId("member-editor")).getByRole("option", { name: "Редактор" })).toBeEnabled();
   });
 
   it("незнакомый логин не отправляется", async () => {
@@ -116,7 +139,7 @@ describe("ProjectAccessDialog: владелец", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Передать владение" }));
     await waitFor(() => expect(usersApi.list).toHaveBeenCalled());
     const выбор = screen.getByLabelText("Новый владелец");
-    // Себе передать нельзя: текущего владельца в выборе нет.
+    // Себе передать нельзя: текущего владельца в выборе нет; «Пользователя» — тоже.
     await waitFor(() =>
       expect(within(выбор).getAllByRole("option").map((o) => o.textContent)).toEqual([
         "Выберите пользователя", "editor", "stranger",

@@ -3,16 +3,15 @@
 Первый администратор создаётся здесь, на сервере, без интернета и без открытой
 регистрации:
 
-    ./venv/bin/python -m app.admin create-admin <логин> [--role architect|viewer]
-                                                        [--reset-password]
+    ./venv/bin/python -m app.admin create-admin <логин> [--reset-password]
 
 Пароль вводится в консоли дважды (getpass) и в аргументах не появляется: иначе он
 остался бы в истории оболочки и в списке процессов.
 
 Если пользователь уже есть, команда делает его администратором и снимает
 блокировку (это путь восстановления доступа, когда админов не осталось), а пароль
-не трогает, пока не передан --reset-password. Роль существующего меняется, только
-если --role передан явно.
+не трогает, пока не передан --reset-password. Администратор всегда архитектор —
+полные права (решение владельца 2026-10-18), поэтому роли у команды нет.
 
 Демо-стенд (docs/tasks/demo-mode.md) администрируется тоже отсюда:
 
@@ -34,12 +33,7 @@ from sqlalchemy.orm import Session
 from app import demo
 from app.auth import hash_password, password_problem
 from app.database import SessionLocal
-from app.domain_types import USER_ROLES, UserRole
 from app.models.user import User
-
-# Роль нового администратора, если --role не передан: первый админ обычно и
-# ведёт документацию.
-DEFAULT_ROLE: UserRole = "architect"
 
 
 class AdminCommandError(Exception):
@@ -65,17 +59,15 @@ def read_new_password(prompt: Callable[[str], str] | None = None) -> str:
 def create_admin(
     db: Session,
     username: str,
-    role: UserRole | None = None,
     reset_password: bool = False,
     prompt: Callable[[str], str] | None = None,
 ) -> str:
-    """Создать администратора или сделать им существующего. Возвращает итог для
-    консоли. Коммитит сам: команда — одна транзакция."""
+    """Создать администратора или сделать им существующего (и архитектором — у
+    администратора полные права). Возвращает итог для консоли. Коммитит сам:
+    команда — одна транзакция."""
     username = username.strip()
     if not username:
         raise AdminCommandError("Укажите логин")
-    if role is not None and role not in ("architect", "viewer"):
-        raise AdminCommandError("Роль должна быть architect или viewer")
 
     user = db.query(User).filter(User.username == username).first()
     if user is None:
@@ -83,24 +75,26 @@ def create_admin(
         user = User(
             username=username,
             hashed_password=hash_password(password),
-            role=role or DEFAULT_ROLE,
+            role="architect",
             is_admin=True,
             is_active=True,
         )
         db.add(user)
         db.commit()
-        return f"Создан администратор «{username}», роль {user.role}."
+        return f"Создан администратор «{username}»."
 
     if reset_password:
         user.hashed_password = hash_password(read_new_password(prompt))
     was_blocked = not user.is_active
+    was_viewer = user.role != "architect"
+    user.role = "architect"
     user.is_admin = True
     user.is_active = True
-    if role is not None:
-        user.role = role
     db.commit()
 
-    parts = [f"«{username}» теперь администратор, роль {user.role}"]
+    parts = [f"«{username}» теперь администратор"]
+    if was_viewer:
+        parts.append("роль — архитектор")
     if was_blocked:
         parts.append("блокировка снята")
     parts.append("пароль изменён" if reset_password else "пароль не менялся")
@@ -149,12 +143,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("username", help="логин")
     create.add_argument(
-        "--role",
-        choices=USER_ROLES,
-        default=None,
-        help=f"роль (новому по умолчанию {DEFAULT_ROLE}; существующему — не меняется)",
-    )
-    create.add_argument(
         "--reset-password",
         action="store_true",
         help="задать существующему пользователю новый пароль",
@@ -183,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "demo-stats":
                 print(demo_stats(db))
             else:
-                print(create_admin(db, args.username, args.role, args.reset_password))
+                print(create_admin(db, args.username, args.reset_password))
         except AdminCommandError as exc:
             print(f"Ошибка: {exc}", file=sys.stderr)
             return 1

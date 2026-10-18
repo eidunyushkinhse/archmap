@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # ArchMap: nginx поставки, Gateway/Ingress в Kubernetes). Без прокси (docker compose) — false:
     # заголовок тогда присылает сам клиент и обходит им лимиты.
     trust_forwarded_for: bool = True
+    # Удалённый MCP-сервер (/mcp, docs/plan-remote-mcp.md): сколько запросов в минуту
+    # пропускать по одному личному токену (0 — без предела; счётчик в памяти процесса,
+    # поэтому предел приблизительный) и с каких Origin пускать запросы из браузера
+    # (через запятую; пусто — ни с каких: агенты Origin не шлют, а запрос с чужой
+    # страницы отклоняется, как требует спецификация MCP против DNS rebinding).
+    mcp_requests_per_minute: int = 300
+    mcp_allowed_origins: str = ""
 
     model_config = SettingsConfigDict(env_file=".env")
 

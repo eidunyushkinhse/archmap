@@ -20,18 +20,14 @@
   background: #dbeafe;
 }
 
-/* Пункты меню профиля. Фон задаётся здесь, а не инлайном: инлайновый background
-   перебивал бы :hover. */
-.pf-item,
-.pf-logout {
+/* Пункты меню профиля — как .sam-item. Фон задаётся здесь, а не инлайном: инлайновый
+   background перебивал бы :hover. */
+.pf-item {
   background: none;
+  transition: background 0.12s ease;
 }
 .pf-item:hover {
   background: #f1f5f9;
-}
-/* Пункт «Выйти». */
-.pf-logout:hover {
-  background: #fef2f2;
 }
 
 /* Меню «Действия со схемой» (SchemaActions): пункты-кнопки словами */

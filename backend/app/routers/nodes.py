@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import identity, reparent, restore, tree
 from app.alerts import compute_alerts
-from app.auth import get_current_user
+from app.auth import get_current_user, require_session_user
 from app.context_graph import build_context_graph
 from app.database import get_db
 from app.deps import (
@@ -289,7 +289,13 @@ def transition_preview(
     )
 
 
-@router.post("/transition", response_model=TransitionApplyOut)
+# Физическое удаление по списку — токеном нельзя (docs/plan-remote-mcp.md, Р4): сносит
+# человек глазами, в интерфейсе.
+@router.post(
+    "/transition",
+    response_model=TransitionApplyOut,
+    dependencies=[Depends(require_session_user)],
+)
 def transition_apply(
     payload: TransitionApplyIn,
     db: Session = Depends(get_db),

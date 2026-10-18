@@ -4,9 +4,11 @@
 снаружи Gateway/Ingress Kubernetes (или ничего — Docker Compose), за ним сразу этот
 модуль, и он делает то же, что делал nginx:
 
-- в API уходят только /api/…, /health и /ready; остальное — файлы сборки фронта, а неизвестный
-  путь отдаёт index.html: маршруты интерфейса живут в браузере. Swagger и openapi.json
-  наружу не выставлены;
+- в API уходят только /api/…, /health, /ready, /mcp (удалённый MCP-сервер для ИИ-агентов) и
+  /.well-known/oauth-… (метаданные OAuth: пока 404 JSON — клиенты MCP ищут их после 401 и
+  не должны получить страницу интерфейса с кодом 200); остальное — файлы сборки фронта, а
+  неизвестный путь отдаёт index.html: маршруты интерфейса живут в браузере. Swagger и
+  openapi.json наружу не выставлены;
 - /assets/… кэшируются навсегда (в имени файла хэш сборки), остальное — без кэша;
 - ответы от 1 КБ сжимаются gzip;
 - запрос больше MAX_REQUEST_MB отклоняется (413);
@@ -60,8 +62,14 @@ def too_large_detail(limit_mb: int) -> str:
     return f"Запрос больше {limit_mb} МБ: ArchMap принимает файлы до этого размера."
 
 
+# Те же пути ведёт в API nginx серверной поставки (render_nginx в deploy/install.sh;
+# паритет держит тест).
+API_EXACT = ("/health", "/ready", "/mcp")
+API_PREFIXES = ("/api/", "/.well-known/oauth-")
+
+
 def is_api_path(path: str) -> bool:
-    return path.startswith("/api/") or path in ("/health", "/ready")
+    return path.startswith(API_PREFIXES) or path in API_EXACT
 
 
 class FrontendFiles(StaticFiles):

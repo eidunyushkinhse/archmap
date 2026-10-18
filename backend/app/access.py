@@ -1,8 +1,12 @@
 """Доступ к проектам по участникам (docs/tasks/project-access.md).
 
 Права ВНУТРИ проекта определяет только действующая роль в нём, и считает её одна
-функция effective_role. Глобальная роль architect/viewer внутрь проекта не
-смотрит: она решает лишь, можно ли создавать новые проекты (require_architect).
+функция effective_role. Глобальная роль решает, кем человек МОЖЕТ быть в проектах:
+«Архитектор» (architect) создаёт проекты и бывает владельцем, редактором и читателем;
+«Пользователь» (viewer) только смотрит — в проекте он лишь читатель. Администратор
+всегда архитектор и в любом проекте действует как владелец — полные права. Инвариант держат
+записи участий (can_edit в назначении, передаче владения и смене глобальной роли),
+а не effective_role: роль в строке участия всегда честная.
 
 Роли: owner — правит и управляет проектом (участники, видимость, архив, удаление,
 передача владения); editor — правит схему, доки, процессы, факты, импорт в проект;
@@ -18,6 +22,7 @@ from collections.abc import Iterable
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Query, Session
 
+from app.domain_types import UserRole
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.user import User
@@ -107,6 +112,53 @@ def add_owner(db: Session, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
     """Создатель нового проекта становится его владельцем. Зовётся ровно там, где
     рождается проект (POST /projects и единый импорт), коммит на вызывающей стороне."""
     db.add(ProjectMember(project_id=project_id, user_id=user_id, role="owner"))
+
+
+VIEWER_EDITOR_DETAIL = "«Пользователь» только смотрит: в проекте он может быть лишь читателем"
+VIEWER_OWNER_DETAIL = "Передать проект можно только архитектору"
+ADMIN_ROLE_DETAIL = "Администратор всегда архитектор: сначала снимите права администратора"
+
+
+class AccessError(Exception):
+    """Отказ по правилу ролей; текст — для пользователя как есть."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def can_edit(user: User) -> bool:
+    """Может ли пользователь быть редактором или владельцем проекта: только архитектор."""
+    return user.role == "architect"
+
+
+def set_global_role(db: Session, user: User, role: UserRole) -> None:
+    """Сменить глобальную роль. Понижение до «Пользователя»: его редакторства
+    становятся чтением, а владельцу проектов понижение закрыто — сначала передать
+    проекты (владелец без права правки — проект без хозяина). Администратор всегда
+    архитектор (полные права): его не понизить, пока он администратор. Коммит — на
+    вызывающей стороне."""
+    if role == "viewer" and user.is_admin:
+        raise AccessError(ADMIN_ROLE_DETAIL)
+    if role == "viewer" and user.role != "viewer":
+        owned = [
+            name
+            for (name,) in db.query(Project.name)
+            .join(ProjectMember, ProjectMember.project_id == Project.id)
+            .filter(ProjectMember.user_id == user.id, ProjectMember.role == "owner")
+            .order_by(Project.name)
+        ]
+        if owned:
+            shown = ", ".join(f"«{n}»" for n in owned[:3])
+            more = f" и ещё {len(owned) - 3}" if len(owned) > 3 else ""
+            raise AccessError(
+                f"{user.username} — владелец проектов {shown}{more}. "
+                "Сначала передайте их другому архитектору"
+            )
+        db.query(ProjectMember).filter(
+            ProjectMember.user_id == user.id, ProjectMember.role == "editor"
+        ).update({"role": "reader"}, synchronize_session="fetch")
+    user.role = role
 
 
 def transfer_ownership(db: Session, project_id: uuid.UUID, new_owner_id: uuid.UUID) -> None:

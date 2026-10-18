@@ -50,7 +50,8 @@ export type ProjectCreate = Schemas["ProjectCreate"];
 export type ProjectUpdate = Schemas["ProjectUpdate"];
 export type ProjectPreview = Schemas["ProjectPreview"];
 // Доступ к проекту (docs/tasks/project-access.md): роль в проекте решает права
-// ВНУТРИ него; глобальная роль architect/viewer — только право создавать проекты.
+// ВНУТРИ него; глобальная роль architect/viewer — право создавать проекты и быть
+// в них владельцем или редактором (viewer — только читатель).
 export type ProjectRole = Project["my_role"];
 export type ProjectMember = Schemas["ProjectMemberOut"];
 // Пользователь в выборе участника: только id и логин (GET /users).
@@ -218,6 +219,11 @@ export type Me = Schemas["MeResponse"];
 export type AuthConfig = Schemas["AuthConfig"];
 export type DemoLimits = Schemas["DemoLimits"];
 export type DemoExcess = Schemas["DemoExcess"];
+// Личные токены доступа для ИИ-агентов (/tokens, docs/plan-remote-mcp.md): строка списка
+// без секрета, выпуск и ответ на выпуск — секрет в нём показывается один раз.
+export type PersonalToken = Schemas["PersonalTokenOut"];
+export type PersonalTokenCreate = Schemas["PersonalTokenCreate"];
+export type PersonalTokenCreated = Schemas["PersonalTokenCreated"];
 // Админка пользователей (/admin/users): строка списка, создание, частичная правка.
 export type AdminUser = Schemas["AdminUser"];
 export type AdminUserCreate = Schemas["AdminUserCreate"];

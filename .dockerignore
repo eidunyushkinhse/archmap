@@ -1,8 +1,9 @@
 # Контекст сборки образа (Dockerfile в корне) — только то, что нужно образу: фронт,
-# бэкенд и скрипты старта.
+# бэкенд, пакет MCP-сервера (эндпоинт /mcp) и скрипты старта.
 *
 !frontend/
 !backend/
+!mcp/archmap_mcp/
 !deploy/preflight.py
 !deploy/docker/
 frontend/node_modules

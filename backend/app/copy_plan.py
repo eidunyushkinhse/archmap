@@ -32,6 +32,7 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.personal_token import PersonalToken
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -222,6 +223,7 @@ NOT_COPIED: dict[type[Base], str] = {
     Project: "сам проект копия не копирует: строку создаёт роутер (имя, описание и "
     "автор у копии свои)",
     User: "пользователи глобальны и проекту не принадлежат",
+    PersonalToken: "личные токены доступа принадлежат пользователю, а не проекту",
     ProjectMember: "участники у копии свои: владелец — тот, кто копировал, остальных "
     "он добавит сам (доступ к источнику не означает доступа к копии)",
     ViewState: "fence конкурентных записей раскладки: счётчик версий вида у копии "

@@ -1,5 +1,5 @@
-// Меню профиля: видимость пунктов. «Сменить пароль» — у всех, «Пользователи» —
-// только администратору (и только там, где есть куда вести).
+// Меню профиля: видимость пунктов. «Сменить пароль» и «Токены для MCP» — у всех,
+// «Пользователи» — только администратору (и только там, где есть куда вести).
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi } from "vitest";
@@ -38,6 +38,15 @@ describe("ProfileMenu", () => {
     render(<ProfileMenu role="Архитектор" isAdmin onLogout={vi.fn()} onChangePassword={vi.fn()} />);
     await open();
     expect(screen.queryByRole("menuitem", { name: "Пользователи" })).not.toBeInTheDocument();
+  });
+
+  it("«Токены для MCP» зовёт свой колбэк и закрывает меню", async () => {
+    const onOpenTokens = vi.fn();
+    render(<ProfileMenu role="Наблюдатель" onLogout={vi.fn()} onChangePassword={vi.fn()} onOpenTokens={onOpenTokens} />);
+    await open();
+    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
+    expect(onOpenTokens).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("«Сменить пароль» и «Выйти» зовут свои колбэки", async () => {

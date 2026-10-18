@@ -3,6 +3,7 @@
 # КАЖДЫМ коммитом гоняет проверки той части, которую правят (по staged-файлам).
 #   frontend/* → tsc -b + eslint + vitest
 #   backend/*  → ruff + mypy + pytest
+#   mcp/*      → ruff + mypy + pytest пакета; mcp/archmap_mcp/* — ещё тесты эндпоинта /mcp бэкенда
 #   скрипты поставки и разработки (deploy/*.sh|*.py, scripts/*.sh, хук, dev.sh, stop.sh)
 #              → bash -n + ruff (аудит P-33: раньше их не видел никто)
 #   CLAUDE.md, QWEN.md, scripts/agent-docs.py → QWEN.md собран из CLAUDE.md (аудит P-7)
@@ -111,6 +112,13 @@ if $touch_mcp; then
     say "MCP: pytest…"
     ( cd mcp && ./venv/bin/python -m pytest -q )
     ok "MCP-гейт зелёный."
+  fi
+  # Пакет едет и в бэкенд — эндпоинт /mcp (docs/plan-remote-mcp.md): его правка гоняет
+  # тесты эндпоинта, бэк-гейт по mcp/ сам не запускается. Правили и бэкенд — они уже
+  # прошли в полном pytest выше.
+  if grep -q '^mcp/archmap_mcp/' <<<"$staged" && ! $touch_back && [ -x backend/venv/bin/python ]; then
+    say "MCP в бэкенде: pytest tests/test_mcp_http.py…"
+    ( cd backend && ./venv/bin/python -m pytest -q tests/test_mcp_http.py )
   fi
 fi
 

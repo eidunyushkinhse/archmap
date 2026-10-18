@@ -145,7 +145,9 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
                           aria-label={`Роль ${u.username}`}
                           style={roleSelect}
                           value={u.role}
-                          disabled={busy}
+                          // Администратор всегда архитектор: роль меняется, только сняв права.
+                          disabled={busy || u.is_admin}
+                          title={u.is_admin ? "Администратор всегда архитектор" : undefined}
                           onChange={(e) => void patch(u, { role: e.target.value as UserRole }, "Роль изменена")}
                         >
                           {ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}

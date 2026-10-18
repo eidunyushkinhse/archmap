@@ -183,6 +183,23 @@ jobs:
           curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
             -H 'Content-Type: application/x-www-form-urlencoded' \
             --data 'username=admin&password=ci-admin-password-1' | grep -q access_token
+      - name: Удалённый MCP — личный токен и /mcp
+        run: |
+          jwt="$(curl -fsS -X POST http://localhost:8080/api/v1/auth/login \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data 'username=admin&password=ci-admin-password-1' |
+            python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+          pat="$(curl -fsS -X POST http://localhost:8080/api/v1/tokens -H "Authorization: Bearer $jwt" \
+            -H 'Content-Type: application/json' --data '{"name":"ci"}' |
+            python3 -c 'import json,sys; print(json.load(sys.stdin)["secret"])')"
+          list='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+          curl -fsS -X POST http://localhost:8080/mcp -H "Authorization: Bearer $pat" \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            --data "$list" | grep -q archmap_projects
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8080/mcp \
+            -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+            --data "$list")" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/.well-known/oauth-protected-resource)" = 404
       - name: Журнал контейнеров
         if: failure()
         run: docker compose logs --no-color
