@@ -292,7 +292,8 @@ ProjectMember (участник проекта)
 - права ВНУТРИ проекта решает только effective_role: админ → owner, участник → его
   роль, visible_to_all → reader, иначе 404. Общая роль: architect создаёт проекты и
   бывает owner/editor/reader; viewer («Пользователь») — только reader (can_edit в
-  app/access.py: назначение, передача владения, понижение роли)
+  app/access.py: назначение, передача владения, понижение роли); администратор
+  (признак is_admin) — всегда architect и owner в любом проекте: полные права
 
 ViewLayout / ViewState
 - view_layout: project_id, view_id, item_id, payload JSONB {x, y, expanded}

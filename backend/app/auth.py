@@ -220,8 +220,8 @@ def require_architect(user: User = Depends(get_current_user)) -> User:
 
 
 def require_admin(user: User = Depends(require_session_user)) -> User:
-    """Права администратора: управление пользователями. Признак, а не роль, —
-    администратор-наблюдатель проходит сюда, но не в require_architect."""
+    """Права администратора: управление пользователями. Признак поверх роли;
+    администратор всегда architect, так что require_architect он проходит тоже."""
     if not user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

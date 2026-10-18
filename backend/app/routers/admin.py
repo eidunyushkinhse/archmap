@@ -3,7 +3,8 @@
 Удаления нет намеренно: в проектах живут created_by/updated_by, поэтому вместо
 удаления — блокировка (is_active=false). Защиты от потери управления:
 нельзя заблокировать себя и снять права с себя, нельзя снять права или
-заблокировать последнего активного администратора.
+заблокировать последнего активного администратора. Администратор всегда архитектор
+(полные права): выдача прав поднимает роль, понизить его можно, только сняв права.
 """
 
 import uuid
@@ -79,7 +80,7 @@ def create_user(
     user = User(
         username=username,
         hashed_password=hash_password(payload.password),
-        role=payload.role,
+        role="architect" if payload.is_admin else payload.role,
         is_admin=payload.is_admin,
         is_active=True,
     )
@@ -116,14 +117,17 @@ def update_user(
                 raise _bad("Нельзя заблокировать последнего администратора")
             raise _bad("Нельзя снять права с последнего администратора")
 
-    if payload.role is not None:
-        # Понижение до «Пользователя» гасит его редакторства, владельцу — отказ.
-        try:
-            set_global_role(db, user, payload.role)
-        except AccessError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from None
+    # Права администратора — раньше роли: «снять админа и понизить» одним запросом
+    # проходит, а выданные права сразу делают архитектором.
     if payload.is_admin is not None:
         user.is_admin = payload.is_admin
+    role = payload.role if payload.role is not None else ("architect" if user.is_admin else None)
+    if role is not None:
+        # Понижение до «Пользователя» гасит его редакторства; владельцу и админу — отказ.
+        try:
+            set_global_role(db, user, role)
+        except AccessError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from None
     if payload.is_active is not None:
         user.is_active = payload.is_active
     db.commit()

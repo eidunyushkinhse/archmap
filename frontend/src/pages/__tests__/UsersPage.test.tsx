@@ -37,7 +37,7 @@ function user(username: string, fields: Partial<AdminUser> = {}): AdminUser {
 
 const boss = user("boss", { role: "architect", is_admin: true });
 const ivan = user("ivan");
-const olga = user("olga", { is_admin: true });
+const olga = user("olga", { role: "architect", is_admin: true });
 const petr = user("petr", { is_active: false });
 
 async function setup(list: AdminUser[]) {
@@ -150,12 +150,15 @@ describe("UsersPage", () => {
     await waitFor(() => expect(row("ivan").getByLabelText("Роль ivan")).toHaveValue("architect"));
   });
 
-  it("своя роль сменилась — «кто я» перечитывается", async () => {
-    await setup([boss, olga]);
-    vi.mocked(fetchMe).mockClear();
-    vi.mocked(adminApi.update).mockResolvedValue({ ...boss, role: "viewer" });
-    await userEvent.selectOptions(row("boss").getByLabelText("Роль boss"), "viewer");
-    await waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+  it("у администратора роль не выбирается: он всегда архитектор", async () => {
+    await setup([boss, olga, ivan]);
+    for (const name of ["boss", "olga"]) {
+      const роль = row(name).getByLabelText(`Роль ${name}`);
+      expect(роль).toHaveValue("architect");
+      expect(роль).toBeDisabled();
+      expect(роль).toHaveAttribute("title", "Администратор всегда архитектор");
+    }
+    expect(row("ivan").getByLabelText("Роль ivan")).toBeEnabled();
   });
 
   it("«Новый пользователь» добавляет строку", async () => {

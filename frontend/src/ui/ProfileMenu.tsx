@@ -57,10 +57,8 @@ export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangeP
       </button>
       {open && (
         <div style={menu} role="menu">
-          <div style={menuHead}>
-            <span>{role}</span>
-            {isAdmin && <><span aria-hidden="true"> · </span><span>Администратор</span></>}
-          </div>
+          {/* Администратор — полные права, его роль не показываем: всегда архитектор. */}
+          <div style={menuHead}>{isAdmin ? "Администратор" : role}</div>
           <div style={sep} aria-hidden="true" />
           {onChangePassword && item("Сменить пароль", onChangePassword)}
           {onOpenTokens && item("Токены для MCP", onOpenTokens)}

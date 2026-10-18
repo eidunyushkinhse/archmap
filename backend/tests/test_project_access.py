@@ -7,7 +7,7 @@
 Сцена: проект «Ярмарка» с владельцем owner, редактором editor и читателем reader
 (все трое глобально architect — architect без роли редактора проект не правит).
 viewer — «Пользователь» без участия: в проектах он бывает только читателем.
-stranger — architect без участия, admin — администратор (глобально viewer) без
+stranger — architect без участия, admin — администратор (всегда architect) без
 участия, blocked — заблокированный.
 """
 
@@ -75,7 +75,7 @@ def scene(db) -> dict:
     reader = _user(db, "reader")
     stranger = _user(db, "stranger")
     viewer = _user(db, "viewer", role="viewer")
-    admin = _user(db, "admin", role="viewer", is_admin=True)
+    admin = _user(db, "admin", role="architect", is_admin=True)
     blocked = _user(db, "blocked", is_active=False)
     p = make_project(db, "Ярмарка", owner=owner)
     _member(db, p, editor, "editor")
@@ -488,6 +488,6 @@ def test_users_только_активные_и_только_логин(client, 
     assert set(body[0]) == {"id", "username", "can_edit"}
     # редактором и владельцем может быть только архитектор
     assert {u["username"]: u["can_edit"] for u in body} == {
-        "admin": False, "editor": True, "owner": True, "reader": True, "stranger": True, "viewer": False,
+        "admin": True, "editor": True, "owner": True, "reader": True, "stranger": True, "viewer": False,
     }
     assert client.get("/api/v1/users").status_code == 401

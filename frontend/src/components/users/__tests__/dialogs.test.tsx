@@ -102,6 +102,19 @@ describe("NewUserDialog", () => {
     expect(screen.getByRole("button", { name: "Создание…" })).toBeDisabled();
   });
 
+  it("администратор — всегда архитектор: роль подставлена и закрыта", async () => {
+    vi.mocked(adminApi.create).mockResolvedValue({ ...ivan, role: "architect", is_admin: true });
+    render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
+    expect(screen.getByLabelText("Роль")).toHaveValue("viewer");
+    await userEvent.click(screen.getByLabelText("Администратор"));
+    expect(screen.getByLabelText("Роль")).toHaveValue("architect");
+    expect(screen.getByLabelText("Роль")).toBeDisabled();
+    await userEvent.type(screen.getByLabelText("Логин"), "ivan");
+    await userEvent.type(screen.getByLabelText("Временный пароль"), "temp-pass-1");
+    await userEvent.click(screen.getByRole("button", { name: "Создать" }));
+    expect(adminApi.create).toHaveBeenCalledWith({ username: "ivan", role: "architect", is_admin: true, password: "temp-pass-1" });
+  });
+
   it("по умолчанию — наблюдатель без админки; кнопка неактивна без логина и пароля", async () => {
     render(<NewUserDialog onClose={vi.fn()} onCreated={vi.fn()} />);
     expect(screen.getByLabelText("Роль")).toHaveValue("viewer");

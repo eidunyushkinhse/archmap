@@ -36,12 +36,13 @@ describe("AccountMenu", () => {
   });
 
   it("администратору пункт «Пользователи» ведёт на экран", async () => {
-    vi.mocked(getUserRole).mockReturnValue("viewer");
     vi.mocked(getIsAdmin).mockReturnValue(true);
     const onOpenUsers = vi.fn();
     render(<AccountMenu onLogout={vi.fn()} onOpenUsers={onOpenUsers} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
-    expect(screen.getByText("Пользователь")).toBeInTheDocument();
+    // у администратора полные права — роль не показывается, только «Администратор»
+    expect(screen.getByText("Администратор")).toBeInTheDocument();
+    expect(screen.queryByText("Архитектор")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("menuitem", { name: "Пользователи" }));
     expect(onOpenUsers).toHaveBeenCalledTimes(1);
   });

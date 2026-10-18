@@ -2,11 +2,11 @@
 и API администратора /admin/users с защитами от потери управления."""
 
 import pytest
-from conftest import make_project
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import admin as admin_cmd
+from app.access import ADMIN_ROLE_DETAIL
 from app.admin import AdminCommandError, create_admin
 from app.auth import create_access_token, hash_password, verify_password
 from app.database import get_db
@@ -49,17 +49,11 @@ def test_create_admin_новый_пользователь(db, monkeypatch):
     итог = create_admin(db, "boss")
     user = db.query(User).filter(User.username == "boss").one()
     assert user.is_admin and user.is_active
-    # новому по умолчанию — архитектор: первый админ обычно и ведёт документацию
+    # администратор всегда архитектор — полные права
     assert user.role == "architect"
     assert verify_password("first-admin-pw", user.hashed_password)
     assert len(asked) == 2  # пароль спрошен дважды
     assert "Создан администратор «boss»" in итог
-
-
-def test_create_admin_новый_с_ролью_viewer(db, monkeypatch):
-    _fake_getpass(monkeypatch, "first-admin-pw", "first-admin-pw")
-    create_admin(db, "boss", role="viewer")
-    assert db.query(User).filter(User.username == "boss").one().role == "viewer"
 
 
 def test_create_admin_существующий_пароль_не_трогает(db, monkeypatch):
@@ -72,30 +66,11 @@ def test_create_admin_существующий_пароль_не_трогает(
     assert user.is_admin
     # путь восстановления доступа: блокировка снимается
     assert user.is_active
-    # роль без --role не меняется
-    assert user.role == "viewer"
+    # «Пользователь» становится архитектором: у администратора полные права
+    assert user.role == "architect"
     assert verify_password(OLD_PW, user.hashed_password)
+    assert "роль — архитектор" in итог
     assert "пароль не менялся" in итог and "блокировка снята" in итог
-
-
-def test_create_admin_существующий_с_ролью(db, monkeypatch):
-    _user(db, "ivan", role="viewer")
-    _fake_getpass(monkeypatch)
-    create_admin(db, "ivan", role="architect")
-    db.expire_all()
-    assert db.query(User).filter(User.username == "ivan").one().role == "architect"
-
-
-def test_create_admin_владельца_проектов_не_понижает(db, monkeypatch):
-    ivan = _user(db, "ivan", role="architect")
-    make_project(db, "Ярмарка", owner=ivan)
-    db.commit()
-    _fake_getpass(monkeypatch)
-    with pytest.raises(AdminCommandError, match="владелец проектов «Ярмарка»"):
-        create_admin(db, "ivan", role="viewer")
-    db.rollback()
-    ivan = db.query(User).filter(User.username == "ivan").one()
-    assert ivan.role == "architect" and ivan.is_admin is False
 
 
 def test_create_admin_reset_password(db, monkeypatch):
@@ -135,7 +110,7 @@ def test_create_admin_main_код_выхода(db, monkeypatch, capsys):
 
     monkeypatch.setattr(admin_cmd, "SessionLocal", _Session)
     _fake_getpass(monkeypatch, "first-admin-pw", "first-admin-pw")
-    assert admin_cmd.main(["create-admin", "boss", "--role", "viewer"]) == 0
+    assert admin_cmd.main(["create-admin", "boss"]) == 0
     assert "Создан администратор" in capsys.readouterr().out
 
     _fake_getpass(monkeypatch, "a", "b")
@@ -164,9 +139,8 @@ def _bearer(user: User) -> dict[str, str]:
 
 @pytest.fixture()
 def boss(db) -> User:
-    """Единственный администратор — и тот наблюдатель: право управлять людьми не
-    связано с правом на документацию."""
-    return _user(db, "boss", role="viewer", is_admin=True)
+    """Единственный администратор — архитектор: у администратора полные права."""
+    return _user(db, "boss", role="architect", is_admin=True)
 
 
 USERS = "/api/v1/admin/users"
@@ -262,13 +236,30 @@ def test_сменить_роль_действует_на_следующий_за
 def test_выдать_и_снять_админа(client, db, boss):
     ivan = _user(db, "ivan", role="viewer")
     r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"is_admin": True})
-    assert r.json()["is_admin"] is True
+    # администратор всегда архитектор — полные права
+    assert r.json()["is_admin"] is True and r.json()["role"] == "architect"
     # новый админ сразу проходит в админку
     assert client.get(USERS, headers=_bearer(ivan)).status_code == 200
-    # админов двое — одного можно разжаловать
+    # админов двое — одного можно разжаловать; роль при этом не меняется
     r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"is_admin": False})
-    assert r.status_code == 200 and r.json()["is_admin"] is False
+    assert r.status_code == 200 and r.json()["is_admin"] is False and r.json()["role"] == "architect"
     assert client.get(USERS, headers=_bearer(ivan)).status_code == 403
+
+
+def test_администратор_всегда_архитектор(client, db, boss):
+    ivan = _user(db, "ivan", role="architect", is_admin=True)
+    r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"role": "viewer"})
+    assert r.status_code == 409 and r.json() == {"detail": ADMIN_ROLE_DETAIL}
+    r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"is_admin": True, "role": "viewer"})
+    assert r.status_code == 409
+    db.expire_all()
+    assert db.get(User, ivan.id).role == "architect" and db.get(User, ivan.id).is_admin
+    # снять права и понизить — одним запросом можно
+    r = client.patch(f"{USERS}/{ivan.id}", headers=_bearer(boss), json={"is_admin": False, "role": "viewer"})
+    assert r.status_code == 200 and r.json()["role"] == "viewer" and r.json()["is_admin"] is False
+    # новый администратор заводится архитектором, какую бы роль ни прислали
+    r = client.post(USERS, headers=_bearer(boss), json={"username": "anna", "password": "anna-pass-1", "role": "viewer", "is_admin": True})
+    assert r.status_code == 201 and r.json()["role"] == "architect"
 
 
 def test_заблокировать_и_разблокировать(client, db, boss):
@@ -287,14 +278,14 @@ def test_заблокировать_и_разблокировать(client, db, 
 
 
 def test_заблокированный_админ_теряет_админку(client, db, boss):
-    other = _user(db, "other", role="viewer", is_admin=True)
+    other = _user(db, "other", role="architect", is_admin=True)
     h = _bearer(other)
     client.patch(f"{USERS}/{other.id}", headers=_bearer(boss), json={"is_active": False})
     assert client.get(USERS, headers=h).status_code == 401
 
 
 def test_нельзя_заблокировать_себя(client, db, boss):
-    _user(db, "other", role="viewer", is_admin=True)  # не последний админ — важна именно «себя»
+    _user(db, "other", role="architect", is_admin=True)  # не последний админ — важна именно «себя»
     r = client.patch(f"{USERS}/{boss.id}", headers=_bearer(boss), json={"is_active": False})
     assert r.status_code == 400
     assert r.json() == {"detail": "Нельзя заблокировать себя"}
@@ -303,7 +294,7 @@ def test_нельзя_заблокировать_себя(client, db, boss):
 
 
 def test_нельзя_снять_админа_с_себя(client, db, boss):
-    _user(db, "other", role="viewer", is_admin=True)
+    _user(db, "other", role="architect", is_admin=True)
     r = client.patch(f"{USERS}/{boss.id}", headers=_bearer(boss), json={"is_admin": False})
     assert r.status_code == 400
     assert r.json() == {"detail": "Нельзя снять права администратора с себя"}
@@ -330,7 +321,7 @@ def _гонка(db, target: User, actor: User, payload: AdminUserUpdate):
 
 
 def test_нельзя_снять_права_с_последнего_админа(db, boss):
-    other = _user(db, "other", role="viewer", is_admin=True)
+    other = _user(db, "other", role="architect", is_admin=True)
     with pytest.raises(HTTPException) as exc:
         _гонка(db, boss, other, AdminUserUpdate(is_admin=False))
     assert exc.value.status_code == 400
@@ -340,7 +331,7 @@ def test_нельзя_снять_права_с_последнего_админа
 
 
 def test_нельзя_заблокировать_последнего_админа(db, boss):
-    other = _user(db, "other", role="viewer", is_admin=True)
+    other = _user(db, "other", role="architect", is_admin=True)
     with pytest.raises(HTTPException) as exc:
         _гонка(db, boss, other, AdminUserUpdate(is_active=False))
     assert exc.value.status_code == 400
@@ -351,8 +342,8 @@ def test_нельзя_заблокировать_последнего_админ
 
 def test_заблокированный_админ_не_считается_активным(db, boss):
     # Второй админ есть, но заблокирован: «последний активный» — всё равно boss.
-    blocked = _user(db, "blocked", role="viewer", is_admin=True, is_active=False)
-    actor = _user(db, "actor", role="viewer", is_admin=True)
+    blocked = _user(db, "blocked", role="architect", is_admin=True, is_active=False)
+    actor = _user(db, "actor", role="architect", is_admin=True)
     with pytest.raises(HTTPException) as exc:
         _гонка(db, boss, actor, AdminUserUpdate(is_admin=False))
     assert exc.value.detail == "Нельзя снять права с последнего администратора"
@@ -361,7 +352,7 @@ def test_заблокированный_админ_не_считается_ак�
 
 def test_последний_админ_можно_снять_роль(db, boss):
     # Защита только от потери управления: роль последнего админа менять можно.
-    other = _user(db, "other", role="viewer", is_admin=True)
+    other = _user(db, "other", role="architect", is_admin=True)
     user = _гонка(db, boss, other, AdminUserUpdate(role="architect"))
     assert user.role == "architect" and user.is_admin
 
