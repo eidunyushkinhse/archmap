@@ -114,8 +114,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         node.description && <p className="insp-desc">{node.description}</p>
       )}
 
-      {/* Список меты «терм → значение» */}
-      <dl className="insp-meta">
+      {/* Список меты «терм → значение» (в узкой панели — терм над значением) */}
+      <dl className="insp-meta insp-meta--stacked">
         <MetaRow icon={META_ICON.type} label="Тип">
           {isArchitect ? (
             <span className="insp-value">
@@ -265,9 +265,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       </dl>
 
       {/* Источник — чем ArchMap опознаёт объект при обновлениях из кода. НЕ строкой
-          меты, а отдельным блоком во всю ширину панели: в колонке значения
-          (≈140px при терме 104px) репозиторий не помещается ни в чтении, ни в
-          форме — рвался посреди слова. Тот же компонент, что в карточке объекта. */}
+          меты, а отдельным блоком во всю ширину панели: у источника свои кнопки
+          «Изменить»/«Очистить» и форма. Тот же компонент, что в карточке объекта. */}
       <div className="insp-block-label">Источник</div>
       <AnchorField
         source={node.source}

@@ -110,7 +110,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   return (
     <div>
       <div className="insp-block-label">Связь</div>
-      <dl className="insp-meta">
+      <dl className="insp-meta insp-meta--stacked">
         <EdgeEndRow end="source" value={sourceId} label={srcLabel} glyph={endGlyph(sourceId)}
           onPick={isArchitect ? (id, lbl) => pickEnd("source", id, lbl) : undefined} />
         <EdgeEndRow end="target" value={targetId} label={tgtLabel} glyph={endGlyph(targetId)}

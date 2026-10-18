@@ -251,6 +251,21 @@
   display: flex;
   color: #94a3b8;
 }
+/* Узкая правая панель редактора (≈229px содержимого): терм над значением. В строку
+   «терм 104px → значение 113px» не помещались подпись «Размещение» (118px), выпадашка
+   статуса (145px) и тогл (128px), а имена концов связи и описание рвались посреди слова.
+   Модалка связи на странице объекта шире — там остаётся строка. */
+.insp-meta--stacked .insp-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+.insp-meta--stacked .insp-term {
+  width: auto;
+}
+.insp-meta--stacked .insp-row--top .insp-term {
+  padding-top: 0;
+}
 .insp-value {
   margin: 0;
   flex: 1;
@@ -314,6 +329,11 @@
   gap: 8px;
   cursor: pointer;
   text-align: left;
+}
+/* Во всю ширину обёртки, как поля ввода в соседних строках: .insp-value .insp-field
+   ставит width:auto, а у кнопки это ширина по содержимому */
+.insp-selwrap > .insp-select {
+  width: 100%;
 }
 .insp-select-label {
   flex: 1;

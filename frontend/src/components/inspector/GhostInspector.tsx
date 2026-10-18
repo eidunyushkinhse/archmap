@@ -31,7 +31,7 @@ export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: 
         <ShapeGlyph container={container} shape={ghost.shape} />
         <span className="insp-endname">{ghost.name}</span>
       </div>
-      <dl className="insp-meta">
+      <dl className="insp-meta insp-meta--stacked">
         {ghost.role && (
           <div className="insp-row">
             <dt className="insp-term">Роль</dt>
