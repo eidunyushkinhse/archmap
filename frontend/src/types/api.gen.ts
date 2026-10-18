@@ -15,29 +15,13 @@ export interface paths {
          * Auth Config
          * @description Публичные настройки входа — без авторизации (их читают до логина).
          *
-         *     В демо-режиме регистрации нет при любом ALLOW_SIGNUP, а фронт получает пределы
-         *     стенда: по ним он проверяет файлы до загрузки.
+         *     В демо-режиме фронт получает пределы стенда: по ним он проверяет файлы до загрузки.
+         *     Самостоятельной регистрации нет: первого администратора создаёт серверная команда
+         *     create-admin, остальные учётки — администратор на экране «Пользователи».
          */
         get: operations["auth_config_api_v1_auth_config_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auth/register": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Register */
-        post: operations["register_api_v1_auth_register_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2655,8 +2639,6 @@ export interface components {
          * @description Публичные настройки входа (без авторизации): их читают до логина.
          */
         AuthConfig: {
-            /** Allow Signup */
-            allow_signup: boolean;
             /**
              * Demo Mode
              * @default false
@@ -6844,25 +6826,6 @@ export interface components {
             /** Can Edit */
             can_edit: boolean;
         };
-        /** UserCreate */
-        UserCreate: {
-            /** Username */
-            username: string;
-            /** Password */
-            password: string;
-            /**
-             * Role
-             * @default viewer
-             */
-            role: string;
-        };
-        /** UserResponse */
-        UserResponse: {
-            /** Username */
-            username: string;
-            /** Role */
-            role: string;
-        };
         /** ValidationError */
         ValidationError: {
             /** Location */
@@ -6983,39 +6946,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AuthConfig"];
-                };
-            };
-        };
-    };
-    register_api_v1_auth_register_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["UserCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["UserResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -254,9 +254,8 @@ $NGINX_MARK. Перезаписывается только
 # при повторной установке с --server-name; иначе правьте его сами.
 
 # Вход: не больше 10 попыток в минуту с адреса (защита паролей от перебора);
-# регистрация и старт песочницы демо — не чаще 3 и 6 в минуту (аудит M3)
+# старт песочницы демо — не чаще 6 в минуту (аудит M3)
 limit_req_zone \$binary_remote_addr zone=archmap_login:10m rate=10r/m;
-limit_req_zone \$binary_remote_addr zone=archmap_signup:10m rate=3r/m;
 limit_req_zone \$binary_remote_addr zone=archmap_demo:10m rate=6r/m;
 
 upstream archmap_backend {
@@ -299,12 +298,6 @@ $sec
     location @archmap_login_limited {
         default_type application/json;
         return 429 '{"detail":"Слишком много попыток входа. Подождите минуту и попробуйте снова."}';
-    }
-    location = /api/v1/auth/register {
-        limit_req zone=archmap_signup burst=3 nodelay;
-        limit_req_status 429;
-        error_page 429 = @archmap_too_often;
-        proxy_pass http://archmap_backend;
     }
     location = /api/v1/demo/start {
         limit_req zone=archmap_demo burst=6 nodelay;

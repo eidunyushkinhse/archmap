@@ -29,8 +29,6 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://archmap:${POSTGRES_PASSWORD:-archmap}@db:5432/archmap
-      # Учётки заводит администратор на экране «Пользователи»
-      ALLOW_SIGNUP: "false"
     ports:
       - "${ARCHMAP_PORT:-8080}:8080"
     volumes:

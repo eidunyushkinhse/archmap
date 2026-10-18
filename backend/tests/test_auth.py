@@ -181,51 +181,33 @@ def test_me_роль_из_бд_а_не_из_токена(client, db):
     assert client.get("/api/v1/auth/me", headers=headers).json()["role"] == "viewer"
 
 
-def test_auth_config_без_авторизации(client, monkeypatch):
-    # Поля демо-режима аддитивны: вне демо он выключен и пределов нет.
-    off = {"demo_mode": False, "demo_limits": None}
-    monkeypatch.setattr(settings, "allow_signup", True)
-    assert client.get("/api/v1/auth/config").json() == {"allow_signup": True, **off}
-    monkeypatch.setattr(settings, "allow_signup", False)
-    assert client.get("/api/v1/auth/config").json() == {"allow_signup": False, **off}
+def test_auth_config_без_авторизации(client):
+    # Вне демо он выключен и пределов нет; поля самостоятельной регистрации больше нет.
+    assert client.get("/api/v1/auth/config").json() == {"demo_mode": False, "demo_limits": None}
 
 
-def test_register_при_allow_signup_true(client, db, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", True)
+def test_самостоятельной_регистрации_нет(client, db):
+    """Учётки заводит только администратор: открытая регистрация позволяла выбрать себе
+    роль архитектора. Первого администратора создаёт команда create-admin."""
     r = client.post(
         "/api/v1/auth/register",
         json={"username": "bob", "password": "long-enough-1", "role": "architect"},
     )
-    assert r.status_code == 201
-    assert r.json() == {"username": "bob", "role": "architect"}
-
-
-def test_register_при_allow_signup_false_403(client, db, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", False)
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "bob", "password": "long-enough-1", "role": "architect"},
-    )
-    assert r.status_code == 403
-    assert "Регистрация отключена" in r.json()["detail"]
+    assert r.status_code == 404
     assert db.query(User).count() == 0
 
 
-def test_register_не_даёт_админа(client, db, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", True)
-    r = client.post(
-        "/api/v1/auth/register",
-        json={"username": "bob", "password": "long-enough-1", "role": "architect", "is_admin": True},
+def _create_by_admin(client: TestClient, db, password: str):
+    boss = _add_user(db, "boss", role="architect", is_admin=True)
+    return client.post(
+        "/api/v1/admin/users",
+        headers=_bearer(boss),
+        json={"username": "bob", "password": password, "role": "viewer"},
     )
-    assert r.status_code == 201
-    assert db.query(User).filter(User.username == "bob").one().is_admin is False
 
 
-def test_register_короткий_пароль_400(client, db, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", True)
-    r = client.post(
-        "/api/v1/auth/register", json={"username": "bob", "password": "short", "role": "viewer"}
-    )
+def test_новая_учётка_с_коротким_паролем_400(client, db):
+    r = _create_by_admin(client, db, "short")
     assert r.status_code == 400
     assert r.json() == {"detail": "Пароль должен быть не короче 8 символов"}
 
@@ -284,18 +266,16 @@ def test_verify_длинного_пароля_просто_неверный():
 
 
 @pytest.mark.parametrize("password", ["x" * 73, "я" * 37])
-def test_register_пароль_длиннее_72_байт_400(client, db, monkeypatch, password):
-    monkeypatch.setattr(settings, "allow_signup", True)
-    r = client.post("/api/v1/auth/register", json={"username": "bob", "password": password})
+def test_новая_учётка_с_паролем_длиннее_72_байт_400(client, db, password):
+    r = _create_by_admin(client, db, password)
     assert r.status_code == 400
     assert r.json() == {"detail": LONG_PW_DETAIL}
-    assert db.query(User).count() == 0
+    assert db.query(User).filter(User.username == "bob").first() is None
 
 
 @pytest.mark.parametrize("password", ["x" * 72, "я" * 36])
-def test_register_пароль_ровно_72_байта_проходит_и_входит(client, db, monkeypatch, password):
-    monkeypatch.setattr(settings, "allow_signup", True)
-    r = client.post("/api/v1/auth/register", json={"username": "bob", "password": password})
+def test_пароль_ровно_72_байта_проходит_и_входит(client, db, password):
+    r = _create_by_admin(client, db, password)
     assert r.status_code == 201
     assert _login(client, "bob", password).status_code == 200
 

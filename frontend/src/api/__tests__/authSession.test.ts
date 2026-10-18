@@ -162,12 +162,12 @@ describe("запросы мимо сессии", () => {
   });
 
   it("публичные настройки: отказ или обрыв — обычный вход", async () => {
-    const fallback = { allow_signup: true, demo_mode: false, demo_limits: null };
+    const fallback = { demo_mode: false, demo_limits: null };
     vi.stubGlobal("fetch", respond(500, { detail: "сбой" }));
     await expect(fetchAuthConfig()).resolves.toEqual(fallback);
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
     await expect(fetchAuthConfig()).resolves.toEqual(fallback);
-    const cfg = { allow_signup: false, demo_mode: true, demo_limits: null };
+    const cfg = { demo_mode: true, demo_limits: null };
     vi.stubGlobal("fetch", respond(200, cfg));
     await expect(fetchAuthConfig()).resolves.toEqual(cfg);
   });

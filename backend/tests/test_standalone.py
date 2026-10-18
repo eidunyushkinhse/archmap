@@ -121,7 +121,7 @@ def test_api_и_health_уходят_в_бэкенд(client):
     assert client.get("/health").json() == {"status": "ok"}
     res = client.get("/api/v1/auth/config")
     assert res.status_code == 200
-    assert "allow_signup" in res.json()
+    assert "demo_mode" in res.json()
 
 
 def test_промахи_api_как_без_обёртки(client):

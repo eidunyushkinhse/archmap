@@ -14,7 +14,6 @@ from sqlalchemy import String
 
 from app.auth import create_access_token
 from app.column_limits import ValueTooLong, _limits_of, check_lengths
-from app.config import settings
 from app.database import Base, get_db
 from app.main import app
 from app.models.edge import Edge
@@ -98,16 +97,20 @@ def test_длинная_подпись_связи_422(client, db, scene) -> None
     assert db.query(Edge).count() == 0
 
 
-def test_длинный_логин_при_регистрации_422(client, db, monkeypatch) -> None:
-    monkeypatch.setattr(settings, "allow_signup", True)
+def test_длинный_логин_новой_учётки_400_текстом(client, db) -> None:
+    boss = User(username="boss", hashed_password="x", role="architect", is_admin=True)
+    db.add(boss)
+    db.commit()
+    h = {"Authorization": f"Bearer {create_access_token({'sub': 'boss'})}"}
 
     r = client.post(
-        f"{API}/auth/register", json={"username": "u" * 65, "password": "long-enough-1"}
+        f"{API}/admin/users", json={"username": "u" * 65, "password": "long-enough-1"}, headers=h
     )
 
-    assert r.status_code == 422
-    assert r.json() == {"detail": "Поле «username» длиннее 64 символов"}
-    assert db.query(User).count() == 0
+    # Свой текст у ручки администратора срабатывает раньше общего сторожа: главное, не 500.
+    assert r.status_code == 400
+    assert r.json() == {"detail": "Логин должен быть не длиннее 64 символов"}
+    assert db.query(User).count() == 1
 
 
 def test_снимок_отката_мимо_схем_тоже_проверяется(client, db, scene) -> None:

@@ -121,7 +121,7 @@ export function getCanCreateProject(): boolean {
 let authConfig: AuthConfig | null = null;
 
 // Запасной ответ, если /auth/config недоступен: обычный вход, как до демо-режима.
-const FALLBACK_CONFIG: AuthConfig = { allow_signup: true, demo_mode: false, demo_limits: null };
+const FALLBACK_CONFIG: AuthConfig = { demo_mode: false, demo_limits: null };
 
 export async function fetchAuthConfig(): Promise<AuthConfig> {
   try {

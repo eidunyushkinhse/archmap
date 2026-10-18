@@ -20,8 +20,6 @@ from app.schemas.auth import (
     MeResponse,
     PasswordChange,
     Token,
-    UserCreate,
-    UserResponse,
 )
 from app.schemas.demo import DemoLimits
 
@@ -32,12 +30,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def auth_config() -> AuthConfig:
     """Публичные настройки входа — без авторизации (их читают до логина).
 
-    В демо-режиме регистрации нет при любом ALLOW_SIGNUP, а фронт получает пределы
-    стенда: по ним он проверяет файлы до загрузки."""
+    В демо-режиме фронт получает пределы стенда: по ним он проверяет файлы до загрузки.
+    Самостоятельной регистрации нет: первого администратора создаёт серверная команда
+    create-admin, остальные учётки — администратор на экране «Пользователи»."""
     if not settings.demo_mode:
-        return AuthConfig(allow_signup=settings.allow_signup)
+        return AuthConfig()
     return AuthConfig(
-        allow_signup=False,
         demo_mode=True,
         demo_limits=DemoLimits(
             nodes=demo.MAX_NODES,
@@ -48,36 +46,6 @@ def auth_config() -> AuthConfig:
             file_bytes=demo.MAX_FILE_BYTES,
         ),
     )
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: UserCreate, db: Session = Depends(get_db)) -> User:
-    # Демо-стенд: учётки заводит только кнопка «Попробовать без регистрации».
-    if settings.demo_mode:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=demo.SIGNUP_OFF_DETAIL)
-    # Закрытый контур: учётки заводит администратор, открытая регистрация выключена.
-    if not settings.allow_signup:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Регистрация отключена: учётную запись заводит администратор",
-        )
-    if db.query(User).filter(User.username == payload.username).first():
-        raise HTTPException(status_code=400, detail="Пользователь уже существует")
-    if payload.role not in ("architect", "viewer"):
-        raise HTTPException(status_code=400, detail="Недопустимая роль")
-    check_new_password(payload.password)
-    user = User(
-        username=payload.username,
-        hashed_password=hash_password(payload.password),
-        role=payload.role,
-        # Регистрация НИКОГДА не даёт прав администратора: первый админ — командой
-        # на сервере, остальных назначает админ на экране «Пользователи».
-        is_admin=False,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
 
 
 @router.post("/login", response_model=Token)

@@ -186,10 +186,8 @@ def test_лимит_по_адресу_окно_час():
 # ── Отключения в демо-режиме ────────────────────────────────────────────────
 
 
-def test_конфиг_в_демо(client, demo_on, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", True)
+def test_конфиг_в_демо(client, demo_on):
     cfg = client.get("/api/v1/auth/config").json()
-    assert cfg["allow_signup"] is False
     assert cfg["demo_mode"] is True
     assert cfg["demo_limits"] == {
         "nodes": 100,
@@ -201,17 +199,12 @@ def test_конфиг_в_демо(client, demo_on, monkeypatch):
     }
 
 
-def test_логин_и_регистрация_закрыты_в_демо(client, db, demo_on):
+def test_логин_закрыт_в_демо(client, db, demo_on):
     db.add(User(username="admin", hashed_password=hash_password("secret-pw"), role="architect"))
     db.commit()
     res = client.post("/api/v1/auth/login", data={"username": "admin", "password": "secret-pw"})
     assert res.status_code == 403
     assert res.json()["detail"] == demo.LOGIN_OFF_DETAIL
-    res = client.post(
-        "/api/v1/auth/register", json={"username": "bob", "password": "long-enough-pw"}
-    )
-    assert res.status_code == 403
-    assert db.query(User).filter(User.username == "bob").first() is None
 
 
 def test_удалённая_песочница_даёт_особый_401(client, db, demo_on):
@@ -392,10 +385,8 @@ def test_гостю_не_больше_двух_проектов_включая_�
 # ── Вне демо-режима всё как раньше ──────────────────────────────────────────
 
 
-def test_вне_демо_конфиг_и_вход_прежние(client, db, monkeypatch):
-    monkeypatch.setattr(settings, "allow_signup", True)
+def test_вне_демо_конфиг_и_вход_прежние(client, db):
     assert client.get("/api/v1/auth/config").json() == {
-        "allow_signup": True,
         "demo_mode": False,
         "demo_limits": None,
     }

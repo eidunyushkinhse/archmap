@@ -6,19 +6,6 @@ from app.domain_types import UserRole
 from app.schemas.demo import DemoLimits
 
 
-class UserCreate(BaseModel):
-    username: str
-    password: str
-    role: str = "viewer"
-
-
-class UserResponse(BaseModel):
-    username: str
-    role: str
-
-    model_config = {"from_attributes": True}
-
-
 class MeResponse(BaseModel):
     """Текущий пользователь по данным БД, а не токена: роль и признак администратора
     меняются без перелогина, фронт берёт их отсюда при старте приложения."""
@@ -60,7 +47,6 @@ class PasswordChange(BaseModel):
 class AuthConfig(BaseModel):
     """Публичные настройки входа (без авторизации): их читают до логина."""
 
-    allow_signup: bool
     # Демо-режим публичного стенда: вместо формы входа «Попробовать без регистрации».
     demo_mode: bool = False
     # Пределы проекта и файла; только в демо-режиме, иначе null.

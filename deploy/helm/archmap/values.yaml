@@ -28,9 +28,6 @@ secretKey:
   existingSecretKey: secret-key
 
 config:
-  # Открытая регистрация. false — учётки заводит администратор на экране «Пользователи»,
-  # первого — команда из NOTES (archmap-admin create-admin).
-  allowSignup: false
   # Предел запроса в МБ (импорт файлов и архивов). Прокси перед ArchMap должен пропускать
   # не меньше — у Ingress-контроллеров это настройка контроллера.
   maxRequestMb: 64

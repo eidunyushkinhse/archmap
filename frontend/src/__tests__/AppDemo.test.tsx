@@ -14,11 +14,10 @@ vi.mock("../pages/MapEditorPage", () => ({ default: () => <div data-testid="map"
 vi.mock("../components/login/LoginScenePreview", () => ({ default: () => <svg /> }));
 
 const DEMO_CONFIG = {
-  allow_signup: false,
   demo_mode: true,
   demo_limits: { nodes: 100, edges: 120, docs: 75, processes: 10, text_bytes: 256000, file_bytes: 256000 },
 };
-const PLAIN_CONFIG = { allow_signup: true, demo_mode: false, demo_limits: null };
+const PLAIN_CONFIG = { demo_mode: false, demo_limits: null };
 const GONE = "Ваша песочница удалена: прошли сутки бездействия. Начните заново, это займёт пару секунд.";
 const GUEST_ME = {
   id: "g1", username: "guest-1a2b3c4d", role: "architect", is_admin: false, is_guest: true, can_create_project: true,

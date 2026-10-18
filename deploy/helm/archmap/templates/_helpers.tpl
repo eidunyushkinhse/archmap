@@ -48,8 +48,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
     secretKeyRef:
       name: {{ .Values.secretKey.existingSecret | default (include "archmap.fullname" .) }}
       key: {{ if .Values.secretKey.existingSecret }}{{ .Values.secretKey.existingSecretKey }}{{ else }}secret-key{{ end }}
-- name: ALLOW_SIGNUP
-  value: {{ .Values.config.allowSignup | quote }}
 - name: MAX_REQUEST_MB
   value: {{ .Values.config.maxRequestMb | quote }}
 - name: LOGIN_ATTEMPTS_PER_MINUTE
