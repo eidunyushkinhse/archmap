@@ -1,4 +1,4 @@
-// Окно «Токены для агентов»: секрет показывается один раз (потом в списке — только
+// Окно «Токены для MCP»: секрет показывается один раз (потом в списке — только
 // префикс), отзыв — через подтверждение, отказы бэка видны в окне.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -37,7 +37,7 @@ describe("AgentTokensDialog", () => {
       token(),
       token({ id: "t-2", name: "Читатель", prefix: "archmap_Ab1cd", read_only: true, expires_at: "2027-01-15T10:00:00+00:00" }),
     ]);
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     const reader = await screen.findByTestId("token-Читатель");
     expect(within(reader).getByText("archmap_Ab1cd…")).toBeInTheDocument();
     expect(within(reader).getByText("только чтение")).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("AgentTokensDialog", () => {
     const issued = token({ name: "Ноутбук", read_only: true, expires_at: "2026-11-16T10:00:00+00:00" });
     vi.mocked(tokensApi.create).mockResolvedValue({ token: issued, secret: SECRET });
     const onClose = vi.fn();
-    render(<AgentTokensDialog onClose={onClose} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={onClose} />);
     // пустой список не печатается, сразу форма
     await waitFor(() => expect(tokensApi.list).toHaveBeenCalled());
     expect(screen.queryByText("Новый токен")).not.toBeInTheDocument();
@@ -69,15 +69,16 @@ describe("AgentTokensDialog", () => {
     expect(await screen.findByText("Токен выпущен")).toBeInTheDocument();
     const url = `${window.location.origin}/mcp`;
     expect(screen.getByTestId("issued-secret")).toHaveTextContent(SECRET);
-    expect(screen.getByTestId("issued-claude")).toHaveTextContent(
-      `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${SECRET}"`,
+    // CLI — общая команда mcp add, имя программы — заглушка
+    expect(screen.getByTestId("issued-cli")).toHaveTextContent(
+      `<cli> mcp add --transport http archmap ${url} --header "Authorization: Bearer ${SECRET}"`,
     );
-    // Cursor — второй вкладкой
-    expect(screen.queryByTestId("issued-cursor")).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("tab", { name: "Cursor" }));
-    expect(screen.getByRole("tab", { name: "Cursor" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.queryByTestId("issued-claude")).not.toBeInTheDocument();
-    const json = JSON.parse(screen.getByTestId("issued-cursor").textContent ?? "") as unknown;
+    // Desktop — второй вкладкой, общий блок mcpServers
+    expect(screen.queryByTestId("issued-desktop")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Desktop" }));
+    expect(screen.getByRole("tab", { name: "Desktop" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByTestId("issued-cli")).not.toBeInTheDocument();
+    const json = JSON.parse(screen.getByTestId("issued-desktop").textContent ?? "") as unknown;
     expect(json).toEqual({
       mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${SECRET}` } } },
     });
@@ -87,15 +88,26 @@ describe("AgentTokensDialog", () => {
 
   it("при следующем открытии секрета нет — только префикс", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([token({ name: "Ноутбук" })]);
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     expect(await screen.findByText("archmap_Zx9se…")).toBeInTheDocument();
     expect(screen.queryByText(new RegExp(SECRET))).not.toBeInTheDocument();
+  });
+
+  it("«Пользователю» — только чтение: галочка включена и закрыта, уходит read_only", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    vi.mocked(tokensApi.create).mockResolvedValue({ token: token({ read_only: true }), secret: SECRET });
+    render(<AgentTokensDialog readOnlyOnly onClose={vi.fn()} />);
+    const ro = await screen.findByLabelText("Только чтение");
+    expect(ro).toBeChecked();
+    expect(ro).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Выпустить токен" }));
+    expect(tokensApi.create).toHaveBeenCalledWith({ name: "Агент", read_only: true, lifetime_days: 90 });
   });
 
   it("отказ бэка при выпуске виден под формой, окно остаётся", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     vi.mocked(tokensApi.create).mockRejectedValue(new Error("Токен с таким именем у вас уже есть"));
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     await userEvent.click(await screen.findByRole("button", { name: "Выпустить токен" }));
     expect(await screen.findByText("Токен с таким именем у вас уже есть")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeEnabled();
@@ -103,7 +115,7 @@ describe("AgentTokensDialog", () => {
 
   it("пустое название — выпускать нечего", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     await userEvent.clear(await screen.findByLabelText("Название"));
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
   });
@@ -111,7 +123,7 @@ describe("AgentTokensDialog", () => {
   it("отзыв — через подтверждение; «Отмена» ничего не шлёт", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([token(), token({ id: "t-2", name: "Ноутбук" })]);
     vi.mocked(tokensApi.revoke).mockResolvedValue(undefined);
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Отозвать Ноутбук" }));
     expect(screen.getByText("Отозвать токен «Ноутбук»?")).toBeInTheDocument();
@@ -130,7 +142,7 @@ describe("AgentTokensDialog", () => {
   it("отказ бэка при отзыве виден в подтверждении, токен остаётся в списке", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([token()]);
     vi.mocked(tokensApi.revoke).mockRejectedValue(new Error("Нет связи с сервером"));
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     await userEvent.click(await screen.findByRole("button", { name: "Отозвать Агент" }));
     await userEvent.click(screen.getByRole("button", { name: "Отозвать" }));
     expect(await screen.findByText("Нет связи с сервером")).toBeInTheDocument();
@@ -140,7 +152,7 @@ describe("AgentTokensDialog", () => {
 
   it("список не загрузился — ошибка видна, выпускать нельзя", async () => {
     vi.mocked(tokensApi.list).mockRejectedValue(new Error("Нет связи с сервером"));
-    render(<AgentTokensDialog onClose={vi.fn()} />);
+    render(<AgentTokensDialog readOnlyOnly={false} onClose={vi.fn()} />);
     expect(await screen.findByText(/Нет связи с сервером/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Выпустить токен" })).toBeDisabled();
   });

@@ -6,7 +6,7 @@ import { useDismiss } from "./useDismiss";
 // Меню профиля под аватаром (заменяет прежнюю кнопку «Выйти» в шапке). Аватар-кружок
 // с инициалом роли; по клику — меню того же вида, что «Действия со схемой» и ⋯ карточки
 // проекта: сверху роль (и «Администратор») приглушённой подписью, пункты словами —
-// «Сменить пароль», «Токены для агентов», «Пользователи» (только администратору) и за
+// «Сменить пароль», «Токены для MCP», «Пользователи» (только администратору) и за
 // разделителем «Выйти». Закрытие по клику вне / Escape. Сам ничего не запрашивает: окна и
 // переход на экран «Пользователи» — колбэки владельца (components/users/AccountMenu).
 // Ховер пунктов — .pf-item в chrome.css: файл импортируется ЗДЕСЬ, иначе на странице,
@@ -17,7 +17,7 @@ interface Props {
   // Администратор видит пункт «Пользователи» (при переданном onOpenUsers).
   isAdmin?: boolean;
   onChangePassword?: () => void;
-  // Окно «Токены для агентов» — личные токены для подключения ИИ-агента к /mcp.
+  // Окно «Токены для MCP» — личные токены для подключения ИИ-агента к /mcp.
   onOpenTokens?: () => void;
   onOpenUsers?: () => void;
 }
@@ -63,7 +63,7 @@ export default function ProfileMenu({ role, onLogout, isAdmin = false, onChangeP
           </div>
           <div style={sep} aria-hidden="true" />
           {onChangePassword && item("Сменить пароль", onChangePassword)}
-          {onOpenTokens && item("Токены для агентов", onOpenTokens)}
+          {onOpenTokens && item("Токены для MCP", onOpenTokens)}
           {isAdmin && onOpenUsers && item("Пользователи", onOpenUsers)}
           <div style={sep} aria-hidden="true" />
           {item("Выйти", onLogout)}

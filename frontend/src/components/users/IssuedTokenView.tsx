@@ -7,10 +7,12 @@ import Modal from "../../ui/Modal";
 import { primaryBtn } from "../../ui/styles";
 
 /**
- * Вид «токен выпущен» окна «Токены для агентов»: секрет показывается ОДИН раз — здесь, с
- * готовой строкой подключения (вкладки Claude Code и Cursor; VS Code, Qwen Code и общий
- * .mcp.json — в mcp/README.md). Адрес — origin страницы + /mcp: тот же ArchMap, что
- * открыт в браузере (в dev /mcp проксирует Vite).
+ * Вид «токен выпущен» окна «Токены для MCP»: секрет показывается ОДИН раз — здесь, с
+ * готовой строкой подключения. Строки общие, без привязки к клиенту: CLI — `mcp add`
+ * в синтаксисе Claude Code, Qwen Code, Gemini CLI, Copilot CLI (имя программы — заглушка
+ * <cli>); Desktop — блок mcpServers с url и headers, де-факто общий формат mcp.json.
+ * Особые форматы (VS Code, httpUrl у Qwen Code) — в mcp/README.md. Адрес — origin
+ * страницы + /mcp: тот же ArchMap, что открыт в браузере (в dev /mcp проксирует Vite).
  */
 
 interface Props {
@@ -18,22 +20,26 @@ interface Props {
   onDone: () => void;
 }
 
-type Client = "claude" | "cursor";
+type Client = "cli" | "desktop";
+
+// Заглушка имени программы в команде CLI: её пользователь меняет на свою.
+const CLI_STUB = "<cli>";
 
 const CLIENTS: { id: Client; label: string; hint: string }[] = [
-  { id: "claude", label: "Claude Code", hint: "Команда в терминале" },
-  { id: "cursor", label: "Cursor", hint: "Файл ~/.cursor/mcp.json" },
+  { id: "cli", label: "CLI", hint: `Вместо ${CLI_STUB} — claude, qwen, gigacode…` },
+  { id: "desktop", label: "Desktop", hint: "В файл настроек MCP приложения" },
 ];
 
 export default function IssuedTokenView({ issued, onDone }: Props) {
-  const [client, setClient] = useState<Client>("claude");
+  const [client, setClient] = useState<Client>("cli");
   const [copied, setCopied] = useState<string | null>(null);
   const [copyError, setCopyError] = useState(false);
   const url = `${window.location.origin}/mcp`;
   const { secret } = issued;
+  const cliArgs = `mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`;
   const connect: Record<Client, string> = {
-    claude: `claude mcp add --transport http archmap ${url} --header "Authorization: Bearer ${secret}"`,
-    cursor: JSON.stringify(
+    cli: `${CLI_STUB} ${cliArgs}`,
+    desktop: JSON.stringify(
       { mcpServers: { archmap: { url, headers: { Authorization: `Bearer ${secret}` } } } },
       null,
       2,
@@ -60,7 +66,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
 
   return (
     <Modal onClose={onDone} boxStyle={{ width: 600, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-      <DialogTitle lead="Скопируйте его сейчас — больше он показан не будет.">Токен выпущен</DialogTitle>
+      <DialogTitle lead="Токен будет показан только один раз. Скопируйте его сейчас.">Токен выпущен</DialogTitle>
 
       <div style={tokenRow}>
         <code style={tokenText} data-testid="issued-secret">{secret}</code>
@@ -88,7 +94,9 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
           <span style={hint}>{CLIENTS.find((c) => c.id === client)?.hint}</span>
           {copyButton(client, connect[client])}
         </div>
-        <pre style={code} data-testid={`issued-${client}`}>{connect[client]}</pre>
+        <pre style={code} data-testid={`issued-${client}`}>
+          {client === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliArgs}</> : connect[client]}
+        </pre>
       </div>
       {copyError && <p style={note}>Браузер не дал скопировать — выделите текст и скопируйте вручную.</p>}
 
@@ -134,4 +142,5 @@ const code: CSSProperties = {
   margin: 0, padding: "10px 12px", fontFamily: mono, fontSize: 12.5, lineHeight: 1.5, color: "#0f172a",
   whiteSpace: "pre-wrap", wordBreak: "break-all", userSelect: "all",
 };
+const stub: CSSProperties = { color: "#2563eb", fontWeight: 600 };
 const note: CSSProperties = { margin: "10px 0 0", fontSize: 13, color: "#64748b" };

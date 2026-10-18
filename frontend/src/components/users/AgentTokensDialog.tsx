@@ -12,13 +12,16 @@ import { useBusyAction } from "../../ui/useBusyAction";
 import IssuedTokenView from "./IssuedTokenView";
 
 /**
- * «Токены для агентов» из меню профиля (docs/plan-remote-mcp.md, Ф5): свои личные токены,
+ * «Токены для MCP» из меню профиля (docs/plan-remote-mcp.md, Ф5): свои личные токены,
  * выпуск и отзыв. Токен подключает ИИ-агента к ArchMap по адресу …/mcp; права агента — ваши,
  * удалять он не может. Секрет показывается ОДИН раз — сразу после выпуска (IssuedTokenView);
  * живёт только в состоянии окна: ни хранилища браузера, ни кэша api.
  */
 
 interface Props {
+  // «Пользователю» (роль viewer) токен положен только для чтения — правило держит бэк
+  // (app/personal_tokens.py), здесь галочка лишь показана включённой и закрытой.
+  readOnlyOnly: boolean;
   onClose: () => void;
 }
 
@@ -50,7 +53,7 @@ function tokenMeta(t: PersonalToken): string {
   return `${used} · ${t.expires_at ? `до ${fmtDate(t.expires_at)}` : "бессрочно"}`;
 }
 
-export default function AgentTokensDialog({ onClose }: Props) {
+export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
   const tokens = useAsyncLoad("tokens", tokensApi.list);
   // null — имя ещё не трогали: подставляется свободное по умолчанию.
   const [name, setName] = useState<string | null>(null);
@@ -74,7 +77,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
     if (!canIssue) return;
     const days = LIFETIMES.find((l) => l.value === lifetime)?.days ?? 90;
     await issue.run(async () => {
-      setIssued(await tokensApi.create({ name: shownName.trim(), read_only: readOnly, lifetime_days: days }));
+      setIssued(await tokensApi.create({ name: shownName.trim(), read_only: readOnlyOnly || readOnly, lifetime_days: days }));
     });
   }
 
@@ -102,9 +105,7 @@ export default function AgentTokensDialog({ onClose }: Props) {
   return (
     <>
       <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 560, padding: 24, maxHeight: "86vh", overflowY: "auto" }}>
-        <DialogTitle lead="С токеном ИИ-агент работает в ArchMap от вашего имени, но ничего не удаляет.">
-          Токены для агентов
-        </DialogTitle>
+        <DialogTitle>Токены для MCP</DialogTitle>
 
         {tokens.error !== null ? (
           <LoadError what="токены" error={tokens.error} onRetry={tokens.reload} />
@@ -154,8 +155,13 @@ export default function AgentTokensDialog({ onClose }: Props) {
             </select>
           </div>
         </div>
-        <label style={checkRow}>
-          <input type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} />
+        <label style={readOnlyOnly ? { ...checkRow, cursor: "default", color: "#64748b" } : checkRow}>
+          <input
+            type="checkbox"
+            checked={readOnlyOnly || readOnly}
+            disabled={readOnlyOnly}
+            onChange={(e) => setReadOnly(e.target.checked)}
+          />
           <span>Только чтение</span>
         </label>
 

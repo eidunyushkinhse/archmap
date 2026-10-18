@@ -1,5 +1,5 @@
 // AccountMenu: меню профиля читает роль и признак администратора из кэша «кто я»
-// (api/auth) и открывает окна «Сменить пароль» и «Токены для агентов».
+// (api/auth) и открывает окна «Сменить пароль» и «Токены для MCP».
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -55,13 +55,30 @@ describe("AccountMenu", () => {
     expect(screen.queryByLabelText("Текущий пароль")).not.toBeInTheDocument();
   });
 
-  it("«Токены для агентов» открывает окно, «Закрыть» закрывает", async () => {
+  it("«Токены для MCP» открывает окно, «Закрыть» закрывает", async () => {
     vi.mocked(tokensApi.list).mockResolvedValue([]);
     render(<AccountMenu onLogout={vi.fn()} />);
     await userEvent.click(screen.getByLabelText("Профиль"));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для агентов" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
     expect(await screen.findByLabelText("Название")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(screen.queryByLabelText("Название")).not.toBeInTheDocument();
+  });
+
+  it("архитектору «Только чтение» на выбор, «Пользователю» — включено и закрыто", async () => {
+    vi.mocked(tokensApi.list).mockResolvedValue([]);
+    const { unmount } = render(<AccountMenu onLogout={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText("Профиль"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
+    expect(await screen.findByLabelText("Только чтение")).toBeEnabled();
+    unmount();
+
+    vi.mocked(getUserRole).mockReturnValue("viewer");
+    render(<AccountMenu onLogout={vi.fn()} />);
+    await userEvent.click(screen.getByLabelText("Профиль"));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Токены для MCP" }));
+    const ro = await screen.findByLabelText("Только чтение");
+    expect(ro).toBeChecked();
+    expect(ro).toBeDisabled();
   });
 });

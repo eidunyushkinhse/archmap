@@ -1707,6 +1707,6 @@ async def call_remote(name: str, args: dict[str, Any], client: ArchMapClient, re
     if read_only and tool["writes"]:
         raise ArchMapError(
             f"Токен только для чтения: {name} меняет данные. Для правок выпустите токен без "
-            "«только чтение» в меню профиля → «Токены для агентов»."
+            "«только чтение» в меню профиля → «Токены для MCP»."
         )
     return str(await tool["handler"](client, args))

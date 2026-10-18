@@ -15,7 +15,7 @@ export default defineConfig({
         target: `http://localhost:${backendPort}`,
         changeOrigin: true,
       },
-      // Удалённый MCP-сервер для ИИ-агентов: адрес из окна «Токены для агентов»
+      // Удалённый MCP-сервер для ИИ-агентов: адрес из окна «Токены для MCP»
       // (origin страницы + /mcp) работает и в dev.
       '/mcp': {
         target: `http://localhost:${backendPort}`,

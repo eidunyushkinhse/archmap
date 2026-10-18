@@ -8,8 +8,7 @@ import { ROLE_LABEL } from "./userLabels";
 
 /**
  * Меню профиля в шапках экранов: ProfileMenu + окна «Сменить пароль» и «Токены для
- * агентов». Роль и
- * признак администратора читает из кэша «кто я» (api/auth): App перерисовывает
+ * MCP». Роль и признак администратора читает из кэша «кто я» (api/auth): App перерисовывает
  * дерево, когда пришёл ответ /auth/me, и меню видит свежие значения.
  * onOpenUsers не передают на самом экране «Пользователи» — вести некуда.
  * Гостю демо-стенда вместо меню — пилюля «Обучение»: пройти обучение заново
@@ -39,7 +38,7 @@ export default function AccountMenu({ onLogout, onOpenUsers }: Props) {
         onOpenUsers={onOpenUsers}
       />
       {changingPassword && <ChangePasswordDialog onClose={() => setChangingPassword(false)} />}
-      {tokensOpen && <AgentTokensDialog onClose={() => setTokensOpen(false)} />}
+      {tokensOpen && <AgentTokensDialog readOnlyOnly={!isArchitect} onClose={() => setTokensOpen(false)} />}
     </>
   );
 }
