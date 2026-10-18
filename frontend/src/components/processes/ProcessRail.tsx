@@ -136,7 +136,13 @@ export default function ProcessRail({
                         maxLength={256}
                         autoFocus
                         aria-label="Имя процесса"
-                        onFocus={(e) => e.currentTarget.select()}
+                        // Выделяем всё и показываем начало: браузер прокручивает поле к концу
+                        // выделения, и у длинного имени пряталась первая буква.
+                        onFocus={(e) => {
+                          const el = e.currentTarget;
+                          el.select();
+                          requestAnimationFrame(() => { el.scrollLeft = 0; });
+                        }}
                         onChange={(e) => setRenaming({ id: p.id, draft: e.target.value })}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") { e.preventDefault(); finishRename(true); }
@@ -161,7 +167,7 @@ export default function ProcessRail({
                     {p.message_count} {pluralMessages(p.message_count)} · {p.scope_name ?? "Вся схема"}
                   </span>
                 </span>
-                {isArchitect && (
+                {isArchitect && renaming?.id !== p.id && (
                   <button
                     className="bp-procdots"
                     title="Действия"
