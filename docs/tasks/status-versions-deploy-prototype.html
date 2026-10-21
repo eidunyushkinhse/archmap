@@ -1,0 +1,1252 @@
+<title>Статус, версии, развёртывание</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+  /* Прототип трёх фич ArchMap (2026-10-21). Одна светлая тема — как в самом приложении
+     (slate + синий #2563eb). Раскладка: документ с тремя вкладками, в каждой — живые
+     макеты экранов и заметки о правилах. Данные — демо-сцена «Ярмарка». */
+  :root {
+    --bg: #e9eef4; --surface: #fff; --page: #f8fafc; --line: #e2e8f0; --line-soft: #eef2f6;
+    --ink: #0f172a; --ink-2: #475569; --ink-3: #64748b; --ink-4: #94a3b8;
+    --accent: #2563eb; --accent-ink: #1d4ed8; --accent-soft: #eff6ff; --accent-line: #bfdbfe;
+    --ok: #166534; --ok-soft: #dcfce7; --ok-line: #86efac; --ok-dot: #22c55e;
+    --warn: #92400e; --warn-soft: #fef3c7; --warn-line: #fcd34d; --warn-dot: #f59e0b;
+    --danger: #b91c1c; --danger-soft: #fef2f2; --danger-line: #fecaca;
+    --node: #1168bd; --node-border: #0d5196; --node-ext: #555555; --node-ext-border: #3b3b3b;
+    --font: system-ui, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 14px; line-height: 1.45;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 64px;
+  }
+  button { font: inherit; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  header.doc h1 { font-size: 20px; margin: 0 0 6px; text-wrap: balance; }
+  header.doc p { margin: 0 0 16px; color: var(--ink-2); font-size: 14px; line-height: 1.5; max-width: 72ch; }
+  nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+  nav.tabs button {
+    border: 1px solid var(--line); background: #fff; color: var(--ink-3); font-size: 13px; font-weight: 600;
+    padding: 7px 13px; border-radius: 999px; cursor: pointer;
+  }
+  nav.tabs button:hover { color: var(--accent-ink); border-color: var(--accent-line); }
+  nav.tabs button.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  nav.tabs button:focus-visible, .pill:focus-visible, .dd-row:focus-visible, .btn:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  section.tab > h2 { font-size: 17px; margin: 0 0 4px; }
+  section.tab > .lead { margin: 0 0 16px; color: var(--ink-2); max-width: 78ch; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 820px) { .grid2 { grid-template-columns: 1fr; } }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .screen { background: var(--page); border: 1px solid var(--line); border-radius: 14px; padding: 14px; min-width: 0; }
+  .screen > .cap { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px; }
+  .notes { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+  .notes h3 { margin: 0 0 8px; font-size: 13px; }
+  .notes ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; }
+  .notes li { margin: 3px 0; }
+  .notes li b { color: var(--ink); }
+  .q { background: var(--warn-soft); border: 1px solid var(--warn-line); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 10px; }
+  .q b { display: block; margin-bottom: 2px; }
+
+  /* ── Общие элементы приложения ─────────────────────────────────── */
+  .np-header { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 16px; }
+  .bc { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; font-size: 12.5px; color: var(--ink-3); margin-bottom: 10px; }
+  .bc a { color: var(--accent); text-decoration: none; padding: 2px 5px; border-radius: 5px; }
+  .bc a:hover { background: var(--accent-soft); }
+  .bc .sep { color: #cbd5e1; margin: 0 1px; }
+  .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .glyph { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 8px; background: var(--node); }
+  .name { font-size: 23px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; }
+  .kebab { margin-left: auto; width: 34px; height: 34px; border: 1px solid var(--line); background: #fff; border-radius: 8px; color: var(--ink-3); cursor: pointer; font-size: 18px; line-height: 1; }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; }
+  .card h4 { font-size: 13px; margin: 0 0 12px; }
+  .props { display: grid; grid-template-columns: 120px 1fr; gap: 6px 14px; font-size: 13px; }
+  .props dt { color: var(--ink-3); }
+  .props dd { margin: 0; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: #f1f5f9; color: var(--ink-2); }
+  .btn { border: 1px solid var(--line); background: #fff; color: var(--ink); border-radius: 8px; padding: 7px 13px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn:hover { background: var(--accent-soft); border-color: var(--accent-line); }
+  .btn--primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn--primary:hover { background: var(--accent-ink); }
+  .btn--ghost { border-color: transparent; color: var(--accent-ink); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .seg button { border: none; background: none; padding: 6px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); cursor: pointer; }
+  .seg button + button { border-left: 1px solid var(--line-soft); }
+  .seg button.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+  .toast { position: fixed; top: 16px; right: 16px; z-index: 60; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; border-radius: 10px; padding: 8px 14px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(30,41,59,.12); }
+  .toast[hidden] { display: none; }
+  .small { font-size: 12px; color: var(--ink-3); }
+
+  /* ── Вкладка 1: пилюля статуса ─────────────────────────────────── */
+  .pill-wrap { position: relative; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600;
+    padding: 4px 10px 4px 9px; border-radius: 999px; border: 1px solid; cursor: pointer; background: #fff; white-space: nowrap;
+  }
+  .pill--work { background: var(--warn-soft); color: var(--warn); border-color: var(--warn-line); }
+  .pill--ok { background: var(--ok-soft); color: var(--ok); border-color: var(--ok-line); }
+  .pill.is-static { cursor: default; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .dot--work { background: var(--warn-dot); }
+  .dot--ok { background: var(--ok-dot); }
+  .chev { font-size: 10px; opacity: .8; }
+  .dd {
+    position: absolute; top: calc(100% + 6px); left: 0; min-width: 250px; background: #fff; border: 1px solid var(--line);
+    border-radius: 10px; box-shadow: 0 10px 28px rgba(15,23,42,.14); padding: 6px; z-index: 6;
+  }
+  .dd-head { font-size: 11px; font-weight: 700; color: var(--ink-3); padding: 6px 10px 4px; letter-spacing: .03em; text-transform: uppercase; }
+  .dd-row {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; padding: 7px 10px; border-radius: 7px;
+    background: none; border: none; cursor: pointer; color: var(--ink);
+  }
+  .dd-row:hover { background: var(--accent-soft); }
+  .dd-row small { display: block; color: var(--ink-3); font-size: 11.5px; }
+  .dd-row.is-current { background: var(--page); }
+  .dd-row .tick { margin-left: auto; color: var(--accent-ink); font-size: 12px; }
+  .backdrop { position: fixed; inset: 0; z-index: 5; }
+  .tree { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 10px 6px; font-size: 13px; }
+  .tree .tr { display: flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 6px; }
+  .tree .tr.l2 { padding-left: 28px; }
+  .tree .tr.is-current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+
+  /* ── Вкладка 2: версии ─────────────────────────────────────────── */
+  .topbar { display: flex; align-items: center; gap: 10px; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; flex-wrap: wrap; }
+  .topbar .brand { font-weight: 800; color: var(--accent); letter-spacing: -.01em; }
+  .topbar .proj { font-weight: 600; color: var(--ink-2); }
+  .topbar .spacer { flex: 1; }
+  .iconbtn { width: 34px; height: 34px; border: 1px solid var(--line); background: #fff; border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: var(--ink-2); position: relative; }
+  .iconbtn.is-active { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent-ink); }
+  .iconbtn .cnt { position: absolute; top: -6px; right: -6px; background: var(--warn-dot); color: #fff; font-size: 10px; font-weight: 700; border-radius: 999px; padding: 1px 5px; }
+  .vp { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 14px; margin-top: 12px; }
+  @media (max-width: 900px) { .vp { grid-template-columns: 1fr; } }
+  .vlist { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .vlist .unfixed { padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--page); }
+  .vlist .unfixed .t { font-size: 12.5px; color: var(--ink-2); margin-bottom: 8px; }
+  .vrow { display: block; width: 100%; text-align: left; padding: 10px 14px; border: none; border-bottom: 1px solid var(--line-soft); background: none; cursor: pointer; }
+  .vrow:hover { background: var(--page); }
+  .vrow.is-active { background: var(--accent-soft); }
+  .vrow .n { font-weight: 700; font-size: 12px; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+  .vrow .c { font-weight: 600; font-size: 13px; margin: 1px 0; }
+  .vrow .m { font-size: 11.5px; color: var(--ink-3); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+  .chip { font-size: 11px; background: var(--page); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; color: var(--ink-2); }
+  .vdiff { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; min-width: 0; }
+  .vdiff .hd { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .vdiff .hd h4 { margin: 0; font-size: 14px; }
+  .sel { border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 12.5px; background: #fff; }
+  .sec { border-top: 1px solid var(--line-soft); padding: 10px 0; }
+  .sec h5 { margin: 0 0 6px; font-size: 12.5px; display: flex; align-items: center; gap: 8px; }
+  .sec h5 .n { font-weight: 500; color: var(--ink-3); }
+  .chg { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; font-size: 13px; flex-wrap: wrap; }
+  .chg .path { color: var(--ink-3); font-size: 12px; }
+  .chg .path::after { content: " ·"; }
+  .tag { font-size: 10.5px; font-weight: 700; padding: 1px 6px; border-radius: 5px; letter-spacing: .02em; flex: none; }
+  .tag--add { background: var(--ok-soft); color: var(--ok); }
+  .tag--del { background: var(--danger-soft); color: var(--danger); }
+  .tag--mod { background: var(--accent-soft); color: var(--accent-ink); }
+  .arrow { color: var(--ink-3); }
+  .was { color: var(--danger); text-decoration: line-through; }
+  .now { color: var(--ok); }
+  details.d > summary { cursor: pointer; font-size: 12.5px; color: var(--accent-ink); margin: 2px 0 4px; list-style: none; }
+  details.d > summary::before { content: "▸ "; }
+  details.d[open] > summary::before { content: "▾ "; }
+  .diff { font-family: var(--mono); font-size: 12px; background: var(--page); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; margin: 4px 0 6px; }
+  .diff .l { padding: 1px 10px; white-space: pre; }
+  .diff .add { background: #dcfce7; color: #14532d; }
+  .diff .del { background: #fee2e2; color: #7f1d1d; }
+  .diff .ctx { color: var(--ink-3); }
+  .diff .hunk { color: var(--accent-ink); background: var(--accent-soft); }
+  table.tdiff { border-collapse: collapse; width: 100%; font-size: 12.5px; margin: 4px 0 6px; }
+  table.tdiff th, table.tdiff td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+  table.tdiff th { font-size: 11px; color: var(--ink-3); font-weight: 600; }
+  table.tdiff td.k { font-family: var(--mono); font-size: 12px; }
+  .scrollx { overflow-x: auto; }
+  .empty { color: var(--ink-4); font-size: 12.5px; }
+  .modal-bg { position: fixed; inset: 0; background: rgba(15,23,42,.38); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+  .modal-bg[hidden] { display: none; }
+  .modal { width: min(560px, 100%); background: #fff; border-radius: 14px; padding: 20px 22px; box-shadow: 0 20px 60px rgba(15,23,42,.3); max-height: 92vh; overflow: auto; }
+  .modal h3 { margin: 0 0 12px; font-size: 18px; }
+  .modal .sub { color: var(--ink-2); font-size: 13px; margin: -6px 0 12px; }
+  .modal label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin: 10px 0 4px; }
+  .modal textarea, .modal input[type=text], .modal select { width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 13px; }
+  .modal textarea { min-height: 64px; resize: vertical; }
+  .modal .actions { display: flex; gap: 8px; margin-top: 16px; }
+  .modal .actions .btn:last-child { margin-left: auto; }
+  .inc { background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  .inc ul { margin: 4px 0 0; padding-left: 18px; }
+  .inc li { margin: 2px 0; }
+  .docwin { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .docwin .dh { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .docwin .dh .t { font-weight: 700; }
+  .docwin .dh .meta { color: var(--ink-3); font-size: 12px; }
+  .docwin .dh .spacer { flex: 1; }
+  .docwin .body { padding: 12px 14px; }
+  .banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accent-soft); border: 1px solid var(--accent-line); color: var(--accent-ink); border-radius: 8px; padding: 7px 12px; font-size: 12.5px; margin-bottom: 10px; }
+  .banner .btn { padding: 4px 10px; font-size: 12px; }
+  pre.code { font-family: var(--mono); font-size: 12px; background: var(--page); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 0; overflow-x: auto; }
+  .chat { display: flex; flex-direction: column; gap: 10px; }
+  .msg { border-radius: 10px; padding: 10px 14px; font-size: 13px; max-width: 100%; }
+  .msg.user { background: var(--accent-soft); border: 1px solid var(--accent-line); align-self: flex-end; max-width: 80%; }
+  .msg.tool { background: var(--page); border: 1px solid var(--line); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
+  .msg.tool b { font-family: var(--font); color: var(--accent-ink); }
+  .msg.agent { background: #fff; border: 1px solid var(--line); }
+
+  /* ── Вкладка 3: развёртывание ──────────────────────────────────── */
+  .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #fff; }
+  .modes button { border: none; background: none; padding: 7px 12px; font-size: 12.5px; font-weight: 600; color: var(--ink-3); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+  .modes button + button { border-left: 1px solid var(--line-soft); }
+  .modes button.is-active { background: var(--accent-soft); color: var(--accent-ink); }
+  .canvas {
+    position: relative; background: #fff; background-image: radial-gradient(#e2e8f0 1px, transparent 1px); background-size: 16px 16px;
+    border: 1px solid var(--line); border-radius: 12px; padding: 26px 22px 64px; min-height: 420px;
+    display: flex; flex-wrap: wrap; gap: 30px 34px; align-items: flex-start; overflow: hidden;
+  }
+  .canvas svg.edges { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .site {
+    position: relative; border: 1.5px solid #64748b; border-radius: 12px; padding: 22px 18px 42px;
+    display: flex; flex-wrap: wrap; gap: 14px; min-width: 196px; background: rgba(248,250,252,.72);
+  }
+  .site--unplaced { border: 1px dashed #cbd5e1; background: transparent; }
+  .site--unplaced .plaque { color: var(--ink-3); border-style: dashed; }
+  .plaque {
+    position: absolute; left: 10px; bottom: 9px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    color: var(--ink-2); background: #fff; border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px 2px 7px; white-space: nowrap;
+  }
+  .plaque .tech { font-weight: 500; color: var(--ink-3); }
+  .nd {
+    width: 148px; min-height: 62px; border-radius: 8px; background: var(--node); border: 1.5px solid var(--node-border); color: #fff;
+    padding: 8px 10px; cursor: pointer; position: relative; text-align: left; font: inherit;
+  }
+  .nd--db { border-radius: 100px / 20px; }
+  .nd--broker { border-radius: 22px; }
+  .nd--ext { background: var(--node-ext); border-color: var(--node-ext-border); }
+  .nd .nm { font-weight: 700; font-size: 12.5px; line-height: 1.25; }
+  .nd .sub { font-size: 11px; opacity: .85; margin-top: 2px; }
+  .nd .inh { position: absolute; top: -9px; right: 8px; font-size: 10px; background: #fff; color: var(--ink-3); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+  .nd.is-selected { outline: 3px solid #93c5fd; outline-offset: 2px; }
+  .nd .chk { position: absolute; top: 6px; right: 6px; width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid rgba(255,255,255,.7); background: rgba(255,255,255,.15); display: grid; place-items: center; font-size: 10px; }
+  .nd.is-selected .chk { background: #fff; color: var(--accent-ink); border-color: #fff; }
+  .selbar {
+    position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 3; display: flex; gap: 8px; align-items: center;
+    background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 6px 8px 6px 12px; box-shadow: 0 6px 20px rgba(15,23,42,.14); white-space: nowrap;
+  }
+  .selbar[hidden] { display: none; }
+  .ctoolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0; }
+  .radio { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin: 6px 0; cursor: pointer; }
+  .radio:hover { background: var(--page); }
+  .radio input { margin-top: 3px; }
+  .radio .rt { font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .radio .rs { font-size: 12px; color: var(--ink-3); }
+  .newsite { border-left: 2px solid var(--accent-line); margin: 4px 0 4px 10px; padding-left: 12px; }
+  .newsite[hidden] { display: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12.5px; color: var(--ink-2); align-items: center; }
+  .legend .sw { display: inline-block; width: 26px; height: 16px; border-radius: 5px; vertical-align: middle; margin-right: 6px; }
+  .kicon { width: 14px; height: 14px; flex: none; }
+  .prop-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  @media (prefers-reduced-motion: no-preference) {
+    .nd, .site { transition: outline-color .15s; }
+  }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-k8s" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="8" r="1.6" fill="currentColor"/><path d="M8 2v4M8 10v4M2 8h4M10 8h4M3.8 3.8l2.8 2.8M9.4 9.4l2.8 2.8M12.2 3.8L9.4 6.6M6.6 9.4l-2.8 2.8" stroke="currentColor" stroke-width="1.2"/></symbol>
+  <symbol id="i-vm" viewBox="0 0 16 16"><rect x="1.5" y="2.5" width="13" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M5 14h6M8 11.5V14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-metal" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="2" y="9" width="12" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.4"/><circle cx="5" cy="4.5" r=".9" fill="currentColor"/><circle cx="5" cy="11.5" r=".9" fill="currentColor"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 16 16"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.6-1A3.5 3.5 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-other" viewBox="0 0 16 16"><circle cx="4" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="12" cy="8" r="1.4" fill="currentColor"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 5.5V10l3 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="doc">
+    <h1>Статус страницы, версии документации, схема развёртывания</h1>
+    <p>Прототип трёх фич ArchMap к обсуждению 2026-10-21. Макеты живые: пилюля и выпадашки открываются, версия фиксируется, объекты на холсте выделяются и размещаются. Правила и развилки — в заметках под каждым экраном, подробные ТЗ — в docs/tasks.</p>
+  </header>
+  <nav class="tabs" aria-label="Фичи">
+    <button type="button" data-tab="status">1 · Статус страницы</button>
+    <button type="button" data-tab="versions">2 · Версии документации</button>
+    <button type="button" data-tab="deploy">3 · Схема развёртывания</button>
+  </nav>
+
+  <!-- ═══════════════════════ 1. СТАТУС СТРАНИЦЫ ═══════════════════════ -->
+  <section class="tab" id="tab-status">
+    <h2>Статус страницы</h2>
+    <p class="lead">Пилюля рядом с именем объекта: «В работе» (жёлтая) или «Согласовано» (зелёная). У контейнера статус складывается из детей, клик по пилюле открывает их список.</p>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px">
+      <span class="small">Роль в макете:</span>
+      <div class="seg" id="role-seg">
+        <button type="button" data-role="editor" class="is-active">Редактор</button>
+        <button type="button" data-role="reader">Читатель</button>
+      </div>
+      <span class="small" id="role-hint">редактор меняет статус листа; у контейнера он только складывается из детей</span>
+    </div>
+    <div class="grid2">
+      <div class="stack">
+        <div class="screen">
+          <p class="cap">Страница объекта без детей (лист)</p>
+          <div class="np-header">
+            <div class="bc"><a href="#status">Проект</a><span class="sep">›</span><a href="#status">Ярмарка</a><span class="sep">›</span><a href="#status">Заказы</a></div>
+            <div class="title-row">
+              <span class="glyph"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="3"/></svg></span>
+              <span class="name" id="leaf-name">Сервис заказов</span>
+              <div class="pill-wrap" id="leaf-pill-wrap"></div>
+              <button type="button" class="kebab" title="Действия">⋯</button>
+            </div>
+          </div>
+          <div class="card" style="margin-top:10px">
+            <h4>Свойства</h4>
+            <dl class="props">
+              <dt>Тип</dt><dd>Сервис</dd>
+              <dt>Роль</dt><dd>сервис</dd>
+              <dt>Технология</dt><dd>Python 3.12</dd>
+              <dt>Статус</dt><dd><span class="badge">Существует</span> <span class="small">— жизненный цикл, как и было; статус страницы — отдельное понятие</span></dd>
+            </dl>
+          </div>
+        </div>
+      </div>
+      <div class="stack">
+        <div class="screen">
+          <p class="cap">Страница контейнера (есть дети)</p>
+          <div class="np-header">
+            <div class="bc"><a href="#status">Проект</a><span class="sep">›</span><a href="#status">Ярмарка</a></div>
+            <div class="title-row">
+              <span class="glyph"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="16" height="10" rx="2.5"/><path d="M5 5V3.5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 15 3.5V5"/></svg></span>
+              <span class="name">Заказы</span>
+              <div class="pill-wrap" id="cont-pill-wrap"></div>
+              <button type="button" class="kebab" title="Действия">⋯</button>
+            </div>
+          </div>
+          <p class="small" style="margin:10px 0 0">Клик по строке выпадашки открывает страницу ребёнка — в макете она появляется слева. Согласуйте всех пятерых, и пилюля контейнера позеленеет сама.</p>
+        </div>
+        <div class="screen">
+          <p class="cap">Дерево объектов (панель слева) — необязательная фаза: точки статуса в строках</p>
+          <div class="tree" id="tree"></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:16px">
+      <div class="notes">
+        <h3>Правила</h3>
+        <ul>
+          <li><b>Два значения:</b> «В работе» (по умолчанию у всех новых объектов) и «Согласовано». Это статус <i>страницы</i>, а не жизненного цикла объекта (существует / планируется / выводится остаётся как есть).</li>
+          <li><b>Лист:</b> статус хранится у объекта, меняет его редактор или владелец проекта из выпадашки пилюли. Читатель видит пилюлю без стрелки, клик ничего не делает.</li>
+          <li><b>Контейнер:</b> статус не хранится, а вычисляется: «Согласовано», когда все дети согласованы (у детей-контейнеров — их вычисленный статус), иначе «В работе». Пилюля открывает список детей с точками, строка ведёт на страницу ребёнка.</li>
+          <li><b>Обе роли</b> открывают список детей: это навигация, а не правка.</li>
+          <li><b>Где ещё видно:</b> карточка объекта в MCP («Статус страницы: в работе, согласовано 3 из 5»), правка через archmap_update_node. Точки в дереве и счётчик на странице проекта — следующей фазой.</li>
+          <li><b>Не делаем в первой версии:</b> автосброс в «В работе» при правке документации, отдельный статус у связей, история согласований (она придёт с версиями).</li>
+        </ul>
+      </div>
+      <div class="notes">
+        <h3>Развилки — нужны решения</h3>
+        <div class="q"><b>Считать ли внешние объекты и людей?</b> Предлагаю одно правило без исключений: все дети считаются, внешний объект согласуют одним кликом. Альтернатива — не учитывать is_external и «Пользователь».</div>
+        <div class="q"><b>Сбрасывать ли «Согласовано» при изменении документации?</b> Предлагаю нет: статус ставит и снимает человек; агент по MCP статус не трогает, если его явно не попросили. Позже версии покажут «изменено после согласования».</div>
+        <div class="q"><b>Контейнер, у которого удалили всех детей,</b> снова становится листом и показывает свой прежний сохранённый статус. Предлагаю так и оставить (редкий случай), либо сбрасывать в «В работе» при появлении первого ребёнка.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 2. ВЕРСИИ ДОКУМЕНТАЦИИ ═══════════════════════ -->
+  <section class="tab" id="tab-versions" hidden>
+    <h2>Версии документации</h2>
+    <p class="lead">Версия — срез всего знания проекта, который редактор фиксирует явно, с комментарием (номер релиза, версии, задачи). История показывает, что изменилось между любыми двумя версиями, старые тексты открываются только для чтения. Тем же пользуется агент по MCP.</p>
+
+    <div class="screen">
+      <p class="cap">Шапка проекта — кнопка «Версии» рядом с рекомендациями; счётчик — незафиксированные изменения</p>
+      <div class="topbar">
+        <span class="brand">ArchMap</span>
+        <span class="proj">Ярмарка</span>
+        <span class="spacer"></span>
+        <div class="modes"><button type="button" class="is-active">Объекты</button><button type="button">Процессы</button></div>
+        <button type="button" class="iconbtn is-active" title="Версии проекта" id="btn-versions"><svg class="kicon" style="width:18px;height:18px"><use href="#i-clock"/></svg><span class="cnt" id="unfixed-cnt">3</span></button>
+        <button type="button" class="iconbtn" title="Рекомендации">!</button>
+        <button type="button" class="iconbtn" title="Действия">⋯</button>
+      </div>
+
+      <div class="vp" id="vp">
+        <div class="vlist">
+          <div class="unfixed">
+            <div class="t" id="unfixed-text"></div>
+            <button type="button" class="btn btn--primary" id="btn-fix">Зафиксировать версию</button>
+          </div>
+          <div id="vrows"></div>
+        </div>
+        <div class="vdiff" id="vdiff"></div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="screen">
+        <p class="cap">Окно схемы логики — старые версии открываются прямо в нём</p>
+        <div class="docwin">
+          <div class="dh">
+            <span class="t">Создать заказ</span>
+            <span class="meta">операция · POST /orders · Сервис заказов</span>
+            <span class="spacer"></span>
+            <label class="small" for="doc-ver">Версия</label>
+            <select class="sel" id="doc-ver">
+              <option value="cur">текущая</option>
+              <option value="7">v7 · orders 2.3 · 19.10.2026</option>
+              <option value="4">v4 · orders 2.1 · 02.09.2026</option>
+            </select>
+          </div>
+          <div class="body" id="doc-body"></div>
+        </div>
+        <p class="small" style="margin:10px 0 0">Список версий у схемы — только те, где она менялась. То же окно у OpenAPI; у структуры БД, каналов и конфигурации — выбор версии в шапке секции и табличная дельта; у процесса — выбор версии в тулбаре и дельта шагов.</p>
+      </div>
+      <div class="screen">
+        <p class="cap">Агент по MCP — тот же diff текстом</p>
+        <div class="chat">
+          <div class="msg user">Как изменился процесс оформления заказа в новой версии сервиса заказов относительно предыдущей?</div>
+          <div class="msg tool"><b>archmap_versions</b>(project: "Ярмарка")
+Версии проекта «Ярмарка» (7):
+  v7  19.10.2026  А. Петрова   orders 2.3 · ORD-412   схема 2, логика 2, OpenAPI 1, конфигурация 2, процессы 1
+  v6  11.10.2026  М. Соколов   payments 1.8 · PAY-77  логика 3, OpenAPI 1, каналы 1
+  v5  03.10.2026  А. Петрова   notifications 0.9      …
+  v4  02.09.2026  А. Петрова   orders 2.1 · ORD-380   логика 1, OpenAPI 1, БД 1
+  …</div>
+          <div class="msg tool"><b>archmap_version_diff</b>(project: "Ярмарка", from: 4, to: 7, process: "Оформление заказа")
+ПРОЦЕСС «Оформление заказа» — v4 → v7
+  ~ шаг 4: Сервис заказов → База заказов: «проверить остаток» → «зарезервировать остаток»
+  + шаг 6: Сервис заказов → Kafka заказов: заказ создан (событие, канал orders.created)
+  + шаг 7: Kafka заказов → Сервис уведомлений: заказ создан (событие)
+  участники: + Сервис уведомлений, + Kafka заказов
+Связанные схемы логики: «Создать заказ» (Сервис заказов) — изменена в v7 (см. archmap_version_diff doc=…)</div>
+          <div class="msg agent">В версии 2.3 (v7) оформление заказа стало событийным: вместо проверки остатка сервис заказов теперь резервирует его в базе, а после записи публикует событие «заказ создан» в Kafka, которое забирает сервис уведомлений. В 2.1 (v4) уведомлений в процессе не было вовсе.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="notes">
+        <h3>Правила</h3>
+        <ul>
+          <li><b>Версия = срез проекта целиком:</b> схема (объекты, связи), схемы логики, OpenAPI, структура БД, каналы, конфигурация, процессы, статусы страниц, позже — размещение. Раскладка холста в версию не входит.</li>
+          <li><b>Фиксирует редактор явно,</b> с комментарием. Автоматических версий нет: сохранения между фиксациями в историю не попадают. Перед фиксацией — что войдёт.</li>
+          <li><b>Дельта считается между любыми двумя версиями</b> (и версией и текущим состоянием) по id объектов: переименование — это изменение, а не удаление с созданием.</li>
+          <li><b>Оформление дельты своё у каждого типа:</b> схема — списком объектов и связей; тексты (mermaid, OpenAPI) — построчной дельтой; факты — таблицей строк; процесс — списком шагов и участников плюс дельта mermaid-экспорта.</li>
+          <li><b>Открыть старую версию</b> можно у каждого текста (только чтение, с плашкой «версия N»); весь проект на версии N выгружается архивом знания и ввозится новым проектом.</li>
+          <li><b>MCP:</b> archmap_versions, archmap_version_diff (с фильтром по объекту, схеме или процессу), archmap_version_doc (текст на версии N). Токену «только чтение» доступно всё это; фиксация версии — пишущий инструмент, только по явной просьбе человека.</li>
+        </ul>
+      </div>
+      <div class="notes">
+        <h3>Развилки — нужны решения</h3>
+        <div class="q"><b>Версия всего проекта или объекта?</b> Предлагаю проект: релиз трогает несколько страниц и процесс сразу, одна кнопка. Если один проект держит много сервисов с разным ритмом релизов, у версии появится необязательная область (объект), которая подписывает версию и задаёт фильтр дельты по умолчанию — срез всё равно целый.</div>
+          <div class="q"><b>Откат к версии.</b> Предлагаю не в первой очереди: восстановление — это ввоз среза поверх живого проекта с CAS и процессами. Сначала история и дельта; откат — отдельной фазой после приёмки.</div>
+        <div class="q"><b>Хранение:</b> снимок — сжатый JSON в Postgres (десятки–сотни КБ на версию), в демо — предел числа версий. Альтернатива «хранить архив zip» отклонена: дельта по путям не видит переименований.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════════ 3. СХЕМА РАЗВЁРТЫВАНИЯ ═══════════════════════ -->
+  <section class="tab" id="tab-deploy" hidden>
+    <h2>Схема развёртывания</h2>
+    <p class="lead">Третий режим рядом с «Объектами» и «Процессами». Площадки (кластер Kubernetes, ВМ, физический сервер, облачный сервис) рисуются сплошными рамками, объекты внутри — те же сервисы, базы и брокеры схемы. Размещение задаётся мультивыбором на холсте и кнопкой «Указать размещение».</p>
+
+    <div class="screen">
+      <p class="cap">Режим «Развёртывание» — холст уровня</p>
+      <div class="topbar">
+        <span class="brand">ArchMap</span>
+        <span class="proj">Ярмарка</span>
+        <span class="spacer"></span>
+        <div class="modes">
+          <button type="button">Объекты</button>
+          <button type="button">Процессы</button>
+          <button type="button" class="is-active"><svg class="kicon"><use href="#i-metal"/></svg>Развёртывание</button>
+        </div>
+        <button type="button" class="iconbtn" title="Рекомендации">!</button>
+        <button type="button" class="iconbtn" title="Действия">⋯</button>
+      </div>
+      <div class="ctoolbar">
+        <span class="small">Уровень:</span>
+        <select class="sel"><option>Ярмарка — весь проект</option><option>Заказы</option><option>Оплаты</option></select>
+        <span class="small">Выделение — клик по объекту (в приложении: Shift+клик или рамка)</span>
+        <span style="flex:1"></span>
+        <button type="button" class="btn" id="btn-legend">Легенда</button>
+        <button type="button" class="btn">Переразложить</button>
+      </div>
+      <div class="canvas" id="canvas">
+        <svg class="edges" id="edges" aria-hidden="true">
+          <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5 0 10z" fill="#94a3b8"/></marker></defs>
+        </svg>
+        <div class="selbar" id="selbar" hidden>
+          <span id="sel-count">Выбрано 2</span>
+          <button type="button" class="btn btn--primary" id="btn-place">Указать размещение</button>
+          <button type="button" class="btn btn--ghost" id="btn-clear">Снять выделение</button>
+        </div>
+      </div>
+      <div class="legend" id="legend" hidden style="margin-top:10px">
+        <span><span class="sw" style="border:1.5px solid #64748b"></span>площадка (сплошная рамка)</span>
+        <span><span class="sw" style="border:1px dashed #9ca3af"></span>контейнер на схеме объектов (пунктир)</span>
+        <span><svg class="kicon"><use href="#i-k8s"/></svg> Kubernetes</span>
+        <span><svg class="kicon"><use href="#i-vm"/></svg> виртуальная машина</span>
+        <span><svg class="kicon"><use href="#i-metal"/></svg> физический сервер</span>
+        <span><svg class="kicon"><use href="#i-cloud"/></svg> облачный сервис</span>
+        <span><span class="sw" style="background:var(--node-ext)"></span>внешний объект</span>
+      </div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px">
+      <div class="screen">
+        <p class="cap">Страница объекта — строка «Размещение» в свойствах</p>
+        <div class="card">
+          <h4>Свойства</h4>
+          <dl class="props">
+            <dt>Тип</dt><dd>Сервис</dd>
+            <dt>Технология</dt><dd>Python 3.12</dd>
+            <dt>Размещение</dt><dd class="prop-row" id="prop-place"></dd>
+          </dl>
+        </div>
+        <div class="card" style="margin-top:10px">
+          <h4>Свойства — объект с унаследованным размещением</h4>
+          <dl class="props">
+            <dt>Тип</dt><dd>Сервис</dd>
+            <dt>Размещение</dt><dd class="prop-row"><svg class="kicon"><use href="#i-k8s"/></svg> prod-cluster <span class="small">· от контейнера «Заказы»</span> <button type="button" class="btn btn--ghost" style="padding:2px 8px;font-size:12px">изменить</button></dd>
+          </dl>
+        </div>
+      </div>
+      <div class="notes">
+        <h3>Правила</h3>
+        <ul>
+          <li><b>Площадка</b> — сущность проекта: имя, вид (Kubernetes, ВМ, физический сервер, облачный сервис, другое), технология свободным текстом, описание. Список площадок общий на проект.</li>
+          <li><b>Размещение</b> — ссылка объекта на площадку, одна на объект. Контейнер передаёт размещение потомкам, пока у потомка нет своего («от контейнера «Заказы»»).</li>
+          <li><b>Холст режима</b> показывает поддерево выбранного уровня: листья сгруппированы по действующей площадке в сплошные рамки, связи между ними — те же стрелки. Объекты без размещения — в пунктирной группе «Размещение не указано». Людей (форма «Пользователь») на схеме нет.</li>
+          <li><b>«Указать размещение»</b> появляется при выделении: выбор площадки из списка, новая площадка тут же в окне, «Убрать размещение». После применения рамки перегруппируются с анимацией.</li>
+          <li><b>Движок тот же:</b> площадка для раскладки — рамка, как раскрытый контейнер (ELK compound), стиль рамки — сплошной. Первая фаза — полигонный спайк: проекция «уровень → площадки» на существующий LevelGraph против отдельного лёгкого холста на том же конвейере.</li>
+          <li><b>Экспорт и MCP:</b> площадки и размещение едут в c4.yaml и архив знания; archmap_node показывает размещение, archmap_update_node его задаёт; позже промпт импорта попросит агента вычитать площадки из helm/compose/terraform.</li>
+        </ul>
+        <h3 style="margin-top:12px">Развилки — нужны решения</h3>
+        <div class="q"><b>Одно размещение на объект или несколько?</b> Предлагаю одно: рамки не пересекаются, окно — один выбор. Реплика в двух ЦОД — вторая очередь (понятие «экземпляр»).</div>
+        <div class="q"><b>Вложенность площадок</b> (облако → кластер → namespace): в первой версии плоско, модель оставляет место под parent_id.</div>
+        <div class="q"><b>Одна схема без разделения сред</b> (прод/стейдж): описываем целевую топологию, как и конфигурацию — без значений сред.</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<!-- Окно «Зафиксировать версию» -->
+<div class="modal-bg" id="fix-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="fix-title">
+    <h3 id="fix-title">Зафиксировать версию</h3>
+    <p class="sub">В историю попадёт срез всего проекта. Изменения с версии 7:</p>
+    <div class="inc" id="fix-inc"></div>
+    <label for="fix-comment">Комментарий — номер версии, релиза или задачи</label>
+    <textarea id="fix-comment" placeholder="notifications 1.0 · NTF-15"></textarea>
+    <div class="actions">
+      <button type="button" class="btn btn--primary" id="fix-ok">Зафиксировать</button>
+      <button type="button" class="btn" id="fix-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<!-- Окно «Указать размещение» -->
+<div class="modal-bg" id="place-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="place-title">
+    <h3 id="place-title">Указать размещение</h3>
+    <p class="sub" id="place-sub"></p>
+    <div id="place-sites"></div>
+    <label class="radio" style="margin-top:10px"><input type="radio" name="site" value="__new" id="site-new"><span><span class="rt">Новая площадка</span><span class="rs">Появится в списке проекта</span></span></label>
+    <div class="newsite" id="newsite" hidden>
+      <label for="ns-name">Название</label>
+      <input type="text" id="ns-name" placeholder="stage-cluster">
+      <label for="ns-kind">Вид</label>
+      <select id="ns-kind">
+        <option value="k8s">Kubernetes</option>
+        <option value="vm">Виртуальная машина</option>
+        <option value="metal">Физический сервер</option>
+        <option value="cloud">Облачный сервис</option>
+        <option value="other">Другое</option>
+      </select>
+      <label for="ns-tech">Технология</label>
+      <input type="text" id="ns-tech" placeholder="Yandex Managed Kubernetes 1.30">
+      <label for="ns-desc">Описание</label>
+      <input type="text" id="ns-desc" placeholder="Что здесь крутится и зачем">
+    </div>
+    <label class="radio"><input type="radio" name="site" value="__none"><span><span class="rt">Убрать размещение</span><span class="rs">Объекты уйдут в «Размещение не указано» или унаследуют площадку контейнера</span></span></label>
+    <div class="actions">
+      <button type="button" class="btn btn--primary" id="place-ok">Применить</button>
+      <button type="button" class="btn" id="place-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  // ── Вкладки и якоря ────────────────────────────────────────────────
+  var TABS = ["status", "versions", "deploy"];
+  var tabButtons = Array.prototype.slice.call(document.querySelectorAll("nav.tabs button"));
+  function showTab(id) {
+    TABS.forEach(function (t) { document.getElementById("tab-" + t).hidden = t !== id; });
+    tabButtons.forEach(function (b) { b.classList.toggle("is-active", b.dataset.tab === id); });
+    if (id === "deploy") requestAnimationFrame(drawEdges);
+  }
+  var initial = location.hash.slice(1);
+  showTab(TABS.indexOf(initial) >= 0 ? initial : "status");
+  tabButtons.forEach(function (b) {
+    b.addEventListener("click", function () {
+      showTab(b.dataset.tab);
+      try { history.replaceState(null, "", "#" + b.dataset.tab); } catch (e) { /* адресная строка недоступна */ }
+    });
+  });
+
+  var toastEl = document.getElementById("toast");
+  var toastTimer = null;
+  function toast(text) {
+    toastEl.textContent = text;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2200);
+  }
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  // Один открытый поповер на страницу: подложка закрывает его кликом вне.
+  var openPop = null;
+  function closePop() {
+    if (!openPop) return;
+    openPop.dd.remove();
+    openPop.bd.remove();
+    openPop = null;
+  }
+  function openPopover(wrap, dd) {
+    closePop();
+    var bd = el("div", "backdrop");
+    bd.addEventListener("click", closePop);
+    document.body.appendChild(bd);
+    wrap.appendChild(dd);
+    openPop = { dd: dd, bd: bd };
+  }
+  document.addEventListener("keydown", function (e) { if (e.key === "Escape") closePop(); });
+
+  // ── 1. Статус страницы ─────────────────────────────────────────────
+  var role = "editor";
+  var children = [
+    { id: "orders", name: "Сервис заказов", ok: false },
+    { id: "pay", name: "Сервис оплат", ok: true },
+    { id: "ntf", name: "Сервис уведомлений", ok: false },
+    { id: "db", name: "База заказов", ok: true },
+    { id: "kafka", name: "Kafka заказов", ok: true }
+  ];
+  var current = children[0];
+
+  function pillNode(ok, interactive, labelSuffix) {
+    var b = el(interactive ? "button" : "span", "pill " + (ok ? "pill--ok" : "pill--work") + (interactive ? "" : " is-static"));
+    if (interactive) b.type = "button";
+    b.appendChild(el("span", "dot " + (ok ? "dot--ok" : "dot--work")));
+    b.appendChild(el("span", null, (ok ? "Согласовано" : "В работе") + (labelSuffix || "")));
+    if (interactive) b.appendChild(el("span", "chev", "▾"));
+    else b.title = "Статус меняет редактор проекта";
+    return b;
+  }
+
+  function renderLeaf() {
+    document.getElementById("leaf-name").textContent = current.name;
+    var wrap = document.getElementById("leaf-pill-wrap");
+    wrap.innerHTML = "";
+    var interactive = role === "editor";
+    var pill = pillNode(current.ok, interactive);
+    wrap.appendChild(pill);
+    if (!interactive) return;
+    pill.addEventListener("click", function () {
+      if (openPop && openPop.dd.parentNode === wrap) { closePop(); return; }
+      var dd = el("div", "dd");
+      dd.appendChild(el("div", "dd-head", "Статус страницы"));
+      [{ ok: false, t: "В работе", s: "страница ещё правится" }, { ok: true, t: "Согласовано", s: "проверено редактором" }].forEach(function (o) {
+        var row = el("button", "dd-row" + (o.ok === current.ok ? " is-current" : ""));
+        row.type = "button";
+        row.appendChild(el("span", "dot " + (o.ok ? "dot--ok" : "dot--work")));
+        var txt = el("span");
+        txt.appendChild(el("span", null, o.t));
+        txt.appendChild(el("small", null, o.s));
+        row.appendChild(txt);
+        if (o.ok === current.ok) row.appendChild(el("span", "tick", "✓"));
+        row.addEventListener("click", function () {
+          current.ok = o.ok;
+          closePop();
+          renderAll();
+          toast("PATCH /nodes/" + current.id + " {approval: \"" + (o.ok ? "approved" : "in_progress") + "\"}");
+        });
+        dd.appendChild(row);
+      });
+      openPopover(wrap, dd);
+    });
+  }
+
+  function renderContainer() {
+    var wrap = document.getElementById("cont-pill-wrap");
+    wrap.innerHTML = "";
+    var okCount = children.filter(function (c) { return c.ok; }).length;
+    var allOk = okCount === children.length;
+    var pill = pillNode(allOk, true, " · " + okCount + " из " + children.length);
+    pill.title = "Статус контейнера складывается из детей";
+    wrap.appendChild(pill);
+    pill.addEventListener("click", function () {
+      if (openPop && openPop.dd.parentNode === wrap) { closePop(); return; }
+      var dd = el("div", "dd");
+      dd.appendChild(el("div", "dd-head", "Согласовано " + okCount + " из " + children.length));
+      children.forEach(function (c) {
+        var row = el("button", "dd-row");
+        row.type = "button";
+        row.appendChild(el("span", "dot " + (c.ok ? "dot--ok" : "dot--work")));
+        row.appendChild(el("span", null, c.name));
+        row.addEventListener("click", function () {
+          current = c;
+          closePop();
+          renderAll();
+          toast("Открыта страница «" + c.name + "»");
+        });
+        dd.appendChild(row);
+      });
+      openPopover(wrap, dd);
+    });
+  }
+
+  function renderTree() {
+    var tree = document.getElementById("tree");
+    tree.innerHTML = "";
+    var okCount = children.filter(function (c) { return c.ok; }).length;
+    var root = el("div", "tr");
+    root.appendChild(el("span", "dot " + (okCount === children.length ? "dot--ok" : "dot--work")));
+    root.appendChild(el("span", null, "Заказы"));
+    root.appendChild(el("span", "small", okCount + "/" + children.length));
+    tree.appendChild(root);
+    children.forEach(function (c) {
+      var r = el("div", "tr l2" + (c === current ? " is-current" : ""));
+      r.appendChild(el("span", "dot " + (c.ok ? "dot--ok" : "dot--work")));
+      r.appendChild(el("span", null, c.name));
+      tree.appendChild(r);
+    });
+    var other = el("div", "tr");
+    other.appendChild(el("span", "dot dot--ok"));
+    other.appendChild(el("span", null, "Оплаты"));
+    other.appendChild(el("span", "small", "3/3"));
+    tree.appendChild(other);
+  }
+  function renderAll() { renderLeaf(); renderContainer(); renderTree(); }
+  renderAll();
+
+  document.getElementById("role-seg").addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b) return;
+    role = b.dataset.role;
+    Array.prototype.forEach.call(this.querySelectorAll("button"), function (x) { x.classList.toggle("is-active", x === b); });
+    document.getElementById("role-hint").textContent = role === "editor"
+      ? "редактор меняет статус листа; у контейнера он только складывается из детей"
+      : "читатель видит статус и список детей, менять не может";
+    closePop();
+    renderAll();
+  });
+
+  // ── 2. Версии ──────────────────────────────────────────────────────
+  var CAT = { schema: "схема", docs: "схемы логики", specs: "OpenAPI", db: "структура БД", channels: "каналы", config: "конфигурация", procs: "процессы", approval: "статусы страниц" };
+  var versions = [
+    { n: 7, c: "orders 2.3 · ORD-412", a: "А. Петрова", d: "19.10.2026 14:02", s: { schema: 2, docs: 2, specs: 1, config: 2, procs: 1 } },
+    { n: 6, c: "payments 1.8 · PAY-77", a: "М. Соколов", d: "11.10.2026 10:40", s: { docs: 3, specs: 1, channels: 1 } },
+    { n: 5, c: "notifications 0.9", a: "А. Петрова", d: "03.10.2026 17:15", s: { schema: 3, docs: 4, procs: 1, approval: 2 } },
+    { n: 4, c: "orders 2.1 · ORD-380", a: "А. Петрова", d: "02.09.2026 12:05", s: { docs: 1, specs: 1, db: 1 } },
+    { n: 3, c: "Схема после аудита", a: "М. Соколов", d: "20.08.2026 09:30", s: { schema: 12 } },
+    { n: 2, c: "catalog 1.2", a: "М. Соколов", d: "05.08.2026 16:48", s: { docs: 6, db: 2 } },
+    { n: 1, c: "Первый срез — импорт из репозиториев", a: "А. Петрова", d: "22.07.2026 11:10", s: { schema: 41, docs: 58, specs: 7, db: 3, channels: 1, config: 9, procs: 4 } }
+  ];
+  var unfixed = [
+    { cat: "docs", t: "«Отправить письмо» (Сервис уведомлений)" },
+    { cat: "docs", t: "«Отправить push» (Сервис уведомлений)" },
+    { cat: "config", t: "NTF_RETRY_MAX (Сервис уведомлений)" }
+  ];
+  var selected = 7;
+
+  function statsLine(s) {
+    return Object.keys(s).map(function (k) { return CAT[k] + " " + s[k]; }).join(", ");
+  }
+  function renderUnfixed() {
+    var cnt = document.getElementById("unfixed-cnt");
+    var t = document.getElementById("unfixed-text");
+    var last = versions[0].n;
+    cnt.hidden = unfixed.length === 0;
+    cnt.textContent = String(unfixed.length);
+    t.textContent = unfixed.length
+      ? "С версии " + last + " изменилось: " + unfixed.length + " " + plural(unfixed.length, ["объект", "объекта", "объектов"]) + " документации"
+      : "Всё зафиксировано в версии " + last;
+    document.getElementById("btn-fix").disabled = unfixed.length === 0;
+  }
+  function plural(n, f) {
+    var m10 = n % 10, m100 = n % 100;
+    if (m10 === 1 && m100 !== 11) return f[0];
+    if (m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20)) return f[1];
+    return f[2];
+  }
+  function renderRows() {
+    var box = document.getElementById("vrows");
+    box.innerHTML = "";
+    versions.forEach(function (v) {
+      var r = el("button", "vrow" + (v.n === selected ? " is-active" : ""));
+      r.type = "button";
+      r.appendChild(el("div", "n", "v" + v.n));
+      r.appendChild(el("div", "c", v.c));
+      r.appendChild(el("div", "m", v.a + " · " + v.d));
+      var chips = el("div", "chips");
+      Object.keys(v.s).forEach(function (k) { chips.appendChild(el("span", "chip", CAT[k] + " " + v.s[k])); });
+      r.appendChild(chips);
+      r.addEventListener("click", function () { selected = v.n; renderRows(); renderDiff(); });
+      box.appendChild(r);
+    });
+  }
+  function diffBlock(lines) {
+    var d = el("div", "diff");
+    lines.forEach(function (ln) {
+      var cls = ln[0] === "+" ? "add" : ln[0] === "-" ? "del" : ln[0] === "@" ? "hunk" : "ctx";
+      d.appendChild(el("div", "l " + cls, ln));
+    });
+    return d;
+  }
+  function chg(tag, path, html) {
+    var r = el("div", "chg");
+    r.appendChild(el("span", "tag tag--" + tag, tag === "add" ? "+" : tag === "del" ? "−" : "~"));
+    if (path) r.appendChild(el("span", "path", path));
+    var s = el("span");
+    s.innerHTML = html;
+    r.appendChild(s);
+    return r;
+  }
+  function section(title, count, body) {
+    var s = el("div", "sec");
+    var h = el("h5");
+    h.appendChild(el("span", null, title));
+    h.appendChild(el("span", "n", count == null ? "без изменений" : String(count)));
+    s.appendChild(h);
+    if (body) body.forEach(function (n) { s.appendChild(n); });
+    return s;
+  }
+  function detailsNode(summary, content) {
+    var d = el("details", "d");
+    d.appendChild(el("summary", null, summary));
+    d.appendChild(content);
+    return d;
+  }
+  function tableDiff(rows) {
+    var wrap = el("div", "scrollx");
+    var t = el("table", "tdiff");
+    t.innerHTML = "<thead><tr><th></th><th>параметр</th><th>тип</th><th>обязателен</th><th>дефолт</th><th>назначение</th></tr></thead>";
+    var tb = el("tbody");
+    rows.forEach(function (r) {
+      var tr = el("tr");
+      tr.innerHTML = r;
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    wrap.appendChild(t);
+    return wrap;
+  }
+
+  function renderDiff() {
+    var box = document.getElementById("vdiff");
+    box.innerHTML = "";
+    var v = versions.filter(function (x) { return x.n === selected; })[0];
+    var prev = versions.filter(function (x) { return x.n < v.n; })[0];
+    var hd = el("div", "hd");
+    hd.appendChild(el("h4", null, "v" + v.n + " · " + v.c));
+    hd.appendChild(el("span", "small", v.a + " · " + v.d));
+    var cmp = el("span", "small", "сравнить с:");
+    var sel = el("select", "sel");
+    if (prev) sel.appendChild(new Option("v" + prev.n + " (предыдущая)", "prev"));
+    versions.forEach(function (x) { if (x.n !== v.n && !(prev && x.n === prev.n)) sel.appendChild(new Option("v" + x.n + " · " + x.c, String(x.n))); });
+    sel.appendChild(new Option("текущим состоянием", "live"));
+    hd.appendChild(cmp);
+    hd.appendChild(sel);
+    box.appendChild(hd);
+
+    if (v.n !== 7) {
+      var note = el("p", "small", prev
+        ? "Дельта v" + prev.n + " → v" + v.n + ": " + statsLine(v.s) + ". В прототипе подробно разобрана версия 7."
+        : "Первая версия: всё содержимое проекта добавлено. " + statsLine(v.s) + ".");
+      box.appendChild(note);
+      Object.keys(v.s).forEach(function (k) {
+        box.appendChild(section(CAT[k][0].toUpperCase() + CAT[k].slice(1), v.s[k], [el("p", "empty", "объекты и построчные дельты — как у версии 7")]));
+      });
+      return;
+    }
+
+    box.appendChild(section("Схема", 2, [
+      chg("mod", "Заказы / Сервис заказов", "технология: <span class=\"was\">Python 3.11</span> <span class=\"arrow\">→</span> <span class=\"now\">Python 3.12</span>"),
+      chg("add", null, "связь Сервис заказов <span class=\"arrow\">→</span> Kafka заказов: «заказ создан» · Kafka · событие")
+    ]));
+
+    var docDiff = diffBlock([
+      "@@ Создать заказ @@",
+      " flowchart TD",
+      "   A[POST /orders] --> B{валидация корзины}",
+      "   B -->|ошибка| E[400]",
+      "-  B --> C[проверить остаток]",
+      "+  B --> C[зарезервировать остаток<br/>зависит от: ORDER_TTL_H]",
+      "   C --> D[(orders: пишет)]",
+      "-  D --> G[201 Created]",
+      "+  D --> F[публикует: orders.created]",
+      "+  F --> G[201 Created]"
+    ]);
+    var newDoc = diffBlock([
+      "+ flowchart TD",
+      "+   A[POST /orders/{id}/cancel] --> B{окно отмены не истекло?<br/>зависит от: ORDER_CANCEL_WINDOW_MIN}",
+      "+   B -->|нет| E[409]",
+      "+   B --> C[(orders: пишет)]",
+      "+   C --> D[публикует: orders.cancelled]",
+      "+   D --> F[204]"
+    ]);
+    box.appendChild(section("Схемы логики", 2, [
+      chg("mod", "Заказы / Сервис заказов", "«Создать заказ» · операция POST /orders"),
+      detailsNode("построчная дельта (8 строк)", docDiff),
+      chg("add", "Заказы / Сервис заказов", "«Отменить заказ» · операция POST /orders/{id}/cancel"),
+      detailsNode("текст новой схемы", newDoc)
+    ]));
+
+    box.appendChild(section("OpenAPI", 1, [
+      chg("mod", "Заказы / Сервис заказов", "спека: +1 операция"),
+      detailsNode("построчная дельта (11 строк)", diffBlock([
+        "@@ paths @@",
+        "   /orders/{id}:",
+        "     get:",
+        "       summary: Получить заказ",
+        "+  /orders/{id}/cancel:",
+        "+    post:",
+        "+      summary: Отменить заказ",
+        "+      responses:",
+        "+        '204': {description: Отменён}",
+        "+        '409': {description: Окно отмены истекло}"
+      ]))
+    ]));
+
+    box.appendChild(section("Структура БД", null));
+    box.appendChild(section("Каналы", null));
+
+    box.appendChild(section("Конфигурация", 2, [
+      chg("mod", "Заказы / Сервис заказов", "2 параметра"),
+      tableDiff([
+        "<td><span class=\"tag tag--add\">+</span></td><td class=\"k\">ORDER_CANCEL_WINDOW_MIN</td><td>int</td><td>нет</td><td>30</td><td>окно отмены заказа после оформления</td>",
+        "<td><span class=\"tag tag--mod\">~</span></td><td class=\"k\">ORDER_TTL_H</td><td>int</td><td>нет</td><td><span class=\"was\">24</span> → <span class=\"now\">48</span></td><td>срок жизни резерва</td>"
+      ])
+    ]));
+
+    box.appendChild(section("Процессы", 1, [
+      chg("mod", null, "«Оформление заказа»: участники +2, шаги ~1 +2"),
+      chg("add", "участник", "Сервис уведомлений"),
+      chg("add", "участник", "Kafka заказов"),
+      chg("mod", "шаг 4", "Сервис заказов → База заказов: <span class=\"was\">проверить остаток</span> <span class=\"arrow\">→</span> <span class=\"now\">зарезервировать остаток</span>"),
+      chg("add", "шаг 6", "Сервис заказов → Kafka заказов: заказ создан · событие · orders.created"),
+      chg("add", "шаг 7", "Kafka заказов → Сервис уведомлений: заказ создан · событие"),
+      detailsNode("дельта mermaid-экспорта процесса", diffBlock([
+        " sequenceDiagram",
+        "   participant Покупатель",
+        "   participant Сервис заказов",
+        "   participant База заказов",
+        "+  participant Kafka заказов",
+        "+  participant Сервис уведомлений",
+        "   Покупатель->>Сервис заказов: оформить заказ",
+        "-  Сервис заказов->>База заказов: проверить остаток",
+        "+  Сервис заказов->>База заказов: зарезервировать остаток",
+        "   База заказов-->>Сервис заказов: ок",
+        "+  Сервис заказов-)Kafka заказов: заказ создан",
+        "+  Kafka заказов-)Сервис уведомлений: заказ создан",
+        "   Сервис заказов-->>Покупатель: 201 Created"
+      ]))
+    ]));
+    box.appendChild(section("Статусы страниц", null));
+  }
+  renderUnfixed(); renderRows(); renderDiff();
+
+  // Фиксация версии: окно с перечнем «что войдёт» и комментарием.
+  var fixModal = document.getElementById("fix-modal");
+  document.getElementById("btn-fix").addEventListener("click", function () {
+    var inc = document.getElementById("fix-inc");
+    inc.innerHTML = "";
+    var groups = {};
+    unfixed.forEach(function (u) { (groups[u.cat] = groups[u.cat] || []).push(u.t); });
+    Object.keys(groups).forEach(function (k) {
+      var p = el("div", null, CAT[k][0].toUpperCase() + CAT[k].slice(1) + " — " + groups[k].length);
+      var ul = el("ul");
+      groups[k].forEach(function (t) { ul.appendChild(el("li", null, t)); });
+      p.appendChild(ul);
+      inc.appendChild(p);
+    });
+    document.getElementById("fix-comment").value = "";
+    fixModal.hidden = false;
+    document.getElementById("fix-comment").focus();
+  });
+  document.getElementById("fix-cancel").addEventListener("click", function () { fixModal.hidden = true; });
+  document.getElementById("fix-ok").addEventListener("click", function () {
+    var c = document.getElementById("fix-comment").value.trim();
+    if (!c) { document.getElementById("fix-comment").focus(); toast("Комментарий обязателен: по нему ищут версию"); return; }
+    var s = {};
+    unfixed.forEach(function (u) { s[u.cat] = (s[u.cat] || 0) + 1; });
+    var n = versions[0].n + 1;
+    versions.unshift({ n: n, c: c, a: "Вы", d: "сегодня", s: s });
+    unfixed = [];
+    selected = n;
+    fixModal.hidden = true;
+    renderUnfixed(); renderRows(); renderDiff();
+    toast("Версия " + n + " зафиксирована");
+  });
+  document.getElementById("fix-comment").addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) document.getElementById("fix-ok").click();
+    if (e.key === "Escape") fixModal.hidden = true;
+  });
+
+  // Окно схемы логики: версия выбирается в шапке, старая — только чтение.
+  var DOC_CUR = [
+    "flowchart TD",
+    "  A[POST /orders] --> B{валидация корзины}",
+    "  B -->|ошибка| E[400]",
+    "  B --> C[зарезервировать остаток<br/>зависит от: ORDER_TTL_H]",
+    "  C --> D[(orders: пишет)]",
+    "  D --> F[публикует: orders.created]",
+    "  F --> G[201 Created]"
+  ];
+  var DOC_V4 = [
+    "flowchart TD",
+    "  A[POST /orders] --> B{валидация корзины}",
+    "  B -->|ошибка| E[400]",
+    "  B --> C[проверить остаток]",
+    "  C --> D[(orders: пишет)]",
+    "  D --> G[201 Created]"
+  ];
+  var docCompare = false;
+  function renderDoc() {
+    var val = document.getElementById("doc-ver").value;
+    var body = document.getElementById("doc-body");
+    body.innerHTML = "";
+    if (val === "cur") {
+      var pre = el("pre", "code", DOC_CUR.join("\n"));
+      body.appendChild(el("p", "small", "Текущая редакция · правка и предпросмотр — как сейчас."));
+      body.appendChild(pre);
+      return;
+    }
+    var isV7 = val === "7";
+    var banner = el("div", "banner");
+    banner.appendChild(el("span", null, isV7 ? "Версия 7 · 19.10.2026 · orders 2.3 · совпадает с текущей" : "Версия 4 · 02.09.2026 · orders 2.1 · только чтение"));
+    if (!isV7) {
+      var b = el("button", "btn", docCompare ? "Показать текст" : "Сравнить с текущей");
+      b.type = "button";
+      b.addEventListener("click", function () { docCompare = !docCompare; renderDoc(); });
+      banner.appendChild(b);
+    }
+    body.appendChild(banner);
+    if (isV7 || !docCompare) {
+      body.appendChild(el("pre", "code", (isV7 ? DOC_CUR : DOC_V4).join("\n")));
+      return;
+    }
+    body.appendChild(diffBlock([
+      "@@ v4 → текущая @@",
+      " flowchart TD",
+      "   A[POST /orders] --> B{валидация корзины}",
+      "   B -->|ошибка| E[400]",
+      "-  B --> C[проверить остаток]",
+      "+  B --> C[зарезервировать остаток<br/>зависит от: ORDER_TTL_H]",
+      "   C --> D[(orders: пишет)]",
+      "-  D --> G[201 Created]",
+      "+  D --> F[публикует: orders.created]",
+      "+  F --> G[201 Created]"
+    ]));
+  }
+  document.getElementById("doc-ver").addEventListener("change", function () { docCompare = false; renderDoc(); });
+  renderDoc();
+
+  // ── 3. Развёртывание ───────────────────────────────────────────────
+  var KIND = { k8s: "Kubernetes", vm: "Виртуальная машина", metal: "Физический сервер", cloud: "Облачный сервис", other: "Другое" };
+  var sites = [
+    { id: "prod", name: "prod-cluster", kind: "k8s", tech: "Yandex Managed Kubernetes 1.30" },
+    { id: "db01", name: "db-01", kind: "vm", tech: "VMware · Ubuntu 22.04" },
+    { id: "ycloud", name: "Managed Kafka", kind: "cloud", tech: "Yandex Cloud" }
+  ];
+  var nodes = [
+    { id: "orders", name: "Сервис заказов", sub: "сервис · Python", shape: "svc", site: "prod" },
+    { id: "pay", name: "Сервис оплат", sub: "сервис · Go", shape: "svc", site: "prod" },
+    { id: "catalog", name: "Каталог", sub: "сервис · Python", shape: "svc", site: "prod", inherited: "Витрина" },
+    { id: "gw", name: "API-шлюз", sub: "сервис · nginx", shape: "svc", site: "prod" },
+    { id: "pg", name: "База заказов", sub: "БД · PostgreSQL", shape: "db", site: "db01" },
+    { id: "kafka", name: "Kafka заказов", sub: "брокер · Kafka", shape: "broker", site: "ycloud" },
+    { id: "ntf", name: "Сервис уведомлений", sub: "сервис · Python", shape: "svc", site: null },
+    { id: "search", name: "Поиск", sub: "сервис · Java", shape: "svc", site: null },
+    { id: "bank", name: "Банк-эквайер", sub: "внешняя система", shape: "ext", site: null }
+  ];
+  var EDGES = [["gw", "orders"], ["gw", "catalog"], ["orders", "pg"], ["orders", "kafka"], ["kafka", "ntf"], ["pay", "bank"], ["orders", "pay"]];
+  var selection = {};
+
+  function iconFor(kind) {
+    var s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    s.setAttribute("class", "kicon");
+    var u = document.createElementNS("http://www.w3.org/2000/svg", "use");
+    u.setAttribute("href", "#i-" + kind);
+    s.appendChild(u);
+    return s;
+  }
+  function nodeCard(n) {
+    var b = el("button", "nd nd--" + n.shape + (selection[n.id] ? " is-selected" : ""));
+    b.type = "button";
+    b.dataset.id = n.id;
+    b.appendChild(el("div", "nm", n.name));
+    b.appendChild(el("div", "sub", n.sub));
+    b.appendChild(el("span", "chk", selection[n.id] ? "✓" : ""));
+    if (n.inherited && n.site) b.appendChild(el("span", "inh", "от «" + n.inherited + "»"));
+    b.addEventListener("click", function () {
+      if (selection[n.id]) delete selection[n.id]; else selection[n.id] = true;
+      renderCanvas();
+    });
+    return b;
+  }
+  function renderCanvas() {
+    var canvas = document.getElementById("canvas");
+    Array.prototype.slice.call(canvas.querySelectorAll(".site")).forEach(function (s) { s.remove(); });
+    var selbar = document.getElementById("selbar");
+    sites.forEach(function (s) {
+      var members = nodes.filter(function (n) { return n.site === s.id; });
+      var box = el("div", "site");
+      box.dataset.site = s.id;
+      members.forEach(function (n) { box.appendChild(nodeCard(n)); });
+      if (!members.length) box.appendChild(el("span", "empty", "пусто"));
+      var pl = el("div", "plaque");
+      pl.appendChild(iconFor(s.kind));
+      pl.appendChild(el("span", null, s.name));
+      pl.appendChild(el("span", "tech", "· " + s.tech));
+      box.appendChild(pl);
+      canvas.insertBefore(box, selbar);
+    });
+    var unplaced = nodes.filter(function (n) { return !n.site; });
+    if (unplaced.length) {
+      var ub = el("div", "site site--unplaced");
+      unplaced.forEach(function (n) { ub.appendChild(nodeCard(n)); });
+      ub.appendChild(el("div", "plaque", "Размещение не указано"));
+      canvas.insertBefore(ub, selbar);
+    }
+    var count = Object.keys(selection).length;
+    selbar.hidden = count === 0;
+    document.getElementById("sel-count").textContent = "Выбрано " + count;
+    renderProp();
+    requestAnimationFrame(drawEdges);
+  }
+  function drawEdges() {
+    var canvas = document.getElementById("canvas");
+    var svg = document.getElementById("edges");
+    if (canvas.offsetParent === null) return;
+    Array.prototype.slice.call(svg.querySelectorAll("path")).forEach(function (p) { p.remove(); });
+    var cr = canvas.getBoundingClientRect();
+    function rect(id) {
+      var n = canvas.querySelector('.nd[data-id="' + id + '"]');
+      if (!n) return null;
+      var r = n.getBoundingClientRect();
+      return { x: r.left - cr.left, y: r.top - cr.top, w: r.width, h: r.height };
+    }
+    EDGES.forEach(function (e) {
+      var a = rect(e[0]), b = rect(e[1]);
+      if (!a || !b) return;
+      var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2;
+      // Стыкуемся с гранью, а не с центром: по большей из осей смещения.
+      var dx = bx - ax, dy = by - ay;
+      var sx, sy, tx, ty;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        sx = dx > 0 ? a.x + a.w : a.x; sy = ay; tx = dx > 0 ? b.x : b.x + b.w; ty = by;
+      } else {
+        sx = ax; sy = dy > 0 ? a.y + a.h : a.y; tx = bx; ty = dy > 0 ? b.y : b.y + b.h;
+      }
+      var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      var mx = (sx + tx) / 2, my = (sy + ty) / 2;
+      var d = Math.abs(dx) > Math.abs(dy)
+        ? "M" + sx + " " + sy + " H" + mx + " V" + ty + " H" + tx
+        : "M" + sx + " " + sy + " V" + my + " H" + tx + " V" + ty;
+      p.setAttribute("d", d);
+      p.setAttribute("fill", "none");
+      p.setAttribute("stroke", "#94a3b8");
+      p.setAttribute("stroke-width", "1.5");
+      p.setAttribute("marker-end", "url(#arr)");
+      svg.appendChild(p);
+    });
+  }
+  window.addEventListener("resize", function () { requestAnimationFrame(drawEdges); });
+
+  function renderProp() {
+    var box = document.getElementById("prop-place");
+    box.innerHTML = "";
+    var n = nodes[0];
+    var s = sites.filter(function (x) { return x.id === n.site; })[0];
+    if (s) {
+      box.appendChild(iconFor(s.kind));
+      box.appendChild(el("span", null, s.name));
+      box.appendChild(el("span", "small", "· " + KIND[s.kind] + " · " + s.tech));
+    } else {
+      box.appendChild(el("span", "small", "не указано"));
+    }
+    var b = el("button", "btn btn--ghost", "изменить");
+    b.type = "button";
+    b.style.padding = "2px 8px";
+    b.style.fontSize = "12px";
+    b.addEventListener("click", function () { selection = {}; selection[n.id] = true; renderCanvas(); openPlace(); });
+    box.appendChild(b);
+    box.insertBefore(el("span", "small", "«" + n.name + "»: "), box.firstChild);
+  }
+
+  var placeModal = document.getElementById("place-modal");
+  function openPlace() {
+    var ids = Object.keys(selection);
+    var names = ids.map(function (id) { return nodes.filter(function (n) { return n.id === id; })[0].name; });
+    document.getElementById("place-sub").textContent = "Для " + ids.length + " " + plural(ids.length, ["объекта", "объектов", "объектов"]) + ": " + names.join(", ");
+    var list = document.getElementById("place-sites");
+    list.innerHTML = "";
+    sites.forEach(function (s, i) {
+      var lab = el("label", "radio");
+      var inp = document.createElement("input");
+      inp.type = "radio"; inp.name = "site"; inp.value = s.id;
+      if (i === 0) inp.checked = true;
+      lab.appendChild(inp);
+      var txt = el("span");
+      var rt = el("span", "rt");
+      rt.appendChild(iconFor(s.kind));
+      rt.appendChild(el("span", null, s.name));
+      txt.appendChild(rt);
+      txt.appendChild(el("span", "rs", KIND[s.kind] + " · " + s.tech));
+      lab.appendChild(txt);
+      list.appendChild(lab);
+    });
+    document.getElementById("newsite").hidden = true;
+    placeModal.hidden = false;
+  }
+  placeModal.addEventListener("change", function () {
+    var v = placeModal.querySelector('input[name="site"]:checked');
+    document.getElementById("newsite").hidden = !(v && v.value === "__new");
+    if (v && v.value === "__new") document.getElementById("ns-name").focus();
+  });
+  document.getElementById("btn-place").addEventListener("click", openPlace);
+  document.getElementById("btn-clear").addEventListener("click", function () { selection = {}; renderCanvas(); });
+  document.getElementById("place-cancel").addEventListener("click", function () { placeModal.hidden = true; });
+  document.getElementById("place-ok").addEventListener("click", function () {
+    var v = placeModal.querySelector('input[name="site"]:checked');
+    if (!v) return;
+    var target = v.value;
+    if (target === "__new") {
+      var name = document.getElementById("ns-name").value.trim();
+      if (!name) { document.getElementById("ns-name").focus(); toast("У площадки нужно имя"); return; }
+      var id = "s" + Date.now();
+      sites.push({ id: id, name: name, kind: document.getElementById("ns-kind").value, tech: document.getElementById("ns-tech").value.trim() || "—" });
+      document.getElementById("ns-name").value = ""; document.getElementById("ns-tech").value = ""; document.getElementById("ns-desc").value = "";
+      target = id;
+    }
+    var ids = Object.keys(selection);
+    nodes.forEach(function (n) { if (selection[n.id]) { n.site = target === "__none" ? null : target; n.inherited = null; } });
+    selection = {};
+    placeModal.hidden = true;
+    renderCanvas();
+    toast("POST /deployment/assign {site_id: " + (target === "__none" ? "null" : "\"" + target + "\"") + ", node_ids: [" + ids.length + "]}");
+  });
+  document.getElementById("btn-legend").addEventListener("click", function () {
+    var l = document.getElementById("legend");
+    l.hidden = !l.hidden;
+  });
+  renderCanvas();
+})();
+</script>
