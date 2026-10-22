@@ -9,7 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
 import { nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
-import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem } from "../../types";
+import { ProjectRoleContext } from "../projectRole";
+import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
@@ -90,6 +91,22 @@ vi.mock("../../components/inspector/DocOverlay", () => ({
       data-mode={mode}
       data-create={String(Boolean(createNew))}
       data-stage={initialStage ?? ""}
+    />
+  ),
+}));
+
+// Панель «Версии документации»: маркер с пропсами — здесь проверяется вход в неё из
+// ⋯-меню и права, переданные по роли; сама панель покрыта своим тестом (VersionsPanel.test).
+vi.mock("../../components/nodePage/versions/VersionsPanel", () => ({
+  default: ({ nodeId, title, canEdit, canDelete }: {
+    nodeId: string | null; title: string; canEdit: boolean; canDelete: boolean;
+  }) => (
+    <div
+      data-testid="versions-panel"
+      data-node-id={nodeId ?? ""}
+      data-title={title}
+      data-can-edit={String(canEdit)}
+      data-can-delete={String(canDelete)}
     />
   ),
 }));
@@ -1066,5 +1083,60 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
     await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+  });
+});
+
+
+// ── ⋯-меню: история версий ────────────────────────────────────────────────────
+// Меню видно обеим ролям (docs/tasks/doc-versions.md §7): у читателя — пункты
+// просмотра («Открыть в карте», «Версии документации»), пункты правки — у редактора.
+// Удалять версии может только владелец проекта — панель получает это по роли.
+describe("NodePage: ⋯-меню и версии документации", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  async function openMenu(isArchitect: boolean, role: ProjectRole) {
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1"));
+    vi.mocked(nodesApi.getAll).mockResolvedValue([node("n1")]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    render(
+      <ProjectRoleContext.Provider value={role}>
+        <NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />
+      </ProjectRoleContext.Provider>,
+    );
+    await userEvent.click(await screen.findByTitle("Действия"));
+  }
+
+  it("читатель: меню есть, в нём только просмотр; пункт открывает панель без права правки", async () => {
+    await openMenu(false, "reader");
+    expect(screen.getByRole("button", { name: "Открыть в карте" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Экспорт поддерева" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
+    const panel = screen.getByTestId("versions-panel");
+    expect(panel).toHaveAttribute("data-node-id", "n1");
+    expect(panel).toHaveAttribute("data-title", "Сервис оплаты");
+    expect(panel).toHaveAttribute("data-can-edit", "false");
+    expect(panel).toHaveAttribute("data-can-delete", "false");
+    // Меню закрылось вместе с выбором пункта.
+    expect(screen.queryByRole("button", { name: "Версии документации" })).toBeNull();
+  });
+
+  it("редактор: пункты правки на месте, панель с фиксацией, но без удаления версий", async () => {
+    await openMenu(true, "editor");
+    expect(screen.getByRole("button", { name: "Экспорт поддерева" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Удалить объект" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
+    const panel = screen.getByTestId("versions-panel");
+    expect(panel).toHaveAttribute("data-can-edit", "true");
+    expect(panel).toHaveAttribute("data-can-delete", "false");
+  });
+
+  it("владелец: панель с удалением версий", async () => {
+    await openMenu(true, "owner");
+    await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
+    expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
   });
 });
