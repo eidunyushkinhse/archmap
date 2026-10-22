@@ -183,6 +183,12 @@ export type LevelPos = { pos_x: number; pos_y: number };
 // ── Схема развёртывания (docs/tasks/deployment-view.md) ──────────────────────
 // Вид площадки (облако, кластер, ВМ, физический сервер, другое) — Literal контракта.
 export type SiteKind = Schemas["SiteOut"]["kind"];
+// Площадка (плоско, дерево — по parent_id; instance_count — свои экземпляры на ней).
+export type SiteOut = Schemas["SiteOut"];
+// Граф холста «Развёртывание»: площадки, листья уровня с экземплярами (instances —
+// свои, effective — действующие с наследованием), сырые связи, раскладка deploy:….
+export type DeploymentGraph = Schemas["DeploymentGraph"];
+export type DeploymentNode = Schemas["DeploymentNodeOut"];
 
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
