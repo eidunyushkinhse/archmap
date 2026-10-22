@@ -6,18 +6,26 @@
 // с текущим состоянием» перезапрашивает с live), элемент (три сегмента одним запросом,
 // формы lines / rows / text и пустая сторона); окно фиксации (пустой комментарий не
 // шлёт запрос, успех перечитывает список, отказ виден под полем); удаление — только
-// владельцу и через подтверждение; Escape закрывает панель. Modal — настоящий (диалог
-// открывается полифилом из test-setup), API версий замокан.
+// владельцу и через подтверждение; откат — только редактору, через «что сделает откат»
+// и окно с фразами по ответу, итог — список и замечания; ячейка «было → стало» —
+// зачёркнутое «было»; Escape закрывает панель. Modal — настоящий (диалог открывается
+// полифилом из test-setup), API версий замокан.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import VersionsPanel from "../nodePage/versions/VersionsPanel";
+import { restoreLead } from "../nodePage/versions/versionText";
 import { versionsApi } from "../../api/versions";
 import { ApiError, DEMO_LIMIT_CODE } from "../../api/client";
-import type { VersionDiff, VersionItem, VersionItemDetail, VersionList, VersionOut } from "../../types";
+import type {
+  RestorePreview, VersionDiff, VersionItem, VersionItemDetail, VersionList, VersionOut,
+} from "../../types";
 
 vi.mock("../../api/versions", () => ({
-  versionsApi: { list: vi.fn(), create: vi.fn(), remove: vi.fn(), diff: vi.fn(), item: vi.fn() },
+  versionsApi: {
+    list: vi.fn(), create: vi.fn(), remove: vi.fn(), diff: vi.fn(), item: vi.fn(),
+    restorePreview: vi.fn(), restore: vi.fn(),
+  },
 }));
 
 function version(n: number, over: Partial<VersionOut> = {}): VersionOut {
@@ -408,5 +416,161 @@ describe("VersionsPanel: удаление версии", () => {
     expect(versionsApi.remove).toHaveBeenCalledWith("n1", 2);
     await waitFor(() => expect(screen.getByText("2 версии")).toBeInTheDocument());
     expect(screen.queryByText("Удалить версию 2?")).toBeNull();
+  });
+});
+
+describe("VersionsPanel: откат", () => {
+  const preview = (over: Partial<RestorePreview> = {}): RestorePreview => ({
+    pending: false, deleted_nodes: 0, has_processes: false, ...over,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three));
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([item()], 1, 2));
+  });
+
+  async function openVersion(n: number, props: Partial<Parameters<typeof VersionsPanel>[0]> = {}) {
+    renderPanel(props);
+    await userEvent.click(await screen.findByRole("button", { name: new RegExp(`^v${n}`) }));
+    await screen.findByRole("button", { name: /^Схема логики/ });
+  }
+
+  it("кнопка только у редактора; у последней версии без изменений выключена", async () => {
+    await openVersion(2, { canEdit: false, canDelete: true });
+    expect(screen.queryByRole("button", { name: "Восстановить эту версию" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Удалить версию" })).toBeInTheDocument();
+  });
+
+  it("последняя версия: без изменений — нечего восстанавливать, с изменениями — можно", async () => {
+    await openVersion(3);
+    expect(screen.getByRole("button", { name: "Восстановить эту версию" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await userEvent.click(screen.getByRole("button", { name: /^v2/ }));
+    expect(await screen.findByRole("button", { name: "Восстановить эту версию" })).toBeEnabled();
+  });
+
+  it("последняя версия с незафиксированными изменениями — кнопка активна", async () => {
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three, { changed: true, items: [item()] }));
+    await openVersion(3);
+    expect(screen.getByRole("button", { name: "Восстановить эту версию" })).toBeEnabled();
+  });
+
+  it("окно — по ответу «что сделает откат»: все фразы или только первая", async () => {
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: true, deleted_nodes: 3, has_processes: true }));
+    await openVersion(2);
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+
+    expect(versionsApi.restorePreview).toHaveBeenCalledWith("n1", 2);
+    expect(await screen.findByText("Восстановить версию 2?")).toBeInTheDocument();
+    expect(screen.getByText(
+      "Документация «Сервис заказов» вернётся к состоянию v2 (orders 2.2). "
+      + "Текущие незафиксированные изменения сохранятся версией «Перед откатом». "
+      + "Будут удалены объекты, появившиеся после v2: 3 объекта. "
+      + "Процессы не откатываются, они общие с другими объектами.",
+    )).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Восстановить версию 2?")).toBeNull();
+    expect(versionsApi.restore).not.toHaveBeenCalled();
+
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview());
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+    expect(await screen.findByText("Документация «Сервис заказов» вернётся к состоянию v2 (orders 2.2).")).toBeInTheDocument();
+  });
+
+  it("число удаляемых объектов — со склонением", () => {
+    const v = version(2);
+    expect(restoreLead("Заказы", v, preview({ deleted_nodes: 1 }))).toContain("после v2: 1 объект.");
+    expect(restoreLead("Заказы", v, preview({ deleted_nodes: 5 }))).toContain("после v2: 5 объектов.");
+  });
+
+  it("«Восстановить» — откат, список перечитан, замечания строкой до следующего действия", async () => {
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: true }));
+    vi.mocked(versionsApi.restore).mockResolvedValue({
+      created: [4, 5],
+      deleted_nodes: 0,
+      remarks: [
+        "связь «Банк → Заказы» не восстановлена: объекта «Банк» больше нет",
+        "объект остаётся у текущего родителя: прежнего больше нет",
+        "внешний ключ «orders.user_id» не восстановлен: целевой колонки больше нет",
+      ],
+    });
+    await openVersion(2);
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+    vi.mocked(versionsApi.list).mockResolvedValue(list([
+      version(5, { kind: "restore", comment: "Откат к v2", restored_from: 2 }),
+      version(4, { kind: "pre_restore", comment: "Перед откатом к v2" }),
+      ...three,
+    ]));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить" }));
+
+    expect(versionsApi.restore).toHaveBeenCalledWith("n1", 2);
+    expect(await screen.findByText("Откат к v2")).toBeInTheDocument();
+    expect(screen.queryByText("Восстановить версию 2?")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Связь «Банк → Заказы» не восстановлена: объекта «Банк» больше нет; "
+      + "объект остаётся у текущего родителя: прежнего больше нет и ещё 1.",
+    );
+    // Следующее действие — замечания гаснут.
+    await userEvent.click(screen.getByRole("button", { name: /^v5/ }));
+    await userEvent.click(await screen.findByRole("button", { name: "Назад" }));
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("отказ отката (409) — текстом в окне, окно открыто", async () => {
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: true }));
+    vi.mocked(versionsApi.restore).mockRejectedValue(new ApiError(
+      409, "Демо-проект поддерживает до 30 версий документации. Удалите ненужные, чтобы зафиксировать новые.", DEMO_LIMIT_CODE,
+    ));
+    await openVersion(2);
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить" }));
+
+    expect(await screen.findByText(/Демо-проект поддерживает до 30 версий документации/)).toBeInTheDocument();
+    expect(screen.getByText("Восстановить версию 2?")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Восстановить" })).toBeEnabled();
+  });
+
+  it("«что сделает откат» не загрузилось — причина в панели и «Повторить»", async () => {
+    vi.mocked(versionsApi.restorePreview)
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue(preview());
+    await openVersion(2);
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить что изменит откат");
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    expect(await screen.findByText("Восстановить версию 2?")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});
+
+describe("VersionsPanel: ячейка «было → стало»", () => {
+  it("изменённая ячейка — зачёркнутое «было» и «стало», прочие — текстом", async () => {
+    vi.clearAllMocks();
+    vi.mocked(versionsApi.list).mockResolvedValue(list(three));
+    vi.mocked(versionsApi.diff).mockResolvedValue(diff([item({ item_id: "config:n1", category: "config", name: "2 параметра" })], 2, 3));
+    vi.mocked(versionsApi.item).mockResolvedValue({
+      item: item(),
+      changes: {
+        text: null,
+        lines: null,
+        columns: ["Параметр", "Тип", "Дефолт"],
+        rows: [{ mark: "mod", cells: ["ORDER_TTL_H", "int", "24 → 48"], changed: [{ index: 2, was: "24", now: "48" }] }],
+      },
+      before: absent,
+      after: absent,
+    });
+    const { container } = renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: /^v3/ }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Конфигурация/ }));
+
+    const was = await screen.findByText("24");
+    expect(was.tagName).toBe("S");
+    expect(was).toHaveClass("vp-was");
+    expect(screen.getByText("48")).toHaveClass("vp-now");
+    expect(was.closest("td")?.textContent).toBe("24 → 48");
+    expect(screen.getByRole("cell", { name: "ORDER_TTL_H" }).querySelector("s")).toBeNull();
+    expect(container.ownerDocument.querySelectorAll("s.vp-was")).toHaveLength(1);
   });
 });

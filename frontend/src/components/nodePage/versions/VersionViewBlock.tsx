@@ -2,6 +2,10 @@
 // ровно одна (контракт VersionView): lines — построчная дельта текста, text — полный
 // текст на стороне, columns + rows — таблица (свойства, связи, факты, шаги процесса).
 // Все четыре null — элемента на этой стороне нет («было» у добавленного).
+//
+// Ячейка «было → стало» рисуется по частям из row.changed (зачёркнутое «было» и
+// «стало»), а не разбором текста: стрелка могла стоять и в самом значении.
+import type { ReactNode } from "react";
 import type { DiffMark, VersionView } from "../../../types";
 import "./versions.css";
 
@@ -23,6 +27,19 @@ const TAG: Record<Exclude<DiffMark, "">, { cls: string; text: string }> = {
   mod: { cls: "mod", text: "~" },
   move: { cls: "mod", text: "порядок" },
 };
+
+type Row = NonNullable<VersionView["rows"]>[number];
+
+// Ячейки строки таблицы: у отличающейся от другой стороны — «было» зачёркнуто, «стало»
+// рядом; прочие — текстом как есть.
+function rowCells(row: Row): ReactNode[] {
+  const changed = new Map(row.changed.map((c) => [c.index, c]));
+  return row.cells.map((cell, j) => {
+    const change = changed.get(j);
+    if (!change) return cell;
+    return <><s className="vp-was">{change.was}</s> → <span className="vp-now">{change.now}</span></>;
+  });
+}
 
 export default function VersionViewBlock({ view }: { view: VersionView }) {
   if (view.lines !== null) {
@@ -64,7 +81,7 @@ export default function VersionViewBlock({ view }: { view: VersionView }) {
                     )}
                   </td>
                 )}
-                {row.cells.map((cell, j) => <td key={j}>{cell}</td>)}
+                {rowCells(row).map((cell, j) => <td key={j}>{cell}</td>)}
               </tr>
             ))}
           </tbody>

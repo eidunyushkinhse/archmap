@@ -180,12 +180,14 @@
 .vp-irow:focus-visible,
 .vp-back:focus-visible,
 .vp-seg button:focus-visible,
+.vp-link:focus-visible,
 .vp-link-danger:focus-visible {
   outline: 2px solid #2563eb;
   outline-offset: -2px;
 }
 
-/* ── Низ экрана версии ── тихая ссылка «Удалить версию» (владелец). */
+/* ── Низ экрана версии ── тихие кнопки: «Восстановить эту версию» слева (редактор),
+   «Удалить версию» справа (владелец). */
 .vp-foot {
   display: flex;
   align-items: center;
@@ -206,6 +208,22 @@
 }
 .vp-link-danger:hover {
   background: #fef2f2;
+}
+.vp-link {
+  padding: 5px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #1d4ed8;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.vp-link:hover:not(:disabled) {
+  background: #eff6ff;
+}
+.vp-link:disabled {
+  color: #94a3b8;
 }
 
 /* ── Экран элемента ── сегменты «Изменения · Было · Стало» и одно представление. */
@@ -326,6 +344,13 @@
   background: #eff6ff;
   color: #1d4ed8;
 }
+/* Ячейка «было → стало»: прежнее значение зачёркнуто, новое — цветом добавления. */
+.vp-was {
+  color: #dc2626;
+}
+.vp-now {
+  color: #166534;
+}
 
 /* Тихие строки: «Версий ещё нет», «Загрузка…», «На этой стороне элемента нет». */
 .vp-empty {
@@ -335,4 +360,12 @@
 }
 .vp-note {
   padding: 12px 16px;
+}
+/* Замечания отката над списком: тише строки фиксации, но читаемо — это итог действия. */
+.vp-remarks {
+  margin: 0;
+  border-bottom: 1px solid #eef2f6;
+  color: #475569;
+  font-size: 12.5px;
+  line-height: 1.5;
 }

@@ -340,6 +340,10 @@ export type VersionDiff = Schemas["VersionDiff"];
 export type VersionItem = Schemas["VersionItem"];
 export type VersionItemDetail = Schemas["VersionItemDetail"];
 export type VersionView = Schemas["VersionView"];
+// Откат к версии: что он сделает (окно подтверждения) и что сделал (номера версий,
+// число удалённых объектов, замечания о том, что вернуть не удалось).
+export type RestorePreview = Schemas["RestorePreview"];
+export type RestoreOut = Schemas["RestoreOut"];
 export type VersionCategory = VersionItem["category"];
 export type VersionItemStatus = VersionItem["status"];
 // Метка строки дельты: «» контекст, add/del, mod (заголовок куска или «было → стало»),

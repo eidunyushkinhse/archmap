@@ -5,9 +5,14 @@
 // поэтому здесь нет чипов, счётчиков и подсказок сверх прототипа.
 //
 // Окно поверх страницы (ui/Modal): закрывают Escape и крестик. Окно фиксации и
-// подтверждение удаления — СИБЛИНГИ панели, а не её потомки: вложенный <dialog>
-// получает всплывший cancel и закрывал бы родителя вместе с собой.
-import { useState } from "react";
+// подтверждения удаления и отката — СИБЛИНГИ панели, а не её потомки: вложенный
+// <dialog> получает всплывший cancel и закрывал бы родителя вместе с собой.
+//
+// Откат (§5, §7): перед окном — запрос «что сделает откат» (сохранится ли
+// незафиксированное, сколько объектов удалится, есть ли процессы); окно открывается по
+// ответу. После отката — список, а замечания (что вернуть не удалось) тихой строкой над
+// ним до следующего действия.
+import { useRef, useState } from "react";
 import Modal from "../../../ui/Modal";
 import ConfirmDialog from "../../../ui/ConfirmDialog";
 import LoadError from "../../../ui/LoadError";
@@ -15,9 +20,9 @@ import { loadErrorText } from "../../../ui/loadErrorText";
 import { plural } from "../../../ui/plural";
 import { versionsApi } from "../../../api/versions";
 import type { VersionBase } from "../../../api/versions";
-import type { VersionItem, VersionList, VersionOut } from "../../../types";
+import type { RestorePreview, VersionItem, VersionList, VersionOut } from "../../../types";
 import { useVersionList } from "./useVersions";
-import { changesPhrase, versionMeta } from "./versionText";
+import { changesPhrase, remarksLine, restoreLead, versionMeta } from "./versionText";
 import FixVersionDialog from "./FixVersionDialog";
 import VersionScreen from "./VersionScreen";
 import type { SideLabels } from "./VersionScreen";
@@ -30,7 +35,7 @@ interface Props {
   nodeId: string | null;
   // Имя объекта или проекта — в шапке и в окне фиксации.
   title: string;
-  // Фиксация — редактору; читателю строки «Есть изменения…» нет вовсе.
+  // Фиксация и откат — редактору; читателю строки «Есть изменения…» и кнопки отката нет.
   canEdit: boolean;
   // Удаление версии — только владельцу проекта.
   canDelete: boolean;
@@ -42,6 +47,13 @@ type Screen =
   | { kind: "version"; num: number; base: VersionBase }
   | { kind: "item"; num: number; base: VersionBase; item: VersionItem; labels: SideLabels };
 
+// Подготовка отката версии num: идёт запрос «что сделает откат» или он не удался.
+interface RestorePrep {
+  num: number;
+  failed: boolean;
+  error: unknown;
+}
+
 export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClose }: Props) {
   const list = useVersionList(nodeId);
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
@@ -50,9 +62,63 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
   const [deleting, setDeleting] = useState<number | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // Откат: подготовка, окно (версия и ответ превью), его состояние, замечания итога.
+  const [restorePrep, setRestorePrep] = useState<RestorePrep | null>(null);
+  const [restoring, setRestoring] = useState<{ version: VersionOut; preview: RestorePreview } | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [remarks, setRemarks] = useState<string[]>([]);
+  // Номер текущей подготовки: ответ, пришедший после ухода с экрана версии (или после
+  // новой подготовки), окна не открывает.
+  const prepSeq = useRef(0);
 
   const data = list.data;
   const latest = data && data.versions.length > 0 ? data.versions[0].number : null;
+
+  // Переход между экранами — «следующее действие»: замечания отката и подготовка гаснут.
+  function go(next: Screen) {
+    prepSeq.current += 1;
+    setRestorePrep(null);
+    setRemarks([]);
+    setScreen(next);
+  }
+
+  function openRestore(version: VersionOut) {
+    const seq = ++prepSeq.current;
+    setRestorePrep({ num: version.number, failed: false, error: null });
+    versionsApi.restorePreview(nodeId, version.number).then(
+      (preview) => {
+        if (seq !== prepSeq.current) return;
+        setRestorePrep(null);
+        setRestoreError(null);
+        setRestoring({ version, preview });
+      },
+      (e: unknown) => {
+        if (seq !== prepSeq.current) return;
+        setRestorePrep({ num: version.number, failed: true, error: e });
+      },
+    );
+  }
+
+  function confirmRestore() {
+    if (restoring === null) return;
+    setRestoreBusy(true);
+    setRestoreError(null);
+    versionsApi.restore(nodeId, restoring.version.number).then(
+      (out) => {
+        setRestoring(null);
+        setRestoreBusy(false);
+        go({ kind: "list" });
+        setRemarks(out.remarks);
+        list.reload();
+      },
+      (e: unknown) => {
+        // 409 (предел демо) и 422 («нечего восстанавливать») — текстом сервера в окне.
+        setRestoreError(loadErrorText(e));
+        setRestoreBusy(false);
+      },
+    );
+  }
 
   function confirmDelete() {
     if (deleting === null) return;
@@ -62,7 +128,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
       () => {
         setDeleting(null);
         setDeleteBusy(false);
-        setScreen({ kind: "list" });
+        go({ kind: "list" });
         list.reload();
       },
       (e: unknown) => {
@@ -95,8 +161,11 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
               title={title}
               canEdit={canEdit}
               canDelete={canDelete}
-              onScreen={setScreen}
-              onFix={() => setFixOpen(true)}
+              restorePrep={restorePrep}
+              remarks={remarks}
+              onScreen={go}
+              onFix={() => { setRemarks([]); setFixOpen(true); }}
+              onRestore={openRestore}
               onDelete={(num) => { setDeleteError(null); setDeleting(num); }}
             />
           )}
@@ -110,7 +179,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
           onClose={() => setFixOpen(false)}
           onDone={() => {
             setFixOpen(false);
-            setScreen({ kind: "list" });
+            go({ kind: "list" });
             list.reload();
           }}
         />
@@ -128,21 +197,39 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
           onCancel={() => setDeleting(null)}
         />
       )}
+
+      {restoring !== null && (
+        <ConfirmDialog
+          title={`Восстановить версию ${restoring.version.number}?`}
+          lead={restoreLead(title, restoring.version, restoring.preview)}
+          confirmLabel="Восстановить"
+          busyLabel="Восстановление…"
+          busy={restoreBusy}
+          error={restoreError}
+          onConfirm={confirmRestore}
+          onCancel={() => setRestoring(null)}
+        />
+      )}
     </>
   );
 }
 
 // Выбор экрана по состоянию панели. Версию ищем в загруженном списке: её могли удалить
 // в другой сессии — тогда честнее показать список, чем пустой экран.
-function PanelScreen({ screen, data, nodeId, title, canEdit, canDelete, onScreen, onFix, onDelete }: {
+function PanelScreen({
+  screen, data, nodeId, title, canEdit, canDelete, restorePrep, remarks, onScreen, onFix, onRestore, onDelete,
+}: {
   screen: Screen;
   data: VersionList;
   nodeId: string | null;
   title: string;
   canEdit: boolean;
   canDelete: boolean;
+  restorePrep: RestorePrep | null;
+  remarks: string[];
   onScreen: (s: Screen) => void;
   onFix: () => void;
+  onRestore: (version: VersionOut) => void;
   onDelete: (num: number) => void;
 }) {
   const version = screen.kind === "list" ? undefined : data.versions.find((v) => v.number === screen.num);
@@ -152,18 +239,28 @@ function PanelScreen({ screen, data, nodeId, title, canEdit, canDelete, onScreen
         title={title}
         data={data}
         canEdit={canEdit}
+        remarks={remarks}
         onFix={onFix}
         onOpen={(num) => onScreen({ kind: "version", num, base: "prev" })}
       />
     );
   }
   if (screen.kind === "version") {
+    // Нечего восстанавливать: версия последняя, и с неё ничего не менялось.
+    const nothing = data.versions[0].number === version.number && !data.pending.changed;
+    const prep = restorePrep !== null && restorePrep.num === version.number ? restorePrep : null;
     return (
       <VersionScreen
         nodeId={nodeId}
         version={version}
         prevNum={previousNumber(data.versions, version.number)}
         base={screen.base}
+        restore={canEdit ? {
+          disabled: nothing,
+          busy: prep !== null && !prep.failed,
+          error: prep?.failed ? prep.error : null,
+          onRestore: () => onRestore(version),
+        } : null}
         canDelete={canDelete}
         onBack={() => onScreen({ kind: "list" })}
         onBase={(base) => onScreen({ kind: "version", num: version.number, base })}
@@ -196,10 +293,12 @@ function previousNumber(versions: VersionOut[], num: number): number | null {
 
 // ── Экран «список» ───────────────────────────────────────────────────────────
 
-function ListScreen({ title, data, canEdit, onFix, onOpen }: {
+function ListScreen({ title, data, canEdit, remarks, onFix, onOpen }: {
   title: string;
   data: VersionList;
   canEdit: boolean;
+  // Замечания только что выполненного отката: что вернуть не удалось.
+  remarks: string[];
   onFix: () => void;
   onOpen: (num: number) => void;
 }) {
@@ -215,6 +314,7 @@ function ListScreen({ title, data, canEdit, onFix, onOpen }: {
         )}
       </div>
       <div className="vp-body">
+        {remarks.length > 0 && <p className="vp-remarks vp-note" role="status">{remarksLine(remarks)}</p>}
         {canEdit && (
           <div className="vp-pending">
             <span className="vp-pending-text">{pendingLine(latest, pending)}</span>

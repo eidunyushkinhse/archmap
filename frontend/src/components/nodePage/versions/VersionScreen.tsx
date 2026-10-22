@@ -1,7 +1,9 @@
 // Экран «версия» панели версий: «vN · комментарий», «Что изменилось» с тихим выбором
 // «с vM / с текущим состоянием» и список элементов дельты (категория, путь и имя,
-// статус словами). Внизу владельцу — «Удалить версию». «Восстановить эту версию» —
-// следующая фаза (docs/tasks/doc-versions.md §10, Ф3).
+// статус словами). Внизу редактору — «Восстановить эту версию» (тихая кнопка, как в
+// прототипе; недоступна, когда версия последняя и изменений нет), владельцу справа —
+// «Удалить версию». Само окно отката — у панели (VersionsPanel): экран только
+// просит его открыть и показывает, что подготовка идёт или не удалась.
 import LoadError from "../../../ui/LoadError";
 import type { VersionBase } from "../../../api/versions";
 import type { VersionDiff, VersionItem, VersionOut } from "../../../types";
@@ -17,11 +19,23 @@ export interface SideLabels {
   after: string;
 }
 
-export default function VersionScreen({ nodeId, version, prevNum, base, canDelete, onBack, onBase, onItem, onDelete }: {
+// Кнопка отката у редактора: disabled — версия последняя и изменений с неё нет (нечего
+// восстанавливать); busy — идёт запрос «что сделает откат» перед окном; error — он не
+// удался (показывается в панели, «Повторить» просит заново).
+export interface RestoreAction {
+  disabled: boolean;
+  busy: boolean;
+  error: unknown;
+  onRestore: () => void;
+}
+
+export default function VersionScreen({ nodeId, version, prevNum, base, restore, canDelete, onBack, onBase, onItem, onDelete }: {
   nodeId: string | null;
   version: VersionOut;
   prevNum: number | null;
   base: VersionBase;
+  // null — кнопки отката нет (читатель).
+  restore: RestoreAction | null;
   canDelete: boolean;
   onBack: () => void;
   onBase: (base: VersionBase) => void;
@@ -67,11 +81,29 @@ export default function VersionScreen({ nodeId, version, prevNum, base, canDelet
             />
           ))
         )}
+        {restore?.error != null && (
+          <LoadError what="что изменит откат" error={restore.error} onRetry={restore.onRestore} />
+        )}
       </div>
-      {/* «Восстановить эту версию» — Ф3; пока низ есть только у владельца. */}
-      {canDelete && (
+      {/* Низ — только когда в нём есть хотя бы одна кнопка. */}
+      {(restore || canDelete) && (
         <div className="vp-foot">
-          <button type="button" className="vp-link-danger" onClick={onDelete}>Удалить версию</button>
+          {restore && (
+            <button
+              type="button"
+              className="vp-link"
+              disabled={restore.disabled || restore.busy}
+              aria-busy={restore.busy}
+              title={restore.disabled ? "Изменений с этой версии нет — восстанавливать нечего" : undefined}
+              onClick={restore.onRestore}
+            >
+              {restore.busy ? "Подготовка…" : "Восстановить эту версию"}
+            </button>
+          )}
+          <span className="vp-spacer" />
+          {canDelete && (
+            <button type="button" className="vp-link-danger" onClick={onDelete}>Удалить версию</button>
+          )}
         </div>
       )}
     </>

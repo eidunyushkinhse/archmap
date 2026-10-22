@@ -1,5 +1,7 @@
 import { api } from "./client";
-import type { VersionDiff, VersionItemDetail, VersionList, VersionOut } from "../types";
+import type {
+  RestoreOut, RestorePreview, VersionDiff, VersionItemDetail, VersionList, VersionOut,
+} from "../types";
 
 // Версии документации объекта (docs/tasks/doc-versions.md §6). nodeId = null — корень:
 // версии всего проекта живут под /versions, без объекта в пути (страница проекта).
@@ -31,4 +33,11 @@ export const versionsApi = {
   // переключение между ними — без сети. item_id несёт двоеточие («doc:<id>») — кодируем.
   item: (nodeId: string | null, num: number, itemId: string, base: VersionBase): Promise<VersionItemDetail> =>
     api.get<VersionItemDetail>(`${prefix(nodeId)}/${num}/diff/${encodeURIComponent(itemId)}?base=${base}`),
+  // Что сделает откат к версии num — для окна подтверждения, ничего не меняя.
+  restorePreview: (nodeId: string | null, num: number): Promise<RestorePreview> =>
+    api.get<RestorePreview>(`${prefix(nodeId)}/${num}/restore-preview`),
+  // Откат к версии num (редактор): номера созданных версий, число удалённых объектов и
+  // замечания. Нечего восстанавливать — 422, предел демо — 409 с code=demo_limit.
+  restore: (nodeId: string | null, num: number): Promise<RestoreOut> =>
+    api.post<RestoreOut>(`${prefix(nodeId)}/${num}/restore`, {}),
 };
