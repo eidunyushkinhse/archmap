@@ -329,3 +329,19 @@ export type ConfigImportReport = Schemas["ConfigImportReport"];
 export type ReconImportReport = Schemas["ReconImportReport"];
 export type ReconItem = Schemas["ReconItem"];
 export type ReconAction = ReconItem["action"];
+
+// Версии документации объекта (docs/tasks/doc-versions.md): строка списка, список с
+// pending, дельта версии (плоский список элементов) и один элемент с тремя
+// представлениями «Изменения · Было · Стало». Представление — ровно одна форма: текст,
+// построчная дельта или таблица; все четыре поля null — элемента на этой стороне нет.
+export type VersionList = Schemas["VersionList"];
+export type VersionOut = Schemas["VersionOut"];
+export type VersionDiff = Schemas["VersionDiff"];
+export type VersionItem = Schemas["VersionItem"];
+export type VersionItemDetail = Schemas["VersionItemDetail"];
+export type VersionView = Schemas["VersionView"];
+export type VersionCategory = VersionItem["category"];
+export type VersionItemStatus = VersionItem["status"];
+// Метка строки дельты: «» контекст, add/del, mod (заголовок куска или «было → стало»),
+// move (только переставлена).
+export type DiffMark = Schemas["DiffLine"]["mark"];
