@@ -510,7 +510,7 @@ button.np-approval {
   z-index: 14;
 }
 
-/* Toggle (размещение) */
+/* Toggle (принадлежность: внутренний / внешний) */
 .np-toggle {
   display: inline-flex;
   align-items: center;
