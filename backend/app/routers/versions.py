@@ -6,8 +6,11 @@
 среза»; всё остальное общее (_register).
 
 Права: чтение — всем с доступом к проекту (и читателю: ему история нужна не меньше),
-фиксация — редактору, удаление версии — только владельцу проекта. Домен —
-app/versions.py; здесь коды ответа, перевод доменных отказов и коммит.
+фиксация и откат — редактору, удаление версии — только владельцу проекта. Откат
+удаляет объекты, появившиеся после версии, поэтому личным токеном его нельзя, как и
+«Принять переход» (Р4: сносит человек глазами, в интерфейсе). Домен —
+app/versions.py и app/versions_restore.py; здесь коды ответа, перевод доменных
+отказов и коммит.
 """
 
 import re
@@ -17,10 +20,11 @@ from collections.abc import Callable, Iterable
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app import versions
-from app.auth import get_current_user
+from app import restore, versions, versions_restore
+from app.auth import get_current_user, require_session_user
 from app.database import get_db
 from app.deps import (
+    commit_change,
     get_current_project,
     node_or_404,
     require_project_editor,
@@ -31,6 +35,8 @@ from app.models.node_version import NodeVersion
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.versions import (
+    RestoreOut,
+    RestorePreview,
     VersionCreate,
     VersionDiff,
     VersionItemDetail,
@@ -189,6 +195,54 @@ def _register(router: APIRouter, scope: Callable[..., Node | None]) -> None:
         """Удалить версию (только владелец). Номера остальных не пересчитываются."""
         versions.delete_version(db, _version_or_404(db, project, node, number))
         db.commit()
+
+    @router.get("/{number}/restore-preview", response_model=RestorePreview)
+    def restore_preview(
+        number: int,
+        node: Node | None = Depends(scope),
+        db: Session = Depends(get_db),
+        project: Project = Depends(get_current_project),
+        _: User = Depends(get_current_user),
+    ) -> RestorePreview:
+        """Что сделает откат к версии number — для окна подтверждения, ничего не
+        меняя: сохранится ли сперва незафиксированное, сколько объектов удалится, есть
+        ли процессы (они не откатываются). Чтение безвредно — открыто всем с доступом;
+        кнопки отката у читателя нет."""
+        return versions_restore.restore_preview(
+            db, project, node, _version_or_404(db, project, node, number)
+        )
+
+    @router.post(
+        "/{number}/restore",
+        response_model=RestoreOut,
+        dependencies=[Depends(require_session_user)],
+    )
+    def restore_version(
+        number: int,
+        node: Node | None = Depends(scope),
+        db: Session = Depends(get_db),
+        project: Project = Depends(get_current_project),
+        user: User = Depends(require_project_editor),
+    ) -> RestoreOut:
+        """Вернуть документацию объекта к версии number одной транзакцией: сперва
+        автоверсия «Перед откатом» (если есть незафиксированное), затем снимок, затем
+        версия «Откат к vN». Процессы и статус страницы не откатываются. Нечего
+        восстанавливать — 422; дубль имени в снимке — 409 (на данных версии
+        невозможен, страховка restore); предел демо — 409 с code=demo_limit, и тогда
+        не применено ничего."""
+        row = _version_or_404(db, project, node, number)
+        try:
+            out = versions_restore.restore_version(db, project, user, node, row)
+        except versions.VersionError as exc:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=exc.detail
+            ) from None
+        except restore.RestoreError as exc:
+            db.rollback()
+            raise HTTPException(status_code=exc.status, detail=exc.detail) from None
+        commit_change(db, project, user.id, graph=True, meta=True)
+        return out
 
     @router.get("/{number}/diff", response_model=VersionDiff)
     def version_diff(

@@ -224,7 +224,7 @@ describe("VersionsPanel: версия и элемент", () => {
         text: null,
         lines: null,
         columns: ["Параметр", "Тип"],
-        rows: [{ mark: "", cells: ["ORDER_TTL_H", "int"] }],
+        rows: [{ mark: "", cells: ["ORDER_TTL_H", "int"], changed: [] }],
       },
       after: { text: "flowchart TD\n  C[зарезервировать остаток]", lines: null, columns: null, rows: null },
     };
@@ -276,8 +276,8 @@ describe("VersionsPanel: версия и элемент", () => {
         lines: null,
         columns: ["Параметр", "Тип"],
         rows: [
-          { mark: "add", cells: ["ORDER_CANCEL_WINDOW_MIN", "int"] },
-          { mark: "move", cells: ["ORDER_TTL_H", "int"] },
+          { mark: "add", cells: ["ORDER_CANCEL_WINDOW_MIN", "int"], changed: [] },
+          { mark: "move", cells: ["ORDER_TTL_H", "int"], changed: [] },
         ],
       },
       before: absent,

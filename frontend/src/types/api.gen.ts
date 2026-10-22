@@ -2419,6 +2419,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/versions/{number}/restore-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restore Preview
+         * @description Что сделает откат к версии number — для окна подтверждения, ничего не
+         *     меняя: сохранится ли сперва незафиксированное, сколько объектов удалится, есть
+         *     ли процессы (они не откатываются). Чтение безвредно — открыто всем с доступом;
+         *     кнопки отката у читателя нет.
+         */
+        get: operations["restore_preview_api_v1_nodes__node_id__versions__number__restore_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Version
+         * @description Вернуть документацию объекта к версии number одной транзакцией: сперва
+         *     автоверсия «Перед откатом» (если есть незафиксированное), затем снимок, затем
+         *     версия «Откат к vN». Процессы и статус страницы не откатываются. Нечего
+         *     восстанавливать — 422; дубль имени в снимке — 409 (на данных версии
+         *     невозможен, страховка restore); предел демо — 409 с code=demo_limit, и тогда
+         *     не применено ничего.
+         */
+        post: operations["restore_version_api_v1_nodes__node_id__versions__number__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/versions/{number}/diff": {
         parameters: {
             query?: never;
@@ -2563,6 +2611,54 @@ export interface paths {
          * @description Удалить версию (только владелец). Номера остальных не пересчитываются.
          */
         delete: operations["delete_version_api_v1_versions__number__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/restore-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restore Preview
+         * @description Что сделает откат к версии number — для окна подтверждения, ничего не
+         *     меняя: сохранится ли сперва незафиксированное, сколько объектов удалится, есть
+         *     ли процессы (они не откатываются). Чтение безвредно — открыто всем с доступом;
+         *     кнопки отката у читателя нет.
+         */
+        get: operations["restore_preview_api_v1_versions__number__restore_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Version
+         * @description Вернуть документацию объекта к версии number одной транзакцией: сперва
+         *     автоверсия «Перед откатом» (если есть незафиксированное), затем снимок, затем
+         *     версия «Откат к vN». Процессы и статус страницы не откатываются. Нечего
+         *     восстанавливать — 422; дубль имени в снимке — 409 (на данных версии
+         *     невозможен, страховка restore); предел демо — 409 с code=demo_limit, и тогда
+         *     не применено ничего.
+         */
+        post: operations["restore_version_api_v1_versions__number__restore_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3213,6 +3309,20 @@ export interface components {
              * @enum {string}
              */
             reason: "missing" | "unknown";
+        };
+        /**
+         * CellChange
+         * @description Ячейка «было → стало» строки «изменений» по частям: index — номер ячейки в
+         *     cells, was и now — значения сторон. Фронт рисует по ним зачёркнутое «было» и
+         *     «стало», не разбирая текст ячейки (стрелка могла бы стоять и в самом значении).
+         */
+        CellChange: {
+            /** Index */
+            index: number;
+            /** Was */
+            was: string;
+            /** Now */
+            now: string;
         };
         /** ChannelFieldCreate */
         ChannelFieldCreate: {
@@ -6472,6 +6582,36 @@ export interface components {
             ids: string[];
         };
         /**
+         * RestoreOut
+         * @description Итог отката: номера созданных версий («Перед откатом», если была, и «Откат к
+         *     vN»), число удалённых объектов и замечания — что вернуть не удалось (связь к
+         *     объекту, которого больше нет; прежний родитель объекта).
+         */
+        RestoreOut: {
+            /** Created */
+            created: number[];
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Remarks */
+            remarks: string[];
+        };
+        /**
+         * RestorePreview
+         * @description Что сделает откат к версии — для окна подтверждения: pending — сохранится ли
+         *     сперва незафиксированное версией «Перед откатом», deleted_nodes — сколько объектов,
+         *     появившихся после версии, удалится, has_processes — есть ли процессы с участием
+         *     объекта (в версии или сейчас): строка «процессы не откатываются» нужна, только когда
+         *     есть что не откатывать.
+         */
+        RestorePreview: {
+            /** Pending */
+            pending: boolean;
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Has Processes */
+            has_processes: boolean;
+        };
+        /**
          * SearchHit
          * @description Одна находка: адрес, id для перехода, совпавшая строка и её счёт.
          */
@@ -7320,7 +7460,9 @@ export interface components {
         /**
          * VersionRow
          * @description Строка таблицы представления: свойство, связь, колонка, параметр или шаг. В
-         *     «изменениях» у изменённой строки ячейка с отличием — «было → стало»; в «было» и
+         *     «изменениях» у строки, сравнённой с другой стороной (mod — изменена, move —
+         *     переставлена), ячейка с отличием — текстом «было → стало» (его читают MCP и тесты),
+         *     а changed несёт те же ячейки по частям; у прочих строк changed пуст. В «было» и
          *     «стало» метка всегда пустая.
          */
         VersionRow: {
@@ -7331,6 +7473,11 @@ export interface components {
             mark: "" | "add" | "del" | "mod" | "move";
             /** Cells */
             cells: string[];
+            /**
+             * Changed
+             * @default []
+             */
+            changed: components["schemas"]["CellChange"][];
         };
         /**
          * VersionStats
@@ -12141,6 +12288,74 @@ export interface operations {
             };
         };
     };
+    restore_preview_api_v1_nodes__node_id__versions__number__restore_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_version_api_v1_nodes__node_id__versions__number__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     version_diff_api_v1_nodes__node_id__versions__number__diff_get: {
         parameters: {
             query?: {
@@ -12406,6 +12621,72 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_preview_api_v1_versions__number__restore_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_version_api_v1_versions__number__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreOut"];
+                };
             };
             /** @description Validation Error */
             422: {

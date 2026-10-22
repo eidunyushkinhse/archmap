@@ -545,6 +545,11 @@ def test_конфигурация_один_элемент_на_объект(db):
         ("add", ["ORDER_CANCEL_MIN", "int", "нет", "30", "окно отмены"]),
         ("mod", ["ORDER_TTL_H", "int", "нет", "24 → 48", "—"]),
     ]
+    # Ячейка «было → стало» — ещё и по частям (фронт рисует зачёркнутое «было»); у
+    # добавленной строки сравнивать не с чем.
+    rows = detail.changes.rows or []
+    assert [c.model_dump() for c in rows[1].changed] == [{"index": 3, "was": "24", "now": "48"}]
+    assert rows[0].changed == []
     assert [cells[0] for _m, cells in _rows(detail.before)] == ["DB_DSN", "ORDER_TTL_H"]
     assert [cells[0] for _m, cells in _rows(detail.after)] == [
         "DB_DSN", "ORDER_CANCEL_MIN", "ORDER_TTL_H",

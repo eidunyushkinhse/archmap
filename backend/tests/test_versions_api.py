@@ -14,7 +14,7 @@ import pytest
 from conftest import ensure_architect, make_project
 from fastapi.testclient import TestClient
 
-from app import demo, demo_limits
+from app import demo, demo_limits, personal_tokens, restore
 from app.auth import create_access_token
 from app.config import settings
 from app.database import get_db
@@ -258,7 +258,7 @@ def test_элемент_дельты_три_представления(client, d
     props = client.get(f"{s.orders_url}/2/diff/props:{s.orders.id}", headers=s.h).json()
     assert props["changes"]["columns"] == ["Поле", "Было", "Стало"]
     assert props["changes"]["rows"] == [
-        {"mark": "mod", "cells": ["технология", "—", "Python 3.12"]},
+        {"mark": "mod", "cells": ["технология", "—", "Python 3.12"], "changed": []},
     ]
 
     for item_id in (f"props:{uuid.uuid4()}", f"edge:{s.edge.id}", "чепуха"):
@@ -275,7 +275,7 @@ def test_перенос_объекта_подписан_живым_путём(cl
     res = client.get(f"{s.orders_url}/2/diff/props:{s.orders.id}", headers=s.h).json()
 
     assert res["changes"]["rows"] == [
-        {"mark": "mod", "cells": ["родитель", "Магазин", "верхний уровень"]},
+        {"mark": "mod", "cells": ["родитель", "Магазин", "верхний уровень"], "changed": []},
     ]
 
 
@@ -416,3 +416,147 @@ def test_демо_предел_версий_409(client, db, s, monkeypatch):
         "code": DEMO_LIMIT_CODE,
     }
     assert db.query(NodeVersion).count() == 1
+
+
+# ── Откат ──────────────────────────────────────────────────────────────────────
+
+
+def test_превью_отката(client, db, s):
+    _fix(client, s.shop_url, s.h)
+
+    res = client.get(f"{s.shop_url}/1/restore-preview", headers=s.h_reader)
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {"pending": False, "deleted_nodes": 0, "has_processes": True}
+    db.add(Node(id=uuid.uuid4(), project_id=s.p.id, name="Поиск", parent_id=s.shop.id))
+    db.commit()
+    assert client.get(f"{s.shop_url}/1/restore-preview", headers=s.h).json() == {
+        "pending": True, "deleted_nodes": 1, "has_processes": True,
+    }
+    assert client.get(f"{s.shop_url}/9/restore-preview", headers=s.h).status_code == 404
+
+
+def test_откат_версии_замечания_курсоры(client, db, s):
+    _fix(client, s.orders_url, s.h, "v1")
+    s.orders.technology = "Go"
+    db.delete(s.bank)  # связь «Банк → Заказы» вернуть будет не к чему
+    db.commit()
+    db.refresh(s.p)
+    before = (s.p.graph_rev, s.p.meta_rev)
+
+    res = client.post(f"{s.orders_url}/1/restore", headers=s.h_editor)
+
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "created": [2, 3],
+        "deleted_nodes": 0,
+        "remarks": ["связь «Банк → Магазин / Заказы» не восстановлена: объекта «Банк» больше нет"],
+    }
+    listed = client.get(s.orders_url, headers=s.h).json()
+    assert [(v["number"], v["kind"], v["comment"], v["restored_from"]) for v in listed["versions"]] == [
+        (3, "restore", "Откат к v1", 1),
+        (2, "pre_restore", "Перед откатом к v1", None),
+        (1, "manual", "v1", None),
+    ]
+    assert listed["versions"][0]["author"] == "editor"
+    assert listed["pending"] == {"changed": False, "items": []}
+    db.expire_all()
+    assert db.get(Node, s.orders.id).technology is None
+    # Откат меняет и схему (объекты, связи), и мету (тексты, факты): оба курсора.
+    assert s.p.graph_rev > before[0] and s.p.meta_rev > before[1]
+
+
+def test_откат_нечего_восстанавливать_422(client, s):
+    _fix(client, s.orders_url, s.h)
+
+    res = client.post(f"{s.orders_url}/1/restore", headers=s.h)
+
+    assert res.status_code == 422
+    assert res.json() == {"detail": "Нечего восстанавливать: документация совпадает с v1"}
+
+
+def test_откат_права_изоляция_и_токен(client, db, s):
+    _fix(client, s.orders_url, s.h)
+    s.orders.technology = "Go"
+    db.commit()
+
+    assert client.post(f"{s.orders_url}/1/restore", headers=s.h_reader).status_code == 403
+    assert client.post(f"{s.orders_url}/7/restore", headers=s.h).status_code == 404
+    other = make_project(db, "Другой")
+    stranger = Node(id=uuid.uuid4(), project_id=other.id, name="Чужой")
+    db.add(stranger)
+    db.commit()
+    alien = f"{API}/nodes/{stranger.id}/versions/1"
+    assert client.post(f"{alien}/restore", headers=s.h).status_code == 404
+    assert client.get(f"{alien}/restore-preview", headers=s.h).status_code == 404
+    # Откат удаляет объекты, появившиеся после версии: личным токеном нельзя (Р4), как
+    # и «Принять переход». Превью — чтение, им можно.
+    secret = personal_tokens.issue(db, s.editor, "Агент", False, 90).secret
+    db.commit()
+    token = {"Authorization": f"Bearer {secret}", "X-Project-Id": str(s.p.id)}
+    res = client.post(f"{s.orders_url}/1/restore", headers=token)
+    assert res.status_code == 403
+    assert res.json() == {"detail": personal_tokens.SESSION_ONLY_DETAIL}
+    assert client.get(f"{s.orders_url}/1/restore-preview", headers=token).status_code == 200
+    db.expire_all()
+    assert db.query(NodeVersion).count() == 1
+    assert db.get(Node, s.orders.id).technology == "Go"
+
+
+def test_откат_сверх_предела_версий_демо_409_ничего_не_применено(client, db, s, monkeypatch):
+    monkeypatch.setattr(settings, "demo_mode", True)
+    demo_limits.install()  # в проде — main.lifespan; TestClient без with его не запускает
+    monkeypatch.setattr(demo, "MAX_VERSIONS", 2)
+    _fix(client, s.orders_url, s.h)
+    s.orders.technology = "Go"
+    db.commit()
+
+    # «Перед откатом» и «Откат к v1» — две версии сверх одной: предел 2 превышен.
+    res = client.post(f"{s.orders_url}/1/restore", headers=s.h)
+
+    assert res.status_code == 409
+    assert res.json()["code"] == DEMO_LIMIT_CODE
+    db.expire_all()
+    assert db.query(NodeVersion).count() == 1
+    assert db.get(Node, s.orders.id).technology == "Go"
+
+
+def test_отказ_воссоздания_409_не_применяет_ничего(client, db, s, monkeypatch):
+    """Дубль имени в снимке (restore.RestoreError 409) на данных версии невозможен:
+    у схем и фактов ключ имени — внутри объекта-владельца из среза, а имена объектов не
+    уникальны. Проверяется перевод отказа и одна транзакция: к воссозданию уже записаны
+    версия «Перед откатом» и поля уцелевших строк — после отказа нет ни того, ни
+    другого."""
+    _fix(client, s.orders_url, s.h)
+    s.orders.technology = "Go"
+    db.delete(s.doc)  # схему придётся воссоздавать
+    db.commit()
+    detail = "В снимке повторяется имя (схема логики): «Создать заказ»"
+
+    def refuse(*_args: object, **_kwargs: object) -> None:
+        raise restore.RestoreError(detail, 409)
+
+    monkeypatch.setattr(restore, "apply_snapshot", refuse)
+    res = client.post(f"{s.orders_url}/1/restore", headers=s.h)
+
+    assert res.status_code == 409
+    assert res.json() == {"detail": detail}
+    db.expire_all()
+    assert db.query(NodeVersion).count() == 1
+    assert db.get(Node, s.orders.id).technology == "Go"
+
+
+def test_откат_версии_проекта(client, db, s):
+    root = f"{API}/versions"
+    _fix(client, root, s.h, "проект 1.0")
+    search_id = uuid.uuid4()
+    db.add(Node(id=search_id, project_id=s.p.id, name="Поиск"))
+    db.commit()
+
+    assert client.get(f"{root}/1/restore-preview", headers=s.h).json()["deleted_nodes"] == 1
+    res = client.post(f"{root}/1/restore", headers=s.h)
+
+    assert res.status_code == 200, res.text
+    assert res.json()["created"] == [2, 3] and res.json()["deleted_nodes"] == 1
+    db.expire_all()
+    assert db.get(Node, search_id) is None

@@ -39,6 +39,7 @@ from app.schemas.restore import (
     NodeSnapshot,
 )
 from app.schemas.versions import (
+    CellChange,
     DiffLine,
     ProcessVersion,
     VersionEdge,
@@ -244,9 +245,19 @@ def _val(value: object) -> str:
     return str(value)
 
 
-def _change(old: str, new: str) -> str:
-    """Ячейка «было → стало»; без изменения — само значение."""
-    return old if old == new else f"{old} → {new}"
+def _compared(mark: DiffMark, old: list[str], new: list[str]) -> VersionRow:
+    """Строка «изменений», сравнённая с другой стороной (связь, член таблицы, канала,
+    конфигурации, процесса): отличающаяся ячейка — текстом «было → стало» и по частям
+    в changed. Одно место на обе формы — расходиться им негде."""
+    cells: list[str] = []
+    changed: list[CellChange] = []
+    for index, (was, now) in enumerate(zip(old, new, strict=True)):
+        if was == now:
+            cells.append(was)
+        else:
+            cells.append(f"{was} → {now}")
+            changed.append(CellChange(index=index, was=was, now=now))
+    return VersionRow(mark=mark, cells=cells, changed=changed)
 
 
 def _table(columns: list[str], rows: list[VersionRow]) -> VersionView:
@@ -532,8 +543,7 @@ def _edge_row(old: VersionEdge | None, new: VersionEdge | None) -> VersionRow:
         return VersionRow(mark="add", cells=_edge_cells(_one(old, new)))
     if new is None:
         return VersionRow(mark="del", cells=_edge_cells(old))
-    cells = [_change(a, b) for a, b in zip(_edge_cells(old), _edge_cells(new), strict=True)]
-    return VersionRow(mark="mod", cells=cells)
+    return _compared("mod", _edge_cells(old), _edge_cells(new))
 
 
 def _edge_summary(old: VersionEdge, new: VersionEdge) -> str:
@@ -727,8 +737,7 @@ def _members[M: _HasId](
         if not mod and m.id not in moved:
             continue
         changed += int(mod)
-        cells = [_change(a, b) for a, b in zip(old_cells(prev), new_cells(m), strict=True)]
-        rows.append(VersionRow(mark="mod" if mod else "move", cells=cells))
+        rows.append(_compared("mod" if mod else "move", old_cells(prev), new_cells(m)))
     gone = [m for m in old if m.id not in new_ids]
     rows.extend(VersionRow(mark="del", cells=old_cells(m)) for m in gone)
     return _Members(rows=rows, added=added, changed=changed, removed=len(gone), moved=len(moved))
