@@ -360,3 +360,62 @@ async def test_слова_источника_те_же_что_в_интерфе�
     for word in render.BASIS_LABEL.values():
         assert f'"{word}"' in text
     assert "источника нет — будет опознаваться по имени" in text
+
+
+# ── Статус страницы (docs/tasks/page-status.md) ──────────────────────────────
+
+async def test_статус_страницы_листа(client: ArchMapClient, api: FakeApi) -> None:
+    base_routes(api, "service", approval="approved", approval_effective="approved")
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Статус страницы: согласовано" in out.splitlines()
+    # Строка стоит в шапке карточки, сразу после источника.
+    lines = out.splitlines()
+    assert lines.index("Статус страницы: согласовано") == lines.index(render.anchor_line(node(NODE, "Узел"))) + 1
+
+
+async def test_статус_страницы_контейнера_складывается_из_детей(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Хранимое «согласовано» у контейнера не показывается: статус — вычисленный
+    # сервером по детям, счётчик — по прямым детям (внук не считается).
+    target = base_routes(
+        api, "service", has_children=True, approval="approved", approval_effective="in_progress"
+    )
+    api.get("/nodes/all", [
+        target,
+        node(u(1), "Сервис заказов", NODE, approval="approved", approval_effective="approved"),
+        node(u(2), "База заказов", NODE, shape="database",
+             approval="in_progress", approval_effective="in_progress"),
+        node(u(3), "Kafka заказов", NODE, shape="broker",
+             approval="approved", approval_effective="approved"),
+        node(u(4), "Внук", u(1), approval="in_progress", approval_effective="in_progress"),
+    ])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Статус страницы: в работе — складывается из детей, согласовано 2 из 3" in out
+
+
+async def test_сервер_без_статуса_страниц_строки_не_выдумывает(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    base_routes(api, "service")
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Статус страницы" not in out
+
+
+async def test_слова_статуса_страницы_те_же_что_в_интерфейсе() -> None:
+    """Агент и экран называют статус одинаково: судья — словарь фронта (nodeTerms.ts)."""
+    text = (
+        Path(__file__).resolve().parents[2] / "frontend/src/components/nodeTerms.ts"
+    ).read_text(encoding="utf-8")
+    block = text.split("export const APPROVAL_LABEL", 1)[1].split("};", 1)[0]
+    labels = dict(re.findall(r'(in_progress|approved): "([^"]+)"', block))
+    assert {k: v.lower() for k, v in labels.items()} == render.APPROVAL_WORD

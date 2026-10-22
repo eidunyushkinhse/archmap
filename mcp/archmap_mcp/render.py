@@ -89,6 +89,32 @@ def anchor_line(node: dict[str, Any]) -> str:
     return f"Источник: {anchor_value(node.get('source'))}"
 
 
+# ── Статус страницы объекта (docs/tasks/page-status.md) ───────────────────────
+#
+# Статус ДОКУМЕНТАЦИИ, а не жизненный цикл (тот — STATUS_WORD выше). Слова — те же,
+# что на пилюле страницы (frontend/src/components/nodeTerms.ts, APPROVAL_LABEL),
+# строчными: агент и человек называют статус одинаково.
+APPROVAL_WORD = {"in_progress": "в работе", "approved": "согласовано"}
+
+
+def approval_line(node: dict[str, Any], children: list[dict[str, Any]]) -> str | None:
+    """Строка карточки «Статус страницы: …». У листа — его статус; у контейнера —
+    статус, вычисленный сервером по детям (approval_effective), и счётчик согласованных
+    прямых детей. Сервер, который статуса страниц не знает, поля не отдаёт — тогда
+    строки нет: выдуманное «в работе» было бы неправдой."""
+    value = node.get("approval_effective")
+    if value is None:
+        return None
+    word = APPROVAL_WORD.get(str(value), str(value))
+    if not node.get("has_children"):
+        return f"Статус страницы: {word}"
+    done = sum(1 for c in children if c.get("approval_effective") == "approved")
+    return (
+        f"Статус страницы: {word} — складывается из детей, "
+        f"согласовано {done} из {len(children)}"
+    )
+
+
 def anchor_note(source: dict[str, Any] | None) -> str:
     """Источник НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
     kind = anchor_kind(source)

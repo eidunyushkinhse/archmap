@@ -197,6 +197,13 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         # рождает дубль, и агент вправе знать это до правки, а не после.
         render.anchor_line(node),
     ]
+    # Статус страницы — пилюля у имени в интерфейсе. У контейнера он складывается из
+    # детей: счётчик — по прямым детям из того же /nodes/all, без лишнего запроса.
+    approval = render.approval_line(
+        node, [n for n in all_nodes if str(n.get("parent_id")) == str(node["id"])]
+    )
+    if approval:
+        out.append(approval)
     if node.get("description"):
         out.append(f"Описание: {node['description']}")
     out.append("")
@@ -915,7 +922,10 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     body = {
         k: args[k]
-        for k in ("name", "description", "role", "technology", "shape", "status", "is_external")
+        for k in (
+            "name", "description", "role", "technology", "shape", "status", "is_external",
+            "approval",
+        )
         if args.get(k) is not None
     }
     # ⚠️ Источник — ОТДЕЛЬНОЙ веткой, мимо фильтра «не None»: пустой объект {} у
@@ -927,6 +937,10 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         raise ArchMapError("Нечего менять: не передано ни одного поля.")
     data = await client.request("PATCH", f"/nodes/{args['node_id']}", project_id=pid, json=body)
     tail = "\n" + render.anchor_line(data) if "source" in body else ""
+    # Статус страницы — подтверждение тем же словом, что в карточке. Правка бывает
+    # только у листа (у контейнера сервер отвечает 422), поэтому дети здесь не нужны.
+    if "approval" in body:
+        tail += "\n" + (render.approval_line(data, []) or "")
     return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}." + tail
 
 
@@ -1020,6 +1034,11 @@ STATUS_ARG = {
     "type": "string",
     "enum": ["existing", "planned", "deprecated"],
     "description": "Жизненный цикл: existing — есть, planned — планируется, deprecated — выводится.",
+}
+APPROVAL_ARG = {
+    "type": "string",
+    "enum": ["in_progress", "approved"],
+    "description": "Статус страницы: in_progress — в работе, approved — согласовано. Ставить ТОЛЬКО по явной просьбе человека: согласование — решение архитектора.",
 }
 EXTERNAL_ARG = {"type": "boolean", "description": "Внешний объект: чужая система за границей продукта."}
 SYNC_ARG = {"type": "boolean", "description": "Связь синхронная (вызов с ответом). false — событие: у асинхронного канала нет ответного плеча."}
@@ -1566,7 +1585,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_update_node",
         "writes": True,
-        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ИСТОЧНИК (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает источник). Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
+        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ИСТОЧНИК (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает источник). approval — статус СТРАНИЦЫ (в работе / согласовано, не жизненный цикл): только по явной просьбе человека и только у объекта без детей — у контейнера он складывается из детей. Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
         "schema": {
             "type": "object",
             "properties": {
@@ -1580,6 +1599,7 @@ TOOLS: list[dict[str, Any]] = [
                 "status": STATUS_ARG,
                 "is_external": EXTERNAL_ARG,
                 "source": SOURCE_ARG,
+                "approval": APPROVAL_ARG,
             },
             "required": ["project", "node_id"],
         },
