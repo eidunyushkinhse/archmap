@@ -24,6 +24,13 @@ NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 NodeApproval = Literal["in_progress", "approved"]
 NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 
+# Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
+# фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом
+# к vN», чтобы откат не терял незафиксированное; restore — автоматическая «Откат к vN»,
+# запись истории вперёд (номер источника — в restored_from).
+VersionKind = Literal["manual", "pre_restore", "restore"]
+VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
+
 # Вид схемы логики: обе — точки входа (вид «обзор» удалён 2026-08-18). Поле operation
 # заполняется только у операций СОБСТВЕННОГО API узла.
 NodeDocKind = Literal["operation", "worker"]

@@ -32,6 +32,7 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.node_version import NodeVersion
 from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
 from app.schemas.restore import (
@@ -71,6 +72,11 @@ NOT_IN_SNAPSHOT: dict[type[Base], str] = {
         "первым же bump_view_version. Возвращать старое число не только не нужно, но и "
         "вредно: сессия с устаревшим base_version обязана получить 409 и перечитать "
         "уровень (та же причина, по которой ViewState не копирует копия проекта)"
+    ),
+    NodeVersion: (
+        "история версий документации удалённого объекта уходит вместе с ним (каскад "
+        "node_id), и Undo удаления возвращает объект без истории. Документация объекта "
+        "при этом не теряется: её хранят срезы его контейнера и корня проекта"
     ),
 }
 

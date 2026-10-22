@@ -32,6 +32,7 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.node_version import NodeVersion
 from app.models.personal_token import PersonalToken
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
@@ -229,6 +230,9 @@ NOT_COPIED: dict[type[Base], str] = {
     "он добавит сам (доступ к источнику не означает доступа к копии)",
     ViewState: "fence конкурентных записей раскладки: счётчик версий вида у копии "
     "свой и начинается с нуля",
+    NodeVersion: "версии документации — история ИСХОДНОГО проекта: снимки несут id его "
+    "узлов, схем и фактов, а у копии все id другие, и такие снимки ей бесполезны. "
+    "История копии начинается заново, с её первой фиксации",
 }
 
 
