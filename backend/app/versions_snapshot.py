@@ -31,6 +31,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -82,6 +84,12 @@ VERSION_PLAN: dict[type[Base], type] = {
 }
 
 _LAYOUT = "раскладка холста — не документация: версия несёт только семантику (ТЗ §2 п.7)"
+# Размещение пока вне версии: снимок, дельта «размещение» и откат экземпляров —
+# отдельная фаза Ф0б эпика. До неё content_hash не меняется от правок размещения.
+_DEPLOYMENT = (
+    "размещение входит в версию документации с Ф0б эпика развёртывания "
+    "(docs/tasks/deployment-view.md)"
+)
 _PROCESS = (
     "процесс едет в версию целиком через ProcessDetail (ProcessVersion.detail): его "
     "поля сторожит контракт процессов, а строки этой таблицы отдельно не снимаются"
@@ -101,6 +109,8 @@ NOT_IN_VERSION: dict[type[Base], str] = {
     ProcessMessage: _PROCESS,
     ProcessFragment: _PROCESS,
     ProcessFragmentBranch: _PROCESS,
+    DeploymentSite: _DEPLOYMENT,
+    DeploymentInstance: _DEPLOYMENT,
 }
 
 # Что входит в content_hash, решает одна функция — versions_diff.semantic: по ней же

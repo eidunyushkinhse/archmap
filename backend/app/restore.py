@@ -3,7 +3,7 @@
 Снимок (build_deletion_snapshot) собирается ДО удаления и повторяет ровно то, что
 исчезнет: поддерево узлов, ВСЯ их документация (схемы логики, таблицы БД с колонками,
 каналы брокера с полями, параметры конфигурации — всё это умирает БД-каскадом),
-инцидентные рёбра
+экземпляры развёртывания (тоже каскадом; сами площадки не трогаются), инцидентные рёбра
 (источник/цель в поддереве) и строки раскладки view_layout — свои виды поддерева
 (умрут каскадом view_id) плюс строки других видов, чьи ключи ссылаются на поддерево
 (их чистит delete_node). Восстановление (restore_from_snapshot) воссоздаёт всё это
@@ -30,6 +30,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -43,6 +45,7 @@ from app.schemas.restore import (
     DbColumnSnapshot,
     DbTableSnapshot,
     DeletionSnapshot,
+    DeploymentInstanceSnapshot,
     EdgeSnapshot,
     NodeDocSnapshot,
     NodeSnapshot,
@@ -62,6 +65,7 @@ SNAPSHOT_PLAN: dict[type[Base], type] = {
     BrokerChannel: BrokerChannelSnapshot,
     ChannelField: ChannelFieldSnapshot,
     ConfigParam: ConfigParamSnapshot,
+    DeploymentInstance: DeploymentInstanceSnapshot,
     ViewLayoutItem: ViewLayoutItemSnapshot,
 }
 
@@ -85,9 +89,11 @@ NOT_IN_SNAPSHOT: dict[type[Base], str] = {
 @dataclass
 class SubtreeDocs:
     """Документация узлов поддерева строками снимка: схемы логики с текстом, таблицы с
-    колонками, каналы с полями, параметры конфигурации. Одна выборка на два снимка —
-    удаления (умрёт каскадом вместе с узлами) и версии документации
-    (app/versions_snapshot): новая семья фактов добавляется здесь один раз."""
+    колонками, каналы с полями, параметры конфигурации, экземпляры развёртывания. Одна
+    выборка на два снимка — удаления (умрёт каскадом вместе с узлами) и версии
+    документации (app/versions_snapshot): новая семья фактов добавляется здесь один раз.
+    Экземпляры снимок версии пока не несёт — размещение войдёт в версию с Ф0б эпика
+    развёртывания (docs/tasks/deployment-view.md)."""
 
     node_docs: list[NodeDocSnapshot]
     db_tables: list[DbTableSnapshot]
@@ -95,6 +101,7 @@ class SubtreeDocs:
     broker_channels: list[BrokerChannelSnapshot]
     channel_fields: list[ChannelFieldSnapshot]
     config_params: list[ConfigParamSnapshot]
+    instances: list[DeploymentInstanceSnapshot]
 
 
 def collect_subtree_docs(db: Session, subtree: set[uuid.UUID]) -> SubtreeDocs:
@@ -125,6 +132,9 @@ def collect_subtree_docs(db: Session, subtree: set[uuid.UUID]) -> SubtreeDocs:
         if channel_ids
         else []
     )
+    instances = (
+        db.query(DeploymentInstance).filter(DeploymentInstance.node_id.in_(subtree)).all()
+    )
     return SubtreeDocs(
         node_docs=[NodeDocSnapshot.model_validate(d) for d in docs],
         db_tables=[DbTableSnapshot.model_validate(t) for t in tables],
@@ -132,6 +142,7 @@ def collect_subtree_docs(db: Session, subtree: set[uuid.UUID]) -> SubtreeDocs:
         broker_channels=[BrokerChannelSnapshot.model_validate(c) for c in channels],
         channel_fields=[ChannelFieldSnapshot.model_validate(f) for f in fields],
         config_params=[ConfigParamSnapshot.model_validate(p) for p in params],
+        instances=[DeploymentInstanceSnapshot.model_validate(i) for i in instances],
     )
 
 
@@ -173,6 +184,7 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
         broker_channels=docs.broker_channels,
         channel_fields=docs.channel_fields,
         config_params=docs.config_params,
+        instances=docs.instances,
     )
 
 
@@ -294,6 +306,7 @@ def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.
     node_refs.update(t.node_id for t in snapshot.db_tables)
     node_refs.update(c.node_id for c in snapshot.broker_channels)
     node_refs.update(p.node_id for p in snapshot.config_params)
+    node_refs.update(i.node_id for i in snapshot.instances)
     node_refs.update(e.source_id for e in snapshot.edges)
     node_refs.update(e.target_id for e in snapshot.edges)
     node_refs.update(it.view_id for it in snapshot.layout_items if it.view_id is not None)
@@ -331,6 +344,19 @@ def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.
         if field_channels - live_channels:
             raise RestoreError(FOREIGN_REF_DETAIL)
 
+    # Площадка экземпляра: чужая — отказ (та же утечка изоляции, что чужой узел);
+    # несуществующая — не отказ: её удалили после удаления объекта, и экземпляр
+    # молча пропустит apply_snapshot (_restore_instances).
+    site_ids = {i.site_id for i in snapshot.instances}
+    if site_ids:
+        foreign_sites = (
+            db.query(DeploymentSite.id)
+            .filter(DeploymentSite.id.in_(site_ids), DeploymentSite.project_id != project_id)
+            .first()
+        )
+        if foreign_sites is not None:
+            raise RestoreError(FOREIGN_REF_DETAIL)
+
     _check_unique_names(db, snapshot, live_nodes)
 
 
@@ -343,8 +369,8 @@ def restore_from_snapshot(
 
 
 def apply_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
-    """Воссоздать узлы, их документацию, рёбра и строки раскладки из снимка с
-    сохранением исходных id — без коммита: откат версии документации
+    """Воссоздать узлы, их документацию, экземпляры развёртывания, рёбра и строки
+    раскладки из снимка с сохранением исходных id — без коммита: откат версии документации
     (app/versions_restore) воссоздаёт недостающее этой же механикой внутри своей
     транзакции, рядом с правками уцелевших строк.
 
@@ -399,9 +425,51 @@ def apply_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUI
         db.add(Edge(**es.model_dump(), project_id=project_id))
     db.flush()
 
+    _restore_instances(db, snapshot, project_id)
+
     # Строки раскладки: удаление их вычистило (каскад/явная чистка), коллизий нет.
     for it in snapshot.layout_items:
         db.add(ViewLayoutItem(**it.model_dump(), project_id=project_id))
+    db.flush()
+
+
+def _restore_instances(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
+    """Экземпляры развёртывания — после узлов (FK node_id уже валиден).
+
+    Площадка в снимок не входит: она не потомок узла, и Undo удаления объекта не может
+    вернуть площадку, удалённую после него. Такой экземпляр пропускается молча —
+    объект возвращается без этого размещения, а не отказом всего отката. Пропускается
+    и пара, которая уже стоит (экземпляр живого узла в присланном снимке): уникальность
+    (node_id, site_id) дала бы 500 вместо отката."""
+    if not snapshot.instances:
+        return
+    site_ids = {i.site_id for i in snapshot.instances}
+    live_sites = {
+        sid
+        for (sid,) in db.query(DeploymentSite.id).filter(
+            DeploymentSite.id.in_(site_ids), DeploymentSite.project_id == project_id
+        )
+    }
+    node_ids = {i.node_id for i in snapshot.instances}
+    taken = {
+        (nid, sid)
+        for nid, sid in db.query(DeploymentInstance.node_id, DeploymentInstance.site_id).filter(
+            DeploymentInstance.node_id.in_(node_ids)
+        )
+    }
+    taken_ids = {
+        iid
+        for (iid,) in db.query(DeploymentInstance.id).filter(
+            DeploymentInstance.id.in_({i.id for i in snapshot.instances})
+        )
+    }
+    for inst in snapshot.instances:
+        pair = (inst.node_id, inst.site_id)
+        if inst.site_id not in live_sites or pair in taken or inst.id in taken_ids:
+            continue
+        taken.add(pair)
+        taken_ids.add(inst.id)
+        db.add(DeploymentInstance(**inst.model_dump(), project_id=project_id))
     db.flush()
 
 

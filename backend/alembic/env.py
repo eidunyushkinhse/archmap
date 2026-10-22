@@ -8,6 +8,8 @@ import app.models.channel_field
 import app.models.config_param
 import app.models.db_column
 import app.models.db_table
+import app.models.deployment_instance
+import app.models.deployment_site
 import app.models.edge
 import app.models.node
 import app.models.node_doc

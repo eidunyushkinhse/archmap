@@ -53,6 +53,13 @@ DiffMark = Literal["", "add", "del", "mod", "move"]
 NodeDocKind = Literal["operation", "worker"]
 NODE_DOC_KINDS: tuple[NodeDocKind, ...] = get_args(NodeDocKind)
 
+# Вид площадки развёртывания (docs/tasks/deployment-view.md): облако или управляемый
+# сервис, кластер Kubernetes, виртуальная машина, физический сервер, прочее (ЦОД,
+# стойка). Конкретика («Yandex Cloud», «k3s 1.30») — технологией площадки свободным
+# текстом, как у узла: перечисление поставщиков здесь врало бы про их разнообразие.
+SiteKind = Literal["cloud", "kubernetes", "vm", "physical", "other"]
+SITE_KINDS: tuple[SiteKind, ...] = get_args(SiteKind)
+
 # Подписи словарей узла по-русски — для текстов, которые собирает бэк (дельта версий
 # документации). Зеркало фронтовых SHAPE_LABEL / APPROVAL_LABEL / DOC_KIND_LABEL
 # (components/nodeTerms.ts) и STATUS_META (graph/colors.ts): в таблице «было / стало»

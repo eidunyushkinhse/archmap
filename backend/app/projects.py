@@ -1,7 +1,8 @@
 """Глубокая копия схемы проекта (POST /projects со start="copy:<projectId>").
 
 Копирует узлы со всей их документацией (схемы логики, структура БД, каналы брокеров,
-конфигурация), связи, бизнес-процессы и раскладочный слой в новый проект с НОВЫМИ id,
+конфигурация), связи, бизнес-процессы, площадки развёртывания с экземплярами и
+раскладочный слой в новый проект с НОВЫМИ id,
 перемэппивая
 все внутренние ссылки. Исходный проект не меняется.
 
@@ -23,6 +24,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -44,6 +47,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
     tmap: dict[uuid.UUID, uuid.UUID] = {}  # старый db_table id → новый
     colmap: dict[uuid.UUID, uuid.UUID] = {}  # старый db_column id → новый
     chmap: dict[uuid.UUID, uuid.UUID] = {}  # старый broker_channel id → новый
+    smap: dict[uuid.UUID, uuid.UUID] = {}  # старый deployment_site id → новый
 
     nodes = db.query(Node).filter(Node.project_id == src_id).all()
     # Заранее выделяем новые id, чтобы перемэппить parent_id без учёта порядка.
@@ -79,6 +83,9 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         _copy_config_params(db, nmap)
         db.flush()
 
+    # Площадки и экземпляры — после узлов: экземпляр ссылается и на узел, и на площадку.
+    _copy_deployment(db, src_id, dst_id, nmap, smap)
+
     for e in db.query(Edge).filter(Edge.project_id == src_id).all():
         emap[e.id] = uuid.uuid4()
         db.add(
@@ -93,7 +100,7 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
     db.flush()
 
     _copy_processes(db, src_id, dst_id, nmap, emap, dmap, pmap, partmap, fragmap)
-    _copy_layout(db, src_id, dst_id, nmap)
+    _copy_layout(db, src_id, dst_id, nmap, smap)
 
 
 def _copy_node_docs(
@@ -168,6 +175,66 @@ def _copy_config_params(db: Session, nmap: dict[uuid.UUID, uuid.UUID]) -> None:
     params = db.query(ConfigParam).filter(ConfigParam.node_id.in_(nmap.keys())).all()
     for p in params:
         db.add(copy_row(p, id=uuid.uuid4(), node_id=nmap[p.node_id]))
+
+
+def _copy_deployment(
+    db: Session,
+    src_id: uuid.UUID,
+    dst_id: uuid.UUID,
+    nmap: dict[uuid.UUID, uuid.UUID],
+    smap: dict[uuid.UUID, uuid.UUID],
+) -> None:
+    """Площадки развёртывания с вложенностью и экземпляры объектов на них.
+
+    Площадки вставляются родителями раньше детей: FK parent_id проверяется сразу на
+    вставке, а id всех площадок выделены заранее (smap), так что ссылка на родителя
+    перемэппивается без оглядки на порядок обхода. Глубина считается с seen: цикл
+    родителей отсекает правка площадки, но копия не должна зависнуть и на чужих данных.
+    smap заполняется здесь: по нему же перемэппятся ключи раскладки развёртывания.
+    """
+    sites = db.query(DeploymentSite).filter(DeploymentSite.project_id == src_id).all()
+    if not sites:
+        return
+    for site in sites:
+        smap[site.id] = uuid.uuid4()
+    by_id = {site.id: site for site in sites}
+
+    def depth(site: DeploymentSite) -> int:
+        d, cur, seen = 0, site, {site.id}
+        while cur.parent_id is not None and cur.parent_id in by_id and cur.parent_id not in seen:
+            cur = by_id[cur.parent_id]
+            seen.add(cur.id)
+            d += 1
+        return d
+
+    for site in sorted(sites, key=depth):
+        db.add(
+            copy_row(
+                site,
+                id=smap[site.id],
+                project_id=dst_id,
+                parent_id=smap.get(site.parent_id) if site.parent_id else None,
+            )
+        )
+    db.flush()  # площадки существуют до экземпляров (FK site_id)
+    instances = (
+        db.query(DeploymentInstance).filter(DeploymentInstance.project_id == src_id).all()
+    )
+    for inst in instances:
+        # Обе ссылки внутри проекта по построению (роутер проверяет); пропуск вместо
+        # KeyError — страховка от строки, чей узел или площадка не попали в карты.
+        if inst.node_id not in nmap or inst.site_id not in smap:
+            continue
+        db.add(
+            copy_row(
+                inst,
+                id=uuid.uuid4(),
+                project_id=dst_id,
+                node_id=nmap[inst.node_id],
+                site_id=smap[inst.site_id],
+            )
+        )
+    db.flush()
 
 
 def _copy_broker_structure(
@@ -271,15 +338,20 @@ def _copy_processes(
 
 
 def _copy_layout(
-    db: Session, src_id: uuid.UUID, dst_id: uuid.UUID, nmap: dict[uuid.UUID, uuid.UUID]
+    db: Session,
+    src_id: uuid.UUID,
+    dst_id: uuid.UUID,
+    nmap: dict[uuid.UUID, uuid.UUID],
+    smap: dict[uuid.UUID, uuid.UUID],
 ) -> None:
     """Раскладочный слой (view_layout): ремапим вид и все uuid внутри строкового ключа
-    (позиции — сам uuid узла/сущности). Payload фильтруем до живых ключей
-    (x/y/expanded): ручной слой стрелок удалён 2026-07-09, легаси-геометрию пучков в
-    копию не тащим; опустевшие строки не копируем вовсе."""
+    (позиции — сам uuid узла/сущности; ключи развёртывания «deploy:<узел>@<площадка>»
+    и «deploy:site:<площадка>» несут ещё и uuid площадок — их ремапит smap). Payload
+    фильтруем до живых ключей (x/y/expanded): ручной слой стрелок удалён 2026-07-09,
+    легаси-геометрию пучков в копию не тащим; опустевшие строки не копируем вовсе."""
     if not nmap:
         return
-    str_map = {str(old): str(new) for old, new in nmap.items()}
+    str_map = {str(old): str(new) for old, new in (*nmap.items(), *smap.items())}
 
     def remap_str(s: str) -> str:
         for old, new in str_map.items():

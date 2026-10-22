@@ -29,6 +29,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -78,6 +80,7 @@ _DERIVED = "признак производный (column_property поверх 
 # Перемэппинг ссылок: все карты «старый id → новый» аллоцируются в copy_project_schema
 # заранее, до вставки, — порядок обхода не важен.
 _BY_NMAP = "ссылка на узел — через карту узлов nmap"
+_BY_SMAP = "ссылка на площадку — через карту площадок smap"
 
 COPY_PLAN: dict[type[Base], TablePlan] = {
     Node: TablePlan(
@@ -206,11 +209,33 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
         mapped={"fragment_id": "ссылка на фрагмент — через карту фрагментов"},
         data=("start_order", "guard"),
     ),
+    # Площадки развёртывания (docs/tasks/deployment-view.md): копия — та же топология.
+    # Имя едет как есть: на площадку ссылаются ИМЕНЕМ импорт YAML и агент, и копия
+    # обязана резолвиться так же, как источник.
+    DeploymentSite: TablePlan(
+        own={
+            "id": _ID,
+            "project_id": _PROJECT,
+            "version": _VERSION,
+            "created_at": _CREATED,
+            "updated_at": _UPDATED,
+        },
+        mapped={"parent_id": _BY_SMAP},
+        data=("name", "kind", "technology", "description"),
+    ),
+    # Экземпляр — чистая пара ссылок «объект на площадке»: данных у него нет, обе
+    # ссылки перевешиваются на строки копии.
+    DeploymentInstance: TablePlan(
+        own={"id": _ID, "project_id": _PROJECT},
+        mapped={"node_id": _BY_NMAP, "site_id": _BY_SMAP},
+        data=(),
+    ),
     ViewLayoutItem: TablePlan(
         own={"id": _ID, "project_id": _PROJECT},
         mapped={
             "view_id": _BY_NMAP,
-            "item_id": "строковый ключ несёт uuid узлов — перемэппивается по nmap",
+            "item_id": "строковый ключ несёт uuid узлов (у ключей развёртывания "
+            "«deploy:…» — ещё и площадок) — перемэппивается по nmap и smap",
             "payload": "фильтруется до живых ключей (x/y/expanded): легаси-геометрия "
             "пучков в копию не едет",
         },
