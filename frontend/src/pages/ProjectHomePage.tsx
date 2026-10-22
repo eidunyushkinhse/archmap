@@ -17,6 +17,8 @@ import { useToast } from "./useToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
 import { plural } from "../ui/plural";
+import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
+import { useProjectRole } from "./projectRole";
 import "./NodePage.css";
 import "../ui/smallButton.css";
 
@@ -36,6 +38,12 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   const meta = useAsyncLoad(projectId, () => Promise.all([projectsApi.get(projectId), processesApi.list()]));
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   const lvl = useLevelSchema({ containerId: null });
+  // ⋯-меню проекта и панель «Версии документации» всего проекта: страница проекта —
+  // корень дерева, его версии ловят и то, что появляется на верхнем уровне
+  // (docs/tasks/doc-versions.md §2). Права — как на странице объекта.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const isOwner = useProjectRole() === "owner";
 
   useEffect(() => { writeSchemaView(schemaView); }, [schemaView]);
 
@@ -126,6 +134,21 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
               </svg>
             </span>
             <span className="np-name">{project.name}</span>
+            <div className="np-menu-wrap">
+              <button className="np-menu-btn" onClick={() => setMenuOpen((o) => !o)} title="Действия">
+                ⋯
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
+                  <div className="np-dropdown">
+                    <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
+                      Версии документации
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
           {project.description && (
             <p style={{ margin: "10px 0 0", fontSize: 13.5, color: "#475569", lineHeight: 1.55, maxWidth: 640 }}>
@@ -214,6 +237,16 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           </div>
         )}
       </div>
+
+      {versionsOpen && (
+        <VersionsPanel
+          nodeId={null}
+          title={project.name}
+          canEdit={isArchitect}
+          canDelete={isOwner}
+          onClose={() => setVersionsOpen(false)}
+        />
+      )}
     </div>
   );
 }
