@@ -97,6 +97,7 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
             "is_external",
             "shape",
             "status",
+            "approval",
             "source_ref",
         ),
     ),

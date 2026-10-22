@@ -18,6 +18,12 @@ NODE_SHAPES: tuple[NodeShape, ...] = get_args(NodeShape)
 NodeStatus = Literal["existing", "planned", "deprecated"]
 NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 
+# Статус СТРАНИЦЫ объекта, не жизненный цикл (docs/tasks/page-status.md): «в работе» —
+# документация ещё правится, «согласовано» — проверена редактором проекта. У листа
+# хранится в nodes.approval, у контейнера вычисляется по детям (app/approval.py).
+NodeApproval = Literal["in_progress", "approved"]
+NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
+
 # Вид схемы логики: обе — точки входа (вид «обзор» удалён 2026-08-18). Поле operation
 # заполняется только у операций СОБСТВЕННОГО API узла.
 NodeDocKind = Literal["operation", "worker"]

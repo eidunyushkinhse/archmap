@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain_types import NodeShape, NodeStatus
+from app.domain_types import NodeApproval, NodeShape, NodeStatus
 from app.schemas.node_doc import NodeDocMeta
 from app.schemas.view import ViewLayoutPayload
 
@@ -80,6 +80,10 @@ class NodeUpdate(BaseModel):
     is_external: bool | None = None
     shape: NodeShape | None = None
     status: NodeStatus | None = None
+    # Статус СТРАНИЦЫ (docs/tasks/page-status.md). Не прислан — не трогаем (фронт шлёт
+    # его только из пилюли, отдельным PATCH). У контейнера (есть дети) — 422: его
+    # статус складывается из детей. В NodeCreate поля нет: новый объект всегда «в работе».
+    approval: NodeApproval | None = None
     # ЯКОРЬ узла. Поле НЕ ПРИСЛАНО — якорь не трогаем (фронт шлёт полный payload
     # свойств и не обязан знать про якорь); прислан null или объект без значимых
     # полей — якорь очищается; объект с полями — нормализуется (app/identity) и
@@ -111,6 +115,12 @@ class NodeResponse(BaseModel):
     # их наличия. child_count — для ранжирования узлов в дереве UI («главное» сверху).
     child_count: int = 0
     has_children: bool = False
+    # Статус СТРАНИЦЫ объекта (не жизненный цикл status): approval — хранимое значение
+    # (ставит редактор у листа), approval_effective — вычисленное с учётом детей
+    # (app/approval.py): у листа совпадает с хранимым, у контейнера — approved, только
+    # если согласованы все дети. Показывать надо approval_effective.
+    approval: NodeApproval = "in_progress"
+    approval_effective: NodeApproval = "in_progress"
     # Якорь узла: канонический ключ хранения (source_ref) и он же разобранный
     # по видам (source). Ставится прогоном агента ИЛИ рукой архитектора —
     # PATCH принимает source (см. NodeUpdate). Разобранный вид — для карточки
