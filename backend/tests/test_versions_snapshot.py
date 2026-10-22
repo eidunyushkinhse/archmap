@@ -6,11 +6,14 @@
 двигает).
 """
 
+import hashlib
 import importlib
+import json
 import pkgutil
 import types
 import typing
 import uuid
+import zlib
 
 import pytest
 from conftest import make_project
@@ -23,6 +26,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -32,6 +37,8 @@ from app.models.process_participant import ProcessParticipant
 from app.process_export import detail_to_mermaid
 from app.restore import SNAPSHOT_PLAN
 from app.schemas.versions import VersionSnapshot
+from app.versions import pending
+from app.versions_diff import semantic
 from app.versions_snapshot import (
     NOT_IN_VERSION,
     SNAPSHOT_FORMAT,
@@ -77,6 +84,14 @@ def test_схемы_версии_те_же_что_у_снимка_удалени
     for model, schema in VERSION_PLAN.items():
         assert model in SNAPSHOT_PLAN, f"{model.__name__}: в версии есть, в снимке удаления нет"
         assert SNAPSHOT_PLAN[model] is schema, model.__name__
+
+
+def test_площадка_вне_версии_а_размещение_на_ней_в_версии():
+    """Экземпляр — документация объекта («где он крутится»), площадка — общая сущность
+    проекта, как процесс: её правка и удаление версией объекта не откатываются."""
+    assert DeploymentInstance in VERSION_PLAN
+    assert DeploymentSite not in VERSION_PLAN
+    assert "общая сущность проекта" in NOT_IN_VERSION[DeploymentSite]
 
 
 def _list_item_types() -> list[type]:
@@ -387,3 +402,122 @@ def test_счётчик_CAS_шага_в_хэш_не_входит(db, project):
 
     assert after.processes[0].detail.messages[0].version == 3
     assert content_hash(after) == content_hash(before)
+
+
+# --- Размещение ----------------------------------------------------------------
+
+
+def _site(db, project, name, parent=None) -> DeploymentSite:
+    site = DeploymentSite(
+        id=uuid.uuid4(), project_id=project.id, name=name,
+        parent_id=None if parent is None else parent.id,
+    )
+    db.add(site)
+    db.flush()
+    return site
+
+
+def _place(db, node, site) -> DeploymentInstance:
+    inst = DeploymentInstance(
+        id=uuid.uuid4(), project_id=node.project_id, node_id=node.id, site_id=site.id
+    )
+    db.add(inst)
+    db.flush()
+    return inst
+
+
+def _placed(db, project) -> types.SimpleNamespace:
+    """Сцена с площадками «Облако» → «Кластер prod» и «Стойка»: «Система» стоит в
+    кластере (её дети наследуют), у «Заказов» своё размещение в кластере и в стойке."""
+    s = _scene(db, project)
+    s.cloud = _site(db, project, "Облако")
+    s.prod = _site(db, project, "Кластер prod", s.cloud)
+    s.rack = _site(db, project, "Стойка")
+    s.i_system = _place(db, s.system, s.prod)
+    s.i_orders_prod = _place(db, s.orders, s.prod)
+    s.i_orders_rack = _place(db, s.orders, s.rack)
+    db.commit()
+    return s
+
+
+def test_снимок_несёт_свои_экземпляры_с_путём_площадки(db, project):
+    s = _placed(db, project)
+
+    snap = build_snapshot(db, project.id, s.system.id)
+
+    # Свои экземпляры узлов среза — по id; унаследованных (Платежи от Системы) нет.
+    assert [(i.id, i.node_id, i.site_id, i.site_path) for i in snap.instances] == sorted(
+        [
+            (s.i_system.id, s.system.id, s.prod.id, "Облако / Кластер prod"),
+            (s.i_orders_prod.id, s.orders.id, s.prod.id, "Облако / Кластер prod"),
+            (s.i_orders_rack.id, s.orders.id, s.rack.id, "Стойка"),
+        ],
+        key=lambda row: str(row[0]),
+    )
+    leaf = build_snapshot(db, project.id, s.payments.id)
+    assert leaf.instances == []
+    # Кодек переносит размещение как есть.
+    assert decode(encode(snap), SNAPSHOT_FORMAT) == snap
+
+
+def test_цикл_площадок_в_данных_не_вешает_снимок(db, project):
+    s = _placed(db, project)
+    s.cloud.parent_id = s.prod.id  # испорченные данные: Облако ↔ Кластер prod
+    db.commit()
+
+    snap = build_snapshot(db, project.id, s.orders.id)
+
+    assert {i.site_path for i in snap.instances} == {"Облако / Кластер prod", "Стойка"}
+
+
+def test_путь_площадки_вне_хэша_а_размещение_в_нём(db, project):
+    """Переименование и перенос площадки — не правка документации объекта: путь
+    свежий для показа, хэш тот же. Снятое размещение хэш меняет."""
+    s = _placed(db, project)
+    before = build_snapshot(db, project.id, s.orders.id)
+
+    s.prod.name = "Кластер prod-2"
+    s.prod.parent_id = None
+    db.commit()
+    renamed = build_snapshot(db, project.id, s.orders.id)
+
+    assert content_hash(renamed) == content_hash(before)
+    assert canonical_json(renamed) != canonical_json(before)
+    assert "Кластер prod-2" in {i.site_path for i in renamed.instances}
+
+    db.delete(s.i_orders_rack)
+    db.commit()
+    assert content_hash(build_snapshot(db, project.id, s.orders.id)) != content_hash(before)
+
+
+def _old_format(snap: VersionSnapshot) -> tuple[bytes, str]:
+    """Байты и хэш снимка так, как их записала бы версия до размещения в снимке: в JSON
+    и в семантической проекции нет ключа instances."""
+    data = json.loads(canonical_json(snap))
+    del data["instances"]
+    sem = semantic(snap)
+    del sem["instances"]
+
+    def dumps(obj) -> str:
+        return json.dumps(obj, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+    raw = zlib.compress(dumps(data).encode("utf-8"))
+    return raw, hashlib.sha256(dumps(sem).encode("utf-8")).hexdigest()
+
+
+def test_старый_снимок_без_размещения_читается_и_не_даёт_ложных_изменений(db, project):
+    """Версии, снятые до размещения в снимке: формат тот же (поле с дефолтом), хэш в
+    колонке посчитан без ключа и с живым расходится, но pending сверяет перечень по
+    дельте — «изменений нет»."""
+    s = _scene(db, project)
+    raw, old_hash = _old_format(build_snapshot(db, project.id, s.orders.id))
+    assert old_hash != content_hash(build_snapshot(db, project.id, s.orders.id))
+    db.add(NodeVersion(
+        project_id=project.id, node_id=s.orders.id, number=1, comment="до размещения",
+        snapshot=raw, content_hash=old_hash, stats={},
+    ))
+    db.commit()
+
+    row = db.query(NodeVersion).one()
+    assert decode(row.snapshot, row.snapshot_format).instances == []
+    assert pending(db, project, s.orders).model_dump() == {"changed": False, "items": []}

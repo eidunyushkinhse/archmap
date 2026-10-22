@@ -56,6 +56,10 @@ from app.text import plural, plural_word
 # Пути концов связи — для показа: переименование чужого узла, связанного с объектом,
 # не правка его документации (связь опознаётся id концов, они в проекции).
 _EDGE_DISPLAY = {"source_path", "target_path"}
+# Путь площадки экземпляра — тоже для показа: площадка — общая сущность проекта, её
+# переименование или перенос не правка документации объекта (экземпляр опознаётся id
+# площадки, он в проекции).
+_INSTANCE_DISPLAY = {"site_path"}
 
 # Поля шага процесса, которые несут смысл. Остальное в MessageOut — производное для
 # показа: technology и edge_synchronous — свойства связи, а не шага (связь вне среза
@@ -106,9 +110,20 @@ def semantic_process(proc: ProcessVersion) -> dict[str, Any]:
 def semantic(snapshot: VersionSnapshot) -> dict[str, Any]:
     """Семантическая проекция снимка — то, по чему считается content_hash и что
     сравнивает дельта. Узлы, схемы, таблицы, колонки, каналы, поля и параметры — как
-    есть; связи — без путей концов; процессы — semantic_process."""
+    есть; связи — без путей концов; экземпляры размещения — без путей площадок;
+    процессы — semantic_process.
+
+    Ключ instances есть всегда, и у пустого размещения тоже: хэш версий, снятых до
+    размещения в снимке, с живым поэтому не совпадает, но versions.pending сверяет
+    перечень по дельте, а откат пересчитывает хэш по снимку, — прятать ключ ради них
+    не нужно."""
     data = snapshot.model_dump(
-        mode="json", exclude={"edges": {"__all__": _EDGE_DISPLAY}, "processes": True}
+        mode="json",
+        exclude={
+            "edges": {"__all__": _EDGE_DISPLAY},
+            "instances": {"__all__": _INSTANCE_DISPLAY},
+            "processes": True,
+        },
     )
     data["processes"] = [semantic_process(p) for p in snapshot.processes]
     return data
@@ -141,6 +156,7 @@ def empty_snapshot(root_id: uuid.UUID | None) -> VersionSnapshot:
         channel_fields=[],
         config_params=[],
         processes=[],
+        instances=[],
     )
 
 
