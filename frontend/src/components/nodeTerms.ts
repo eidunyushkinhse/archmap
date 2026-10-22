@@ -1,7 +1,7 @@
 // Подписи и порядок терминов узла и схемы — одним местом (аудит F-22). Копии жили на
 // странице объекта, в панели свойств, в окне узла и в вопросах ввоза и уже разошлись
 // («Брокер» в вопросах против «Брокер сообщений» везде остальном).
-import type { NodeApproval, NodeDocKind, NodeShape, NodeStatus } from "../types";
+import type { NodeApproval, NodeDocKind, NodeShape, NodeStatus, VersionCategory, VersionItemStatus } from "../types";
 
 export const SHAPE_LABEL: Record<NodeShape, string> = {
   service: "Сервис",
@@ -34,3 +34,38 @@ export const DOC_KIND_LABEL: Record<NodeDocKind, string> = {
   worker: "Воркер",
 };
 export const DOC_KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
+
+// Категории дельты версий документации (docs/tasks/doc-versions.md §4, §7) — одна запись
+// на категорию: подпись в списке элементов, форма внутри фразы «Есть изменения с v3:
+// схема логики «Создать заказ», конфигурация» и слова статуса элемента в роде того, что
+// элемент называет (объект, связь, схема, таблица, канал, процесс). Конфигурация — один
+// элемент на объект, её добавленный или удалённый параметр — тоже «изменена» (подробность
+// — в summary); статус страницы бывает только изменён.
+interface VersionCategoryTerms {
+  label: string;
+  inline: string;
+  status: Record<VersionItemStatus, string>;
+}
+
+const MASC: Record<VersionItemStatus, string> = { added: "новый", removed: "удалён", changed: "изменён" };
+const FEM: Record<VersionItemStatus, string> = { added: "новая", removed: "удалена", changed: "изменена" };
+
+export const VERSION_CATEGORY: Record<VersionCategory, VersionCategoryTerms> = {
+  props: { label: "Свойства", inline: "свойства", status: MASC },
+  edges: { label: "Связи", inline: "связь", status: FEM },
+  doc: { label: "Схема логики", inline: "схема логики", status: FEM },
+  spec: { label: "OpenAPI", inline: "OpenAPI", status: FEM },
+  db: { label: "Структура БД", inline: "таблица", status: FEM },
+  channels: { label: "Каналы", inline: "канал", status: MASC },
+  config: {
+    label: "Конфигурация",
+    inline: "конфигурация",
+    status: { added: "изменена", removed: "изменена", changed: "изменена" },
+  },
+  approval: {
+    label: "Статус страницы",
+    inline: "статус страницы",
+    status: { added: "изменён", removed: "изменён", changed: "изменён" },
+  },
+  process: { label: "Процесс", inline: "процесс", status: MASC },
+};

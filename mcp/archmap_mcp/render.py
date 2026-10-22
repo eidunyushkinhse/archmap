@@ -12,6 +12,7 @@ Uuid остаются там, где агент обязан ими оперир
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
 SHAPE_WORD = {
@@ -1502,3 +1503,252 @@ def doc_card(detail: dict[str, Any]) -> str:
         # закрывающей оградой висела пустая строка (живой прогон 2026-09-29).
         out.append("```mermaid\n" + str(detail.get("content", "")).rstrip() + "\n```")
     return "\n".join(out)
+
+
+# ── Версии документации объекта (docs/tasks/doc-versions.md §8) ──────────────
+#
+# Категории элемента дельты словами — один словарь на весь вывод: строка дельты,
+# «изменено: …» у версии и перечень незафиксированного говорят одними словами.
+# Строчными, потому что слово стоит и внутри фразы («изменено: схема логики «A»»);
+# в начале строки дельты оно поднимается с заглавной. Статусы — в среднем роде:
+# элемент бывает схемой, связью, таблицей, а согласовывать род по категории в
+# тексте для агента незачем (интерфейс это делает, там слова на экране).
+VERSION_CATEGORY_WORD = {
+    "props": "свойства",
+    "edges": "связь",
+    "doc": "схема логики",
+    "spec": "OpenAPI",
+    "db": "таблица",
+    "channels": "канал",
+    "config": "конфигурация",
+    "approval": "статус страницы",
+    "process": "процесс",
+}
+VERSION_STATUS_WORD = {"added": "новое", "removed": "удалено", "changed": "изменено"}
+
+# Строка «изменено: …» у версии — подсказка, а не отчёт: пять элементов и счётчик
+# остального. Полный перечень — archmap_version_diff той же версии.
+CHANGED_BRIEF_CAP = 5
+# Список элементов дельты режется ПО КАТЕГОРИЯМ, а не общим хвостом: сервер сортирует
+# по категории, и у первой версии корня (всё «новое») общий кап съел бы свойствами
+# и связями сотен объектов схемы логики и процессы — то, о чём агент и спрашивает.
+VERSION_ITEMS_CAP = 40
+
+# Метка строки таблицы в представлении элемента (VersionRow.mark): добавлена,
+# удалена, изменена (ячейка «было → стало»), только переставлена; пусто — контекст.
+ROW_MARK = {"add": "+", "del": "−", "mod": "~", "move": "↕", "": " "}
+# Метка построчной дельты текста (DiffLine.mark) — как в unified diff; «mod» —
+# заголовок куска «@@» или смена свойства схемы, печатается как есть.
+LINE_MARK = {"add": "+", "del": "-", "": " "}
+
+DIFF_NEXT = (
+    "Дельта одного элемента — archmap_version_diff с item (те же version и base); "
+    "текст схемы, спеки или процесса на версии — archmap_version_doc."
+)
+
+
+def _version_item_label(item: dict[str, Any]) -> str:
+    """«схема логики «Создать заказ»». Имя, совпадающее со словом категории (у спеки
+    оно всегда «OpenAPI»), не повторяется."""
+    cat = str(item.get("category", "?"))
+    word = VERSION_CATEGORY_WORD.get(cat, cat)
+    name = str(item.get("name") or "")
+    return f"{word} «{name}»" if name and name != word else word
+
+
+def changed_brief(items: list[dict[str, Any]]) -> str:
+    """Короткий перечень элементов (VersionChanged или VersionItem): категория и имя,
+    у нового и удалённого — пометка в скобках; дальше пятого — «и ещё M»."""
+    parts: list[str] = []
+    for item in items[:CHANGED_BRIEF_CAP]:
+        label = _version_item_label(item)
+        status = str(item.get("status", ""))
+        if status in ("added", "removed"):
+            label += f" ({VERSION_STATUS_WORD[status]})"
+        parts.append(label)
+    rest = len(items) - CHANGED_BRIEF_CAP
+    tail = f" и ещё {rest}" if rest > 0 else ""
+    return ", ".join(parts) + tail
+
+
+def _version_when(raw: Any) -> str:
+    """Время версии: «2026-10-22 10:15 UTC». Зону называем явно — агент и человек могут
+    жить в разных; неразборчивое время печатается как пришло."""
+    try:
+        moment = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return str(raw)
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _version_kind(version: dict[str, Any]) -> str | None:
+    """Вид автоматической версии словами; у ручной — ничего."""
+    kind = version.get("kind")
+    if kind == "pre_restore":
+        return "перед откатом"
+    if kind == "restore":
+        source = version.get("restored_from")
+        return f"откат к v{source}" if source is not None else "откат"
+    return None
+
+
+def version_list(title: str, data: dict[str, Any]) -> str:
+    """Список версий (VersionList): заголовок, незафиксированное с последней версии,
+    версии новыми сверху с короткой строкой «изменено»."""
+    rows: list[dict[str, Any]] = data.get("versions") or []
+    pending: dict[str, Any] = data.get("pending") or {}
+    out = [title]
+    if not rows:
+        out.append("Версий ещё нет.")
+        return "\n".join(out)
+
+    last = max(int(v.get("number", 0)) for v in rows)
+    items: list[dict[str, Any]] = pending.get("items") or []
+    if items:
+        out.append(f"Есть изменения с v{last}: {changed_brief(items)}")
+    elif pending.get("changed"):
+        out.append(f"Есть изменения с v{last}.")
+    else:
+        out.append(f"Изменений с v{last} нет.")
+
+    out.append("")
+    for v in rows:
+        bits = [
+            f"v{v.get('number', '?')}",
+            str(v.get("comment") or ""),
+            _version_when(v.get("created_at")),
+            # null — пользователь удалён: история остаётся, автора у неё больше нет.
+            str(v.get("author") or "автор удалён"),
+        ]
+        # Вид автоверсии не печатаем: её комментарий («Перед откатом к vN», «Откат к vN»)
+        # уже называет его, а повтор в конце строки — шум.
+        out.append("• " + " · ".join(bits))
+        changed: list[dict[str, Any]] = (v.get("stats") or {}).get("changed") or []
+        if changed:
+            out.append(f"    изменено: {changed_brief(changed)}")
+    out.append("")
+    out.append(
+        "Что изменилось в версии — archmap_version_diff с version; "
+        "с версии до текущего состояния — base=live."
+    )
+    return "\n".join(out)
+
+
+def _version_ref(ref: dict[str, Any] | None) -> str:
+    """Сторона сравнения (VersionRef): версия с комментарием, текущее состояние
+    (number — null) или пустое начало (стороны нет: первая версия против «предыдущей»)."""
+    if ref is None:
+        return "с начала"
+    number = ref.get("number")
+    if number is None:
+        return "текущее состояние"
+    comment = ref.get("comment")
+    return f"v{number} ({comment})" if comment else f"v{number}"
+
+
+def _version_item_line(item: dict[str, Any]) -> str:
+    """«Схема логики «Создать заказ» (Заказы / Сервис заказов): изменено, +3 −2»."""
+    label = _version_item_label(item)
+    label = label[:1].upper() + label[1:]
+    path = item.get("node_path")
+    where = f" ({path})" if path else ""
+    status = str(item.get("status", "?"))
+    summary = item.get("summary")
+    tail = f", {summary}" if summary else ""
+    return f"{label}{where}: {VERSION_STATUS_WORD.get(status, status)}{tail}"
+
+
+def version_diff(owner: str, data: dict[str, Any]) -> str:
+    """Элементы дельты (VersionDiff) — строка на элемент, item в конце строки: им
+    агент спрашивает подробности одного элемента."""
+    head = f"{owner} — {_version_ref(data.get('base'))} → {_version_ref(data.get('target'))}"
+    items: list[dict[str, Any]] = data.get("items") or []
+    if not items:
+        return f"{head}\nИзменений нет."
+
+    groups: dict[str, list[str]] = {}
+    for item in items:
+        line = f"• {_version_item_line(item)}  item={item.get('item_id')}"
+        groups.setdefault(str(item.get("category")), []).append(line)
+    out = [head, ""]
+    for lines in groups.values():
+        out.extend(_capped(lines, VERSION_ITEMS_CAP, ("элемент", "элемента", "элементов")))
+    out.append("")
+    out.append(DIFF_NEXT)
+    return "\n".join(out)
+
+
+def _version_base_phrase(number: int, base: str) -> str:
+    """С чем сравнивали одну дельту: ответ ручки элемента сторон не называет, а base
+    у вызова на руках."""
+    if base == "prev":
+        return f"v{number} против предыдущей версии"
+    if base == "live":
+        return f"v{number} → текущее состояние"
+    return f"v{base} → v{number}"
+
+
+def _version_view(view: dict[str, Any]) -> list[str]:
+    """Одно представление элемента (VersionView) строками. Форма ровно одна: text —
+    как есть, lines — построчная дельта со знаками, columns + rows — таблица ячейками
+    через « | ». Все поля пусты — элемента на этой стороне нет."""
+    text = view.get("text")
+    if text is not None:
+        return [str(text)] if str(text) else ["(пусто)"]
+    lines: list[dict[str, Any]] | None = view.get("lines")
+    if lines:
+        out: list[str] = []
+        for ln in lines:
+            mark = str(ln.get("mark", ""))
+            body = str(ln.get("text", ""))
+            # Заголовок куска «@@» и смена свойства схемы — строки без знака.
+            out.append(body if mark == "mod" else LINE_MARK.get(mark, " ") + body)
+        return out
+    columns: list[str] | None = view.get("columns")
+    rows: list[dict[str, Any]] | None = view.get("rows")
+    if columns is not None and rows:
+        table = ["  " + " | ".join(str(c) for c in columns)]
+        for row in rows:
+            mark = ROW_MARK.get(str(row.get("mark", "")), " ")
+            table.append(f"{mark} " + " | ".join(str(c) for c in row.get("cells") or []))
+        return table
+    return ["(нет)"]
+
+
+def version_item(
+    owner: str, number: int, base: str, detail: dict[str, Any], *, with_sides: bool
+) -> str:
+    """Один элемент дельты (VersionItemDetail): строка элемента и «изменения»; с
+    with_sides — ещё «было» и «стало» теми же правилами."""
+    item: dict[str, Any] = detail.get("item") or {}
+    out = [
+        f"{owner} — {_version_base_phrase(number, base)}",
+        f"{_version_item_line(item)}  item={item.get('item_id')}",
+        "",
+        "ИЗМЕНЕНИЯ:",
+        *_version_view(detail.get("changes") or {}),
+    ]
+    if with_sides:
+        out += ["", "БЫЛО:", *_version_view(detail.get("before") or {})]
+        out += ["", "СТАЛО:", *_version_view(detail.get("after") or {})]
+    return "\n".join(out)
+
+
+def version_text(label: str, number: int, data: dict[str, Any], *, fence: str) -> str:
+    """Текст на версии (VersionText): «Схема логики «Имя» (vN)» и тело в ограде."""
+    body = str(data.get("text", "")).rstrip()
+    return f"{label} «{data.get('name', '?')}» (v{number})\n```{fence}\n{body}\n```"
+
+
+def version_created(data: dict[str, Any]) -> str:
+    """Итог фиксации (VersionOut): номер, комментарий и что изменено относительно
+    предыдущей версии объекта (у первой — относительно пустого)."""
+    changed: list[dict[str, Any]] = (data.get("stats") or {}).get("changed") or []
+    tail = (
+        f"; изменено: {changed_brief(changed)}"
+        if changed
+        else "; относительно предыдущей версии ничего не изменилось"
+    )
+    return f"v{data.get('number', '?')} зафиксирована: {data.get('comment', '')}{tail}"

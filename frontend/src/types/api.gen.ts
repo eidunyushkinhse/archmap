@@ -2374,6 +2374,400 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Versions
+         * @description Версии объекта (новые сверху) и pending — есть ли изменения с последней
+         *     версии и какие (сравнение хэшей; версий нет — changed true, перечень пуст).
+         */
+        get: operations["list_versions_api_v1_nodes__node_id__versions_get"];
+        put?: never;
+        /**
+         * Create Version
+         * @description Зафиксировать текущую документацию объекта версией с комментарием.
+         */
+        post: operations["create_version_api_v1_nodes__node_id__versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Version
+         * @description Удалить версию (только владелец). Номера остальных не пересчитываются.
+         */
+        delete: operations["delete_version_api_v1_nodes__node_id__versions__number__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/restore-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restore Preview
+         * @description Что сделает откат к версии number — для окна подтверждения, ничего не
+         *     меняя: сохранится ли сперва незафиксированное, сколько объектов удалится, есть
+         *     ли процессы (они не откатываются). Чтение безвредно — открыто всем с доступом;
+         *     кнопки отката у читателя нет.
+         */
+        get: operations["restore_preview_api_v1_nodes__node_id__versions__number__restore_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Version
+         * @description Вернуть документацию объекта к версии number одной транзакцией: сперва
+         *     автоверсия «Перед откатом» (если есть незафиксированное), затем снимок, затем
+         *     версия «Откат к vN». Процессы и статус страницы не откатываются. Нечего
+         *     восстанавливать — 422; дубль имени в снимке — 409 (на данных версии
+         *     невозможен, страховка restore); предел демо — 409 с code=demo_limit, и тогда
+         *     не применено ничего.
+         */
+        post: operations["restore_version_api_v1_nodes__node_id__versions__number__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Diff
+         * @description Элементы дельты версии number. base: prev (умолчание) — от предыдущей
+         *     версии к n, у первой — от пустого (base в ответе — null); live — от версии n
+         *     к текущему состоянию (target.number — null): «что изменилось с версии n»;
+         *     число m — от версии m к n. Нет версии — 404, base не из перечня — 422.
+         */
+        get: operations["version_diff_api_v1_nodes__node_id__versions__number__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/diff/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Item
+         * @description Один элемент дельты с тремя представлениями: изменения, было, стало. base —
+         *     как у списка элементов; элемента в этой дельте нет — 404.
+         */
+        get: operations["version_item_api_v1_nodes__node_id__versions__number__diff__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/doc/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Doc
+         * @description Текст схемы логики на версии; в срезе версии её нет — 404.
+         */
+        get: operations["version_doc_api_v1_nodes__node_id__versions__number__doc__doc_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/spec/{spec_node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Spec
+         * @description Спека OpenAPI объекта spec_node_id на версии; нет объекта или спеки — 404.
+         */
+        get: operations["version_spec_api_v1_nodes__node_id__versions__number__spec__spec_node_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/versions/{number}/process/{process_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Process
+         * @description Процесс на версии в mermaid; в срезе версии его нет — 404.
+         */
+        get: operations["version_process_api_v1_nodes__node_id__versions__number__process__process_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Versions
+         * @description Версии объекта (новые сверху) и pending — есть ли изменения с последней
+         *     версии и какие (сравнение хэшей; версий нет — changed true, перечень пуст).
+         */
+        get: operations["list_versions_api_v1_versions_get"];
+        put?: never;
+        /**
+         * Create Version
+         * @description Зафиксировать текущую документацию объекта версией с комментарием.
+         */
+        post: operations["create_version_api_v1_versions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Version
+         * @description Удалить версию (только владелец). Номера остальных не пересчитываются.
+         */
+        delete: operations["delete_version_api_v1_versions__number__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/restore-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restore Preview
+         * @description Что сделает откат к версии number — для окна подтверждения, ничего не
+         *     меняя: сохранится ли сперва незафиксированное, сколько объектов удалится, есть
+         *     ли процессы (они не откатываются). Чтение безвредно — открыто всем с доступом;
+         *     кнопки отката у читателя нет.
+         */
+        get: operations["restore_preview_api_v1_versions__number__restore_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Version
+         * @description Вернуть документацию объекта к версии number одной транзакцией: сперва
+         *     автоверсия «Перед откатом» (если есть незафиксированное), затем снимок, затем
+         *     версия «Откат к vN». Процессы и статус страницы не откатываются. Нечего
+         *     восстанавливать — 422; дубль имени в снимке — 409 (на данных версии
+         *     невозможен, страховка restore); предел демо — 409 с code=demo_limit, и тогда
+         *     не применено ничего.
+         */
+        post: operations["restore_version_api_v1_versions__number__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Diff
+         * @description Элементы дельты версии number. base: prev (умолчание) — от предыдущей
+         *     версии к n, у первой — от пустого (base в ответе — null); live — от версии n
+         *     к текущему состоянию (target.number — null): «что изменилось с версии n»;
+         *     число m — от версии m к n. Нет версии — 404, base не из перечня — 422.
+         */
+        get: operations["version_diff_api_v1_versions__number__diff_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/diff/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Item
+         * @description Один элемент дельты с тремя представлениями: изменения, было, стало. base —
+         *     как у списка элементов; элемента в этой дельте нет — 404.
+         */
+        get: operations["version_item_api_v1_versions__number__diff__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/doc/{doc_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Doc
+         * @description Текст схемы логики на версии; в срезе версии её нет — 404.
+         */
+        get: operations["version_doc_api_v1_versions__number__doc__doc_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/spec/{spec_node_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Spec
+         * @description Спека OpenAPI объекта spec_node_id на версии; нет объекта или спеки — 404.
+         */
+        get: operations["version_spec_api_v1_versions__number__spec__spec_node_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/versions/{number}/process/{process_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Version Process
+         * @description Процесс на версии в mermaid; в срезе версии его нет — 404.
+         */
+        get: operations["version_process_api_v1_versions__number__process__process_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -2915,6 +3309,20 @@ export interface components {
              * @enum {string}
              */
             reason: "missing" | "unknown";
+        };
+        /**
+         * CellChange
+         * @description Ячейка «было → стало» строки «изменений» по частям: index — номер ячейки в
+         *     cells, was и now — значения сторон. Фронт рисует по ним зачёркнутое «было» и
+         *     «стало», не разбирая текст ячейки (стрелка могла бы стоять и в самом значении).
+         */
+        CellChange: {
+            /** Index */
+            index: number;
+            /** Was */
+            was: string;
+            /** Now */
+            now: string;
         };
         /** ChannelFieldCreate */
         ChannelFieldCreate: {
@@ -3845,6 +4253,21 @@ export interface components {
             target_name: string;
             /** Source Is Part */
             source_is_part: boolean;
+        };
+        /**
+         * DiffLine
+         * @description Строка построчной дельты текста: mark «add»/«del» — добавлена/удалена, пусто —
+         *     контекст, «mod» — заголовок куска («@@ -3,4 +3,5 @@») или смена свойства схемы
+         *     («имя: A → B»).
+         */
+        DiffLine: {
+            /**
+             * Mark
+             * @enum {string}
+             */
+            mark: "" | "add" | "del" | "mod" | "move";
+            /** Text */
+            text: string;
         };
         /**
          * DirectionOut
@@ -6159,6 +6582,36 @@ export interface components {
             ids: string[];
         };
         /**
+         * RestoreOut
+         * @description Итог отката: номера созданных версий («Перед откатом», если была, и «Откат к
+         *     vN»), число удалённых объектов и замечания — что вернуть не удалось (связь к
+         *     объекту, которого больше нет; прежний родитель объекта).
+         */
+        RestoreOut: {
+            /** Created */
+            created: number[];
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Remarks */
+            remarks: string[];
+        };
+        /**
+         * RestorePreview
+         * @description Что сделает откат к версии — для окна подтверждения: pending — сохранится ли
+         *     сперва незафиксированное версией «Перед откатом», deleted_nodes — сколько объектов,
+         *     появившихся после версии, удалится, has_processes — есть ли процессы с участием
+         *     объекта (в версии или сейчас): строка «процессы не откатываются» нужна, только когда
+         *     есть что не откатывать.
+         */
+        RestorePreview: {
+            /** Pending */
+            pending: boolean;
+            /** Deleted Nodes */
+            deleted_nodes: number;
+            /** Has Processes */
+            has_processes: boolean;
+        };
+        /**
          * SearchHit
          * @description Одна находка: адрес, id для перехода, совпавшая строка и её счёт.
          */
@@ -6861,6 +7314,227 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * VersionChanged
+         * @description Изменённый элемент относительно предыдущей версии — для строки списка
+         *     («изменено: …») и вопроса «в каких версиях менялась схема». Хранится в stats.
+         */
+        VersionChanged: {
+            /** Item Id */
+            item_id: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "added" | "removed" | "changed";
+        };
+        /**
+         * VersionCreate
+         * @description Фиксация версии: комментарий обязателен — по нему версию ищут (номер релиза,
+         *     задачи). Пустой после обрезки пробелов — 422; длиннее 512 — 422 column_limits.
+         */
+        VersionCreate: {
+            /** Comment */
+            comment: string;
+        };
+        /**
+         * VersionDiff
+         * @description Дельта от base к target. base — null: сравнивать не с чем (первая версия с
+         *     «предыдущей»), всё содержимое target — добавлено.
+         */
+        VersionDiff: {
+            base: components["schemas"]["VersionRef"] | null;
+            target: components["schemas"]["VersionRef"];
+            /** Items */
+            items: components["schemas"]["VersionItem"][];
+        };
+        /**
+         * VersionItem
+         * @description Элемент дельты — строка экрана «что изменилось в версии».
+         *
+         *     item_id — адрес элемента для GET …/diff/{item_id}: «props:<id узла>»,
+         *     «approval:<id узла>», «edge:<id связи>», «doc:<id схемы>», «spec:<id узла>»,
+         *     «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «process:<id
+         *     процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
+         *     заказов»; у самого корня среза — пустая строка, у процесса — тоже: он общий).
+         *     summary — короткая подробность для строки списка («+3 −2», «переименована: A → B»,
+         *     «+1 ~1», «+2 ~1 шага», «в работе → согласовано»); статус словами — по status.
+         */
+        VersionItem: {
+            /** Item Id */
+            item_id: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            /** Node Path */
+            node_path: string;
+            /** Name */
+            name: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "added" | "removed" | "changed";
+            /** Summary */
+            summary: string;
+        };
+        /**
+         * VersionItemDetail
+         * @description Один элемент дельты с тремя представлениями: «Изменения · Было · Стало».
+         */
+        VersionItemDetail: {
+            item: components["schemas"]["VersionItem"];
+            changes: components["schemas"]["VersionView"];
+            before: components["schemas"]["VersionView"];
+            after: components["schemas"]["VersionView"];
+        };
+        /**
+         * VersionList
+         * @description Версии объекта (новые сверху) и есть ли изменения с последней.
+         */
+        VersionList: {
+            /** Versions */
+            versions: components["schemas"]["VersionOut"][];
+            pending: components["schemas"]["VersionPending"];
+        };
+        /**
+         * VersionOut
+         * @description Строка списка версий. author — имя пользователя, зафиксировавшего версию; null —
+         *     пользователь удалён (история остаётся без автора).
+         */
+        VersionOut: {
+            /** Number */
+            number: number;
+            /** Comment */
+            comment: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "manual" | "pre_restore" | "restore";
+            /** Restored From */
+            restored_from: number | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Author */
+            author: string | null;
+            stats: components["schemas"]["VersionStats"];
+        };
+        /**
+         * VersionPending
+         * @description Есть ли незафиксированные изменения с последней версии: changed — сравнение
+         *     хэшей, items — что именно. Версий ещё нет — changed true, items пуст: перечислять
+         *     всю документацию объекта незачем.
+         */
+        VersionPending: {
+            /** Changed */
+            changed: boolean;
+            /** Items */
+            items: components["schemas"]["VersionItem"][];
+        };
+        /**
+         * VersionRef
+         * @description Сторона сравнения: версия с номером или текущее состояние (number — null).
+         */
+        VersionRef: {
+            /** Number */
+            number: number | null;
+            /** Comment */
+            comment: string | null;
+            /** Created At */
+            created_at: string | null;
+        };
+        /**
+         * VersionRow
+         * @description Строка таблицы представления: свойство, связь, колонка, параметр или шаг. В
+         *     «изменениях» у строки, сравнённой с другой стороной (mod — изменена, move —
+         *     переставлена), ячейка с отличием — текстом «было → стало» (его читают MCP и тесты),
+         *     а changed несёт те же ячейки по частям; у прочих строк changed пуст. В «было» и
+         *     «стало» метка всегда пустая.
+         */
+        VersionRow: {
+            /**
+             * Mark
+             * @enum {string}
+             */
+            mark: "" | "add" | "del" | "mod" | "move";
+            /** Cells */
+            cells: string[];
+            /**
+             * Changed
+             * @default []
+             */
+            changed: components["schemas"]["CellChange"][];
+        };
+        /**
+         * VersionStats
+         * @description Счётчики версии по категориям (versions_snapshot.stats) и перечень изменённого
+         *     относительно предыдущей версии объекта; у первой — относительно пустого.
+         */
+        VersionStats: {
+            /** Nodes */
+            nodes: number;
+            /** Edges */
+            edges: number;
+            /** Docs */
+            docs: number;
+            /** Tables */
+            tables: number;
+            /** Channels */
+            channels: number;
+            /** Params */
+            params: number;
+            /** Processes */
+            processes: number;
+            /**
+             * Changed
+             * @default []
+             */
+            changed: components["schemas"]["VersionChanged"][];
+        };
+        /**
+         * VersionText
+         * @description Текст на версии: схема логики (name — её имя), спека OpenAPI (name — имя
+         *     объекта) или процесс в mermaid (name — имя процесса).
+         */
+        VersionText: {
+            /** Name */
+            name: string;
+            /** Text */
+            text: string;
+        };
+        /**
+         * VersionView
+         * @description Одно представление элемента — ровно одна из трёх форм: text — полный текст
+         *     (схема, спека на версии), lines — построчная дельта текста, columns + rows —
+         *     таблица (свойства, связи, факты, шаги процесса). Все четыре поля пусты — элемента
+         *     на этой стороне нет («было» у добавленного, «стало» у удалённого).
+         *
+         *     Поля без дефолтов намеренно: в генерате фронта все четыре обязательны (string |
+         *     null), и форма выбирается проверкой на null, а не на «поле есть».
+         */
+        VersionView: {
+            /** Text */
+            text: string | null;
+            /** Lines */
+            lines: components["schemas"]["DiffLine"][] | null;
+            /** Columns */
+            columns: string[] | null;
+            /** Rows */
+            rows: components["schemas"]["VersionRow"][] | null;
         };
         /**
          * ViewLayoutBatch
@@ -11499,6 +12173,694 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_v1_nodes__node_id__versions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_version_api_v1_nodes__node_id__versions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_version_api_v1_nodes__node_id__versions__number__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_preview_api_v1_nodes__node_id__versions__number__restore_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_version_api_v1_nodes__node_id__versions__number__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_diff_api_v1_nodes__node_id__versions__number__diff_get: {
+        parameters: {
+            query?: {
+                /** @description С чем сравнивать: prev (умолчание) — от предыдущей версии к n, у первой — от пустого; live — от версии n («было») к текущему состоянию («стало», number = null): что изменилось с версии n; число m — от версии m к n. */
+                base?: string;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionDiff"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_item_api_v1_nodes__node_id__versions__number__diff__item_id__get: {
+        parameters: {
+            query?: {
+                /** @description С чем сравнивать: prev (умолчание) — от предыдущей версии к n, у первой — от пустого; live — от версии n («было») к текущему состоянию («стало», number = null): что изменилось с версии n; число m — от версии m к n. */
+                base?: string;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                item_id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_doc_api_v1_nodes__node_id__versions__number__doc__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                doc_id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_spec_api_v1_nodes__node_id__versions__number__spec__spec_node_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                spec_node_id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_process_api_v1_nodes__node_id__versions__number__process__process_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                process_id: string;
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_versions_api_v1_versions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_version_api_v1_versions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VersionCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_version_api_v1_versions__number__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_preview_api_v1_versions__number__restore_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestorePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_version_api_v1_versions__number__restore_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RestoreOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_diff_api_v1_versions__number__diff_get: {
+        parameters: {
+            query?: {
+                /** @description С чем сравнивать: prev (умолчание) — от предыдущей версии к n, у первой — от пустого; live — от версии n («было») к текущему состоянию («стало», number = null): что изменилось с версии n; число m — от версии m к n. */
+                base?: string;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionDiff"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_item_api_v1_versions__number__diff__item_id__get: {
+        parameters: {
+            query?: {
+                /** @description С чем сравнивать: prev (умолчание) — от предыдущей версии к n, у первой — от пустого; live — от версии n («было») к текущему состоянию («стало», number = null): что изменилось с версии n; число m — от версии m к n. */
+                base?: string;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionItemDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_doc_api_v1_versions__number__doc__doc_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                doc_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_spec_api_v1_versions__number__spec__spec_node_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                spec_node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    version_process_api_v1_versions__number__process__process_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                number: number;
+                process_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VersionText"];
                 };
             };
             /** @description Validation Error */

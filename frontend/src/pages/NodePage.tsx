@@ -1,7 +1,7 @@
 // Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
 // (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
-import { useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
@@ -37,6 +37,8 @@ import HeaderGlyph from "../components/nodePage/HeaderGlyph";
 import ApprovalPill from "../components/nodePage/ApprovalPill";
 import ProcessesSection from "../components/nodePage/ProcessesSection";
 import SchemaSection from "../components/nodePage/SchemaSection";
+import VersionsPanel from "../components/nodePage/versions/VersionsPanel";
+import { useProjectRole } from "./projectRole";
 
 // Сигнатура узла в том виде, в каком его показывает страница, — для сверки при
 // удалённом изменении: совпала → изменение своё (уже применено локально), тост не
@@ -174,6 +176,10 @@ function NodePageInner({
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  // Панель «Версии документации» (⋯-меню, обе роли). Удаляет версии только владелец
+  // проекта; фиксирует — редактор (isArchitect).
+  const [versionsOpen, setVersionsOpen] = useState(false);
+  const isOwner = useProjectRole() === "owner";
   // Окно документации (Логика / OpenAPI); что именно открыть — DocTarget.
   const [doc, setDoc] = useState<DocTarget | null>(null);
   // Модалка «Доки от агента» (BYOA, логика, пакетом): скоуп = текущий объект.
@@ -228,6 +234,18 @@ function NodePageInner({
   const refreshNode = useCallback(() => {
     void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
   }, [node.id, patch]);
+
+  // Откат версии из панели: страница показывает восстановленную документацию сразу,
+  // не дожидаясь поллинга. Узел — свежим целиком (без тоста «в другой сессии»), дети
+  // контейнера, связи; секции схемы, фактов и логики перемонтируются ключом эпохи —
+  // своего канала обновления у них нет, грузят себя при маунте.
+  const [pageEpoch, setPageEpoch] = useState(0);
+  const handleRestored = useCallback(() => {
+    refreshNode();
+    if (isContainer) reloadChildren();
+    onEdgesReload();
+    setPageEpoch((e) => e + 1);
+  }, [refreshNode, isContainer, reloadChildren, onEdgesReload]);
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
@@ -351,40 +369,46 @@ function NodePageInner({
               onPick={patch.pickApproval}
             />
 
-            {/* ⋯-меню (архитектор) */}
-            {isArchitect && (
-              <div className="np-menu-wrap">
-                <button
-                  className="np-menu-btn"
-                  onClick={() => setMenuOpen((o) => !o)}
-                  title="Действия"
-                >
-                  ⋯
-                </button>
-                {menuOpen && (
-                  <>
-                    <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
-                    <div className="np-dropdown">
-                      {onNavigateMap && (
-                        <button onClick={() => {
-                          setMenuOpen(false);
-                          // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
-                          onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
-                        }}>
-                          Открыть в карте
+            {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
+                читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}
+            <div className="np-menu-wrap">
+              <button
+                className="np-menu-btn"
+                onClick={() => setMenuOpen((o) => !o)}
+                title="Действия"
+              >
+                ⋯
+              </button>
+              {menuOpen && (
+                <>
+                  <div className="np-backdrop" onClick={() => setMenuOpen(false)} />
+                  <div className="np-dropdown">
+                    {onNavigateMap && (
+                      <button onClick={() => {
+                        setMenuOpen(false);
+                        // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
+                        onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
+                      }}>
+                        Открыть в карте
+                      </button>
+                    )}
+                    <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>
+                      Версии документации
+                    </button>
+                    {isArchitect && (
+                      <>
+                        <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
+                          Экспорт поддерева
                         </button>
-                      )}
-                      <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
-                        Экспорт поддерева
-                      </button>
-                      <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
-                        Удалить объект
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                        <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
+                          Удалить объект
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -396,6 +420,7 @@ function NodePageInner({
         {patch.error && <p className="np-conflict">{patch.error}</p>}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
+        <Fragment key={pageEpoch}>
         <NodeProperties
           patch={patch}
           isArchitect={isArchitect}
@@ -510,6 +535,7 @@ function NodePageInner({
             onNavigateNode={onNavigateNode}
           />
         </div>
+        </Fragment>
       </div>
 
       {/* Подтверждение удаления */}
@@ -556,6 +582,18 @@ function NodePageInner({
           loadKey={node.id}
           load={() => exportApi.subtree(node.id)}
           onClose={() => setExportOpen(false)}
+        />
+      )}
+
+      {/* Версии документации объекта (⋯-меню): срез объекта с поддеревом. */}
+      {versionsOpen && (
+        <VersionsPanel
+          nodeId={node.id}
+          title={node.name}
+          canEdit={isArchitect}
+          canDelete={isOwner}
+          onClose={() => setVersionsOpen(false)}
+          onRestored={handleRestored}
         />
       )}
 

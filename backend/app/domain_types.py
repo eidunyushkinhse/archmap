@@ -24,10 +24,58 @@ NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 NodeApproval = Literal["in_progress", "approved"]
 NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 
+# Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
+# фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом
+# к vN», чтобы откат не терял незафиксированное; restore — автоматическая «Откат к vN»,
+# запись истории вперёд (номер источника — в restored_from).
+VersionKind = Literal["manual", "pre_restore", "restore"]
+VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
+
+# Категория элемента дельты версий (app/versions_diff.py), в порядке показа: свойства
+# объекта, связи, схема логики, спека OpenAPI, структура БД, каналы брокера,
+# конфигурация, статус страницы, процесс. Размещение добавит эпик развёртывания.
+VersionCategory = Literal[
+    "props", "edges", "doc", "spec", "db", "channels", "config", "approval", "process"
+]
+VERSION_CATEGORIES: tuple[VersionCategory, ...] = get_args(VersionCategory)
+
+# Что случилось с элементом между двумя версиями. Переименование — changed: элементы
+# сопоставляются по id, а не по имени.
+VersionItemStatus = Literal["added", "removed", "changed"]
+
+# Пометка строки в представлении дельты: пусто — без изменений (контекст), add — новая,
+# del — удалённая, mod — изменённая (и заголовок куска построчной дельты), move —
+# только переставлена (шаг процесса, колонка таблицы, поле сообщения).
+DiffMark = Literal["", "add", "del", "mod", "move"]
+
 # Вид схемы логики: обе — точки входа (вид «обзор» удалён 2026-08-18). Поле operation
 # заполняется только у операций СОБСТВЕННОГО API узла.
 NodeDocKind = Literal["operation", "worker"]
 NODE_DOC_KINDS: tuple[NodeDocKind, ...] = get_args(NodeDocKind)
+
+# Подписи словарей узла по-русски — для текстов, которые собирает бэк (дельта версий
+# документации). Зеркало фронтовых SHAPE_LABEL / APPROVAL_LABEL / DOC_KIND_LABEL
+# (components/nodeTerms.ts) и STATUS_META (graph/colors.ts): в таблице «было / стало»
+# человек видит те же слова, что на странице объекта.
+NODE_SHAPE_LABELS: dict[NodeShape, str] = {
+    "service": "Сервис",
+    "database": "База данных",
+    "broker": "Брокер сообщений",
+    "person": "Пользователь",
+}
+NODE_STATUS_LABELS: dict[NodeStatus, str] = {
+    "existing": "Существует",
+    "planned": "Проектируется",
+    "deprecated": "Выводится",
+}
+NODE_APPROVAL_LABELS: dict[NodeApproval, str] = {
+    "in_progress": "В работе",
+    "approved": "Согласовано",
+}
+NODE_DOC_KIND_LABELS: dict[NodeDocKind, str] = {
+    "operation": "Операция",
+    "worker": "Воркер",
+}
 
 # Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она. Тот же
 # набор держит CHECK в БД (app/models/project_member.py).

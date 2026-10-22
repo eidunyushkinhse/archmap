@@ -18,6 +18,7 @@
 """
 
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session, undefer
@@ -32,6 +33,7 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.node_version import NodeVersion
 from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
 from app.schemas.restore import (
@@ -72,7 +74,65 @@ NOT_IN_SNAPSHOT: dict[type[Base], str] = {
         "вредно: сессия с устаревшим base_version обязана получить 409 и перечитать "
         "уровень (та же причина, по которой ViewState не копирует копия проекта)"
     ),
+    NodeVersion: (
+        "история версий документации удалённого объекта уходит вместе с ним (каскад "
+        "node_id), и Undo удаления возвращает объект без истории. Документация объекта "
+        "при этом не теряется: её хранят срезы его контейнера и корня проекта"
+    ),
 }
+
+
+@dataclass
+class SubtreeDocs:
+    """Документация узлов поддерева строками снимка: схемы логики с текстом, таблицы с
+    колонками, каналы с полями, параметры конфигурации. Одна выборка на два снимка —
+    удаления (умрёт каскадом вместе с узлами) и версии документации
+    (app/versions_snapshot): новая семья фактов добавляется здесь один раз."""
+
+    node_docs: list[NodeDocSnapshot]
+    db_tables: list[DbTableSnapshot]
+    db_columns: list[DbColumnSnapshot]
+    broker_channels: list[BrokerChannelSnapshot]
+    channel_fields: list[ChannelFieldSnapshot]
+    config_params: list[ConfigParamSnapshot]
+
+
+def collect_subtree_docs(db: Session, subtree: set[uuid.UUID]) -> SubtreeDocs:
+    """Вся документация узлов subtree — пачками по поддереву, без запроса на узел.
+
+    Схемы логики висят на узле, а колонки и поля — на таблице/канале: их берём вторым
+    шагом, иначе фильтровать было бы нечем.
+    """
+    # undefer: снимок обязан унести ТЕКСТ схемы — иначе Undo вернул бы пустые тела.
+    # Тело отложено (см. NodeDoc.content), и без явного запроса оно приехало бы
+    # по одному запросу на схему.
+    docs = (
+        db.query(NodeDoc)
+        .options(undefer(NodeDoc.content))
+        .filter(NodeDoc.node_id.in_(subtree))
+        .all()
+    )
+    tables = db.query(DbTable).filter(DbTable.node_id.in_(subtree)).all()
+    table_ids = [t.id for t in tables]
+    columns = (
+        db.query(DbColumn).filter(DbColumn.table_id.in_(table_ids)).all() if table_ids else []
+    )
+    params = db.query(ConfigParam).filter(ConfigParam.node_id.in_(subtree)).all()
+    channels = db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(subtree)).all()
+    channel_ids = [c.id for c in channels]
+    fields = (
+        db.query(ChannelField).filter(ChannelField.channel_id.in_(channel_ids)).all()
+        if channel_ids
+        else []
+    )
+    return SubtreeDocs(
+        node_docs=[NodeDocSnapshot.model_validate(d) for d in docs],
+        db_tables=[DbTableSnapshot.model_validate(t) for t in tables],
+        db_columns=[DbColumnSnapshot.model_validate(c) for c in columns],
+        broker_channels=[BrokerChannelSnapshot.model_validate(c) for c in channels],
+        channel_fields=[ChannelFieldSnapshot.model_validate(f) for f in fields],
+        config_params=[ConfigParamSnapshot.model_validate(p) for p in params],
+    )
 
 
 def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot:
@@ -100,42 +160,19 @@ def build_deletion_snapshot(db: Session, root_id: uuid.UUID) -> DeletionSnapshot
         .all()
     )
 
-    # Документация узлов поддерева — умрёт БД-каскадом вместе с ними. Схемы логики
-    # висят на узле, а колонки и поля — на таблице/канале: их берём вторым шагом,
-    # иначе фильтровать было бы нечем.
-    # undefer: снимок обязан унести ТЕКСТ схемы — иначе Undo вернул бы пустые тела.
-    # Тело отложено (см. NodeDoc.content), и без явного запроса оно приехало бы
-    # по одному запросу на схему.
-    docs = (
-        db.query(NodeDoc)
-        .options(undefer(NodeDoc.content))
-        .filter(NodeDoc.node_id.in_(subtree))
-        .all()
-    )
-    tables = db.query(DbTable).filter(DbTable.node_id.in_(subtree)).all()
-    table_ids = [t.id for t in tables]
-    columns = (
-        db.query(DbColumn).filter(DbColumn.table_id.in_(table_ids)).all() if table_ids else []
-    )
-    params = db.query(ConfigParam).filter(ConfigParam.node_id.in_(subtree)).all()
-    channels = db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(subtree)).all()
-    channel_ids = [c.id for c in channels]
-    fields = (
-        db.query(ChannelField).filter(ChannelField.channel_id.in_(channel_ids)).all()
-        if channel_ids
-        else []
-    )
+    # Документация узлов поддерева — умрёт БД-каскадом вместе с ними.
+    docs = collect_subtree_docs(db, subtree)
 
     return DeletionSnapshot(
         nodes=[NodeSnapshot.model_validate(n) for n in nodes],
         edges=[EdgeSnapshot.model_validate(e) for e in edges],
         layout_items=[ViewLayoutItemSnapshot.model_validate(r) for r in layout_rows],
-        node_docs=[NodeDocSnapshot.model_validate(d) for d in docs],
-        db_tables=[DbTableSnapshot.model_validate(t) for t in tables],
-        db_columns=[DbColumnSnapshot.model_validate(c) for c in columns],
-        broker_channels=[BrokerChannelSnapshot.model_validate(c) for c in channels],
-        channel_fields=[ChannelFieldSnapshot.model_validate(f) for f in fields],
-        config_params=[ConfigParamSnapshot.model_validate(p) for p in params],
+        node_docs=docs.node_docs,
+        db_tables=docs.db_tables,
+        db_columns=docs.db_columns,
+        broker_channels=docs.broker_channels,
+        channel_fields=docs.channel_fields,
+        config_params=docs.config_params,
     )
 
 
@@ -300,8 +337,16 @@ def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.
 def restore_from_snapshot(
     db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID
 ) -> None:
+    """Undo удаления: воссоздать всё из снимка (apply_snapshot) и закоммитить."""
+    apply_snapshot(db, snapshot, project_id)
+    db.commit()
+
+
+def apply_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
     """Воссоздать узлы, их документацию, рёбра и строки раскладки из снимка с
-    сохранением исходных id.
+    сохранением исходных id — без коммита: откат версии документации
+    (app/versions_restore) воссоздаёт недостающее этой же механикой внутри своей
+    транзакции, рядом с правками уцелевших строк.
 
     Узлы вставляются родителями раньше детей: FK parent_id проверяется сразу, а
     корень поддерева ссылается на уцелевший (внешний) узел уровня. Документация,
@@ -357,8 +402,7 @@ def restore_from_snapshot(
     # Строки раскладки: удаление их вычистило (каскад/явная чистка), коллизий нет.
     for it in snapshot.layout_items:
         db.add(ViewLayoutItem(**it.model_dump(), project_id=project_id))
-
-    db.commit()
+    db.flush()
 
 
 def _restore_db_columns(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:

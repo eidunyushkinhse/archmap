@@ -231,6 +231,10 @@ class ArchMapClient:
         if resp.status_code == 404:
             raise ArchMapError(f"Не найдено: {detail_text(resp)}")
         if resp.status_code == 409:
+            # Предел демо-стенда (code=demo_limit, backend app/demo_limits) — не гонка
+            # правок: совет «перечитайте и повторите» здесь только водил бы агента по кругу.
+            if error_code(resp) == "demo_limit":
+                raise ArchMapError(f"Предел демо-проекта: {detail_text(resp)}")
             raise ArchMapError(
                 f"Конфликт версий: {detail_text(resp)}. Схему изменили — перечитайте её и повторите."
             )
@@ -280,6 +284,17 @@ class ArchMapClient:
             method, path, project_id=project_id, json=None, params=params, files=None, data=None
         )
         return resp.content
+
+
+def error_code(resp: httpx.Response) -> str | None:
+    """Машинный код отказа из тела {"detail": …, "code": …}; ArchMap ставит его у
+    отказов, которые агенту надо различать (предел демо), иначе None."""
+    try:
+        body = resp.json()
+    except ValueError:
+        return None
+    code = body.get("code") if isinstance(body, dict) else None
+    return str(code) if isinstance(code, str) else None
 
 
 def detail_text(resp: httpx.Response) -> str:

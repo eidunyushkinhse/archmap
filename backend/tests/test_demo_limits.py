@@ -25,8 +25,10 @@ from app.config import settings
 from app.database import get_db
 from app.demo_limits import (
     DEMO_LIMIT_CODE,
+    DemoLimitExceeded,
     Excess,
     ProjectSize,
+    excess_out,
     file_too_large_detail,
     find_excess,
     measure,
@@ -36,7 +38,9 @@ from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.node_version import NodeVersion
 from app.models.project import Project
+from app.versions import create_version, delete_version
 
 API = "/api/v1"
 
@@ -143,6 +147,8 @@ DETAIL = {
     "edges": "Демо-проект поддерживает до 2 связей. Удалите ненужные, чтобы добавить новые.",
     "docs": "Демо-проект поддерживает до 2 схем логики. Удалите ненужные, чтобы добавить новые.",
     "processes": "Демо-проект поддерживает до 1 процессов. Удалите ненужные, чтобы добавить новые.",
+    "versions": "Демо-проект поддерживает до 1 версий документации. "
+    "Удалите ненужные, чтобы зафиксировать новые.",
     "text": "Текста в проекте стало больше 2 КБ, это предел демо. "
     "Сократите схему или удалите ненужные.",
 }
@@ -334,6 +340,32 @@ def test_копия_проекта_сверх_предела(client, db, small, 
                       headers=small["h"])
     assert res.status_code == 409 and res.json()["code"] == DEMO_LIMIT_CODE
     assert db.query(Project).count() == projects
+
+
+def test_версии_документации_на_проект(db, small, monkeypatch):
+    """Предел версий — на проект, а не на объект: версия корня и версия узла считаются
+    вместе. Удаление версии проходит и сверх предела."""
+    monkeypatch.setattr(demo, "MAX_VERSIONS", 1)
+    p, owner = small["p"], ensure_architect(db)
+    orders = db.get(Node, uuid.UUID(small["n"]["orders"]))
+    create_version(db, p, owner, None, "v1")
+    db.commit()
+    assert _size(db, small).versions == 1
+
+    create_version(db, p, owner, orders, "orders v1")
+    with pytest.raises(DemoLimitExceeded) as refused:
+        db.commit()
+    assert refused.value.detail == DETAIL["versions"]
+    db.rollback()
+    assert _size(db, small).versions == 1
+
+    monkeypatch.setattr(demo, "MAX_VERSIONS", 0)  # уже сверх предела
+    [row] = db.query(NodeVersion).all()
+    delete_version(db, row)
+    db.commit()
+    assert _size(db, small).versions == 0
+    # Ввоз версий не создаёт: в контракт превью такой вид превышения не попадает.
+    assert excess_out(Excess("versions", 2, 1)) is None
 
 
 # ── Удаление и уменьшение проходят всегда ───────────────────────────────────
