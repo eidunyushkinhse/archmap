@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.edge import Edge
     from app.models.node_doc import NodeDoc
     from app.models.project import Project
+    from app.schemas.node import NodeSiteOut
 
 
 class Node(Base):
@@ -160,6 +162,11 @@ class Node(Base):
     # Статус страницы С УЧЁТОМ детей (app/approval.effective_approvals): у листа —
     # своё approval, у контейнера — approved, только если согласованы все дети.
     approval_effective: NodeApproval = "in_progress"
+    # Действующее размещение на площадках (app/deployment.mark_sites). Дефолт — пустой
+    # КОРТЕЖ, а не список: атрибут класса общий для всех экземпляров, и изменяемый
+    # дефолт был бы одним списком на все узлы. mark_sites всегда присваивает свой
+    # список; где он не зовётся (граф уровня, контекст-схема), NodeResponse получает [].
+    sites: "Sequence[NodeSiteOut]" = ()
 
     @property
     def source(self) -> dict[str, str] | None:

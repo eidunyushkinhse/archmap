@@ -20,7 +20,7 @@ function appNode(id: string): AppNode {
     parent_id: "P", shape: "service", is_external: false, status: "existing",
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
-    approval: "in_progress", approval_effective: "in_progress",
+    approval: "in_progress", approval_effective: "in_progress", sites: [],
   } as AppNode;
 }
 
