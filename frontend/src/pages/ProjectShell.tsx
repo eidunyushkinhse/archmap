@@ -1,5 +1,6 @@
 // Оболочка проекта (pages_pivot): шапка (лого, свитчер, режим, экспорт, профиль,
-// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace.
+// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace /
+// DeploymentPage (режим «Развёртывание»).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { workBodyRow as bodyRow, workDivider as divider, workPage as page, workTopBar, workTopLeft as topLeft } from "../ui/pageChrome";
@@ -12,6 +13,7 @@ import NodeModal from "../components/NodeModal";
 import NodePage from "./NodePage";
 import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
+import DeploymentPage from "./DeploymentPage";
 import { processesApi } from "../api/processes";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import AccountMenu from "../components/users/AccountMenu";
@@ -27,8 +29,14 @@ import { safeLocal, safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
 
-type WorkMode = "schema" | "proc";
+type WorkMode = "schema" | "proc" | "deploy";
 const MODE_KEY = "archmap_mode";
+
+// Сохранённый режим из localStorage: только известные значения, иначе «Объекты».
+function storedMode(): WorkMode {
+  const v = safeLocal.getItem(MODE_KEY);
+  return v === "proc" || v === "deploy" ? v : "schema";
+}
 
 interface Props {
   projectId: string;
@@ -64,9 +72,7 @@ export default function ProjectShell({
   // процесс на втором проходе.
   const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
   useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
-  const [mode, setMode] = useState<WorkMode>(() =>
-    pendingProc ? "proc" : safeLocal.getItem(MODE_KEY) === "proc" ? "proc" : "schema",
-  );
+  const [mode, setMode] = useState<WorkMode>(() => (pendingProc ? "proc" : storedMode()));
   useEffect(() => { safeLocal.setItem(MODE_KEY, mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
@@ -117,9 +123,11 @@ export default function ProjectShell({
   }
 
   // Что экспортировать сейчас — производное от режима и открытой страницы
-  // (null в «Процессах» без выбранного процесса: кнопка гаснет).
+  // (null в «Процессах» без выбранного процесса и в «Развёртывании»: кнопка гаснет).
   const exportScope: ExportScope | null =
-    mode === "proc"
+    mode === "deploy"
+      ? null
+      : mode === "proc"
       ? procSelection
         ? {
             key: `proc:${procSelection.id}`,
@@ -196,6 +204,13 @@ export default function ProjectShell({
             // Обратный ход к переходу «страница объекта → процесс»: страница узла
             // живёт в режиме «Объекты», поэтому режим переключаем тем же приёмом,
             // что и клик по узловому алерту в шапке (handleAlertLocate).
+            onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
+          />
+        ) : mode === "deploy" ? (
+          <DeploymentPage
+            key={`deploy-${syncToken}`}
+            isArchitect={isArchitect}
+            // Страница объекта живёт в режиме «Объекты» — тот же приём, что у процессов.
             onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
           />
         ) : (
@@ -275,15 +290,17 @@ export default function ProjectShell({
   );
 }
 
-// Сегмент-переключатель «Объекты / Процессы» со скользящей подсветкой активной
-// вкладки (плавный transition transform).
+// Сегмент-переключатель «Объекты / Процессы / Развёртывание» со скользящей подсветкой
+// активной вкладки (плавный transition transform). Вкладки равной ширины — по трети.
+const MODE_INDEX: Record<WorkMode, number> = { schema: 0, proc: 1, deploy: 2 };
+
 function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode) => void }) {
   const tab = (active: boolean): CSSProperties => ({
     position: "relative",
     zIndex: 1,
     flex: 1,
     height: 30,
-    padding: "0 14px",
+    padding: "0 12px",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -299,7 +316,7 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
     transition: "color .22s",
   });
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 236, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 450, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
       {/* Скользящая подсветка активной вкладки */}
       <div
         aria-hidden
@@ -308,11 +325,11 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
           top: 3,
           bottom: 3,
           left: 3,
-          width: "calc(50% - 3px)",
+          width: "calc((100% - 6px) / 3)",
           background: "#fff",
           borderRadius: 7,
           boxShadow: "0 1px 2px rgba(15,23,42,.10)",
-          transform: mode === "proc" ? "translateX(100%)" : "translateX(0)",
+          transform: `translateX(${MODE_INDEX[mode] * 100}%)`,
           transition: "transform .22s cubic-bezier(.4,0,.2,1)",
         }}
       />
@@ -327,6 +344,12 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
           <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" /><path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
         </svg>
         Процессы
+      </button>
+      <button style={tab(mode === "deploy")} data-tour="mode-deploy" onClick={() => onChange("deploy")} title="Развёртывание: где крутятся объекты">
+        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="3.5" width="16" height="7.5" rx="1.5" /><rect x="4" y="13" width="16" height="7.5" rx="1.5" /><path d="M8 7.25 H8.01 M8 16.75 H8.01" strokeWidth={2.6} />
+        </svg>
+        Развёртывание
       </button>
     </div>
   );

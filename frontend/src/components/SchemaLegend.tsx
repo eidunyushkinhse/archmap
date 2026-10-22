@@ -6,6 +6,8 @@
 // useState(open), закрытие по клику вне и Escape. Отличие: кнопка стоит ВНИЗУ справа,
 // поэтому панель раскрывается ВВЕРХ (bottom: calc(100% + 8px)). Видна всегда (обе
 // роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
+// variant="deployment" — холст «Развёртывание»: пользователей и гостей там нет, зато
+// есть площадки (сплошная рамка), группа «Размещение не указано» и пометка «1/2».
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import "./SchemaLegend.css";
@@ -65,6 +67,22 @@ function SwatchFrame() {
     </svg>
   );
 }
+/* Площадка развёртывания — сплошная рамка (FrameNode, decor site) */
+function SwatchSite() {
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <rect x={1} y={1} width={24} height={16} rx={4} fill="transparent" stroke="#64748b" strokeWidth={1.5} />
+    </svg>
+  );
+}
+/* Пометка карточки объекта на нескольких площадках */
+function SwatchMark() {
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <text x={13} y={13} textAnchor="middle" fontSize={11} fontWeight={700} fill="#374151">1/2</text>
+    </svg>
+  );
+}
 function StatusDot({ color }: { color: string }) {
   return (
     <svg width={26} height={18} viewBox="0 0 26 18">
@@ -81,7 +99,8 @@ const Chevron = ({ open }: { open: boolean }) => (
   </svg>
 );
 
-export default function SchemaLegend() {
+export default function SchemaLegend({ variant = "schema" }: { variant?: "schema" | "deployment" }) {
+  const deployment = variant === "deployment";
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -107,7 +126,7 @@ export default function SchemaLegend() {
             <Row swatch={<SwatchService />} label="Сервис" />
             <Row swatch={<SwatchDatabase />} label="База данных" />
             <Row swatch={<SwatchBroker />} label="Брокер сообщений" />
-            <Row swatch={<SwatchPerson />} label="Пользователь" />
+            {!deployment && <Row swatch={<SwatchPerson />} label="Пользователь" />}
           </Section>
 
           <Section title="Статус">
@@ -116,10 +135,18 @@ export default function SchemaLegend() {
             <Row swatch={<StatusDot color="#cb5a4f" />} label="Выводится" />
           </Section>
 
-          <Section title="Обозначения">
-            <Row swatch={<SwatchGhost />} label="Объект с другого уровня" />
-            <Row swatch={<SwatchFrame />} label="Граница родительского слоя" />
-          </Section>
+          {deployment ? (
+            <Section title="Обозначения">
+              <Row swatch={<SwatchSite />} label="Площадка" />
+              <Row swatch={<SwatchFrame />} label="Размещение не указано" />
+              <Row swatch={<SwatchMark />} label="Объект на нескольких площадках" />
+            </Section>
+          ) : (
+            <Section title="Обозначения">
+              <Row swatch={<SwatchGhost />} label="Объект с другого уровня" />
+              <Row swatch={<SwatchFrame />} label="Граница родительского слоя" />
+            </Section>
+          )}
         </div>
       )}
     </div>

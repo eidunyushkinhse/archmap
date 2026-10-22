@@ -96,6 +96,14 @@ vi.mock("../../components/processes/ProcessWorkspace", () => ({
     </div>
   ),
 }));
+// Режим «Развёртывание»: маркер страницы и триггер перехода на страницу объекта.
+vi.mock("../DeploymentPage", () => ({
+  default: ({ onOpenNode }: { onOpenNode: (id: string) => void }) => (
+    <div data-testid="deployment-page">
+      <button onClick={() => onOpenNode("n7")}>open-node</button>
+    </div>
+  ),
+}));
 // Экспорт-модалка: показывает заголовок и запускает load (как реальный fetch контента).
 vi.mock("../../components/ExportModal", () => ({
   default: ({ title, load }: { title: string; load: () => Promise<{ content: string }> }) => (
@@ -195,6 +203,41 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт поддерева");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
     expect(exportApi.subtree).toHaveBeenCalledWith("n1");
+  });
+
+  it("третья вкладка «Развёртывание»: страница развёртывания без дерева, режим сохраняется", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Развёртывание" }));
+    expect(screen.getByTestId("deployment-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("deploy");
+    // якоря тура на вкладках на месте
+    expect(document.querySelector('[data-tour="mode-proc"]')).not.toBeNull();
+    expect(document.querySelector('[data-tour="mode-deploy"]')).not.toBeNull();
+  });
+
+  it("режим «Развёртывание» восстанавливается из localStorage; экспорт в нём заблокирован", async () => {
+    localStorage.setItem("archmap_mode", "deploy");
+    setup(null);
+    expect(screen.getByTestId("deployment-page")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Экспорт" })).toBeDisabled();
+  });
+
+  it("из «Развёртывания» карточка ведёт на страницу объекта в режиме «Объекты»", async () => {
+    localStorage.setItem("archmap_mode", "deploy");
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "open-node" }));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("n7");
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("schema");
+  });
+
+  it("неизвестный сохранённый режим — «Объекты»", () => {
+    localStorage.setItem("archmap_mode", "nonsense");
+    setup(null);
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
   });
 
   it("в «Процессы» без выбранного процесса пункт экспорта заблокирован", async () => {
