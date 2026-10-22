@@ -255,12 +255,13 @@ def get_deployment_graph(
     for node_id, site_id in pairs:
         own.setdefault(node_id, []).append(site_id)
     approvals = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    node_names = {nid: n.name for nid, n in all_nodes.items()}
 
     nodes_out: list[DeploymentNodeOut] = []
     for n in leaves:
         # Вычисляемые поля NodeResponse по уже загруженным картам, без запросов на узел.
         n.approval_effective = approvals.get(n.id, n.approval)
-        n.sites = site_refs(n, effective.get(n.id, []), sites_by_id)
+        n.sites = site_refs(n, effective.get(n.id, []), sites_by_id, node_names)
         nodes_out.append(
             DeploymentNodeOut(
                 **NodeResponse.model_validate(n).model_dump(),

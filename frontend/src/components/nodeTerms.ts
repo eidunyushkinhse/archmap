@@ -40,7 +40,8 @@ export const DOC_KIND_ORDER: NodeDocKind[] = ["operation", "worker"];
 // схема логики «Создать заказ», конфигурация» и слова статуса элемента в роде того, что
 // элемент называет (объект, связь, схема, таблица, канал, процесс). Конфигурация — один
 // элемент на объект, её добавленный или удалённый параметр — тоже «изменена» (подробность
-// — в summary); статус страницы бывает только изменён.
+// — в summary); размещение — тоже один элемент на объект: «указано» (своего не было),
+// «снято» (своего не осталось), «изменено»; статус страницы бывает только изменён.
 interface VersionCategoryTerms {
   label: string;
   inline: string;
@@ -61,6 +62,11 @@ export const VERSION_CATEGORY: Record<VersionCategory, VersionCategoryTerms> = {
     label: "Конфигурация",
     inline: "конфигурация",
     status: { added: "изменена", removed: "изменена", changed: "изменена" },
+  },
+  placement: {
+    label: "Размещение",
+    inline: "размещение",
+    status: { added: "указано", removed: "снято", changed: "изменено" },
   },
   approval: {
     label: "Статус страницы",

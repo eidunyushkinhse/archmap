@@ -496,7 +496,8 @@ def test_граф_листья_экземпляры_наследование_и_
     assert nodes["Воркер"]["instances"] == []
     assert nodes["Воркер"]["effective"] == [{"site_id": cloud, "inherited_from_id": shop}]
     assert nodes["Воркер"]["sites"] == [
-        {"id": cloud, "name": "Облако", "kind": "cloud", "parent_id": None, "inherited_from_id": shop}
+        {"id": cloud, "name": "Облако", "kind": "cloud", "parent_id": None, "parent_name": None,
+         "inherited_from_id": shop, "inherited_from_name": "Витрина"}
     ]
     assert nodes["Платежи"]["effective"] == []
     # Связи — только между показанными листьями: API → БД.
@@ -550,11 +551,15 @@ def test_узел_несёт_действующее_размещение_и_пр
     assert r.status_code == 200, r.text
     assert r.json()["sites"] == [
         {"id": cluster["id"], "name": "Кластер", "kind": "kubernetes", "parent_id": cloud["id"],
-         "inherited_from_id": None}
+         "parent_name": "Облако", "inherited_from_id": None, "inherited_from_name": None}
     ]
-    # Ребёнок наследует — и в карточке, и в списке детей.
+    # Ребёнок наследует — и в карточке, и в списке детей. Имена родителя площадки и
+    # предка — в ответе: строке «Размещение» и карточке MCP не ходить за ними.
     got = client.get(f"{API}/nodes/{api}", headers=scene["rh"]).json()
-    assert [(s["name"], s["inherited_from_id"]) for s in got["sites"]] == [("Кластер", shop)]
+    assert [
+        (s["name"], s["parent_name"], s["inherited_from_id"], s["inherited_from_name"])
+        for s in got["sites"]
+    ] == [("Кластер", "Облако", shop, "Витрина")]
     children = client.get(f"{API}/nodes/{shop}/children", headers=h).json()
     assert all(c["sites"][0]["inherited_from_id"] == shop for c in children)
     # Граф уровня размещение не заполняет.

@@ -49,16 +49,19 @@ class NodeSiteOut(BaseModel):
     """Действующий экземпляр объекта — площадка, на которой он крутится (строка
     «Размещение» страницы объекта и карточка MCP; docs/tasks/deployment-view.md).
 
-    id — площадка; parent_id — площадка, в которую она вложена (имя родителя фронт
-    берёт из GET /deployment/sites). inherited_from_id — пусто у своего экземпляра
-    объекта, иначе id ближайшего предка, от которого размещение унаследовано
-    («от контейнера «Витрина»»)."""
+    id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
+    Облако»). inherited_from_id и inherited_from_name — пусто у своего экземпляра
+    объекта, иначе ближайший предок, от которого размещение унаследовано («от
+    контейнера «Витрина»»). Имена — в ответе, чтобы строке «Размещение» и карточке MCP
+    не ходить за списком площадок и предками."""
 
     id: uuid.UUID
     name: str
     kind: SiteKind
     parent_id: uuid.UUID | None = None
+    parent_name: str | None = None
     inherited_from_id: uuid.UUID | None = None
+    inherited_from_name: str | None = None
 
     model_config = {"from_attributes": True}
 

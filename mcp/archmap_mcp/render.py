@@ -1521,6 +1521,7 @@ VERSION_CATEGORY_WORD = {
     "db": "таблица",
     "channels": "канал",
     "config": "конфигурация",
+    "placement": "размещение",
     "approval": "статус страницы",
     "process": "процесс",
 }

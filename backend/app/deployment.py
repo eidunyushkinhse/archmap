@@ -183,23 +183,34 @@ def site_refs(
     node: Node,
     effective: Sequence[EffectiveInstance],
     sites_by_id: Mapping[uuid.UUID, DeploymentSite],
+    node_names: Mapping[uuid.UUID, str],
 ) -> list[NodeSiteOut]:
     """Действующее размещение узла строками NodeResponse.sites. «Пользователь» — всегда
     пусто: наследовать размещение контейнера ему тоже не с чего (импорт мог положить
-    его внутрь системы — это ловит алерт AL25, а не размещение)."""
+    его внутрь системы — это ловит алерт AL25, а не размещение). node_names — имена
+    узлов проекта: подпись предка, от которого размещение унаследовано."""
     if node.shape == "person":
         return []
-    return [
-        NodeSiteOut(
-            id=site.id,
-            name=site.name,
-            kind=site.kind,
-            parent_id=site.parent_id,
-            inherited_from_id=e.inherited_from_id,
+    out: list[NodeSiteOut] = []
+    for e in effective:
+        site = sites_by_id.get(e.site_id)
+        if site is None:
+            continue
+        parent = sites_by_id.get(site.parent_id) if site.parent_id is not None else None
+        out.append(
+            NodeSiteOut(
+                id=site.id,
+                name=site.name,
+                kind=site.kind,
+                parent_id=site.parent_id,
+                parent_name=None if parent is None else parent.name,
+                inherited_from_id=e.inherited_from_id,
+                inherited_from_name=(
+                    None if e.inherited_from_id is None else node_names.get(e.inherited_from_id)
+                ),
+            )
         )
-        for e in effective
-        if (site := sites_by_id.get(e.site_id)) is not None
-    ]
+    return out
 
 
 def project_sites(db: Session, project_id: uuid.UUID) -> list[DeploymentSite]:
@@ -235,7 +246,7 @@ def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> Non
     Выборка экземпляров проекта — одна на вызов; площадки и карта родителей узлов
     читаются, только если экземпляры в проекте есть: проект без размещения платит
     одним лёгким запросом. Родители нужны по всему проекту — размещение наследуется
-    от предка любой глубины.
+    от предка любой глубины; имена — той же выборкой, для подписи «от контейнера».
     """
     if not nodes:
         return
@@ -245,10 +256,10 @@ def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> Non
         for n in nodes:
             n.sites = []
         return
-    parent_of = {
-        nid: pid for nid, pid in db.query(Node.id, Node.parent_id).filter(Node.project_id == project_id)
-    }
+    rows = db.query(Node.id, Node.parent_id, Node.name).filter(Node.project_id == project_id).all()
+    parent_of = {nid: pid for nid, pid, _name in rows}
+    node_names = {nid: name for nid, _pid, name in rows}
     effective = effective_instances(parent_of, pairs)
     sites_by_id = {site.id: site for site in sites}
     for n in nodes:
-        n.sites = site_refs(n, effective.get(n.id, []), sites_by_id)
+        n.sites = site_refs(n, effective.get(n.id, []), sites_by_id, node_names)

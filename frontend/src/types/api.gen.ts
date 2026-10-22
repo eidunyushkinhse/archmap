@@ -6127,10 +6127,11 @@ export interface components {
          * @description Действующий экземпляр объекта — площадка, на которой он крутится (строка
          *     «Размещение» страницы объекта и карточка MCP; docs/tasks/deployment-view.md).
          *
-         *     id — площадка; parent_id — площадка, в которую она вложена (имя родителя фронт
-         *     берёт из GET /deployment/sites). inherited_from_id — пусто у своего экземпляра
-         *     объекта, иначе id ближайшего предка, от которого размещение унаследовано
-         *     («от контейнера «Витрина»»).
+         *     id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
+         *     Облако»). inherited_from_id и inherited_from_name — пусто у своего экземпляра
+         *     объекта, иначе ближайший предок, от которого размещение унаследовано («от
+         *     контейнера «Витрина»»). Имена — в ответе, чтобы строке «Размещение» и карточке MCP
+         *     не ходить за списком площадок и предками.
          */
         NodeSiteOut: {
             /**
@@ -6147,8 +6148,12 @@ export interface components {
             kind: "cloud" | "kubernetes" | "vm" | "physical" | "other";
             /** Parent Id */
             parent_id?: string | null;
+            /** Parent Name */
+            parent_name?: string | null;
             /** Inherited From Id */
             inherited_from_id?: string | null;
+            /** Inherited From Name */
+            inherited_from_name?: string | null;
         };
         /** NodeSnapshot */
         NodeSnapshot: {
@@ -7709,7 +7714,7 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "placement" | "approval" | "process";
             /** Name */
             name: string;
             /**
@@ -7744,8 +7749,8 @@ export interface components {
          *
          *     item_id — адрес элемента для GET …/diff/{item_id}: «props:<id узла>»,
          *     «approval:<id узла>», «edge:<id связи>», «doc:<id схемы>», «spec:<id узла>»,
-         *     «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «process:<id
-         *     процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
+         *     «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «placement:<id
+         *     узла>», «process:<id процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
          *     заказов»; у самого корня среза — пустая строка, у процесса — тоже: он общий).
          *     summary — короткая подробность для строки списка («+3 −2», «переименована: A → B»,
          *     «+1 ~1», «+2 ~1 шага», «в работе → согласовано»); статус словами — по status.
@@ -7757,7 +7762,7 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "placement" | "approval" | "process";
             /** Node Path */
             node_path: string;
             /** Name */
