@@ -1,0 +1,176 @@
+"""Схема развёртывания у агента (docs/tasks/deployment-view.md, Ф4): площадки деревом
+с составом и размещение одного объекта (archmap_deployment).
+
+Фикстуры площадок и строк размещения сверяются схемами САМОГО БЭКЕНДА: подменённый
+транспорт форму не валидирует, и без сверки тест зелён на выдуманных полях.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import pytest
+from conftest import FakeApi, backend, node
+
+from archmap_mcp import render, tools
+from archmap_mcp.client import ArchMapClient, ArchMapError
+
+
+def u(n: int) -> str:
+    return f"{n:08d}-0000-0000-0000-000000000000"
+
+
+CLOUD, CLUSTER, VM, RACK = u(1), u(2), u(3), u(4)
+ROOT, SHOP, API, CART, PAY, BUYER = u(10), u(11), u(12), u(13), u(14), u(15)
+
+
+def site(site_id: str, name: str, kind: str, parent: str | None = None, **over: Any) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "id": site_id, "name": name, "kind": kind, "technology": None, "description": None,
+        "parent_id": parent, "version": 1, "instance_count": 0,
+    }
+    out.update(over)
+    backend("schemas.deployment").SiteOut.model_validate(out)
+    return out
+
+
+def ref(site_id: str, name: str, kind: str, parent_name: str | None = None,
+        donor: tuple[str, str] | None = None) -> dict[str, Any]:
+    """Строка NodeResponse.sites — действующий экземпляр объекта."""
+    out = {
+        "id": site_id, "name": name, "kind": kind,
+        "parent_id": CLOUD if parent_name else None, "parent_name": parent_name,
+        "inherited_from_id": donor[0] if donor else None,
+        "inherited_from_name": donor[1] if donor else None,
+    }
+    backend("schemas.node").NodeSiteOut.model_validate(out)
+    return out
+
+
+SITES = [
+    site(VM, "ВМ-2", "vm", instance_count=1),
+    site(CLOUD, "Облако", "cloud", technology="Yandex Cloud", instance_count=1),
+    site(CLUSTER, "Кластер prod", "kubernetes", CLOUD, technology="k3s", instance_count=1),
+    site(RACK, "Стойка", "other"),
+]
+
+NODES = [
+    node(ROOT, "Ярмарка", has_children=True, sites=[]),
+    node(SHOP, "Витрина", ROOT, has_children=True,
+         sites=[ref(CLOUD, "Облако", "cloud")]),
+    node(API, "API", SHOP, sites=[
+        ref(VM, "ВМ-2", "vm"), ref(CLUSTER, "Кластер prod", "kubernetes", "Облако"),
+    ]),
+    node(CART, "Корзина", SHOP, sites=[ref(CLOUD, "Облако", "cloud", donor=(SHOP, "Витрина"))]),
+    node(PAY, "Платежи", ROOT, sites=[]),
+    node(BUYER, "Покупатель", shape="person", sites=[]),
+]
+
+
+def routes(api: FakeApi, sites: list[dict[str, Any]] = SITES, nodes: list[dict[str, Any]] = NODES) -> None:
+    api.get("/deployment/sites", sites)
+    api.get("/nodes/all", nodes)
+
+
+async def test_площадки_деревом_с_составом_и_без_размещения(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    routes(api)
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines() == [
+        "Проект «Ярмарка» — площадки развёртывания (4):",
+        "ВМ-2 [вм] — 1 объект",
+        f"  • Ярмарка / Витрина / API  id={API}",
+        "Облако [облако, Yandex Cloud] — 1 объект",
+        f"  • Ярмарка / Витрина (контейнер — вложенные без своего размещения здесь же)  id={SHOP}",
+        "  Кластер prod [kubernetes, k3s] — 1 объект",
+        f"    • Ярмарка / Витрина / API  id={API}",
+        "Стойка [другое] — пусто",
+        # Корзина наследует облако, Ярмарка — контейнер, Покупатель живёт вне системы.
+        "Без размещения: 1 объект",
+        f"  • Ярмарка / Платежи  id={PAY}",
+    ]
+
+
+async def test_состав_площадки_и_без_размещения_с_капом(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    many = [node(u(100 + i), f"svc-{i:02d}", sites=[ref(VM, "ВМ-2", "vm")]) for i in range(23)]
+    lonely = [node(u(200 + i), f"job-{i:02d}", sites=[]) for i in range(21)]
+    routes(api, [SITES[0]], [*many, *lonely])
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    lines = out.splitlines()
+    assert lines[1] == "ВМ-2 [вм] — 23 объекта"
+    assert lines[2:22] == [f"  • svc-{i:02d}  id={u(100 + i)}" for i in range(20)]
+    assert lines[22] == "  …и ещё 3"
+    assert lines[23] == "Без размещения: 21 объект"
+    assert lines[-1] == "  …и ещё 1" and len(lines) == 24 + 20 + 1
+
+
+async def test_размещение_одного_объекта_с_наследованием(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    routes(api)
+
+    own = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": API}, client)
+    inherited = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": CART}, client)
+    nothing = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": PAY}, client)
+
+    assert own.splitlines() == [
+        "Проект «Ярмарка»",
+        f"Путь: Ярмарка / Витрина / API  id={API}",
+        "Размещение (2 площадки):",
+        "  • ВМ-2 [вм] — своё",
+        "  • Облако / Кластер prod [kubernetes, k3s] — своё",
+    ]
+    assert inherited.splitlines()[2:] == [
+        "Размещение (1 площадка):",
+        "  • Облако [облако, Yandex Cloud] — от контейнера «Витрина»",
+    ]
+    assert nothing.splitlines()[2:] == [
+        "Размещение: не указано — ни у объекта, ни у его контейнеров"
+    ]
+
+
+async def test_пользователь_и_неизвестный_объект(client: ArchMapClient, api: FakeApi) -> None:
+    routes(api)
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": BUYER}, client)
+    assert out.splitlines()[-1] == "Размещения нет: пользователь живёт вне системы"
+
+    with pytest.raises(ArchMapError, match="не найден в проекте «Ярмарка»"):
+        await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": u(999)}, client)
+
+
+async def test_проект_без_площадок_одной_фразой(client: ArchMapClient, api: FakeApi) -> None:
+    api.get("/deployment/sites", [])
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out == (
+        "Проект «Ярмарка». Площадок нет: размещение задаётся на холсте «Развёртывание» "
+        "или разделом deployment в YAML импорта."
+    )
+    # Без площадок дерево объектов не нужно — лишнего запроса нет.
+    assert [c.url.path for c in api.calls][-1].endswith("/deployment/sites")
+
+
+async def test_инструмент_есть_в_удалённом_наборе_и_только_чтения() -> None:
+    assert tools.BY_NAME["archmap_deployment"]["writes"] is False
+    assert "archmap_deployment" in [t["name"] for t in tools.remote_catalog(read_only=True)]
+
+
+def test_превью_ввоза_называет_площадки() -> None:
+    """Счётчики семей превью (UnifiedFamilyCountsOut) несут площадки — теми же словами."""
+    counts = backend("schemas.unified_import").UnifiedFamilyCountsOut(docs=1, sites=2)
+    assert render.family_counts(counts.model_dump()) == "Содержимое: схем логики 1, площадок 2."
+
+
+def test_слова_вида_площадки_те_же_что_у_бэкенда() -> None:
+    from typing import get_args
+
+    assert set(render.SITE_KIND_WORD) == set(get_args(backend("domain_types").SiteKind))

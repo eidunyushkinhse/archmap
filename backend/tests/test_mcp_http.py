@@ -93,12 +93,12 @@ def text(result: dict[str, Any]) -> str:
     return result["content"][0]["text"]
 
 
-def test_список_полным_токеном_32_только_чтение_16(client, db, scene):
+def test_список_полным_токеном_33_только_чтение_17(client, db, scene):
     full = rpc(client, _token(db, scene["editor"], name="полный"), "tools/list", {})
     reader = rpc(client, _token(db, scene["editor"], read_only=True, name="чтение"), "tools/list", {})
     assert full.status_code == 200 and reader.status_code == 200
-    assert len(full.json()["result"]["tools"]) == 32
-    assert len(reader.json()["result"]["tools"]) == 16
+    assert len(full.json()["result"]["tools"]) == 33
+    assert len(reader.json()["result"]["tools"]) == 17
 
 
 def test_пользователю_набор_только_чтения_даже_редактору(client, db, scene):
@@ -107,7 +107,7 @@ def test_пользователю_набор_только_чтения_даже_
     scene["editor"].role = "viewer"
     db.commit()
     tools = rpc(client, secret, "tools/list", {}).json()["result"]["tools"]
-    assert len(tools) == 16
+    assert len(tools) == 17
     result = call(client, secret, "archmap_create_node", {"project": str(scene["project"].id), "name": "Шлюз"})
     assert result["isError"] is True
     assert db.query(Node).count() == 0

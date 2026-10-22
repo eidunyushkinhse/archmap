@@ -5,7 +5,8 @@
 Здесь три слоя:
 
   • чтение — понять систему (проекты, дерево, поиск по всему знанию, карточка,
-    одна схема логики, версии документации и их дельты, алерты, процессы, YAML)
+    одна схема логики, версии документации и их дельты, алерты, процессы,
+    размещение на площадках развёртывания, YAML)
     и вынести её знание наружу целиком (архив проекта — в файл на диске);
   • правила формата — те же промпты, что отдаёт интерфейс (BYOA): агент сперва
     узнаёт требуемый формат, потом строит YAML/.mmd/перечень/таблицы. Сюда же
@@ -198,6 +199,12 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         # рождает дубль, и агент вправе знать это до правки, а не после.
         render.anchor_line(node),
     ]
+    # Размещение — строка «Размещение» страницы объекта: где он крутится (свои площадки
+    # или унаследованные от контейнера). Нет размещения — нет и строки: площадки в
+    # проекте могут вовсе не вестись, и «не указано» в каждой карточке было бы шумом.
+    placement = render.placement_line(node)
+    if placement:
+        out.append(placement)
     # Статус страницы — пилюля у имени в интерфейсе. У контейнера он складывается из
     # детей: счётчик — по прямым детям из того же /nodes/all, без лишнего запроса.
     approval = render.approval_line(
@@ -252,6 +259,28 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
         for d in doc_list:
             out.append(f"\n--- {d['name']} ---\n```mermaid\n{d.get('content', '')}\n```")
     return "\n".join(out)
+
+
+async def t_deployment(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Схема развёртывания: площадки деревом с составом либо размещение одного объекта.
+
+    Состав — из /nodes/all, а не из графа развёртывания: граф отдаёт только листья, и
+    контейнер, поставленный на площадку сам, пропал бы из её состава, когда у всех его
+    листьев есть своё размещение. В /nodes/all действующее размещение есть у каждого
+    объекта (NodeResponse.sites, свои — без inherited_from_id)."""
+    pid, pname = await resolve_project(client, args["project"])
+    sites = await client.request("GET", "/deployment/sites", project_id=pid)
+    if not sites:
+        return f"Проект «{pname}». {render.NO_SITES}."
+    nodes = await client.request("GET", "/nodes/all", project_id=pid)
+    node_id = args.get("node_id")
+    if node_id:
+        by_id = {str(n["id"]): n for n in nodes}
+        if node_id not in by_id:
+            raise ArchMapError(f"Объект {node_id} не найден в проекте «{pname}».")
+        return "\n".join([f"Проект «{pname}»", *render.node_placement(by_id[node_id], by_id, sites)])
+    head = f"Проект «{pname}» — площадки развёртывания ({len(sites)}):"
+    return "\n".join([head, *render.deployment_tree(sites, nodes)])
 
 
 async def t_alerts(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -919,6 +948,38 @@ async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     )
 
 
+async def _site_ids(client: ArchMapClient, pid: str, pname: str, names: list[Any]) -> list[str]:
+    """Имена площадок → id для PATCH site_ids. Имя — точное, иначе единственное без
+    учёта регистра. Неизвестное имя — отказ с перечнем площадок проекта: создавать
+    площадку молча из разговора нельзя (их заводит человек или импорт YAML)."""
+    if not names:
+        return []
+    sites = await client.request("GET", "/deployment/sites", project_id=pid)
+    by_name = {str(s["name"]): str(s["id"]) for s in sites}
+    ids: list[str] = []
+    missing: list[str] = []
+    for raw in names:
+        name = str(raw).strip()
+        site_id = by_name.get(name)
+        if site_id is None:
+            folded = [n for n in by_name if n.casefold() == name.casefold()]
+            site_id = by_name[folded[0]] if len(folded) == 1 else None
+        if site_id is None:
+            missing.append(name)
+        elif site_id not in ids:
+            ids.append(site_id)
+    if missing:
+        known = ", ".join(f"«{n}»" for n in sorted(by_name)[:30])
+        what = "Площадки" if len(missing) == 1 else "Площадок"
+        raise ArchMapError(
+            f"{what} {', '.join(f'«{m}»' for m in missing)} в проекте «{pname}» нет. "
+            + (f"Есть: {known}. " if known else "Площадок в проекте нет. ")
+            + "Через MCP площадки не создаются — их заводит человек на холсте "
+            "«Развёртывание» или импорт YAML с разделом deployment."
+        )
+    return ids
+
+
 async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     body = {
@@ -934,6 +995,11 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     # проигнорировать просьбу. Отсутствие ключа source источник не трогает.
     if "source" in args and args["source"] is not None:
         body["source"] = args["source"]
+    # Размещение — тоже мимо фильтра «не None»: пустой список [] не пустая правка, а
+    # СНЯТИЕ своего размещения. Набор целиком (PATCH site_ids), отсутствие ключа его
+    # не трогает.
+    if "sites" in args and args["sites"] is not None:
+        body["site_ids"] = await _site_ids(client, pid, pname, list(args["sites"]))
     if not body:
         raise ArchMapError("Нечего менять: не передано ни одного поля.")
     data = await client.request("PATCH", f"/nodes/{args['node_id']}", project_id=pid, json=body)
@@ -942,7 +1008,12 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     # только у листа (у контейнера сервер отвечает 422), поэтому дети здесь не нужны.
     if "approval" in body:
         tail += "\n" + (render.approval_line(data, []) or "")
-    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(body)}." + tail
+    # Размещение — строкой карточки по ответу сервера: после [] у объекта может
+    # остаться унаследованное от контейнера, и агент должен это увидеть.
+    if "site_ids" in body:
+        tail += "\n" + (render.placement_line(data) or "Размещение: не указано")
+    fields = ["sites" if k == "site_ids" else k for k in body]
+    return f"В проекте «{pname}» обновлён «{data['name']}»: {', '.join(fields)}." + tail
 
 
 async def t_create_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1125,6 +1196,20 @@ SOURCE_ARG = {
     },
 }
 
+# Размещение объекта (docs/tasks/deployment-view.md): набор площадок ЦЕЛИКОМ, как у
+# окна «Размещение» в интерфейсе. Создавать площадки агенту не дано — только ставить.
+SITES_ARG = {
+    "type": "array",
+    "items": {"type": "string"},
+    "description": (
+        "Площадки, где объект стоит САМ, — имена из archmap_deployment. Набор целиком: "
+        "перечисленные ставятся, прочие свои снимаются; [] — снять своё размещение "
+        "(останется унаследованное от контейнера). Без ключа размещение не трогается. "
+        "Площадки через MCP не создаются — их заводит человек на холсте «Развёртывание» "
+        "или импорт YAML с разделом deployment."
+    ),
+}
+
 NODE_ID_ARG = {"type": "string", "description": "id объекта (из archmap_schema, archmap_search или archmap_node)."}
 SUBTREE_ARG = {"type": "string", "description": "id объекта: показать только его поддерево."}
 # Объект версий необязателен: без него — версии корня, то есть всего проекта.
@@ -1249,7 +1334,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_node",
         "writes": False,
-        "description": "Карточка объекта: путь, мета, источник (чем объект опознаётся при обновлениях из кода — «код github.com/org/repo, путь src/api», «имя зависимости postgres» либо «нет — опознаётся по имени»), входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
+        "description": "Карточка объекта: путь, мета, источник (чем объект опознаётся при обновлениях из кода — «код github.com/org/repo, путь src/api», «имя зависимости postgres» либо «нет — опознаётся по имени»), размещение (площадки, где объект крутится: свои или «от контейнера»; строки нет, если размещения нет), входящие и исходящие связи, схемы логики (вид, привязка к операции, метка «не описана» у заглушек разведки, участие схемы в бизнес-процессах), процессы, в которых участвует сам объект, наличие OpenAPI-спеки и семья табличных фактов по форме объекта — структура БД с колонками у базы, каналы с полями сообщений у брокера, параметры конфигурации у сервиса. include_docs/include_spec — вернуть тексты схем и спеки целиком.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1275,6 +1360,17 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "doc_id"],
         },
         "handler": t_doc,
+    },
+    {
+        "name": "archmap_deployment",
+        "writes": False,
+        "description": "Схема развёртывания — где крутятся объекты. Без node_id — площадки деревом (вид, технология, объекты, поставленные на площадку сами; контейнер — вместе с вложенными без своего размещения), затем объекты без размещения. С node_id — действующее размещение объекта: площадки путями, свои или унаследованные от контейнера. Площадки заводит человек на холсте «Развёртывание» или импорт YAML с разделом deployment; поставить объект на существующие площадки — archmap_update_node с sites.",
+        "schema": {
+            "type": "object",
+            "properties": {"project": PROJECT_ARG, "node_id": NODE_ID_ARG},
+            "required": ["project"],
+        },
+        "handler": t_deployment,
     },
     {
         "name": "archmap_versions",
@@ -1744,7 +1840,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_update_node",
         "writes": True,
-        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ИСТОЧНИК (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает источник). approval — статус СТРАНИЦЫ (в работе / согласовано, не жизненный цикл): только по явной просьбе человека и только у объекта без детей — у контейнера он складывается из детей. Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
+        "description": "Правка объекта: имя, описание, роль, технология, форма, статус, внешность и ИСТОЧНИК (source — два вида: код репозитория с путём либо имя зависимости; пустой объект {} снимает источник). sites — размещение: имена площадок из archmap_deployment набором целиком, [] снимает своё; площадки через MCP не создаются. approval — статус СТРАНИЦЫ (в работе / согласовано, не жизненный цикл): только по явной просьбе человека и только у объекта без детей — у контейнера он складывается из детей. Удаления объектов через MCP нет — чтобы убрать лишнее, поставьте status=deprecated, физически удалит человек кнопкой «Принять переход».",
         "schema": {
             "type": "object",
             "properties": {
@@ -1759,6 +1855,7 @@ TOOLS: list[dict[str, Any]] = [
                 "is_external": EXTERNAL_ARG,
                 "source": SOURCE_ARG,
                 "approval": APPROVAL_ARG,
+                "sites": SITES_ARG,
             },
             "required": ["project", "node_id"],
         },
