@@ -15,8 +15,9 @@
 ради уникальных индексов (имя схемы у объекта, таблица, канал, параметр, колонка,
 поле) и внешних ключей, которые БД проверяет сразу:
 
-1. лишние строки уцелевших объектов (схемы, факты, связи, которых в снимке нет)
-   удаляются первыми — освобождают имена;
+1. лишние строки уцелевших объектов (схемы, факты, связи, экземпляры размещения,
+   которых в снимке нет) удаляются первыми — освобождают имена и пары «объект,
+   площадка»;
 2. уцелевшие строки снимка получают его поля; те, чей ключ уникальности меняется,
    сперва проходят через временное имя (иначе обмен именами двух схем упёрся бы в
    индекс); ссылка на строку, которой ещё нет, откладывается;
@@ -27,6 +28,10 @@
    связями (БД-каскад, как у удаления узла). Раньше нельзя: под таким объектом могли
    оказаться объекты и схемы снимка (их перенесли туда после версии), и каскад унёс бы
    их вместе с привязками процессов, раскладкой и историей версий.
+
+Размещение откатывается экземплярами по снимку; площадки в версию не входят (общая
+сущность проекта), и экземпляр на площадке, которой больше нет, пропускается с
+замечанием — как связь к исчезнувшему объекту.
 
 Уникальных имён у самих объектов нет (тёзки-братья допустимы), а у схем и фактов
 ключ — внутри объекта-владельца, и все владельцы строк снимка — объекты среза. Поэтому
@@ -53,16 +58,23 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.models.node_version import NodeVersion
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.restore import DeletionSnapshot, EdgeSnapshot, NodeSnapshot
+from app.schemas.restore import (
+    DeletionSnapshot,
+    DeploymentInstanceSnapshot,
+    EdgeSnapshot,
+    NodeSnapshot,
+)
 from app.schemas.versions import RestoreOut, RestorePreview, VersionSnapshot
 from app.transition import cleanup_layout
-from app.versions_diff import restorable
+from app.versions_diff import object_path, restorable
 from app.versions_snapshot import content_hash
 from app.view_state import bump_view_version
 
@@ -149,9 +161,16 @@ def _rows(items: Iterable[Any], exclude: Iterable[str] = ()) -> dict[uuid.UUID, 
     return {r.id: r.model_dump(exclude={"id", *exclude}) for r in items}
 
 
-def _families(snap: VersionSnapshot, edges: list[EdgeSnapshot]) -> dict[type[Base], _Family]:
+def _families(
+    snap: VersionSnapshot,
+    edges: list[EdgeSnapshot],
+    instances: list[DeploymentInstanceSnapshot],
+) -> dict[type[Base], _Family]:
     """Семьи строк снимка. Статус страницы (approval) из полей узла исключён — он не
-    откатывается; родитель корня среза — тоже, его решает _restore_root_parent."""
+    откатывается; родитель корня среза — тоже, его решает _restore_root_parent. Связи и
+    экземпляры — только те, что можно вернуть (_Apply._edges, _Apply._instances).
+    Площадка экземпляра (site_id) — ссылка без семьи: площадки в снимке нет, а
+    экземпляры на удалённых площадках отфильтрованы раньше."""
     nodes = _rows(snap.nodes, {"approval"})
     if snap.root_id is not None:
         nodes[snap.root_id].pop("parent_id")
@@ -184,6 +203,7 @@ def _families(snap: VersionSnapshot, edges: list[EdgeSnapshot]) -> dict[type[Bas
             ("channel_id", "name"),
         ),
         _Family(ConfigParam, _rows(snap.config_params), {"node_id": Node}, ("node_id", "name")),
+        _Family(DeploymentInstance, _rows(instances), {"node_id": Node}, ("node_id", "site_id")),
     ]
     return {f.model: f for f in families}
 
@@ -211,7 +231,7 @@ class _Apply:
 
     def run(self) -> None:
         edges = self._edges()
-        families = _families(self.snap, edges)
+        families = _families(self.snap, edges, self._instances())
         self._drop_extra_rows(families)
         live = {model: self._load(model, fam.rows) for model, fam in families.items()}
         missing = {model: fam.rows.keys() - live[model].keys() for model, fam in families.items()}
@@ -246,14 +266,47 @@ class _Apply:
             out.append(EdgeSnapshot.model_validate(e.model_dump(include=fields)))
         return out
 
+    # ── Размещение ──
+
+    def _instances(self) -> list[DeploymentInstanceSnapshot]:
+        """Экземпляры снимка, которые можно вернуть: площадка ещё есть в проекте.
+        Площадка в версию не входит (общая сущность проекта), удалённую откат не
+        вернёт — размещение на ней пропускается с замечанием. Объект экземпляра — узел
+        снимка, после отката он будет всегда. Путь площадки — только для показа:
+        строкой снимка удаления он не нужен."""
+        site_ids = {i.site_id for i in self.snap.instances}
+        alive: set[uuid.UUID] = set()
+        if site_ids:
+            alive = {
+                sid
+                for (sid,) in self.db.query(DeploymentSite.id).filter(
+                    DeploymentSite.id.in_(site_ids), DeploymentSite.project_id == self.project.id
+                )
+            }
+        fields = set(DeploymentInstanceSnapshot.model_fields)
+        out: list[DeploymentInstanceSnapshot] = []
+        for inst in self.snap.instances:
+            if inst.site_id not in alive:
+                self.remarks.append(
+                    f"размещение «{object_path(self.snap, inst.node_id)}» на площадке "
+                    f"«{inst.site_path}» не восстановлено: площадки больше нет"
+                )
+                continue
+            out.append(DeploymentInstanceSnapshot.model_validate(inst.model_dump(include=fields)))
+        return out
+
     # ── Шаг 1: лишние строки уцелевших объектов ──
 
     def _drop_extra_rows(self, families: dict[type[Base], _Family]) -> None:
-        """Удалить схемы, факты и связи уцелевших объектов снимка, которых в снимке нет:
-        они освобождают имена для строк снимка. Колонки и поля — у таблиц и каналов
-        снимка; лишние таблицы и каналы уносят свои колонки и поля сами (каскад). Связь
-        снимка, которую вернуть нельзя (другого конца больше нет), остаётся как есть:
-        сопоставление по id, а она в снимке есть."""
+        """Удалить схемы, факты, связи и экземпляры размещения уцелевших объектов
+        снимка, которых в снимке нет: они освобождают имена для строк снимка. Колонки и
+        поля — у таблиц и каналов снимка; лишние таблицы и каналы уносят свои колонки и
+        поля сами (каскад). Связь снимка, которую вернуть нельзя (другого конца больше
+        нет), остаётся как есть: сопоставление по id, а она в снимке есть.
+
+        Экземпляр, поставленный после версии на ту же площадку заново (та же пара
+        «объект, площадка», другой id), удаляется здесь же — его id не в keep, — и пара
+        освобождается до воссоздания экземпляра снимка с исходным id."""
         db = self.db
         owners = list(self.plan.parents.keys() & self.plan.snap_nodes.keys())
         tables = list(families[DbTable].rows.keys())
@@ -263,6 +316,7 @@ class _Apply:
             *db.query(DbTable).filter(DbTable.node_id.in_(owners)),
             *db.query(BrokerChannel).filter(BrokerChannel.node_id.in_(owners)),
             *db.query(ConfigParam).filter(ConfigParam.node_id.in_(owners)),
+            *db.query(DeploymentInstance).filter(DeploymentInstance.node_id.in_(owners)),
             *db.query(DbColumn).filter(DbColumn.table_id.in_(tables)),
             *db.query(ChannelField).filter(ChannelField.channel_id.in_(channels)),
             *db.query(Edge).filter(or_(Edge.source_id.in_(owners), Edge.target_id.in_(owners))),
@@ -325,12 +379,16 @@ class _Apply:
         """Поля снимка — уцелевшим строкам. Строки со сменой ключа уникальности сперва
         получают временное имя (отдельный flush: иначе обмен именами упёрся бы в
         индекс). Строка со ссылкой на ещё не воссозданную возвращается отложенной —
-        её поля целиком проставит run после воссоздания."""
+        её поля целиком проставит run после воссоздания.
+
+        Временное имя — только у ключей с именем. У экземпляра размещения ключ — пара
+        «объект, площадка», и правимых полей у него нет: строка с тем же id несёт ту же
+        пару, а живая строка с той же парой и другим id удалена шагом 1."""
         db = self.db
         for model, fam in families.items():
             for rid, values in fam.rows.items():
                 obj = live[model].get(rid)
-                if obj is not None and fam.unique and any(
+                if obj is not None and "name" in fam.unique and any(
                     getattr(obj, k) != values[k] for k in fam.unique
                 ):
                     obj.name = _temp_name(rid)
@@ -386,6 +444,7 @@ class _Apply:
             broker_channels=rows(BrokerChannel),
             channel_fields=rows(ChannelField),
             config_params=rows(ConfigParam),
+            instances=rows(DeploymentInstance),
         )
         if any(getattr(snapshot, name) for name in DeletionSnapshot.model_fields):
             restore.apply_snapshot(self.db, snapshot, self.project.id)

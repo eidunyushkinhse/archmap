@@ -249,6 +249,13 @@ class _Pair:
         return side.rel_path(node_id)
 
 
+def object_path(snapshot: VersionSnapshot, node_id: uuid.UUID) -> str:
+    """Путь объекта именами по снимку — от корня среза до самого объекта («Магазин /
+    Заказы»): подпись объекта вне дельты (замечания отката). Объекта в снимке нет —
+    пустая строка."""
+    return _Side.of(snapshot).full_path(node_id)
+
+
 # ── Общие кирпичи представлений ────────────────────────────────────────────────
 
 _NONE = "—"
