@@ -1622,9 +1622,8 @@ def version_list(title: str, data: dict[str, Any]) -> str:
             # null — пользователь удалён: история остаётся, автора у неё больше нет.
             str(v.get("author") or "автор удалён"),
         ]
-        kind = _version_kind(v)
-        if kind:
-            bits.append(kind)
+        # Вид автоверсии не печатаем: её комментарий («Перед откатом к vN», «Откат к vN»)
+        # уже называет его, а повтор в конце строки — шум.
         out.append("• " + " · ".join(bits))
         changed: list[dict[str, Any]] = (v.get("stats") or {}).get("changed") or []
         if changed:

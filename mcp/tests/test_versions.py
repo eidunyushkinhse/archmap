@@ -120,8 +120,8 @@ async def test_список_версий_объекта(client: ArchMapClient, s
     lines = out.splitlines()
     assert lines[0] == "Версии «Сервис заказов» (проект «Ярмарка»)"
     assert lines[1] == "Есть изменения с v5: схема логики «Создать заказ», таблица «public.orders» (новое)"
-    assert "• v5 · Откат к v1 · 2026-10-22 10:15 UTC · автор удалён · откат к v1" in lines
-    assert "• v4 · Перед откатом к v1 · 2026-10-22 10:15 UTC · arch · перед откатом" in lines
+    assert "• v5 · Откат к v1 · 2026-10-22 10:15 UTC · автор удалён" in lines
+    assert "• v4 · Перед откатом к v1 · 2026-10-22 10:15 UTC · arch" in lines
     assert "• v3 · orders 2.3 · ORD-412 · 2026-10-22 10:15 UTC · arch" in lines
     # До пяти элементов категорией и именем, дальше — счётчик; у спеки имя не повторяется.
     assert (

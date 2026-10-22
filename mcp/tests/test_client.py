@@ -88,6 +88,22 @@ async def test_отказы_переводятся_в_понятный_текс�
     assert expected in str(exc.value)
 
 
+async def test_предел_демо_не_выдаётся_за_конфликт_версий(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # 409 с code=demo_limit — предел песочницы, а не гонка правок: совет «перечитайте
+    # и повторите» водил бы агента по кругу (находка Ф4 эпика версий).
+    api.routes[("POST", "/nodes")] = httpx.Response(
+        409, json={"detail": "Демо-проект поддерживает до 100 объектов.", "code": "demo_limit"}
+    )
+
+    with pytest.raises(ArchMapError) as exc:
+        await client.request("POST", "/nodes", project_id=PROJECT_ID, json={"name": "x"})
+
+    assert "Предел демо-проекта: Демо-проект поддерживает до 100 объектов." in str(exc.value)
+    assert "перечитайте" not in str(exc.value)
+
+
 async def test_ошибка_валидации_называет_поле(client: ArchMapClient, api: FakeApi) -> None:
     # FastAPI кладёт в detail список — агенту нужна причина, а не «[object]».
     api.routes[("POST", "/nodes")] = httpx.Response(
