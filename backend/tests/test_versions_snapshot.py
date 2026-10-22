@@ -342,6 +342,35 @@ def test_правка_шага_процесса_с_участием_листа_�
     assert content_hash(build_snapshot(db, project.id, s.orders.id)) != before
 
 
+def test_переименование_участника_вне_листа_хэш_не_меняет(db, project):
+    """Процесс общий: «Платежи» — его участник, но вне среза листа «Заказы». Живое имя
+    участника в detail меняется, а хэш листа — нет: имя привязанного живёт в узле."""
+    s = _scene(db, project)
+    before = build_snapshot(db, project.id, s.orders.id)
+
+    s.payments.name = "Оплаты"
+    db.commit()
+    after = build_snapshot(db, project.id, s.orders.id)
+
+    assert {p.name for p in after.processes[0].detail.participants} == {"Заказы", "Оплаты"}
+    assert content_hash(after) == content_hash(before)
+
+
+def test_перепривязка_участника_меняет_хэш(db, project):
+    s = _scene(db, project)
+    before = content_hash(build_snapshot(db, project.id, s.orders.id))
+
+    part = (
+        db.query(ProcessParticipant)
+        .filter_by(process_id=s.checkout.id, node_id=s.payments.id)
+        .one()
+    )
+    part.node_id = s.db_node.id
+    db.commit()
+
+    assert content_hash(build_snapshot(db, project.id, s.orders.id)) != before
+
+
 def test_счётчик_CAS_шага_в_хэш_не_входит(db, project):
     """Подпись поправили и вернули: текст тот же, счётчик CAS вырос на два. Это не
     изменение документации — иначе «есть изменения» горело бы без изменений."""

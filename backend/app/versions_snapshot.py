@@ -58,6 +58,7 @@ from app.schemas.restore import (
     NodeSnapshot,
 )
 from app.schemas.versions import ProcessVersion, VersionEdge, VersionSnapshot
+from app.versions_diff import semantic
 
 # Формат снимка в колонке node_versions.snapshot_format. Меняется вместе с формой
 # VersionSnapshot, если старый JSON ею больше не читается: decode различает строки по
@@ -102,17 +103,10 @@ NOT_IN_VERSION: dict[type[Base], str] = {
     ProcessFragmentBranch: _PROCESS,
 }
 
-# Что НЕ входит в content_hash — производное для показа, а не семантика документации:
-#   • пути концов связей: переименование чужого узла, связанного с объектом, иначе
-#     давало бы ложное «есть изменения» (связь опознаётся id концов, они в хэше);
-#   • mermaid процесса: рендер detail; смена рендерера — не правка процесса;
-#   • version шага процесса: CAS-счётчик конкурентных правок, к версиям документации
-#     не относится — правка подписи туда и обратно возвращает тот же текст, но
-#     двигает счётчик (ТЗ §11: CAS-версии с версиями документации не связаны).
-HASH_EXCLUDE: dict[str, Any] = {
-    "edges": {"__all__": {"source_path", "target_path"}},
-    "processes": {"__all__": {"mermaid": True, "detail": {"messages": {"__all__": {"version"}}}}},
-}
+# Что входит в content_hash, решает одна функция — versions_diff.semantic: по ней же
+# сравнивает дельта, и «есть изменения с vN» не расходится с перечнем изменённого. Вне
+# проекции — производное для показа: пути концов связей, mermaid процесса, живые имена
+# и свойства чужих узлов в detail процесса, CAS-счётчик шага.
 
 
 class _HasId(Protocol):
@@ -259,9 +253,8 @@ def canonical_json(snapshot: VersionSnapshot) -> str:
 
 
 def content_hash(snapshot: VersionSnapshot) -> str:
-    """sha256 канонического JSON СЕМАНТИЧЕСКОЙ проекции снимка (без HASH_EXCLUDE)."""
-    semantic = snapshot.model_dump(mode="json", exclude=HASH_EXCLUDE)
-    return hashlib.sha256(_dumps(semantic).encode("utf-8")).hexdigest()
+    """sha256 канонического JSON СЕМАНТИЧЕСКОЙ проекции снимка (versions_diff.semantic)."""
+    return hashlib.sha256(_dumps(semantic(snapshot)).encode("utf-8")).hexdigest()
 
 
 def encode(snapshot: VersionSnapshot) -> bytes:

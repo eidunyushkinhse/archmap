@@ -5,12 +5,17 @@
 app/copy_plan.py. Параллельных схем здесь нет намеренно: новое поле модели доезжает до
 версии само, вместе со снимком удаления. Сверх них версия несёт пути концов связей
 (для показа дельты) и процессы с участием объекта.
+
+Ниже снимка — контракт дельты двух версий (app/versions_diff.py, ТЗ §4): плоский
+список элементов и три представления одного элемента («Изменения · Было · Стало»).
 """
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.domain_types import DiffMark, VersionCategory, VersionItemStatus
 from app.schemas.process import ProcessDetail
 from app.schemas.restore import (
     BrokerChannelSnapshot,
@@ -65,3 +70,81 @@ class VersionSnapshot(BaseModel):
     channel_fields: list[ChannelFieldSnapshot]
     config_params: list[ConfigParamSnapshot]
     processes: list[ProcessVersion]
+
+
+# ── Дельта ─────────────────────────────────────────────────────────────────────
+
+
+class VersionItem(BaseModel):
+    """Элемент дельты — строка экрана «что изменилось в версии».
+
+    item_id — адрес элемента для GET …/diff/{item_id}: «props:<id узла>»,
+    «approval:<id узла>», «edge:<id связи>», «doc:<id схемы>», «spec:<id узла>»,
+    «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «process:<id
+    процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
+    заказов»; у самого корня среза — пустая строка, у процесса — тоже: он общий).
+    summary — короткая подробность для строки списка («+3 −2», «переименована: A → B»,
+    «+1 ~1», «+2 ~1 шага», «в работе → согласовано»); статус словами — по status."""
+
+    item_id: str
+    category: VersionCategory
+    node_path: str
+    name: str
+    status: VersionItemStatus
+    summary: str
+
+
+class DiffLine(BaseModel):
+    """Строка построчной дельты текста: mark «add»/«del» — добавлена/удалена, пусто —
+    контекст, «mod» — заголовок куска («@@ -3,4 +3,5 @@») или смена свойства схемы
+    («имя: A → B»)."""
+
+    mark: DiffMark
+    text: str
+
+
+class VersionRow(BaseModel):
+    """Строка таблицы представления: свойство, связь, колонка, параметр или шаг. В
+    «изменениях» у изменённой строки ячейка с отличием — «было → стало»; в «было» и
+    «стало» метка всегда пустая."""
+
+    mark: DiffMark
+    cells: list[str]
+
+
+class VersionView(BaseModel):
+    """Одно представление элемента — ровно одна из трёх форм: text — полный текст
+    (схема, спека на версии), lines — построчная дельта текста, columns + rows —
+    таблица (свойства, связи, факты, шаги процесса). Все четыре поля пусты — элемента
+    на этой стороне нет («было» у добавленного, «стало» у удалённого)."""
+
+    text: str | None = None
+    lines: list[DiffLine] | None = None
+    columns: list[str] | None = None
+    rows: list[VersionRow] | None = None
+
+
+class VersionItemDetail(BaseModel):
+    """Один элемент дельты с тремя представлениями: «Изменения · Было · Стало»."""
+
+    item: VersionItem
+    changes: VersionView
+    before: VersionView
+    after: VersionView
+
+
+class VersionRef(BaseModel):
+    """Сторона сравнения: версия с номером или текущее состояние (number — null)."""
+
+    number: int | None
+    comment: str | None
+    created_at: datetime | None
+
+
+class VersionDiff(BaseModel):
+    """Дельта от base к target. base — null: сравнивать не с чем (первая версия с
+    «предыдущей»), всё содержимое target — добавлено."""
+
+    base: VersionRef | None
+    target: VersionRef
+    items: list[VersionItem]
