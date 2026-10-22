@@ -94,6 +94,12 @@ describe("ключ вида", () => {
     expect(viewCacheKey("Q", null, undefined)).not.toBe(mapRoot);
     expect(viewCacheKey(null, null, undefined)).toContain("__root__");
   });
+
+  it("признак проекции (холст развёртывания) разводит ключ; без него — прежний ключ", () => {
+    const mapLevelX = viewCacheKey("P", "X", undefined);
+    expect(viewCacheKey("P", "X", undefined, undefined)).toBe(mapLevelX);
+    expect(viewCacheKey("P", "X", undefined, "deploy")).toBe(`${mapLevelX}|deploy`);
+  });
 });
 
 describe("круг записи и чтения", () => {

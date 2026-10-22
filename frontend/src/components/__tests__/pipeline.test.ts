@@ -366,6 +366,28 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.positions.has("D1")).toBe(false);
   });
 
+  it("R5-предел входом (C8): maxInlineDepth: 3 раскрывает третий уровень — C1 рамкой, D1 виден", async () => {
+    // Та же цепочка B → B2 → C1 → D1, что в тесте предела выше, но предел — вход
+    // конвейера (холст развёртывания: площадки без предела вложенности). C1 на глубине
+    // 2 теперь раскрывается, D1 на глубине 3 показан внутри его рамки.
+    const b2 = { ...appNode("B2"), parent_id: "B", has_children: true, child_count: 1 } as AppNode;
+    const c1 = { ...appNode("C1"), parent_id: "B2", has_children: true, child_count: 1 } as AppNode;
+    const d1 = { ...appNode("D1"), parent_id: "C1" } as AppNode;
+    const out = await computeViewLayout(levelInput({
+      edges: [],
+      endpoints: [],
+      viewLayout: { A: { x: 0, y: 0 }, B: { x: 400, y: 0 } },
+      expanded: new Set(["B", "B2", "C1"]),
+      localChildren: { B: [b2], B2: [c1], C1: [d1] },
+      maxInlineDepth: 3,
+    }));
+    expect(out.layout.nodes.map((n) => n.id).sort()).toEqual(["A", "D1"]);
+    expect(out.layout.guestFrames.map((f) => f.id).sort()).toEqual(["B", "B2", "C1"]);
+    const c1f = out.layout.guestFrames.find((f) => f.id === "C1")!;
+    expect([...c1f.memberIds]).toEqual(["D1"]);
+    expect(out.layout.positions.has("D1")).toBe(true);
+  });
+
   it("конец «в контейнер», раскрытый вложенно на корне, не плодит узел-дубль рядом с рамкой", async () => {
     // Корень: X (лист) и P (контейнер); P раскрыт → [A, C]; C раскрыт → [D];
     // ребро X→C ведёт В САМ контейнер C. На корне C — глубокий конец из реестра:

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { computeViewLayout, type PipelineInput } from "../graph/layout/pipeline";
 import { parentFrameOf } from "../graph/layout/frames";
 import { NODE_W, NODE_H } from "../graph/constants";
@@ -10,14 +10,10 @@ import type { Node as AppNode, Edge as AppEdge } from "../../types";
 // спайка: держит ли конвейер без правок ядра (1) три уровня вложенных площадок,
 // (2) экземпляр одного объекта в двух ветках, (3) связи между экземплярами.
 //
-// Единственная правка ядра, которую спайк подменяет моком, — предел инлайн-вложенности
+// Единственная правка ядра, которую спайк подменял моком, — предел инлайн-вложенности
 // MAX_INLINE_DEPTH = 2 (container.md C8): с ним третий уровень площадок остаётся
-// свёрнутой карточкой (сторож — pipeline.test «R5-предел (C8)»). Для развёртывания
-// предел нужен настраиваемый (входом конвейера), остальное ядро — как есть.
-vi.mock("../graph/constants", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../graph/constants")>()),
-  MAX_INLINE_DEPTH: 3,
-}));
+// свёрнутой карточкой (сторож — pipeline.test «R5-предел (C8)»). С Ф2 предел — вход
+// конвейера maxInlineDepth; холст развёртывания передаёт Infinity, как здесь.
 
 function block(id: string, parent_id: string | null, kids = 0): AppNode {
   return {
@@ -54,6 +50,7 @@ function scene(viewLayout: PipelineInput["viewLayout"] = {}): PipelineInput {
       [S3]: [block(A_S3, S3)],
       [T]: [block(A_T, T)],
     },
+    maxInlineDepth: Infinity,
     edgeQuality: "full",
   };
 }

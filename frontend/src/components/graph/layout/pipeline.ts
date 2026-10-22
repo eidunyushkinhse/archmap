@@ -131,6 +131,10 @@ export interface PipelineInput {
   // состав неполным нельзя, иначе стрелки не посчитались бы никогда. Не задан — false
   // (прежнее поведение: реплей/полигоны/тесты гоняют полные составы).
   childrenLazyLoad?: boolean;
+  // ПРЕДЕЛ ИНЛАЙН-ВЛОЖЕННОСТИ локальных раскрытий (container.md C8). Не задан —
+  // MAX_INLINE_DEPTH (прежнее поведение). Холст развёртывания передаёт Infinity:
+  // площадки вкладываются без предела (docs/specs/deployment.md).
+  maxInlineDepth?: number;
   // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы растут по контенту, и
   // стадии КАЧЕСТВА СТРЕЛОК (роутер/плашки/детуры) обязаны видеть настоящие тела —
   // иначе маршрут ложится «по грани»/поверх реального узла (канон libavoid: препятствия
@@ -354,6 +358,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
     prevRouteSig, prevLabelPlacements, prevScene,
   } = input;
+  const inlineDepth = input.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const intents: PersistIntent[] = [];
 
   // ТРАССИРОВКА СТАДИЙ (перф-эпик 2026-08-20): необязательный хук __ARCHMAP_TRACE на
@@ -402,12 +407,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // раскрытый локал, чьи дети ещё не приехали (запись в localChildren отсутствует —
     // пустой массив означает «загружено, детей нет» и неполнотой не является)
     if (childrenLazyLoad && expanded.has(n.id) && localChildren[n.id] === undefined
-      && path.length < MAX_INLINE_DEPTH) hasPendingChildren = true;
+      && path.length < inlineDepth) hasPendingChildren = true;
     // R5 с пределом глубины (C8): инлайн раскрываем, пока узел НЕ глубже
-    // MAX_INLINE_DEPTH слоёв от уровня (path.length = число раскрытых предков над
-    // узлом). Узел на пределе остаётся свёрнутым, даже если expanded персистно —
-    // рендерер не строит рамки глубже лимита (глубже — только «Войти»).
-    if (kids && kids.length > 0 && path.length < MAX_INLINE_DEPTH) {
+    // inlineDepth слоёв от уровня (path.length = число раскрытых предков над
+    // узлом; предел — MAX_INLINE_DEPTH или вход maxInlineDepth). Узел на пределе
+    // остаётся свёрнутым, даже если expanded персистно — рендерер не строит рамки
+    // глубже лимита (глубже — только «Войти»).
+    if (kids && kids.length > 0 && path.length < inlineDepth) {
       absorbed.add(n.id);
       const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
       for (const k of kids) expandLocal(k, deeper);

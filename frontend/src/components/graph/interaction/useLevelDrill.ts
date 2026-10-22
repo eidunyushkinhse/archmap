@@ -81,6 +81,11 @@ interface UseLevelDrillArgs {
   noteCollapse: (id: string) => void;
   // последний применённый результат конвейера: own-on-expand берёт абсолют позиции
   layoutLatestRef: { current: LayoutResult | null };
+  // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps.children, холст развёртывания): ПОЛНЫЙ
+  // состав раскрытых локальных контейнеров. Задан — кэш детей = эта карта: по API не
+  // догружаем, по childrenRev не перечитываем, релевантных детей не фильтруем, каждый
+  // ключ карты раскрыт (без записи expanded в раскладку). Не задан — прежнее поведение.
+  projectedChildren?: Record<string, AppNode[]>;
 }
 
 export interface LevelDrill {
@@ -123,6 +128,7 @@ export function useLevelDrill({
   noteExpand,
   noteCollapse,
   layoutLatestRef,
+  projectedChildren,
 }: UseLevelDrillArgs): LevelDrill {
   const [expandOverrides, setExpandOverrides] = useState<Map<string, boolean>>(new Map());
   useEffect(() => {
@@ -140,15 +146,19 @@ export function useLevelDrill({
       if (v) s.add(id);
       else s.delete(id);
     }
+    // Проекция хозяина: каждый контейнер из карты состава раскрыт всегда (рамка
+    // площадки — не раскрытие узла, свернуть её нельзя).
+    if (projectedChildren) for (const id of Object.keys(projectedChildren)) s.add(id);
     return s;
-  }, [viewLayout, expandOverrides, ignorePersistedExpanded]);
+  }, [viewLayout, expandOverrides, ignorePersistedExpanded, projectedChildren]);
 
   // read-only (страница): дети, релевантные схеме, — «отображаемое = связанное
   // рёбрами» (тот же принцип, что у гостей, X16 v2). counts гейтит лупу и бейдж
   // без фетча списков детей; фильтр собирает состав кэша при раскрытии.
+  // Проекция хозяина фильтра не знает: её состав полон по построению (все дети видны).
   const countsRaw = useMemo(
-    () => (isReadOnly ? relevantChildCounts(edges, endpoints, expanded) : undefined),
-    [isReadOnly, edges, endpoints, expanded],
+    () => (isReadOnly && !projectedChildren ? relevantChildCounts(edges, endpoints, expanded) : undefined),
+    [isReadOnly, projectedChildren, edges, endpoints, expanded],
   );
   // Идентичность counts стабилизируем ПО ЗНАЧЕНИЮ (как stableAncestorIds в
   // LevelGraph). Входы пересоздаются от любого зеркала раскладки: хозяин страницы
@@ -204,11 +214,13 @@ export function useLevelDrill({
   // о ней предупреждает console.warn выше, и она обратима — повторное раскрытие
   // рамки и любое чтение уровня (childrenRev) запускают новую попытку.
   const localChildren = useMemo(() => {
+    // Проекция хозяина — состав целиком, кэш догрузки ей не нужен.
+    if (projectedChildren) return projectedChildren;
     if (childrenFailed.size === 0) return childrenCache;
     const out = { ...childrenCache };
     for (const id of childrenFailed) if (out[id] === undefined) out[id] = NO_CHILDREN;
     return out;
-  }, [childrenCache, childrenFailed]);
+  }, [childrenCache, childrenFailed, projectedChildren]);
   const commitExpanded = useCallback(
     (id: string, value: boolean) => {
       // Раскрытие И сворачивание в режиме fitOnExpand — запрос на анимированное
@@ -245,6 +257,9 @@ export function useLevelDrill({
   // С тёплым кэшем раскрываем сразу (повторное раскрытие мгновенно, как раньше).
   const expandLocalContainer = useCallback(
     (id: string) => {
+      // Проекция хозяина: состав известен целиком и раскрыт заранее — догружать нечего
+      // (лупы у карточек проекции нет; защита на случай чужого вызова).
+      if (projectedChildren) return;
       if (childrenCache[id]) {
         noteExpand(id);
         commitExpanded(id, true);
@@ -274,7 +289,7 @@ export function useLevelDrill({
         })
         .finally(() => { inFlightRef.current.delete(id); });
     },
-    [childrenCache, commitExpanded, noteExpand, isReadOnly, edges, endpoints, expanded, clearFailed],
+    [childrenCache, commitExpanded, noteExpand, isReadOnly, edges, endpoints, expanded, clearFailed, projectedChildren],
   );
   const collapseContainer = useCallback(
     (id: string) => { noteCollapse(id); commitExpanded(id, false); },
@@ -286,7 +301,7 @@ export function useLevelDrill({
   // в кэше, — раскрытых потомков цепочкой). Гостевых в known нет — им детей
   // даёт проекция. Повторный сет во время полёта гасится guard'ом cur[id].
   useEffect(() => {
-    if (isReadOnly) return;
+    if (isReadOnly || projectedChildren) return;
     const known = new Set([
       ...nodes.map((n) => n.id),
       ...Object.values(childrenCache).flat().map((n) => n.id),
@@ -312,7 +327,7 @@ export function useLevelDrill({
         })
         .finally(() => { inFlightRef.current.delete(id); });
     }
-  }, [expanded, nodes, childrenCache, childrenFailed, isReadOnly, clearFailed]);
+  }, [expanded, nodes, childrenCache, childrenFailed, isReadOnly, clearFailed, projectedChildren]);
 
   // Протухание кэша детей рамок. Уровень перечитывается с сервера при КАЖДОЙ мутации
   // (создание/удаление, undo/redo, remote-sync), но ответ /graph несёт только прямых
@@ -330,7 +345,7 @@ export function useLevelDrill({
   // мгновенно), и без этого оно показало бы протухший состав.
   const childrenRevRef = useRef(0);
   useEffect(() => {
-    if (isReadOnly) return;
+    if (isReadOnly || projectedChildren) return;
     // Эффект перезапускается и на смену кэша детей (свои же setState) — реальную
     // работу делает только рост childrenRev.
     if (childrenRev === childrenRevRef.current) return;
@@ -348,7 +363,7 @@ export function useLevelDrill({
         setChildrenCache((cur) => ({ ...cur, [id]: kids }));
       });
     }
-  }, [childrenRev, childrenCache, isReadOnly]);
+  }, [childrenRev, childrenCache, isReadOnly, projectedChildren]);
 
   // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
   // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >

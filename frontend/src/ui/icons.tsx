@@ -1,6 +1,8 @@
 // Иконки «хрома» приложения (шапка, тулбары, панель). Линейные, наследуют
 // currentColor — цвет задаётся родителем (кнопкой/строкой). SVG взяты из
 // дизайн-референса 1:1. Текстовые глифы (↶ ↷ ↑ ⤓ ▸ «) больше не используем.
+import type { SiteKind } from "../types";
+
 type IcoProps = { size?: number };
 const base = {
   fill: "none",
@@ -98,6 +100,35 @@ export const BulbIcon = ({ size = 16 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M9 18h6M10 21h4" />
     <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3Z" /></svg>);
+
+// Вид площадки развёртывания (docs/specs/deployment.md): плашка рамки площадки на
+// холсте, дерево площадок в окнах «Размещение» и «Площадки». Пять глифов того же
+// линейного семейства: облако, штурвал Kubernetes, окно ВМ, стойка сервера, слои.
+export const SiteKindIcon = ({ kind, size = 15 }: IcoProps & { kind: SiteKind }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    {kind === "cloud" && (
+      <path d="M7 18.5h10.5a3.75 3.75 0 0 0 .6-7.45A5.5 5.5 0 0 0 7.5 9.6 4.45 4.45 0 0 0 7 18.5Z" />
+    )}
+    {kind === "kubernetes" && (<>
+      <path d="M12 3 L19.8 7.5 V16.5 L12 21 L4.2 16.5 V7.5 Z" />
+      <circle cx="12" cy="12" r="2.4" />
+      <path d="M12 6.3 V9.6 M12 14.4 V17.7 M7.1 9.2 L9.9 10.8 M14.1 13.2 L16.9 14.8 M7.1 14.8 L9.9 13.2 M14.1 10.8 L16.9 9.2" />
+    </>)}
+    {kind === "vm" && (<>
+      <rect x="3" y="4" width="18" height="12.5" rx="2" />
+      <path d="M8.5 20.5 H15.5 M12 16.5 V20.5" />
+    </>)}
+    {kind === "physical" && (<>
+      <rect x="4" y="3.5" width="16" height="7.5" rx="1.5" />
+      <rect x="4" y="13" width="16" height="7.5" rx="1.5" />
+      <path d="M8 7.25 H8.01 M8 16.75 H8.01" strokeWidth={2.6} />
+    </>)}
+    {kind === "other" && (<>
+      <path d="M12 3.5 L20 7.75 L12 12 L4 7.75 Z" />
+      <path d="M4 12 L12 16.25 L20 12" />
+      <path d="M4 16.25 L12 20.5 L20 16.25" />
+    </>)}
+  </svg>);
 
 // Логомарк: синяя плитка с мини-графом (узел + объект-контейнер + ребро).
 export function LogoMark({ size = 30 }: IcoProps) {

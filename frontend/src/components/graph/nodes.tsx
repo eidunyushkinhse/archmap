@@ -15,6 +15,7 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
+import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
 // Кэш подобранных размеров шрифта (оптимизация 2026-07-21): одинаковые имена/роли
@@ -66,6 +67,29 @@ function ChildrenBadge({ count, total, color }: { count: number; total?: number;
         <path d="M6 15.7 V13 H18 V15.7" />
       </svg>
       {total !== undefined && total > count ? `${count} из ${total}` : count}
+    </span>
+  );
+}
+
+// Пометка карточки от хозяина проекции (BlockData.mark): на холсте развёртывания —
+// «1/2», экземпляр 1 из 2 (объект стоит на нескольких площадках, deployment.md). Место
+// и вид — как у бейджа детей (правый-нижний угол, цвет текста узла); глиф — две
+// стопкой лежащие карточки. У экземпляра детей нет, поэтому бейджи не встречаются.
+function MarkBadge({ text, color }: { text: string; color: string }) {
+  return (
+    <span className="lg-node-mark" style={{
+      position: "absolute", right: 12, bottom: 12, zIndex: 1,
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 11, fontWeight: 700, lineHeight: 1,
+      color, opacity: 0.95, pointerEvents: "none",
+    }}>
+      <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "block" }} aria-hidden>
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8 V6 a2 2 0 0 0-2-2 H6 a2 2 0 0 0-2 2 v8 a2 2 0 0 0 2 2 h2" />
+      </svg>
+      {text}
     </span>
   );
 }
@@ -366,6 +390,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
       {intoZone && <ChildrenBadge count={childCount} total={data.appNode.child_count} color={c.text} />}
+      {/* Пометка хозяина проекции («1/2» на холсте развёртывания) — тот же угол. */}
+      {data.mark && <MarkBadge text={data.mark} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — «Войти» у сервисов (только редактор) и
           лупа «Раскрыть содержимое» (R5, инлайн-раскрытие; и редактор, и страница). */}
@@ -390,7 +416,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, hasActions) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || data.mark ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -517,16 +543,25 @@ function FrameHandles({ nodeId }: { nodeId: string }) {
   );
 }
 
+// Декор по данным (FrameData.decor, холст развёртывания, deployment.md): у ПЛОЩАДКИ
+// граница сплошная 1.5px (#64748b, та же адаптация к зуму через --lg-frame-bw), на
+// плашке иконка вида вместо лупы и нет крестика — площадку не свернуть; у ГРУППЫ
+// («Размещение не указано») пунктир как у раскрытия, плашка без иконки и крестика.
 function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+  const decor = data.decor;
+  const site = decor?.kind === "site";
   return (
     <div
-      className="lg-frame"
+      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "")}
       data-frame-id={id}
       style={{
         width: "100%", height: "100%",
         // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
         // при отдалении — на экране рамка всегда ~1px и не исчезает
-        border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
+        border: site
+          ? "calc(var(--lg-frame-bw, 1px) * 1.5) solid #64748b"
+          : "var(--lg-frame-bw, 1px) dashed #9ca3af",
+        borderRadius: 12, background: "transparent",
         boxSizing: "border-box", pointerEvents: "none",
       }}
     >
@@ -547,7 +582,14 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
           cursor: data.onCollapse ? "pointer" : "default",
         }}
       >
-        <span>🔍 {data.name}</span>
+        {decor ? (
+          <>
+            {site && <SiteKindIcon kind={decor.icon ?? "other"} size={14} />}
+            <span>{data.name}</span>
+          </>
+        ) : (
+          <span>🔍 {data.name}</span>
+        )}
         {data.onCollapse && (
           <button
             className="nodrag"

@@ -3,7 +3,7 @@
 import type { Node as RFNode } from "@xyflow/react";
 import type {
   Node as AppNode, GhostNode, Edge as AppEdge, AncestorRef, EdgePoint, LayoutEdge,
-  NodeShape, ViewLayoutPayload,
+  NodeShape, SiteKind, ViewLayoutPayload,
 } from "../../types";
 import type { EdgeSide } from "./edgePath";
 import type { SchemaView } from "../schemaView";
@@ -147,6 +147,9 @@ export interface BlockData extends Record<string, unknown> {
   // узел С ДЕТЬМИ на предельной инлайн-глубине (C8): лупа рисуется, но неактивна и
   // по клику объясняет предел. Взаимоисключимо с onExpand.
   expandLimited?: boolean;
+  // Пометка карточки (проекция хозяина, LevelProjectionProps.marks): маленький бейдж в
+  // правом-нижнем углу. Холст развёртывания — «1/2», экземпляр 1 из 2 (deployment.md).
+  mark?: string;
 }
 
 export interface GhostData extends Record<string, unknown> {
@@ -191,6 +194,21 @@ export interface FrameData extends Record<string, unknown> {
   name: string;
   // свернуть контейнер (клик по подписи «🔍 name ✕») — undefined в read-only
   onCollapse?: () => void;
+  // Декор рамки по данным хозяина (проекция, LevelProjectionProps.frameDecor). Нет поля —
+  // прежняя рамка раскрытия: пунктир, лупа и крестик на плашке.
+  decor?: FrameDecor;
+}
+
+// ДЕКОР РАМКИ ПО ДАННЫМ (холст развёртывания, docs/specs/deployment.md). site — рамка
+// площадки: сплошная граница, иконка вида на плашке вместо лупы; group — служебная
+// группа («Размещение не указано»): пунктир, плашка без иконки. collapsible: false —
+// рамку не свернуть (крестика нет, плашка не кликается): она не раскрытие узла, а
+// граница площадки. Текст плашки — по-прежнему имя узла-контейнера: тогда препятствие
+// плашки для роутера (framePlaqueRect) считается от того же текста без правок.
+export interface FrameDecor {
+  kind: "site" | "group";
+  icon?: SiteKind;
+  collapsible?: false;
 }
 
 // ЯКОРЬ РОДНОЙ РАМКИ (эпик «связи, упирающиеся в рамку»): невидимый RF-узел на
@@ -279,6 +297,33 @@ export interface LevelDrillCallbacks {
   onInspectNodeId?: (id: string) => void;
   // Двойной клик по пустому холсту — сбросить выделение (подсветку) и правую панель.
   onClearSelection?: () => void;
+  // RF-выделение изменилось: id выделенных БЛОКОВ (type === "block"); пустой массив —
+  // выделение снято. Зовётся на каждое изменение (клик, Ctrl-клик, рамка выделения).
+  onSelectionChange?: (ids: string[]) => void;
+}
+
+// ПРОЕКЦИЯ ХОЗЯИНА (холст развёртывания, docs/specs/deployment.md): состав и декор
+// холста приходят готовыми от страницы, а не из дерева узлов. Все поля необязательны;
+// бандл не передан — прежнее поведение байт-в-байт.
+export interface LevelProjectionProps {
+  // ПОЛНЫЙ состав раскрытых локальных контейнеров: id → прямые дети. Когда задан,
+  // холст детей по API не догружает и по childrenRev не перечитывает, фильтр
+  // релевантных детей read-only не применяет, а каждый ключ карты считает раскрытым
+  // (без записи expanded в раскладку; свернуть такие контейнеры нельзя).
+  children?: Record<string, AppNode[]>;
+  // Предел инлайн-вложенности вместо MAX_INLINE_DEPTH (container.md C8): вход конвейера
+  // и гейт лупы. Развёртывание передаёт Infinity — вложенность площадок без предела.
+  inlineDepth?: number;
+  // Декор рамки по её id (площадка — сплошная, группа — пунктир); undefined — обычная.
+  frameDecor?: (frameId: string) => FrameDecor | undefined;
+  // Пометки карточек по id блока (BlockData.mark).
+  marks?: Record<string, string>;
+  // Группа карточки («близнецы» — карточки одного объекта в разных рамках): у близнецов
+  // выделенного блока класс lg-linked-node, RF-выделение остаётся на самой карточке.
+  groupOf?: (id: string) => string | undefined;
+  // Рост токена снимает RF-выделение со всех узлов (кнопка хозяина «Снять выделение»;
+  // ремаунт холста потерял бы камеру и анимацию).
+  clearSelectionToken?: number;
 }
 
 // Колбэки создания и инспекции связей. onEdgesChoice обязателен (даже одиночная связь

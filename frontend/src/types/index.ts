@@ -180,6 +180,10 @@ export type ViewLayout = Record<string, ViewLayoutPayload>;
 // кольца/разведение/keep-out). Производится конвейером из ViewLayout.
 export type LevelPos = { pos_x: number; pos_y: number };
 
+// ── Схема развёртывания (docs/tasks/deployment-view.md) ──────────────────────
+// Вид площадки (облако, кластер, ВМ, физический сервер, другое) — Literal контракта.
+export type SiteKind = Schemas["SiteOut"]["kind"];
+
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];

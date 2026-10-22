@@ -1,0 +1,102 @@
+// Проекция хозяина в сборке RF (холст развёртывания, docs/specs/deployment.md):
+// декор рамки (FrameData.decor), пометка карточки (BlockData.mark) и предел гейта лупы
+// входом (maxInlineDepth). Без проекции сборка прежняя: decor/mark не появляются,
+// рамка сворачивается, предел — MAX_INLINE_DEPTH.
+import { describe, it, expect, vi } from "vitest";
+import { assembleRfGraph, type AssembleCallbacks } from "../graph/assembleRf";
+import type { LayoutResult } from "../graph/layout/pipeline";
+import type { BlockData, FrameData, FrameDecor } from "../graph/types";
+import type { Node as AppNode } from "../../types";
+
+function appNode(id: string, kids = false): AppNode {
+  return {
+    id, name: id, description: null, role: null, technology: null,
+    parent_id: null, shape: "service", is_external: false, status: "existing",
+    openapi_spec: null, docs: [], version: 1,
+    created_at: "", updated_at: "", has_children: kids, child_count: kids ? 1 : 0,
+    approval: "in_progress", approval_effective: "in_progress", sites: [],
+  } as AppNode;
+}
+
+function frame(id: string, depth: number, members: string[]) {
+  return {
+    id, name: id, depth, native: false, memberIds: new Set(members),
+    content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+    rect: { x: 0, y: 0, w: 100, h: 100 },
+  };
+}
+
+// Площадка S ⊃ площадка S2 ⊃ экземпляр «inner» (с детьми — для гейта лупы на
+// вложенности 2); экземпляр «a@S» в S; группа «не указано» U с экземпляром «u».
+const layout: LayoutResult = {
+  nodes: [appNode("a@S"), appNode("inner", true), appNode("u")],
+  entities: [],
+  positions: new Map(["a@S", "inner", "u"].map((id) => [id, { x: 0, y: 0 }])),
+  edgeHandles: new Map(),
+  guestFrames: [
+    frame("S", 1, ["a@S", "inner"]),
+    frame("U", 1, ["u"]),
+    frame("S2", 2, ["inner"]),
+  ],
+  frameEnds: [],
+  groupArr: [],
+  spacers: [],
+};
+
+const cb = (): AssembleCallbacks => ({
+  drillWithPath: vi.fn(), expandContainer: vi.fn(), expandLocalContainer: vi.fn(),
+  collapseContainer: vi.fn(), openEdgeMembers: vi.fn(),
+  quickConnect: { enter: vi.fn(), leave: vi.fn(), activate: vi.fn() },
+});
+
+const decorOf = (id: string): FrameDecor | undefined =>
+  id === "U" ? { kind: "group", collapsible: false }
+  : id.startsWith("S") ? { kind: "site", icon: "kubernetes", collapsible: false }
+  : undefined;
+
+function assemble(projection: boolean) {
+  return assembleRfGraph({
+    layout, isArchitect: true, isReadOnly: true, drillNav: false,
+    depth: 0, schemaView: "all", getCb: cb,
+    ...(projection
+      ? { maxInlineDepth: Infinity, frameDecor: decorOf, marks: { "a@S": "1/2" } }
+      : null),
+  }).nextNodes;
+}
+
+describe("assembleRfGraph — проекция хозяина (развёртывание)", () => {
+  it("декор рамки доезжает до FrameData; collapsible:false — без onCollapse", () => {
+    const nodes = assemble(true);
+    const data = (id: string) => nodes.find((n) => n.id === id)!.data as FrameData;
+    expect(data("S").decor).toEqual({ kind: "site", icon: "kubernetes", collapsible: false });
+    expect(data("S").onCollapse).toBeUndefined();
+    expect(data("S2").decor?.kind).toBe("site");
+    expect(data("U").decor).toEqual({ kind: "group", collapsible: false });
+    expect(data("U").onCollapse).toBeUndefined();
+  });
+
+  it("пометка карточки доезжает до BlockData.mark только у помеченных", () => {
+    const nodes = assemble(true);
+    const block = (id: string) => nodes.find((n) => n.id === id)!.data as BlockData;
+    expect(block("a@S").mark).toBe("1/2");
+    expect("mark" in block("u")).toBe(false);
+  });
+
+  it("maxInlineDepth: Infinity — лупа на вложенности 2 активна (без предела C8)", () => {
+    const withLimit = assemble(false).find((n) => n.id === "inner")!.data as BlockData;
+    expect(!!withLimit.onExpand).toBe(false);
+    expect(withLimit.expandLimited).toBe(true);
+    const noLimit = assemble(true).find((n) => n.id === "inner")!.data as BlockData;
+    expect(!!noLimit.onExpand).toBe(true);
+    expect(noLimit.expandLimited).toBe(false);
+  });
+
+  it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
+    const nodes = assemble(false);
+    const s = nodes.find((n) => n.id === "S")!.data as FrameData;
+    expect(Object.keys(s).sort()).toEqual(["name", "onCollapse"]);
+    expect(typeof s.onCollapse).toBe("function");
+    const a = nodes.find((n) => n.id === "a@S")!.data as BlockData;
+    expect("mark" in a).toBe(false);
+  });
+});

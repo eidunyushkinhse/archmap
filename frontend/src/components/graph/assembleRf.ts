@@ -10,7 +10,7 @@ import type { Node as AppNode, NodeStatus, AncestorRef } from "../../types";
 import { canHaveChildren } from "../../types";
 import { MAX_INLINE_DEPTH } from "./constants";
 import type {
-  WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, QuickConnectHandlers,
+  WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, FrameDecor, QuickConnectHandlers,
 } from "./types";
 import { edgeText } from "./text";
 import { getNodeColors, STATUS_META } from "./colors";
@@ -50,8 +50,17 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
+  // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps, холст развёртывания). Все три необязательны:
+  // не заданы — сборка прежняя байт-в-байт. maxInlineDepth — предел гейта лупы вместо
+  // MAX_INLINE_DEPTH (тот же вход, что у конвейера); frameDecor — декор рамки по id;
+  // marks — пометка карточки по id блока.
+  maxInlineDepth?: number;
+  frameDecor?: (frameId: string) => FrameDecor | undefined;
+  marks?: Record<string, string>;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
+  const { frameDecor, marks } = params;
+  const inlineDepth = params.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
     autoRoutes, labelPlacements, guestFrames, levelFrame, frameEnds, groupArr, spacers,
@@ -77,11 +86,12 @@ export function assembleRfGraph(params: {
     return n;
   };
   // Предел инлайн-раскрытия (C8): контейнер внутри рамки, вложенной уже на
-  // MAX_INLINE_DEPTH слоёв, лупой не раскрывается. Лупу при этом НЕ убираем — она
-  // остаётся неактивной и по клику объясняет предел (иначе кнопка просто исчезает и
-  // непонятно, почему у одинаковых с виду контейнеров разный набор действий).
+  // inlineDepth слоёв (MAX_INLINE_DEPTH или вход проекции), лупой не раскрывается.
+  // Лупу при этом НЕ убираем — она остаётся неактивной и по клику объясняет предел
+  // (иначе кнопка просто исчезает и непонятно, почему у одинаковых с виду
+  // контейнеров разный набор действий).
   const atInlineLimit = (pf: (typeof guestFrames)[number] | null): boolean =>
-    (pf ? frameNesting(pf) : 0) >= MAX_INLINE_DEPTH;
+    (pf ? frameNesting(pf) : 0) >= inlineDepth;
   // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
   // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
   // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -125,6 +135,16 @@ export function assembleRfGraph(params: {
     // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
     ...guestFrames.map((f) => {
       const pf = frameOfFrame(f);
+      // Декор рамки по данным хозяина (холст развёртывания): площадка/группа. Рамку с
+      // collapsible: false не свернуть — onCollapse не задаётся, крестика нет.
+      const decor = frameDecor?.(f.id);
+      const data: FrameData = decor?.collapsible === false
+        ? { name: f.name, decor }
+        : {
+            name: f.name,
+            onCollapse: () => getCb().collapseContainer(f.id),
+            ...(decor ? { decor } : null),
+          };
       // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): rect рамки всегда
       // производен от детей — двигаются только сами узлы.
       return {
@@ -139,10 +159,7 @@ export function assembleRfGraph(params: {
         draggable: false,
         selectable: false,
         zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
-        data: {
-          name: f.name,
-          onCollapse: () => getCb().collapseContainer(f.id),
-        } satisfies FrameData,
+        data,
       };
     }),
     ...layoutNodes.map((n) => {
@@ -157,6 +174,8 @@ export function assembleRfGraph(params: {
       const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
       const hasKids = (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape);
       const atLimit = atInlineLimit(pf);
+      // пометка карточки от хозяина (развёртывание: «1/2») — только если задана
+      const mark = marks?.[n.id];
       return {
         id: n.id,
         type: "block" as const,
@@ -186,6 +205,7 @@ export function assembleRfGraph(params: {
             : undefined,
           expandLimited: hasKids && atLimit,
           badgeCount: childCount,
+          ...(mark ? { mark } : null),
         } satisfies BlockData,
       };
     }),
