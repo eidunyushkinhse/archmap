@@ -1,6 +1,7 @@
 // Карточка «Свойства» страницы объекта (аудит F-5): тип, принадлежность, статус, роль,
-// технология, якорь, описание — у архитектора правкой на месте (inline CAS через
-// useNodePatch), у наблюдателя текстом. Выпадашки типа и статуса — одна PropDropdown.
+// технология, якорь, размещение, описание — у архитектора правкой на месте (inline CAS
+// через useNodePatch; размещение — окном), у наблюдателя текстом. Выпадашки типа и
+// статуса — одна PropDropdown.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { NodeStatus } from "../../types";
@@ -8,6 +9,7 @@ import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
 import AnchorField from "../anchor/AnchorField";
+import PlacementRow from "./PlacementRow";
 import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
 
@@ -72,13 +74,15 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
   );
 }
 
-export default function NodeProperties({ patch, isArchitect, isContainer, techLoading, aggTech }: {
+export default function NodeProperties({ patch, isArchitect, isContainer, techLoading, aggTech, onPlacementChanged }: {
   patch: NodePatch;
   isArchitect: boolean;
   // Контейнер: своей технологии нет — показывается сводная технология потомков.
   isContainer: boolean;
   techLoading: boolean;
   aggTech: string;
+  // Размещение записано из окна строки «Размещение» — страница перечитывает узел.
+  onPlacementChanged: () => void;
 }) {
   const node = patch.node;
   const shape = node.shape;
@@ -207,6 +211,17 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
             onSave={patch.commitSource}
           />
         </span>
+
+        {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
+            «Пользователя» размещения нет: он не размещается и не наследует. */}
+        {shape !== "person" && (
+          <PlacementRow
+            node={node}
+            isArchitect={isArchitect}
+            isContainer={isContainer}
+            onChanged={onPlacementChanged}
+          />
+        )}
 
         {/* Описание — последняя строка таблицы свойств */}
         <span className="np-term np-term--top">Описание</span>

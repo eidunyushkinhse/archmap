@@ -53,6 +53,9 @@ const nodeSig = (n: Node): string => JSON.stringify([
   // Статус страницы — пилюля у имени. У контейнера вычисленный статус меняет чужое
   // согласование РЕБЁНКА (meta_rev): без него в сигнатуре страница промолчала бы.
   n.approval, n.approval_effective,
+  // Размещение — строка «Свойств» (Ф3 развёртывания): чужая смена площадок двигает
+  // курсоры, но не CAS узла, — без неё в сигнатуре строка осталась бы прежней.
+  n.sites.map((s) => [s.id, s.name, s.kind, s.parent_name, s.inherited_from_id, s.inherited_from_name]),
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
@@ -234,6 +237,15 @@ function NodePageInner({
   const refreshNode = useCallback(() => {
     void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
   }, [node.id, patch]);
+
+  // Размещение записано из строки «Размещение» (окно на одном объекте) или там заведена
+  // площадка: свежий узел целиком (строка читает node.sites) и курсоры — своя запись
+  // двигает graph_rev и meta_rev, без сверки курсоров тик поллинга принял бы её за чужую
+  // («Схема обновлена в другой сессии»).
+  const handlePlacementChanged = useCallback(() => {
+    refreshNode();
+    syncCursors();
+  }, [refreshNode, syncCursors]);
 
   // Откат версии из панели: страница показывает восстановленную документацию сразу,
   // не дожидаясь поллинга. Узел — свежим целиком (без тоста «в другой сессии»), дети
@@ -427,6 +439,7 @@ function NodePageInner({
           isContainer={isContainer}
           techLoading={container.loading}
           aggTech={container.aggTech}
+          onPlacementChanged={handlePlacementChanged}
         />
 
         {/* ── Схема (single-schema: контекст объекта виртуальным корневым уровнем) ── */}

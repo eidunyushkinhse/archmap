@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
 import { nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
+import { deploymentApi } from "../../api/deployment";
 import { ApiError } from "../../api/client";
 import { ProjectRoleContext } from "../projectRole";
 import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
@@ -40,6 +41,12 @@ vi.mock("../../api/nodes", () => ({
   viewsApi: { state: vi.fn() },
   edgesApi: { update: vi.fn() },
   exportApi: { subtree: vi.fn() },
+}));
+
+// Строка «Размещение» в «Свойствах» (Ф3 развёртывания): площадки грузятся по
+// «Изменить», окно пишет набор площадок объекта.
+vi.mock("../../api/deployment", () => ({
+  deploymentApi: { sites: vi.fn(), setPlacements: vi.fn(), createSite: vi.fn() },
 }));
 
 // Канвас схемы — заглушка (LevelGraph тянет @xyflow/react и весь конвейер).
@@ -129,6 +136,7 @@ function node(id: string, over: Partial<Node> = {}): Node {
     child_count: 0,
     approval: "in_progress",
     approval_effective: "in_progress",
+    sites: [],
     created_at: "",
     updated_at: "",
     ...over,
@@ -584,6 +592,49 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await тик();
 
     expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument();
+    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
+  });
+
+  // Размещение — не колонка узла: чужая смена площадок двигает курсоры, а version узла
+  // стоит. Освежит строку только сигнатура, в которой размещение есть.
+  it("чужое размещение доезжает до строки «Размещение»", async () => {
+    setupPoll();
+    await waitFor(() => expect(screen.getByText("не указано")).toBeInTheDocument(), ждать);
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", {
+      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes" }],
+    }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 2, process_rev: 0 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByText("Кластер prod")).toBeInTheDocument(), ждать);
+    expect(screen.queryByText("не указано")).not.toBeInTheDocument();
+  });
+
+  it("своё размещение со страницы: строка перечитана, курсоры сверены — тик тостов не даёт", async () => {
+    vi.mocked(deploymentApi.sites).mockResolvedValue([
+      { id: "k8s", name: "Кластер prod", kind: "kubernetes", technology: null, description: null, parent_id: null, version: 1, instance_count: 0 },
+    ]);
+    vi.mocked(deploymentApi.setPlacements).mockResolvedValue(undefined);
+    setupPoll();
+    await userEvent.click(await screen.findByRole("button", { name: "Изменить размещение" }, ждать));
+    await userEvent.click(await screen.findByRole("checkbox", { name: /^Кластер prod/ }, ждать));
+
+    // Сервер после записи: у узла площадка, курсоры схемы и меты сдвинуты своей записью.
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", {
+      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes" }],
+    }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 2, process_rev: 0 });
+    const stateCalls = vi.mocked(viewsApi.state).mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["n1"], ["k8s"]);
+    await waitFor(() => expect(screen.getByText("Кластер prod")).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(vi.mocked(viewsApi.state).mock.calls.length).toBeGreaterThan(stateCalls), ждать);
+    await act(async () => { await Promise.resolve(); });
+
+    await тик();
+    expect(screen.queryByText("Схема обновлена в другой сессии")).not.toBeInTheDocument();
     expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
   });
 });
