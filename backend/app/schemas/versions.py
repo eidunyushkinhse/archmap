@@ -148,3 +148,39 @@ class VersionDiff(BaseModel):
     base: VersionRef | None
     target: VersionRef
     items: list[VersionItem]
+
+
+# ── Запись версии ──────────────────────────────────────────────────────────────
+
+
+class VersionChanged(BaseModel):
+    """Изменённый элемент относительно предыдущей версии — для строки списка
+    («изменено: …») и вопроса «в каких версиях менялась схема». Хранится в stats."""
+
+    item_id: str
+    category: VersionCategory
+    name: str
+    status: VersionItemStatus
+
+
+class VersionStats(BaseModel):
+    """Счётчики версии по категориям (versions_snapshot.stats) и перечень изменённого
+    относительно предыдущей версии объекта; у первой — относительно пустого."""
+
+    nodes: int
+    edges: int
+    docs: int
+    tables: int
+    channels: int
+    params: int
+    processes: int
+    changed: list[VersionChanged] = []
+
+
+class VersionPending(BaseModel):
+    """Есть ли незафиксированные изменения с последней версии: changed — сравнение
+    хэшей, items — что именно. Версий ещё нет — changed true, items пуст: перечислять
+    всю документацию объекта незачем."""
+
+    changed: bool
+    items: list[VersionItem]

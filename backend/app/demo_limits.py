@@ -13,8 +13,8 @@
    отдаёт 409 с текстом по прототипу, а транзакция не коммитится (сессию запроса
    откатывает её закрытие).
 
-Считается ИТОГ после записи: объекты, связи, схемы логики, процессы и объём
-текста проекта (сумма байтов текстовых полей). Отказ — только если итог вышел за
+Считается ИТОГ после записи: объекты, связи, схемы логики, процессы, версии
+документации и объём текста проекта (сумма байтов текстовых полей). Отказ — только если итог вышел за
 предел И вырос за транзакцию: удаление и уменьшение проходят всегда, даже в
 проекте, который уже сверх предела.
 
@@ -53,6 +53,7 @@ from app.models.db_table import DbTable
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.models.node_version import NodeVersion
 from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
@@ -62,7 +63,7 @@ from app.unified_import import UnifiedImportError
 
 logger = logging.getLogger(__name__)
 
-LimitKind = Literal["nodes", "edges", "docs", "processes", "text"]
+LimitKind = Literal["nodes", "edges", "docs", "processes", "versions", "text"]
 
 # Признак отказа по пределу в теле 409: фронт отличает его от конфликта версий.
 DEMO_LIMIT_CODE = "demo_limit"
@@ -103,13 +104,14 @@ def _sum(expr: ColumnElement[int]) -> ColumnElement[int]:
 
 @dataclass(frozen=True)
 class ProjectSize:
-    """Что проверяют пределы: число объектов, связей, схем логики, процессов и
-    объём текста проекта в байтах."""
+    """Что проверяют пределы: число объектов, связей, схем логики, процессов, версий
+    документации и объём текста проекта в байтах."""
 
     nodes: int = 0
     edges: int = 0
     docs: int = 0
     processes: int = 0
+    versions: int = 0
     text_bytes: int = 0
 
 
@@ -130,6 +132,11 @@ def measure(conn: Connection | Session, project_id: uuid.UUID) -> ProjectSize:
     processes = count(
         select(func.count()).select_from(BusinessProcess)
         .where(BusinessProcess.project_id == pid)
+    )
+    # Снимок версии в объём текста не входит: он сжат и копирует документацию, которая
+    # уже посчитана, — иначе каждая фиксация «съедала» бы предел текста.
+    versions = count(
+        select(func.count()).select_from(NodeVersion).where(NodeVersion.project_id == pid)
     )
     # Объём текста: описания, спеки, схемы логики, конфигурация, таблицы, каналы и
     # процессы. Каждая таблица — свой подзапрос, итог — их сумма.
@@ -176,13 +183,14 @@ def measure(conn: Connection | Session, project_id: uuid.UUID) -> ProjectSize:
         .where(BusinessProcess.project_id == pid),
     ]
     text = sum((count(part) for part in text_parts[1:]), count(text_parts[0]))
-    row = conn.execute(select(nodes, edges, docs, processes, text)).one()
+    row = conn.execute(select(nodes, edges, docs, processes, versions, text)).one()
     return ProjectSize(
         nodes=int(row[0] or 0),
         edges=int(row[1] or 0),
         docs=int(row[2] or 0),
         processes=int(row[3] or 0),
-        text_bytes=int(row[4] or 0),
+        versions=int(row[4] or 0),
+        text_bytes=int(row[5] or 0),
     )
 
 
@@ -206,6 +214,11 @@ class Excess:
                 f"Текста в проекте стало больше {kb} КБ, это предел демо. "
                 "Сократите схему или удалите ненужные."
             )
+        if self.kind == "versions":
+            return (
+                f"Демо-проект поддерживает до {self.limit} версий документации. "
+                "Удалите ненужные, чтобы зафиксировать новые."
+            )
         what = {
             "nodes": "объектов",
             "edges": "связей",
@@ -225,6 +238,7 @@ def limits() -> dict[LimitKind, int]:
         "edges": demo.MAX_EDGES,
         "docs": demo.MAX_DOCS,
         "processes": demo.MAX_PROCESSES,
+        "versions": demo.MAX_VERSIONS,
         "text": demo.MAX_TEXT_BYTES,
     }
 
@@ -274,13 +288,14 @@ _UP: dict[type, tuple[type, str, str]] = {
     ProcessFragment: (BusinessProcess, "process_id", "process"),
     ProcessFragmentBranch: (ProcessFragment, "fragment_id", "fragment"),
 }
-_HAS_PROJECT: tuple[type, ...] = (Node, Edge, BusinessProcess)
+_HAS_PROJECT: tuple[type, ...] = (Node, Edge, BusinessProcess, NodeVersion)
 
 
 def _loaded(obj: object, name: str) -> object | None:
-    """Значение связи, если оно уже в памяти (ленивую загрузку не провоцируем)."""
+    """Значение связи, если оно уже в памяти (ленивую загрузку не провоцируем). У
+    строки без такой связи (версия документации — только project_id) — None."""
     state = inspect(obj, raiseerr=False)
-    if state is None:
+    if state is None or name not in state.attrs:
         return None
     value = state.attrs[name].loaded_value
     return None if value is NO_VALUE else value
@@ -302,7 +317,7 @@ class _Resolver:
     def project_of(self, obj: object) -> uuid.UUID | None:
         if isinstance(obj, Project):
             return obj.id
-        if isinstance(obj, (Node, Edge, BusinessProcess)):
+        if isinstance(obj, (Node, Edge, BusinessProcess, NodeVersion)):
             pid: uuid.UUID | None = obj.project_id
             if pid is not None:
                 return pid
@@ -465,8 +480,9 @@ def preview_excess(
 
 
 def excess_out(excess: Excess | None) -> DemoExcess | None:
-    """Превышение в контракт превью."""
-    if excess is None:
+    """Превышение в контракт превью. Версий документации ввоз не создаёт — такого
+    превышения в превью не бывает, и в контракт превью этот вид не входит."""
+    if excess is None or excess.kind == "versions":
         return None
     return DemoExcess(kind=excess.kind, actual=excess.actual, limit=excess.limit)
 
