@@ -113,6 +113,20 @@ def semantic(snapshot: VersionSnapshot) -> dict[str, Any]:
     return data
 
 
+def restorable(snapshot: VersionSnapshot) -> dict[str, Any]:
+    """Проекция того, что возвращает откат к версии (app/versions_restore), — semantic
+    без процессов и без статуса страницы у объектов. Оба в снимок входят, но не
+    откатываются (ТЗ §5): процессы общие с другими объектами, статусом страницы
+    управляет человек. По этой проекции сторож отката сравнивает итог со снимком
+    версии; сравнение пересчётом, а не колонкой content_hash, переживает уточнение
+    самой проекции."""
+    data = semantic(snapshot)
+    del data["processes"]
+    for node in data["nodes"]:
+        del node["approval"]
+    return data
+
+
 def empty_snapshot(root_id: uuid.UUID | None) -> VersionSnapshot:
     """Пустой срез того же объекта — база первой версии: всё в ней «добавлено»."""
     return VersionSnapshot(

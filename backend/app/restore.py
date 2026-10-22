@@ -337,8 +337,16 @@ def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.
 def restore_from_snapshot(
     db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID
 ) -> None:
+    """Undo удаления: воссоздать всё из снимка (apply_snapshot) и закоммитить."""
+    apply_snapshot(db, snapshot, project_id)
+    db.commit()
+
+
+def apply_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
     """Воссоздать узлы, их документацию, рёбра и строки раскладки из снимка с
-    сохранением исходных id.
+    сохранением исходных id — без коммита: откат версии документации
+    (app/versions_restore) воссоздаёт недостающее этой же механикой внутри своей
+    транзакции, рядом с правками уцелевших строк.
 
     Узлы вставляются родителями раньше детей: FK parent_id проверяется сразу, а
     корень поддерева ссылается на уцелевший (внешний) узел уровня. Документация,
@@ -394,8 +402,7 @@ def restore_from_snapshot(
     # Строки раскладки: удаление их вычистило (каскад/явная чистка), коллизий нет.
     for it in snapshot.layout_items:
         db.add(ViewLayoutItem(**it.model_dump(), project_id=project_id))
-
-    db.commit()
+    db.flush()
 
 
 def _restore_db_columns(db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID) -> None:
