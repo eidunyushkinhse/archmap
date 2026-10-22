@@ -17,6 +17,7 @@ function appNode(id: string, kids: boolean): AppNode {
     parent_id: "P", shape: "service", is_external: false, status: "existing",
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids, child_count: kids ? 2 : 0,
+    approval: "in_progress", approval_effective: "in_progress",
   } as AppNode;
 }
 

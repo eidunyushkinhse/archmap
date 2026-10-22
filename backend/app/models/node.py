@@ -6,7 +6,7 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.domain_types import NodeShape, NodeStatus
+from app.domain_types import NodeApproval, NodeShape, NodeStatus
 from app.identity import source_ref_dict
 
 if TYPE_CHECKING:
@@ -49,6 +49,16 @@ class Node(Base):
     # статус жизненного цикла: existing (as-is, дефолт) | planned (to-be) | deprecated.
     # Версионируемая семантика, не раскладка. Кодируется на схеме цветом тела узла.
     status: Mapped[NodeStatus] = mapped_column(String(16), default="existing", server_default="existing")
+    # Статус СТРАНИЦЫ объекта (docs/tasks/page-status.md) — не жизненный цикл выше:
+    # in_progress («в работе», дефолт у всех новых) | approved («согласовано»). Ставит
+    # человек — редактор проекта из пилюли страницы (агент по MCP — только по его
+    # просьбе); правка документации его НЕ сбрасывает. У контейнера хранимое значение
+    # не показывается: статус складывается из детей (approval_effective ниже), а PATCH
+    # отказывает 422. Контейнер, оставшийся без детей, снова лист — и снова показывает
+    # это хранимое значение.
+    approval: Mapped[NodeApproval] = mapped_column(
+        String(16), default="in_progress", server_default="in_progress"
+    )
     # Канонический ключ источника — ЯКОРЬ узла (app/identity): чем узел опознаётся
     # между прогонами ИИ-агента. Видов два: код («git:github.com/org/payments#src/api»)
     # и имя зависимости («host:postgres»). Пишется импортом и синком И РУКАМИ —
@@ -147,6 +157,9 @@ class Node(Base):
     # (проверено: в __table__/__mapper__ не попадают), дефолт совпадает со схемой.
     child_count: int = 0
     has_children: bool = False
+    # Статус страницы С УЧЁТОМ детей (app/approval.effective_approvals): у листа —
+    # своё approval, у контейнера — approved, только если согласованы все дети.
+    approval_effective: NodeApproval = "in_progress"
 
     @property
     def source(self) -> dict[str, str] | None:

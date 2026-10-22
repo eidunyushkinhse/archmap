@@ -14,6 +14,7 @@ from collections import Counter
 from sqlalchemy.orm import Session
 
 from app import tree
+from app.approval import effective_approvals
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import ViewLayoutItem
@@ -159,11 +160,16 @@ def build_graph(
     endpoints = ghost_registry(all_nodes, endpoint_ids, child_counts)
     # child_count/has_children локальных узлов — из того же Counter
     # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
+    # Статус страницы с учётом детей — по той же карте (app/approval): холст его пока
+    # не показывает, но выдачу читают MCP и страница, и дефолт «в работе» у
+    # согласованного узла был бы ложью.
+    effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
+        n.approval_effective = effective.get(n.id, n.approval)
     # ORM-узлы сериализуются в NodeResponse через from_attributes ( child_count/
-    # has_children проставлены выше) — на границе сериализации типизируем как
+    # has_children/approval_effective проставлены выше) — на границе сериализации типизируем как
     # list[NodeResponse].
     return GraphResponse(
         nodes=local_nodes,

@@ -518,6 +518,29 @@ async def test_источник_без_прочих_полей_это_уже_п�
     assert json.loads(api.calls[-1].content)["source"]["repo"] == "github.com/org/x"
 
 
+async def test_правка_объекта_шлёт_статус_страницы(client: ArchMapClient, api: FakeApi) -> None:
+    api.patch("/nodes/n2", node("n2", "Сервис заказов",
+                                approval="approved", approval_effective="approved"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "approval": "approved"}, client
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"approval": "approved"}
+    check_node_contract("NodeUpdate", body)
+    assert "Статус страницы: согласовано" in out
+
+
+async def test_статус_страницы_в_каталоге_тот_же_что_у_бэкенда() -> None:
+    # Лишнее значение в enum = 422 на живом сервере; описание предупреждает агента,
+    # что согласование ставит человек.
+    arg = tools.BY_NAME["archmap_update_node"]["schema"]["properties"]["approval"]
+    assert tuple(arg["enum"]) == get_args(backend("domain_types").NodeApproval)
+    assert "явной просьбе человека" in arg["description"]
+    assert "approval" not in tools.BY_NAME["archmap_create_node"]["schema"]["properties"]
+
+
 async def test_отказ_бэкенда_доезжает_текстом(client: ArchMapClient, api: FakeApi) -> None:
     """422 про адрес среды — это ОБЪЯСНЕНИЕ, чем плох источник, а не код ошибки:
     агент должен прочитать его и исправиться, а не гадать."""

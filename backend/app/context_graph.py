@@ -13,6 +13,7 @@ from collections import Counter
 from sqlalchemy.orm import Session
 
 from app import tree
+from app.approval import effective_approvals
 from app.graph_queries import ghost_registry, project_has_status_info, read_view_layout
 from app.models.edge import Edge
 from app.models.node import Node
@@ -93,11 +94,14 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
                 endpoint_ids.add(nid)
 
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
+    # Статус страницы с учётом детей — по той же карте узлов, без нового SQL.
+    effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
+        n.approval_effective = effective.get(n.id, n.approval)
     # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
-    # has_children проставлены выше) — на границе сериализации типизируем как
+    # has_children/approval_effective проставлены выше) — на границе сериализации типизируем как
     # list[NodeResponse].
     return GraphResponse(
         nodes=local_nodes,

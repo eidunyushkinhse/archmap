@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app import identity, reparent, restore, tree
 from app.alerts import compute_alerts
+from app.approval import manual_approval_refusal, mark_approval
 from app.auth import get_current_user, require_session_user
 from app.context_graph import build_context_graph
 from app.database import get_db
@@ -81,6 +82,16 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
         n.has_children = n.child_count > 0
 
 
+def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
+    """Все вычисляемые атрибуты NodeResponse разом: число детей и их наличие, статус
+    страницы с учётом детей (app/approval). Одна точка — новый производный атрибут не
+    забудется ни в одной из выдач роутера."""
+    if not nodes:
+        return
+    _mark_has_children(db, nodes)
+    mark_approval(db, project.id, nodes)
+
+
 @router.get("", response_model=list[NodeResponse])
 def list_nodes(
     parent_id: uuid.UUID | None = None,
@@ -93,7 +104,7 @@ def list_nodes(
         .filter(Node.project_id == project.id, Node.parent_id == parent_id)
         .all()
     )
-    _mark_has_children(db, nodes)
+    _mark_derived(db, project, nodes)
     return nodes
 
 
@@ -133,7 +144,7 @@ def create_node(
     bump_view_version(db, project.id, payload.parent_id)
     commit_change(db, project, user.id, graph=True)
     db.refresh(node)
-    _mark_has_children(db, [node])  # только что создан — детей нет, но для единообразия
+    _mark_derived(db, project, [node])  # только что создан — детей нет, но для единообразия
     return node
 
 
@@ -210,7 +221,7 @@ def search_nodes(
         .limit(20)
         .all()
     )
-    _mark_has_children(db, nodes)
+    _mark_derived(db, project, nodes)
     return nodes
 
 
@@ -223,7 +234,7 @@ def list_all_nodes(
     """Плоский список ВСЕХ узлов схемы — для выбора дальнего конца связи к узлу
     вне текущего уровня (фронт собирает из него дерево по parent_id)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    _mark_has_children(db, nodes)
+    _mark_derived(db, project, nodes)
     return nodes
 
 
@@ -380,7 +391,7 @@ def get_node(
     _: User = Depends(get_current_user),
 ) -> Node:
     node = node_or_404(db, node_id, project)
-    _mark_has_children(db, [node])
+    _mark_derived(db, project, [node])
     return node
 
 
@@ -403,6 +414,14 @@ def update_node(
     # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
     if "source" in data:
         data["source_ref"] = _source_ref_of(data.pop("source"))
+    # Статус страницы у контейнера не хранится, а складывается из детей
+    # (app/approval): правка руками отказывается 422, даже если значение совпадает
+    # с хранимым. Курсор — мета (approval не в structural ниже): его ставит общее
+    # правило «по фактическому изменению».
+    if "approval" in data:
+        reason = manual_approval_refusal(db, node)
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
     if data:
         old_parent = node.parent_id
         # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
@@ -447,7 +466,7 @@ def update_node(
             bump_meta_rev(db, project)
     commit_change(db, project, user.id)
     db.refresh(node)
-    _mark_has_children(db, [node])
+    _mark_derived(db, project, [node])
     return node
 
 
@@ -512,7 +531,7 @@ def get_children(
 ) -> list[Node]:
     node_or_404(db, node_id, project)
     children = db.query(Node).filter(Node.parent_id == node_id).all()
-    _mark_has_children(db, children)
+    _mark_derived(db, project, children)
     return children
 
 
@@ -531,7 +550,7 @@ def get_descendants(
     if not subtree_ids:
         return []
     descendants = db.query(Node).filter(Node.id.in_(subtree_ids)).all()
-    _mark_has_children(db, descendants)
+    _mark_derived(db, project, descendants)
     return descendants
 
 
