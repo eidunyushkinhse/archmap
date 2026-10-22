@@ -323,8 +323,8 @@ describe("VersionsPanel: фиксация", () => {
     expect(ok).toBeDisabled();
     await userEvent.type(field, "   ");
     expect(ok).toBeDisabled();
-    // Ctrl+Enter в поле — то же, что кнопка: с пустым комментарием запроса нет.
-    await userEvent.type(field, "{Control>}{Enter}{/Control}");
+    // Enter в поле — то же, что кнопка: с пустым комментарием запроса нет.
+    await userEvent.type(field, "{Enter}");
     expect(versionsApi.create).not.toHaveBeenCalled();
   });
 
@@ -347,10 +347,10 @@ describe("VersionsPanel: фиксация", () => {
     expect(versionsApi.list).toHaveBeenCalledTimes(2);
   });
 
-  it("Ctrl+Enter в поле подтверждает окно", async () => {
+  it("Enter в поле подтверждает окно (поле однострочное, как в прототипе)", async () => {
     vi.mocked(versionsApi.create).mockResolvedValue(version(4));
     const field = await openFix();
-    await userEvent.type(field, "ORD-430{Control>}{Enter}{/Control}");
+    await userEvent.type(field, "ORD-430{Enter}");
     expect(versionsApi.create).toHaveBeenCalledWith("n1", "ORD-430");
   });
 

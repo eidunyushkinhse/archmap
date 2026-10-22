@@ -1,8 +1,8 @@
 // Окно «Зафиксировать версию» (docs/tasks/doc-versions.md §7): одна строка «объект ·
 // изменения с vN: …», поле комментария, «Зафиксировать» слева, «Отмена» справа.
 // Комментарий обязателен — по нему версию потом ищут (номер релиза или задачи), поэтому
-// пустой не отправляется вовсе. Подтверждение с клавиатуры — Modal onSubmit (в
-// многострочном поле — Ctrl/Cmd+Enter: Enter там перенос строки).
+// пустой не отправляется вовсе. Поле однострочное: комментарий — короткая метка
+// («orders 2.4 · ORD-430»), и Enter подтверждает окно (Modal onSubmit), как в прототипе.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import Modal from "../../../ui/Modal";
@@ -46,11 +46,12 @@ export default function FixVersionDialog({ nodeId, lead, onClose, onDone }: Prop
     <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 24 }}>
       <DialogTitle lead={lead}>Зафиксировать версию</DialogTitle>
       <label style={labelStyle} htmlFor="version-comment">Комментарий — номер версии, релиза или задачи</label>
-      <textarea
+      <input
         {...noAutofill("version-comment")}
         id="version-comment"
+        type="text"
         data-autofocus
-        style={{ ...input, minHeight: 64, resize: "vertical", marginBottom: 0 }}
+        style={{ ...input, marginBottom: 0 }}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         placeholder="orders 2.4 · ORD-430"
