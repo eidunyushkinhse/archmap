@@ -85,6 +85,41 @@ technology, description, parent}]}`, у узла — `sites: [имена]`. `imp
 по имени), экспорт пишет. Синк с прогоном агента размещение НЕ меняет: агент его не
 знает. Архив знания едет через c4.yaml сам.
 
+**Ф0 (2026-10-22) — фактический контракт.**
+- Модели `DeploymentSite`, `DeploymentInstance`, миграция `bb77466716fb`. FK родителя
+  площадки — NO ACTION, а не RESTRICT: запрет тот же, но RESTRICT в SQLite тестов
+  проверяется построчно и ронял бы каскадное удаление проекта (Postgres пропускает обе).
+- Домен `app/deployment.py`: `effective_instances(parent_of, pairs)` — по карте «узел →
+  родитель», не по ORM-узлам; `check_site_parent`, `set_placements`, `mark_sites`.
+  «Пользователь» не размещается (422) и не наследует; объект со своими экземплярами в
+  «Пользователя» не превращается (400).
+- Схемы `app/schemas/deployment.py`: `SiteCreate`, `SiteUpdate` (`parent_id: null` — в
+  корень), `SiteOut` (+ `instance_count` — свои экземпляры), `PlacementsIn`,
+  `EffectiveInstanceOut`, `DeploymentNodeOut` (`NodeResponse` + `instances` +
+  `effective`), `DeploymentGraph {sites, nodes, edges, layout, version, graph_rev,
+  meta_rev}`. `NodeResponse.sites: NodeSiteOut[] {id, name, kind, parent_id,
+  inherited_from_id}`, `NodeUpdate.site_ids`.
+- Ручки: `GET/POST /deployment/sites`, `PATCH/DELETE /deployment/sites/{id}`,
+  `PUT /deployment/placements`, `GET /deployment/graph?level=`. Имя занято и CAS — 409,
+  цикл — 400, чужой родитель — 404, вложенные при удалении — 422.
+- `PUT /placements` и `site_ids` — набор площадок КАЖДОГО объекта целиком; `[]` снимает
+  своё (остаётся унаследованное); `site_ids` не прислан или `null` — не трогаем. Отказ —
+  до любой записи. Изменение набора двигает `graph_rev` и `meta_rev`, CAS узла — нет.
+- Граф: листья поддерева уровня (сам контейнер уровня — рамка, не объект), без
+  «Пользователей»; связи — оба конца среди листьев; площадки — все. Граф уровня и
+  контекст-схема `sites` не заполняют (`[]`), выдачи роутера узлов и граф развёртывания —
+  заполняют.
+- Раскладка: ключи `deploy:…` пишет тот же `PUT /views/{view_id}/layout` (формат ключа
+  там не проверяется — строка до 128). `read_view_layout(…, deploy=)` разводит холсты,
+  «Переразложить уровень» ключи `deploy:` не трогает, удаление площадки снимает её
+  ключи. Сброса раскладки развёртывания отдельной ручкой нет — решит Ф2.
+- Курсоры площадок: создание — `graph_rev`; правка — `graph_rev`, и `meta_rev`, если на
+  площадке кто-то стоит; удаление — оба.
+- Демо: `MAX_SITES = 20` на проект, текст площадок — в объёме текста; в превью ввоза вид
+  `sites` не попадает до Ф4.
+- Отложено в Ф0б: снимок версии документации (площадки и экземпляры пока в
+  `NOT_IN_VERSION`), дельта «размещение», откат экземпляров.
+
 ## 5. Рендер
 
 - **Площадка — сплошная рамка** (граница 1.5px, плашка слева-внизу с иконкой вида,
