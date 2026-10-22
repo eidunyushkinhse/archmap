@@ -495,10 +495,9 @@ def preview_excess(
 
 def excess_out(excess: Excess | None) -> DemoExcess | None:
     """Превышение в контракт превью. Версий документации ввоз не создаёт — такого
-    превышения в превью не бывает, и в контракт превью этот вид не входит. Площадок
-    ввоз пока тоже не создаёт: импорт раздела deployment — Ф4 эпика развёртывания,
-    тогда вид войдёт в контракт превью."""
-    if excess is None or excess.kind in ("versions", "sites"):
+    превышения в превью не бывает, и в контракт превью этот вид не входит. Площадки
+    ввоз создаёт (раздел deployment YAML и архива) — их превышение в контракт входит."""
+    if excess is None or excess.kind == "versions":
         return None
     return DemoExcess(kind=excess.kind, actual=excess.actual, limit=excess.limit)
 

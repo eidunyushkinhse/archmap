@@ -183,6 +183,7 @@ describe("тексты превышения", () => {
       .toBe("В файлах 121 связь, а в демо можно до 120. Уберите часть файлов или загрузите проект поменьше.");
     expect(excessText({ kind: "docs", actual: 80, limit: 75 }, "files")).toContain("80 схем логики");
     expect(excessText({ kind: "processes", actual: 12, limit: 10 }, "project")).toContain("12 процессов");
+    expect(excessText({ kind: "sites", actual: 22, limit: 20 }, "files")).toContain("22 площадки");
     expect(excessText({ kind: "text", actual: 300 * 1024, limit: 250 * 1024 }, "files"))
       .toContain("В файлах 300 КБ текста, а в демо можно до 250 КБ.");
   });

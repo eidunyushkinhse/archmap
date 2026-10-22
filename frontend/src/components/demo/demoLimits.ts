@@ -15,12 +15,14 @@ const NOUNS: Record<Exclude<Kind, "text">, [string, string, string]> = {
   edges: ["связь", "связи", "связей"],
   docs: ["схема логики", "схемы логики", "схем логики"],
   processes: ["процесс", "процесса", "процессов"],
+  sites: ["площадка", "площадки", "площадок"],
 };
 export const METER_LABEL: Record<Kind, string> = {
   nodes: "Объекты",
   edges: "Связи",
   docs: "Схемы логики",
   processes: "Процессы",
+  sites: "Площадки",
   text: "Текст",
 };
 

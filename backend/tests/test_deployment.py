@@ -615,6 +615,6 @@ def test_предел_демо_площадок(client, db, scene, monkeypatch):
     # Сверх предела удаление проходит.
     monkeypatch.setattr(demo, "MAX_SITES", 0)
     assert client.delete(f"{API}/deployment/sites/{first['id']}", headers=h).status_code == 204
-    # Ввоз площадок пока не создаёт (импорт раздела deployment — Ф4): в контракт превью
-    # такой вид превышения не попадает.
-    assert excess_out(Excess("sites", 2, 1)) is None
+    # Ввоз создаёт площадки (раздел deployment, Ф4) — вид входит в контракт превью.
+    out = excess_out(Excess("sites", 2, 1))
+    assert out is not None and out.model_dump() == {"kind": "sites", "actual": 2, "limit": 1}
