@@ -30,6 +30,8 @@ function makeNode(over: Partial<Node> = {}): Node {
     docs: [],
     has_children: false,
     child_count: 0,
+    approval: "in_progress",
+    approval_effective: "in_progress",
     created_at: "",
     updated_at: "",
     ...over,
@@ -220,5 +222,47 @@ describe("useNodePatch", () => {
     expect(result.current.isExternal).toBe(true);
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
     expect(vi.mocked(nodesApi.update).mock.calls[0][1].is_external).toBe(true);
+  });
+
+  // Статус страницы (docs/tasks/page-status.md) шлётся только из пилюли: в общий
+  // payload он не входит, иначе каждая правка роли слала бы статус.
+  it("pickApproval: PATCH с approval и CAS base_version, свежий узел — из ответа", async () => {
+    const saved = makeNode({ approval: "approved", approval_effective: "approved", version: 2 });
+    vi.mocked(nodesApi.update).mockResolvedValue(saved);
+    const { result } = renderHook(() => useNodePatch(makeNode({ version: 1 })));
+    act(() => result.current.pickApproval("approved"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    const [id, payload] = vi.mocked(nodesApi.update).mock.calls[0];
+    expect(id).toBe("n1");
+    expect(payload.approval).toBe("approved");
+    expect(payload.base_version).toBe(1);
+    await waitFor(() => expect(result.current.node.approval_effective).toBe("approved"));
+  });
+
+  it("pickApproval: тот же статус — без запроса", () => {
+    const { result } = renderHook(() => useNodePatch(makeNode({ approval: "approved", approval_effective: "approved" })));
+    act(() => result.current.pickApproval("approved"));
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("commitRole: поле approval в payload не попадает", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ role: "ядро", version: 2 }));
+    const { result } = renderHook(() => useNodePatch(makeNode({ approval: "approved", approval_effective: "approved" })));
+    act(() => result.current.setRole("ядро"));
+    act(() => result.current.commitRole());
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
+    expect(payload.role).toBe("ядро");
+    expect("approval" in payload).toBe(false);
+  });
+
+  it("pickApproval: отказ 422 у контейнера — текст сервера в error", async () => {
+    const причина = "Статус контейнера складывается из детей";
+    vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(422, причина));
+    const { result } = renderHook(() => useNodePatch(makeNode({ has_children: true, child_count: 2 })));
+    act(() => result.current.pickApproval("approved"));
+    await waitFor(() => expect(result.current.error).toBe(причина));
+    expect(result.current.conflict).toBeNull();
+    expect(result.current.node.approval).toBe("in_progress");
   });
 });

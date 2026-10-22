@@ -5397,6 +5397,18 @@ export interface components {
              * @default false
              */
             has_children: boolean;
+            /**
+             * Approval
+             * @default in_progress
+             * @enum {string}
+             */
+            approval: "in_progress" | "approved";
+            /**
+             * Approval Effective
+             * @default in_progress
+             * @enum {string}
+             */
+            approval_effective: "in_progress" | "approved";
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
@@ -5452,6 +5464,12 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            /**
+             * Approval
+             * @default in_progress
+             * @enum {string}
+             */
+            approval: "in_progress" | "approved";
             /** Source Ref */
             source_ref?: string | null;
         };
@@ -5496,6 +5514,8 @@ export interface components {
             shape?: ("service" | "database" | "broker" | "person") | null;
             /** Status */
             status?: ("existing" | "planned" | "deprecated") | null;
+            /** Approval */
+            approval?: ("in_progress" | "approved") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Base Version */
             base_version?: number | null;

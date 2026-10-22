@@ -34,6 +34,7 @@ import OpenApiSection from "../components/nodePage/OpenApiSection";
 import type { DocTarget } from "../components/nodePage/docTarget";
 import EdgeRow from "../components/nodePage/EdgeRow";
 import HeaderGlyph from "../components/nodePage/HeaderGlyph";
+import ApprovalPill from "../components/nodePage/ApprovalPill";
 import ProcessesSection from "../components/nodePage/ProcessesSection";
 import SchemaSection from "../components/nodePage/SchemaSection";
 
@@ -47,6 +48,9 @@ const nodeSig = (n: Node): string => JSON.stringify([
   // Якорь — тоже строка «Свойств» (Ф1): чужая смена якоря обязана освежить
   // страницу, иначе поле показывало бы снятый или прежний ключ.
   n.source_ref,
+  // Статус страницы — пилюля у имени. У контейнера вычисленный статус меняет чужое
+  // согласование РЕБЁНКА (meta_rev): без него в сигнатуре страница промолчала бы.
+  n.approval, n.approval_effective,
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
@@ -200,7 +204,12 @@ function NodePageInner({
   // Канал один: тянем свежий узел и сверяем — совпало (своя запись уже применена
   // локально) → молча; отличается → применяем + тост «Данные обновлены».
   const [metaToast, showMetaToast] = useToast();
+  const reloadChildren = container.reload;
   const handleNodeChanged = useCallback(() => {
+    // Дети контейнера — точки и счётчик пилюли статуса (и объединение их доков):
+    // чужая правка ребёнка двигает meta_rev, а сигнатура самого контейнера меняется
+    // не всегда («2 из 5» → «3 из 5»). Перечитываем их на каждый чужой сдвиг курсора.
+    if (isContainer) reloadChildren();
     nodesApi.get(node.id)
       .then((fresh) => {
         // Свежесть решает version строки, а не порядок прихода ответов (тот же
@@ -213,7 +222,7 @@ function NodePageInner({
         showMetaToast();
       })
       .catch(() => { /* узел могли удалить — догонит навигация */ });
-  }, [node.id, patch, showMetaToast]);
+  }, [node.id, patch, showMetaToast, isContainer, reloadChildren]);
 
   // Свежий узел целиком (после записи мимо onDocEvent: пакет агента, перенос).
   const refreshNode = useCallback(() => {
@@ -327,6 +336,15 @@ function NodePageInner({
             ) : (
               <span className="np-name">{node.name}</span>
             )}
+
+            {/* Статус страницы: у листа — выбор редактора, у контейнера — из детей */}
+            <ApprovalPill
+              node={node}
+              isArchitect={isArchitect}
+              children={container.children}
+              onNavigateNode={onNavigateNode}
+              onPick={patch.pickApproval}
+            />
 
             {/* ⋯-меню (архитектор) */}
             {isArchitect && (

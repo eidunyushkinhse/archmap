@@ -110,6 +110,8 @@ function node(id: string, over: Partial<Node> = {}): Node {
     docs: [],
     has_children: false,
     child_count: 0,
+    approval: "in_progress",
+    approval_effective: "in_progress",
     created_at: "",
     updated_at: "",
     ...over,
@@ -987,5 +989,82 @@ describe("NodePage: источник", () => {
     expect(await screen.findByText("код:")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
     expect(screen.getByRole("button", { name: "Что такое источник" })).toBeInTheDocument();
+  });
+});
+
+// ── Статус страницы (docs/tasks/page-status.md) ─────────────────────────────
+// Пилюля у имени: у листа редактор меняет статус PATCH-ом, читатель только видит; у
+// контейнера статус и точки детей — с сервера, клик по строке открывает ребёнка, а
+// чужое согласование ребёнка (meta_rev) перечитывает детей — счётчик не застывает.
+describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
+  beforeEach(() => vi.clearAllMocks());
+  const ждать = { timeout: 5000 };
+
+  function setupPage(n: Node, kids: Node[] = [], isArchitect = true) {
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n, ...kids]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
+    return render(<NodePage nodeId={n.id} isArchitect={isArchitect} {...nav} />);
+  }
+
+  it("лист: пилюля рядом с именем, выбор «Согласовано» уходит PATCH-ом и красит пилюлю", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      node("n1", { approval: "approved", approval_effective: "approved", version: 2 }),
+    );
+    setupPage(node("n1", { version: 1 }));
+    const pill = await screen.findByRole("button", { name: /В работе/ });
+    expect(pill.closest(".np-title-row")).not.toBeNull();
+
+    await userEvent.click(pill);
+    await userEvent.click(screen.getByRole("button", { name: /^Согласовано проверено редактором/ }));
+
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ approval: "approved", base_version: 1 });
+    expect(await screen.findByRole("button", { name: /Согласовано/ })).toHaveClass("np-approval--ok");
+  });
+
+  it("лист, читатель: пилюля без выпадашки", async () => {
+    const { container } = setupPage(node("n1"), [], false);
+    await screen.findByText("Сервис оплаты");
+    const pill = container.querySelector(".np-approval") as HTMLElement;
+    expect(pill.tagName).toBe("SPAN");
+    expect(pill).toHaveTextContent("В работе");
+  });
+
+  it("контейнер: счётчик по детям, клик по строке открывает страницу ребёнка", async () => {
+    const kids = [
+      node("k1", { name: "Шлюз", parent_id: "c1", approval: "approved", approval_effective: "approved" }),
+      node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
+    ];
+    setupPage(node("c1", { name: "Ядро", has_children: true, child_count: 2 }), kids, false);
+    const pill = await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+    await userEvent.click(pill);
+    await userEvent.click(screen.getByRole("button", { name: "База платежей" }));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("k2");
+  });
+
+  it("контейнер: чужое согласование ребёнка перечитывает детей — счётчик не застывает", async () => {
+    const kids = [
+      node("k1", { name: "Шлюз", parent_id: "c1" }),
+      node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
+    ];
+    const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2 });
+    setupPage(cont, kids);
+    await screen.findByRole("button", { name: /В работе · 0 из 2/ }, ждать);
+
+    // Другая сессия согласовала одного ребёнка: статус контейнера тот же («в работе»),
+    // его сигнатура не меняется — освежить счётчик обязано перечитывание детей.
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue([
+      { ...kids[0], approval: "approved", approval_effective: "approved" }, kids[1],
+    ]);
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 2, process_rev: 0 });
+    await waitFor(() => expect(nodesApi.getContextGraph).toHaveBeenCalled());
+    await act(async () => { window.dispatchEvent(new Event("focus")); });
+
+    await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
   });
 });

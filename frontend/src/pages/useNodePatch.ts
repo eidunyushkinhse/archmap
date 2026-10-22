@@ -4,7 +4,7 @@
 // страница правки в Undo не кладёт (ТЗ, решение Ф8-Б), а панель редактора кладёт их
 // сама в onSaved — узел ДО правки приходит вторым аргументом.
 import { useCallback, useRef, useState } from "react";
-import type { Node, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
+import type { Node, NodeApproval, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
 import { nodesApi } from "../api/nodes";
 import { ApiError, isConflict, isDemoLimit } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -43,6 +43,10 @@ interface NodePatch {
   // если сохранилось: 422 обязан остаться ПОД ФОРМОЙ, где его исправляют, а не
   // только в общей плашке страницы. null в аргументе — очистка якоря.
   commitSource: (source: NodeSource | null) => Promise<string | null>;
+  // Статус СТРАНИЦЫ (пилюля у имени, nodePage/ApprovalPill). Своего стейта нет:
+  // пилюля читает node.approval / approval_effective. Отказ сервера (422 у
+  // контейнера) приезжает в error общим путём.
+  pickApproval: (value: NodeApproval) => void;
   // Конфликт CAS
   conflict: string | null;
   // Отказ сервера, НЕ конфликт версий (400 с причиной: смена типа у контейнера,
@@ -202,6 +206,14 @@ export function useNodePatch(
     [save],
   );
 
+  // Статус страницы — тоже только через over, в общий payload он НЕ входит: иначе
+  // каждая правка роли слала бы статус (а у контейнера это отказ 422). Локального
+  // стейта не держим: после успешного save node уже свежий, с вычисленным статусом.
+  const pickApproval = useCallback((value: NodeApproval) => {
+    if (value === beforeRef.current.approval) return;
+    void save({ approval: value });
+  }, [save]);
+
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
@@ -216,7 +228,7 @@ export function useNodePatch(
     name, description, role, technology, isExternal, status, shape,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
     commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal,
-    pickStatus, pickShape, commitSource,
+    pickStatus, pickShape, commitSource, pickApproval,
     conflict, error, node, applyDocEvent, refresh,
   };
 }

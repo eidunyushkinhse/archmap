@@ -15,6 +15,10 @@ export type NodeShape = Schemas["NodeResponse"]["shape"];
 // Статус жизненного цикла узла (as-is/to-be/deprecated) — Literal из контракта.
 export type NodeStatus = Schemas["NodeResponse"]["status"];
 
+// Статус СТРАНИЦЫ объекта («в работе» / «согласовано») — не жизненный цикл выше.
+// У листа хранится (approval), у контейнера вычисляется по детям (approval_effective).
+export type NodeApproval = Schemas["NodeResponse"]["approval"];
+
 // Узел-контейнер (можно «провалиться» внутрь и заводить детей) — ТОЛЬКО сервис.
 // БД, брокер и пользователь — атомарные: drill-down/контекст внутрь не ведёт,
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.

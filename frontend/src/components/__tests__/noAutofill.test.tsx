@@ -48,6 +48,7 @@ const NODE = {
   id: "n1", name: "orders", description: null, role: null, technology: null,
   parent_id: null, shape: "service", is_external: false, status: "existing",
   openapi_spec: null, version: 1, docs: [], has_children: false, child_count: 0,
+  approval: "in_progress", approval_effective: "in_progress",
   created_at: "", updated_at: "",
 } as Node;
 
