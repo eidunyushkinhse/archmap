@@ -106,7 +106,9 @@ def cleanup_layout(db: Session, project: Project, node: Node) -> None:
     Вынесено из обработчика удаления узла: удаление поддерева делает БД-каскад, а
     вот строки view_layout ЧУЖИХ видов (гостевые позиции, ключи пучков
     «b:<src>><tgt>») внешними ключами не накрыты — item_id это строка. Чистим их
-    явно, по вхождению uuid в ключ.
+    явно, по вхождению uuid в ключ. Тем же вхождением уходят и карточки холста
+    «Развёртывание» узлов поддерева («deploy:<узел>@<площадка>»); ключ рамки площадки
+    («deploy:site:<площадка>») uuid узла не несёт и остаётся.
     """
     subtree = tree.collect_subtree_ids_db(db, node.id)
     like_filter = or_(*[ViewLayoutItem.item_id.like(f"%{sid}%") for sid in subtree])

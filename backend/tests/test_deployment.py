@@ -618,3 +618,41 @@ def test_предел_демо_площадок(client, db, scene, monkeypatch):
     # Ввоз создаёт площадки (раздел deployment, Ф4) — вид входит в контракт превью.
     out = excess_out(Excess("sites", 2, 1))
     assert out is not None and out.model_dump() == {"kind": "sites", "actual": 2, "limit": 1}
+
+
+# ── Ключи раскладки развёртывания при удалении узла ──────────────────────────
+
+
+def test_удаление_узла_снимает_ключи_развёртывания_поддерева_и_откат_их_возвращает(db):
+    """Карточки холста «Развёртывание» живут в view_layout ключами «deploy:<узел>@…».
+    Удаление контейнера снимает ключи его самого и всех потомков (общая чистка по
+    вхождению uuid, transition.cleanup_layout), ключи площадки и чужих узлов не трогает;
+    Undo удаления возвращает их тем же снимком."""
+    p = ensure_project(db)
+    user = ensure_architect(db)
+    витрина = _node(db, p.id, "Витрина")
+    api = _node(db, p.id, "API", витрина)
+    платежи = _node(db, p.id, "Платежи")
+    облако = _site(db, p.id, "Облако")
+    _place(db, витрина, облако)
+    _place(db, платежи, облако)
+    свои = {
+        f"deploy:{витрина.id}@{облако.id}",
+        f"deploy:{api.id}@{облако.id}",
+        f"deploy:{api.id}@unplaced",
+    }
+    чужие = {f"deploy:site:{облако.id}", f"deploy:{платежи.id}@{облако.id}"}
+    for key in sorted(свои | чужие):
+        db.add(ViewLayoutItem(project_id=p.id, view_id=None, item_id=key, payload={"x": 1, "y": 2}))
+    db.commit()
+    витрина_id = витрина.id
+
+    snap = build_deletion_snapshot(db, витрина_id)
+    delete_node(витрина_id, db=db, project=p, user=user)
+
+    def ключи() -> set[str]:
+        return {i.item_id for i in db.query(ViewLayoutItem).filter(ViewLayoutItem.project_id == p.id)}
+
+    assert ключи() == чужие
+    restore_nodes(snap, db=db, project=p, user=user)
+    assert ключи() == свои | чужие
