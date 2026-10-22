@@ -27,6 +27,7 @@ from collections.abc import Callable
 from sqlalchemy.orm import Session, undefer
 
 from app import yaml_io
+from app.deployment import ordered_instances, project_sites
 from app.export import build_export_ordered
 from app.mmd_header import render_header, strip_header
 from app.models.broker_channel import BrokerChannel
@@ -239,7 +240,12 @@ def build_archive_ordered(db: Session, project: Project) -> tuple[bytes, list[uu
     if project.description:
         manifest["project"]["description"] = project.description
     contents: dict = {"c4": "c4.yaml"}
-    c4_text, node_order = build_export_ordered(nodes, edges)
+    # Площадки и размещение едут в c4.yaml разделом deployment (своего файла у них
+    # нет): ввоз архива разбирает его тем же parse_import, что и голый YAML.
+    sites = project_sites(db, project.id)
+    c4_text, node_order = build_export_ordered(
+        nodes, edges, sites=sites, instances=ordered_instances(db, project.id, sites)
+    )
     files.append(("c4.yaml", c4_text))
 
     # Схемы логики — включая заглушки разведки (пустое тело — план работ, Д4).
