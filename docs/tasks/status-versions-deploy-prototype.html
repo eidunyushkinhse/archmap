@@ -131,12 +131,10 @@
   .tree .tr.is-current { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
 
   /* ── Вкладка 2: версии (тихая панель, один экран за раз) ───────── */
-  .vbtn {
-    display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 11px; border: 1px solid var(--line); background: #fff;
-    border-radius: 8px; color: var(--ink-2); font-size: 12.5px; font-weight: 600; cursor: pointer;
-  }
-  .vbtn:hover { border-color: var(--accent-line); color: var(--accent-ink); }
-  .vbtn .kicon { width: 15px; height: 15px; }
+  .menu-wrap { position: relative; margin-left: auto; }
+  .menu-wrap .kebab { margin-left: 0; }
+  .menu-wrap .dd { left: auto; right: 0; min-width: 230px; }
+  .dd-row.danger { color: var(--danger); }
   .vpanel { background: #fff; border: 1px solid var(--line); border-radius: 12px; min-height: 380px; display: flex; flex-direction: column; }
   .vhead { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); min-height: 50px; }
   .vhead .t { font-weight: 700; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -351,18 +349,17 @@
     <div class="grid2">
       <div class="stack">
         <div class="screen">
-          <p class="cap">Страница объекта — тихая кнопка «Версии» у имени</p>
+          <p class="cap">Страница объекта — история в ⋯-меню</p>
           <div class="np-header">
             <div class="bc"><a href="#versions">Проект</a><span class="sep">›</span><a href="#versions">Ярмарка</a><span class="sep">›</span><a href="#versions">Заказы</a></div>
             <div class="title-row">
               <span class="glyph"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#fff" stroke-width="1.6"><rect x="2.5" y="3" width="15" height="14" rx="3"/></svg></span>
               <span class="name">Сервис заказов</span>
               <span class="pill pill--ok is-static"><span class="dot dot--ok"></span>Согласовано</span>
-              <button type="button" class="vbtn" id="vbtn" title="Версии документации"><svg class="kicon"><use href="#i-clock"/></svg><span id="vbtn-label">v3</span></button>
-              <button type="button" class="kebab" title="Действия">⋯</button>
+              <div class="menu-wrap" id="vmenu-wrap"><button type="button" class="kebab" id="vmenu-btn" title="Действия">⋯</button></div>
             </div>
           </div>
-          <p class="small" style="margin:10px 0 0">Кнопка показывает номер последней версии и открывает панель справа. В реальном приложении панель выезжает поверх страницы.</p>
+          <p class="small" style="margin:10px 0 0">История спрятана в ⋯-меню: пункт «Версии документации» открывает панель справа. В реальном приложении панель выезжает поверх страницы; у читателя в меню остаются только пункты просмотра.</p>
         </div>
         <details class="more">
           <summary>Пример для агента по MCP</summary>
@@ -874,7 +871,6 @@
   function renderPanel() {
     var p = document.getElementById("vpanel");
     p.innerHTML = "";
-    document.getElementById("vbtn-label").textContent = "v" + versions[0].n;
     var head = el("div", "vhead");
     var body = el("div", "vbody");
     p.appendChild(head); p.appendChild(body);
@@ -1017,7 +1013,23 @@
     renderPanel();
     toast("POST /nodes/orders/versions/" + v.n + "/restore → v" + n);
   });
-  document.getElementById("vbtn").addEventListener("click", function () { screen = { kind: "list" }; renderPanel(); toast("Панель версий открыта"); });
+  // ⋯-меню страницы объекта: история версий — его пункт, не отдельная кнопка у пилюли.
+  document.getElementById("vmenu-btn").addEventListener("click", function () {
+    var wrap = document.getElementById("vmenu-wrap");
+    if (openPop && openPop.dd.parentNode === wrap) { closePop(); return; }
+    var dd = el("div", "dd");
+    [["Открыть в карте", null], ["Версии документации", "versions"], ["Экспорт поддерева", null], ["Удалить объект", "danger"]].forEach(function (m) {
+      var row = el("button", "dd-row" + (m[1] === "danger" ? " danger" : ""), m[0]);
+      row.type = "button";
+      row.addEventListener("click", function () {
+        closePop();
+        if (m[1] === "versions") { screen = { kind: "list" }; renderPanel(); toast("Панель версий открыта"); }
+        else toast("В макете пункт «" + m[0] + "» ничего не делает");
+      });
+      dd.appendChild(row);
+    });
+    openPopover(wrap, dd);
+  });
   renderPanel();
 
   // ── 3. Развёртывание: вложенные площадки и экземпляры ──────────────
