@@ -41,12 +41,23 @@ label.site-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Имя площадки не сжимается первым: в тесной строке окна «Площадки» усекаются
+     технология и счётчик (серые), а имя остаётся целым (до половины строки). */
+  flex: 0 0 auto;
+  max-width: 48%;
 }
 
 .site-row-muted {
   font-size: 12.5px;
   color: #94a3b8;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+/* Счётчик объектов короткий — не сжимается; в тесной строке уступает технология. */
+.site-row-count {
+  flex: none;
 }
 
 .site-row-link {

@@ -113,7 +113,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
 
   return (
     <>
-      <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "86vh", overflowY: "auto" }}>
+      <Modal onClose={onClose} boxStyle={{ width: 620, maxHeight: "86vh", overflowY: "auto" }}>
         <DialogTitle>Площадки</DialogTitle>
         {list.error ? (
           <LoadError what="площадки" error={list.error} onRetry={list.reload} />
@@ -145,7 +145,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
                   <span className="site-row-name">{site.name}</span>
                   {site.technology && <span className="site-row-muted">{site.technology}</span>}
                   <span style={{ flex: 1 }} />
-                  {site.instance_count > 0 && <span className="site-row-muted">{objects(site.instance_count)}</span>}
+                  {site.instance_count > 0 && <span className="site-row-muted site-row-count">{objects(site.instance_count)}</span>}
                   {isArchitect && (
                     <>
                       <button type="button" className="site-row-link" onClick={() => { setError(null); setEditing(site.id); }} disabled={busy}>
