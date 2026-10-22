@@ -40,6 +40,9 @@ interface Props {
   // Удаление версии — только владельцу проекта.
   canDelete: boolean;
   onClose: () => void;
+  // Откат применён: страница под панелью перечитывает документацию сама — поллинг
+  // догнал бы её лишь через секунды и с тостом «в другой сессии».
+  onRestored?: () => void;
 }
 
 type Screen =
@@ -54,7 +57,7 @@ interface RestorePrep {
   error: unknown;
 }
 
-export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClose }: Props) {
+export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClose, onRestored }: Props) {
   const list = useVersionList(nodeId);
   const [screen, setScreen] = useState<Screen>({ kind: "list" });
   const [fixOpen, setFixOpen] = useState(false);
@@ -111,6 +114,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
         go({ kind: "list" });
         setRemarks(out.remarks);
         list.reload();
+        onRestored?.();
       },
       (e: unknown) => {
         // 409 (предел демо) и 422 («нечего восстанавливать») — текстом сервера в окне.

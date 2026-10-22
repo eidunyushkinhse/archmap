@@ -245,6 +245,9 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
           canEdit={isArchitect}
           canDelete={isOwner}
           onClose={() => setVersionsOpen(false)}
+          // Откат среза всего проекта: мета со счётчиками и процессами и уровень
+          // перечитываются сразу, поллинг догнал бы их только через секунды.
+          onRestored={() => { meta.reload(); void lvl.reload(); }}
         />
       )}
     </div>

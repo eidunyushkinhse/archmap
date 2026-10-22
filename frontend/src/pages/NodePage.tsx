@@ -1,7 +1,7 @@
 // Страница объекта (single-schema): шапка (breadcrumb, имя, статус), свойства
 // (inline CAS), схема (контекст объекта виртуальным корневым уровнем — SchemaSection),
 // связи (таблица), участие в процессах, логика (node_docs), OpenAPI.
-import { useCallback, useRef, useState } from "react";
+import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
 import { canHaveChildren, shapeDocs } from "../types";
@@ -235,6 +235,18 @@ function NodePageInner({
     void nodesApi.get(node.id).then((fresh) => patch.refresh(fresh)).catch(() => {});
   }, [node.id, patch]);
 
+  // Откат версии из панели: страница показывает восстановленную документацию сразу,
+  // не дожидаясь поллинга. Узел — свежим целиком (без тоста «в другой сессии»), дети
+  // контейнера, связи; секции схемы, фактов и логики перемонтируются ключом эпохи —
+  // своего канала обновления у них нет, грузят себя при маунте.
+  const [pageEpoch, setPageEpoch] = useState(0);
+  const handleRestored = useCallback(() => {
+    refreshNode();
+    if (isContainer) reloadChildren();
+    onEdgesReload();
+    setPageEpoch((e) => e + 1);
+  }, [refreshNode, isContainer, reloadChildren, onEdgesReload]);
+
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
     patch.applyDocEvent(evt);
@@ -408,6 +420,7 @@ function NodePageInner({
         {patch.error && <p className="np-conflict">{patch.error}</p>}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
+        <Fragment key={pageEpoch}>
         <NodeProperties
           patch={patch}
           isArchitect={isArchitect}
@@ -522,6 +535,7 @@ function NodePageInner({
             onNavigateNode={onNavigateNode}
           />
         </div>
+        </Fragment>
       </div>
 
       {/* Подтверждение удаления */}
@@ -579,6 +593,7 @@ function NodePageInner({
           canEdit={isArchitect}
           canDelete={isOwner}
           onClose={() => setVersionsOpen(false)}
+          onRestored={handleRestored}
         />
       )}
 

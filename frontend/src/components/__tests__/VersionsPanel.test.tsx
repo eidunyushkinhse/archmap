@@ -484,6 +484,16 @@ describe("VersionsPanel: откат", () => {
     expect(restoreLead("Заказы", v, preview({ deleted_nodes: 5 }))).toContain("после v2: 5 объектов.");
   });
 
+  it("после отката зовёт onRestored — страница под панелью перечитывает документацию", async () => {
+    vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: false }));
+    vi.mocked(versionsApi.restore).mockResolvedValue({ created: [4], deleted_nodes: 0, remarks: [] });
+    const onRestored = vi.fn();
+    await openVersion(2, { onRestored });
+    await userEvent.click(screen.getByRole("button", { name: "Восстановить эту версию" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Восстановить" }));
+    await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1));
+  });
+
   it("«Восстановить» — откат, список перечитан, замечания строкой до следующего действия", async () => {
     vi.mocked(versionsApi.restorePreview).mockResolvedValue(preview({ pending: true }));
     vi.mocked(versionsApi.restore).mockResolvedValue({
