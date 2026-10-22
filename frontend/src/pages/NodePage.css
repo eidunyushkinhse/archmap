@@ -109,7 +109,35 @@
   line-height: 1.2;
 }
 
+/* Поле имени растёт и сжимается под текст. Обёртка — grid с одной ячейкой: в ней
+   лежат невидимая копия текста (::after из data-value, тот же шрифт и те же
+   паддинги, что у поля) и само поле на всю ширину ячейки. Ширину ячейки задаёт
+   копия, поэтому длинное имя не обрезается полем «на 20 символов», а пилюля
+   статуса стоит вплотную к короткому. Отрицательный margin (как раньше у поля)
+   выравнивает текст с именем у читателя (.np-name). Имя длиннее строки — поле
+   упирается в max-width и прокручивается внутри, строка не раздувается. */
+.np-name-fit {
+  display: inline-grid;
+  min-width: 80px;
+  max-width: 100%;
+  margin: -1px -6px;
+}
+.np-name-fit::after {
+  content: attr(data-value) " ";
+  grid-area: 1 / 1;
+  visibility: hidden;
+  white-space: pre;
+  font-size: 23px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  padding: 1px 6px;
+  border: 1px solid transparent;
+}
 .np-name-input {
+  grid-area: 1 / 1;
+  width: 100%;
+  min-width: 0;
   font-size: 23px;
   font-weight: 700;
   color: #0f172a;
@@ -118,11 +146,10 @@
   border: 1px solid transparent;
   border-radius: 6px;
   padding: 1px 6px;
-  margin: -1px -6px;
+  margin: 0;
   background: transparent;
   font-family: inherit;
   outline: none;
-  min-width: 120px;
 }
 .np-name-input:hover {
   border-color: #e2e8f0;

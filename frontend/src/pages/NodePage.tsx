@@ -325,14 +325,19 @@ function NodePageInner({
             </span>
 
             {isArchitect ? (
-              <input
-                {...noAutofill("node-page-1")}
-                className="np-name-input"
-                value={patch.name}
-                onChange={(e) => patch.setName(e.target.value)}
-                onBlur={patch.commitName}
-                onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-              />
+              // Поле имени — по ширине самого имени (обёртка np-name-fit: невидимая
+              // копия текста в той же ячейке задаёт ширину): длинное имя не
+              // обрезается, пилюля статуса стоит вплотную к короткому.
+              <span className="np-name-fit" data-value={patch.name}>
+                <input
+                  {...noAutofill("node-page-1")}
+                  className="np-name-input"
+                  value={patch.name}
+                  onChange={(e) => patch.setName(e.target.value)}
+                  onBlur={patch.commitName}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                />
+              </span>
             ) : (
               <span className="np-name">{node.name}</span>
             )}
