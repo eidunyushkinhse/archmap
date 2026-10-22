@@ -5,12 +5,15 @@
 Плюс сквозной фикспойнт: применили прогон → превью на том же входе пусто.
 """
 
+import inspect
 import uuid
 
 import pytest
 from conftest import ensure_architect, seed_project_from_yaml
 from fastapi import HTTPException
 
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -238,3 +241,44 @@ def test_apply_помечает_пропавшее_только_по_полит�
     assert _node(db, p.id, "orders-db").status == "deprecated"
     # Повторный прогон: уже устаревший узел второй раз не помечается.
     assert _apply(db, p, без_orders_db, mark_missing_deprecated=True).deprecated_nodes == []
+
+
+# ── Размещение синк не трогает (Ф4 эпика развёртывания) ──────────────────────
+
+
+def test_синк_размещения_не_трогает(db):
+    """Агент размещения не знает (ТЗ развёртывания §4): прогон с разделом deployment и
+    sites у узлов не даёт плану ни одного поля размещения, а применение не создаёт ни
+    площадок, ни экземпляров — ни живым узлам, ни созданным синком."""
+    from app.import_merge import parse_and_merge
+    from app.sync_plan import SyncPolicies, plan_for
+
+    p, _user = _project(db)
+    text = (
+        NEXT_RUN.replace("      - name: cache\n", "      - name: cache\n        sites: [prod]\n")
+        .replace("      - name: orders\n", "      - name: orders\n        sites: [prod]\n")
+        + "deployment:\n  sites:\n    - {name: prod, kind: kubernetes}\n"
+    )
+    policies = {
+        "update_descriptions": True, "update_names": True, "sync_components": True,
+        "mark_missing_deprecated": True, "restore_returned": True,
+    }
+    merged, _report, errors = parse_and_merge([text])
+    assert merged is not None and merged.sites, errors
+
+    plan = plan_for(db, p.id, merged, SyncPolicies(**policies))
+    report = _apply(db, p, text, **policies)
+
+    полей = {"name", "description", "role", "technology", "shape", "status", "source_ref"}
+    assert all(set(a.fields) <= полей for a in plan.nodes)
+    assert report.created_nodes == ["Система / cache"]
+    assert db.query(DeploymentSite).count() == 0
+    assert db.query(DeploymentInstance).count() == 0
+
+
+def test_модули_синка_размещение_не_читают():
+    """Сторож структуры: ключ sites разобранного узла синку не нужен вовсе."""
+    from app import sync_apply, sync_plan
+
+    for module in (sync_plan, sync_apply):
+        assert ".sites" not in inspect.getsource(module)

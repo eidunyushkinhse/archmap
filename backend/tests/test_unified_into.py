@@ -39,6 +39,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -2118,3 +2120,90 @@ def test_отчёт_догрузки_пропавший_параметр_пун�
         "Параметр «GONE» не догружен: в проекте его уже нет. Если он нужен, его нужно будет "
         "добавить вручную."
     ]
+
+
+# ── Размещение на площадках (Ф4 эпика развёртывания) ─────────────────────────
+
+
+def _площадка(db, проект: Project, имя: str, родитель=None, **поля) -> DeploymentSite:
+    s = DeploymentSite(id=uuid.uuid4(), project_id=проект.id, name=имя,
+                       parent_id=родитель.id if родитель else None, **поля)
+    db.add(s)
+    db.flush()
+    return s
+
+
+def _поставить(db, узел: Node, площадка: DeploymentSite) -> None:
+    db.add(DeploymentInstance(project_id=узел.project_id, node_id=узел.id, site_id=площадка.id))
+    db.flush()
+
+
+def _размещение(db, project_id) -> set[tuple[str, str]]:
+    """Свои экземпляры проекта парами (путь объекта, имя площадки)."""
+    узлы = {n.id: n for n in db.query(Node).filter(Node.project_id == project_id)}
+    площадки = {
+        s.id: s.name for s in db.query(DeploymentSite).filter(DeploymentSite.project_id == project_id)
+    }
+    return {
+        (node_path(узлы, i.node_id), площадки[i.site_id])
+        for i in db.query(DeploymentInstance).filter(DeploymentInstance.project_id == project_id)
+    }
+
+
+def test_площадка_берётся_по_имени_новая_создаётся_размещение_только_добавляется(db):
+    проект, узлы = _ярмарка(db)
+    облако = _площадка(db, проект, "Облако", kind="cloud", technology="Yandex Cloud")
+    вм = _площадка(db, проект, "ВМ")
+    _поставить(db, узлы["orders"], облако)
+    _поставить(db, узлы["kafka"], вм)
+    db.commit()
+    облако_было = (облако.kind, облако.technology, облако.version)
+
+    донор, д = _донор_ярмарки(db)
+    д_облако = _площадка(db, донор, "Облако", kind="vm")  # вид расходится с живым
+    д_кластер = _площадка(db, донор, "Кластер", д_облако, kind="kubernetes")
+    _поставить(db, д["orders"], д_кластер)
+    _поставить(db, _узел(db, донор, "billing", д["корень"]), д_кластер)
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    # «Облако» в проекте уже есть — приедет только «Кластер».
+    assert превью.families.sites == 1
+    assert "площадка «Облако»: вид расходится между файлами (cloud / vm) — взят первый" in (
+        превью.warnings
+    )
+    облако = db.get(DeploymentSite, облако.id)
+    assert (облако.kind, облако.technology, облако.version) == облако_было  # живая не тронута
+    кластер = db.query(DeploymentSite).filter(
+        DeploymentSite.project_id == проект.id, DeploymentSite.name == "Кластер"
+    ).one()
+    assert (кластер.kind, кластер.parent_id) == ("kubernetes", облако.id)
+    assert _размещение(db, проект.id) == {
+        ("Ярмарка / orders", "Облако"),  # живое не снято, хотя архив о нём молчит
+        ("Ярмарка / orders", "Кластер"),
+        ("Ярмарка / Kafka", "ВМ"),
+        ("Ярмарка / billing", "Кластер"),
+    }
+    assert "Размещение: площадок создано 1 · размещений добавлено 2" in отчёт.warnings
+    # Сводка — информация о сделанном: в свёртку «Придется подправить вручную» не едет.
+    assert not any("Размещение" in u.text for u in отчёт.unfixable)
+
+
+def test_свой_архив_с_площадками_ничего_не_меняет(db):
+    проект, узлы = _ярмарка(db)
+    облако = _площадка(db, проект, "Облако", kind="cloud")
+    кластер = _площадка(db, проект, "Кластер", облако, kind="kubernetes")
+    _площадка(db, проект, "Стойка")  # пустая площадка
+    _поставить(db, узлы["корень"], облако)
+    _поставить(db, узлы["orders"], кластер)
+    db.commit()
+    было = _размещение(db, проект.id)
+    версии = {s.id: s.version for s in db.query(DeploymentSite)}
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, проект))
+
+    assert превью.families.sites == 0 and превью.warnings == []
+    assert отчёт.warnings == []
+    assert _размещение(db, проект.id) == было
+    assert {s.id: s.version for s in db.query(DeploymentSite)} == версии
