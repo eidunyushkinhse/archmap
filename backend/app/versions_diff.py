@@ -8,7 +8,8 @@
 сторож этого в tests/test_versions_diff.py.
 
 Сопоставление — по id (объекты, связи, схемы, таблицы, колонки, каналы, поля,
-параметры, процессы, шаги): переименование — изменение, а не удаление с созданием.
+параметры, экземпляры размещения, процессы, шаги): переименование — изменение, а не
+удаление с созданием.
 Модуль чистый: снимки на входе, схемы ответа на выходе, без БД.
 """
 
@@ -43,6 +44,7 @@ from app.schemas.versions import (
     DiffLine,
     ProcessVersion,
     VersionEdge,
+    VersionInstance,
     VersionItem,
     VersionItemDetail,
     VersionRow,
@@ -189,6 +191,7 @@ class _Side:
     channels: dict[uuid.UUID, BrokerChannelSnapshot]
     fields_of: dict[uuid.UUID, list[ChannelFieldSnapshot]]
     params_of: dict[uuid.UUID, list[ConfigParamSnapshot]]
+    instances_of: dict[uuid.UUID, list[VersionInstance]]
     processes: dict[uuid.UUID, ProcessVersion]
 
     @classmethod
@@ -204,6 +207,7 @@ class _Side:
             channels={c.id: c for c in snap.broker_channels},
             fields_of=_group(snap.channel_fields, lambda f: f.channel_id),
             params_of=_group(snap.config_params, lambda p: p.node_id),
+            instances_of=_group(snap.instances, lambda i: i.node_id),
             processes={p.id: p for p in snap.processes},
         )
 
@@ -1037,6 +1041,75 @@ def _configs(pair: _Pair) -> list[_Entry]:
     return out
 
 
+# ── Размещение ─────────────────────────────────────────────────────────────────
+
+_SITE_COLUMNS = ["Площадка"]
+_SITE_NOUN = ("площадка", "площадки", "площадок")
+
+
+def _instance_order(side: _Side, node_id: uuid.UUID) -> list[VersionInstance]:
+    """Свои экземпляры объекта в порядке пути площадки — порядок показа."""
+    return sorted(
+        side.instances_of.get(node_id, []), key=lambda i: (i.site_path, str(i.site_id))
+    )
+
+
+def _instance_cells(i: VersionInstance) -> list[str]:
+    return [_val(i.site_path)]
+
+
+def _instance_key(i: VersionInstance) -> uuid.UUID:
+    """Смысл экземпляра — площадка, а не её путь: переименование площадки строки «было
+    → стало» не даёт."""
+    return i.site_id
+
+
+def _instance_pairs(instances: list[VersionInstance]) -> set[tuple[uuid.UUID, uuid.UUID]]:
+    """Экземпляры объекта так, как их видит semantic (id и площадка), — без пути."""
+    return {(i.id, i.site_id) for i in instances}
+
+
+def _site_list(instances: list[VersionInstance]) -> VersionView:
+    if not instances:
+        return _ABSENT
+    return _table(_SITE_COLUMNS, _plain(_instance_cells(i) for i in instances))
+
+
+def _placements(pair: _Pair) -> list[_Entry]:
+    """Размещение — один элемент на объект, у которого изменился набор СВОИХ
+    экземпляров (унаследованное от контейнера — производное, в снимке его нет), как у
+    конфигурации. «Изменился» решает та же проекция, что хэш: id экземпляра и площадка,
+    без пути — переименование или перенос площадки элемента не даёт. Статус — по своим
+    экземплярам: «указано» (раньше не было), «снято» (не осталось), «изменено»."""
+    out: list[_Entry] = []
+    for nid in sorted(pair.b.instances_of.keys() | pair.t.instances_of.keys(), key=str):
+        old, new = _instance_order(pair.b, nid), _instance_order(pair.t, nid)
+        if _instance_pairs(old) == _instance_pairs(new):
+            continue
+        members = _members(
+            old,
+            new,
+            key=_instance_key,
+            old_cells=_instance_cells,
+            new_cells=_instance_cells,
+            ordered=False,
+        )
+        summary = _summary([_counts(members.added, members.changed, members.removed)], "изменено")
+
+        def views(
+            old: list[VersionInstance] = old,
+            new: list[VersionInstance] = new,
+            members: _Members = members,
+        ) -> tuple[VersionView, VersionView, VersionView]:
+            return _table(_SITE_COLUMNS, members.rows), _site_list(old), _site_list(new)
+
+        status = _status(bool(old), bool(new))
+        name = plural(len(new or old), *_SITE_NOUN)
+        item = _item(f"placement:{nid}", "placement", pair.node_path(nid), name, status, summary)
+        out.append(_Entry(item, views))
+    return out
+
+
 # ── Процессы ───────────────────────────────────────────────────────────────────
 
 _STEP_COLUMNS = ["№", "Кто → кому", "Подпись"]
@@ -1177,6 +1250,7 @@ _BUILDERS: dict[str, Callable[[_Pair], list[_Entry]]] = {
     "table": _tables,
     "channel": _channels,
     "config": _configs,
+    "placement": _placements,
     "approval": _approval,
     "process": _processes,
 }

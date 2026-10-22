@@ -521,3 +521,12 @@ def test_старый_снимок_без_размещения_читается_
     row = db.query(NodeVersion).one()
     assert decode(row.snapshot, row.snapshot_format).instances == []
     assert pending(db, project, s.orders).model_dump() == {"changed": False, "items": []}
+
+    # А настоящая правка размещения после такой версии видна — элементом «размещение».
+    _place(db, s.orders, _site(db, project, "Облако"))
+    db.commit()
+    after = pending(db, project, s.orders)
+    assert after.changed is True
+    assert [(i.item_id, i.category, i.status) for i in after.items] == [
+        (f"placement:{s.orders.id}", "placement", "added"),
+    ]

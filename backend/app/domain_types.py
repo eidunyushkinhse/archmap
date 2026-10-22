@@ -33,9 +33,18 @@ VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
 
 # Категория элемента дельты версий (app/versions_diff.py), в порядке показа: свойства
 # объекта, связи, схема логики, спека OpenAPI, структура БД, каналы брокера,
-# конфигурация, статус страницы, процесс. Размещение добавит эпик развёртывания.
+# конфигурация, размещение на площадках, статус страницы, процесс.
 VersionCategory = Literal[
-    "props", "edges", "doc", "spec", "db", "channels", "config", "approval", "process"
+    "props",
+    "edges",
+    "doc",
+    "spec",
+    "db",
+    "channels",
+    "config",
+    "placement",
+    "approval",
+    "process",
 ]
 VERSION_CATEGORIES: tuple[VersionCategory, ...] = get_args(VersionCategory)
 
