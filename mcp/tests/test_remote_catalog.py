@@ -29,10 +29,10 @@ def test_флаг_writes_у_каждого_и_локальные_имена_бе
 def test_удалённый_набор_без_локальных_и_только_чтение_без_пишущих() -> None:
     full = [t["name"] for t in tools.remote_catalog(read_only=False)]
     reader = [t["name"] for t in tools.remote_catalog(read_only=True)]
-    # Числа — от флагов, а не руками: 31 − 3 локальных = 28, читающих среди них — 13.
+    # Числа — от флагов, а не руками: 35 − 3 локальных = 32, читающих среди них — 16.
     assert full == [t["name"] for t in tools.TOOLS if t["name"] not in tools.LOCAL_ONLY]
     assert reader == [n for n in full if not tools.BY_NAME[n]["writes"]]
-    assert (len(full), len(reader)) == (28, 13)
+    assert (len(full), len(reader)) == (32, 16)
     assert set(reader) <= set(full) and not set(full) & tools.LOCAL_ONLY
 
 

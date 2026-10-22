@@ -5,7 +5,7 @@
 Здесь три слоя:
 
   • чтение — понять систему (проекты, дерево, поиск по всему знанию, карточка,
-    одна схема логики, алерты, процессы, YAML)
+    одна схема логики, версии документации и их дельты, алерты, процессы, YAML)
     и вынести её знание наружу целиком (архив проекта — в файл на диске);
   • правила формата — те же промпты, что отдаёт интерфейс (BYOA): агент сперва
     узнаёт требуемый формат, потом строит YAML/.mmd/перечень/таблицы. Сюда же
@@ -14,7 +14,8 @@
   • запись — пачкой через превью→применение (единый импорт N входов, догрузка
     архивов к живому проекту, синк, доки, заглушки разведки, три семьи табличных
     фактов одной тройкой инструментов с аргументом family) и точечно
-    (создать/поправить объект или связь, привязать шаг процесса к схеме логики).
+    (создать/поправить объект или связь, привязать шаг процесса к схеме логики,
+    зафиксировать версию документации — только по просьбе человека).
     Процессы, стало быть, не только читаются: сам сценарий рисуют глазами, а вот
     АДРЕС документации шага — знание того же рода, что и схема логики, и агент
     проставляет его сам, выбирая из каталога допустимых схем.
@@ -968,6 +969,108 @@ async def t_update_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
     return f"В проекте «{pname}» связь обновлена: {', '.join(body)}."
 
 
+# ── Версии документации (docs/tasks/doc-versions.md §8) ──────────────────────
+#
+# Чтение версий, дельта, текст на версии и фиксация. Отката и удаления версий здесь
+# нет и не будет: откат удаляет объекты, появившиеся после версии, а удаления через
+# агента исключены принципиально (как «Принять переход» — человек глазами).
+
+# Какой текст на версии отдаёт archmap_version_doc: аргумент → сегмент пути ручки,
+# слово заголовка и ограда тела.
+VERSION_TEXTS = {
+    "doc_id": ("doc", "Схема логики", "mermaid"),
+    "spec_node_id": ("spec", "OpenAPI-спека", "yaml"),
+    "process_id": ("process", "Процесс", "mermaid"),
+}
+
+
+def _versions_path(node_id: str | None) -> str:
+    """Префикс ручек версий: у объекта — под его путём, без него — корень проекта."""
+    return f"/nodes/{node_id}/versions" if node_id else "/versions"
+
+
+async def _version_owner(
+    client: ArchMapClient, pid: str, pname: str, node_id: str | None
+) -> tuple[str, str]:
+    """Чьи версии — для заголовков: (заголовок списка, имя в начале строки дельты).
+    Имя объекта — одним GET /nodes/{id}: дерево проекта ради одного имени не грузим."""
+    if not node_id:
+        return f"Версии всего проекта «{pname}»", f"Проект «{pname}»"
+    node = await client.request("GET", f"/nodes/{node_id}", project_id=pid)
+    name = str(node.get("name", "?"))
+    return f"Версии «{name}» (проект «{pname}»)", f"«{name}»"
+
+
+async def t_versions(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, pname = await resolve_project(client, args["project"])
+    node_id = args.get("node_id") or None
+    title, _ = await _version_owner(client, pid, pname, node_id)
+    data = await client.request("GET", _versions_path(node_id), project_id=pid)
+    return render.version_list(title, data)
+
+
+async def t_version_diff(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Дельта версии: список элементов или, с item, одна дельта текстом.
+
+    Без version берётся последняя версия объекта — наибольший номер из списка версий,
+    а не их число: после удаления версии номера идут с пропуском."""
+    pid, pname = await resolve_project(client, args["project"])
+    node_id = args.get("node_id") or None
+    path = _versions_path(node_id)
+    _, owner = await _version_owner(client, pid, pname, node_id)
+
+    number = args.get("version")
+    if number is None:
+        listing = await client.request("GET", path, project_id=pid)
+        numbers = [int(v["number"]) for v in listing.get("versions") or []]
+        if not numbers:
+            return f"{owner}: версий ещё нет — сравнивать нечего."
+        number = max(numbers)
+    number = int(number)
+    # base передаём всегда, и умолчание тоже: так запрос однозначен и виден в журнале.
+    base = str(args.get("base") or "prev")
+    params = {"base": base}
+
+    item = args.get("item")
+    if not item:
+        data = await client.request("GET", f"{path}/{number}/diff", project_id=pid, params=params)
+        return render.version_diff(owner, data)
+    detail = await client.request(
+        "GET", f"{path}/{number}/diff/{item}", project_id=pid, params=params
+    )
+    return render.version_item(
+        owner, number, base, detail, with_sides=bool(args.get("with_sides"))
+    )
+
+
+async def t_version_doc(client: ArchMapClient, args: dict[str, Any]) -> str:
+    # Ровно один адрес текста — до любого запроса: угадывать, какой из двух имелся в
+    # виду, значит показать агенту не тот текст.
+    given = [k for k in VERSION_TEXTS if args.get(k)]
+    if len(given) != 1:
+        raise ArchMapError(
+            "Нужен ровно один из doc_id, spec_node_id, process_id. id — часть item после "
+            "двоеточия у элементов doc:, spec:, process: из archmap_version_diff."
+        )
+    key = given[0]
+    segment, label, fence = VERSION_TEXTS[key]
+    pid, _ = await resolve_project(client, args["project"])
+    number = int(args["version"])
+    path = f"{_versions_path(args.get('node_id') or None)}/{number}/{segment}/{args[key]}"
+    data = await client.request("GET", path, project_id=pid)
+    return render.version_text(label, number, data, fence=fence)
+
+
+async def t_version_create(client: ArchMapClient, args: dict[str, Any]) -> str:
+    pid, _ = await resolve_project(client, args["project"])
+    # Комментарий — как пришёл: пустой отвергнет сервер (422) своими словами.
+    body = {"comment": str(args.get("comment") or "")}
+    data = await client.request(
+        "POST", _versions_path(args.get("node_id") or None), project_id=pid, json=body
+    )
+    return render.version_created(data)
+
+
 # ── Реестр ───────────────────────────────────────────────────────────────────
 
 VARIANT_ARG = {
@@ -1024,6 +1127,12 @@ SOURCE_ARG = {
 
 NODE_ID_ARG = {"type": "string", "description": "id объекта (из archmap_schema, archmap_search или archmap_node)."}
 SUBTREE_ARG = {"type": "string", "description": "id объекта: показать только его поддерево."}
+# Объект версий необязателен: без него — версии корня, то есть всего проекта.
+VERSION_NODE_ARG = {
+    "type": "string",
+    "description": "id объекта (из archmap_schema, archmap_search или archmap_node); без него — срез всего проекта.",
+}
+VERSION_NUMBER_ARG = {"type": "integer", "description": "Номер версии (vN из archmap_versions)."}
 PROCESS_ID_ARG = {"type": "string", "description": "id процесса (из archmap_processes без process_id)."}
 SHAPE_ARG = {
     "type": "string",
@@ -1166,6 +1275,56 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "doc_id"],
         },
         "handler": t_doc,
+    },
+    {
+        "name": "archmap_versions",
+        "writes": False,
+        "description": "Версии документации объекта (у контейнера — вместе с поддеревом), новые сверху: номер, комментарий (номер релиза или задачи), дата, автор, автоверсии отката словами и что изменено относительно предыдущей версии. Первой строкой — есть ли незафиксированные изменения с последней версии и какие. Без node_id — срез всего проекта. Дальше — archmap_version_diff.",
+        "schema": {
+            "type": "object",
+            "properties": {"project": PROJECT_ARG, "node_id": VERSION_NODE_ARG},
+            "required": ["project"],
+        },
+        "handler": t_versions,
+    },
+    {
+        "name": "archmap_version_diff",
+        "writes": False,
+        "description": "Что изменилось в версии документации: элементы (свойства, связи, схемы логики, OpenAPI, таблицы, каналы, конфигурация, статус страницы, процессы) со статусом, подробностью и item. version — номер (без него — последняя версия); base — с чем сравнивать: prev — с предыдущей версией (по умолчанию), live — от версии до текущего состояния («что изменилось с версии N»), номер — с этой версией. item из списка элементов — одна дельта текстом: построчно у схем и спек, таблицей у свойств, связей, фактов и шагов процесса; with_sides — ещё «было» и «стало» целиком. Без node_id — срез всего проекта. Отката через MCP нет.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "node_id": VERSION_NODE_ARG,
+                "version": {"type": "integer", "description": "Номер версии; без него — последняя версия объекта."},
+                "base": {
+                    "type": ["string", "integer"],
+                    "description": "С чем сравнивать: prev — с предыдущей версией (по умолчанию), live — от версии до текущего состояния, номер — с этой версией.",
+                },
+                "item": {"type": "string", "description": "item элемента из списка дельты («doc:<id>», «process:<id>»…): одна дельта текстом."},
+                "with_sides": {"type": "boolean", "description": "Вместе с item: показать ещё «было» и «стало» целиком. По умолчанию false."},
+            },
+            "required": ["project"],
+        },
+        "handler": t_version_diff,
+    },
+    {
+        "name": "archmap_version_doc",
+        "writes": False,
+        "description": "Текст на версии: схема логики (doc_id), OpenAPI-спека объекта (spec_node_id) или процесс в mermaid (process_id) — ровно один из трёх. id — часть item после двоеточия у элементов doc:, spec:, process: из archmap_version_diff (или из archmap_node, archmap_processes). Без node_id — срез всего проекта.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "node_id": VERSION_NODE_ARG,
+                "version": VERSION_NUMBER_ARG,
+                "doc_id": {"type": "string", "description": "id схемы логики (item «doc:<id>»)."},
+                "spec_node_id": {"type": "string", "description": "id объекта со спекой OpenAPI (item «spec:<id>»)."},
+                "process_id": {"type": "string", "description": "id процесса (item «process:<id>»)."},
+            },
+            "required": ["project", "version"],
+        },
+        "handler": t_version_doc,
     },
     {
         "name": "archmap_alerts",
@@ -1639,6 +1798,21 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["project", "edge_id"],
         },
         "handler": t_update_edge,
+    },
+    {
+        "name": "archmap_version_create",
+        "writes": True,
+        "description": "Фиксирует версию документации объекта с комментарием (номер релиза или задачи) — ТОЛЬКО по явной просьбе человека: версия — его решение, агент её не придумывает. У контейнера в версию входит всё поддерево; без node_id — срез всего проекта. Ответ — номер версии и что изменено относительно предыдущей. Отката и удаления версий через MCP нет, потому что откат удаляет объекты, появившиеся после версии; его делают в интерфейсе.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "project": PROJECT_ARG,
+                "node_id": VERSION_NODE_ARG,
+                "comment": {"type": "string", "description": "Комментарий версии — номер релиза или задачи, как сказал человек."},
+            },
+            "required": ["project", "comment"],
+        },
+        "handler": t_version_create,
     },
 ]
 
