@@ -48,7 +48,7 @@ const REMAINDER = {
 };
 const unified = (demo_excess: UnifiedPreviewOut["demo_excess"]): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),
-  families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+  families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
   family_conflicts: [], remainder: REMAINDER, warnings: [], name_source: "fields", demo_excess,
 });
 
@@ -120,7 +120,7 @@ describe("Импорт проекта (zip) в живой проект", () => {
   const into = (demo_excess: IntoPreviewOut["demo_excess"]): IntoPreviewOut => ({
     ok: true, errors: [], nodes_new: 50, nodes_new_paths: [], new_nodes: [], nodes_matched: 0,
     matched_nodes: [], edges_new: 0,
-    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
     family_conflicts: [], remainder: REMAINDER, warnings: [], base_graph_rev: 1, base_meta_rev: 1,
     demo_excess,
   });

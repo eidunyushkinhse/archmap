@@ -166,6 +166,8 @@ class FamilyCounts:
     channels: int = 0
     params: int = 0
     processes: int = 0
+    # Площадки развёртывания слитого плана (у догрузки — только новые для проекта).
+    sites: int = 0
 
 
 @dataclass
@@ -679,6 +681,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool 
         raws, node_paths, node_addresses, remarks, dup_echoes
     )
     counts.processes = len(processes)
+    counts.sites = len(merged.sites)
 
     name_source: Literal["manifest", "fields"] = (
         "manifest" if len(read) == 1 and read[0].archive is not None else "fields"

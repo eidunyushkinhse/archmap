@@ -5510,7 +5510,8 @@ export interface components {
              *       "tables": 0,
              *       "channels": 0,
              *       "params": 0,
-             *       "processes": 0
+             *       "processes": 0,
+             *       "sites": 0
              *     }
              */
             families: components["schemas"]["UnifiedFamilyCountsOut"];
@@ -7442,6 +7443,8 @@ export interface components {
         /**
          * UnifiedFamilyCountsOut
          * @description Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
+         *     sites — площадки развёртывания (раздел deployment): у создания — все площадки
+         *     плана, у догрузки — только те, которых в проекте ещё нет (по имени).
          */
         UnifiedFamilyCountsOut: {
             /**
@@ -7474,6 +7477,11 @@ export interface components {
              * @default 0
              */
             processes: number;
+            /**
+             * Sites
+             * @default 0
+             */
+            sites: number;
         };
         /**
          * UnifiedPreviewOut
@@ -7495,7 +7503,8 @@ export interface components {
              *       "tables": 0,
              *       "channels": 0,
              *       "params": 0,
-             *       "processes": 0
+             *       "processes": 0,
+             *       "sites": 0
              *     }
              */
             families: components["schemas"]["UnifiedFamilyCountsOut"];

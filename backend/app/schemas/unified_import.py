@@ -181,7 +181,9 @@ class RemainderOut(BaseModel):
 
 
 class UnifiedFamilyCountsOut(BaseModel):
-    """Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый."""
+    """Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
+    sites — площадки развёртывания (раздел deployment): у создания — все площадки
+    плана, у догрузки — только те, которых в проекте ещё нет (по имени)."""
 
     docs: int = 0
     specs: int = 0
@@ -189,6 +191,7 @@ class UnifiedFamilyCountsOut(BaseModel):
     channels: int = 0
     params: int = 0
     processes: int = 0
+    sites: int = 0
 
 
 class UnifiedPreviewOut(BaseModel):

@@ -464,7 +464,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 // Нулевые счётчики семей для отказа превью: считать нечего, но форма ответа
 // обязана быть полной — панель читает её без проверок на undefined.
 const NO_FAMILIES: UnifiedFamilyCountsOut = {
-  docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0,
+  docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0,
 };
 
 // Отказ самой проверки — беда всего пакета, а не чьего-то входа: агенту такое не

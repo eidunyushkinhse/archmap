@@ -45,7 +45,7 @@ const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
 
 const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),
-  families: { docs: 2, specs: 1, tables: 0, channels: 0, params: 0, processes: 0 },
+  families: { docs: 2, specs: 1, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
   family_conflicts: [],
   // Остаток слияния (Ф-E) по умолчанию пуст — тесты разбора доливают своё.
   remainder: остаток(),

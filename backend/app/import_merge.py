@@ -15,6 +15,10 @@
 Результат детерминирован; порядок файлов влияет лишь на tie-break конфликтов
 равной содержательности, и это видно в отчёте. Выход совместим с seed_import без
 изменений (порядок «родители раньше детей» сохраняется по построению).
+
+Площадки развёртывания склеиваются ПО ИМЕНИ (имя площадки уникально в проекте, на
+него и ссылаются узлы): первая объявившая задаёт вид, технологию и описание, родитель —
+первый непустой; у склеенного узла sites — объединение в порядке первого появления.
 """
 
 from collections.abc import Iterable
@@ -36,6 +40,8 @@ from app.import_yaml import (
     ParsedImport,
     _ImpEdge,
     _ImpNode,
+    _ImpSite,
+    order_sites,
     parse_import,
 )
 from app.merge_report import FieldDispute, FuzzyPairRec, MergeReport, _fill
@@ -69,6 +75,12 @@ _MAX_STABILIZE_PASSES = 5
 # Порядок — убывание различающей силы (тот же, что у KEY_ORDER, плюс имя в хвосте):
 # у склеенного узла показываем СИЛЬНЕЙШЕЕ основание среди его вкладов.
 BASIS_ORDER = ("code", "dependency", "name")
+
+
+def union_sites(a: list[str], b: list[str]) -> list[str]:
+    """Имена площадок двух вкладов одного объекта — объединением в порядке первого
+    появления. Новый список: исходные вклады остаются нетронутыми."""
+    return [*a, *(name for name in b if name not in a)]
 
 
 def _strongest_basis(bases: list[str]) -> str | None:
@@ -304,6 +316,11 @@ class _Merger:
         self.edge_seen: dict[tuple[int, int, str, str], tuple[int, int]] = {}
         # (src, dst) → [(label, файл)] — для предупреждения о похожих рёбрах.
         self.pair_labels: dict[tuple[int, int], list[tuple[str, int]]] = {}
+        # Площадки по имени. Родитель — ИМЕНЕМ до finish: первый непустой может
+        # прийти поздним файлом, и порядок «родители раньше детей» строится в конце.
+        self.sites: list[_ImpSite] = []
+        self.site_index: dict[str, int] = {}
+        self.site_parent: list[str | None] = []
 
     # ── узлы ──────────────────────────────────────────────────────────────
 
@@ -506,7 +523,7 @@ class _Merger:
             basis = "name" if hit is not None else None
         if hit is None:
             idx = len(self.nodes)
-            self.nodes.append(replace(node, parent_idx=parent_m))
+            self.nodes.append(replace(node, parent_idx=parent_m, sites=list(node.sites)))
             prefix = f"{self.paths[parent_m]} / " if parent_m is not None else ""
             self.paths.append(prefix + node.name)
             self.sources.append({fi})
@@ -563,6 +580,8 @@ class _Merger:
         )
         for k in self.nodes[hit].source_keys:
             self.by_source.setdefault(k, hit)
+        # Размещение не спорит: один объект стоит везде, где его поставил любой файл.
+        self.nodes[hit].sites = union_sites(self.nodes[hit].sites, node.sites)
         self._merge_str(hit, "role", node.role, fi, sub)
         self._merge_str(hit, "technology", node.technology, fi, sub)
         self._merge_str(hit, "description", node.description, fi, sub)
@@ -588,6 +607,60 @@ class _Merger:
         self.sources[hit].add(fi)
         self.substantial[hit] = self.substantial[hit] or sub
         return hit
+
+    # ── площадки развёртывания ────────────────────────────────────────────
+
+    def add_sites(self, part: ParsedImport, fi: int) -> None:
+        """Площадки файла: новое имя — новая площадка, известное — склейка полей.
+        part.sites идут «родители раньше детей», поэтому родитель уже известен."""
+        for s in part.sites:
+            parent = part.sites[s.parent_idx].name if s.parent_idx is not None else None
+            k = self.site_index.get(s.name)
+            if k is None:
+                self.site_index[s.name] = len(self.sites)
+                self.sites.append(replace(s, parent_idx=None))
+                self.site_parent.append(parent)
+                continue
+            cur = self.sites[k]
+            if s.declared and not cur.declared:
+                # Неявная площадка — догадка разбора («только названа узлом»), и её поля
+                # уступают объявленной в любом следующем файле целиком.
+                self.sites[k] = replace(s, parent_idx=None)
+            elif s.declared:
+                if s.kind != cur.kind:
+                    self.report.warn(
+                        f"площадка «{s.name}»: вид расходится между файлами "
+                        f"({cur.kind} / {s.kind}) — взят первый"
+                    )
+                cur.technology = cur.technology if _fill(cur.technology) else s.technology
+                cur.description = cur.description if _fill(cur.description) else s.description
+            self._site_parent(k, parent, fi)
+
+    def _site_parent(self, k: int, parent: str | None, fi: int) -> None:
+        """Родитель площадки — первый непустой. Поздний родитель, который замкнул бы
+        вложенность в цикл (A в B из одного файла, B в A из другого), не ставится:
+        цикл отвергла бы проверка площадок, а слитая картина обязана быть годной."""
+        if parent is None or self.site_parent[k] is not None:
+            return
+        name = self.sites[k].name
+        seen: set[str] = set()
+        cur: str | None = parent
+        while cur is not None and cur not in seen:
+            if cur == name:
+                self.report.warn(
+                    f"площадка «{name}»: родитель «{parent}» из файла {fi + 1} замкнул бы "
+                    f"вложенность в цикл — оставлена без него"
+                )
+                return
+            seen.add(cur)
+            idx = self.site_index.get(cur)
+            cur = self.site_parent[idx] if idx is not None else None
+        self.site_parent[k] = parent
+
+    def merged_sites(self) -> list[_ImpSite]:
+        """Площадки результата: «родители раньше детей», parent_idx — в этом списке."""
+        parents = [None if p is None else self.site_index.get(p) for p in self.site_parent]
+        return order_sites(self.sites, parents)
 
     # ── рёбра ─────────────────────────────────────────────────────────────
 
@@ -753,7 +826,10 @@ class _Merger:
         if len(self.edges) > MAX_EDGES:
             self.report.error(f"После слияния слишком много связей (больше {MAX_EDGES})")
         roots = [n.name for n in self.nodes if n.parent_idx is None]
-        return ParsedImport(nodes=self.nodes, edges=self.edges, roots=roots), self.report
+        merged = ParsedImport(
+            nodes=self.nodes, edges=self.edges, roots=roots, sites=self.merged_sites()
+        )
+        return merged, self.report
 
 
 def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
@@ -793,6 +869,7 @@ def _run_merge(parts: list[ParsedImport], force: dict[tuple[int, int], int]) -> 
     """Один проход слияния: файлы по порядку, узлы «родители раньше детей»."""
     m = _Merger(files=len(parts), force=force)
     for fi, part in enumerate(parts):
+        m.add_sites(part, fi)
         # Кто раскрыт компонентами В ЭТОМ файле — половина признака содержательности
         # вклада (_substantial); считаем до обхода, дети идут после родителя.
         opened = {n.parent_idx for n in part.nodes if n.parent_idx is not None}

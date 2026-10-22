@@ -89,7 +89,7 @@ const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({
   nodes_matched: 0,
   matched_nodes: [],
   edges_new: 2,
-  families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1 },
+  families: { docs: 4, specs: 1, tables: 0, channels: 0, params: 0, processes: 1, sites: 2 },
   family_conflicts: [СПОР],
   // Остаток слияния (Ф-E) по умолчанию пуст — тесты разбора доливают своё.
   remainder: остаток(),
@@ -157,7 +157,7 @@ describe("догрузка архива · превью и споры", () => {
     await открыть(zip("b.zip"));
 
     expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
-    expect(screen.getByText(/Приедет:.*4 схемы логики/)).toBeInTheDocument();
+    expect(screen.getByText(/Приедет:.*4 схемы логики.*2 площадки/)).toBeInTheDocument();
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     // Ф2г: сырых строк «Проверьте» в окне нет — тёзку показывает свёртка
     // «Придется подправить вручную» пунктом с бэка (remainder.unfixable).
@@ -219,7 +219,7 @@ describe("догрузка архива · превью и споры", () => {
   it("жест разбора уезжает решением, и ради одних вопросов кнопка жива", async () => {
     vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(превью({
       nodes_new: 0, new_nodes: [], nodes_new_paths: [], edges_new: 0,
-      families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+      families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
       family_conflicts: [],
       remainder: остаток({ container_edges: [В_КОНТЕЙНЕР] }),
     }));

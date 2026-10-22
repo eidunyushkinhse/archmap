@@ -30,6 +30,8 @@ from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -802,7 +804,7 @@ def test_эндпоинт_принимает_смесь_архива_и_yaml(к�
     assert тело["c4"]["node_count"] == 3 and тело["c4"]["merged_count"] == 3
     assert [f["file"] for f in тело["c4"]["file_remarks"]] == [1, 2]
     assert тело["families"] == {"docs": 1, "specs": 0, "tables": 1, "channels": 0,
-                                "params": 0, "processes": 0}
+                                "params": 0, "processes": 0, "sites": 0}
     assert тело["family_conflicts"] == [] and тело["warnings"] == []
     # Входов двое — имя проекта спрашиваем полями, манифест не при чём (П3).
     assert тело["name_source"] == "fields" and тело["manifest_name"] is None
@@ -2331,3 +2333,47 @@ def test_тёзки_процессов_и_живых_узлов_пунктами
         "них, второй (orders) остался как был"
     ).startswith("В проекте несколько объектов «Ярмарка / orders»")
     assert friendly_process_note("незнакомая строка") == "незнакомая строка"
+
+
+# ── Площадки развёртывания (Ф4 эпика развёртывания) ───────────────────────────
+
+
+def test_превью_считает_площадки_плана():
+    а = _ЗНАНИЕ_A.replace("    technology: Go\n", "    technology: Go\n    sites: [prod]\n")
+    б = _ЗНАНИЕ_B + "deployment:\n  sites:\n    - {name: prod, kind: kubernetes}\n    - {name: stage}\n"
+
+    план = build_unified_plan([("a.yaml", а.encode()), ("b.yaml", б.encode())])
+
+    # prod — неявная в первом входе и объявленная во втором: одна площадка, вид — второго.
+    assert [(s.name, s.kind) for s in план.merged.sites] == [("prod", "kubernetes"), ("stage", "other")]
+    assert preview_from_plan(план).families.sites == 2
+
+
+def test_склейка_объединяет_размещение_поглощённого(db):
+    """«Это один объект»: выживший стоит везде, где стоял любой из двоих, а экземпляры
+    поглощённого уходят вместе с ним."""
+    а = _ЗНАНИЕ_A.replace("    technology: Go\n", "    technology: Go\n    sites: [prod]\n")
+    б = _ЗНАНИЕ_B.replace("    role: плагин\n", "    role: плагин\n    sites: [stage, prod]\n")
+    план = build_unified_plan([("a.yaml", а.encode()), ("b.yaml", б.encode())])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    решения = parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин Zabbix"}}}))
+
+    проект, _ = apply_unified_plan(
+        db, план, {}, "Федерация", None, ensure_architect(db).id, decisions=решения
+    )
+    db.commit()
+
+    выживший = db.query(Node).filter(
+        Node.project_id == проект.id, Node.name == "Плагин Zabbix"
+    ).one()
+    площадки = {
+        s.id: s.name
+        for s in db.query(DeploymentSite).filter(DeploymentSite.project_id == проект.id)
+    }
+    экземпляры = db.query(DeploymentInstance).filter(
+        DeploymentInstance.project_id == проект.id
+    ).all()
+    assert sorted((i.node_id == выживший.id, площадки[i.site_id]) for i in экземпляры) == [
+        (True, "prod"),
+        (True, "stage"),
+    ]

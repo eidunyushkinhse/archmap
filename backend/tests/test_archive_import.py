@@ -25,6 +25,8 @@ from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -183,3 +185,50 @@ def test_неразрешённый_адрес_дока_уходит_в_заме
     assert новый.name == "Переименован"
     assert отчёт.docs_created == 0
     assert any("Нет такого" in w for w in отчёт.warnings)
+
+
+def test_архив_с_площадками_применяется(db):
+    """Площадки и размещение едут разделом deployment в c4.yaml архива: вложенность,
+    вид, технология, описание, пустая площадка и свои экземпляры возвращаются как были."""
+    проект = ensure_project(db)
+    витрина = Node(id=uuid.uuid4(), name="Витрина", project_id=проект.id)
+    api = Node(id=uuid.uuid4(), name="API", project_id=проект.id, parent_id=витрина.id)
+    db.add_all([витрина, api])
+    облако = DeploymentSite(id=uuid.uuid4(), project_id=проект.id, name="Облако", kind="cloud",
+                            technology="Yandex Cloud")
+    db.add(облако)
+    db.flush()
+    кластер = DeploymentSite(id=uuid.uuid4(), project_id=проект.id, name="Кластер prod",
+                             kind="kubernetes", description="прод", parent_id=облако.id)
+    стойка = DeploymentSite(id=uuid.uuid4(), project_id=проект.id, name="Стойка")
+    db.add_all([кластер, стойка])
+    db.flush()
+    db.add_all([
+        DeploymentInstance(project_id=проект.id, node_id=витрина.id, site_id=облако.id),
+        DeploymentInstance(project_id=проект.id, node_id=api.id, site_id=кластер.id),
+    ])
+    db.commit()
+
+    план, новый, _ = _ввоз(db, build_archive(db, проект), "Копия")
+    db.commit()
+
+    assert план.counts.sites == 3
+    площадки = {
+        s.id: s for s in db.query(DeploymentSite).filter(DeploymentSite.project_id == новый.id)
+    }
+    по_имени = {s.name: s for s in площадки.values()}
+    assert {
+        (s.name, s.kind, s.technology, s.description,
+         площадки[s.parent_id].name if s.parent_id else None)
+        for s in площадки.values()
+    } == {
+        ("Облако", "cloud", "Yandex Cloud", None, None),
+        ("Кластер prod", "kubernetes", None, "прод", "Облако"),
+        ("Стойка", "other", None, None, None),
+    }
+    узлы = {n.id: n.name for n in db.query(Node).filter(Node.project_id == новый.id)}
+    assert {
+        (узлы[i.node_id], площадки[i.site_id].name)
+        for i in db.query(DeploymentInstance).filter(DeploymentInstance.project_id == новый.id)
+    } == {("Витрина", "Облако"), ("API", "Кластер prod")}
+    assert по_имени["Кластер prod"].parent_id == по_имени["Облако"].id

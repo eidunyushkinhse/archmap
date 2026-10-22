@@ -274,7 +274,8 @@ def test_свой_архив_не_меняет_ни_одной_живой_зап
     assert (превью.nodes_new, превью.edges_new) == (0, 0)
     assert превью.family_conflicts == [] and превью.warnings == []
     assert превью.families.model_dump() == {
-        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0,
+        "sites": 0,
     }
     assert _снимок(db, проект.id) == было  # ни одна живая запись не тронута
     assert отчёт.warnings == [] and отчёт.nodes_created == 0 and отчёт.docs_created == 0
@@ -334,7 +335,8 @@ def test_непересекающееся_дерево_доливается_це
     assert превью.ok and превью.nodes_new == 4 and превью.edges_new == 1
     assert превью.nodes_new_paths[0] == "Склад"
     assert превью.families.model_dump() == {
-        "docs": 1, "specs": 1, "tables": 1, "channels": 1, "params": 1, "processes": 1
+        "docs": 1, "specs": 1, "tables": 1, "channels": 1, "params": 1, "processes": 1,
+        "sites": 0,
     }
     assert (отчёт.nodes_created, отчёт.edges_created) == (4, 1)
     assert (отчёт.docs_created, отчёт.specs_applied) == (1, 1)
@@ -725,7 +727,8 @@ def test_якорные_тёзки_догружают_свой_архив(db):
     assert (превью.nodes_new, превью.edges_new) == (0, 0)
     assert превью.family_conflicts == []
     assert превью.families.model_dump() == {
-        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0,
+        "sites": 0,
     }
     # Ни одного пропущенного файла: семьи тёзок нашли каждый своего узла.
     assert not any("пропущен" in w for w in превью.warnings), превью.warnings
@@ -1132,7 +1135,8 @@ def test_безъякорные_тёзки_догружают_свой_архи�
     assert (превью.nodes_new, превью.edges_new) == (0, 0)
     assert превью.family_conflicts == []
     assert превью.families.model_dump() == {
-        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0,
+        "sites": 0,
     }
     assert _снимок(db, проект.id) == было
     assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
@@ -1286,7 +1290,8 @@ def test_дети_тёзок_догружают_свой_архив(db):
     assert (превью.nodes_new, превью.edges_new) == (0, 0)
     assert превью.family_conflicts == []
     assert превью.families.model_dump() == {
-        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0
+        "docs": 0, "specs": 0, "tables": 0, "channels": 0, "params": 0, "processes": 0,
+        "sites": 0,
     }
     assert _снимок(db, проект.id) == было
     assert отчёт.nodes_created == отчёт.edges_created == отчёт.docs_created == 0
