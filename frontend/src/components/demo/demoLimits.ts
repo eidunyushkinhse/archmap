@@ -80,12 +80,13 @@ export function textBytes(text: string): number {
 // ── Отказ записи по пределу (409 с code=demo_limit) ─────────────────────────
 // Сервер отдаёт текст по прототипу («Демо-проект поддерживает до 100 объектов…»),
 // фронт добавляет жирное начало по действию: добавляли или сохраняли.
-export type LimitAction = "node" | "edge" | "process" | "save";
+export type LimitAction = "node" | "edge" | "process" | "site" | "save";
 
 const HEADS: Record<LimitAction, string> = {
   node: "Не получилось добавить объект.",
   edge: "Не получилось добавить связь.",
   process: "Не получилось добавить процесс.",
+  site: "Не получилось добавить площадку.",
   save: "Не сохранилось.",
 };
 

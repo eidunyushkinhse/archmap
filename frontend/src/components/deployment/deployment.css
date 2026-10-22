@@ -1,0 +1,128 @@
+/* Окна «Размещение» и «Площадки» (components/deployment): дерево площадок, форма
+   площадки, футер. Тихо: строки без рамок, второстепенное — серым. */
+.site-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.site-tree-empty {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: #64748b;
+}
+
+.site-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding-right: 6px;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #0f172a;
+}
+label.site-row {
+  cursor: pointer;
+}
+.site-row:hover {
+  background: #f8fafc;
+}
+
+.site-row-icon {
+  display: inline-flex;
+  color: #64748b;
+  flex: none;
+}
+
+.site-row-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.site-row-muted {
+  font-size: 12.5px;
+  color: #94a3b8;
+  white-space: nowrap;
+}
+
+.site-row-link {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: #2563eb;
+}
+.site-row-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.site-new-toggle {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: #2563eb;
+}
+
+.site-new {
+  margin: 4px 0 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.site-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+
+.site-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+}
+.site-form-field input,
+.site-form-field select,
+.site-form-field textarea {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #0f172a;
+}
+.site-form-field textarea {
+  resize: vertical;
+}
+/* описание и родитель — во всю ширину формы */
+.site-form-field:has(textarea),
+.site-form-field:last-of-type {
+  grid-column: 1 / -1;
+}
+
+.site-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.site-dialog-footer {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}

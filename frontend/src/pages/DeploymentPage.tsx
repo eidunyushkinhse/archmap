@@ -11,10 +11,13 @@ import type {
   LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelProjectionProps,
 } from "../components/graph/types";
 import { projectDeployment } from "../components/deployment/deploymentProjection";
+import PlacementDialog from "../components/deployment/PlacementDialog";
+import SitesDialog from "../components/deployment/SitesDialog";
 import { nodesApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
+import { primaryBtn } from "../ui/styles";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
 import { useDeploymentGraph } from "./useDeploymentGraph";
@@ -78,6 +81,11 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
   }, [selectedIds, proj]);
   // «Снять выделение» — токеном холсту (ремаунт потерял бы камеру).
   const [clearToken, setClearToken] = useState(0);
+  // Окна: «Размещение» выбранных объектов и «Площадки».
+  const [placementOpen, setPlacementOpen] = useState(false);
+  const [sitesOpen, setSitesOpen] = useState(false);
+  // Сигнал мутации холсту: после смены размещения стрелки перерисуются анимированно.
+  const [mutationToken, setMutationToken] = useState(0);
 
   // Персист раскладки (архитектор): зеркало, ресинк при отказе, переигровка 409.
   const host = usePersistenceHost(dep.reload);
@@ -167,6 +175,18 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
   };
 
   const hasObjects = (dep.graph?.nodes.length ?? 0) > 0;
+  const selectedNodes = useMemo(() => {
+    const ids = new Set(selectedObjects);
+    return (dep.graph?.nodes ?? []).filter((n) => ids.has(n.id));
+  }, [dep.graph, selectedObjects]);
+
+  // Размещение записано: перечитать граф, анимировать пере-раскладку, снять выделение.
+  const onPlacementApplied = () => {
+    setPlacementOpen(false);
+    setClearToken((t) => t + 1);
+    setMutationToken((t) => t + 1);
+    void dep.reload();
+  };
 
   return (
     <div className="dp-page">
@@ -182,6 +202,9 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
         </select>
         <span style={{ flex: 1 }} />
         {actionError && <span role="alert" className="dp-error">{actionError}</span>}
+        <button type="button" className="btn-soft" onClick={() => setSitesOpen(true)}>
+          Площадки
+        </button>
         {isArchitect && (
           <button type="button" className="btn-soft" onClick={() => { void handleRelayout(); }} disabled={!hasObjects}>
             Переразложить
@@ -213,6 +236,7 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
               drill={drill}
               edgeCallbacks={EDGE_CALLBACKS}
               relayoutToken={relayoutToken}
+              mutationToken={mutationToken}
               projection={projection}
             />
             <SchemaLegend variant="deployment" />
@@ -222,6 +246,9 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
                   {plural(selectedObjects.length, ["Выбран", "Выбрано", "Выбрано"])} {selectedObjects.length}{" "}
                   {plural(selectedObjects.length, ["объект", "объекта", "объектов"])}
                 </span>
+                <button type="button" style={selectionMainBtn} onClick={() => setPlacementOpen(true)}>
+                  Указать размещение
+                </button>
                 <button type="button" className="btn-soft" onClick={() => setClearToken((t) => t + 1)}>
                   Снять выделение
                 </button>
@@ -230,6 +257,26 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
           </div>
         )}
       </div>
+
+      {placementOpen && dep.graph && selectedNodes.length > 0 && (
+        <PlacementDialog
+          objects={selectedNodes}
+          sites={dep.graph.sites}
+          onClose={() => setPlacementOpen(false)}
+          onApplied={onPlacementApplied}
+          onSitesChanged={() => { void dep.reload(); }}
+        />
+      )}
+      {sitesOpen && (
+        <SitesDialog
+          isArchitect={isArchitect}
+          onClose={() => setSitesOpen(false)}
+          onChanged={() => { setMutationToken((t) => t + 1); void dep.reload(); }}
+        />
+      )}
     </div>
   );
 }
+
+// Главная кнопка панели выделения — та же, что в окнах, но ниже ростом (панель тихая).
+const selectionMainBtn = { ...primaryBtn, padding: "6px 12px", fontSize: 13 };

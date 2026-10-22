@@ -20,6 +20,19 @@ vi.mock("../../components/LevelGraph", () => ({
   default: (p: LGProps) => { lg.current = p; return <div data-testid="level-graph" />; },
 }));
 vi.mock("../../components/SchemaLegend", () => ({ default: () => null }));
+// Окна — маркеры: их поведение покрыто своими тестами, здесь — проводка страницы.
+vi.mock("../../components/deployment/PlacementDialog", () => ({
+  default: ({ objects, onApplied }: { objects: { id: string }[]; onApplied: () => void }) => (
+    <div data-testid="placement-dialog" data-objects={objects.map((o) => o.id).join(",")}>
+      <button onClick={onApplied}>applied</button>
+    </div>
+  ),
+}));
+vi.mock("../../components/deployment/SitesDialog", () => ({
+  default: ({ isArchitect }: { isArchitect: boolean }) => (
+    <div data-testid="sites-dialog" data-architect={String(isArchitect)} />
+  ),
+}));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
 vi.mock("../../api/deployment", () => ({ deploymentApi: { graph: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({
@@ -106,6 +119,24 @@ describe("DeploymentPage", () => {
     expect(props().projection?.clearSelectionToken).toBe(1);
     act(() => { props().drill.onSelectionChange?.(["deploy:b@s1"]); });
     expect(screen.getByRole("status")).toHaveTextContent("Выбран 1 объект");
+  });
+
+  it("«Указать размещение» открывает окно для выбранных объектов; применение перечитывает граф", async () => {
+    await setup();
+    act(() => { props().drill.onSelectionChange?.(["deploy:a@s1", "deploy:a@t", "deploy:b@s1"]); });
+    await userEvent.click(screen.getByRole("button", { name: "Указать размещение" }));
+    expect(screen.getByTestId("placement-dialog")).toHaveAttribute("data-objects", "a,b");
+    await userEvent.click(screen.getByRole("button", { name: "applied" }));
+    expect(screen.queryByTestId("placement-dialog")).toBeNull();
+    await waitFor(() => expect(deploymentApi.graph).toHaveBeenCalledTimes(2));
+    expect(props().mutationToken).toBe(1);
+    expect(props().projection?.clearSelectionToken).toBe(1);
+  });
+
+  it("«Площадки» открывают окно площадок обеим ролям", async () => {
+    await setup(false);
+    await userEvent.click(screen.getByRole("button", { name: "Площадки" }));
+    expect(screen.getByTestId("sites-dialog")).toHaveAttribute("data-architect", "false");
   });
 
   it("«Переразложить» шлёт null-батч всех ключей deploy: вида с версией и перечитывает граф", async () => {
