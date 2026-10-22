@@ -121,7 +121,7 @@ def _rows(view: VersionView) -> list[tuple[str, list[str]]]:
 
 
 def _absent(view: VersionView) -> bool:
-    return view == VersionView()
+    return view == VersionView(text=None, lines=None, columns=None, rows=None)
 
 
 # ── Пустая база и порядок ──────────────────────────────────────────────────────

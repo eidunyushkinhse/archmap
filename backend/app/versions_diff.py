@@ -217,7 +217,8 @@ class _Pair:
 # ── Общие кирпичи представлений ────────────────────────────────────────────────
 
 _NONE = "—"
-_ABSENT = VersionView()  # элемента на этой стороне нет
+# Элемента на этой стороне нет: все четыре формы пусты.
+_ABSENT = VersionView(text=None, lines=None, columns=None, rows=None)
 
 
 def _val(value: object) -> str:
@@ -235,7 +236,14 @@ def _change(old: str, new: str) -> str:
 
 
 def _table(columns: list[str], rows: list[VersionRow]) -> VersionView:
-    return VersionView(columns=columns, rows=rows)
+    return VersionView(text=None, lines=None, columns=columns, rows=rows)
+
+
+def _text(text: str | None) -> VersionView:
+    """Полный текст на стороне; None — элемента на ней нет."""
+    if text is None:
+        return _ABSENT
+    return VersionView(text=text, lines=None, columns=None, rows=None)
 
 
 def _plain(rows: Iterable[list[str]]) -> list[VersionRow]:
@@ -581,9 +589,8 @@ def _text_views(
 ) -> tuple[VersionView, VersionView, VersionView]:
     delta = _text_delta(old or "", new or "")
     lines = [DiffLine(mark="mod", text=m) for m in meta] + delta.lines
-    before = _ABSENT if old is None else VersionView(text=old)
-    after = _ABSENT if new is None else VersionView(text=new)
-    return VersionView(lines=lines), before, after
+    changes = VersionView(text=None, lines=lines, columns=None, rows=None)
+    return changes, _text(old), _text(new)
 
 
 def _docs(pair: _Pair) -> list[_Entry]:
@@ -1084,14 +1091,19 @@ def _proc_summary(old: ProcessVersion, new: ProcessVersion, members: list[_Membe
     )
 
 
+def _same_process(old: ProcessVersion | None, new: ProcessVersion | None) -> bool:
+    if old is None or new is None:
+        return False
+    return semantic_process(old) == semantic_process(new)
+
+
 def _processes(pair: _Pair) -> list[_Entry]:
     """Процесс — элемент целиком; «изменился ли» решает только semantic_process, чтобы
     не разойтись с хэшем (живые имена чужих узлов в detail — не изменение)."""
     out: list[_Entry] = []
     for pid in sorted(pair.b.processes.keys() | pair.t.processes.keys(), key=str):
         old, new = pair.b.processes.get(pid), pair.t.processes.get(pid)
-        same = old is not None and new is not None and semantic_process(old) == semantic_process(new)
-        if same:
+        if _same_process(old, new):
             continue
         members = _proc_members(old, new)
         proc = _one(old, new)

@@ -36,6 +36,7 @@ from app.routers import (
     search,
     tokens,
     users,
+    versions,
     views,
 )
 from app.routers import demo as demo_router
@@ -118,6 +119,8 @@ app.include_router(views.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(processes.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+app.include_router(versions.node_router, prefix="/api/v1")
+app.include_router(versions.project_router, prefix="/api/v1")
 
 
 # Удалённый MCP-сервер для ИИ-агентов (docs/plan-remote-mcp.md): Route с ASGI-объектом, а

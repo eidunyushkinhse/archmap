@@ -6,7 +6,8 @@ get_current_project — скоуп доменных запросов текущ�
 
 Доступ (docs/tasks/project-access.md): get_current_project пускает только того,
 у кого есть действующая роль в проекте (app/access.py), поэтому ЧТЕНИЕ закрыто во
-всех роутерах проекта одним местом. Запись — require_project_editor. Проекты,
+всех роутерах проекта одним местом. Запись — require_project_editor, действия
+владельца в текущем проекте — require_project_owner. Проекты,
 адресуемые ПУТЁМ (/projects/{id}/...), проверяет project_for с той же логикой; им же
 закрыто управление проектом (need="owner").
 """
@@ -107,6 +108,13 @@ def require_project_editor(access: ProjectAccess = Depends(get_project_access)) 
     """Запись в текущий проект: роль editor или owner. Возвращает пользователя —
     подменяет прежний require_architect в роутерах проекта один в один."""
     _require_role(access.role, "editor")
+    return access.user
+
+
+def require_project_owner(access: ProjectAccess = Depends(get_project_access)) -> User:
+    """Действие только владельца текущего проекта (удаление версии документации): 403
+    редактору и читателю. Администратор — владелец в любом проекте (app/access.py)."""
+    _require_role(access.role, "owner")
     return access.user
 
 

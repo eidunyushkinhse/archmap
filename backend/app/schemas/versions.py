@@ -15,7 +15,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.domain_types import DiffMark, VersionCategory, VersionItemStatus
+from app.domain_types import DiffMark, VersionCategory, VersionItemStatus, VersionKind
 from app.schemas.process import ProcessDetail
 from app.schemas.restore import (
     BrokerChannelSnapshot,
@@ -116,12 +116,15 @@ class VersionView(BaseModel):
     """Одно представление элемента — ровно одна из трёх форм: text — полный текст
     (схема, спека на версии), lines — построчная дельта текста, columns + rows —
     таблица (свойства, связи, факты, шаги процесса). Все четыре поля пусты — элемента
-    на этой стороне нет («было» у добавленного, «стало» у удалённого)."""
+    на этой стороне нет («было» у добавленного, «стало» у удалённого).
 
-    text: str | None = None
-    lines: list[DiffLine] | None = None
-    columns: list[str] | None = None
-    rows: list[VersionRow] | None = None
+    Поля без дефолтов намеренно: в генерате фронта все четыре обязательны (string |
+    null), и форма выбирается проверкой на null, а не на «поле есть»."""
+
+    text: str | None
+    lines: list[DiffLine] | None
+    columns: list[str] | None
+    rows: list[VersionRow] | None
 
 
 class VersionItemDetail(BaseModel):
@@ -184,3 +187,41 @@ class VersionPending(BaseModel):
 
     changed: bool
     items: list[VersionItem]
+
+
+# ── API ────────────────────────────────────────────────────────────────────────
+
+
+class VersionCreate(BaseModel):
+    """Фиксация версии: комментарий обязателен — по нему версию ищут (номер релиза,
+    задачи). Пустой после обрезки пробелов — 422; длиннее 512 — 422 column_limits."""
+
+    comment: str
+
+
+class VersionOut(BaseModel):
+    """Строка списка версий. author — имя пользователя, зафиксировавшего версию; null —
+    пользователь удалён (история остаётся без автора)."""
+
+    number: int
+    comment: str
+    kind: VersionKind
+    restored_from: int | None
+    created_at: datetime
+    author: str | None
+    stats: VersionStats
+
+
+class VersionList(BaseModel):
+    """Версии объекта (новые сверху) и есть ли изменения с последней."""
+
+    versions: list[VersionOut]
+    pending: VersionPending
+
+
+class VersionText(BaseModel):
+    """Текст на версии: схема логики (name — её имя), спека OpenAPI (name — имя
+    объекта) или процесс в mermaid (name — имя процесса)."""
+
+    name: str
+    text: str

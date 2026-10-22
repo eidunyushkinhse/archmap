@@ -11,7 +11,8 @@ docs/tasks/doc-versions.md §3, §6).
 """
 
 import uuid
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
@@ -27,6 +28,7 @@ from app.schemas.versions import (
     VersionItemDetail,
     VersionPending,
     VersionSnapshot,
+    VersionText,
 )
 from app.versions_diff import diff_item, diff_items, empty_snapshot
 from app.versions_snapshot import (
@@ -105,13 +107,6 @@ def last_version(db: Session, project: Project, node: Node | None) -> NodeVersio
         .limit(1)
     )
     return db.scalars(stmt).first()
-
-
-def base_of(db: Session, project: Project, node: Node | None, number: int) -> VersionSnapshot:
-    """Снимок, с которым сравнивается версия number «с предыдущей»: предыдущая версия,
-    у первой — пустой срез того же объекта (всё добавлено)."""
-    prev = previous_version(db, project, node, number)
-    return empty_snapshot(_root_id(node)) if prev is None else snapshot_of(prev)
 
 
 def _stats(snapshot: VersionSnapshot, base: VersionSnapshot) -> dict[str, Any]:
@@ -220,3 +215,58 @@ def item_detail(
     """Элемент дельты с тремя представлениями (versions_diff.diff_item) и путями
     объектов вне среза."""
     return diff_item(base, target, item_id, outside_paths=outside_paths(db, project, base, target))
+
+
+# ── Сравнение и тексты на версии ───────────────────────────────────────────────
+
+# С чем сравнивается версия n: prev — с предыдущей (у первой — с пустым срезом), live
+# — n «было», текущее состояние «стало» («что изменилось с версии n»), число m — с
+# версией m.
+CompareBase = Literal["prev", "live"] | int
+
+
+@dataclass(frozen=True)
+class Comparison:
+    """Две стороны дельты. base_version — None: сравнивать не с чем (пустой срез перед
+    первой версией); target_version — None: «стало» — текущее состояние."""
+
+    base: VersionSnapshot
+    target: VersionSnapshot
+    base_version: NodeVersion | None
+    target_version: NodeVersion | None
+
+
+def comparison(
+    db: Session, project: Project, node: Node | None, version: NodeVersion, base: CompareBase
+) -> Comparison | None:
+    """Стороны дельты версии version по выбору base; None — версии base (числом) нет."""
+    if base == "live":
+        return Comparison(snapshot_of(version), live_snapshot(db, project, node), version, None)
+    if base == "prev":
+        other = previous_version(db, project, node, version.number)
+    else:
+        other = get_version(db, project, node, base)
+        if other is None:
+            return None
+    base_snap = empty_snapshot(_root_id(node)) if other is None else snapshot_of(other)
+    return Comparison(base_snap, snapshot_of(version), other, version)
+
+
+def doc_text(snapshot: VersionSnapshot, doc_id: uuid.UUID) -> VersionText | None:
+    """Текст схемы логики на версии; None — в срезе версии её нет."""
+    doc = next((d for d in snapshot.node_docs if d.id == doc_id), None)
+    return None if doc is None else VersionText(name=doc.name, text=doc.content)
+
+
+def spec_text(snapshot: VersionSnapshot, node_id: uuid.UUID) -> VersionText | None:
+    """Спека OpenAPI объекта на версии; None — объекта в срезе нет или спека пуста."""
+    node = next((n for n in snapshot.nodes if n.id == node_id), None)
+    if node is None or not node.openapi_spec:
+        return None
+    return VersionText(name=node.name, text=node.openapi_spec)
+
+
+def process_text(snapshot: VersionSnapshot, process_id: uuid.UUID) -> VersionText | None:
+    """Процесс на версии в mermaid (тот же экспорт, что у «Скачать .mmd»)."""
+    proc = next((p for p in snapshot.processes if p.id == process_id), None)
+    return None if proc is None else VersionText(name=proc.name, text=proc.mermaid)
