@@ -97,6 +97,8 @@ describe("DeploymentPage", () => {
     expect(p.projection?.inlineDepth).toBe(Infinity);
     expect(Object.keys(p.projection?.children ?? {}).sort()).toEqual(["deploy:site:s1", "deploy:site:t"]);
     expect(p.projection?.marks).toEqual({ "deploy:a@s1": "1/2", "deploy:a@t": "2/2" });
+    // реестр концов — по записи на карточку, с цепочкой площадок
+    expect(p.endpoints.map((e) => e.id).sort()).toEqual(["deploy:a@s1", "deploy:a@t", "deploy:b@s1"]);
     expect(p.mode).toMatchObject({ readOnly: true, arrangeOnly: true, edgesInspectable: false });
     expect(p.persistence?.viewMeta?.current).toEqual({ version: 7, graphRev: 3, metaRev: 2 });
   });
@@ -149,13 +151,30 @@ describe("DeploymentPage", () => {
     expect(props().relayoutToken).toBe(1);
   });
 
-  it("двойной клик по карточке → страница объекта; по площадке — ничего", async () => {
+  it("двойной клик по карточке объекта → страница объекта; по площадке — ничего", async () => {
     const { onOpenNode } = await setup();
     const card = props().projection?.children?.["deploy:site:t"]?.[0] as AppNode;
     props().drill.onEditNode(card);
     expect(onOpenNode).toHaveBeenCalledWith("a");
     props().drill.onEditNode(props().nodes[0]);
     expect(onOpenNode).toHaveBeenCalledTimes(1);
+  });
+
+  it("цельный контейнер: карточка выделяется как объект, двойной клик — вход в его уровень", async () => {
+    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2 };
+    const g = graph({
+      nodes: [box, { ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }],
+      edges: [],
+    });
+    const { onOpenNode } = await setup(true, g);
+    const card = props().projection?.children?.["deploy:site:s1"]?.[0] as AppNode;
+    expect(card.id).toBe("deploy:c@s1");
+    act(() => { props().drill.onSelectionChange?.([card.id]); });
+    await userEvent.click(screen.getByRole("button", { name: "Указать размещение" }));
+    expect(screen.getByTestId("placement-dialog")).toHaveAttribute("data-objects", "c");
+    act(() => { props().drill.onEditNode(card); });
+    await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith("c"));
+    expect(onOpenNode).not.toHaveBeenCalled();
   });
 
   it("читатель: ни панели выделения, ни «Переразложить», расстановки нет", async () => {

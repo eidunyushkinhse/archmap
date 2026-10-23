@@ -384,7 +384,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
         filter: selected ? SELECTED_GLOW : undefined,
       }}
     >
-      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
+      {/* Пунктир — цельный контейнер развёртывания (проекция его не раскрывает). */}
+      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed={data.dashed} />
       <StatusBadge status={data.appNode.status} border={c.border} />
       <NodeHandles nodeId={data.appNode.id} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 

@@ -95,6 +95,18 @@ describe("пометка карточки", () => {
     ...(mark ? { mark } : null),
   });
 
+  it("цельный контейнер: пунктирный контур и бейдж числа объектов внутри", () => {
+    const box = { ...appNode, id: "deploy:C@S1", has_children: true, child_count: 4 } as AppNode;
+    const { container } = render(
+      <ReactFlowProvider>
+        <Block id="deploy:C@S1" data={{ ...data(), appNode: box, badgeCount: 4, dashed: true }} />
+      </ReactFlowProvider>,
+    );
+    expect(container.querySelector("rect")?.getAttribute("stroke-dasharray")).toBe("5 3");
+    expect(screen.getByText("4")).toBeInTheDocument();
+    expect(screen.queryByTitle("Раскрыть содержимое")).toBeNull();
+  });
+
   it("mark рисуется бейджем, без mark бейджа нет", () => {
     const { container, unmount } = render(
       <ReactFlowProvider><Block id="deploy:A@S1" data={data("1/2")} /></ReactFlowProvider>,

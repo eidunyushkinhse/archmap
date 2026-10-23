@@ -150,6 +150,9 @@ export interface BlockData extends Record<string, unknown> {
   // Пометка карточки (проекция хозяина, LevelProjectionProps.marks): маленький бейдж в
   // правом-нижнем углу. Холст развёртывания — «1/2», экземпляр 1 из 2 (deployment.md).
   mark?: string;
+  // Пунктирный контур формы: карточка проекции с детьми, которую холст не раскрывает
+  // (цельный контейнер развёртывания, deployment.md D22) — «внутри есть ещё объекты».
+  dashed?: boolean;
 }
 
 export interface GhostData extends Record<string, unknown> {

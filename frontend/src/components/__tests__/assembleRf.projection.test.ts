@@ -108,6 +108,10 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
     expect(block("box@S").onExpand).toBeUndefined();
     expect(block("box@S").expandLimited).toBe(false);
     expect(block("box@S").badgeCount).toBe(5);
+    // цельный контейнер — пунктирный контур; раскрываемый и лист — без пометки
+    expect(block("box@S").dashed).toBe(true);
+    expect("dashed" in block("inner")).toBe(false);
+    expect("dashed" in block("a@S")).toBe(false);
   });
 
   it("площадка сворачивается: collapsible: true — onCollapse задан", () => {

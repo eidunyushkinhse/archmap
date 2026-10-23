@@ -1,10 +1,11 @@
 // Режим «Развёртывание» (docs/tasks/deployment-view.md, спека docs/specs/deployment.md):
 // где крутятся объекты уровня. Холст — тот же LevelGraph с проекцией хозяина: площадки —
-// сплошные рамки (вложенность без предела), объект — карточка в каждой площадке, где
-// он стоит, объекты без размещения — в пунктирной группе. Архитектору — расстановка
-// (драг, персист ключами deploy:…, undo) и «Переразложить»; читателю — просмотр.
-import { useCallback, useMemo, useRef, useState } from "react";
-import type { GhostNode, Node as AppNode } from "../types";
+// зоны (вложенность без предела, сворачиваются в карточку), представитель — карточка в
+// каждой площадке, где он стоит: объект или цельный контейнер одной карточкой; без
+// размещения — в пунктирной группе. Архитектору — расстановка (драг, персист ключами
+// deploy:…, undo) и «Переразложить»; читателю — просмотр.
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { Node as AppNode } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import SchemaLegend from "../components/SchemaLegend";
 import type {
@@ -27,12 +28,11 @@ import "./DeploymentPage.css";
 
 interface Props {
   isArchitect: boolean;
-  // Двойной клик по карточке → страница её объекта (оболочка переключает режим).
+  // Двойной клик по карточке объекта → страница объекта (оболочка переключает режим).
   onOpenNode: (nodeId: string) => void;
 }
 
-// Стабильные пустые входы холста: у развёртывания нет гостей и breadcrumb-рамок.
-const NO_ENDPOINTS: GhostNode[] = [];
+// Стабильный пустой вход холста: у развёртывания нет breadcrumb-рамок (уровень — объём).
 const NO_ANCESTORS: string[] = [];
 // Связи развёртывания не инспектируются — выбирать в окне нечего.
 const EDGE_CALLBACKS: LevelEdgeCallbacks = { onEdgesChoice: () => {} };
@@ -120,10 +120,26 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
       }
     : undefined), [proj, clearToken]);
 
-  // Двойной клик по карточке экземпляра — страница объекта; площадка объектом не является.
+  // Ошибка действия тулбара («Переразложить»); смена уровня её снимает.
+  const [actionError, setActionError] = useState<string | null>(null);
+  const changeLevel = (next: string | null) => {
+    host.dropRetry();
+    setSelectedIds([]);
+    setActionError(null);
+    setLevel(next);
+  };
+  // Смена уровня из колбэка холста (двойной клик по контейнеру): свежая функция рендера.
+  const changeLevelRef = useRef(changeLevel);
+  useLayoutEffect(() => { changeLevelRef.current = changeLevel; });
+
+  // Двойной клик по карточке: цельный контейнер — вход в его уровень (контейнеры здесь
+  // не раскрываются), объект — его страница. Площадка объектом не является (её
+  // карточку раскрывает сам холст).
   const openCard = useCallback((n: AppNode) => {
     const inst = proj?.siteOf.get(n.id);
-    if (inst) onOpenNode(inst.nodeId);
+    if (!inst) return;
+    if (n.has_children) changeLevelRef.current(inst.nodeId);
+    else onOpenNode(inst.nodeId);
   }, [proj, onOpenNode]);
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: openCard,
@@ -134,7 +150,6 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
   // «Переразложить» (архитектор): снять все ключи deploy: этого вида одним батчем,
   // перечитать граф — холст разложит заново и анимирует переезд (relayoutToken).
   const [relayoutToken, setRelayoutToken] = useState(0);
-  const [actionError, setActionError] = useState<string | null>(null);
   const relayoutInflight = useRef(false);
   const handleRelayout = useCallback(async () => {
     if (relayoutInflight.current) return;
@@ -167,14 +182,8 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
     }
   }, [dep, level]);
 
-  const changeLevel = (next: string | null) => {
-    host.dropRetry();
-    setSelectedIds([]);
-    setActionError(null);
-    setLevel(next);
-  };
-
-  const hasObjects = (dep.graph?.nodes.length ?? 0) > 0;
+  // Объекты есть — есть хоть один представитель (контейнер без листьев не рисуется).
+  const hasObjects = (proj?.siteOf.size ?? 0) > 0;
   const selectedNodes = useMemo(() => {
     const ids = new Set(selectedObjects);
     return (dep.graph?.nodes ?? []).filter((n) => ids.has(n.id));
@@ -223,7 +232,7 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
           <div className="dp-stage">
             <LevelGraph
               nodes={proj.nodes}
-              endpoints={NO_ENDPOINTS}
+              endpoints={proj.endpoints}
               edges={proj.edges}
               viewLayout={dep.layout}
               depth={0}

@@ -1,10 +1,12 @@
 // Проекция графа развёртывания на холст (docs/specs/deployment.md): вложенность
 // площадок, экземпляры с пометками «i/n», группа «Размещение не указано», правило
-// ближайшего экземпляра для связей, пустая площадка карточкой.
+// ближайшего экземпляра для связей, пустая площадка карточкой, правило цельного
+// контейнера (представители), реестр концов и подъём связи к свёрнутой площадке.
 import { describe, it, expect } from "vitest";
 import {
   projectDeployment, siteKey, instanceKey, UNPLACED, UNPLACED_NAME,
 } from "../deployment/deploymentProjection";
+import { computeViewLayout } from "../graph/layout/pipeline";
 import type { DeploymentGraph, DeploymentNode, SiteKind, SiteOut } from "../../types";
 
 function site(id: string, parent_id: string | null = null, kind: SiteKind = "kubernetes", technology: string | null = null): SiteOut {
@@ -18,6 +20,18 @@ function obj(id: string, places: string[], inheritedFrom: string | null = null):
     sites: [], version: 1, created_at: "", updated_at: "",
     instances: inheritedFrom ? [] : places,
     effective: places.map((site_id) => ({ site_id, inherited_from_id: inheritedFrom })),
+  };
+}
+// Узел поддерева с родителем: контейнер (kids > 0) или лист; effective — площадки,
+// своё размещение (own) или унаследованное от inheritedFrom.
+function tnode(
+  id: string, parent: string | null, places: string[] = [],
+  opts: { kids?: number; inheritedFrom?: string } = {},
+): DeploymentNode {
+  const kids = opts.kids ?? 0;
+  return {
+    ...obj(id, places, opts.inheritedFrom ?? null),
+    parent_id: parent, has_children: kids > 0, child_count: kids,
   };
 }
 function graph(sites: SiteOut[], nodes: DeploymentNode[], edges: [string, string, string][] = []): DeploymentGraph {
@@ -114,6 +128,102 @@ describe("projectDeployment", () => {
     ]);
   });
 
+  it("цельный контейнер на одной площадке — одна карточка, бейдж — число объектов внутри", () => {
+    const p = projectDeployment(graph([site("s1")], [
+      tnode("c", null, ["s1"], { kids: 2 }),
+      tnode("l1", "c", ["s1"], { inheritedFrom: "c" }),
+      tnode("sub", "c", ["s1"], { kids: 2, inheritedFrom: "c" }),
+      tnode("l2", "sub", ["s1"], { inheritedFrom: "c" }),
+      tnode("l3", "sub", ["s1"]),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("c", "s1")]);
+    const card = p.children[siteKey("s1")][0];
+    expect(card.name).toBe("C");
+    expect(card.has_children).toBe(true);
+    expect(card.child_count).toBe(3);
+    expect(p.marks).toEqual({});
+    expect(p.groupOf(card.id)).toBe("c");
+    expect(p.siteOf.get(card.id)).toEqual({ nodeId: "c", siteId: "s1" });
+    // контейнер не раскрывается: в карте состава его нет
+    expect(p.children[card.id]).toBeUndefined();
+  });
+
+  it("цельный контейнер на двух площадках — две карточки с пометками 1/2 и 2/2", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("c", null, ["s1", "t"], { kids: 2 }),
+      tnode("l1", "c", ["s1", "t"], { inheritedFrom: "c" }),
+      tnode("l2", "c", ["t", "s1"]),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("c", "s1")]);
+    expect(ids(p.children[siteKey("t")])).toEqual([instanceKey("c", "t")]);
+    expect(p.marks).toEqual({ [instanceKey("c", "s1")]: "1/2", [instanceKey("c", "t")]: "2/2" });
+  });
+
+  it("цельный контейнер без размещения — одна карточка в группе «не указано»", () => {
+    const p = projectDeployment(graph([site("s1")], [
+      tnode("c", null, [], { kids: 2 }), tnode("l1", "c"), tnode("l2", "c"),
+    ]));
+    expect(ids(p.children[siteKey(UNPLACED)])).toEqual([instanceKey("c", UNPLACED)]);
+    expect(p.children[siteKey(UNPLACED)][0].child_count).toBe(2);
+  });
+
+  it("рассыпанный контейнер — объекты по отдельности, вложенный цельный — карточка", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("c", null, [], { kids: 2 }),
+      tnode("l1", "c", ["s1"]),
+      tnode("sub", "c", ["t"], { kids: 2 }),
+      tnode("l2", "sub", ["t"], { inheritedFrom: "sub" }),
+      tnode("l3", "sub", ["t"], { inheritedFrom: "sub" }),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("l1", "s1")]);
+    expect(ids(p.children[siteKey("t")])).toEqual([instanceKey("sub", "t")]);
+    expect(p.children[siteKey("t")][0].child_count).toBe(2);
+    expect(p.siteOf.has(instanceKey("c", "s1"))).toBe(false);
+  });
+
+  it("контейнер без листьев в ответе (внутри одни «Пользователи») не рисуется", () => {
+    const p = projectDeployment(graph([site("s1")], [tnode("c", null, ["s1"], { kids: 1 }), tnode("x", null, ["s1"])]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);
+  });
+
+  it("связи поднимаются к представителям: внутри цельного — скрыта, наружу — от карточки контейнера", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("c", null, ["s1"], { kids: 2 }),
+      tnode("l1", "c", ["s1"], { inheritedFrom: "c" }),
+      tnode("l2", "c", ["s1"], { inheritedFrom: "c" }),
+      tnode("x", null, ["t"]),
+    ], [["in", "l1", "l2"], ["out", "l1", "x"], ["own", "c", "x"]]));
+    expect(p.edges.map((e) => `${e.id}:${e.source_id}>${e.target_id}`)).toEqual([
+      `deploy:out@s1@t:${instanceKey("c", "s1")}>${instanceKey("x", "t")}`,
+      `deploy:own@s1@t:${instanceKey("c", "s1")}>${instanceKey("x", "t")}`,
+    ]);
+  });
+
+  it("связь с концом-рассыпанным контейнером не рисуется — у него нет представителя", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("c", null, [], { kids: 2 }),
+      tnode("l1", "c", ["s1"]),
+      tnode("l2", "c", ["t"]),
+      tnode("x", null, ["t"]),
+    ], [["e", "c", "x"], ["f", "l2", "x"]]));
+    expect(p.edges.map((e) => e.id)).toEqual(["deploy:f@t@t"]);
+  });
+
+  it("реестр концов: у каждой карточки цепочка площадок от корневой, у «не указано» — группа", () => {
+    const p = projectDeployment(graph(
+      [site("cloud", null, "cloud"), site("k8s", "cloud"), site("ns", "k8s")],
+      [obj("a", ["ns"]), obj("b", ["cloud", "k8s"]), obj("u", [])],
+    ));
+    const chain = (id: string) => p.endpoints.find((e) => e.id === id)?.ancestors.map((a) => a.id);
+    expect(chain(instanceKey("a", "ns"))).toEqual([siteKey("cloud"), siteKey("k8s"), siteKey("ns")]);
+    expect(chain(instanceKey("b", "cloud"))).toEqual([siteKey("cloud")]);
+    expect(chain(instanceKey("b", "k8s"))).toEqual([siteKey("cloud"), siteKey("k8s")]);
+    expect(chain(instanceKey("u", UNPLACED))).toEqual([siteKey(UNPLACED)]);
+    const a = p.endpoints.find((e) => e.id === instanceKey("a", "ns"))!;
+    expect(a).toMatchObject({ name: "A", shape: "service", node_depth: 3, has_children: false, is_ghost: true });
+    expect(p.endpoints).toHaveLength(4);
+  });
+
   it("ближайший экземпляр: иначе первый экземпляр цели; «не указано» — по тому же правилу", () => {
     const p = projectDeployment(graph(
       [site("s1"), site("u"), site("t")],
@@ -126,5 +236,47 @@ describe("projectDeployment", () => {
       `deploy:e3@s1@${UNPLACED}:${instanceKey("b", "s1")}>${instanceKey("c", UNPLACED)}`,
       `deploy:e3@u@${UNPLACED}:${instanceKey("b", "u")}>${instanceKey("c", UNPLACED)}`,
     ]);
+  });
+});
+
+// Проекция на настоящем конвейере: подъём конца связи к карточке свёрнутой площадки
+// (реестр концов + liftEdgesToLevel), без гостей.
+describe("проекция + конвейер: свёрнутая площадка", () => {
+  const g = graph(
+    [site("cloud", null, "cloud"), site("k8s", "cloud"), site("vm", null, "vm")],
+    [obj("a", ["k8s"]), obj("b", ["k8s"]), obj("x", ["vm"])],
+    [["ax", "a", "x"], ["ab", "a", "b"]],
+  );
+  const run = (collapsed: string[]) => {
+    const p = projectDeployment(g);
+    const expanded = new Set(Object.keys(p.children).filter((k) => !collapsed.includes(k)));
+    return computeViewLayout({
+      nodes: p.nodes, endpoints: p.endpoints, edges: p.edges, containerId: null, viewLayout: {},
+      ancestorIds: [], expanded, localChildren: p.children, maxInlineDepth: Infinity, edgeQuality: "full",
+    });
+  };
+  const ends = (out: Awaited<ReturnType<typeof run>>) =>
+    out.layout.groupArr.map((x) => `${x.source}>${x.target}`).sort();
+
+  it("раскрыто: связи между карточками объектов", async () => {
+    const out = await run([]);
+    expect(ends(out)).toEqual([
+      `${instanceKey("a", "k8s")}>${instanceKey("b", "k8s")}`,
+      `${instanceKey("a", "k8s")}>${instanceKey("x", "vm")}`,
+    ].sort());
+    expect(out.layout.entities).toEqual([]);
+  });
+
+  it("свёрнут кластер: связь наружу упирается в его карточку, внутренняя пропадает", async () => {
+    const out = await run([siteKey("k8s")]);
+    expect(ends(out)).toEqual([`${siteKey("k8s")}>${instanceKey("x", "vm")}`]);
+    expect(out.layout.nodes.map((n) => n.id)).toContain(siteKey("k8s"));
+    expect(out.layout.entities).toEqual([]);
+  });
+
+  it("свёрнуто облако: конец поднимается к ближайшей отображаемой площадке — корневой", async () => {
+    const out = await run([siteKey("cloud")]);
+    expect(ends(out)).toEqual([`${siteKey("cloud")}>${instanceKey("x", "vm")}`]);
+    expect(out.layout.entities).toEqual([]);
   });
 });

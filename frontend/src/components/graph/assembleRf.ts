@@ -178,8 +178,11 @@ export function assembleRfGraph(params: {
       // поддерева по рёбрам, X16 v2); редактор — все по child_count (Д3).
       const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
       const hasKids = (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape);
-      // Проекция хозяина раскрывает только ключи своей карты состава (expandableIds).
+      // Проекция хозяина раскрывает только ключи своей карты состава (expandableIds);
+      // карточка с детьми вне карты — цельный контейнер развёртывания: без лупы, с
+      // пунктирным контуром и бейджем числа объектов внутри.
       const expandable = hasKids && (!expandableIds || expandableIds.has(n.id));
+      const sealed = hasKids && !expandable;
       const atLimit = atInlineLimit(pf);
       const onExpand = expandable && !atLimit
         ? (id: string) => getCb().expandLocalContainer(id)
@@ -230,6 +233,7 @@ export function assembleRfGraph(params: {
           expandLimited: expandable && atLimit,
           badgeCount: childCount,
           ...(mark ? { mark } : null),
+          ...(sealed ? { dashed: true } : null),
         } satisfies BlockData,
       };
     }),
