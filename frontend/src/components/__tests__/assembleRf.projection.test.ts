@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { assembleRfGraph, type AssembleCallbacks } from "../graph/assembleRf";
 import type { LayoutResult } from "../graph/layout/pipeline";
-import type { BlockData, FrameData, FrameDecor } from "../graph/types";
+import type { BlockData, FrameData, FrameDecor, SiteCardData } from "../graph/types";
 import type { Node as AppNode } from "../../types";
 
 function appNode(id: string, kids = false): AppNode {
@@ -119,6 +119,32 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
     const data = (id: string) => nodes.find((n) => n.id === id)!.data as FrameData;
     expect(typeof data("S").onCollapse).toBe("function");
     expect(data("U").onCollapse).toBeUndefined();
+  });
+
+  it("свёрнутая и пустая площадка — узел типа site, объект — block", () => {
+    // S3 свёрнута (есть состав — ключ карты), E пуста (в карте её нет), обе — узлы уровня.
+    const siteLayout: LayoutResult = {
+      ...layout,
+      nodes: [...layout.nodes, appNode("S3", true), appNode("E")],
+      positions: new Map([...layout.positions, ["S3", { x: 0, y: 0 }], ["E", { x: 0, y: 0 }]]),
+    };
+    const decor = (id: string): FrameDecor | undefined =>
+      id === "S3" ? { kind: "site", icon: "vm", collapsible: true, count: 4 }
+      : id === "E" ? { kind: "site", icon: "cloud", collapsible: true, count: 0 }
+      : decorOf(id);
+    const nodes = assembleRfGraph({
+      layout: siteLayout, isArchitect: true, isReadOnly: true, drillNav: false,
+      depth: 0, schemaView: "all", getCb: cb,
+      maxInlineDepth: Infinity, frameDecor: decor, expandableIds: new Set(["S3"]),
+    }).nextNodes;
+    const node = (id: string) => nodes.find((n) => n.id === id)!;
+    expect(node("S3").type).toBe("site");
+    const s3 = node("S3").data as SiteCardData;
+    expect(s3).toMatchObject({ name: "S3", icon: "vm", count: 4 });
+    expect(typeof s3.onExpand).toBe("function");
+    expect(node("E").type).toBe("site");
+    expect((node("E").data as SiteCardData).onExpand).toBeUndefined();
+    expect(node("a@S").type).toBe("block");
   });
 
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {

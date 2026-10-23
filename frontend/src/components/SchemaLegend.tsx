@@ -7,7 +7,8 @@
 // поэтому панель раскрывается ВВЕРХ (bottom: calc(100% + 8px)). Видна всегда (обе
 // роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
 // variant="deployment" — холст «Развёртывание»: пользователей и гостей там нет, зато
-// есть площадки (сплошная рамка), группа «Размещение не указано» и пометка «1/2».
+// есть площадки (зона с заливкой, свёрнутая — белая карточка), группа «Размещение не
+// указано» и пометка «1/2».
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import "./SchemaLegend.css";
@@ -67,11 +68,21 @@ function SwatchFrame() {
     </svg>
   );
 }
-/* Площадка развёртывания — сплошная рамка (FrameNode, decor site) */
+/* Площадка развёртывания — зона: лёгкая заливка и светлая граница (FrameNode, decor site) */
 function SwatchSite() {
   return (
     <svg width={26} height={18} viewBox="0 0 26 18">
-      <rect x={1} y={1} width={24} height={16} rx={4} fill="transparent" stroke="#64748b" strokeWidth={1.5} />
+      <rect x={1} y={1} width={24} height={16} rx={4} fill="rgba(100,116,139,0.07)" stroke="#cbd5e1" strokeWidth={1} />
+    </svg>
+  );
+}
+/* Свёрнутая площадка — белая карточка с лупой (SiteCardNode) */
+function SwatchSiteCard() {
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <rect x={1} y={1} width={24} height={16} rx={3} fill="#fff" stroke="#94a3b8" strokeWidth={1} />
+      <circle cx={17} cy={8} r={2.6} fill="none" stroke="#94a3b8" strokeWidth={1.1} />
+      <path d="M19 10 L21 12" stroke="#94a3b8" strokeWidth={1.1} strokeLinecap="round" />
     </svg>
   );
 }
@@ -138,6 +149,7 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
           {deployment ? (
             <Section title="Обозначения">
               <Row swatch={<SwatchSite />} label="Площадка" />
+              <Row swatch={<SwatchSiteCard />} label="Свёрнутая площадка" />
               <Row swatch={<SwatchFrame />} label="Размещение не указано" />
               <Row swatch={<SwatchMark />} label="Объект на нескольких площадках" />
             </Section>

@@ -50,7 +50,8 @@ describe("projectDeployment", () => {
     expect(a.parent_id).toBe(siteKey("k8s"));
     expect(a.has_children).toBe(false);
     // декор: площадки с иконкой вида сворачиваются
-    expect(p.frameDecor(siteKey("cloud"))).toEqual({ kind: "site", icon: "cloud", collapsible: true });
+    expect(p.frameDecor(siteKey("cloud"))).toEqual({ kind: "site", icon: "cloud", collapsible: true, count: 2 });
+    expect(p.frameDecor(siteKey("k8s"))).toMatchObject({ count: 1 });
     expect(p.frameDecor("not-a-site")).toBeUndefined();
   });
 

@@ -42,7 +42,8 @@ export function framedBlockRefs(
     return chain;
   };
   return rfNodes
-    .filter((b) => b.type === "block" && b.parentId && frameNodes.has(b.parentId))
+    // карточка свёрнутой площадки внутри рамки площадки-родителя — такой же член рамки
+    .filter((b) => (b.type === "block" || b.type === "site") && b.parentId && frameNodes.has(b.parentId))
     // frameChain принимает string | undefined — «!» не нужен, undefined безопасен
     .map((b) => ({ id: b.id, ancestors: [...bcRefs, ...frameChain(b.parentId)] }));
 }

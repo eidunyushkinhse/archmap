@@ -219,6 +219,16 @@ describe("LevelGraph orchestration: проекция хозяина (развё�
     expect(lastInput().expanded.has(S1)).toBe(true);
   });
 
+  it("двойной клик по карточке площадки — то же, что лупа; по пустой — ничего", async () => {
+    await renderGraph(deployProps({ children }));
+    const dbl = rfProps.current.onNodeDoubleClick as (e: unknown, n: RFNode) => void;
+    const onExpand = vi.fn();
+    dbl({}, { id: S1, type: "site", position: { x: 0, y: 0 }, data: { name: S1, icon: "vm", count: 2, onExpand } } as RFNode);
+    expect(onExpand).toHaveBeenCalledWith(S1);
+    // пустая площадка: колбэка нет — ничего не падает
+    dbl({}, { id: T, type: "site", position: { x: 0, y: 0 }, data: { name: T, icon: "vm", count: 0 } } as RFNode);
+  });
+
   it("clearSelectionToken: рост токена снимает RF-выделение со всех узлов", async () => {
     const { rerenderWith } = await renderGraph(deployProps({ children }));
     await act(async () => {

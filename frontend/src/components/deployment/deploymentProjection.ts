@@ -6,7 +6,7 @@
 // блок `deploy:<объект>@<площадка>`: объект рисуется карточкой в каждой рамке, где у
 // него действующий экземпляр, с пометкой «i/n» при n > 1. Объекты без действующего
 // размещения — в пунктирной группе «Размещение не указано» (`deploy:site:unplaced`).
-// Пустая площадка (ни экземпляров, ни вложенных) — обычная карточка: у контейнера без
+// Пустая площадка (ни экземпляров, ни вложенных) — карточка площадки: у контейнера без
 // детей конвейер рамку не строит, рамкой она станет с первым экземпляром.
 //
 // Связи — по правилу БЛИЖАЙШЕГО экземпляра (D-инварианты спеки): от каждого экземпляра
@@ -137,14 +137,18 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
 
   // Узлы площадок сверху вниз; состав раскрытых — в children. Пустая площадка
   // остаётся карточкой (has_children: false) и в children не попадает.
+  // Число карточек на площадке и во вложенных — для карточки свёрнутой площадки.
   const children: Record<string, AppNode[]> = {};
+  const countOf = new Map<string, number>();
   const build = (site: SiteOut, parentKey: string | null, seen: Set<string>): AppNode => {
     const nested = (childSites.get(site.id) ?? []).filter((c) => !seen.has(c.id));
     const nextSeen = new Set(seen).add(site.id);
+    const cards = instancesBySite.get(site.id) ?? [];
     const kids = [
       ...nested.map((c) => build(c, siteKey(site.id), nextSeen)),
-      ...(instancesBySite.get(site.id) ?? []),
+      ...cards,
     ];
+    countOf.set(site.id, cards.length + nested.reduce((sum, c) => sum + (countOf.get(c.id) ?? 0), 0));
     if (kids.length > 0) children[siteKey(site.id)] = kids;
     return siteNode(site, parentKey, kids.length);
   };
@@ -191,8 +195,9 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   const frameDecor = (frameId: string): FrameDecor | undefined => {
     if (frameId === unplacedKey) return { kind: "group", collapsible: false };
     if (!frameId.startsWith("deploy:site:")) return undefined;
-    const site = siteById.get(frameId.slice("deploy:site:".length));
-    return site ? { kind: "site", icon: site.kind, collapsible: true } : undefined;
+    const siteId = frameId.slice("deploy:site:".length);
+    const site = siteById.get(siteId);
+    return site ? { kind: "site", icon: site.kind, collapsible: true, count: countOf.get(siteId) ?? 0 } : undefined;
   };
   const groupOf = (id: string): string | undefined => siteOf.get(id)?.nodeId;
 

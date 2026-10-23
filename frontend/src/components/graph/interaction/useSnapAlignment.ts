@@ -156,7 +156,8 @@ export function useSnapAlignment({
       const others: Rect[] = [];
       for (const o of rfNodes) {
         if (o.id === subjectId || exclude?.has(o.id)) continue;
-        if (o.type !== "block" && o.type !== "ghost" && o.type !== "container") continue;
+        // карточка площадки (холст развёртывания) — такой же узел-препятствие, как блок
+        if (o.type !== "block" && o.type !== "site" && o.type !== "ghost" && o.type !== "container") continue;
         const op = absPositionOf(o, byId);
         const { w: ow, h: oh } = nodeSize(o);
         others.push({ minX: op.x, minY: op.y, maxX: op.x + ow, maxY: op.y + oh });
@@ -172,7 +173,7 @@ export function useSnapAlignment({
   // (дети compound-рамок в rfNodes относительны, R4).
   // Оптимизация (2026-07-21): byId передаётся извне (один раз на кадр).
   const levelFrames = useCallback((byId: Map<string, RFNode>): FrameRect[] => {
-    const blocks = rfNodes.filter((n) => n.type === "block");
+    const blocks = rfNodes.filter((n) => n.type === "block" || n.type === "site");
     const externals = rfNodes.filter((n) => n.type === "ghost" || n.type === "container");
     const extAncestors = (n: RFNode): AncestorRef[] =>
       n.type === "ghost"
@@ -219,7 +220,8 @@ export function useSnapAlignment({
       for (const n of group) {
         // Рамки не таскаются (запрет движения рамок, 2026-07-08) — прежний батч-персист
         // потомков при драге рамки (R4.2) умер вместе с draggable.
-        if (n.type !== "block" && n.type !== "ghost" && n.type !== "container") continue;
+        // карточка площадки (холст развёртывания) расставляется и сохраняется, как блок
+        if (n.type !== "block" && n.type !== "site" && n.type !== "ghost" && n.type !== "container") continue;
         // Ребёнок compound-рамки (R4): позиция драга ОТНОСИТЕЛЬНА рамке — живой снап
         // в этой системе неприменим (соседи в абсолюте). Персистим АБСОЛЮТ (конвейер
         // владеет позициями вида в абсолюте), прогнав через тот же keep-out-кламп:

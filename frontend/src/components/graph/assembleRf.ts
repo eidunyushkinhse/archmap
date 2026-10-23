@@ -11,6 +11,7 @@ import { canHaveChildren } from "../../types";
 import { MAX_INLINE_DEPTH } from "./constants";
 import type {
   WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, FrameDecor, QuickConnectHandlers,
+  SiteCardData,
 } from "./types";
 import { edgeText } from "./text";
 import { getNodeColors, STATUS_META } from "./colors";
@@ -180,6 +181,25 @@ export function assembleRfGraph(params: {
       // Проекция хозяина раскрывает только ключи своей карты состава (expandableIds).
       const expandable = hasKids && (!expandableIds || expandableIds.has(n.id));
       const atLimit = atInlineLimit(pf);
+      const onExpand = expandable && !atLimit
+        ? (id: string) => getCb().expandLocalContainer(id)
+        : undefined;
+      // Узел с декором площадки — свёрнутая или пустая площадка (раскрытая рисуется
+      // рамкой): карточка площадки, а не объект (deployment.md).
+      const siteDecor = frameDecor?.(n.id);
+      if (siteDecor?.kind === "site") {
+        return {
+          id: n.id,
+          type: "site" as const,
+          ...compound,
+          data: {
+            name: n.name,
+            icon: siteDecor.icon ?? "other",
+            count: siteDecor.count ?? 0,
+            onExpand,
+          } satisfies SiteCardData,
+        };
+      }
       // пометка карточки от хозяина (развёртывание: «1/2») — только если задана
       const mark = marks?.[n.id];
       return {
@@ -206,9 +226,7 @@ export function assembleRfGraph(params: {
           // MAX_INLINE_DEPTH слоёв от уровня лупа неактивна и объясняет предел (C8).
           // На странице лупа — только при РЕЛЕВАНТНЫХ детях (childCount, X16 v2):
           // узел без связанных детей ведёт себя как лист.
-          onExpand: expandable && !atLimit
-            ? (id) => getCb().expandLocalContainer(id)
-            : undefined,
+          onExpand,
           expandLimited: expandable && atLimit,
           badgeCount: childCount,
           ...(mark ? { mark } : null),

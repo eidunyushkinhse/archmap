@@ -10,7 +10,7 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, QuickConnectHandlers } from "./types";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers } from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
@@ -306,12 +306,14 @@ function NodeName({ name }: { name: string }) {
 const LENS_LIMIT_HINT =
   "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже";
 
-// Лупа «Раскрыть содержимое» — общая для локального блока и гостевого контейнера.
+// Лупа «Раскрыть содержимое» — общая для локального блока, гостевого контейнера и
+// карточки свёрнутой площадки (у неё своя подсказка, title).
 // Ровно одно из двух: активная (onExpand) или неактивная на пределе глубины (limited).
-function ExpandLens({ onExpand, limited, style }: {
+function ExpandLens({ onExpand, limited, style, title = "Раскрыть содержимое" }: {
   onExpand?: () => void;
   limited?: boolean;
   style: CSSProperties;
+  title?: string;
 }) {
   const [hint, showHint] = useToast(6000);
   if (!onExpand && !limited) return null;
@@ -322,7 +324,7 @@ function ExpandLens({ onExpand, limited, style }: {
         data-tour="node-expand"
         onClick={(e) => { e.stopPropagation(); if (limited) showHint(); else onExpand?.(); }}
         style={limited ? { ...style, opacity: 0.45, cursor: "help" } : style}
-        title={limited ? LENS_LIMIT_HINT : "Раскрыть содержимое"}
+        title={limited ? LENS_LIMIT_HINT : title}
         aria-disabled={limited || undefined}
       >🔍</button>
       {hint && (
@@ -543,13 +545,16 @@ function FrameHandles({ nodeId }: { nodeId: string }) {
   );
 }
 
-// Декор по данным (FrameData.decor, холст развёртывания, deployment.md): у ПЛОЩАДКИ
-// граница сплошная 1.5px (#64748b, та же адаптация к зуму через --lg-frame-bw), на
-// плашке иконка вида вместо лупы и нет крестика — площадку не свернуть; у ГРУППЫ
-// («Размещение не указано») пунктир как у раскрытия, плашка без иконки и крестика.
+// Декор по данным (FrameData.decor, холст развёртывания, deployment.md): ПЛОЩАДКА — зона:
+// лёгкая заливка и тонкая светлая граница (та же адаптация к зуму через --lg-frame-bw)
+// вместо линии, которая сливалась со стрелками; вложенная зона рисуется поверх и
+// выходит темнее сама. На плашке иконка вида вместо лупы, клик по плашке и крестик
+// сворачивают площадку в карточку (SiteCardNode). ГРУППА («Размещение не указано») —
+// пунктир как у раскрытия, плашка без иконки и крестика.
 function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
   const decor = data.decor;
   const site = decor?.kind === "site";
+  const collapseTitle = site ? "Свернуть площадку" : "Свернуть";
   return (
     <div
       className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "")}
@@ -559,9 +564,9 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
         // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
         // при отдалении — на экране рамка всегда ~1px и не исчезает
         border: site
-          ? "calc(var(--lg-frame-bw, 1px) * 1.5) solid #64748b"
+          ? "var(--lg-frame-bw, 1px) solid #cbd5e1"
           : "var(--lg-frame-bw, 1px) dashed #9ca3af",
-        borderRadius: 12, background: "transparent",
+        borderRadius: 12, background: site ? "rgba(100,116,139,0.07)" : "transparent",
         boxSizing: "border-box", pointerEvents: "none",
       }}
     >
@@ -572,7 +577,7 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
       <div
         className="nopan"
         onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
-        title={data.onCollapse ? "Свернуть" : undefined}
+        title={data.onCollapse ? collapseTitle : undefined}
         style={{
           position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
           color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
@@ -594,7 +599,7 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
           <button
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
-            title="Свернуть"
+            title={collapseTitle}
             style={{
               border: "none", background: "transparent", cursor: "pointer",
               padding: 0, fontSize: 12, lineHeight: 1, color: "#64748b", fontWeight: 700,
@@ -602,6 +607,56 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
           >✕</button>
         )}
       </div>
+    </div>
+  );
+}
+
+// Карточка площадки (холст развёртывания, deployment.md): свёрнутая или пустая на уровне
+// площадка. Белая, а не синяя, — площадка не объект: иконка вида, имя «Имя ·
+// технология», серым число объектов на ней на этом уровне, лупа «Раскрыть площадку» у
+// свёрнутой (двойной клик — то же, LevelGraph). Размер — блока (NODE_W × NODE_H): на
+// него рассчитаны раскладка и замер узлов. Хэндлы как у блока — связи свёрнутой
+// площадки упираются в карточку; начать связь с неё нельзя (холст только для чтения).
+const SITE_LENS_STYLE: CSSProperties = {
+  ...nodeBtn, background: "#f8fafc", color: "#64748b", borderColor: "#e2e8f0",
+};
+
+function SiteCardNode({ id, data, selected }: NodeProps<SiteRFNode>) {
+  return (
+    <div
+      className="lg-site-card"
+      title={data.onExpand ? undefined : "Площадка пуста на этом уровне"}
+      style={{
+        ...nodeContainer,
+        display: "flex", alignItems: "center", gap: 10, padding: "0 10px 0 14px",
+        background: "#fff", border: "1px solid #94a3b8", borderRadius: 8, color: "#475569",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+        filter: selected ? SELECTED_GLOW : undefined,
+      }}
+    >
+      <NodeHandles nodeId={id} />
+      <span style={{ display: "inline-flex", flex: "none", color: "#64748b" }}>
+        <SiteKindIcon kind={data.icon} size={20} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <NodeName name={data.name} />
+      </div>
+      {data.count > 0 && (
+        <span
+          className="lg-site-count"
+          title={`Объектов на площадке: ${data.count}`}
+          style={{ flex: "none", fontSize: 12, fontWeight: 600, color: "#94a3b8" }}
+        >{data.count}</span>
+      )}
+      {data.onExpand && (
+        <span style={{ flex: "none", position: "relative" }}>
+          <ExpandLens
+            onExpand={() => data.onExpand?.(id)}
+            title="Раскрыть площадку"
+            style={SITE_LENS_STYLE}
+          />
+        </span>
+      )}
     </div>
   );
 }
@@ -628,6 +683,7 @@ export const nodeTypes: NodeTypes = {
   ghost: GhostBlockNode as ComponentType<NodeProps>,
   container: ContainerNode as ComponentType<NodeProps>,
   frame: FrameNode as ComponentType<NodeProps>,
+  site: SiteCardNode as ComponentType<NodeProps>,
   framedock: FrameDockNode as ComponentType<NodeProps>,
   spacer: SpacerNode as ComponentType<NodeProps>,
 };

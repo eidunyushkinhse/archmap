@@ -27,7 +27,7 @@ import { distToPolyline } from "./graph/edgePath";
 const SHARED_HIT_TOL = 4;
 import { OVERLOAD_NODES, OVERLOAD_EDGES } from "./graph/constants";
 import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "./graph/labelsPref";
-import type { BlockData, GhostData, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelProjectionProps, LevelUndoProps, LinkedHighlight, LocateRequest, WrappedEdgeData } from "./graph/types";
+import type { BlockData, GhostData, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelProjectionProps, LevelUndoProps, LinkedHighlight, LocateRequest, SiteCardData, WrappedEdgeData } from "./graph/types";
 import type { LayoutResult } from "./graph/layout/pipeline";
 import type { PrevScene } from "./graph/layout/incrementalScope";
 import type { LabelPlacement } from "./graph/layout/labelLayout";
@@ -907,6 +907,10 @@ function LevelGraphInner({
       } else if (rfNode.type === "container") {
         // у свёрнутого контейнера объекта узла нет — только id (он же id узла)
         cbRef.current.onInspectNodeId?.(rfNode.id);
+      } else if (rfNode.type === "site") {
+        // карточка свёрнутой площадки (холст развёртывания): двойной клик — то же, что
+        // лупа; у пустой площадки раскрывать нечего
+        (rfNode.data as SiteCardData | undefined)?.onExpand?.(rfNode.id);
       }
     },
     []

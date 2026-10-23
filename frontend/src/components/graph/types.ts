@@ -210,6 +210,23 @@ export interface FrameDecor {
   kind: "site" | "group";
   icon?: SiteKind;
   collapsible?: boolean;
+  // Число объектов (карточек) на площадке и во вложенных в неё на этом уровне — для
+  // карточки свёрнутой площадки (SiteCardData.count); у рамки не показывается.
+  count?: number;
+}
+
+// КАРТОЧКА ПЛОЩАДКИ (холст развёртывания, docs/specs/deployment.md): свёрнутая или пустая
+// на уровне площадка — узел уровня (или ребёнок рамки площадки-родителя) с декором site.
+// Рисуется не синим объектом, а белой карточкой того же размера: иконка вида, имя
+// «Имя · технология», число объектов на ней, лупа «Раскрыть площадку» у свёрнутой. Связи
+// упираются в карточку, как в блок; в выделение объектов холста она не входит.
+export interface SiteCardData extends Record<string, unknown> {
+  name: string;
+  icon: SiteKind;
+  // объектов на площадке на этом уровне (FrameDecor.count); 0 — число не рисуется
+  count: number;
+  // раскрыть свёрнутую площадку (лупа и двойной клик); у пустой площадки — undefined
+  onExpand?: (id: string) => void;
 }
 
 // ЯКОРЬ РОДНОЙ РАМКИ (эпик «связи, упирающиеся в рамку»): невидимый RF-узел на
@@ -223,6 +240,7 @@ export type BlockRFNode = RFNode<BlockData, "block">;
 export type GhostRFNode = RFNode<GhostData, "ghost">;
 export type ContainerRFNode = RFNode<ContainerData, "container">;
 export type FrameRFNode = RFNode<FrameData, "frame">;
+export type SiteRFNode = RFNode<SiteCardData, "site">;
 
 // --- Проекция гостей с учётом свёрнутых контейнеров ---
 
