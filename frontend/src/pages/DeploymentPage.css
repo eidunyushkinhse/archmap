@@ -54,7 +54,6 @@
 }
 
 .dp-canvas {
-  position: relative; /* опора баннера режима размещения */
   flex: 1;
   min-height: 0;
   display: flex;
@@ -103,18 +102,18 @@
 }
 
 /* Баннер режима размещения (D29): по образцу панели выделения, но голубой — холст ждёт
-   щелчка по площадке. Висит над холстом и на время загрузки уровня. */
+   щелчка по площадке. Стоит В ПОТОКЕ между тулбаром и холстом, а не поверх него: поверх
+   он накрывал бы верхний ряд площадок, по которым и надо щёлкать (headless-проверка
+   2026-10-23). Виден и на время загрузки уровня. */
 .dp-placing {
-  position: absolute;
-  top: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 7;
+  flex: none;
+  align-self: center;
+  max-width: 100%;
+  margin-bottom: 10px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  max-width: calc(100% - 48px);
   padding: 6px 8px 6px 14px;
   background: #eff6ff;
   border: 1px solid #93c5fd;
