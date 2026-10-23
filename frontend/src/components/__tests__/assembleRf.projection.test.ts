@@ -151,6 +151,32 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
     expect(node("a@S").type).toBe("block");
   });
 
+  it("режим выбора площадки: рамкам, карточкам площадок и объектов — onPick с id узла холста", () => {
+    const pickFrame = vi.fn<(id: string) => void>();
+    const callbacks = (): AssembleCallbacks => ({ ...cb(), pickFrame });
+    const siteLayout: LayoutResult = {
+      ...layout,
+      nodes: [...layout.nodes, appNode("S3", true)],
+      positions: new Map([...layout.positions, ["S3", { x: 0, y: 0 }]]),
+    };
+    const build = (picking: boolean) => assembleRfGraph({
+      layout: siteLayout, isArchitect: true, isReadOnly: true, drillNav: false,
+      depth: 0, schemaView: "all", getCb: callbacks,
+      maxInlineDepth: Infinity,
+      frameDecor: (id) => (id === "S3" ? { kind: "site", icon: "vm", collapsible: true, count: 1 } : decorOf(id)),
+      expandableIds: new Set(["S3"]), picking,
+    }).nextNodes;
+    const nodes = build(true);
+    const data = (id: string) => nodes.find((n) => n.id === id)!.data as { onPick?: (id: string) => void };
+    for (const id of ["S", "S2", "U", "S3", "a@S", "u"]) {
+      data(id).onPick?.(id);
+      expect(pickFrame).toHaveBeenLastCalledWith(id);
+    }
+    expect(pickFrame).toHaveBeenCalledTimes(6);
+    // вне режима onPick нет ни у кого
+    for (const n of build(false)) expect("onPick" in (n.data as object)).toBe(false);
+  });
+
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
     const nodes = assemble(false);
     const s = nodes.find((n) => n.id === "S")!.data as FrameData;

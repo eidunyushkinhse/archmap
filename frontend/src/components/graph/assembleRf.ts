@@ -32,6 +32,8 @@ export interface AssembleCallbacks {
   collapseContainer: (id: string) => void;
   openEdgeMembers: (memberIds: string[]) => void;
   quickConnect: QuickConnectHandlers;
+  // режим выбора площадки хозяина (LevelProjectionProps.pickFrame); нет — режима нет
+  pickFrame?: (id: string) => void;
 }
 
 export function assembleRfGraph(params: {
@@ -61,9 +63,14 @@ export function assembleRfGraph(params: {
   frameDecor?: (frameId: string) => FrameDecor | undefined;
   marks?: Record<string, string>;
   expandableIds?: ReadonlySet<string>;
+  // Режим выбора площадки (pickFrame хозяина задан): рамки, карточки площадок и объектов
+  // получают onPick — щелчок зовёт getCb().pickFrame(id) в момент клика.
+  picking?: boolean;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
-  const { frameDecor, marks, expandableIds } = params;
+  const { frameDecor, marks, expandableIds, picking } = params;
+  // Колбэк выбора — один на сборку, лениво через getCb (как остальные обработчики).
+  const pick = picking ? { onPick: (id: string) => getCb().pickFrame?.(id) } : null;
   const inlineDepth = params.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
@@ -144,11 +151,12 @@ export function assembleRfGraph(params: {
       // крестика нет; площадка сворачивается, как рамка раскрытия.
       const decor = frameDecor?.(f.id);
       const data: FrameData = decor?.collapsible === false
-        ? { name: f.name, decor }
+        ? { name: f.name, decor, ...pick }
         : {
             name: f.name,
             onCollapse: () => getCb().collapseContainer(f.id),
             ...(decor ? { decor } : null),
+            ...pick,
           };
       // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): rect рамки всегда
       // производен от детей — двигаются только сами узлы.
@@ -200,6 +208,7 @@ export function assembleRfGraph(params: {
             icon: siteDecor.icon ?? "other",
             count: siteDecor.count ?? 0,
             onExpand,
+            ...pick,
           } satisfies SiteCardData,
         };
       }
@@ -234,6 +243,7 @@ export function assembleRfGraph(params: {
           badgeCount: childCount,
           ...(mark ? { mark } : null),
           ...(sealed ? { dashed: true } : null),
+          ...pick,
         } satisfies BlockData,
       };
     }),

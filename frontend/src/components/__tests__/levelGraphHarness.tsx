@@ -72,9 +72,13 @@ export interface TestCb {
     isRetry?: boolean,
   ) => boolean;
   quickConnect: QuickConnectHandlers;
+  // режим выбора площадки хозяина (projection.pickFrame)
+  pickFrame?: (id: string) => void;
 }
 
-export const captured: { getCb?: () => TestCb } = {};
+// getCb — живые колбэки оркестрации; picking — признак режима выбора площадки, с которым
+// холст позвал последнюю сборку RF.
+export const captured: { getCb?: () => TestCb; picking?: boolean } = {};
 
 // ---------------------------------------------------------------------------
 // Управляемый результат конвейера раскладки (по умолчанию — пустой уровень без
@@ -110,6 +114,7 @@ let sigCounter = 0;
 export function resetHarness(): void {
   sigCounter = 0;
   captured.getCb = undefined;
+  captured.picking = undefined;
   assembleCalls.length = 0;
   rfProps.current = {};
   rehangProps.current = null;
@@ -270,9 +275,10 @@ export const assembleCalls: PipelineOutput["layout"][] = [];
 
 export const assembleRfMock = {
   assembleRfGraph: (
-    args: { getCb: () => TestCb; layout: PipelineOutput["layout"] },
+    args: { getCb: () => TestCb; layout: PipelineOutput["layout"]; picking?: boolean },
   ): { nextNodes: RFNode[]; nextEdges: RFEdge[] } => {
     captured.getCb = args.getCb;
+    captured.picking = args.picking;
     assembleCalls.push(args.layout);
     return { nextNodes: [], nextEdges: [] };
   },

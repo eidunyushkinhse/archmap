@@ -1,5 +1,5 @@
 // Кастомные компоненты узлов React Flow и их реестр nodeTypes.
-import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties } from "react";
+import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
 import {
   SIDE_HANDLES, hid, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
@@ -347,7 +347,19 @@ function ExpandLens({ onExpand, limited, style, title = "Раскрыть сод
   );
 }
 
-function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
+// Режим выбора площадки (onPick): обёртка RF без выделения и драга прозрачна для мыши
+// (pointer-events: none), поэтому щелчок принимает сам узел.
+const PICK_STYLE: CSSProperties = { pointerEvents: "auto", cursor: "crosshair" };
+
+// Перехват щелчка в режиме выбора площадки (onPick у рамки и карточек, развёртывание):
+// фаза перехвата на корне узла — щелчок по любой его части (плашке, крестику, лупе)
+// выбирает, а не делает своё; дальше событие не идёт.
+function pickCapture(id: string, onPick: ((id: string) => void) | undefined) {
+  if (!onPick) return undefined;
+  return (e: ReactMouseEvent) => { e.stopPropagation(); e.preventDefault(); onPick(id); };
+}
+
+function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
   // «Провалиться внутрь»/быть зоной входа может только сервис (см. canHaveChildren):
@@ -382,7 +394,11 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
         // формы — цилиндра БД, человечка и т.д.). Сигнал «этот узел активен и
         // исчезнет по Backspace».
         filter: selected ? SELECTED_GLOW : undefined,
+        // Режим выбора площадки: обёртка RF без выделения и драга прозрачна для мыши —
+        // щелчок ловит сама карточка (выбор её площадки).
+        ...(data.onPick ? PICK_STYLE : null),
       }}
+      onClickCapture={pickCapture(id, data.onPick)}
     >
       {/* Пунктир — цельный контейнер развёртывания (проекция его не раскрывает). */}
       <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed={data.dashed} />
@@ -556,10 +572,15 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
   const decor = data.decor;
   const site = decor?.kind === "site";
   const collapseTitle = site ? "Свернуть площадку" : "Свернуть";
+  // Режим выбора площадки: тело рамки ловит щелчок (обычно прозрачно для мыши), плашка
+  // не сворачивает, а тоже выбирает (перехват на корне). Курсор и подсветка — CSS
+  // lg-frame--pick.
+  const picking = !!data.onPick;
   return (
     <div
-      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "")}
+      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "") + (picking ? " lg-frame--pick" : "")}
       data-frame-id={id}
+      onClickCapture={pickCapture(id, data.onPick)}
       style={{
         width: "100%", height: "100%",
         // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
@@ -568,7 +589,7 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
           ? "var(--lg-frame-bw, 1px) solid #cbd5e1"
           : "var(--lg-frame-bw, 1px) dashed #9ca3af",
         borderRadius: 12, background: site ? "rgba(100,116,139,0.07)" : "transparent",
-        boxSizing: "border-box", pointerEvents: "none",
+        boxSizing: "border-box", pointerEvents: picking ? "auto" : "none",
       }}
     >
       <FrameHandles nodeId={id} />
@@ -625,7 +646,7 @@ const SITE_LENS_STYLE: CSSProperties = {
 function SiteCardNode({ id, data, selected }: NodeProps<SiteRFNode>) {
   return (
     <div
-      className="lg-site-card"
+      className={"lg-site-card" + (data.onPick ? " lg-site-card--pick" : "")}
       title={data.onExpand ? undefined : "Площадка пуста на этом уровне"}
       style={{
         ...nodeContainer,
@@ -633,7 +654,10 @@ function SiteCardNode({ id, data, selected }: NodeProps<SiteRFNode>) {
         background: "#fff", border: "1px solid #94a3b8", borderRadius: 8, color: "#475569",
         boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
         filter: selected ? SELECTED_GLOW : undefined,
+        // режим выбора площадки: щелчок по карточке (и по лупе) — выбор, не раскрытие
+        ...(data.onPick ? PICK_STYLE : null),
       }}
+      onClickCapture={pickCapture(id, data.onPick)}
     >
       <NodeHandles nodeId={id} />
       <span style={{ display: "inline-flex", flex: "none", color: "#64748b" }}>

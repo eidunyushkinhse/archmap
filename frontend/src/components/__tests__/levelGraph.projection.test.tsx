@@ -10,7 +10,10 @@
 //   • ключ кэша маршрутов вида получает признак проекции;
 //   • drill.onSelectionChange — id выделенных БЛОКОВ на изменение RF-выделения;
 //   • groupOf — «близнецы» выделенного блока получают класс lg-linked-node;
-//   • clearSelectionToken — рост токена снимает RF-выделение.
+//   • clearSelectionToken — рост токена снимает RF-выделение;
+//   • pickFrame — режим выбора площадки: сборка получает признак, колбэк зовётся из
+//     latest-ref, выделение/драг/рамка выделения выключены, двойной клик гасится;
+//   • selectRequest — рост токена выделяет перечисленные узлы, ждёт их появления.
 // RF/конвейер замоканы (общий harness); колбэки и вход конвейера — настоящие.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "@testing-library/react";
@@ -19,7 +22,7 @@ import type { Node as AppNode } from "../../types";
 import type { LevelProjectionProps } from "../graph/types";
 import { routeCache } from "../graph/layout/routeCacheStore";
 import {
-  resetHarness, apiNodesMock, pipelineClientMock, rfHandles, rfProps, flushRaf, layoutAnimMock, settle,
+  resetHarness, apiNodesMock, pipelineClientMock, rfHandles, rfProps, flushRaf, layoutAnimMock, settle, captured,
 } from "./levelGraphHarness";
 import { renderGraph, baseProps, getCb } from "./levelGraphRender";
 
@@ -240,5 +243,75 @@ describe("LevelGraph orchestration: проекция хозяина (развё�
     await act(async () => { rerenderWith(deployProps({ children, clearSelectionToken: 1 })); });
     await flushRaf();
     expect(selectedNow()).toEqual([]);
+  });
+
+  it("pickFrame: сборка в режиме выбора, щелчок зовёт свежий колбэк хозяина с id узла холста", async () => {
+    const first = vi.fn<(id: string) => void>();
+    const { rerenderWith } = await renderGraph(deployProps({ children, pickFrame: first }));
+    expect(captured.picking).toBe(true);
+    getCb().pickFrame?.(S2);
+    expect(first).toHaveBeenCalledWith(S2);
+    // колбэк читается в момент щелчка (latest-ref), а не при сборке
+    const second = vi.fn<(id: string) => void>();
+    await act(async () => { rerenderWith(deployProps({ children, pickFrame: second })); });
+    getCb().pickFrame?.("deploy:B@S1");
+    expect(second).toHaveBeenCalledWith("deploy:B@S1");
+    expect(first).toHaveBeenCalledTimes(1);
+  });
+
+  it("pickFrame: выделение, драг и рамка выделения выключены; вне режима — как были", async () => {
+    const { rerenderWith } = await renderGraph(deployProps({ children, pickFrame: vi.fn() }));
+    expect(rfProps.current.elementsSelectable).toBe(false);
+    expect(rfProps.current.nodesDraggable).toBe(false);
+    expect(rfProps.current.selectionOnDrag).toBe(false);
+    await act(async () => { rerenderWith(deployProps({ children })); });
+    await settle();
+    expect(captured.picking).toBe(false);
+    expect(rfProps.current.elementsSelectable).toBe(true);
+    expect(rfProps.current.nodesDraggable).toBe(true);
+    expect(rfProps.current.selectionOnDrag).toBe(true);
+  });
+
+  it("pickFrame: двойной щелчок не раскрывает площадку и не открывает объект", async () => {
+    const { props } = await renderGraph(deployProps({ children, pickFrame: vi.fn() }));
+    const dbl = rfProps.current.onNodeDoubleClick as (e: unknown, n: RFNode) => void;
+    const onExpand = vi.fn();
+    dbl({}, { id: S1, type: "site", position: { x: 0, y: 0 }, data: { name: S1, icon: "vm", count: 2, onExpand } } as RFNode);
+    dbl({}, { ...rfBlock("deploy:B@S1"), data: { appNode: appNode("deploy:B@S1", S1) } } as RFNode);
+    expect(onExpand).not.toHaveBeenCalled();
+    expect(props.drill.onEditNode).not.toHaveBeenCalled();
+  });
+
+  it("selectRequest: рост токена выделяет ровно перечисленные узлы", async () => {
+    const { rerenderWith } = await renderGraph(deployProps({ children }));
+    await act(async () => {
+      rfHandles.setNodes?.([rfBlock("deploy:A@S2", true), rfBlock("deploy:B@S1"), rfBlock("deploy:A@T")]);
+    });
+    const selectedNow = () => (rfProps.current.nodes as RFNode[]).filter((n) => n.selected).map((n) => n.id).sort();
+    await act(async () => {
+      rerenderWith(deployProps({ children, selectRequest: { ids: ["deploy:A@S2", "deploy:A@T"], token: 1 } }));
+    });
+    await flushRaf();
+    expect(selectedNow()).toEqual(["deploy:A@S2", "deploy:A@T"]);
+    // тот же токен не переигрывается: ручное выделение после запроса живёт
+    await act(async () => {
+      rfHandles.setNodes?.([rfBlock("deploy:A@S2"), rfBlock("deploy:B@S1", true), rfBlock("deploy:A@T")]);
+    });
+    await flushRaf();
+    expect(selectedNow()).toEqual(["deploy:B@S1"]);
+  });
+
+  it("selectRequest: узлов ещё нет — ждёт их появления (раскладка асинхронна)", async () => {
+    const { rerenderWith } = await renderGraph(deployProps({ children }));
+    await act(async () => { rfHandles.setNodes?.([rfBlock("deploy:B@S1", true)]); });
+    const selectedNow = () => (rfProps.current.nodes as RFNode[]).filter((n) => n.selected).map((n) => n.id);
+    await act(async () => {
+      rerenderWith(deployProps({ children, selectRequest: { ids: ["deploy:C@T"], token: 1 } }));
+    });
+    await flushRaf();
+    expect(selectedNow()).toEqual(["deploy:B@S1"]);
+    await act(async () => { rfHandles.setNodes?.([rfBlock("deploy:B@S1", true), rfBlock("deploy:C@T")]); });
+    await flushRaf();
+    expect(selectedNow()).toEqual(["deploy:C@T"]);
   });
 });

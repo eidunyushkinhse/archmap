@@ -218,7 +218,11 @@ function LevelGraphInner({
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange } = drill;
   const {
     children: projectedChildren, inlineDepth, frameDecor, marks, groupOf, clearSelectionToken,
+    pickFrame, selectRequest,
   } = projection ?? {};
+  // Режим выбора площадки хозяина (развёртывание, режим размещения): щелчок по рамке или
+  // карточке зовёт pickFrame, выделение и драг на это время выключены.
+  const picking = pickFrame !== undefined;
   // Признак проекции для ключа кэша маршрутов вида: у холста развёртывания своя сцена
   // на том же уровне и том же view_id, что у холста объектов.
   const projected = projection !== undefined;
@@ -539,13 +543,13 @@ function LevelGraphInner({
   // колбэк кормит cbRef ниже.
   const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice });
 
-  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers });
+  const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers, pickFrame });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после
   // каждого рендера). Объявлен ДО эффекта сборки ниже — порядок исполнения эффектов =
   // порядок объявления, поэтому сборка читает уже свежий cbRef.current. Поведенчески
   // ноль: и события узлов, и эффекты исполняются после рендера.
   useEffect(() => {
-    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers };
+    cbRef.current = { onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers, pickFrame };
   });
   // Ленивая читалка колбэков для сборки: обработчики в data собранных объектов зовут
   // getCb() в момент клика (не при сборке) — объект может пережить несколько прогонов
@@ -626,8 +630,9 @@ function LevelGraphInner({
     const { nextNodes, nextEdges } = assembleRfGraph({
       layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb,
       // проекция хозяина (холст развёртывания): предел гейта лупы, декор рамок, пометки,
-      // раскрываемые контейнеры; без проекции все undefined — сборка прежняя
-      maxInlineDepth: inlineDepth, frameDecor, marks, expandableIds,
+      // раскрываемые контейнеры, режим выбора площадки; без проекции все undefined —
+      // сборка прежняя
+      maxInlineDepth: inlineDepth, frameDecor, marks, expandableIds, picking,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -661,7 +666,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks, expandableIds]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks, expandableIds, picking]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
@@ -898,6 +903,8 @@ function LevelGraphInner({
   // а его раскрытие). readOnly-страница те же колбэки замыкает на переход на страницу.
   const handleNodeDoubleClick = useCallback(
     (_e: MouseEvent, rfNode: RFNode) => {
+      // режим выбора площадки: двойной щелчок — это два выбора, а не переход
+      if (cbRef.current.pickFrame) return;
       if (rfNode.type === "block") {
         const appNode = (rfNode.data as BlockData | undefined)?.appNode;
         if (appNode) cbRef.current.onEditNode(appNode);
@@ -965,6 +972,21 @@ function LevelGraphInner({
       ? cur.map((n) => (n.selected ? { ...n, selected: false } : n))
       : cur));
   }, [clearSelectionToken, setRfNodes]);
+  // Выделение по запросу хозяина (projection.selectRequest): рост токена ставит
+  // RF-выделение ровно на перечисленные узлы. Раскладка асинхронна и холст мог только что
+  // смонтироваться — пока ни одного из узлов нет, ждём следующего применения (как locate);
+  // запрос исполняется один раз на токен. Выделение уходит наружу штатным
+  // onSelectionChange — панель хозяина появляется сама.
+  const selectHandledRef = useRef(0);
+  useEffect(() => {
+    if (!selectRequest || selectRequest.token === selectHandledRef.current) return;
+    const want = new Set(selectRequest.ids);
+    if (!rfNodes.some((n) => want.has(n.id))) return;
+    selectHandledRef.current = selectRequest.token;
+    setRfNodes((cur) => (cur.some((n) => !!n.selected !== want.has(n.id))
+      ? cur.map((n) => (!!n.selected === want.has(n.id) ? n : { ...n, selected: want.has(n.id) }))
+      : cur));
+  }, [selectRequest, rfNodes, setRfNodes]);
 
   // Выбор связи в панели/модалке (linkedHighlight kind:"edge") переносит и
   // RF-ВЫДЕЛЕНИЕ на несущее ребро: при скрытых подписях (CV32) исключение
@@ -1180,7 +1202,11 @@ function LevelGraphInner({
         // ничего не сохраняет и только «отщёлкивал» бы узел назад. На обычном
         // уровне узлы таскаем (персист координат архитектором).
         // dragNodes позволяет включить драг узлов в readOnly (embedded-блоки).
-        nodesDraggable={dragNodes}
+        // Режим выбора площадки (projection.pickFrame): ни драга, ни выделения — щелчок
+        // по рамке или карточке только выбирает (обёртки RF становятся прозрачными для
+        // мыши, щелчок ловят сами узлы, nodes.tsx PICK_STYLE).
+        nodesDraggable={dragNodes && !picking}
+        elementsSelectable={!picking}
         // nodesConnectable=true нужен для протягивания связи от хэндла (рендер
         // connection line гейтится этим флагом). Начать связь можно только с
         // хэндла, у которого isConnectableStart (его выставляем лишь архитектору
@@ -1192,7 +1218,7 @@ function LevelGraphInner({
         // SelectionMode.Partial — в выделение попадают и узлы, задетые рамкой
         // частично. В read-only без драга узлов — панорамирование левой кнопкой.
         panOnDrag={dragNodes ? PAN_RIGHT_BUTTON : (isReadOnly ? true : PAN_RIGHT_BUTTON)}
-        selectionOnDrag={dragNodes && canArrange}
+        selectionOnDrag={dragNodes && canArrange && !picking}
         selectionMode={SelectionMode.Partial}
         multiSelectionKeyCode={MULTI_SELECT_KEYS}
         // двойной клик по пустому холсту сбрасывает выделение (наш onDoubleClick на обёртке) —

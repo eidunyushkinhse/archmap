@@ -3,7 +3,9 @@
 //     иконка вида на плашке, без лупы; клик по плашке и крестик сворачивают площадку;
 //   • группа «Размещение не указано» — пунктир, плашка без иконки и без крестика;
 //   • карточка площадки (тип site) — имя, иконка, число объектов, лупа «Раскрыть площадку»;
-//   • пометка карточки «1/2» — бейдж у блока.
+//   • пометка карточки «1/2» — бейдж у блока;
+//   • режим выбора площадки (onPick): рамка ловит щелчок телом, плашка выбирает, а не
+//     сворачивает; карточки площадки и объекта выбирают, лупа не раскрывает.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider, type NodeProps } from "@xyflow/react";
 import type { ComponentType } from "react";
@@ -115,5 +117,61 @@ describe("пометка карточки", () => {
     unmount();
     const r2 = render(<ReactFlowProvider><Block id="deploy:A@S1" data={data()} /></ReactFlowProvider>);
     expect(r2.container.querySelector(".lg-node-mark")).toBeNull();
+  });
+});
+
+describe("режим выбора площадки (onPick)", () => {
+  it("рамка без onPick прозрачна для мыши, с onPick — ловит щелчок телом", () => {
+    const frame = renderFrame({ name: "Облако", onCollapse: () => {}, decor: { kind: "site", icon: "cloud", collapsible: true } });
+    expect(frame.style.pointerEvents).toBe("none");
+    expect(frame.className).not.toContain("lg-frame--pick");
+  });
+
+  it("рамка с onPick: класс lg-frame--pick, щелчок по телу и по плашке выбирает, не сворачивает", () => {
+    const onPick = vi.fn();
+    const onCollapse = vi.fn();
+    const frame = renderFrame({
+      name: "Облако", onCollapse, onPick, decor: { kind: "site", icon: "cloud", collapsible: true },
+    });
+    expect(frame.style.pointerEvents).toBe("auto");
+    expect(frame.className).toBe("lg-frame lg-frame--site lg-frame--pick");
+    fireEvent.click(frame);
+    expect(onPick).toHaveBeenLastCalledWith("deploy:site:S1");
+    fireEvent.click(screen.getByText("Облако"));
+    fireEvent.click(screen.getByRole("button", { name: "✕" }));
+    expect(onPick).toHaveBeenCalledTimes(3);
+    expect(onCollapse).not.toHaveBeenCalled();
+  });
+
+  it("карточка площадки с onPick: щелчок и лупа выбирают, не раскрывают", () => {
+    const onPick = vi.fn();
+    const onExpand = vi.fn();
+    const { container } = render(
+      <ReactFlowProvider>
+        <SiteCard id="deploy:site:S1" data={{ name: "ВМ", icon: "vm", count: 2, onExpand, onPick } satisfies SiteCardData} />
+      </ReactFlowProvider>,
+    );
+    const card = container.querySelector(".lg-site-card") as HTMLElement;
+    expect(card.style.pointerEvents).toBe("auto");
+    fireEvent.click(screen.getByTitle("Раскрыть площадку"));
+    fireEvent.click(card);
+    expect(onPick).toHaveBeenCalledTimes(2);
+    expect(onPick).toHaveBeenCalledWith("deploy:site:S1");
+    expect(onExpand).not.toHaveBeenCalled();
+  });
+
+  it("карточка объекта с onPick: щелчок выбирает с id карточки", () => {
+    const onPick = vi.fn();
+    const appNode = {
+      id: "deploy:A@S1", name: "Каталог", role: null, technology: null, shape: "service",
+      is_external: false, status: "existing", has_children: false, child_count: 0,
+    } as unknown as AppNode;
+    render(
+      <ReactFlowProvider>
+        <Block id="deploy:A@S1" data={{ appNode, badgeCount: 0, isArchitect: true, colors: { bg: "#fff", border: "#000", text: "#111" }, onPick } satisfies BlockData} />
+      </ReactFlowProvider>,
+    );
+    fireEvent.click(screen.getByText("Каталог"));
+    expect(onPick).toHaveBeenCalledWith("deploy:A@S1");
   });
 });

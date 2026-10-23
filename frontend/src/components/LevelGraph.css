@@ -353,6 +353,23 @@
 .react-flow__node.lg-linked-node > .lg-frame {
   filter: drop-shadow(0 0 3px rgba(99, 102, 241, 0.55));
 }
+/* РЕЖИМ ВЫБОРА ПЛОЩАДКИ (холст развёртывания, режим размещения — deployment.md D27):
+   тело рамки ловит щелчок (FrameNode ставит pointer-events: auto), курсор — прицел, зона
+   площадки под курсором очерчивается синим контуром; карточка площадки — обводкой
+   (её box-shadow занят inline). Группа «не указано» площадкой не является — без прицела. */
+.lg-frame--pick {
+  cursor: crosshair;
+}
+.lg-frame--site.lg-frame--pick:hover {
+  box-shadow: inset 0 0 0 2px rgba(37, 99, 235, 0.55);
+}
+.lg-frame--group.lg-frame--pick {
+  cursor: default;
+}
+.lg-site-card--pick:hover {
+  outline: 2px solid rgba(37, 99, 235, 0.55);
+  outline-offset: 1px;
+}
 /* Лёгкий ореол на всей группе ребра — очерчивает и линию, и наконечник-маркер (маркер
    рисуется в составе пути, фильтр группы его захватывает), не раздувая их. z-index тут
    бесполезен (RF рендерит ребро отдельным <svg>, класс висит на вложенном <g>) —
