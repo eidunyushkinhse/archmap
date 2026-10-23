@@ -3,14 +3,16 @@
 // пометки, реестр концов), панель выделения считает объекты без повторов, «Снять
 // выделение» — токеном холсту, «Переразложить» шлёт null-батч ключей deploy: и
 // возвращает свёрнутость площадок, смена уровня и вход в контейнер — навигацией,
-// двойной клик по объекту ведёт на страницу объекта.
-// Холст и поллинг замоканы: проверяется оркестрация страницы.
-import { act, render, screen, waitFor } from "@testing-library/react";
+// двойной клик по объекту ведёт на страницу объекта. Ф6: дерево слева (уровень, показ
+// объекта), путь уровня текстом, режим размещения щелчком по площадке, контейнер целиком.
+// Холст, дерево и поллинг замоканы: проверяется оркестрация страницы.
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DeploymentPage from "../DeploymentPage";
 import type LevelGraph from "../../components/LevelGraph";
+import type NodeTreePanel from "../../components/NodeTreePanel";
 import { deploymentApi } from "../../api/deployment";
 import { nodesApi, viewsApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
@@ -21,6 +23,16 @@ const lg: { current: LGProps | null } = { current: null };
 
 vi.mock("../../components/LevelGraph", () => ({
   default: (p: LGProps) => { lg.current = p; return <div data-testid="level-graph" />; },
+}));
+// Дерево — маркер с пропсами: его поведение покрыто NodeTreePanel.test.tsx.
+type TreeProps = Extract<ComponentProps<typeof NodeTreePanel>, { mode: "deploy" }>;
+const tree: { current: TreeProps | null } = { current: null };
+vi.mock("../../components/NodeTreePanel", () => ({
+  default: (p: TreeProps) => { tree.current = p; return <div data-testid="tree" />; },
+}));
+// Модалка — прозрачная обёртка: jsdom не выставляет содержимое <dialog> в a11y-дерево.
+vi.mock("../../ui/Modal", () => ({
+  default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 vi.mock("../../components/SchemaLegend", () => ({ default: () => null }));
 // Окна — маркеры: их поведение покрыто своими тестами, здесь — проводка страницы.
@@ -37,7 +49,7 @@ vi.mock("../../components/deployment/SitesDialog", () => ({
   ),
 }));
 vi.mock("../useRemoteSync", () => ({ useRemoteSync: vi.fn() }));
-vi.mock("../../api/deployment", () => ({ deploymentApi: { graph: vi.fn() } }));
+vi.mock("../../api/deployment", () => ({ deploymentApi: { graph: vi.fn(), setPlacements: vi.fn() } }));
 vi.mock("../../api/nodes", () => ({
   nodesApi: { getAll: vi.fn() },
   viewsApi: { saveLayout: vi.fn() },
@@ -83,17 +95,38 @@ const props = (): LGProps => {
   if (!lg.current) throw new Error("холст не отрисован");
   return lg.current;
 };
+const treeProps = (): TreeProps => {
+  if (!tree.current) throw new Error("дерево не отрисовано");
+  return tree.current;
+};
+// Узел проекта (ответ /nodes/all и строки дерева): sites — действующее размещение.
+function pnode(
+  id: string, name: string, parent_id: string | null,
+  over: { has_children?: boolean; shape?: AppNode["shape"]; own?: string[]; inherited?: string[] } = {},
+): AppNode {
+  return {
+    id, name, parent_id, has_children: over.has_children ?? false, shape: over.shape ?? "service",
+    sites: [
+      ...(over.own ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, inherited_from_id: null })),
+      ...(over.inherited ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, inherited_from_id: "parent" })),
+    ],
+  } as AppNode;
+}
 
 describe("DeploymentPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lg.current = null;
+    tree.current = null;
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      { id: "c1", name: "Витрина", parent_id: null, has_children: true } as AppNode,
-      { id: "c2", name: "Каталог", parent_id: "c1", has_children: true } as AppNode,
-      { id: "l1", name: "Лист", parent_id: "c1", has_children: false } as AppNode,
+      pnode("c1", "Витрина", null, { has_children: true }),
+      pnode("c2", "Каталог", "c1", { has_children: true }),
+      pnode("l1", "Лист", "c1"),
+      pnode("a", "A", null, { own: ["s1", "t"] }),
+      pnode("b", "B", null, { own: ["s1"] }),
     ]);
     vi.mocked(viewsApi.saveLayout).mockResolvedValue({ version: 8, graph_rev: 4 });
+    vi.mocked(deploymentApi.setPlacements).mockResolvedValue(undefined);
   });
 
   it("загрузка → холст получает проекцию: площадки, состав, пометки, без предела вложенности", async () => {
@@ -112,17 +145,68 @@ describe("DeploymentPage", () => {
     expect(p.persistence?.viewMeta?.current).toEqual({ version: 7, graphRev: 3, metaRev: 2 });
   });
 
-  it("выбор уровня: контейнеры с путём, выбор — навигация; новый уровень из адреса перечитывает граф", async () => {
+  it("дерево слева в режиме deploy: уровень подсвечен, клик по контейнеру — навигация на его уровень", async () => {
     const { onNavigateLevel, goTo } = await setup();
-    const select = screen.getByRole("combobox", { name: "Уровень" });
-    await waitFor(() => expect(screen.getByRole("option", { name: "Витрина / Каталог" })).toBeInTheDocument());
-    expect(screen.queryByRole("option", { name: /Лист/ })).toBeNull();
-    await userEvent.selectOptions(select, "c2");
+    expect(treeProps().mode).toBe("deploy");
+    expect(treeProps().currentNodeId).toBeNull();
+    expect(typeof treeProps().onPlace).toBe("function");
+    treeProps().onOpenLevel(pnode("c2", "Каталог", "c1", { has_children: true }));
     expect(onNavigateLevel).toHaveBeenCalledWith("c2");
     goTo("c2");
     await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith("c2"));
     await waitFor(() => expect(props().containerId).toBe("c2"));
-    expect(select).toHaveValue("c2");
+    expect(treeProps().currentNodeId).toBe("c2");
+  });
+
+  it("селекта уровня нет — путь текстом, «Весь проект» ведёт в корень", async () => {
+    const { onNavigateLevel } = await setup(true, graph(), "c2");
+    expect(screen.queryByRole("combobox")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Уровень" });
+    await waitFor(() => expect(nav).toHaveTextContent("Весь проект›Витрина › Каталог"));
+    await userEvent.click(screen.getByRole("button", { name: "Весь проект" }));
+    expect(onNavigateLevel).toHaveBeenCalledWith(null);
+  });
+
+  it("на корне путь — «Весь проект» без ссылки", async () => {
+    await setup();
+    expect(screen.getByRole("navigation", { name: "Уровень" })).toHaveTextContent("Весь проект");
+    expect(screen.queryByRole("button", { name: "Весь проект" })).toBeNull();
+  });
+
+  it("объект из дерева на текущем уровне: выделить все его карточки и навести камеру на первую", async () => {
+    await setup();
+    act(() => { treeProps().onPickObject(pnode("a", "A", null)); });
+    expect(props().projection?.selectRequest).toEqual({ ids: ["deploy:a@s1", "deploy:a@t"], token: 1 });
+    expect(props().locate).toEqual({ kind: "node", ids: ["deploy:a@s1"], token: 1 });
+  });
+
+  it("объект из дерева с другого уровня: уровень родителя и выделение после загрузки его графа", async () => {
+    // На корне «c» — цельный контейнер: «l1» внутри него не рисуется.
+    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2 };
+    const root = graph({
+      nodes: [box, { ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }], edges: [],
+    });
+    const { onNavigateLevel, goTo } = await setup(true, root);
+    act(() => { treeProps().onPickObject(pnode("l1", "L1", "c")); });
+    expect(onNavigateLevel).toHaveBeenCalledWith("c");
+    expect(props().projection?.selectRequest).toBeNull();
+    vi.mocked(deploymentApi.graph).mockResolvedValue(graph({
+      nodes: [{ ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }], edges: [],
+    }));
+    goTo("c");
+    await waitFor(() => expect(props().containerId).toBe("c"));
+    await waitFor(() => expect(props().projection?.selectRequest).toEqual({ ids: ["deploy:l1@s1"], token: 1 }));
+    expect(props().locate).toEqual({ kind: "node", ids: ["deploy:l1@s1"], token: 1 });
+  });
+
+  it("смена уровня руками снимает показ объекта", async () => {
+    const { goTo } = await setup();
+    act(() => { treeProps().onPickObject(pnode("a", "A", null)); });
+    expect(props().projection?.selectRequest).not.toBeNull();
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(props().projection?.selectRequest).toBeNull();
+    expect(props().locate).toBeNull();
   });
 
   it("уровень из адреса: граф уровня, холст с контейнером уровня; смена уровня снимает выделение", async () => {
@@ -239,5 +323,129 @@ describe("DeploymentPage", () => {
     await setup(true, graph({ nodes: [], edges: [], layout: {} }));
     expect(await screen.findByText("Нет объектов для размещения")).toBeInTheDocument();
     expect(screen.queryByTestId("level-graph")).toBeNull();
+  });
+
+  // ── Режим размещения (deployment.md D29–D30) ──
+  const banner = () => screen.queryByText(/Куда поставить/);
+
+  it("иконка строки → баннер, панели выделения нет, холст в режиме выбора; Esc — выход", async () => {
+    await setup();
+    act(() => { props().drill.onSelectionChange?.(["deploy:a@s1"]); });
+    expect(props().projection?.pickFrame).toBeUndefined();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    expect(screen.getByRole("status")).toHaveTextContent("Куда поставить «B»? Щёлкните площадку");
+    expect(screen.queryByText(/Выбран/)).toBeNull();
+    expect(typeof props().projection?.pickFrame).toBe("function");
+    expect(treeProps().placingId).toBe("b");
+    await userEvent.keyboard("{Escape}");
+    expect(banner()).toBeNull();
+    expect(props().projection?.pickFrame).toBeUndefined();
+    expect(screen.getByRole("status")).toHaveTextContent("Выбран 1 объект");
+  });
+
+  it("читатель: иконки размещения нет", async () => {
+    await setup(false);
+    expect(treeProps().onPlace).toBeUndefined();
+  });
+
+  it("лист: щелчок по площадке — набор из неё без флага; режим закрыт, граф перечитан, карточки выделены", async () => {
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["b"], ["t"]));
+    await waitFor(() => expect(banner()).toBeNull());
+    await waitFor(() => expect(deploymentApi.graph).toHaveBeenCalledTimes(2));
+    expect(props().mutationToken).toBe(1);
+    await waitFor(() => expect(props().projection?.selectRequest).toEqual({ ids: ["deploy:b@s1"], token: 1 }));
+    expect(props().locate).toBeNull();
+  });
+
+  it("щелчок по карточке объекта — площадка, где она стоит; группа «не указано» — ничего, режим жив", async () => {
+    await setup(true, graph({ nodes: [obj("a", ["s1", "t"]), obj("b", [])] }));
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:unplaced"); });
+    act(() => { props().projection?.pickFrame?.("deploy:b@unplaced"); });
+    expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
+    expect(banner()).not.toBeNull();
+    act(() => { props().projection?.pickFrame?.("deploy:a@t"); });
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["b"], ["t"]));
+  });
+
+  it("объект не на этом уровне после записи — тост «размещён»", async () => {
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:s1"); });
+    expect(await screen.findByText("„Лист“ размещён на „s1“")).toBeInTheDocument();
+  });
+
+  it("контейнер без конфликтов — запись с флагом «целиком»", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pnode("c1", "Витрина", null, { has_children: true }),
+      pnode("l1", "Лист", "c1", { inherited: ["s1"] }),
+    ]);
+    await setup();
+    await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
+    act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"], { clearDescendants: true }));
+  });
+
+  it("контейнер с объектами на других площадках: окно со списком; «Отмена» — без записи, «Разместить» — с флагом", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pnode("c1", "Витрина", null, { has_children: true }),
+      pnode("l1", "Order API", "c1", { own: ["s1"] }),
+      pnode("l2", "БД заказов", "c1", { own: ["s1", "dc"] }),
+      pnode("l3", "Каталог", "c1", { own: ["t"] }),
+    ]);
+    await setup();
+    const place = () => {
+      act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
+      act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    };
+    place();
+    expect(await screen.findByText("Разместить «Витрина» на «t»?")).toBeInTheDocument();
+    expect(screen.getByText(/Все его компоненты будут размещены там же/)).toBeInTheDocument();
+    const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["БД заказов: S1, DC", "Order API: S1"]);
+    // «Отмена» окна (у баннера своя): окно закрыто, записи нет, режим жив
+    await userEvent.click(within(screen.getByTestId("modal")).getByRole("button", { name: "Отмена" }));
+    expect(screen.queryByText("Разместить «Витрина» на «t»?")).toBeNull();
+    expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
+    expect(banner()).not.toBeNull();
+
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    await userEvent.click(await screen.findByRole("button", { name: "Разместить" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"], { clearDescendants: true }));
+    await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it("«Снять размещение» — только при своём размещении, шлёт пустой набор", async () => {
+    await setup();
+    await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
+    act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });
+    expect(screen.queryByRole("button", { name: "Снять размещение" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
+    expect(banner()).toBeNull();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    await userEvent.click(await screen.findByRole("button", { name: "Снять размещение" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["b"], []));
+  });
+
+  it("отказ записи — текстом в баннере, режим остаётся", async () => {
+    vi.mocked(deploymentApi.setPlacements).mockRejectedValue(new ApiError(422, "Пользователя разместить нельзя"));
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось разместить. Пользователя разместить нельзя");
+    expect(banner()).not.toBeNull();
+  });
+
+  it("смена уровня режим размещения не сбрасывает", async () => {
+    const { goTo } = await setup();
+    act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(banner()).not.toBeNull();
+    expect(typeof props().projection?.pickFrame).toBe("function");
   });
 });

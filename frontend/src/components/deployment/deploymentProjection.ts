@@ -38,6 +38,23 @@ export const siteKey = (siteId: string): string => `deploy:site:${siteId}`;
 /** Ключ карточки «представитель на площадке» в раскладке вида. */
 export const instanceKey = (nodeId: string, siteId: string): string => `deploy:${nodeId}@${siteId}`;
 
+/** Карточки узла на холсте уровня — в порядке его действующего размещения. Пусто, если
+ *  объект на этом уровне не представитель (его рисует цельный контейнер) или вне объёма. */
+export function cardsOf(proj: Pick<DeploymentProjection, "siteOf">, nodeId: string): string[] {
+  const out: string[] = [];
+  for (const [cardId, inst] of proj.siteOf) if (inst.nodeId === nodeId) out.push(cardId);
+  return out;
+}
+
+/** Площадка, выбранная щелчком в режиме размещения (deployment.md D29): рамка или
+ *  карточка площадки — она сама, карточка объекта — площадка, на которой она стоит.
+ *  Группа «не указано» (и её карточки) площадкой не является — null. */
+export function pickedSite(proj: Pick<DeploymentProjection, "siteOf">, canvasId: string): string | null {
+  const prefix = siteKey("");
+  const siteId = canvasId.startsWith(prefix) ? canvasId.slice(prefix.length) : proj.siteOf.get(canvasId)?.siteId;
+  return siteId && siteId !== UNPLACED ? siteId : null;
+}
+
 export interface DeploymentProjection {
   // узлы уровня: корневые площадки и группа «не указано» (если она есть)
   nodes: AppNode[];

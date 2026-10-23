@@ -4,7 +4,7 @@
 // контейнера (представители), реестр концов и подъём связи к свёрнутой площадке.
 import { describe, it, expect } from "vitest";
 import {
-  projectDeployment, siteKey, instanceKey, UNPLACED, UNPLACED_NAME,
+  projectDeployment, siteKey, instanceKey, UNPLACED, UNPLACED_NAME, cardsOf, pickedSite,
 } from "../deployment/deploymentProjection";
 import { computeViewLayout } from "../graph/layout/pipeline";
 import type { DeploymentGraph, DeploymentNode, SiteKind, SiteOut } from "../../types";
@@ -278,5 +278,30 @@ describe("проекция + конвейер: свёрнутая площадк
     const out = await run([siteKey("cloud")]);
     expect(ends(out)).toEqual([`${siteKey("cloud")}>${instanceKey("x", "vm")}`]);
     expect(out.layout.entities).toEqual([]);
+  });
+});
+
+// Ф6: запросы к проекции из режима размещения и дерева (deployment.md D28–D29).
+describe("cardsOf и pickedSite", () => {
+  const g = () => projectDeployment(graph([site("s1"), site("t", "s1")], [
+    obj("a", ["s1", "t"]), obj("b", []),
+    tnode("c", null, ["t"], { kids: 1 }), tnode("l", "c", ["t"], { inheritedFrom: "c" }),
+  ]));
+
+  it("cardsOf: карточки представителя в порядке размещения; не представитель — пусто", () => {
+    const p = g();
+    expect(cardsOf(p, "a")).toEqual([instanceKey("a", "s1"), instanceKey("a", "t")]);
+    expect(cardsOf(p, "c")).toEqual([instanceKey("c", "t")]);
+    // лист внутри цельного контейнера на этом уровне не рисуется
+    expect(cardsOf(p, "l")).toEqual([]);
+  });
+
+  it("pickedSite: рамка и карточка площадки — она сама, карточка объекта — её площадка, «не указано» — ничего", () => {
+    const p = g();
+    expect(pickedSite(p, siteKey("t"))).toBe("t");
+    expect(pickedSite(p, instanceKey("a", "s1"))).toBe("s1");
+    expect(pickedSite(p, siteKey(UNPLACED))).toBeNull();
+    expect(pickedSite(p, instanceKey("b", UNPLACED))).toBeNull();
+    expect(pickedSite(p, "чужой-id")).toBeNull();
   });
 });

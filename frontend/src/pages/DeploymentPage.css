@@ -1,4 +1,5 @@
-/* Режим «Развёртывание» (DeploymentPage): тулбар над холстом и холст во всю высоту. */
+/* Режим «Развёртывание» (DeploymentPage): дерево объектов слева (NodeTreePanel), справа
+   тулбар над холстом и холст во всю высоту. */
 .dp-page {
   flex: 1;
   min-width: 0;
@@ -15,15 +16,36 @@
   flex-shrink: 0;
 }
 
-.dp-level {
-  font: inherit;
+/* Путь уровня текстом: «Весь проект» — ссылкой, если открыт уровень контейнера. */
+.dp-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   font-size: 13px;
-  max-width: 360px;
-  padding: 5px 8px;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  background: #fff;
   color: #0f172a;
+}
+.dp-path-root {
+  font: inherit;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dp-path-root:hover {
+  text-decoration: underline;
+}
+.dp-path-sep {
+  color: #94a3b8;
+}
+.dp-path-current {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dp-error {
@@ -32,6 +54,7 @@
 }
 
 .dp-canvas {
+  position: relative; /* опора баннера режима размещения */
   flex: 1;
   min-height: 0;
   display: flex;
@@ -77,4 +100,37 @@
   font-weight: 600;
   color: #0f172a;
   margin-right: 4px;
+}
+
+/* Баннер режима размещения (D29): по образцу панели выделения, но голубой — холст ждёт
+   щелчка по площадке. Висит над холстом и на время загрузки уровня. */
+.dp-placing {
+  position: absolute;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 48px);
+  padding: 6px 8px 6px 14px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.dp-placing-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin-right: 4px;
+}
+
+.dp-placing-error {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  color: #dc2626;
 }
