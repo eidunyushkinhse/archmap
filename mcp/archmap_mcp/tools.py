@@ -264,10 +264,10 @@ async def t_node(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_deployment(client: ArchMapClient, args: dict[str, Any]) -> str:
     """Схема развёртывания: площадки деревом с составом либо размещение одного объекта.
 
-    Состав — из /nodes/all, а не из графа развёртывания: граф отдаёт только листья, и
-    контейнер, поставленный на площадку сам, пропал бы из её состава, когда у всех его
-    листьев есть своё размещение. В /nodes/all действующее размещение есть у каждого
-    объекта (NodeResponse.sites, свои — без inherited_from_id)."""
+    Состав — из /nodes/all, а не из графа развёртывания: граф — вход холста (поддерево
+    одного уровня, связи и раскладка), а здесь нужен весь проект. В /nodes/all
+    действующее размещение есть у каждого объекта (NodeResponse.sites, свои — без
+    inherited_from_id)."""
     pid, pname = await resolve_project(client, args["project"])
     sites = await client.request("GET", "/deployment/sites", project_id=pid)
     if not sites:
