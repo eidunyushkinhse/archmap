@@ -1,4 +1,4 @@
-import type { DeploymentGraph, SiteCreate, SiteOut, SiteUpdate } from "../types";
+import type { DeploymentGraph, PlacementsIn, SiteCreate, SiteOut, SiteUpdate } from "../types";
 import { api } from "./client";
 
 // Схема развёртывания (docs/tasks/deployment-view.md): площадки, размещение объектов и
@@ -20,6 +20,12 @@ export const deploymentApi = {
   deleteSite: (id: string): Promise<void> =>
     api.delete(`/deployment/sites/${id}`).then(() => undefined),
   // Каждому объекту — ровно этот набор площадок ([] снимает своё размещение).
-  setPlacements: (nodeIds: string[], siteIds: string[]): Promise<void> =>
-    api.put<undefined>("/deployment/placements", { node_ids: nodeIds, site_ids: siteIds }).then(() => undefined),
+  // clearDescendants — контейнер размещается целиком: своё размещение объектов внутри
+  // снимается, и они наследуют площадки контейнера (только из интерфейса).
+  setPlacements: (nodeIds: string[], siteIds: string[], opts?: { clearDescendants?: boolean }): Promise<void> => {
+    const body: PlacementsIn = {
+      node_ids: nodeIds, site_ids: siteIds, clear_descendants: opts?.clearDescendants ?? false,
+    };
+    return api.put<undefined>("/deployment/placements", body).then(() => undefined);
+  },
 };

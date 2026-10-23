@@ -27,6 +27,7 @@ from app.deployment import (
     SITE_NOT_FOUND,
     PlacementError,
     check_site_parent,
+    clear_descendant_placements,
     effective_instances,
     ordered_instances,
     project_sites,
@@ -207,13 +208,17 @@ def put_placements(
     user: User = Depends(require_project_editor),
 ) -> None:
     """Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять).
-    Объект или площадка не из проекта — 404, «Пользователь» среди объектов — 422;
-    при отказе не записывается ничего."""
+    clear_descendants — контейнер размещается целиком: своё размещение потомков
+    снимается, они наследуют площадки контейнера. Объект или площадка не из проекта —
+    404, «Пользователь» среди объектов — 422; при отказе не записывается ничего:
+    проверки идут до записи, чистка потомков — после них."""
     nodes = [node_or_404(db, nid, project) for nid in dict.fromkeys(payload.node_ids)]
     try:
         changed = set_placements(db, project, nodes, set(payload.site_ids))
     except PlacementError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from None
+    if payload.clear_descendants:
+        changed += clear_descendant_placements(db, project, nodes)
     commit_change(db, project, user.id, graph=bool(changed), meta=bool(changed))
 
 

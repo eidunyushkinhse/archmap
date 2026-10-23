@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app import tree
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
@@ -177,6 +178,43 @@ def set_placements(
             changed += 1
     db.flush()
     return changed
+
+
+def clear_descendant_placements(db: Session, project: Project, nodes: Sequence[Node]) -> int:
+    """Снять СОБСТВЕННОЕ размещение у всех потомков узлов nodes (любой глубины): контейнер
+    размещается целиком, и объекты внутри после этого наследуют его площадки.
+
+    Сами узлы nodes не трогаются, даже если один из них — потомок другого: их набор
+    задаёт set_placements, и порядок двух вызовов поэтому не важен. «Пользователей»
+    среди потомков пропускаем молча — размещения у них нет. Правило зовётся только
+    из интерфейса (PlacementsIn.clear_descendants): импорт и синк применяют площадки
+    по узлам в произвольном порядке, и безусловная чистка ломала бы фикспойнт архива.
+    Возвращает число снятых экземпляров; коммит — на вызывающей стороне.
+    """
+    if not nodes:
+        return 0
+    all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id)}
+    roots = {n.id for n in nodes}
+    descendants: set[uuid.UUID] = set()
+    for root_id in roots:
+        descendants |= tree.subtree_ids(all_nodes, root_id)
+    targets = [
+        nid for nid in descendants - roots if nid in all_nodes and all_nodes[nid].shape != "person"
+    ]
+    if not targets:
+        return 0
+    instances = (
+        db.query(DeploymentInstance)
+        .filter(
+            DeploymentInstance.project_id == project.id,
+            DeploymentInstance.node_id.in_(targets),
+        )
+        .all()
+    )
+    for inst in instances:
+        db.delete(inst)
+    db.flush()
+    return len(instances)
 
 
 def site_refs(

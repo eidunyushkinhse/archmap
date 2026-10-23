@@ -476,6 +476,76 @@ def test_размещение_отказы_ничего_не_пишут(client, 
     assert db.query(DeploymentInstance).count() == 0
 
 
+def test_контейнер_размещается_целиком_по_флагу(client, db, scene):
+    """clear_descendants: размещение контейнера снимает СВОЁ размещение у потомков любой
+    глубины — они наследуют площадки контейнера; без флага потомки не трогаются."""
+    h, n, p = scene["h"], scene["n"], scene["p"]
+    a = _post_site(client, h, "A")["id"]
+    b = _post_site(client, h, "B")["id"]
+    url = f"{API}/deployment/placements"
+    # Внук: обработчик внутри API (Витрина → API → Обработчик).
+    grand = _node(db, p.id, "Обработчик", db.get(Node, n["API"]))
+    db.commit()
+    shop, api, gid = str(n["Витрина"]), str(n["API"]), str(grand.id)
+
+    def pairs() -> set[tuple[str, str]]:
+        db.expire_all()
+        return {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)}
+
+    assert client.put(url, json={"node_ids": [api, gid], "site_ids": [b]}, headers=h).status_code == 204
+    # Без флага — как раньше: у ребёнка и внука своё остаётся.
+    assert client.put(url, json={"node_ids": [shop], "site_ids": [a]}, headers=h).status_code == 204
+    assert pairs() == {(shop, a), (api, b), (gid, b)}
+
+    db.expire_all()
+    rev = db.get(Project, p.id)
+    graph_rev, meta_rev = rev.graph_rev, rev.meta_rev
+    # С флагом: набор контейнера тот же, но своё у потомков снято — курсоры сдвинуты.
+    r = client.put(url, json={"node_ids": [shop], "site_ids": [a], "clear_descendants": True}, headers=h)
+    assert r.status_code == 204
+    assert pairs() == {(shop, a)}
+    db.expire_all()
+    rev = db.get(Project, p.id)
+    assert (rev.graph_rev, rev.meta_rev) == (graph_rev + 1, meta_rev + 1)
+    g = client.get(f"{API}/deployment/graph", headers=h).json()
+    nodes = {x["name"]: x for x in g["nodes"]}
+    assert nodes["Обработчик"]["effective"] == [{"site_id": a, "inherited_from_id": shop}]
+    assert nodes["API"]["effective"] == [{"site_id": a, "inherited_from_id": shop}]
+
+    # Флаг буквален: с пустым набором снимает своё и у самого объекта, и у потомков.
+    assert client.put(url, json={"node_ids": [api], "site_ids": [b]}, headers=h).status_code == 204
+    r = client.put(url, json={"node_ids": [shop], "site_ids": [], "clear_descendants": True}, headers=h)
+    assert r.status_code == 204
+    assert pairs() == set()
+
+
+def test_контейнер_целиком_отказ_ничего_не_снимает(client, db, scene):
+    """Отказ размещения (чужой узел — 404, «Пользователь» — 422) не снимает своё у
+    потомков: проверки идут до записи, чистка — после них."""
+    h, n = scene["h"], scene["n"]
+    a = _post_site(client, h, "A")["id"]
+    b = _post_site(client, h, "B")["id"]
+    url = f"{API}/deployment/placements"
+    shop, api, buyer = str(n["Витрина"]), str(n["API"]), str(n["Покупатель"])
+    assert client.put(url, json={"node_ids": [api], "site_ids": [b]}, headers=h).status_code == 204
+    stranger = make_project(db, "Чужой")
+    foreign = _node(db, stranger.id, "Чужой сервис")
+    db.commit()
+
+    r = client.put(
+        url,
+        json={"node_ids": [shop, str(foreign.id)], "site_ids": [a], "clear_descendants": True},
+        headers=h,
+    )
+    assert r.status_code == 404
+    r = client.put(
+        url, json={"node_ids": [shop, buyer], "site_ids": [a], "clear_descendants": True}, headers=h
+    )
+    assert r.status_code == 422
+    db.expire_all()
+    assert {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)} == {(api, b)}
+
+
 def test_граф_поддерево_экземпляры_наследование_и_связи(client, db, scene):
     h, n = scene["h"], scene["n"]
     cloud = _post_site(client, h, "Облако", kind="cloud")["id"]
