@@ -1,8 +1,9 @@
 // App: источник роли (/auth/me при старте перерисовывает страницы свежей ролью),
-// выход на экран входа при блокировке и маршрут экрана «Пользователи».
+// выход на экран входа при блокировке, маршрут экрана «Пользователи» и маршрут режима
+// «Развёртывание» (#/p/<pid>/deploy/<уровень?>, перенаправление по запомненному режиму).
 // Страницы — заглушки: проверяем оркестрацию App, настоящие api/auth и client
 // работают поверх подменённого fetch.
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import App, { SESSION_EXPIRED_NOTICE } from "../App";
 import { clearToken, getIsAdmin, getUserRole, saveToken } from "../api/auth";
@@ -11,7 +12,12 @@ vi.mock("../pages/ProjectsPage", () => ({
   default: () => <div data-testid="projects">{`${getUserRole()}:${getIsAdmin() ? "admin" : "user"}`}</div>,
 }));
 vi.mock("../pages/UsersPage", () => ({ default: () => <div data-testid="users-page" /> }));
-vi.mock("../pages/ProjectShell", () => ({ default: () => <div data-testid="shell" /> }));
+// Оболочка — маркер с тем, что App отдал ей из адреса: уровень развёртывания и узел.
+vi.mock("../pages/ProjectShell", () => ({
+  default: ({ deploy, nodeId }: { deploy?: { level: string | null }; nodeId: string | null }) => (
+    <div data-testid="shell" data-deploy={deploy ? (deploy.level ?? "root") : "none"} data-node={nodeId ?? ""} />
+  ),
+}));
 vi.mock("../pages/MapEditorPage", () => ({ default: () => <div data-testid="map" /> }));
 
 function jwt(role: string): string {
@@ -27,8 +33,15 @@ function stubFetch(status: number, body: unknown) {
 
 beforeEach(() => {
   clearToken();
+  localStorage.removeItem("archmap_mode");
+  sessionStorage.clear();
   window.location.hash = "";
 });
+
+const PID = "11111111-1111-1111-1111-111111111111";
+const LEVEL = "22222222-2222-2222-2222-222222222222";
+// /auth/me и карточка проекта (my_role для гейта маршрутов) — одним телом ответа.
+const ME_AND_PROJECT = { id: "u1", username: "ivan", role: "architect", is_admin: false, my_role: "owner" };
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -68,6 +81,56 @@ describe("App", () => {
     stubFetch(500, { detail: "сбой" });
     render(<App />);
     expect(await screen.findByText("architect:user")).toBeInTheDocument();
+  });
+
+  it("#/p/<pid>/deploy/<уровень> — оболочка в «Развёртывании» на уровне из адреса", async () => {
+    saveToken(jwt("architect"));
+    stubFetch(200, ME_AND_PROJECT);
+    window.location.hash = `/p/${PID}/deploy/${LEVEL}`;
+    render(<App />);
+    expect(await screen.findByTestId("shell")).toHaveAttribute("data-deploy", LEVEL);
+    // смена адреса (в т.ч. «назад» браузера) — другой уровень той же оболочки
+    window.location.hash = `/p/${PID}/deploy`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "root"));
+    window.location.hash = `/p/${PID}`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
+  });
+
+  it("запомненное «Развёртывание»: открытие #/p/<pid> ведёт на #/p/<pid>/deploy (замена адреса)", async () => {
+    saveToken(jwt("architect"));
+    stubFetch(200, ME_AND_PROJECT);
+    localStorage.setItem("archmap_mode", "deploy");
+    window.location.hash = `/p/${PID}`;
+    const before = window.history.length;
+    render(<App />);
+    expect(await screen.findByTestId("shell")).toHaveAttribute("data-deploy", "root");
+    expect(window.location.hash).toBe(`#/p/${PID}/deploy`);
+    expect(window.history.length).toBe(before);
+    // внутри открытой оболочки #/p/<pid> — «Объекты»/«Процессы» («назад» из «Развёртывания»)
+    window.location.hash = `/p/${PID}`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
+    expect(window.location.hash).toBe(`#/p/${PID}`);
+    // страница объекта по прямому адресу — не перенаправляется
+    window.location.hash = `/p/${PID}/nodes/${LEVEL}`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-node", LEVEL));
+    expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none");
+    // новое открытие проекта (из списка) — снова в «Развёртывание»
+    window.location.hash = "/projects";
+    await screen.findByTestId("projects");
+    window.location.hash = `/p/${PID}`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "root"));
+    expect(window.location.hash).toBe(`#/p/${PID}/deploy`);
+  });
+
+  it("запомненное «Развёртывание», но из редактора пришли с процессом — страница проекта", async () => {
+    saveToken(jwt("architect"));
+    stubFetch(200, ME_AND_PROJECT);
+    localStorage.setItem("archmap_mode", "deploy");
+    sessionStorage.setItem("archmap.pendingProcess", "p9");
+    window.location.hash = `/p/${PID}`;
+    render(<App />);
+    expect(await screen.findByTestId("shell")).toHaveAttribute("data-deploy", "none");
+    expect(window.location.hash).toBe(`#/p/${PID}`);
   });
 
   it("#/admin/users открывает экран «Пользователи»", async () => {

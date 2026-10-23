@@ -20,7 +20,8 @@ export const PENDING_ALERT_LOCATE_KEY = "archmap.pendingAlertLocate";
 // Обратное направление (2026-08-11): процессные классы (AL26/AL27) чинят НЕ на
 // холсте, поэтому строка алерта в редакторе-карте уводит в режим «Процессы»
 // оболочки. Процесс передаём тем же способом — роут карты про процессы не знает.
-export const PENDING_PROCESS_KEY = "archmap.pendingProcess";
+// Ключ живёт в лёгком workMode: его читает и App (запомненный режим при открытии проекта).
+export { PENDING_PROCESS_KEY } from "./workMode";
 
 export function useSchemaAlerts(isArchitect: boolean): {
   alerts: Alerts;

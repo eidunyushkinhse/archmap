@@ -1,9 +1,10 @@
-import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import {
   clearToken, fetchAuthConfig, fetchMe, getAuthConfig, getIsGuest, getMe, getToken, subscribeMe,
 } from "./api/auth";
 import { onAccountBlocked, onUnauthorized } from "./api/client";
 import { setCurrentProjectId } from "./api/projectScope";
+import { deployRemembered } from "./pages/workMode";
 import type { AuthConfig } from "./types";
 import DemoLoginPage from "./pages/DemoLoginPage";
 import LoginPage from "./pages/LoginPage";
@@ -22,13 +23,18 @@ const DemoTour = lazy(() => import("./components/tour/DemoTour"));
 
 // Минимальный хэш-роутер: #/projects — лендинг, #/p/<id> — страница проекта,
 // #/p/<id>/nodes/<nodeId> — страница объекта, #/p/<id>/map/<nodeId?> — редактор-карта,
-// #/admin/users — экран «Пользователи» (администратор).
+// #/p/<id>/deploy/<nodeId?> — режим «Развёртывание» на уровне контейнера (без него — весь
+// проект), #/admin/users — экран «Пользователи» (администратор).
 type Route =
   | { name: "projects" }
   | { name: "users" }
   | { name: "node"; projectId: string; nodeId: string }
   | { name: "project-home"; projectId: string }
+  | { name: "deploy"; projectId: string; nodeId: string | null }
   | { name: "map"; projectId: string; nodeId: string | null; locate: string | null; ret: string | null };
+
+const deployHash = (projectId: string, level: string | null): string =>
+  level ? `/p/${projectId}/deploy/${level}` : `/p/${projectId}/deploy`;
 
 function parseHash(): Route {
   const hash = window.location.hash.replace(/^#/, "");
@@ -45,6 +51,9 @@ function parseHash(): Route {
       ret: q.get("ret"),
     };
   }
+  // #/p/<pid>/deploy/<levelId> (или #/p/<pid>/deploy — весь проект)
+  const deployMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/deploy(?:\/([0-9a-fA-F-]+))?(?:[/?]|$)/);
+  if (deployMatch) return { name: "deploy", projectId: deployMatch[1], nodeId: deployMatch[2] ?? null };
   // #/p/<pid>/nodes/<nodeId>
   const nodeMatch = hash.match(/^\/p\/([0-9a-fA-F-]+)\/nodes\/([0-9a-fA-F-]+)/);
   if (nodeMatch) return { name: "node", projectId: nodeMatch[1], nodeId: nodeMatch[2] };
@@ -54,15 +63,29 @@ function parseHash(): Route {
   return { name: "projects" };
 }
 
+// Маршруты, которые рисует оболочка проекта (ProjectShell): между ними она не перемонтируется.
+const inShell = (r: Route | null, projectId: string): boolean =>
+  r !== null && (r.name === "project-home" || r.name === "node" || r.name === "deploy") && r.projectId === projectId;
+
 // Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта страниц: их
 // mount-эффект грузит уровень РАНЬШЕ эффектов App (эффекты родителя исполняются
 // после эффектов ребёнка), и установка скоупа эффектом опаздывала — первые
 // запросы уровня уходили со старым/пустым заголовком (гонка X-Project-Id,
 // баг prod-сборки 2026-07-14, починен 2026-07-16). Поэтому скоуп ставится
 // СИНХРОННО при каждом разборе маршрута; setCurrentProjectId идемпотентен.
-function routeFromHash(): Route {
-  const route = parseHash();
-  // Скоуп проекта нужен всем маршрутам внутри проекта (node, project-home, map)
+// prev — маршрут, показанный до этого (null — первый разбор при загрузке).
+function routeFromHash(prev: Route | null): Route {
+  let route = parseHash();
+  // Запомненный режим «Развёртывание» живёт в адресе: ОТКРЫТИЕ страницы проекта (загрузка,
+  // переход из списка, другого проекта или редактора-карты) ведёт сразу на
+  // #/p/<pid>/deploy. Адрес ЗАМЕНЯЕТСЯ (replaceState, без hashchange), а не добавляется:
+  // иначе «назад» вёл бы на #/p/<pid> и тут же обратно сюда. Внутри открытой оболочки
+  // #/p/<pid> — это «Объекты»/«Процессы»: так «назад» из «Развёртывания» возвращает режим.
+  if (route.name === "project-home" && !inShell(prev, route.projectId) && deployRemembered()) {
+    route = { name: "deploy", projectId: route.projectId, nodeId: null };
+    window.history.replaceState(window.history.state, "", `#${deployHash(route.projectId, null)}`);
+  }
+  // Скоуп проекта нужен всем маршрутам внутри проекта (node, project-home, deploy, map)
   const pid = "projectId" in route ? route.projectId : null;
   setCurrentProjectId(pid);
   return route;
@@ -73,7 +96,10 @@ export const SESSION_EXPIRED_NOTICE = "Сессия истекла — войд�
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
-  const [route, setRoute] = useState<Route>(routeFromHash);
+  const [route, setRoute] = useState<Route>(() => routeFromHash(null));
+  // Показанный маршрут для разбора следующего адреса (редирект «Развёртывания» — только
+  // при открытии проекта, см. routeFromHash).
+  const shownRoute = useRef(route);
   // Почему выкинули на экран входа (блокировка, удалённая песочница) — текст плашки.
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   // Публичные настройки входа: демо-стенд показывает свой экран входа
@@ -86,7 +112,11 @@ export default function App() {
   useSyncExternalStore(subscribeMe, getMe);
 
   useEffect(() => {
-    const onHash = () => setRoute(routeFromHash());
+    const onHash = () => {
+      const next = routeFromHash(shownRoute.current);
+      shownRoute.current = next;
+      setRoute(next);
+    };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
@@ -170,7 +200,7 @@ export default function App() {
   // Над ними — гейт роли в проекте (my_role): права правки решает она, а не
   // глобальная роль. Ключ гейта — проект: переход страница ↔ карта роль не
   // перегружает, смена проекта — перегружает.
-  if (route.name === "map" || route.name === "node" || route.name === "project-home") {
+  if (route.name === "map" || route.name === "node" || route.name === "project-home" || route.name === "deploy") {
     const pid = route.projectId;
     return (
       <>
@@ -198,13 +228,16 @@ export default function App() {
               </Suspense>
             </ErrorBoundary>
           ) : (
-            // pages_pivot: страница узла или страница проекта (ProjectShell)
+            // pages_pivot: страница узла, страница проекта или «Развёртывание» (ProjectShell;
+            // ключ — проект: смена уровня и режима оболочку не перемонтирует)
             <ErrorBoundary resetKey={resetKey}>
               <Suspense fallback={null}>
                 <ProjectShell
                   key={pid}
                   projectId={pid}
                   nodeId={route.name === "node" ? route.nodeId : null}
+                  deploy={route.name === "deploy" ? { level: route.nodeId } : undefined}
+                  onNavigateDeploy={(level) => navigate(deployHash(pid, level))}
                   onLogout={handleLogout}
                   onOpenUsers={() => navigate("/admin/users")}
                   onAllProjects={() => navigate("/projects")}

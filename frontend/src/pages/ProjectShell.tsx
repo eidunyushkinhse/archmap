@@ -25,23 +25,18 @@ import { primaryBtn, secondaryBtn } from "../ui/styles";
 import BrandLink from "../ui/BrandLink";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
-import { safeLocal, safeSession } from "../lib/safeStorage";
+import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
-
-type WorkMode = "schema" | "proc" | "deploy";
-const MODE_KEY = "archmap_mode";
-
-// Сохранённый режим из localStorage: только известные значения, иначе «Объекты».
-function storedMode(): WorkMode {
-  const v = safeLocal.getItem(MODE_KEY);
-  return v === "proc" || v === "deploy" ? v : "schema";
-}
+import { storedMode, storeMode, type WorkMode } from "./workMode";
 
 interface Props {
   projectId: string;
   // null = страница проекта (корень), иначе — страница узла
   nodeId: string | null;
+  // Режим «Развёртывание» живёт в адресе (#/p/<pid>/deploy/<уровень?>): задан — оболочка
+  // в этом режиме на уровне level (null — весь проект); не задан — «Объекты» или «Процессы».
+  deploy?: { level: string | null };
   onLogout: () => void;
   // Экран «Пользователи» — пункт меню профиля, виден только администратору.
   onOpenUsers: () => void;
@@ -51,11 +46,15 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
   onNavigateMap: NavigateMap;
+  // «Развёртывание» на уровне level (null — весь проект): переключатель режима, выбор
+  // уровня и вход в контейнер двойным кликом — навигацией, «назад» браузера работает.
+  onNavigateDeploy: (level: string | null) => void;
 }
 
 export default function ProjectShell({
   projectId,
   nodeId,
+  deploy,
   onLogout,
   onOpenUsers,
   onAllProjects,
@@ -63,6 +62,7 @@ export default function ProjectShell({
   onNavigateNode,
   onNavigateProject,
   onNavigateMap,
+  onNavigateDeploy,
 }: Props) {
   // isArchitect теперь значит «может править этот проект» (роль в проекте owner/editor).
   const isArchitect = canEditProject(useProjectRole());
@@ -72,13 +72,36 @@ export default function ProjectShell({
   // процесс на втором проходе.
   const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
   useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
-  const [mode, setMode] = useState<WorkMode>(() => (pendingProc ? "proc" : storedMode()));
-  useEffect(() => { safeLocal.setItem(MODE_KEY, mode); }, [mode]);
+  // «Объекты» и «Процессы» — состояние оболочки, «Развёртывание» задаёт адрес. Режим
+  // запоминается (archmap_mode): App по запомненному «Развёртыванию» открывает страницу
+  // проекта сразу на #/p/<pid>/deploy.
+  const [shellMode, setShellMode] = useState<"schema" | "proc">(
+    () => (pendingProc || storedMode() === "proc" ? "proc" : "schema"),
+  );
+  const mode: WorkMode = deploy ? "deploy" : shellMode;
+  useEffect(() => { storeMode(mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
   // Процесс, выбранный извне (клик по процессу на странице узла либо по строке
   // процессного алерта в редакторе-карте) — стартовый выбор ProcessWorkspace.
   const [procInitial, setProcInitial] = useState<string | null>(pendingProc);
+  // Перейти в «Объекты» или «Процессы». Из «Развёртывания» уходим на страницу проекта,
+  // если go не ведёт в другое место (#/p/<pid> внутри открытой оболочки App не
+  // перенаправляет обратно в «Развёртывание»).
+  function leaveTo(next: "schema" | "proc", go?: () => void) {
+    setShellMode(next);
+    if (go) go();
+    else if (deploy) onNavigateProject();
+  }
+  // Переключатель режима: «Развёртывание» — адрес уровня «Весь проект».
+  function switchMode(next: WorkMode) {
+    setProcInitial(null);
+    if (next === "deploy") {
+      if (!deploy) onNavigateDeploy(null);
+      return;
+    }
+    leaveTo(next);
+  }
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
   // Счётчик применений синка: перемонтирует страницу — схема грузится свежей, не
@@ -105,8 +128,8 @@ export default function ProjectShell({
   // подтверждение «Открыть в редакторе?».
   function handleAlertLocate(target: LocateTarget) {
     if (target.kind === "node") {
-      setMode("schema"); // страница узла живёт в режиме «Объекты»
-      onNavigateNode(target.id);
+      // страница узла живёт в режиме «Объекты»
+      leaveTo("schema", () => onNavigateNode(target.id));
       return;
     }
     setEditorConfirmTarget(target);
@@ -163,7 +186,7 @@ export default function ProjectShell({
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
+          <ModeSwitch mode={mode} onChange={switchMode} />
           {/* Кнопка «Рекомендации» (архитектор): в шапке для глобальной видимости;
               клик по пункту ведёт на страницу объекта или в редактор-карту.
               Размер — как у соседних «трёх точек» (34). */}
@@ -174,7 +197,7 @@ export default function ProjectShell({
               onLocate={handleAlertLocate}
               // Повисшее сообщение чинят в процессе, а не на схеме: открываем его
               // тем же путём, что клик по процессу на странице объекта.
-              onOpenProcess={(processId) => { setProcInitial(processId); setMode("proc"); }}
+              onOpenProcess={(processId) => { setProcInitial(processId); leaveTo("proc"); }}
             />
           )}
           <SchemaActions
@@ -204,14 +227,16 @@ export default function ProjectShell({
             // Обратный ход к переходу «страница объекта → процесс»: страница узла
             // живёт в режиме «Объекты», поэтому режим переключаем тем же приёмом,
             // что и клик по узловому алерту в шапке (handleAlertLocate).
-            onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
+            onOpenNode={(nid) => leaveTo("schema", () => onNavigateNode(nid))}
           />
-        ) : mode === "deploy" ? (
+        ) : deploy ? (
           <DeploymentPage
             key={`deploy-${syncToken}`}
             isArchitect={isArchitect}
+            level={deploy.level}
+            onNavigateLevel={onNavigateDeploy}
             // Страница объекта живёт в режиме «Объекты» — тот же приём, что у процессов.
-            onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
+            onOpenNode={(nid) => leaveTo("schema", () => onNavigateNode(nid))}
           />
         ) : (
           <>
@@ -233,7 +258,7 @@ export default function ProjectShell({
                 onNavigateMap={onNavigateMap}
                 onNavigateProcesses={(processId) => {
                   setProcInitial(processId);
-                  setMode("proc");
+                  leaveTo("proc");
                 }}
                 onNodeDeleted={(parentId) => {
                   setTreeReload((t) => t + 1);
@@ -251,7 +276,7 @@ export default function ProjectShell({
                 onNavigateMap={onNavigateMap}
                 onNavigateProcesses={(processId) => {
                   setProcInitial(processId);
-                  setMode("proc");
+                  leaveTo("proc");
                 }}
               />
             )}

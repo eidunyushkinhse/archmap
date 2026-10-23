@@ -2,10 +2,11 @@
 // где крутятся объекты уровня. Холст — тот же LevelGraph с проекцией хозяина: площадки —
 // зоны (вложенность без предела, сворачиваются в карточку), представитель — карточка в
 // каждой площадке, где он стоит: объект или цельный контейнер одной карточкой; без
-// размещения — в пунктирной группе. Архитектору — расстановка (драг, персист ключами
-// deploy:…, undo) и «Переразложить»; читателю — просмотр.
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { Node as AppNode } from "../types";
+// размещения — в пунктирной группе. Уровень (объём холста) — из адреса
+// #/p/<pid>/deploy/<уровень?>, вход в цельный контейнер — двойным кликом. Архитектору —
+// расстановка (драг, персист ключами deploy:…, undo) и «Переразложить»; читателю — просмотр.
+import { useCallback, useMemo, useRef, useState } from "react";
+import type { Node as AppNode, ViewLayoutPayload } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import SchemaLegend from "../components/SchemaLegend";
 import type {
@@ -28,6 +29,12 @@ import "./DeploymentPage.css";
 
 interface Props {
   isArchitect: boolean;
+  // Уровень — из адреса (#/p/<pid>/deploy/<уровень?>): контейнер, чьё поддерево на холсте,
+  // null — весь проект.
+  level: string | null;
+  // Сменить уровень — навигацией (выбор в тулбаре, двойной клик по контейнеру): адрес
+  // меняется, и «назад» браузера возвращает прежний уровень.
+  onNavigateLevel: (level: string | null) => void;
   // Двойной клик по карточке объекта → страница объекта (оболочка переключает режим).
   onOpenNode: (nodeId: string) => void;
 }
@@ -55,8 +62,7 @@ function levelOptions(all: AppNode[]): { id: string; path: string }[] {
     .sort((a, b) => a.path.localeCompare(b.path));
 }
 
-export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
-  const [level, setLevel] = useState<string | null>(null);
+export default function DeploymentPage({ isArchitect, level, onNavigateLevel, onOpenNode }: Props) {
   const dep = useDeploymentGraph(level);
   // Контейнеры проекта для выбора уровня — один раз на вход в режим.
   const all = useAsyncLoad("deployment-levels", () => nodesApi.getAll());
@@ -122,15 +128,17 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
 
   // Ошибка действия тулбара («Переразложить»); смена уровня её снимает.
   const [actionError, setActionError] = useState<string | null>(null);
-  const changeLevel = (next: string | null) => {
-    host.dropRetry();
+  // Уровень сменился (выбор, двойной клик по контейнеру, «назад» браузера): выделение,
+  // ошибка и отложенная переигровка 409 прежнего уровня снимаются прямо в рендере
+  // (приём React «adjust state when props change»: setState в эффекте — каскад рендеров).
+  // Переигровку — обязательно: у нового холста счётчик токенов с нуля.
+  const [shownLevel, setShownLevel] = useState(level);
+  if (shownLevel !== level) {
+    setShownLevel(level);
     setSelectedIds([]);
     setActionError(null);
-    setLevel(next);
-  };
-  // Смена уровня из колбэка холста (двойной клик по контейнеру): свежая функция рендера.
-  const changeLevelRef = useRef(changeLevel);
-  useLayoutEffect(() => { changeLevelRef.current = changeLevel; });
+    host.dropRetry();
+  }
 
   // Двойной клик по карточке: цельный контейнер — вход в его уровень (контейнеры здесь
   // не раскрываются), объект — его страница. Площадка объектом не является (её
@@ -138,30 +146,35 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
   const openCard = useCallback((n: AppNode) => {
     const inst = proj?.siteOf.get(n.id);
     if (!inst) return;
-    if (n.has_children) changeLevelRef.current(inst.nodeId);
+    if (n.has_children) onNavigateLevel(inst.nodeId);
     else onOpenNode(inst.nodeId);
-  }, [proj, onOpenNode]);
+  }, [proj, onNavigateLevel, onOpenNode]);
   const drill = useMemo<LevelDrillCallbacks>(() => ({
     onDrillDown: openCard,
     onEditNode: openCard,
     onSelectionChange: setSelectedIds,
   }), [openCard]);
 
-  // «Переразложить» (архитектор): снять все ключи deploy: этого вида одним батчем,
-  // перечитать граф — холст разложит заново и анимирует переезд (relayoutToken).
+  // «Переразложить» (архитектор): снять все ключи deploy: этого вида одним батчем и
+  // вторым вернуть свёрнутым площадкам expanded: false (список — из зеркала до сброса:
+  // переразложить — значит сбросить расстановку, а не раскрыть всё), перечитать граф —
+  // холст разложит заново и анимирует переезд (relayoutToken). 409 любого батча — один
+  // раз перечитать и повторить оба.
   const [relayoutToken, setRelayoutToken] = useState(0);
   const relayoutInflight = useRef(false);
   const handleRelayout = useCallback(async () => {
     if (relayoutInflight.current) return;
     relayoutInflight.current = true;
     setActionError(null);
-    const reset = (): Promise<unknown> => {
-      const keys = Object.keys(dep.layout).filter((k) => k.startsWith("deploy:"));
-      if (keys.length === 0) return Promise.resolve();
-      return viewsApi.saveLayout(level, Object.fromEntries(keys.map((k) => [k, null])), dep.viewMetaRef.current.version)
-        .then((res) => {
-          dep.viewMetaRef.current = { ...dep.viewMetaRef.current, version: res.version, graphRev: res.graph_rev };
-        });
+    const keys = Object.keys(dep.layout).filter((k) => k.startsWith("deploy:"));
+    const collapsed = keys.filter((k) => k.startsWith("deploy:site:") && dep.layout[k]?.expanded === false);
+    const save = (items: Record<string, ViewLayoutPayload | null>): Promise<void> =>
+      viewsApi.saveLayout(level, items, dep.viewMetaRef.current.version).then((res) => {
+        dep.viewMetaRef.current = { ...dep.viewMetaRef.current, version: res.version, graphRev: res.graph_rev };
+      });
+    const reset = async (): Promise<void> => {
+      if (keys.length > 0) await save(Object.fromEntries(keys.map((k) => [k, null])));
+      if (collapsed.length > 0) await save(Object.fromEntries(collapsed.map((k) => [k, { expanded: false }])));
     };
     try {
       try {
@@ -204,7 +217,7 @@ export default function DeploymentPage({ isArchitect, onOpenNode }: Props) {
           className="dp-level"
           aria-label="Уровень"
           value={level ?? ""}
-          onChange={(e) => changeLevel(e.target.value || null)}
+          onChange={(e) => onNavigateLevel(e.target.value || null)}
         >
           <option value="">Весь проект</option>
           {options.map((o) => <option key={o.id} value={o.id}>{o.path}</option>)}

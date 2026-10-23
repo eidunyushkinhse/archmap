@@ -1,7 +1,9 @@
-// DeploymentPage (режим «Развёртывание», docs/tasks/deployment-view.md): загрузка графа →
-// холст получает проекцию (состав площадок, предел вложенности, пометки), панель
-// выделения считает объекты без повторов, «Снять выделение» — токеном холсту,
-// «Переразложить» шлёт null-батч ключей deploy:, двойной клик ведёт на страницу объекта.
+// DeploymentPage (режим «Развёртывание», docs/tasks/deployment-view.md): загрузка графа
+// уровня из адреса → холст получает проекцию (состав площадок, предел вложенности,
+// пометки, реестр концов), панель выделения считает объекты без повторов, «Снять
+// выделение» — токеном холсту, «Переразложить» шлёт null-батч ключей deploy: и
+// возвращает свёрнутость площадок, смена уровня и вход в контейнер — навигацией,
+// двойной клик по объекту ведёт на страницу объекта.
 // Холст и поллинг замоканы: проверяется оркестрация страницы.
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -11,6 +13,7 @@ import DeploymentPage from "../DeploymentPage";
 import type LevelGraph from "../../components/LevelGraph";
 import { deploymentApi } from "../../api/deployment";
 import { nodesApi, viewsApi } from "../../api/nodes";
+import { ApiError } from "../../api/client";
 import type { DeploymentGraph, DeploymentNode, Node as AppNode, SiteOut } from "../../types";
 
 type LGProps = ComponentProps<typeof LevelGraph>;
@@ -63,12 +66,18 @@ function graph(over: Partial<DeploymentGraph> = {}): DeploymentGraph {
   };
 }
 
-async function setup(isArchitect = true, g: DeploymentGraph = graph()) {
+async function setup(isArchitect = true, g: DeploymentGraph = graph(), level: string | null = null) {
   vi.mocked(deploymentApi.graph).mockResolvedValue(g);
   const onOpenNode = vi.fn();
-  render(<DeploymentPage isArchitect={isArchitect} onOpenNode={onOpenNode} />);
+  const onNavigateLevel = vi.fn();
+  const page = (lvl: string | null) => (
+    <DeploymentPage isArchitect={isArchitect} level={lvl} onNavigateLevel={onNavigateLevel} onOpenNode={onOpenNode} />
+  );
+  const view = render(page(level));
   if (g.nodes.length > 0) await screen.findByTestId("level-graph");
-  return { onOpenNode };
+  // новый адрес — новый уровень (так приходит и «назад» браузера)
+  const goTo = (lvl: string | null) => view.rerender(page(lvl));
+  return { onOpenNode, onNavigateLevel, goTo };
 }
 const props = (): LGProps => {
   if (!lg.current) throw new Error("холст не отрисован");
@@ -103,13 +112,29 @@ describe("DeploymentPage", () => {
     expect(p.persistence?.viewMeta?.current).toEqual({ version: 7, graphRev: 3, metaRev: 2 });
   });
 
-  it("выбор уровня: контейнеры с путём, смена уровня перечитывает граф этого уровня", async () => {
-    await setup();
+  it("выбор уровня: контейнеры с путём, выбор — навигация; новый уровень из адреса перечитывает граф", async () => {
+    const { onNavigateLevel, goTo } = await setup();
     const select = screen.getByRole("combobox", { name: "Уровень" });
     await waitFor(() => expect(screen.getByRole("option", { name: "Витрина / Каталог" })).toBeInTheDocument());
     expect(screen.queryByRole("option", { name: /Лист/ })).toBeNull();
     await userEvent.selectOptions(select, "c2");
+    expect(onNavigateLevel).toHaveBeenCalledWith("c2");
+    goTo("c2");
     await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith("c2"));
+    await waitFor(() => expect(props().containerId).toBe("c2"));
+    expect(select).toHaveValue("c2");
+  });
+
+  it("уровень из адреса: граф уровня, холст с контейнером уровня; смена уровня снимает выделение", async () => {
+    const { goTo } = await setup(true, graph(), "c1");
+    expect(deploymentApi.graph).toHaveBeenCalledWith("c1");
+    expect(props().containerId).toBe("c1");
+    act(() => { props().drill.onSelectionChange?.(["deploy:a@s1"]); });
+    expect(screen.getByRole("status")).toHaveTextContent("Выбран 1 объект");
+    goTo(null);
+    await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith(null));
+    await waitFor(() => expect(props().containerId).toBeNull());
+    expect(screen.queryByRole("status")).toBeNull();
   });
 
   it("панель выделения считает объекты без повторов; «Снять выделение» — токеном холсту", async () => {
@@ -151,6 +176,30 @@ describe("DeploymentPage", () => {
     expect(props().relayoutToken).toBe(1);
   });
 
+  it("«Переразложить» не раскрывает свёрнутые площадки: вторым батчем возвращает expanded: false", async () => {
+    await setup(true, graph({
+      layout: { "deploy:a@s1": { x: 10, y: 20 }, "deploy:site:s1": { x: 0, y: 0, expanded: false } },
+    }));
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
+    await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledTimes(2));
+    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(1, null, { "deploy:a@s1": null, "deploy:site:s1": null }, 7);
+    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(2, null, { "deploy:site:s1": { expanded: false } }, 8);
+    await waitFor(() => expect(props().relayoutToken).toBe(1));
+  });
+
+  it("«Переразложить» при 409: перечитать и повторить оба батча один раз", async () => {
+    await setup(true, graph({
+      layout: { "deploy:site:s1": { expanded: false } },
+    }));
+    vi.mocked(viewsApi.saveLayout).mockRejectedValueOnce(new ApiError(409, "Вид изменён в другой сессии"));
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
+    await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledTimes(3));
+    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(2, null, { "deploy:site:s1": null }, 7);
+    expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(3, null, { "deploy:site:s1": { expanded: false } }, 8);
+    await waitFor(() => expect(props().relayoutToken).toBe(1));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   it("двойной клик по карточке объекта → страница объекта; по площадке — ничего", async () => {
     const { onOpenNode } = await setup();
     const card = props().projection?.children?.["deploy:site:t"]?.[0] as AppNode;
@@ -160,20 +209,20 @@ describe("DeploymentPage", () => {
     expect(onOpenNode).toHaveBeenCalledTimes(1);
   });
 
-  it("цельный контейнер: карточка выделяется как объект, двойной клик — вход в его уровень", async () => {
+  it("цельный контейнер: карточка выделяется как объект, двойной клик — вход в его уровень навигацией", async () => {
     const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2 };
     const g = graph({
       nodes: [box, { ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }],
       edges: [],
     });
-    const { onOpenNode } = await setup(true, g);
+    const { onOpenNode, onNavigateLevel } = await setup(true, g);
     const card = props().projection?.children?.["deploy:site:s1"]?.[0] as AppNode;
     expect(card.id).toBe("deploy:c@s1");
     act(() => { props().drill.onSelectionChange?.([card.id]); });
     await userEvent.click(screen.getByRole("button", { name: "Указать размещение" }));
     expect(screen.getByTestId("placement-dialog")).toHaveAttribute("data-objects", "c");
     act(() => { props().drill.onEditNode(card); });
-    await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith("c"));
+    expect(onNavigateLevel).toHaveBeenCalledWith("c");
     expect(onOpenNode).not.toHaveBeenCalled();
   });
 
