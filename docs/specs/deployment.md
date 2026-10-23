@@ -12,9 +12,10 @@
 [canvas.md](canvas.md), [transitions.md](transitions.md)) действуют и здесь; эта спека
 фиксирует только то, чем развёртывание от них отличается.
 
-Код: фронт `pages/DeploymentPage.tsx` (+ `useDeploymentGraph.ts`), маршрут режима —
-`App.tsx` и `pages/{ProjectShell.tsx,workMode.ts}`,
-`components/deployment/{deploymentProjection.ts,PlacementDialog.tsx,SitesDialog.tsx,SiteForm.tsx,siteTree.ts}`,
+Код: фронт `pages/DeploymentPage.tsx` (+ `useDeploymentGraph.ts`, `useDeploymentPlacing.ts`),
+маршрут режима — `App.tsx` и `pages/{ProjectShell.tsx,workMode.ts}`,
+`components/deployment/{deploymentProjection.ts,placementConflicts.ts,PlacementConflictList.tsx,PlacementDialog.tsx,SitesDialog.tsx,SiteForm.tsx,siteTree.ts}`,
+дерево слева — `components/{NodeTreePanel.tsx,nodeTree.mode.ts,nodeTree.Row.tsx}` (режим `deploy`),
 бандл `projection` в `LevelGraph.tsx` (`graph/types.ts` `LevelProjectionProps`,
 `FrameDecor`; `graph/interaction/{useLevelDrill,useProjectionTwins}.ts`,
 `graph/{assembleRf.ts,nodes.tsx}`); бэк `app/deployment.py`, `app/routers/deployment.py`.
@@ -131,8 +132,9 @@
   клик по карточке объекта — страница объекта (режим «Объекты»); по карточке цельного
   контейнера — вход в его уровень навигацией по адресу (D24; контейнеры здесь не
   раскрываются); по карточке свёрнутой площадки — раскрыть её (как лупа, D21); по рамке
-  и группе «не указано» — ничего. Связи не инспектируются. [тест: DeploymentPage.test.tsx,
-  ProjectShell.test.tsx, levelGraph.projection.test.tsx]
+  и группе «не указано» — ничего. Связи не инспектируются. В режиме размещения (D29)
+  двойной клик не действует: это два щелчка выбора площадки (D27). [тест:
+  DeploymentPage.test.tsx, ProjectShell.test.tsx, levelGraph.projection.test.tsx]
 - **D22.** ПРАВИЛО ЦЕЛЬНОГО КОНТЕЙНЕРА (Ф5, §2а п. 1–2). Площадки ЛИСТА — его
   действующие площадки (без размещения — «не указано»). Контейнер ЦЕЛЬНЫЙ, если у всех
   листьев его поддерева в ответе одинаковый НАБОР площадок (по множеству id; «не
@@ -290,6 +292,10 @@
   площадки (D2).
 - Состав холста — объём уровня (D1): связь с объектом вне поддерева уровня не
   рисуется, гостей на этом холсте нет.
+- Режим размещения ставит объект на ОДНУ площадку (D29): второй экземпляр — только
+  окном «Размещение» (D18, ТЗ §2а п. 8).
+- Объекты на вкладке не создаются (ТЗ §2а п. 10): в дереве нет «+» и палитры, объекты
+  создаются на карте, на схему развёртывания добавляются уже описанные.
 - Мультивыбор холста — Ctrl/⌘+клик и рамка выделения (canvas.md CV3, CV13);
   Shift+клик к выделению не добавляет (клавиши холста общие для всех режимов).
 - Ключи раскладки карточек, чьих экземпляров больше нет (объект переставили или
