@@ -1,8 +1,11 @@
 // Оркестрационные тесты ПРОЕКЦИИ ХОЗЯИНА LevelGraphInner (холст развёртывания,
 // docs/specs/deployment.md, Ф2а эпика). Фиксируют контракт бандла projection:
-//   • children — полный состав раскрытых контейнеров: детей по API не догружаем и по
-//     childrenRev не перечитываем; каждый ключ карты раскрыт (входит в expanded) без
-//     записи expanded в раскладку; фильтр релевантных детей read-only не применяется;
+//   • children — полный состав раскрываемых контейнеров: детей по API не догружаем и по
+//     childrenRev не перечитываем; ключ карты по умолчанию раскрыт (входит в expanded)
+//     без записи expanded в раскладку; фильтр релевантных детей read-only не применяется;
+//   • свёрнутость площадки — состояние вида: персистное expanded: false сворачивает,
+//     сворачивание пишет false (позиция строки сохраняется), раскрытие — сброс поля;
+//     у читателя (без персиста) — только правка сессии;
 //   • inlineDepth — доезжает до конвейера входом maxInlineDepth;
 //   • ключ кэша маршрутов вида получает признак проекции;
 //   • drill.onSelectionChange — id выделенных БЛОКОВ на изменение RF-выделения;
@@ -16,9 +19,9 @@ import type { Node as AppNode } from "../../types";
 import type { LevelProjectionProps } from "../graph/types";
 import { routeCache } from "../graph/layout/routeCacheStore";
 import {
-  resetHarness, apiNodesMock, pipelineClientMock, rfHandles, rfProps, flushRaf,
+  resetHarness, apiNodesMock, pipelineClientMock, rfHandles, rfProps, flushRaf, layoutAnimMock, settle,
 } from "./levelGraphHarness";
-import { renderGraph, baseProps } from "./levelGraphRender";
+import { renderGraph, baseProps, getCb } from "./levelGraphRender";
 
 // --- vi.mock: зависимости LevelGraph → реализации из общего harness ---
 vi.mock("@xyflow/react", async () => (await import("./levelGraphHarness")).xyflowMock);
@@ -173,6 +176,47 @@ describe("LevelGraph orchestration: проекция хозяина (развё�
     });
     await flushRaf();
     expect(aT.classList.contains("lg-linked-node")).toBe(false);
+  });
+
+  it("свёрнутость: дефолт раскрыто, персистное expanded: false сворачивает только свой ключ", async () => {
+    await renderGraph({ ...deployProps({ children }), viewLayout: { [S2]: { expanded: false } } });
+    expect([...lastInput().expanded].sort()).toEqual([S1, T].sort());
+  });
+
+  it("сворачивание площадки пишет {expanded: false} поверх сохранённой позиции", async () => {
+    const { props } = await renderGraph({ ...deployProps({ children }), viewLayout: { [S1]: { x: 10, y: 20 } } });
+    await act(async () => { getCb().collapseContainer(S1); });
+    await settle();
+    expect(layoutAnimMock.noteCollapse).toHaveBeenCalledWith(S1);
+    // Сервер заменяет payload строки целиком — в запрос уходит слитая строка с позицией.
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ [S1]: { x: 10, y: 20, expanded: false } });
+    expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledWith(
+      null, { [S1]: { x: 10, y: 20, expanded: false } }, undefined,
+    );
+    expect(lastInput().expanded.has(S1)).toBe(false);
+  });
+
+  it("раскрытие свёрнутой площадки — без догрузки, поле expanded сбрасывается (null)", async () => {
+    const { props } = await renderGraph({
+      ...deployProps({ children }),
+      viewLayout: { [S1]: { x: 10, y: 20, expanded: false } },
+    });
+    expect(lastInput().expanded.has(S1)).toBe(false);
+    await act(async () => { getCb().expandLocalContainer(S1); });
+    await settle();
+    expect(apiNodesMock.nodesApi.list).not.toHaveBeenCalled();
+    expect(layoutAnimMock.noteExpand).toHaveBeenCalledWith(S1);
+    expect(props.persistence?.onLayoutChanged).toHaveBeenCalledWith({ [S1]: { x: 10, y: 20, expanded: null } });
+    expect(lastInput().expanded.has(S1)).toBe(true);
+  });
+
+  it("читатель: сворачивание живёт в сессии, раскладка не пишется", async () => {
+    await renderGraph({ ...deployProps({ children }), isArchitect: false, persistence: undefined });
+    await act(async () => { getCb().collapseContainer(T); });
+    await settle();
+    expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
+    expect(lastInput().expanded.has(T)).toBe(false);
+    expect(lastInput().expanded.has(S1)).toBe(true);
   });
 
   it("clearSelectionToken: рост токена снимает RF-выделение со всех узлов", async () => {

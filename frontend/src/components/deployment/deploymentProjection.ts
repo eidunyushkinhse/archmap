@@ -33,7 +33,8 @@ export interface DeploymentProjection {
   edges: AppEdge[];
   // пометка «i/n» у карточек объекта, стоящего на нескольких площадках
   marks: Record<string, string>;
-  // декор рамки: площадка — сплошная с иконкой вида, группа «не указано» — пунктир
+  // декор рамки: площадка — с иконкой вида, сворачивается; группа «не указано» —
+  // пунктир, не сворачивается
   frameDecor: (frameId: string) => FrameDecor | undefined;
   // объект карточки (близнецы — карточки одного объекта); у площадок — undefined
   groupOf: (id: string) => string | undefined;
@@ -191,7 +192,7 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
     if (frameId === unplacedKey) return { kind: "group", collapsible: false };
     if (!frameId.startsWith("deploy:site:")) return undefined;
     const site = siteById.get(frameId.slice("deploy:site:".length));
-    return site ? { kind: "site", icon: site.kind, collapsible: false } : undefined;
+    return site ? { kind: "site", icon: site.kind, collapsible: true } : undefined;
   };
   const groupOf = (id: string): string | undefined => siteOf.get(id)?.nodeId;
 

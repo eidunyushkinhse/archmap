@@ -50,16 +50,19 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
-  // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps, холст развёртывания). Все три необязательны:
+  // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps, холст развёртывания). Все необязательны:
   // не заданы — сборка прежняя байт-в-байт. maxInlineDepth — предел гейта лупы вместо
   // MAX_INLINE_DEPTH (тот же вход, что у конвейера); frameDecor — декор рамки по id;
-  // marks — пометка карточки по id блока.
+  // marks — пометка карточки по id блока; expandableIds — раскрываемые контейнеры
+  // (ключи карты состава проекции): лупа только у них, у прочих карточек с детьми
+  // (цельный контейнер развёртывания) её нет вовсе, бейдж детей остаётся.
   maxInlineDepth?: number;
   frameDecor?: (frameId: string) => FrameDecor | undefined;
   marks?: Record<string, string>;
+  expandableIds?: ReadonlySet<string>;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
-  const { frameDecor, marks } = params;
+  const { frameDecor, marks, expandableIds } = params;
   const inlineDepth = params.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
@@ -136,7 +139,8 @@ export function assembleRfGraph(params: {
     ...guestFrames.map((f) => {
       const pf = frameOfFrame(f);
       // Декор рамки по данным хозяина (холст развёртывания): площадка/группа. Рамку с
-      // collapsible: false не свернуть — onCollapse не задаётся, крестика нет.
+      // collapsible: false (группа «не указано») не свернуть — onCollapse не задаётся,
+      // крестика нет; площадка сворачивается, как рамка раскрытия.
       const decor = frameDecor?.(f.id);
       const data: FrameData = decor?.collapsible === false
         ? { name: f.name, decor }
@@ -173,6 +177,8 @@ export function assembleRfGraph(params: {
       // поддерева по рёбрам, X16 v2); редактор — все по child_count (Д3).
       const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
       const hasKids = (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape);
+      // Проекция хозяина раскрывает только ключи своей карты состава (expandableIds).
+      const expandable = hasKids && (!expandableIds || expandableIds.has(n.id));
       const atLimit = atInlineLimit(pf);
       // пометка карточки от хозяина (развёртывание: «1/2») — только если задана
       const mark = marks?.[n.id];
@@ -200,10 +206,10 @@ export function assembleRfGraph(params: {
           // MAX_INLINE_DEPTH слоёв от уровня лупа неактивна и объясняет предел (C8).
           // На странице лупа — только при РЕЛЕВАНТНЫХ детях (childCount, X16 v2):
           // узел без связанных детей ведёт себя как лист.
-          onExpand: hasKids && !atLimit
+          onExpand: expandable && !atLimit
             ? (id) => getCb().expandLocalContainer(id)
             : undefined,
-          expandLimited: hasKids && atLimit,
+          expandLimited: expandable && atLimit,
           badgeCount: childCount,
           ...(mark ? { mark } : null),
         } satisfies BlockData,

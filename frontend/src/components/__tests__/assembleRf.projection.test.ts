@@ -91,6 +91,36 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
     expect(noLimit.expandLimited).toBe(false);
   });
 
+  it("expandableIds: лупа только у ключей карты состава; карточка контейнера — бейдж без лупы", () => {
+    const sealed = { ...appNode("box@S", true), child_count: 5 };
+    const nodes = assembleRfGraph({
+      layout: {
+        ...layout,
+        nodes: [...layout.nodes, sealed],
+        positions: new Map([...layout.positions, ["box@S", { x: 0, y: 0 }]]),
+      },
+      isArchitect: true, isReadOnly: true, drillNav: false,
+      depth: 0, schemaView: "all", getCb: cb,
+      maxInlineDepth: Infinity, frameDecor: decorOf, expandableIds: new Set(["inner"]),
+    }).nextNodes;
+    const block = (id: string) => nodes.find((n) => n.id === id)!.data as BlockData;
+    expect(typeof block("inner").onExpand).toBe("function");
+    expect(block("box@S").onExpand).toBeUndefined();
+    expect(block("box@S").expandLimited).toBe(false);
+    expect(block("box@S").badgeCount).toBe(5);
+  });
+
+  it("площадка сворачивается: collapsible: true — onCollapse задан", () => {
+    const nodes = assembleRfGraph({
+      layout, isArchitect: false, isReadOnly: true, drillNav: false,
+      depth: 0, schemaView: "all", getCb: cb,
+      frameDecor: (id) => (id === "U" ? { kind: "group", collapsible: false } : { kind: "site", icon: "vm", collapsible: true }),
+    }).nextNodes;
+    const data = (id: string) => nodes.find((n) => n.id === id)!.data as FrameData;
+    expect(typeof data("S").onCollapse).toBe("function");
+    expect(data("U").onCollapse).toBeUndefined();
+  });
+
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
     const nodes = assemble(false);
     const s = nodes.find((n) => n.id === "S")!.data as FrameData;

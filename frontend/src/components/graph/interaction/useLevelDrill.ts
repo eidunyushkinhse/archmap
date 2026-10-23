@@ -82,9 +82,10 @@ interface UseLevelDrillArgs {
   // последний применённый результат конвейера: own-on-expand берёт абсолют позиции
   layoutLatestRef: { current: LayoutResult | null };
   // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps.children, холст развёртывания): ПОЛНЫЙ
-  // состав раскрытых локальных контейнеров. Задан — кэш детей = эта карта: по API не
-  // догружаем, по childrenRev не перечитываем, релевантных детей не фильтруем, каждый
-  // ключ карты раскрыт (без записи expanded в раскладку). Не задан — прежнее поведение.
+  // состав раскрываемых локальных контейнеров. Задан — кэш детей = эта карта: по API не
+  // догружаем, по childrenRev не перечитываем, релевантных детей не фильтруем, а ключ
+  // карты по умолчанию РАСКРЫТ (сворачивает его сохранённое expanded: false и правка
+  // сессии). Не задан — прежнее поведение.
   projectedChildren?: Record<string, AppNode[]>;
 }
 
@@ -142,13 +143,18 @@ export function useLevelDrill({
     if (!ignorePersistedExpanded) {
       for (const [id, p] of Object.entries(viewLayout)) if (p.expanded) s.add(id);
     }
+    // Проекция хозяина: контейнер из карты состава (площадка) по умолчанию РАСКРЫТ —
+    // свёрнутым его делает сохранённое expanded: false (вид архитектора). Правки сессии
+    // ниже ложатся поверх, как у обычных раскрытий.
+    if (projectedChildren) {
+      for (const id of Object.keys(projectedChildren)) {
+        if (ignorePersistedExpanded || viewLayout[id]?.expanded !== false) s.add(id);
+      }
+    }
     for (const [id, v] of expandOverrides) {
       if (v) s.add(id);
       else s.delete(id);
     }
-    // Проекция хозяина: каждый контейнер из карты состава раскрыт всегда (рамка
-    // площадки — не раскрытие узла, свернуть её нельзя).
-    if (projectedChildren) for (const id of Object.keys(projectedChildren)) s.add(id);
     return s;
   }, [viewLayout, expandOverrides, ignorePersistedExpanded, projectedChildren]);
 
@@ -228,8 +234,13 @@ export function useLevelDrill({
       // Обе операции меняют состав схемы — результат хочется видеть по центру.
       if (fitOnExpand) autoFitRef.current = performance.now();
       setExpandOverrides((prev) => new Map(prev).set(id, value));
-      // персист (архитектор, не контекст — гейтит commitLayout): true — раскрыт,
-      // null-поле — сброс (exclude_none выкинет его из payload строки).
+      // персист (архитектор, не контекст — гейтит commitLayout): в строку пишется только
+      // ОТЛИЧИЕ от дефолта, совпадение — null-поле, сброс (exclude_none выкинет его из
+      // payload строки). Дефолт обычного контейнера — свёрнут (раскрытие пишет true),
+      // контейнера проекции хозяина — раскрыт (сворачивание пишет false). Прочие поля
+      // строки (позиция) сохраняет merge поверх зеркала в commitLayout: сервер заменяет
+      // payload целиком.
+      const byDefault = projectedChildren?.[id] !== undefined;
       // OWN-ON-EXPAND: контейнер, не владевший позицией (чисто-ELK уровень —
       // типично сразу после импорта), при раскрытии закрепляет текущую. Иначе
       // сетке первого показа детей не от чего стартовать, и ребёнка без видимых
@@ -239,9 +250,9 @@ export function useLevelDrill({
       const p = viewLayout[id];
       const owned = p?.x != null && p?.y != null;
       const cur = value && !owned ? layoutLatestRef.current?.positions.get(id) : undefined;
-      commitLayout({ [id]: { expanded: value ? true : null, ...(cur ? { x: cur.x, y: cur.y } : null) } });
+      commitLayout({ [id]: { expanded: value === byDefault ? null : value, ...(cur ? { x: cur.x, y: cur.y } : null) } });
     },
-    [commitLayout, viewLayout, fitOnExpand, autoFitRef, layoutLatestRef],
+    [commitLayout, viewLayout, fitOnExpand, autoFitRef, layoutLatestRef, projectedChildren],
   );
   // Раскрытие ГОСТЕВОГО контейнера: детей даёт проекция (реестр endpoints).
   const expandContainer = useCallback(
@@ -257,9 +268,13 @@ export function useLevelDrill({
   // С тёплым кэшем раскрываем сразу (повторное раскрытие мгновенно, как раньше).
   const expandLocalContainer = useCallback(
     (id: string) => {
-      // Проекция хозяина: состав известен целиком и раскрыт заранее — догружать нечего
-      // (лупы у карточек проекции нет; защита на случай чужого вызова).
-      if (projectedChildren) return;
+      // Проекция хозяина: состав известен целиком — догружать нечего, раскрываем сразу
+      // (лупа или двойной клик по карточке свёрнутой площадки).
+      if (projectedChildren) {
+        noteExpand(id);
+        commitExpanded(id, true);
+        return;
+      }
       if (childrenCache[id]) {
         noteExpand(id);
         commitExpanded(id, true);

@@ -222,6 +222,12 @@ function LevelGraphInner({
   // Признак проекции для ключа кэша маршрутов вида: у холста развёртывания своя сцена
   // на том же уровне и том же view_id, что у холста объектов.
   const projected = projection !== undefined;
+  // Раскрываемые контейнеры проекции — ключи карты состава (площадки): лупа только у
+  // них; карточка проекции с детьми вне карты (цельный контейнер) не раскрывается.
+  const expandableIds = useMemo(
+    () => (projectedChildren ? new Set(Object.keys(projectedChildren)) : undefined),
+    [projectedChildren],
+  );
   const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
   const { onDropNode, dragShape } = drop ?? {};
@@ -619,9 +625,9 @@ function LevelGraphInner({
     if (!layout) return; // первый рендер до резолва async-раскладки
     const { nextNodes, nextEdges } = assembleRfGraph({
       layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb,
-      // проекция хозяина (холст развёртывания): предел гейта лупы, декор рамок, пометки;
-      // без проекции все три undefined — сборка прежняя
-      maxInlineDepth: inlineDepth, frameDecor, marks,
+      // проекция хозяина (холст развёртывания): предел гейта лупы, декор рамок, пометки,
+      // раскрываемые контейнеры; без проекции все undefined — сборка прежняя
+      maxInlineDepth: inlineDepth, frameDecor, marks, expandableIds,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -655,7 +661,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks, expandableIds]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия
