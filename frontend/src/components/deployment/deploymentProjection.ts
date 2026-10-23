@@ -81,6 +81,9 @@ function instanceNode(node: DeploymentNode, siteId: string): AppNode {
 }
 
 export function projectDeployment(graph: DeploymentGraph): DeploymentProjection {
+  // Граф отдаёт всё поддерево уровня; карточками пока остаются только листья (как до
+  // Ф5), связи с концом-контейнером ниже отсеются сами — у контейнера нет площадок.
+  const leaves = graph.nodes.filter((n) => !n.has_children);
   const siteById = new Map(graph.sites.map((s) => [s.id, s] as const));
   // Корневая площадка каждой площадки (обход с seen: данные могут оказаться циклом).
   const rootOf = (siteId: string): string => {
@@ -97,7 +100,7 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   // Действующие площадки объекта в порядке effective (неизвестные отброшены);
   // без площадок — группа «не указано».
   const placesOf = new Map<string, string[]>();
-  for (const n of graph.nodes) {
+  for (const n of leaves) {
     const places = n.effective.map((e) => e.site_id).filter((id) => siteById.has(id));
     placesOf.set(n.id, places.length > 0 ? [...new Set(places)] : [UNPLACED]);
   }
@@ -106,7 +109,7 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   const instancesBySite = new Map<string, AppNode[]>();
   const marks: Record<string, string> = {};
   const siteOf = new Map<string, { nodeId: string; siteId: string }>();
-  for (const n of graph.nodes) {
+  for (const n of leaves) {
     const places = placesOf.get(n.id) ?? [UNPLACED];
     places.forEach((siteId, i) => {
       const inst = instanceNode(n, siteId);

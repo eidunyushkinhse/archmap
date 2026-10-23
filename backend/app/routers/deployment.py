@@ -3,8 +3,8 @@
 
 Площадки — плоский CRUD с CAS и проверкой вложенности; размещение — НАБОР площадок
 объекта целиком (PUT /placements, а со страницы объекта — PATCH /nodes/{id} site_ids);
-граф — листья поддерева уровня с их экземплярами. Правила предметной области живут в
-app/deployment, здесь — HTTP: 404/409/422 и курсоры поллинга.
+граф — всё поддерево уровня (контейнеры и листья) с их экземплярами. Правила
+предметной области живут в app/deployment, здесь — HTTP: 404/409/422 и курсоры поллинга.
 
 Курсоры: площадки и размещение видны на холсте развёртывания — graph_rev; строка
 «Размещение» на странице объекта меняется от размещения, удаления площадки и правки
@@ -226,26 +226,25 @@ def get_deployment_graph(
 ) -> DeploymentGraph:
     """Граф вида «Развёртывание» уровня level (пусто — весь проект).
 
-    Объекты — ЛИСТЬЯ поддерева уровня (сам контейнер уровня не входит — он рамка, а
-    не объект), кроме «Пользователей»: они живут вне системы. Контейнер размещается
-    через листья — у них действует его размещение по наследству. Связи — сырые, у
-    которых оба конца среди показанных листьев (правило «к ближайшему экземпляру»
-    применяет фронт). Площадки — все площадки проекта: рамка нужна и пустой площадке.
+    Объекты — ВСЁ ПОДДЕРЕВО уровня: контейнеры и листья любой глубины (сам контейнер
+    уровня не входит — уровень это объём, а не объект), кроме «Пользователей»: они
+    живут вне системы. Кого рисовать — цельный контейнер одной карточкой или его
+    объекты по отдельности — решает фронт по действующему размещению листьев, поэтому
+    у каждого узла есть и свои экземпляры, и действующие (с наследованием от предка),
+    и число прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
+    «к ближайшему экземпляру» и подъём к представителю применяет фронт). Площадки —
+    все площадки проекта: на любом уровне они одни и те же.
     """
     if level is not None:
         node_or_404(db, level, project)
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id)}
     scope = tree.subtree_ids(all_nodes, level) - {level} if level is not None else set(all_nodes)
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    leaves = sorted(
-        (
-            all_nodes[nid]
-            for nid in scope
-            if child_counts.get(nid, 0) == 0 and all_nodes[nid].shape != "person"
-        ),
+    shown = sorted(
+        (all_nodes[nid] for nid in scope if all_nodes[nid].shape != "person"),
         key=lambda n: (n.name, str(n.id)),
     )
-    leaf_ids = {n.id for n in leaves}
+    shown_ids = {n.id for n in shown}
 
     sites = project_sites(db, project.id)
     sites_by_id = {site.id: site for site in sites}
@@ -258,8 +257,12 @@ def get_deployment_graph(
     node_names = {nid: n.name for nid, n in all_nodes.items()}
 
     nodes_out: list[DeploymentNodeOut] = []
-    for n in leaves:
+    for n in shown:
         # Вычисляемые поля NodeResponse по уже загруженным картам, без запросов на узел.
+        # Дети — все прямые (как у графа уровня): контейнер, чьи дети — одни
+        # «Пользователи», остаётся контейнером, а не превращается в лист.
+        n.child_count = child_counts.get(n.id, 0)
+        n.has_children = n.child_count > 0
         n.approval_effective = approvals.get(n.id, n.approval)
         n.sites = site_refs(n, effective.get(n.id, []), sites_by_id, node_names)
         nodes_out.append(
@@ -284,7 +287,7 @@ def get_deployment_graph(
             version=e.version,
         )
         for e in db.query(Edge).filter(Edge.project_id == project.id).order_by(Edge.id)
-        if e.source_id in leaf_ids and e.target_id in leaf_ids
+        if e.source_id in shown_ids and e.target_id in shown_ids
     ]
     counts = _instance_counts(db, project.id)
     return DeploymentGraph(

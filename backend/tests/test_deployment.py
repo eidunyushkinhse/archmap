@@ -476,7 +476,7 @@ def test_размещение_отказы_ничего_не_пишут(client, 
     assert db.query(DeploymentInstance).count() == 0
 
 
-def test_граф_листья_экземпляры_наследование_и_связи(client, db, scene):
+def test_граф_поддерево_экземпляры_наследование_и_связи(client, db, scene):
     h, n = scene["h"], scene["n"]
     cloud = _post_site(client, h, "Облако", kind="cloud")["id"]
     vm = _post_site(client, h, "ВМ", kind="vm")["id"]
@@ -487,12 +487,17 @@ def test_граф_листья_экземпляры_наследование_и_
 
     g = client.get(f"{API}/deployment/graph", headers=scene["rh"]).json()
     nodes = {x["name"]: x for x in g["nodes"]}
-    # Листья всего проекта без контейнера «Витрина» и без «Покупателя».
-    assert set(nodes) == {"API", "Воркер", "БД", "Платежи"}
+    # Всё поддерево проекта (контейнер «Витрина» тоже) без «Покупателя»; порядок — по имени.
+    assert [x["name"] for x in g["nodes"]] == ["API", "БД", "Витрина", "Воркер", "Платежи"]
     assert {s["name"] for s in g["sites"]} == {"Облако", "ВМ"}
     assert nodes["API"]["instances"] == [vm]
     assert nodes["API"]["effective"] == [{"site_id": vm, "inherited_from_id": None}]
+    assert (nodes["API"]["has_children"], nodes["API"]["child_count"]) == (False, 0)
     shop = str(n["Витрина"])
+    # Контейнер — со своими экземплярами и числом прямых детей.
+    assert nodes["Витрина"]["instances"] == [cloud]
+    assert nodes["Витрина"]["effective"] == [{"site_id": cloud, "inherited_from_id": None}]
+    assert (nodes["Витрина"]["has_children"], nodes["Витрина"]["child_count"]) == (True, 3)
     assert nodes["Воркер"]["instances"] == []
     assert nodes["Воркер"]["effective"] == [{"site_id": cloud, "inherited_from_id": shop}]
     assert nodes["Воркер"]["sites"] == [
@@ -500,18 +505,68 @@ def test_граф_листья_экземпляры_наследование_и_
          "inherited_from_id": shop, "inherited_from_name": "Витрина"}
     ]
     assert nodes["Платежи"]["effective"] == []
-    # Связи — только между показанными листьями: API → БД.
-    assert [(e["source_id"], e["target_id"]) for e in g["edges"]] == [(str(n["API"]), str(n["БД"]))]
+    # Связи — оба конца в поддереве: API → БД и Витрина → Платежи (конец-контейнер
+    # теперь тоже в ответе); Покупатель → API — нет, пользователя на холсте нет.
+    assert {(e["source_id"], e["target_id"]) for e in g["edges"]} == {
+        (str(n["API"]), str(n["БД"])),
+        (shop, str(n["Платежи"])),
+    }
     assert (g["graph_rev"], g["meta_rev"]) == (
         db.get(Project, scene["p"].id).graph_rev,
         db.get(Project, scene["p"].id).meta_rev,
     )
 
-    # Уровень «Витрина» — только её листья.
+    # Уровень «Витрина» — её поддерево без неё самой; связь «Витрина → Платежи» ведёт
+    # из объёма уровня наружу — её нет.
     g = client.get(f"{API}/deployment/graph", params={"level": shop}, headers=h).json()
     assert {x["name"] for x in g["nodes"]} == {"API", "Воркер", "БД"}
+    assert [(e["source_id"], e["target_id"]) for e in g["edges"]] == [(str(n["API"]), str(n["БД"]))]
     # Чужой или несуществующий уровень — 404.
     assert client.get(f"{API}/deployment/graph", params={"level": str(uuid.uuid4())}, headers=h).status_code == 404
+
+
+def test_граф_вложенный_контейнер_наследует_и_связи_в_объёме_уровня(client, db, scene):
+    """Контейнер внутри контейнера: свои экземпляры у внешнего, у внутреннего —
+    действующие по наследству. Связь лист ↔ лист внутри одного контейнера приходит,
+    связь с концом вне объёма уровня — нет, «Пользователь» внутри уровня не приходит."""
+    p, h = scene["p"], scene["h"]
+    platform = _node(db, p.id, "Платформа")
+    catalog = _node(db, p.id, "Каталог", platform)
+    search = _node(db, p.id, "Поиск", catalog)
+    index = _node(db, p.id, "Индекс", catalog, shape="database")
+    _node(db, p.id, "Оператор", platform, shape="person")
+    outside = _node(db, p.id, "Почта")
+    db.add_all(
+        [
+            Edge(id=uuid.uuid4(), project_id=p.id, source_id=search.id, target_id=index.id),
+            Edge(id=uuid.uuid4(), project_id=p.id, source_id=search.id, target_id=outside.id),
+        ]
+    )
+    db.commit()
+    cloud = _post_site(client, h, "Облако", kind="cloud")["id"]
+    client.put(
+        f"{API}/deployment/placements",
+        json={"node_ids": [str(platform.id)], "site_ids": [cloud]},
+        headers=h,
+    )
+
+    g = client.get(f"{API}/deployment/graph", params={"level": str(platform.id)}, headers=h).json()
+    nodes = {x["name"]: x for x in g["nodes"]}
+    assert set(nodes) == {"Каталог", "Поиск", "Индекс"}
+    assert nodes["Каталог"]["instances"] == []
+    assert nodes["Каталог"]["effective"] == [{"site_id": cloud, "inherited_from_id": str(platform.id)}]
+    assert (nodes["Каталог"]["has_children"], nodes["Каталог"]["child_count"]) == (True, 2)
+    assert nodes["Поиск"]["effective"] == [{"site_id": cloud, "inherited_from_id": str(platform.id)}]
+    assert [(e["source_id"], e["target_id"]) for e in g["edges"]] == [(str(search.id), str(index.id))]
+
+    # На уровне проекта «Платформа» — сама объект со своими экземплярами, а её
+    # «Пользователь» не приходит, хотя прямым ребёнком учтён.
+    g = client.get(f"{API}/deployment/graph", headers=h).json()
+    nodes = {x["name"]: x for x in g["nodes"]}
+    assert "Оператор" not in nodes
+    assert nodes["Платформа"]["instances"] == [cloud]
+    assert nodes["Платформа"]["child_count"] == 2
+    assert (str(search.id), str(outside.id)) in {(e["source_id"], e["target_id"]) for e in g["edges"]}
 
 
 def test_раскладка_двух_холстов_одного_уровня_разведена(client, db, scene):
