@@ -3,7 +3,8 @@ import type { CSSProperties } from "react";
 import type { Node, NodeShape } from "../types";
 import { canHaveChildren } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
-import { TreeRow, type TreeRowCtx } from "./nodeTree.Row";
+import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
+import { placeable, treeRowTitle } from "./nodeTree.mode";
 import { CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
@@ -19,9 +20,10 @@ import { useNodeSearch } from "./useNodeSearch";
  * корни; дети подгружаются лениво по клику на шеврон. Режим задаётся явно (аудит
  * F-7; раньше угадывался по тому, какие колбэки переданы): в дереве страниц клик по
  * строке ведёт на страницу объекта, в редакторе-карте — навигирует внутри него
- * (контейнер → onDrillTo, лист → onPickLeaf). Выбор узла с детьми попутно раскрывает
- * его ветку. Персоны стоят в общей иерархии наравне с прочими. Только в редакторе —
- * перенос строк и секция-палитра «Добавить объект».
+ * (контейнер → onDrillTo, лист → onPickLeaf), в «Развёртывании» — по холсту площадок
+ * (контейнер → onOpenLevel, лист → onPickObject; иконка строки → onPlace). Выбор узла с
+ * детьми попутно раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
+ * Только в редакторе — перенос строк и секция-палитра «Добавить объект».
  */
 
 type ModeProps =
@@ -42,6 +44,19 @@ type ModeProps =
       // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
       // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
       onTemplateDrag?: (shape: NodeShape | null) => void;
+    }
+  | {
+      // «Развёртывание» (docs/specs/deployment.md): объекты здесь не создаются и не
+      // переносятся — без палитры, «+» и ручки; поиск и сворачивание — как везде.
+      mode: "deploy";
+      // клик по контейнеру (узел с детьми) → его уровень развёртывания
+      onOpenLevel: (node: Node) => void;
+      // клик по листу → выделить его карточки на холсте (при нужде — сменив уровень)
+      onPickObject: (node: Node) => void;
+      // иконка «Указать размещение» на строке → режим размещения; только архитектору
+      onPlace?: (node: Node) => void;
+      // объект, который сейчас размещают: строка подсвечена, иконка видна
+      placingId?: string | null;
     };
 
 type Props = ModeProps & {
@@ -59,9 +74,9 @@ type Props = ModeProps & {
 
 export default function NodeTreePanel(props: Props) {
   const { onCreateChild, isArchitect, reloadToken, currentNodeId } = props;
-  const pagesMode = props.mode === "pages";
-  // Колбэки редактора-карты (в дереве страниц их нет).
+  // Колбэки редактора-карты и «Развёртывания» (в дереве страниц их нет).
   const editor = props.mode === "editor" ? props : null;
+  const deploy = props.mode === "deploy" ? props : null;
 
   const {
     roots, loadingRoots, childrenById, expanded, loadingId, leaves, allById, pathTo,
@@ -93,7 +108,13 @@ export default function NodeTreePanel(props: Props) {
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
   const navigateFlat = (node: Node) => {
     if (props.mode === "pages") { props.onNodePage(node); return; }
-    if (canHaveChildren(node.shape) && node.has_children) props.onDrillTo(pathTo(node));
+    const container = canHaveChildren(node.shape) && node.has_children;
+    if (props.mode === "deploy") {
+      if (container) props.onOpenLevel(node);
+      else props.onPickObject(node);
+      return;
+    }
+    if (container) props.onDrillTo(pathTo(node));
     else props.onPickLeaf(node);
   };
 
@@ -102,7 +123,11 @@ export default function NodeTreePanel(props: Props) {
   // нативный драг. Ссылочная стабильность объекта не нужна — важен только тип.
   const rowCtx: TreeRowCtx = {
     expanded, loadingId, childrenById, leaves, currentNodeId,
-    pagesMode, isArchitect, onCreateChild,
+    mode: props.mode, isArchitect,
+    // в «Развёртывании» объекты не создаются (решение §2а п. 10) — «+» нет и при переданном
+    onCreateChild: deploy ? undefined : onCreateChild,
+    onPlace: deploy?.onPlace,
+    placingId: deploy?.placingId,
     onSelect: (node) => { navigateFlat(node); if (canHaveChildren(node.shape) && node.has_children) void expandBranch(node); },
     onToggle: (node) => { void toggle(node); },
     drag: editor?.onReparent && isArchitect ? { onStart: reparent.onRowDragStart, onEnd: reparent.onRowDragEnd } : undefined,
@@ -126,7 +151,7 @@ export default function NodeTreePanel(props: Props) {
           >
             <TreeIcon />
           </button>
-          {isArchitect && (
+          {isArchitect && !deploy && (
             <button
               className="nt-railbtn"
               title="Добавить объект"
@@ -181,13 +206,14 @@ export default function NodeTreePanel(props: Props) {
                   searchResults.map((n) => (
                     <div
                       key={n.id}
-                      className="nt-row nt-row--clickable"
+                      className={"nt-row nt-row--clickable" + (deploy?.placingId === n.id ? " nt-row--placing" : "")}
                       onClick={() => navigateFlat(n)}
-                      title={pagesMode ? `Страница: ${n.name}` : canHaveChildren(n.shape) && n.has_children ? `Открыть слой: ${n.name}` : `Показать на схеме: ${n.name}`}
+                      title={treeRowTitle(props.mode, n)}
                     >
                       <span className="nt-chevspacer" />
                       <ShapeGlyph container={canHaveChildren(n.shape) && n.has_children} shape={n.shape} />
                       <span className="nt-name">{n.name}</span>
+                      {placeable(n, isArchitect, deploy?.onPlace) && <PlaceButton node={n} onPlace={deploy.onPlace} />}
                     </div>
                   ))
                 )

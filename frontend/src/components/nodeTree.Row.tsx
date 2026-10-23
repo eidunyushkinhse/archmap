@@ -13,7 +13,8 @@ import type { CSSProperties, DragEvent } from "react";
 import type { Node } from "../types";
 import { canHaveChildren } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
-import { PlusIcon } from "../ui/icons";
+import { PlaceIcon, PlusIcon } from "../ui/icons";
+import { placeable, treeRowTitle, type TreeMode } from "./nodeTree.mode";
 
 export interface TreeRowCtx {
   // раскрытые ветки / идёт догрузка детей / уже загруженные дети по id родителя
@@ -25,10 +26,14 @@ export interface TreeRowCtx {
   leaves: Set<string>;
   // id узла, чья страница сейчас открыта (подсветка строки)
   currentNodeId?: string | null;
-  // pages_pivot: клик по любому узлу ведёт на его страницу (меняется только подсказка)
-  pagesMode: boolean;
+  // режим панели: от него — подсказка строки (страница / слой / уровень развёртывания)
+  mode: TreeMode;
   isArchitect: boolean;
   onCreateChild?: (parentId: string) => void;
+  // «Развёртывание»: иконка «Указать размещение» на строке (архитектор, не у
+  // «Пользователя») и строка объекта, который сейчас размещают (подсвечена).
+  onPlace?: (node: Node) => void;
+  placingId?: string | null;
   // клик по строке: навигация + раскрытие ветки у промежуточного узла
   onSelect: (node: Node) => void;
   // клик по шеврону
@@ -59,6 +64,24 @@ const chevIcon: CSSProperties = {
   display: "inline-block",
 };
 
+// Иконка «Указать размещение» («Развёртывание»): видна на hover строки, место занимает
+// всегда (visibility, не display — строки не дёргаются). Клик не проваливается в
+// навигацию строки. Кому она положена — решает вызывающий (placeable).
+export function PlaceButton({ node, onPlace }: { node: Node; onPlace: (node: Node) => void }) {
+  const label = `Указать размещение: «${node.name}»`;
+  return (
+    <button
+      type="button"
+      className="nt-place"
+      onClick={(e) => { e.stopPropagation(); onPlace(node); }}
+      title={label}
+      aria-label={label}
+    >
+      <PlaceIcon />
+    </button>
+  );
+}
+
 export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
   const id = node.id;
   const isExpanded = ctx.expanded.has(id);
@@ -71,14 +94,11 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
   const hasChildren = drillable && node.has_children && !ctx.leaves.has(id);
   // pages_pivot: клик по любому узлу → его страница (единообразно).
   // редактор: контейнер → дрилл на слой, лист → показать на холсте.
-  // В обоих режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
+  // «Развёртывание»: контейнер → его уровень, лист → выделить карточки на холсте.
+  // Во всех режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
   // сразу, без отдельного клика по шеврону).
   const isIntermediate = drillable && node.has_children;
-  const title = ctx.pagesMode
-    ? `Страница: ${node.name}`
-    : isIntermediate
-      ? `Открыть слой: ${node.name}`
-      : `Показать на схеме: ${node.name}`;
+  const title = treeRowTitle(ctx.mode, node);
   // Текущая открытая страница — подсветка строки.
   const isCurrent = node.id === ctx.currentNodeId;
   return (
@@ -89,6 +109,7 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
           + (isCurrent ? " nt-row--current" : "")
           + (ctx.movingId === id ? " nt-row--moving" : "")
           + (ctx.dropTargetId === id ? " nt-row--droptarget" : "")
+          + (ctx.placingId === id ? " nt-row--placing" : "")
         }
         onClick={() => ctx.onSelect(node)}
         // обучающий тур демо: строка и шеврон объекта (docs/tasks/demo-tour-2.md)
@@ -147,6 +168,7 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
             <PlusIcon />
           </button>
         )}
+        {placeable(node, ctx.isArchitect, ctx.onPlace) && <PlaceButton node={node} onPlace={ctx.onPlace} />}
       </div>
       {/* Дети раскрытого узла — с направляющей вложенности (border-left). */}
       {isExpanded && kids.length > 0 && (

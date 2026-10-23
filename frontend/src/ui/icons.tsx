@@ -71,6 +71,12 @@ export const PropsIcon = ({ size = 17 }: IcoProps) => (
 export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
+// «Указать размещение» — маркер места (булавка): иконка строки дерева в режиме
+// «Развёртывание» включает режим размещения объекта щелчком по площадке.
+export const PlaceIcon = ({ size = 17 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <path d="M12 21 s-6.5-5.6-6.5-11 a6.5 6.5 0 0 1 13 0 c0 5.4-6.5 11-6.5 11 Z" />
+    <circle cx="12" cy="10" r="2.3" /></svg>);
 
 // Галка «сделано»: статус «Готово к импорту» и кружок итога разбора остатка
 // (Ф-E). Линия толще соседей — знак мелкий (12–14 px) и обязан читаться.
