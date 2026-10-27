@@ -31,6 +31,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app import yaml_io
+from app.deployment import leaf_placements
 from app.domain_types import (
     NODE_SHAPES,
     NODE_STATUSES,
@@ -816,7 +817,9 @@ def seed_placements(
     db: Session, project_id: uuid.UUID, parsed: ParsedImport, ids: list[uuid.UUID]
 ) -> None:
     """Площадки и экземпляры разобранного импорта в НОВЫЙ проект: ids — узлы в порядке
-    parsed.nodes (возврат seed_import). Догрузка в живой проект — своим путём
+    parsed.nodes (возврат seed_import). Размещение достаётся объектам (листьям): свои
+    объявления — себе, объявление контейнера — его объектам без своего
+    (app/deployment.leaf_placements). Догрузка в живой проект — своим путём
     (unified_into): там площадки сперва ищутся по имени среди живых."""
     if not parsed.sites:
         return
@@ -838,10 +841,16 @@ def seed_placements(
             )
         )
     db.flush()
+    parent_of = {
+        node_id: (ids[n.parent_idx] if n.parent_idx is not None else None)
+        for n, node_id in zip(parsed.nodes, ids, strict=True)
+    }
+    shapes = {node_id: n.shape for n, node_id in zip(parsed.nodes, ids, strict=True)}
+    declared: dict[uuid.UUID, list[uuid.UUID]] = {}
     for n, node_id in zip(parsed.nodes, ids, strict=True):
-        if n.shape == "person":
-            continue
-        for name in n.sites:
-            site_id = by_name.get(name)
-            if site_id is not None:
-                db.add(DeploymentInstance(project_id=project_id, node_id=node_id, site_id=site_id))
+        site_ids_of = [by_name[name] for name in n.sites if name in by_name]
+        if site_ids_of and n.shape != "person":
+            declared[node_id] = site_ids_of
+    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+        for site_id in placed:
+            db.add(DeploymentInstance(project_id=project_id, node_id=node_id, site_id=site_id))

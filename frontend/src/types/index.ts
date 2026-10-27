@@ -188,11 +188,11 @@ export type SiteKind = Schemas["SiteOut"]["kind"];
 export type SiteOut = Schemas["SiteOut"];
 export type SiteCreate = Schemas["SiteCreate"];
 export type SiteUpdate = Schemas["SiteUpdate"];
-// Размещение набором: каждому объекту ровно site_ids; clear_descendants — контейнер
-// целиком (своё размещение потомков снимается, они наследуют его площадки).
+// Размещение набором: каждому объекту ровно site_ids; контейнер — целиком (набор
+// получает каждый объект внутри).
 export type PlacementsIn = Schemas["PlacementsIn"];
-// Граф холста «Развёртывание»: площадки, листья уровня с экземплярами (instances —
-// свои, effective — действующие с наследованием), сырые связи, раскладка deploy:….
+// Граф холста «Развёртывание»: площадки, поддерево уровня с размещением (instances —
+// площадки объекта; у контейнера — где стоят все его объекты), сырые связи, раскладка deploy:….
 export type DeploymentGraph = Schemas["DeploymentGraph"];
 export type DeploymentNode = Schemas["DeploymentNodeOut"];
 

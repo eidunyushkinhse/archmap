@@ -135,23 +135,24 @@ NO_SITES = (
 PLACEMENT_CAP = 20  # объектов на площадку и в «Без размещения»: дальше — счётчиком
 
 
+def _site_name(s: dict[str, Any]) -> str:
+    """Площадка строкой карточки: «Кластер prod (в Облако)»; у контейнера площадка, где
+    стоит часть его объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
+    notes = [f"в {s['parent_name']}"] if s.get("parent_name") else []
+    if s.get("partial"):
+        notes.append("часть объектов")
+    name = str(s.get("name", "?"))
+    return f"{name} ({', '.join(notes)})" if notes else name
+
+
 def placement_line(node: dict[str, Any]) -> str | None:
-    """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — действующие
-    площадки объекта (NodeResponse.sites). Унаследованное размещение приходит целиком от
-    одного предка — «— от контейнера «Витрина»» в конце строки. Пусто — строки нет."""
+    """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
+    (NodeResponse.sites); у контейнера — площадки его объектов, частичные помечены.
+    Пусто — строки нет."""
     sites = list(node.get("sites") or [])
     if not sites:
         return None
-    names = [
-        f"{s.get('name', '?')} (в {s['parent_name']})" if s.get("parent_name") else str(s.get("name", "?"))
-        for s in sites
-    ]
-    line = "Размещение: " + ", ".join(names)
-    donor = next((s for s in sites if s.get("inherited_from_id")), None)
-    if donor is not None:
-        name = donor.get("inherited_from_name")
-        line += f" — от контейнера «{name}»" if name else " — от контейнера"
-    return line
+    return "Размещение: " + ", ".join(_site_name(s) for s in sites)
 
 
 def site_label(site: dict[str, Any]) -> str:
@@ -183,19 +184,67 @@ def _objects(n: int) -> str:
     return f"{n} {_plural(n, ('объект', 'объекта', 'объектов'))}"
 
 
+def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str, Any], int]]]:
+    """Состав площадок: площадка → [(узел, объектов в нём)]. Контейнер, все объекты
+    которого стоят на одном наборе площадок (sites без partial), — одной строкой со
+    счётчиком объектов, внутрь не спускаемся; иначе — его объекты по отдельности."""
+    kids_of: dict[str | None, list[dict[str, Any]]] = {}
+    for n in nodes:
+        parent = str(n["parent_id"]) if n.get("parent_id") else None
+        kids_of.setdefault(parent, []).append(n)
+    members: dict[str, list[tuple[dict[str, Any], int]]] = {}
+
+    def leaves(n: dict[str, Any], seen: set[str]) -> int:
+        """Объектов в поддереве n; его узлы ложатся в seen — контейнер, взятый целиком,
+        второй раз (по списку всех узлов) не обходится."""
+        children = kids_of.get(str(n["id"]), [])
+        if not children:
+            return 0 if n.get("shape") == "person" else 1
+        total = 0
+        for k in children:
+            kid = str(k["id"])
+            if kid in seen:
+                continue
+            seen.add(kid)
+            total += leaves(k, seen)
+        return total
+
+    def walk(n: dict[str, Any], seen: set[str]) -> None:
+        nid = str(n["id"])
+        if nid in seen or n.get("shape") == "person":
+            return
+        seen.add(nid)
+        placed = list(n.get("sites") or [])
+        children = kids_of.get(nid, [])
+        if not children:
+            for s in placed:
+                members.setdefault(str(s["id"]), []).append((n, 1))
+            return
+        if placed and not any(s.get("partial") for s in placed):
+            count = leaves(n, seen)
+            for s in placed:
+                members.setdefault(str(s["id"]), []).append((n, count))
+            return
+        for k in children:
+            walk(k, seen)
+
+    seen: set[str] = set()
+    for root in kids_of.get(None, []):
+        walk(root, seen)
+    for n in nodes:  # узлы в цикле родителей (страховка) — как корневые
+        walk(n, seen)
+    return members
+
+
 def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) -> list[str]:
     """Площадки деревом с составом (archmap_deployment без объекта).
 
-    Под площадкой — объекты, поставленные на неё САМИ (свой экземпляр): контейнер с
-    пометкой — его вложенные без своего размещения стоят там же. Затем «Без размещения»
-    — листья без действующего размещения, кроме «Пользователей» (они живут вне
-    системы). nodes — /nodes/all: у каждого объекта действующее размещение (sites)."""
+    Под площадкой — что на ней стоит: контейнер целиком одной строкой («целиком, N
+    объектов») или объекты по отдельности (_site_members). Затем «Без размещения» —
+    объекты без площадок, кроме «Пользователей» (они живут вне системы). nodes —
+    /nodes/all: sites объекта — его площадки, контейнера — площадки его объектов."""
     by_id = {str(n["id"]): n for n in nodes}
-    own: dict[str, list[dict[str, Any]]] = {}
-    for n in nodes:
-        for s in n.get("sites") or []:
-            if not s.get("inherited_from_id"):
-                own.setdefault(str(s["id"]), []).append(n)
+    own = _site_members(nodes)
     ids = {str(s["id"]) for s in sites}
     kids: dict[str | None, list[dict[str, Any]]] = {}
     for s in sites:
@@ -211,11 +260,11 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
             return
         seen.add(sid)
         pad = "  " * depth
-        members = sorted(own.get(sid, []), key=lambda n: path_of(str(n["id"]), by_id))
-        count = _objects(len(members)) if members else "пусто"
-        out.append(f"{pad}{site_label(site)} — {count}")
-        for n in members[:PLACEMENT_CAP]:
-            tail = " (контейнер — вложенные без своего размещения здесь же)" if n.get("has_children") else ""
+        members = sorted(own.get(sid, []), key=lambda m: path_of(str(m[0]["id"]), by_id))
+        total = sum(c for _n, c in members)
+        out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
+        for n, c in members[:PLACEMENT_CAP]:
+            tail = f" (целиком, {_objects(c)})" if n.get("has_children") else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
         if len(members) > PLACEMENT_CAP:
             out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
@@ -245,28 +294,26 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
 def node_placement(
     node: dict[str, Any], by_id: dict[str, dict[str, Any]], sites: list[dict[str, Any]]
 ) -> list[str]:
-    """Действующее размещение одного объекта (archmap_deployment с node_id): путь
-    объекта, затем площадки путями с видом и пометкой наследования."""
+    """Размещение одного объекта (archmap_deployment с node_id): путь объекта, затем
+    площадки путями с видом; у контейнера это площадки его объектов, и где стоит часть
+    — пометка «часть объектов»."""
     out = [f"Путь: {path_of(str(node['id']), by_id)}  id={node['id']}"]
     if node.get("shape") == "person":
         out.append("Размещения нет: пользователь живёт вне системы")
         return out
-    effective = list(node.get("sites") or [])
-    if not effective:
-        out.append("Размещение: не указано — ни у объекта, ни у его контейнеров")
+    placed = list(node.get("sites") or [])
+    if not placed:
+        out.append("Размещение: не указано")
         return out
     paths = site_paths(sites)
     by_site = {str(s["id"]): s for s in sites}
-    out.append(f"Размещение ({len(effective)} {_plural(len(effective), ('площадка', 'площадки', 'площадок'))}):")
-    for e in effective:
+    out.append(f"Размещение ({len(placed)} {_plural(len(placed), ('площадка', 'площадки', 'площадок'))}):")
+    for e in placed:
         sid = str(e.get("id"))
         site = by_site.get(sid, e)
         label = site_label({**site, "name": paths.get(sid, e.get("name", "?"))})
-        if e.get("inherited_from_id"):
-            name = e.get("inherited_from_name")
-            label += f" — от контейнера «{name}»" if name else " — от контейнера"
-        else:
-            label += " — своё"
+        if e.get("partial"):
+            label += " — часть объектов"
         out.append(f"  • {label}")
     return out
 

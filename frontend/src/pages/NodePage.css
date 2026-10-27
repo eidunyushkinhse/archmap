@@ -430,9 +430,6 @@ button.np-approval {
   margin-left: 4px;
   color: #64748b;
 }
-.np-site-from {
-  margin-left: 8px;
-}
 .np-site-edit {
   margin-left: 10px;
   border: none;
@@ -450,13 +447,7 @@ button.np-approval {
   color: #94a3b8;
   cursor: default;
 }
-/* Пояснение у контейнера и отказ загрузки площадок — своей строкой под значением. */
-.np-site-hint {
-  display: block;
-  margin-top: 3px;
-  font-size: 12px;
-  color: #94a3b8;
-}
+/* Отказ загрузки площадок — своей строкой под значением. */
 .np-site-err {
   display: block;
   margin-top: 4px;

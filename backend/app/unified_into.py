@@ -47,7 +47,7 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
-from app.deployment import project_sites
+from app.deployment import leaf_placements, project_sites, project_tree
 from app.identity import known_key, source_ref_dict
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.business_process import BusinessProcess
@@ -822,9 +822,12 @@ def _apply_placements(
     Площадка — по имени: есть в проекте — берётся как есть (вид, технологию и описание
     живой площадки догрузка не трогает, расхождение вида уже назвал мердж), нет —
     создаётся с родителем по имени из проекта или плана (merged.sites идут «родители
-    раньше детей»). Узлу добавляются недостающие экземпляры; снимать нечего и нельзя —
-    догрузка не удаляет. skip — merged-узлы, слитые из нескольких живых тёзок: их набор
-    площадок смешан из разных записей, как и поля (_fill_node их тоже не доливает)."""
+    раньше детей»). Размещение достаётся объектам (листьям живого дерева): своё
+    объявление — себе, объявление контейнера — его объектам без своего
+    (app/deployment.leaf_placements); объекту добавляются недостающие экземпляры,
+    снимать нечего и нельзя — догрузка не удаляет. skip — merged-узлы, слитые из
+    нескольких живых тёзок: их набор площадок смешан из разных записей, как и поля
+    (_fill_node их тоже не доливает)."""
     if not merged.sites:
         return 0, 0
     by_name = {s.name: s.id for s in project_sites(db, project.id)}
@@ -855,17 +858,22 @@ def _apply_placements(
             DeploymentInstance.node_id, DeploymentInstance.site_id
         ).filter(DeploymentInstance.project_id == project.id)
     }
-    added = 0
+    declared: dict[uuid.UUID, list[uuid.UUID]] = {}
     for m, imp in enumerate(merged.nodes):
         node = node_of[m]
         if m in skip or node.shape == "person":
             continue
-        for name in imp.sites:
-            site_id = by_name.get(name)
-            if site_id is None or (node.id, site_id) in have:
+        site_ids = [by_name[name] for name in imp.sites if name in by_name]
+        if site_ids:
+            declared[node.id] = site_ids
+    parent_of, shapes = project_tree(db, project.id)
+    added = 0
+    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+        for site_id in placed:
+            if (node_id, site_id) in have:
                 continue
-            db.add(DeploymentInstance(project_id=project.id, node_id=node.id, site_id=site_id))
-            have.add((node.id, site_id))
+            db.add(DeploymentInstance(project_id=project.id, node_id=node_id, site_id=site_id))
+            have.add((node_id, site_id))
             added += 1
     db.flush()
     return created, added

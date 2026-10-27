@@ -19,7 +19,7 @@ import type {
 import { cardsOf, projectDeployment } from "../components/deployment/deploymentProjection";
 import PlacementDialog from "../components/deployment/PlacementDialog";
 import PlacementConflictList from "../components/deployment/PlacementConflictList";
-import { PLACE_LEAD, placeQuestion } from "../components/deployment/placementConflicts";
+import { PLACE_LEAD, placeQuestion, UNPLACE_LEAD, unplaceQuestion } from "../components/deployment/placementConflicts";
 import SitesDialog from "../components/deployment/SitesDialog";
 import { nodesApi, viewsApi } from "../api/nodes";
 import { isConflict } from "../api/client";
@@ -405,16 +405,19 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             onChanged={() => { setMutationToken((t) => t + 1); void dep.reload(); }}
           />
         )}
-        {/* Контейнер размещается целиком (D30): своё размещение объектов внутри на других
-            площадках снимется — перед записью список «объект: площадки». */}
+        {/* Контейнер размещается целиком (D30): набор получают все объекты внутри, чьё-то
+            иное размещение перезапишется (или снимется) — перед записью список «объект:
+            площадки». */}
         {placingMode.confirm && (
           <ConfirmDialog
             tone="neutral"
-            title={placeQuestion(placingMode.confirm.node.name, [placingMode.confirm.siteName])}
-            lead={PLACE_LEAD}
+            title={placingMode.confirm.siteId
+              ? placeQuestion(placingMode.confirm.node.name, [placingMode.confirm.siteName])
+              : unplaceQuestion(placingMode.confirm.node.name)}
+            lead={placingMode.confirm.siteId ? PLACE_LEAD : UNPLACE_LEAD}
             error={placingMode.confirmError}
-            confirmLabel="Разместить"
-            busyLabel="Размещение…"
+            confirmLabel={placingMode.confirm.siteId ? "Разместить" : "Снять"}
+            busyLabel={placingMode.confirm.siteId ? "Размещение…" : "Снятие…"}
             busy={placingMode.busy}
             onConfirm={() => { void placingMode.confirmPlace(); }}
             onCancel={placingMode.cancelConfirm}

@@ -1,14 +1,14 @@
 // Окно «Размещение» (docs/tasks/deployment-view.md §6): где крутятся выбранные объекты.
-// Площадки деревом с галочками — НАБОР экземпляров каждого объекта целиком. Галочка
-// стоит, если СВОЙ экземпляр на площадке есть у всех выбранных; частичная — у части;
-// у площадки, где размещение только унаследовано, — подпись «унаследовано от «X»».
-// Частичную галочку, которую не трогали, применение сохраняет как есть у каждого
-// объекта. Дерево площадок — общее с окном «Площадки» (SiteTree): свёрнуто, кроме
-// предков площадок, где стоят выбранные; новая площадка заводится «+» в дереве
-// (родитель — где нажали) и сразу отмечена. Контейнер размещается
-// ЦЕЛИКОМ (deployment.md D30): своё размещение объектов внутри снимается; если у кого-то
-// оно на других площадках — второй шаг в том же окне со списком «объект: площадки»
-// (вложенный <dialog> нельзя), «Разместить» / «Назад».
+// Площадки деревом с галочками — НАБОР площадок каждого объекта целиком. Галочка
+// стоит, если на площадке стоят все выбранные; частичная — часть (у контейнера —
+// часть его объектов). Частичную галочку, которую не трогали, применение сохраняет как
+// есть у каждого объекта. Дерево площадок — общее с окном «Площадки» (SiteTree):
+// свёрнуто, кроме предков площадок, где стоят выбранные; новая площадка заводится «+»
+// в дереве (родитель — где нажали) и сразу отмечена. Размещение хранится у объектов
+// (deployment.md D30): контейнер — это его объекты, им и пишется набор (состав проекта
+// грузится при открытии); «Убрать размещение» у контейнера снимает его у всех объектов
+// внутри — второй шаг в том же окне со списком «объект: площадки» (вложенный <dialog>
+// нельзя), «Снять» / «Назад».
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
@@ -27,7 +27,7 @@ import SiteTree, { SiteRowTitle } from "./SiteTree";
 import { useSiteExpansion } from "./useSiteExpansion";
 import { siteAncestorIds } from "./siteTree";
 import PlacementConflictList from "./PlacementConflictList";
-import { PLACE_LEAD, placementConflicts, placeQuestion, type PlacementConflict } from "./placementConflicts";
+import { leavesOf, UNPLACE_LEAD, unplaceQuestion, type PlacementConflict } from "./placementConflicts";
 import "./deployment.css";
 
 type Mark = "on" | "off" | "mixed";
@@ -43,32 +43,45 @@ interface Props {
   onSitesChanged: () => void;
 }
 
-// Запрос записи: объектам — ровно этот набор; clear — в группе контейнер с непустым
-// набором, он размещается целиком (флаг у листа безвреден: потомков у него нет).
-interface WriteGroup { nodeIds: string[]; siteIds: string[]; clear: boolean }
-// Контейнер, чьё размещение снимет своё размещение объектов внутри на других площадках.
-interface ContainerConflicts { container: DeploymentNode; siteIds: string[]; conflicts: PlacementConflict[] }
+// Кому пишется набор: объект — он сам, контейнер — его объекты.
+type Target = Pick<Node, "id" | "name" | "parent_id" | "sites">;
+// Запрос записи: объектам — ровно этот набор.
+interface WriteGroup { nodeIds: string[]; siteIds: string[] }
 
 const NO_NODES: Node[] = [];
 
-// Состояние галочки площадки по своим экземплярам выбранных объектов.
+// Состояние галочки площадки: стоят все выбранные (у контейнера — все его объекты:
+// instances), никто (площадки нет и в sites), иначе — часть.
 function initialMarks(objects: DeploymentNode[], sites: SiteOut[]): Record<string, Mark> {
   const out: Record<string, Mark> = {};
   for (const s of sites) {
-    const own = objects.filter((o) => o.instances.includes(s.id)).length;
-    out[s.id] = own === 0 ? "off" : own === objects.length ? "on" : "mixed";
+    const all = objects.every((o) => o.instances.includes(s.id));
+    const any = objects.some((o) => o.sites.some((x) => x.id === s.id));
+    out[s.id] = all ? "on" : any ? "mixed" : "off";
   }
   return out;
 }
 
-// Площадки, где стоят выбранные (своё или унаследованное размещение), видны сразу:
+// Площадки, где стоят выбранные (у контейнера — хоть кто-то внутри), видны сразу:
 // их предки раскрыты, остальное дерево свёрнуто.
 function initialExpanded(objects: DeploymentNode[], sites: SiteOut[]): Set<string> {
   const out = new Set<string>();
   for (const o of objects) {
-    for (const e of o.effective) for (const id of siteAncestorIds(sites, e.site_id)) out.add(id);
+    for (const s of o.sites) for (const id of siteAncestorIds(sites, s.id)) out.add(id);
   }
   return out;
+}
+
+// Объекты, которым пишется набор: лист — сам, контейнер — его объекты по составу
+// проекта (без «Пользователей»: их не размещают). Контейнер без объектов едет сам —
+// сервер ответит, что размещать в нём нечего.
+function targetsOf(objects: DeploymentNode[], all: Node[]): Target[] {
+  const out = new Map<string, Target>();
+  for (const o of objects) {
+    const leaves = o.has_children ? leavesOf(all, o).filter((n) => n.shape !== "person") : [];
+    for (const t of leaves.length > 0 ? leaves : [o]) out.set(t.id, t);
+  }
+  return [...out.values()];
 }
 
 export default function PlacementDialog({ objects, sites: initialSites, onClose, onApplied, onSitesChanged }: Props) {
@@ -77,31 +90,18 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const { expanded, toggle } = useSiteExpansion(() => initialExpanded(objects, initialSites));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReactNode>(null);
-  // Среди объектов есть контейнер — для предупреждения нужен состав проекта (один запрос
-  // при открытии; галочки им не блокируются, ждёт только «Применить»).
+  // Среди объектов есть контейнер — набор пишется его объектам, нужен состав проекта
+  // (один запрос при открытии; галочки им не блокируются, ждут только записи).
   const needAll = objects.some((o) => o.has_children);
   const all = useAsyncLoad(needAll ? "placement-nodes" : "placement-none", () => (needAll ? nodesApi.getAll() : Promise.resolve(NO_NODES)));
-  // Второй шаг: подтверждение размещения контейнеров целиком (галочки сохраняются).
-  const [step, setStep] = useState<{ groups: WriteGroup[]; items: ContainerConflicts[] } | null>(null);
-  const siteName = (id: string) => sites.find((s) => s.id === id)?.name ?? id;
-
-  // «унаследовано от «X»» — у площадки, где своего экземпляра нет ни у кого из
-  // выбранных, а действующий (от предка) есть.
-  const inheritedFrom = (siteId: string): string | null => {
-    if (marks[siteId] !== "off") return null;
-    for (const o of objects) {
-      const ref = o.sites.find((s) => s.id === siteId && s.inherited_from_id);
-      if (ref) return ref.inherited_from_name ?? null;
-    }
-    return null;
-  };
+  // Второй шаг: подтверждение снятия размещения у объектов контейнера.
+  const [clearing, setClearing] = useState<PlacementConflict[] | null>(null);
 
   const toggleMark = (siteId: string) => {
     setMarks((m) => ({ ...m, [siteId]: m[siteId] === "on" ? "off" : "on" }));
   };
 
-  const nodeIds = objects.map((o) => o.id);
-  const hasOwn = objects.some((o) => o.instances.length > 0);
+  const hasOwn = objects.some((o) => o.sites.length > 0);
   const subtitle = objects.length === 1
     ? objects[0].name
     : `${objects.length} ${plural(objects.length, ["объект", "объекта", "объектов"])}`;
@@ -119,51 +119,42 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     }
   };
 
+  const targets = () => targetsOf(objects, all.data ?? NO_NODES);
+
   // План записи: отмеченные площадки — всем; нетронутые частичные — как было у каждого.
   // Без частичных — один запрос на всех; с ними — по запросу на каждый итоговый набор.
-  const plan = (): { groups: WriteGroup[]; finalOf: Map<string, string[]> } => {
+  const plan = (): WriteGroup[] => {
     const on = sites.filter((s) => marks[s.id] === "on").map((s) => s.id);
     const mixed = sites.filter((s) => marks[s.id] === "mixed").map((s) => s.id);
     const groups = new Map<string, WriteGroup>();
-    const finalOf = new Map<string, string[]>();
-    for (const o of objects) {
-      const siteIds = [...on, ...mixed.filter((id) => o.instances.includes(id))];
-      finalOf.set(o.id, siteIds);
+    for (const t of targets()) {
+      const siteIds = [...on, ...mixed.filter((id) => t.sites.some((s) => s.id === id))];
       const key = [...siteIds].sort().join(",");
-      let g = groups.get(key);
-      if (!g) {
-        g = { siteIds, nodeIds: [], clear: false };
-        groups.set(key, g);
-      }
-      g.nodeIds.push(o.id);
-      if (o.has_children && siteIds.length > 0) g.clear = true;
+      const g = groups.get(key) ?? { siteIds, nodeIds: [] };
+      g.nodeIds.push(t.id);
+      groups.set(key, g);
     }
-    return { groups: [...groups.values()], finalOf };
+    return [...groups.values()];
   };
-  const writeGroups = async (groups: WriteGroup[]) => {
-    for (const g of groups) {
-      if (g.clear) await deploymentApi.setPlacements(g.nodeIds, g.siteIds, { clearDescendants: true });
-      else await deploymentApi.setPlacements(g.nodeIds, g.siteIds);
-    }
-  };
-  // Применить: контейнер с объектами внутри на других площадках — сначала второй шаг.
-  const apply = () => {
-    const { groups, finalOf } = plan();
-    const items: ContainerConflicts[] = [];
-    for (const o of objects) {
-      const siteIds = finalOf.get(o.id) ?? [];
-      if (!o.has_children || siteIds.length === 0) continue;
-      const conflicts = placementConflicts(all.data ?? NO_NODES, o.id, siteIds);
-      if (conflicts.length > 0) items.push({ container: o, siteIds, conflicts });
-    }
-    if (items.length > 0) {
-      setError(null);
-      setStep({ groups, items });
+  const apply = () => run(async () => {
+    for (const g of plan()) await deploymentApi.setPlacements(g.nodeIds, g.siteIds);
+  });
+
+  // Убрать размещение: у объектов — сразу; есть контейнер — сначала список, у кого
+  // внутри оно снимется.
+  const clearAll = () => run(() => deploymentApi.setPlacements(targets().map((t) => t.id), []));
+  const removeAll = () => {
+    if (!needAll) {
+      void clearAll();
       return;
     }
-    void run(() => writeGroups(groups));
+    const items = targets()
+      .filter((t) => t.sites.length > 0)
+      .map((t) => ({ node: t, siteNames: t.sites.map((s) => s.name) }))
+      .sort((a, b) => a.node.name.localeCompare(b.node.name, "ru"));
+    setError(null);
+    setClearing(items);
   };
-  const removeAll = () => run(() => deploymentApi.setPlacements(nodeIds, []));
 
   const createSite = async (parentId: string | null, v: SiteFormValue): Promise<boolean> => {
     setBusy(true);
@@ -189,35 +180,21 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     }
   };
 
-  // Второй шаг — вместо галочек в том же окне: что перезапишет размещение контейнера.
-  if (step) {
-    const one = step.items.length === 1 ? step.items[0] : null;
+  // Второй шаг — вместо галочек в том же окне: у кого внутри снимется размещение.
+  if (clearing) {
+    const one = objects.length === 1 ? objects[0] : null;
     return (
       <Modal onClose={onClose} boxStyle={{ width: 520, maxHeight: "86vh", overflowY: "auto" }}>
-        {one ? (
-          <>
-            <DialogTitle lead={PLACE_LEAD}>{placeQuestion(one.container.name, one.siteIds.map(siteName))}</DialogTitle>
-            <PlacementConflictList items={one.conflicts} />
-          </>
-        ) : (
-          <>
-            <DialogTitle lead={PLACE_LEAD_MANY}>Разместить контейнеры целиком?</DialogTitle>
-            {step.items.map((it) => (
-              <div key={it.container.id} className="placement-step-group">
-                <p className="placement-step-head">
-                  «{it.container.name}» → {it.siteIds.map((id) => `«${siteName(id)}»`).join(", ")}
-                </p>
-                <PlacementConflictList items={it.conflicts} />
-              </div>
-            ))}
-          </>
-        )}
+        <DialogTitle lead={one ? UNPLACE_LEAD : UNPLACE_LEAD_MANY}>
+          {one ? unplaceQuestion(one.name) : "Снять размещение выбранных объектов?"}
+        </DialogTitle>
+        <PlacementConflictList items={clearing} />
         {error && <p style={errText} role="alert">{error}</p>}
         <div className="site-dialog-footer">
-          <button type="button" style={primaryBtn} onClick={() => { void run(() => writeGroups(step.groups)); }} disabled={busy}>
-            Разместить
+          <button type="button" style={primaryBtn} onClick={() => { void clearAll(); }} disabled={busy}>
+            Снять
           </button>
-          <button type="button" style={secondaryBtn} onClick={() => { setStep(null); setError(null); }} disabled={busy}>
+          <button type="button" style={secondaryBtn} onClick={() => { setClearing(null); setError(null); }} disabled={busy}>
             Назад
           </button>
         </div>
@@ -225,8 +202,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     );
   }
 
-  // Состав проекта для предупреждения ещё грузится (или не загрузился) — ждёт только
-  // «Применить»; «Убрать размещение» контейнер целиком не размещает и не ждёт.
+  // Состав проекта ещё грузится (или не загрузился) — ждёт только запись.
   const allPending = needAll && all.data === null;
 
   return (
@@ -240,7 +216,6 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
         create={{ busy, onOpen: () => setError(null), onSubmit: createSite }}
         row={(site) => {
           const mark = marks[site.id] ?? "off";
-          const inherited = inheritedFrom(site.id);
           return (
             <label className="site-row-label">
               <input
@@ -251,7 +226,6 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
                 disabled={busy}
               />
               <SiteRowTitle site={site} />
-              {inherited && <span className="site-row-muted">унаследовано от «{inherited}»</span>}
             </label>
           );
         }}
@@ -260,16 +234,16 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
       {error && <p style={errText} role="alert">{error}</p>}
       {needAll && all.error !== null && (
         <p style={errText} role="alert">
-          Не удалось проверить объекты внутри контейнера. {loadErrorText(all.error)}{" "}
+          Не удалось загрузить объекты контейнера. {loadErrorText(all.error)}{" "}
           <button type="button" className="site-row-link" onClick={all.reload}>Повторить</button>
         </p>
       )}
 
       <div className="site-dialog-footer">
-        <button type="button" style={primaryBtn} onClick={apply} disabled={busy || allPending}>
+        <button type="button" style={primaryBtn} onClick={() => { void apply(); }} disabled={busy || allPending}>
           Применить
         </button>
-        <button type="button" style={secondaryBtn} onClick={() => { void removeAll(); }} disabled={busy || !hasOwn}>
+        <button type="button" style={secondaryBtn} onClick={removeAll} disabled={busy || allPending || !hasOwn}>
           Убрать размещение
         </button>
         <button type="button" style={secondaryBtn} onClick={onClose} disabled={busy}>
@@ -281,5 +255,5 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   );
 }
 
-// Пояснение второго шага, когда контейнеров с объектами на других площадках несколько.
-const PLACE_LEAD_MANY = "Все их компоненты будут размещены там же, включая те, что сейчас стоят на других площадках:";
+// Пояснение второго шага, когда выбранных объектов несколько.
+const UNPLACE_LEAD_MANY = "Размещение всех объектов внутри будет снято:";

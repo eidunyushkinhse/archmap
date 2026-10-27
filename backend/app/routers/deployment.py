@@ -3,7 +3,7 @@
 
 Площадки — плоский CRUD с CAS и проверкой вложенности; размещение — НАБОР площадок
 объекта целиком (PUT /placements, а со страницы объекта — PATCH /nodes/{id} site_ids);
-граф — всё поддерево уровня (контейнеры и листья) с их экземплярами. Правила
+граф — всё поддерево уровня (контейнеры и листья) с их размещением. Правила
 предметной области живут в app/deployment, здесь — HTTP: 404/409/422 и курсоры поллинга.
 
 Курсоры: площадки и размещение видны на холсте развёртывания — graph_rev; строка
@@ -27,9 +27,9 @@ from app.deployment import (
     SITE_NOT_FOUND,
     PlacementError,
     check_site_parent,
-    clear_descendant_placements,
-    effective_instances,
     ordered_instances,
+    own_by_node,
+    placement_map,
     project_sites,
     set_placements,
     site_refs,
@@ -54,7 +54,6 @@ from app.models.view_layout import DEPLOY_KEY_PREFIX, ViewLayoutItem
 from app.schemas.deployment import (
     DeploymentGraph,
     DeploymentNodeOut,
-    EffectiveInstanceOut,
     PlacementsIn,
     SiteCreate,
     SiteOut,
@@ -207,18 +206,15 @@ def put_placements(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    """Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять).
-    clear_descendants — контейнер размещается целиком: своё размещение потомков
-    снимается, они наследуют площадки контейнера. Объект или площадка не из проекта —
-    404, «Пользователь» среди объектов — 422; при отказе не записывается ничего:
-    проверки идут до записи, чистка потомков — после них."""
+    """Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять);
+    контейнер размещается целиком — набор получает каждый объект внутри. Объект или
+    площадка не из проекта — 404, «Пользователь» среди объектов или контейнер без
+    объектов — 422; при отказе не записывается ничего: проверки идут до записи."""
     nodes = [node_or_404(db, nid, project) for nid in dict.fromkeys(payload.node_ids)]
     try:
         changed = set_placements(db, project, nodes, set(payload.site_ids))
     except PlacementError as e:
         raise HTTPException(status_code=e.status, detail=e.detail) from None
-    if payload.clear_descendants:
-        changed += clear_descendant_placements(db, project, nodes)
     commit_change(db, project, user.id, graph=bool(changed), meta=bool(changed))
 
 
@@ -234,9 +230,9 @@ def get_deployment_graph(
     Объекты — ВСЁ ПОДДЕРЕВО уровня: контейнеры и листья любой глубины (сам контейнер
     уровня не входит — уровень это объём, а не объект), кроме «Пользователей»: они
     живут вне системы. Кого рисовать — цельный контейнер одной карточкой или его
-    объекты по отдельности — решает фронт по действующему размещению листьев, поэтому
-    у каждого узла есть и свои экземпляры, и действующие (с наследованием от предка),
-    и число прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
+    объекты по отдельности — решает фронт по размещению листьев, поэтому у каждого
+    узла есть instances (у контейнера — площадки, где стоят все его объекты) и число
+    прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
     «к ближайшему экземпляру» и подъём к представителю применяет фронт). Площадки —
     все площадки проекта: на любом уровне они одни и те же.
     """
@@ -254,12 +250,13 @@ def get_deployment_graph(
     sites = project_sites(db, project.id)
     sites_by_id = {site.id: site for site in sites}
     pairs = ordered_instances(db, project.id, sites)
-    effective = effective_instances({n.id: n.parent_id for n in all_nodes.values()}, pairs)
-    own: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for node_id, site_id in pairs:
-        own.setdefault(node_id, []).append(site_id)
+    places = placement_map(
+        {n.id: n.parent_id for n in all_nodes.values()},
+        {n.id: n.shape for n in all_nodes.values()},
+        own_by_node(pairs),
+        {site.id: i for i, site in enumerate(sites)},
+    )
     approvals = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
-    node_names = {nid: n.name for nid, n in all_nodes.items()}
 
     nodes_out: list[DeploymentNodeOut] = []
     for n in shown:
@@ -269,15 +266,12 @@ def get_deployment_graph(
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = approvals.get(n.id, n.approval)
-        n.sites = site_refs(n, effective.get(n.id, []), sites_by_id, node_names)
+        n.sites = site_refs(n, places.get(n.id, []), sites_by_id)
         nodes_out.append(
             DeploymentNodeOut(
                 **NodeResponse.model_validate(n).model_dump(),
-                instances=own.get(n.id, []),
-                effective=[
-                    EffectiveInstanceOut(site_id=e.site_id, inherited_from_id=e.inherited_from_id)
-                    for e in effective.get(n.id, [])
-                ],
+                # Объект — его площадки; контейнер — где стоят все его объекты.
+                instances=[p.site_id for p in places.get(n.id, []) if not p.partial],
             )
         )
 

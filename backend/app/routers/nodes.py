@@ -403,8 +403,9 @@ def _apply_site_ids(
     db: Session, project: Project, node: Node, site_ids: list[uuid.UUID] | None
 ) -> None:
     """Размещение из PATCH узла (NodeUpdate.site_ids): None — не прислано, не трогаем;
-    список — набор площадок целиком (app/deployment.set_placements). Отказ домена —
-    в HTTP (404 — площадка не из проекта, 422 — «Пользователь»)."""
+    список — набор площадок целиком, у контейнера — каждому объекту внутри
+    (app/deployment.set_placements). Отказ домена — в HTTP (404 — площадка не из
+    проекта, 422 — «Пользователь» или контейнер без объектов)."""
     if site_ids is None:
         return
     try:

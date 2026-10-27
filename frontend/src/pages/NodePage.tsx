@@ -55,7 +55,7 @@ const nodeSig = (n: Node): string => JSON.stringify([
   n.approval, n.approval_effective,
   // Размещение — строка «Свойств» (Ф3 развёртывания): чужая смена площадок двигает
   // курсоры, но не CAS узла, — без неё в сигнатуре строка осталась бы прежней.
-  n.sites.map((s) => [s.id, s.name, s.kind, s.parent_name, s.inherited_from_id, s.inherited_from_name]),
+  n.sites.map((s) => [s.id, s.name, s.kind, s.parent_name, s.partial]),
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 

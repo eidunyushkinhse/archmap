@@ -1,10 +1,11 @@
 // Режим размещения холста «Развёртывание» (docs/specs/deployment.md D29–D30, ТЗ §2а
 // п. 8–9). Вход — иконка строки дерева: холст ждёт щелчка по площадке (рамке, карточке
 // площадки или карточке объекта в зоне), баннер «Куда поставить «X»?» с «Снять
-// размещение» (если у объекта есть своё) и «Отмена», Esc отменяет. Лист ставится на
-// площадку сразу; контейнер размещается ЦЕЛИКОМ — своё размещение объектов внутри
-// снимается, и если у кого-то оно на других площадках, сначала подтверждение со списком
-// «объект: площадки». После записи режим закрывается, граф перечитывается, объект на
+// размещение» (если у объекта оно есть) и «Отмена», Esc отменяет. Лист ставится на
+// площадку сразу; контейнер размещается ЦЕЛИКОМ — набор получают все объекты внутри,
+// и если у кого-то размещение иное, сначала подтверждение со списком «объект:
+// площадки»; «Снять размещение» у контейнера снимает его у всех объектов внутри — тоже
+// с подтверждением. После записи режим закрывается, граф перечитывается, объект на
 // уровне выделяется, вне уровня — тост. Смена уровня режим не сбрасывает: площадки на
 // всех уровнях одни.
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -13,7 +14,7 @@ import { deploymentApi } from "../api/deployment";
 import { nodesApi } from "../api/nodes";
 import { loadErrorText } from "../ui/loadErrorText";
 import { cardsOf, pickedSite, projectDeployment, type DeploymentProjection } from "../components/deployment/deploymentProjection";
-import { ownSites, placementConflicts, type PlacementConflict } from "../components/deployment/placementConflicts";
+import { hasPlacement, placementConflicts, type PlacementConflict } from "../components/deployment/placementConflicts";
 
 interface Args {
   proj: DeploymentProjection | null;
@@ -32,7 +33,8 @@ interface Args {
 
 export interface PlacingConfirm {
   node: AppNode;
-  siteId: string;
+  // площадка, куда ставим; null — снятие размещения контейнера
+  siteId: string | null;
   siteName: string;
   conflicts: PlacementConflict[];
 }
@@ -82,7 +84,8 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
     if (cards.length > 0) onShow(cards);
     else onToast(toast);
   };
-  const placedText = (node: AppNode, siteId: string) => `„${node.name}“ размещён на „${siteName(siteId)}“`;
+  const placedText = (node: AppNode, siteId: string | null) =>
+    siteId ? `„${node.name}“ размещён на „${siteName(siteId)}“` : `Размещение „${node.name}“ снято`;
 
   const run = async (write: () => Promise<void>) => {
     if (busyRef.current) return;
@@ -99,22 +102,22 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
     }
   };
 
-  // Щелчок по площадке. Лист — сразу; контейнер — по свежему составу проекта: свои
-  // размещения внутри на других площадках — сначала подтверждение.
-  const placeOn = (node: AppNode, siteId: string) => run(async () => {
-    const container = fresh(node).has_children;
-    if (container) {
-      const conflicts = placementConflicts(await nodesApi.getAll(), node.id, [siteId]);
+  // Запись набора (площадка или пустой — снятие). Лист — сразу; контейнер — по свежему
+  // составу проекта: объекты внутри с иным размещением — сначала подтверждение.
+  const write = (node: AppNode, siteId: string | null) => run(async () => {
+    const target = siteId ? [siteId] : [];
+    if (fresh(node).has_children) {
+      const conflicts = placementConflicts(await nodesApi.getAll(), node.id, target);
       if (conflicts.length > 0) {
         setConfirmError(null);
-        setConfirm({ node, siteId, siteName: siteName(siteId), conflicts });
+        setConfirm({ node, siteId, siteName: siteId ? siteName(siteId) : "", conflicts });
         return;
       }
     }
-    if (container) await deploymentApi.setPlacements([node.id], [siteId], { clearDescendants: true });
-    else await deploymentApi.setPlacements([node.id], [siteId]);
+    await deploymentApi.setPlacements([node.id], target);
     await finish(node, placedText(node, siteId));
   });
+  const placeOn = (node: AppNode, siteId: string) => write(node, siteId);
 
   // Колбэк холста (projection.pickFrame): id рамки или карточки → площадка; группа «не
   // указано» — не площадка, режим остаётся. Наружу — стабильная обёртка над свежим
@@ -128,14 +131,9 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
   useEffect(() => { pickRef.current = pickNow; });
   const pickFrame = useCallback((canvasId: string) => pickRef.current(canvasId), []);
 
-  // «Снять размещение» — своё размещение объекта; у контейнера объекты внутри не трогаем.
+  // «Снять размещение» — у объекта; у контейнера — у всех объектов внутри (с подтверждением).
   const unplace = () => {
-    if (!placing) return;
-    const node = placing.node;
-    void run(async () => {
-      await deploymentApi.setPlacements([node.id], []);
-      await finish(node, `Своё размещение „${node.name}“ снято`);
-    });
+    if (placing) void write(placing.node, null);
   };
 
   // Подтверждение «Разместить»: контейнер целиком. «Отмена» — без записи, режим жив.
@@ -145,7 +143,7 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
     setBusy(true);
     setConfirmError(null);
     try {
-      await deploymentApi.setPlacements([confirm.node.id], [confirm.siteId], { clearDescendants: true });
+      await deploymentApi.setPlacements([confirm.node.id], confirm.siteId ? [confirm.siteId] : []);
       await finish(confirm.node, placedText(confirm.node, confirm.siteId));
     } catch (e) {
       setConfirmError(`Не удалось разместить. ${loadErrorText(e)}`);
@@ -158,8 +156,9 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
 
   return {
     placing: placing?.node ?? null,
-    // своё размещение у объекта есть — в баннере «Снять размещение»
-    hasOwn: placing ? ownSites(fresh(placing.node)).length > 0 : false,
+    // размещение у объекта есть (у контейнера — хоть у кого-то внутри) — в баннере
+    // «Снять размещение»
+    hasOwn: placing ? hasPlacement(allNodes, fresh(placing.node)) : false,
     busy, error, confirm, confirmError,
     start, cancel, unplace, confirmPlace, cancelConfirm,
     // задан только в режиме — холст включает выбор площадки щелчком

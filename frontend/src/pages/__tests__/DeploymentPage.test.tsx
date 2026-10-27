@@ -63,8 +63,9 @@ function obj(id: string, places: string[]): DeploymentNode {
     id, name: id.toUpperCase(), description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
-    sites: [], version: 1, created_at: "", updated_at: "",
-    instances: places, effective: places.map((site_id) => ({ site_id, inherited_from_id: null })),
+    version: 1, created_at: "", updated_at: "",
+    sites: places.map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, partial: false })),
+    instances: places,
   };
 }
 function graph(over: Partial<DeploymentGraph> = {}): DeploymentGraph {
@@ -99,16 +100,17 @@ const treeProps = (): TreeProps => {
   if (!tree.current) throw new Error("дерево не отрисовано");
   return tree.current;
 };
-// Узел проекта (ответ /nodes/all и строки дерева): sites — действующее размещение.
+// Узел проекта (ответ /nodes/all и строки дерева): sites — площадки объекта; у контейнера
+// — площадки его объектов (partial — стоит часть).
 function pnode(
   id: string, name: string, parent_id: string | null,
-  over: { has_children?: boolean; shape?: AppNode["shape"]; own?: string[]; inherited?: string[] } = {},
+  over: { has_children?: boolean; shape?: AppNode["shape"]; own?: string[]; partial?: string[] } = {},
 ): AppNode {
   return {
     id, name, parent_id, has_children: over.has_children ?? false, shape: over.shape ?? "service",
     sites: [
-      ...(over.own ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, inherited_from_id: null })),
-      ...(over.inherited ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, inherited_from_id: "parent" })),
+      ...(over.own ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, partial: false })),
+      ...(over.partial ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, partial: true })),
     ],
   } as AppNode;
 }
@@ -348,7 +350,7 @@ describe("DeploymentPage", () => {
     expect(treeProps().onPlace).toBeUndefined();
   });
 
-  it("лист: щелчок по площадке — набор из неё без флага; режим закрыт, граф перечитан, карточки выделены", async () => {
+  it("объект: щелчок по площадке — набор из неё; режим закрыт, граф перечитан, карточки выделены", async () => {
     await setup();
     act(() => { treeProps().onPlace?.(pnode("b", "B", null)); });
     act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
@@ -378,19 +380,20 @@ describe("DeploymentPage", () => {
     expect(await screen.findByText("„Лист“ размещён на „s1“")).toBeInTheDocument();
   });
 
-  it("контейнер без конфликтов — запись с флагом «целиком»", async () => {
+  it("контейнер, чьи объекты нигде не стоят или стоят там же, — запись сразу (набор объектам раздаёт сервер)", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      pnode("c1", "Витрина", null, { has_children: true }),
-      pnode("l1", "Лист", "c1", { inherited: ["s1"] }),
+      pnode("c1", "Витрина", null, { has_children: true, partial: ["t"] }),
+      pnode("l1", "Лист", "c1"),
+      pnode("l2", "Каталог", "c1", { own: ["t"] }),
     ]);
     await setup();
     await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
     act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
     act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
-    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"], { clearDescendants: true }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"]));
   });
 
-  it("контейнер с объектами на других площадках: окно со списком; «Отмена» — без записи, «Разместить» — с флагом", async () => {
+  it("контейнер с объектами на других площадках: окно со списком; «Отмена» — без записи, «Разместить» — пишет", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true }),
       pnode("l1", "Order API", "c1", { own: ["s1"] }),
@@ -415,11 +418,28 @@ describe("DeploymentPage", () => {
 
     act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
     await userEvent.click(await screen.findByRole("button", { name: "Разместить" }));
-    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"], { clearDescendants: true }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"]));
     await waitFor(() => expect(banner()).toBeNull());
   });
 
-  it("«Снять размещение» — только при своём размещении, шлёт пустой набор", async () => {
+  it("«Снять размещение» у контейнера: подтверждение со списком его объектов; «Снять» шлёт пустой набор", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pnode("c1", "Витрина", null, { has_children: true, partial: ["s1"] }),
+      pnode("l1", "Order API", "c1", { own: ["s1"] }),
+      pnode("l2", "Каталог", "c1"),
+    ]);
+    await setup();
+    act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
+    await userEvent.click(await screen.findByRole("button", { name: "Снять размещение" }));
+    expect(await screen.findByText("Снять размещение «Витрина»?")).toBeInTheDocument();
+    expect(screen.getByText(/Размещение всех его компонентов будет снято/)).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Order API: S1"]);
+    await userEvent.click(screen.getByRole("button", { name: "Снять" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], []));
+    await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it("«Снять размещение» — только при размещении, шлёт пустой набор", async () => {
     await setup();
     await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
     act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });

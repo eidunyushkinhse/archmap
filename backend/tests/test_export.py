@@ -392,25 +392,25 @@ def _place(db, node, site):
 
 
 def _площадки(db) -> dict:
-    """Облако → Кластер prod, отдельная ВМ-2 и пустая «Стойка». Витрина стоит в
-    облаке целиком, её API — ещё и в кластере и на ВМ, Корзина наследует облако."""
+    """Облако → Кластер prod, отдельная ВМ-2 и пустая «Стойка». Размещение — только у
+    объектов: API Витрины — в кластере и на ВМ, Корзина — в облаке, Платежи — на ВМ."""
     облако = _site(db, "Облако", kind="cloud", technology="Yandex Cloud")
     кластер = _site(db, "Кластер prod", облако, kind="kubernetes", description="прод")
     вм = _site(db, "ВМ-2", kind="vm")
     _site(db, "Стойка")  # пустая площадка: вид other, без технологии
     витрина = _node(db, "Витрина")
     api = _node(db, "API", витрина)
-    _node(db, "Корзина", витрина)
+    корзина = _node(db, "Корзина", витрина)
     платежи = _node(db, "Платежи")
-    _place(db, витрина, облако)
+    _place(db, корзина, облако)
     _place(db, api, кластер)
     _place(db, api, вм)
     _place(db, платежи, вм)
     db.commit()
-    return {"витрина": витрина, "api": api, "платежи": платежи}
+    return {"витрина": витрина, "api": api, "платежи": платежи, "облако": облако}
 
 
-def test_экспорт_пишет_раздел_площадок_и_свои_площадки_узла(db):
+def test_экспорт_пишет_раздел_площадок_и_площадки_объектов(db):
     _площадки(db)
 
     doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
@@ -426,16 +426,38 @@ def test_экспорт_пишет_раздел_площадок_и_свои_п�
         ]
     }
     витрина, платежи = doc["nodes"]
-    assert витрина["name"] == "Витрина" and витрина["sites"] == ["Облако"]
+    # Объекты Витрины стоят на разных площадках — у неё самой ключа sites нет.
+    assert витрина["name"] == "Витрина" and "sites" not in витрина
     assert платежи["sites"] == ["ВМ-2"]
     api, корзина = витрина["children"]
-    # Свои площадки — в порядке площадок по имени; унаследованное не пишется.
+    # Площадки объекта — в порядке площадок по имени.
     assert api["sites"] == ["ВМ-2", "Кластер prod"]
-    assert "sites" not in корзина
-    # Ключ sites — после source и до children: порядок ключей документа осознанный.
-    assert list(витрина) == ["name", "shape", "sites", "children"]
+    assert корзина["sites"] == ["Облако"]
+    assert list(витрина) == ["name", "shape", "children"]
     # Раздел — последним, после связей.
     assert list(doc) == ["nodes", "edges", "deployment"]
+
+
+def test_контейнер_с_объектами_на_одном_наборе_пишет_sites_сам(db):
+    """Все объекты контейнера стоят на одном наборе площадок — sites пишется у
+    контейнера, а у поддерева нет (импорт раздаёт объявление контейнера объектам:
+    test_import). Ключ sites — после source и до children."""
+    узлы = _площадки(db)
+    _place(db, узлы["api"], узлы["облако"])
+    db.commit()
+    # API: ВМ-2, Кластер prod, Облако — всё ещё не как у Корзины (только Облако)
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    assert "sites" not in doc["nodes"][0]
+
+    db.query(DeploymentInstance).filter(DeploymentInstance.node_id == узлы["api"].id).delete()
+    _place(db, узлы["api"], узлы["облако"])
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    витрина = doc["nodes"][0]
+    assert витрина["sites"] == ["Облако"]
+    assert list(витрина) == ["name", "shape", "sites", "children"]
+    assert all("sites" not in k for k in витрина["children"])
 
 
 def test_экспорт_поддерева_берёт_нужные_площадки_с_предками(db):

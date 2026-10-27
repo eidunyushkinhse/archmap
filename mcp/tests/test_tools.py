@@ -636,11 +636,9 @@ def site_out(site_id: str, name: str, kind: str, parent: str | None = None) -> d
 SITES = [site_out(CLOUD, "Облако", "cloud"), site_out(CLUSTER, "Кластер prod", "kubernetes", CLOUD)]
 
 
-def site_ref(site_id: str, name: str, parent_name: str | None = None,
-             donor: str | None = None) -> dict[str, object]:
+def site_ref(site_id: str, name: str, parent_name: str | None = None) -> dict[str, object]:
     out = {"id": site_id, "name": name, "kind": "cloud", "parent_id": CLOUD if parent_name else None,
-           "parent_name": parent_name, "inherited_from_id": OTHER_ID if donor else None,
-           "inherited_from_name": donor}
+           "parent_name": parent_name, "partial": False}
     backend("schemas.node").NodeSiteOut.model_validate(out)
     return out
 
@@ -667,12 +665,12 @@ async def test_правка_размещения_шлёт_id_площадок_п
     assert out.splitlines()[-1] == "Размещение: Кластер prod (в Облако), Облако"
 
 
-async def test_пустой_список_площадок_снимает_своё_размещение(
+async def test_пустой_список_площадок_снимает_размещение(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     """⚠️ Фильтр «не None» отбросил бы [] как пустое поле — и снять размещение было бы
     нечем. Список площадок при [] не нужен: id не резолвятся."""
-    api.patch("/nodes/n2", node("n2", "API", sites=[site_ref(CLOUD, "Облако", donor="Витрина")]))
+    api.patch("/nodes/n2", node("n2", "API", sites=[]))
 
     out = await tools.call(
         "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "sites": []}, client
@@ -680,13 +678,6 @@ async def test_пустой_список_площадок_снимает_сво�
 
     assert json.loads(api.calls[-1].content) == {"site_ids": []}
     assert "/deployment/sites" not in " ".join(c.url.path for c in api.calls)
-    # Своё снято, а унаследованное от контейнера осталось — агент видит это сразу.
-    assert out.splitlines()[-1] == "Размещение: Облако — от контейнера «Витрина»"
-
-    api.patch("/nodes/n2", node("n2", "API", sites=[]))
-    out = await tools.call(
-        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "sites": []}, client
-    )
     assert out.splitlines()[-1] == "Размещение: не указано"
 
 

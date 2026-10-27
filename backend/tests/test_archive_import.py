@@ -189,7 +189,9 @@ def test_неразрешённый_адрес_дока_уходит_в_заме
 
 def test_архив_с_площадками_применяется(db):
     """Площадки и размещение едут разделом deployment в c4.yaml архива: вложенность,
-    вид, технология, описание, пустая площадка и свои экземпляры возвращаются как были."""
+    вид, технология, описание, пустая площадка и размещение объектов возвращаются как
+    были (единственный объект Витрины стоит в кластере — экспорт пишет sites у неё,
+    ввоз раздаёт объекту)."""
     проект = ensure_project(db)
     витрина = Node(id=uuid.uuid4(), name="Витрина", project_id=проект.id)
     api = Node(id=uuid.uuid4(), name="API", project_id=проект.id, parent_id=витрина.id)
@@ -203,10 +205,7 @@ def test_архив_с_площадками_применяется(db):
     стойка = DeploymentSite(id=uuid.uuid4(), project_id=проект.id, name="Стойка")
     db.add_all([кластер, стойка])
     db.flush()
-    db.add_all([
-        DeploymentInstance(project_id=проект.id, node_id=витрина.id, site_id=облако.id),
-        DeploymentInstance(project_id=проект.id, node_id=api.id, site_id=кластер.id),
-    ])
+    db.add(DeploymentInstance(project_id=проект.id, node_id=api.id, site_id=кластер.id))
     db.commit()
 
     план, новый, _ = _ввоз(db, build_archive(db, проект), "Копия")
@@ -230,5 +229,5 @@ def test_архив_с_площадками_применяется(db):
     assert {
         (узлы[i.node_id], площадки[i.site_id].name)
         for i in db.query(DeploymentInstance).filter(DeploymentInstance.project_id == новый.id)
-    } == {("Витрина", "Облако"), ("API", "Кластер prod")}
+    } == {("API", "Кластер prod")}
     assert по_имени["Кластер prod"].parent_id == по_имени["Облако"].id

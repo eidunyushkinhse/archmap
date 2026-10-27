@@ -35,13 +35,12 @@ def site(site_id: str, name: str, kind: str, parent: str | None = None, **over: 
 
 
 def ref(site_id: str, name: str, kind: str, parent_name: str | None = None,
-        donor: tuple[str, str] | None = None) -> dict[str, Any]:
-    """Строка NodeResponse.sites — действующий экземпляр объекта."""
+        partial: bool = False) -> dict[str, Any]:
+    """Строка NodeResponse.sites — площадка объекта (у контейнера partial — стоит часть)."""
     out = {
         "id": site_id, "name": name, "kind": kind,
         "parent_id": CLOUD if parent_name else None, "parent_name": parent_name,
-        "inherited_from_id": donor[0] if donor else None,
-        "inherited_from_name": donor[1] if donor else None,
+        "partial": partial,
     }
     backend("schemas.node").NodeSiteOut.model_validate(out)
     return out
@@ -54,14 +53,20 @@ SITES = [
     site(RACK, "Стойка", "other"),
 ]
 
+# Площадки контейнера — площадки его объектов: у «Витрины» и «Ярмарки» все частичные
+# (API — ВМ-2 и кластер, Корзина — облако, Платежи — нигде).
+PART = [
+    ref(VM, "ВМ-2", "vm", partial=True),
+    ref(CLUSTER, "Кластер prod", "kubernetes", "Облако", partial=True),
+    ref(CLOUD, "Облако", "cloud", partial=True),
+]
 NODES = [
-    node(ROOT, "Ярмарка", has_children=True, sites=[]),
-    node(SHOP, "Витрина", ROOT, has_children=True,
-         sites=[ref(CLOUD, "Облако", "cloud")]),
+    node(ROOT, "Ярмарка", has_children=True, sites=PART),
+    node(SHOP, "Витрина", ROOT, has_children=True, sites=PART),
     node(API, "API", SHOP, sites=[
         ref(VM, "ВМ-2", "vm"), ref(CLUSTER, "Кластер prod", "kubernetes", "Облако"),
     ]),
-    node(CART, "Корзина", SHOP, sites=[ref(CLOUD, "Облако", "cloud", donor=(SHOP, "Витрина"))]),
+    node(CART, "Корзина", SHOP, sites=[ref(CLOUD, "Облако", "cloud")]),
     node(PAY, "Платежи", ROOT, sites=[]),
     node(BUYER, "Покупатель", shape="person", sites=[]),
 ]
@@ -84,13 +89,35 @@ async def test_площадки_деревом_с_составом_и_без_р�
         "ВМ-2 [вм] — 1 объект",
         f"  • Ярмарка / Витрина / API  id={API}",
         "Облако [облако, Yandex Cloud] — 1 объект",
-        f"  • Ярмарка / Витрина (контейнер — вложенные без своего размещения здесь же)  id={SHOP}",
+        f"  • Ярмарка / Витрина / Корзина  id={CART}",
         "  Кластер prod [kubernetes, k3s] — 1 объект",
         f"    • Ярмарка / Витрина / API  id={API}",
         "Стойка [другое] — пусто",
-        # Корзина наследует облако, Ярмарка — контейнер, Покупатель живёт вне системы.
+        # Контейнеры с объектами на разных площадках раскрыты до объектов; Покупатель
+        # живёт вне системы.
         "Без размещения: 1 объект",
         f"  • Ярмарка / Платежи  id={PAY}",
+    ]
+
+
+async def test_контейнер_целиком_одной_строкой(client: ArchMapClient, api: FakeApi) -> None:
+    """Все объекты контейнера на одном наборе площадок — контейнер одной строкой со
+    счётчиком объектов, внутрь дерево не спускается."""
+    whole = [ref(CLOUD, "Облако", "cloud")]
+    routes(api, [SITES[1]], [
+        node(ROOT, "Ярмарка", has_children=True, sites=whole),
+        node(SHOP, "Витрина", ROOT, has_children=True, sites=whole),
+        node(API, "API", SHOP, sites=whole),
+        node(CART, "Корзина", SHOP, sites=whole),
+        node(BUYER, "Покупатель", ROOT, shape="person", sites=[]),
+    ])
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines()[1:] == [
+        "Облако [облако, Yandex Cloud] — 2 объекта",
+        f"  • Ярмарка (целиком, 2 объекта)  id={ROOT}",
+        "Без размещения: нет — все объекты стоят на площадках",
     ]
 
 
@@ -111,29 +138,30 @@ async def test_состав_площадки_и_без_размещения_с_�
     assert lines[-1] == "  …и ещё 1" and len(lines) == 24 + 20 + 1
 
 
-async def test_размещение_одного_объекта_с_наследованием(
+async def test_размещение_одного_объекта_и_контейнера(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     routes(api)
 
     own = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": API}, client)
-    inherited = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": CART}, client)
+    container = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": SHOP}, client)
     nothing = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": PAY}, client)
 
     assert own.splitlines() == [
         "Проект «Ярмарка»",
         f"Путь: Ярмарка / Витрина / API  id={API}",
         "Размещение (2 площадки):",
-        "  • ВМ-2 [вм] — своё",
-        "  • Облако / Кластер prod [kubernetes, k3s] — своё",
+        "  • ВМ-2 [вм]",
+        "  • Облако / Кластер prod [kubernetes, k3s]",
     ]
-    assert inherited.splitlines()[2:] == [
-        "Размещение (1 площадка):",
-        "  • Облако [облако, Yandex Cloud] — от контейнера «Витрина»",
+    # Контейнер: площадки его объектов, где стоит часть — пометка.
+    assert container.splitlines()[2:] == [
+        "Размещение (3 площадки):",
+        "  • ВМ-2 [вм] — часть объектов",
+        "  • Облако / Кластер prod [kubernetes, k3s] — часть объектов",
+        "  • Облако [облако, Yandex Cloud] — часть объектов",
     ]
-    assert nothing.splitlines()[2:] == [
-        "Размещение: не указано — ни у объекта, ни у его контейнеров"
-    ]
+    assert nothing.splitlines()[2:] == ["Размещение: не указано"]
 
 
 async def test_пользователь_и_неизвестный_объект(client: ArchMapClient, api: FakeApi) -> None:

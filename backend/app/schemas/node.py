@@ -46,22 +46,20 @@ class AnchorPreviewOut(BaseModel):
 
 
 class NodeSiteOut(BaseModel):
-    """Действующий экземпляр объекта — площадка, на которой он крутится (строка
-    «Размещение» страницы объекта и карточка MCP; docs/tasks/deployment-view.md).
+    """Площадка, на которой стоит объект (строка «Размещение» страницы объекта и
+    карточка MCP; docs/tasks/deployment-view.md).
 
     id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
-    Облако»). inherited_from_id и inherited_from_name — пусто у своего экземпляра
-    объекта, иначе ближайший предок, от которого размещение унаследовано («от
-    контейнера «Витрина»»). Имена — в ответе, чтобы строке «Размещение» и карточке MCP
-    не ходить за списком площадок и предками."""
+    Облако»); имя — в ответе, чтобы строке «Размещение» и карточке MCP не ходить за
+    списком площадок. partial — только у контейнера: на площадке стоит часть его
+    объектов, а не все (у объекта всегда False)."""
 
     id: uuid.UUID
     name: str
     kind: SiteKind
     parent_id: uuid.UUID | None = None
     parent_name: str | None = None
-    inherited_from_id: uuid.UUID | None = None
-    inherited_from_name: str | None = None
+    partial: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -154,10 +152,10 @@ class NodeResponse(BaseModel):
     # объекта, ключ — для синка и внутренних сверок.
     source_ref: str | None = None
     source: NodeSource | None = None
-    # Действующее размещение (app/deployment.mark_sites): свои экземпляры объекта, а
-    # без своих — экземпляры ближайшего предка с пометкой inherited_from_id. Вычисляется
-    # в выдачах роутера узлов; граф уровня и контекст-схема его НЕ заполняют (холст
-    # объектов размещение не показывает) — там всегда [].
+    # Размещение (app/deployment.mark_sites): площадки объекта, у контейнера —
+    # площадки его объектов (где стоит часть — partial). Вычисляется в выдачах
+    # роутера узлов; граф уровня и контекст-схема его НЕ заполняют (холст объектов
+    # размещение не показывает) — там всегда [].
     sites: list[NodeSiteOut] = []
     # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
     version: int = 1

@@ -424,13 +424,12 @@ async def test_слова_статуса_страницы_те_же_что_в_и
 # ── Размещение на площадках (Ф4 эпика развёртывания) ─────────────────────────
 
 def site_ref(site_id: str, name: str, parent_name: str | None = None,
-             donor: tuple[str, str] | None = None) -> dict[str, Any]:
-    """Строка NodeResponse.sites — действующий экземпляр объекта."""
+             partial: bool = False) -> dict[str, Any]:
+    """Строка NodeResponse.sites — площадка объекта (у контейнера partial — стоит часть)."""
     return {
         "id": site_id, "name": name, "kind": "kubernetes",
         "parent_id": u(71) if parent_name else None, "parent_name": parent_name,
-        "inherited_from_id": donor[0] if donor else None,
-        "inherited_from_name": donor[1] if donor else None,
+        "partial": partial,
     }
 
 
@@ -451,17 +450,17 @@ async def test_карточка_называет_размещение_после
     assert "kubernetes" not in out
 
 
-async def test_унаследованное_размещение_называет_контейнер(
+async def test_частичное_размещение_контейнера_помечено(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     base_routes(api, "service", sites=check("node", "NodeSiteOut", [
-        site_ref(u(70), "Кластер prod", "Облако", donor=(u(80), "Витрина")),
+        site_ref(u(70), "Кластер prod", "Облако", partial=True), site_ref(u(72), "ВМ-2", partial=True),
     ]))
     api.get(f"/nodes/{NODE}/config", [])
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Размещение: Кластер prod (в Облако) — от контейнера «Витрина»" in out
+    assert "Размещение: Кластер prod (в Облако, часть объектов), ВМ-2 (часть объектов)" in out
 
 
 async def test_без_размещения_строки_нет(client: ArchMapClient, api: FakeApi) -> None:

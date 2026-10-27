@@ -2,10 +2,11 @@
 действующее размещение, роутер /deployment, копия проекта и откат удаления.
 
 Площадка — где крутится объект (облако, кластер, ВМ, сервер), вложенная в другую
-площадку; экземпляр — «объект стоит на площадке». У объекта без своих экземпляров
-действует размещение ближайшего предка. Сторожим модель (вложенность, копия, снимок
-удаления), домен (наследование, цикл в данных), ручки (права, CAS, отказы, курсоры),
-граф вида и раздельные ключи раскладки двух холстов одного уровня.
+площадку; экземпляр — «объект стоит на площадке». Экземпляры — только у объектов
+(листьев): контейнер размещается целиком, его размещение выводится из объектов.
+Сторожим модель (вложенность, копия, снимок удаления), домен (объекты контейнера,
+правило импорта, вывод размещения, цикл в данных), ручки (права, CAS, отказы,
+курсоры), граф вида и раздельные ключи раскладки двух холстов одного уровня.
 """
 
 import uuid
@@ -21,7 +22,7 @@ from app.auth import create_access_token
 from app.config import settings
 from app.database import get_db
 from app.demo_limits import DEMO_LIMIT_CODE, Excess, excess_out
-from app.deployment import EffectiveInstance, effective_instances
+from app.deployment import SitePlace, leaf_placements, placeable_leaves, placement_map
 from app.main import app
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
@@ -227,42 +228,65 @@ def test_откат_с_площадкой_чужого_проекта_отказ
     assert db.query(DeploymentInstance).count() == 0
 
 
-# ── Действующее размещение (домен) ───────────────────────────────────────────
+# ── Размещение (домен) ───────────────────────────────────────────────────────
 
 
 def _ids(n: int) -> list[uuid.UUID]:
     return [uuid.uuid4() for _ in range(n)]
 
 
-def test_свои_экземпляры_действуют_без_наследования():
-    node, s1, s2 = _ids(3)
-    got = effective_instances({node: None}, [(node, s1), (node, s2)])
-    assert got == {node: [EffectiveInstance(s1, None), EffectiveInstance(s2, None)]}
+def _shapes(parent_of: dict, persons: tuple = ()) -> dict:
+    return {nid: ("person" if nid in persons else "service") for nid in parent_of}
 
 
-def test_наследование_от_ближайшего_предка_через_два_уровня():
-    root, mid, leaf, deep, other, s_root, s_mid = _ids(7)
-    parent_of = {root: None, mid: root, leaf: mid, deep: leaf, other: root}
-    got = effective_instances(parent_of, [(root, s_root), (mid, s_mid)])
-    assert got[root] == [EffectiveInstance(s_root, None)]
-    # Ближайший предок со своими — mid, а не root: его размещение и действует.
-    assert got[mid] == [EffectiveInstance(s_mid, None)]
-    assert got[leaf] == [EffectiveInstance(s_mid, mid)]
-    assert got[deep] == [EffectiveInstance(s_mid, mid)]
-    assert got[other] == [EffectiveInstance(s_root, root)]
+def test_объекты_узла_лист_сам_а_контейнер_листья_без_пользователей():
+    root, mid, leaf, deep, person = _ids(5)
+    parent_of = {root: None, mid: root, leaf: mid, deep: root, person: root}
+    shapes = _shapes(parent_of, (person,))
+    assert placeable_leaves(parent_of, shapes, leaf) == [leaf]
+    assert placeable_leaves(parent_of, shapes, root) == [leaf, deep]
+    assert placeable_leaves(parent_of, shapes, person) == []
+    # контейнер из одних «Пользователей» — объектов нет
+    only = {root: None, person: root}
+    assert placeable_leaves(only, _shapes(only, (person,)), root) == []
 
 
-def test_без_экземпляров_у_цепочки_пусто():
-    root, leaf = _ids(2)
-    assert effective_instances({root: None, leaf: root}, []) == {root: [], leaf: []}
+def test_правило_импорта_объявление_контейнера_достаётся_объектам_без_своего():
+    root, mid, leaf, deep, other, person, s_root, s_mid, s_other = _ids(9)
+    parent_of = {root: None, mid: root, leaf: mid, deep: leaf, other: root, person: root}
+    got = leaf_placements(
+        parent_of, _shapes(parent_of, (person,)),
+        {root: [s_root], mid: [s_mid], other: [s_other, s_other]},
+    )
+    # deep — единственный объект под mid: ближайшее объявление — mid, а не root; повтор
+    # площадки схлопнут; контейнеры и «Пользователь» в ответе не появляются.
+    assert got == {deep: [s_mid], other: [s_other]}
 
 
-def test_цикл_родителей_в_данных_не_вешает():
+def test_правило_импорта_цикл_родителей_не_вешает():
     a, b, c, site = _ids(4)
-    # a ↔ b — цикл без своих экземпляров; c внутри цикла, но со своим.
-    got = effective_instances({a: b, b: a, c: a}, [(c, site)])
-    assert got[a] == [] and got[b] == []
-    assert got[c] == [EffectiveInstance(site, None)]
+    # a ↔ b — цикл без объявлений; c под a со своим объявлением.
+    got = leaf_placements({a: b, b: a, c: a}, {a: "service", b: "service", c: "service"}, {c: [site]})
+    assert got == {c: [site]}
+
+
+def test_размещение_контейнера_выводится_из_объектов():
+    root, sub, a, b, c, person, s1, s2 = _ids(8)
+    parent_of = {root: None, sub: root, a: sub, b: sub, c: root, person: root}
+    shapes = _shapes(parent_of, (person,))
+    rank = {s1: 0, s2: 1}
+    # у root — экземпляр прежней модели: не в счёт, размещение контейнера — объекты
+    got = placement_map(parent_of, shapes, {a: [s2, s1], b: [s1], c: [s1], root: [s2]}, rank)
+    assert got[a] == [SitePlace(s1), SitePlace(s2)]
+    assert got[sub] == [SitePlace(s1), SitePlace(s2, partial=True)]
+    assert got[root] == [SitePlace(s1), SitePlace(s2, partial=True)]
+    assert got[person] == []
+    # объект без размещения внутри — площадка у контейнера частичная
+    got = placement_map(parent_of, shapes, {a: [s1]}, rank)
+    assert got[sub] == [SitePlace(s1, partial=True)] and got[b] == []
+    # контейнер без объектов — пусто
+    only = {root: None, person: root}
+    assert placement_map(only, _shapes(only, (person,)), {}, rank)[root] == []
 
 
 # ── Ручки (HTTP) ─────────────────────────────────────────────────────────────
@@ -476,53 +500,64 @@ def test_размещение_отказы_ничего_не_пишут(client, 
     assert db.query(DeploymentInstance).count() == 0
 
 
-def test_контейнер_размещается_целиком_по_флагу(client, db, scene):
-    """clear_descendants: размещение контейнера снимает СВОЁ размещение у потомков любой
-    глубины — они наследуют площадки контейнера; без флага потомки не трогаются."""
+def test_контейнер_размещается_целиком(client, db, scene):
+    """Набор контейнера получает каждый объект внутри (любой глубины), своё размещение
+    объектов перезаписывается; у самого контейнера экземпляров нет — его размещение
+    выводится из объектов: где стоят все — обычное, где часть — partial."""
     h, n, p = scene["h"], scene["n"], scene["p"]
     a = _post_site(client, h, "A")["id"]
     b = _post_site(client, h, "B")["id"]
     url = f"{API}/deployment/placements"
-    # Внук: обработчик внутри API (Витрина → API → Обработчик).
+    # Внук: обработчик внутри API (Витрина → API → Обработчик) — API стал контейнером.
     grand = _node(db, p.id, "Обработчик", db.get(Node, n["API"]))
     db.commit()
-    shop, api, gid = str(n["Витрина"]), str(n["API"]), str(grand.id)
+    shop, worker, store, gid = str(n["Витрина"]), str(n["Воркер"]), str(n["БД"]), str(grand.id)
 
     def pairs() -> set[tuple[str, str]]:
         db.expire_all()
         return {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)}
 
-    assert client.put(url, json={"node_ids": [api, gid], "site_ids": [b]}, headers=h).status_code == 204
-    # Без флага — как раньше: у ребёнка и внука своё остаётся.
-    assert client.put(url, json={"node_ids": [shop], "site_ids": [a]}, headers=h).status_code == 204
-    assert pairs() == {(shop, a), (api, b), (gid, b)}
+    def graph_nodes() -> dict:
+        return {x["name"]: x for x in client.get(f"{API}/deployment/graph", headers=h).json()["nodes"]}
 
+    assert client.put(url, json={"node_ids": [gid], "site_ids": [b]}, headers=h).status_code == 204
+    assert client.put(url, json={"node_ids": [shop], "site_ids": [a]}, headers=h).status_code == 204
+    assert pairs() == {(gid, a), (worker, a), (store, a)}
+    nodes = graph_nodes()
+    assert (nodes["Витрина"]["instances"], nodes["API"]["instances"], nodes["Обработчик"]["instances"]) == ([a], [a], [a])
+    assert nodes["Витрина"]["sites"] == [
+        {"id": a, "name": "A", "kind": "other", "parent_id": None, "parent_name": None, "partial": False}
+    ]
+
+    # Объект внутри переехал на B — у контейнера обе площадки частичные, целиком он нигде.
+    assert client.put(url, json={"node_ids": [worker], "site_ids": [b]}, headers=h).status_code == 204
+    nodes = graph_nodes()
+    assert nodes["Витрина"]["instances"] == []
+    assert [(s["name"], s["partial"]) for s in nodes["Витрина"]["sites"]] == [("A", True), ("B", True)]
+    assert nodes["API"]["instances"] == [a]
+
+    # Снова контейнер на A: Воркер возвращается, курсоры сдвинуты; повтор — стоят.
     db.expire_all()
     rev = db.get(Project, p.id)
     graph_rev, meta_rev = rev.graph_rev, rev.meta_rev
-    # С флагом: набор контейнера тот же, но своё у потомков снято — курсоры сдвинуты.
-    r = client.put(url, json={"node_ids": [shop], "site_ids": [a], "clear_descendants": True}, headers=h)
-    assert r.status_code == 204
-    assert pairs() == {(shop, a)}
+    assert client.put(url, json={"node_ids": [shop], "site_ids": [a]}, headers=h).status_code == 204
+    assert pairs() == {(gid, a), (worker, a), (store, a)}
     db.expire_all()
     rev = db.get(Project, p.id)
     assert (rev.graph_rev, rev.meta_rev) == (graph_rev + 1, meta_rev + 1)
-    g = client.get(f"{API}/deployment/graph", headers=h).json()
-    nodes = {x["name"]: x for x in g["nodes"]}
-    assert nodes["Обработчик"]["effective"] == [{"site_id": a, "inherited_from_id": shop}]
-    assert nodes["API"]["effective"] == [{"site_id": a, "inherited_from_id": shop}]
+    assert client.put(url, json={"node_ids": [shop], "site_ids": [a]}, headers=h).status_code == 204
+    db.expire_all()
+    assert db.get(Project, p.id).graph_rev == graph_rev + 1
 
-    # Флаг буквален: с пустым набором снимает своё и у самого объекта, и у потомков.
-    assert client.put(url, json={"node_ids": [api], "site_ids": [b]}, headers=h).status_code == 204
-    r = client.put(url, json={"node_ids": [shop], "site_ids": [], "clear_descendants": True}, headers=h)
-    assert r.status_code == 204
+    # Пустой набор контейнеру снимает размещение всех объектов внутри.
+    assert client.put(url, json={"node_ids": [shop], "site_ids": []}, headers=h).status_code == 204
     assert pairs() == set()
 
 
-def test_контейнер_целиком_отказ_ничего_не_снимает(client, db, scene):
-    """Отказ размещения (чужой узел — 404, «Пользователь» — 422) не снимает своё у
-    потомков: проверки идут до записи, чистка — после них."""
-    h, n = scene["h"], scene["n"]
+def test_контейнер_без_объектов_422_и_отказ_ничего_не_пишет(client, db, scene):
+    """Отказ размещения (чужой узел — 404, «Пользователь» — 422, контейнер без объектов
+    — 422) не трогает размещение объектов внутри: проверки идут до записи."""
+    h, n, p = scene["h"], scene["n"], scene["p"]
     a = _post_site(client, h, "A")["id"]
     b = _post_site(client, h, "B")["id"]
     url = f"{API}/deployment/placements"
@@ -530,28 +565,29 @@ def test_контейнер_целиком_отказ_ничего_не_сним
     assert client.put(url, json={"node_ids": [api], "site_ids": [b]}, headers=h).status_code == 204
     stranger = make_project(db, "Чужой")
     foreign = _node(db, stranger.id, "Чужой сервис")
+    # Контейнер из одних «Пользователей»: размещать нечего.
+    desk = _node(db, p.id, "Поддержка")
+    _node(db, p.id, "Оператор", desk, shape="person")
     db.commit()
 
-    r = client.put(
-        url,
-        json={"node_ids": [shop, str(foreign.id)], "site_ids": [a], "clear_descendants": True},
-        headers=h,
-    )
+    r = client.put(url, json={"node_ids": [shop, str(foreign.id)], "site_ids": [a]}, headers=h)
     assert r.status_code == 404
-    r = client.put(
-        url, json={"node_ids": [shop, buyer], "site_ids": [a], "clear_descendants": True}, headers=h
-    )
+    r = client.put(url, json={"node_ids": [shop, buyer], "site_ids": [a]}, headers=h)
     assert r.status_code == 422
+    r = client.put(url, json={"node_ids": [shop, str(desk.id)], "site_ids": [a]}, headers=h)
+    assert (r.status_code, r.json()) == (
+        422, {"detail": "В «Поддержка» нет объектов, которые можно разместить"}
+    )
     db.expire_all()
     assert {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)} == {(api, b)}
 
 
-def test_граф_поддерево_экземпляры_наследование_и_связи(client, db, scene):
+def test_граф_поддерево_размещение_и_связи(client, db, scene):
     h, n = scene["h"], scene["n"]
     cloud = _post_site(client, h, "Облако", kind="cloud")["id"]
     vm = _post_site(client, h, "ВМ", kind="vm")["id"]
     put = f"{API}/deployment/placements"
-    # Витрина — в облаке целиком; API — ещё и на ВМ своим экземпляром.
+    # Витрина — в облаке целиком (каждый объект внутри); API затем переехал на ВМ.
     client.put(put, json={"node_ids": [str(n["Витрина"])], "site_ids": [cloud]}, headers=h)
     client.put(put, json={"node_ids": [str(n["API"])], "site_ids": [vm]}, headers=h)
 
@@ -561,20 +597,17 @@ def test_граф_поддерево_экземпляры_наследовани
     assert [x["name"] for x in g["nodes"]] == ["API", "БД", "Витрина", "Воркер", "Платежи"]
     assert {s["name"] for s in g["sites"]} == {"Облако", "ВМ"}
     assert nodes["API"]["instances"] == [vm]
-    assert nodes["API"]["effective"] == [{"site_id": vm, "inherited_from_id": None}]
     assert (nodes["API"]["has_children"], nodes["API"]["child_count"]) == (False, 0)
     shop = str(n["Витрина"])
-    # Контейнер — со своими экземплярами и числом прямых детей.
-    assert nodes["Витрина"]["instances"] == [cloud]
-    assert nodes["Витрина"]["effective"] == [{"site_id": cloud, "inherited_from_id": None}]
+    # Контейнер: экземпляров нет, размещение — объекты: целиком нигде, частично на обеих.
+    assert nodes["Витрина"]["instances"] == []
+    assert [(s["name"], s["partial"]) for s in nodes["Витрина"]["sites"]] == [("ВМ", True), ("Облако", True)]
     assert (nodes["Витрина"]["has_children"], nodes["Витрина"]["child_count"]) == (True, 3)
-    assert nodes["Воркер"]["instances"] == []
-    assert nodes["Воркер"]["effective"] == [{"site_id": cloud, "inherited_from_id": shop}]
+    assert nodes["Воркер"]["instances"] == [cloud]
     assert nodes["Воркер"]["sites"] == [
-        {"id": cloud, "name": "Облако", "kind": "cloud", "parent_id": None, "parent_name": None,
-         "inherited_from_id": shop, "inherited_from_name": "Витрина"}
+        {"id": cloud, "name": "Облако", "kind": "cloud", "parent_id": None, "parent_name": None, "partial": False}
     ]
-    assert nodes["Платежи"]["effective"] == []
+    assert nodes["Платежи"]["instances"] == []
     # Связи — оба конца в поддереве: API → БД и Витрина → Платежи (конец-контейнер
     # теперь тоже в ответе); Покупатель → API — нет, пользователя на холсте нет.
     assert {(e["source_id"], e["target_id"]) for e in g["edges"]} == {
@@ -595,10 +628,11 @@ def test_граф_поддерево_экземпляры_наследовани
     assert client.get(f"{API}/deployment/graph", params={"level": str(uuid.uuid4())}, headers=h).status_code == 404
 
 
-def test_граф_вложенный_контейнер_наследует_и_связи_в_объёме_уровня(client, db, scene):
-    """Контейнер внутри контейнера: свои экземпляры у внешнего, у внутреннего —
-    действующие по наследству. Связь лист ↔ лист внутри одного контейнера приходит,
-    связь с концом вне объёма уровня — нет, «Пользователь» внутри уровня не приходит."""
+def test_граф_вложенный_контейнер_и_связи_в_объёме_уровня(client, db, scene):
+    """Контейнер внутри контейнера: размещение внешнего получают объекты любой глубины,
+    у вложенного контейнера оно выводится из них. Связь лист ↔ лист внутри одного
+    контейнера приходит, связь с концом вне объёма уровня — нет, «Пользователь» внутри
+    уровня не приходит."""
     p, h = scene["p"], scene["h"]
     platform = _node(db, p.id, "Платформа")
     catalog = _node(db, p.id, "Каталог", platform)
@@ -619,24 +653,26 @@ def test_граф_вложенный_контейнер_наследует_и_с
         json={"node_ids": [str(platform.id)], "site_ids": [cloud]},
         headers=h,
     )
+    db.expire_all()
+    assert {str(i.node_id) for i in db.query(DeploymentInstance)} == {str(search.id), str(index.id)}
 
     g = client.get(f"{API}/deployment/graph", params={"level": str(platform.id)}, headers=h).json()
     nodes = {x["name"]: x for x in g["nodes"]}
     assert set(nodes) == {"Каталог", "Поиск", "Индекс"}
-    assert nodes["Каталог"]["instances"] == []
-    assert nodes["Каталог"]["effective"] == [{"site_id": cloud, "inherited_from_id": str(platform.id)}]
+    assert nodes["Каталог"]["instances"] == [cloud]
+    assert [(s["name"], s["partial"]) for s in nodes["Каталог"]["sites"]] == [("Облако", False)]
     assert (nodes["Каталог"]["has_children"], nodes["Каталог"]["child_count"]) == (True, 2)
-    assert nodes["Поиск"]["effective"] == [{"site_id": cloud, "inherited_from_id": str(platform.id)}]
+    assert nodes["Поиск"]["instances"] == [cloud]
     assert [(e["source_id"], e["target_id"]) for e in g["edges"]] == [(str(search.id), str(index.id))]
 
-    # На уровне проекта «Платформа» — сама объект со своими экземплярами, а её
+    # На уровне проекта «Платформа» — сама объект, стоящий целиком в облаке, а её
     # «Пользователь» не приходит, хотя прямым ребёнком учтён.
     g = client.get(f"{API}/deployment/graph", headers=h).json()
     nodes = {x["name"]: x for x in g["nodes"]}
     assert "Оператор" not in nodes
     assert nodes["Платформа"]["instances"] == [cloud]
-    assert nodes["Платформа"]["child_count"] == 2
-    assert (str(search.id), str(outside.id)) in {(e["source_id"], e["target_id"]) for e in g["edges"]}
+    assert (nodes["Платформа"]["has_children"], nodes["Платформа"]["child_count"]) == (True, 2)
+    assert nodes["Почта"]["instances"] == []
 
 
 def test_раскладка_двух_холстов_одного_уровня_разведена(client, db, scene):
@@ -666,52 +702,51 @@ def test_раскладка_двух_холстов_одного_уровня_р
     assert {r.item_id for r in db.query(ViewLayoutItem)} == {deploy_key, frame_key}
 
 
-def test_узел_несёт_действующее_размещение_и_правится_site_ids(client, db, scene):
+def test_узел_несёт_размещение_и_правится_site_ids(client, db, scene):
     h, n = scene["h"], scene["n"]
     cloud = _post_site(client, h, "Облако", kind="cloud")
     cluster = _post_site(client, h, "Кластер", kind="kubernetes", parent_id=cloud["id"])
     shop, api = str(n["Витрина"]), str(n["API"])
 
+    # Контейнер: набор получает каждый объект внутри; у контейнера — где стоят все.
     r = client.patch(f"{API}/nodes/{shop}", json={"site_ids": [cluster["id"]]}, headers=h)
     assert r.status_code == 200, r.text
-    assert r.json()["sites"] == [
-        {"id": cluster["id"], "name": "Кластер", "kind": "kubernetes", "parent_id": cloud["id"],
-         "parent_name": "Облако", "inherited_from_id": None, "inherited_from_name": None}
-    ]
-    # Ребёнок наследует — и в карточке, и в списке детей. Имена родителя площадки и
-    # предка — в ответе: строке «Размещение» и карточке MCP не ходить за ними.
+    ref = {"id": cluster["id"], "name": "Кластер", "kind": "kubernetes", "parent_id": cloud["id"],
+           "parent_name": "Облако", "partial": False}
+    assert r.json()["sites"] == [ref]
     got = client.get(f"{API}/nodes/{api}", headers=scene["rh"]).json()
-    assert [
-        (s["name"], s["parent_name"], s["inherited_from_id"], s["inherited_from_name"])
-        for s in got["sites"]
-    ] == [("Кластер", "Облако", shop, "Витрина")]
+    assert got["sites"] == [ref]
     children = client.get(f"{API}/nodes/{shop}/children", headers=h).json()
-    assert all(c["sites"][0]["inherited_from_id"] == shop for c in children)
+    assert all(c["sites"] == [ref] for c in children)
     # Граф уровня размещение не заполняет.
     assert all(x["sites"] == [] for x in client.get(f"{API}/nodes/{shop}/graph", headers=h).json()["nodes"])
 
-    # Своё размещение перекрывает унаследованное; CAS узла не двигается.
+    # Объект переехал: у него своя площадка, у контейнера обе — частичные; CAS узла
+    # не двигается, курсоры — двигаются.
     version = got["version"]
     project = db.get(Project, scene["p"].id)
     graph_rev, meta_rev = project.graph_rev, project.meta_rev
     r = client.patch(f"{API}/nodes/{api}", json={"site_ids": [cloud["id"]], "base_version": version}, headers=h)
     assert r.json()["version"] == version
-    assert [(s["name"], s["inherited_from_id"]) for s in r.json()["sites"]] == [("Облако", None)]
+    assert [s["name"] for s in r.json()["sites"]] == ["Облако"]
     db.expire_all()
     project = db.get(Project, scene["p"].id)
     assert (project.graph_rev, project.meta_rev) == (graph_rev + 1, meta_rev + 1)
-    # [] снимает своё — снова действует унаследованное; без site_ids — не трогаем.
+    shop_sites = client.get(f"{API}/nodes/{shop}", headers=h).json()["sites"]
+    assert [(s["name"], s["partial"]) for s in shop_sites] == [("Кластер", True), ("Облако", True)]
+    # [] снимает размещение объекта; без site_ids — не трогаем.
     r = client.patch(f"{API}/nodes/{api}", json={"site_ids": []}, headers=h)
-    assert [s["inherited_from_id"] for s in r.json()["sites"]] == [shop]
+    assert r.json()["sites"] == []
     r = client.patch(f"{API}/nodes/{shop}", json={"description": "витрина"}, headers=h)
-    assert [s["name"] for s in r.json()["sites"]] == ["Кластер"]
+    assert [(s["name"], s["partial"]) for s in r.json()["sites"]] == [("Кластер", True)]
 
-    # «Пользователь»: поставить нельзя, и от контейнера он ничего не наследует.
+    # «Пользователь»: поставить нельзя, и размещения у него нет.
     buyer = str(n["Покупатель"])
     r = client.patch(f"{API}/nodes/{buyer}", json={"site_ids": [cloud["id"]]}, headers=h)
     assert (r.status_code, r.json()) == (422, {"detail": "У пользователя нет размещения — он живёт вне системы"})
-    # Объект со своим размещением пользователем не становится.
-    r = client.patch(f"{API}/nodes/{shop}", json={"shape": "person"}, headers=h)
+    # Объект с размещением пользователем не становится.
+    client.patch(f"{API}/nodes/{api}", json={"site_ids": [cloud["id"]]}, headers=h)
+    r = client.patch(f"{API}/nodes/{api}", json={"shape": "person"}, headers=h)
     assert r.status_code == 400
 
 

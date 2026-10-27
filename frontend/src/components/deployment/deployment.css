@@ -219,15 +219,3 @@
   font-size: 12.5px;
   color: #94a3b8;
 }
-
-/* Второй шаг окна «Размещение» с несколькими контейнерами: «контейнер → площадки» над
-   списком его объектов с другим размещением. */
-.placement-step-group + .placement-step-group {
-  margin-top: 12px;
-}
-.placement-step-head {
-  margin: 0 0 6px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #0f172a;
-}

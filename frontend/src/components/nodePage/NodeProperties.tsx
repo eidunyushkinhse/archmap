@@ -213,14 +213,9 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
         </span>
 
         {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
-            «Пользователя» размещения нет: он не размещается и не наследует. */}
+            «Пользователя» размещения нет: он живёт вне системы. */}
         {shape !== "person" && (
-          <PlacementRow
-            node={node}
-            isArchitect={isArchitect}
-            isContainer={isContainer}
-            onChanged={onPlacementChanged}
-          />
+          <PlacementRow node={node} isArchitect={isArchitect} onChanged={onPlacementChanged} />
         )}
 
         {/* Описание — последняя строка таблицы свойств */}

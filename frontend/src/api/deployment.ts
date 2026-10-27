@@ -20,11 +20,10 @@ export const deploymentApi = {
   deleteSite: (id: string): Promise<void> =>
     api.delete(`/deployment/sites/${id}`).then(() => undefined),
   // Каждому объекту — ровно этот набор площадок ([] снимает своё размещение).
-  // clearDescendants — контейнер размещается целиком: своё размещение объектов внутри
-  // снимается, и они наследуют площадки контейнера (только из интерфейса).
-  setPlacements: (nodeIds: string[], siteIds: string[], opts?: { clearDescendants?: boolean }): Promise<void> => {
+  // Контейнер среди nodeIds размещается целиком: набор получает каждый объект внутри.
+  setPlacements: (nodeIds: string[], siteIds: string[]): Promise<void> => {
     const body: PlacementsIn = {
-      node_ids: nodeIds, site_ids: siteIds, clear_descendants: opts?.clearDescendants ?? false,
+      node_ids: nodeIds, site_ids: siteIds,
     };
     return api.put<undefined>("/deployment/placements", body).then(() => undefined);
   },

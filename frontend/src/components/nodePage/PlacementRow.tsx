@@ -1,7 +1,7 @@
 // Строка «Размещение» карточки «Свойства» (docs/tasks/deployment-view.md, Ф3): где
-// крутится объект — действующие экземпляры из node.sites (иконка вида площадки, имя,
-// «в <родитель>» у вложенной). Унаследованное от контейнера помечено «от контейнера
-// «X»». Редактор правит тем же окном «Размещение», что и на холсте развёртывания, —
+// крутится объект — площадки из node.sites (иконка вида площадки, имя, «в <родитель>»
+// у вложенной). У контейнера это площадки его объектов: где стоит часть — пометка
+// «часть объектов». Редактор правит тем же окном «Размещение», что и на холсте развёртывания, —
 // для одного объекта; площадки грузятся по нажатию «Изменить», окно само их не грузит.
 // Строка — пара ячеек сетки свойств (терм и значение), окно — рядом с ними: открытый
 // <dialog> живёт в верхнем слое и ячейку сетки не занимает.
@@ -16,13 +16,11 @@ import { placementFromNode } from "../deployment/placementFromNode";
 interface Props {
   node: Node;
   isArchitect: boolean;
-  // Контейнер: его своё размещение наследуют объекты внутри — это поясняется строкой.
-  isContainer: boolean;
   // Из окна записано размещение или заведена площадка — страница перечитывает узел.
   onChanged: () => void;
 }
 
-export default function PlacementRow({ node, isArchitect, isContainer, onChanged }: Props) {
+export default function PlacementRow({ node, isArchitect, onChanged }: Props) {
   // Площадки проекта для окна: есть список — окно открыто.
   const [sites, setSites] = useState<SiteOut[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -38,11 +36,7 @@ export default function PlacementRow({ node, isArchitect, isContainer, onChanged
       .finally(() => setLoading(false));
   };
 
-  // Своё и действующее совпадают по построению: со своими экземплярами действуют они,
-  // без своих все строки унаследованы от одного предка.
   const placed = node.sites;
-  const inherited = placed.find((s) => s.inherited_from_id);
-  const ownPlaced = placed.length > 0 && !inherited;
 
   return (
     <>
@@ -58,14 +52,10 @@ export default function PlacementRow({ node, isArchitect, isContainer, onChanged
                 <span className="np-site-ico"><SiteKindIcon kind={s.kind} size={14} /></span>
                 {s.name}
                 {s.parent_name && <span className="np-site-muted">в {s.parent_name}</span>}
+                {s.partial && <span className="np-site-muted">часть объектов</span>}
               </span>
             </Fragment>
           ))
-        )}
-        {inherited && (
-          <span className="np-site-muted np-site-from">
-            {inherited.inherited_from_name ? `от контейнера «${inherited.inherited_from_name}»` : "от контейнера"}
-          </span>
         )}
         {isArchitect && (
           <button
@@ -77,9 +67,6 @@ export default function PlacementRow({ node, isArchitect, isContainer, onChanged
           >
             Изменить
           </button>
-        )}
-        {isContainer && ownPlaced && (
-          <span className="np-site-hint">наследуют объекты внутри без своего размещения</span>
         )}
         {error && <span className="np-site-err" role="alert">{error}</span>}
       </span>

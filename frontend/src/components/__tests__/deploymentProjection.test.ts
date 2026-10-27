@@ -12,27 +12,20 @@ import type { DeploymentGraph, DeploymentNode, SiteKind, SiteOut } from "../../t
 function site(id: string, parent_id: string | null = null, kind: SiteKind = "kubernetes", technology: string | null = null): SiteOut {
   return { id, name: id, kind, technology, description: null, parent_id, version: 1, instance_count: 0 };
 }
-function obj(id: string, places: string[], inheritedFrom: string | null = null): DeploymentNode {
+// Объект графа: instances — его площадки (у контейнера — где стоят все его объекты).
+function obj(id: string, places: string[]): DeploymentNode {
   return {
     id, name: id.toUpperCase(), description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
-    sites: [], version: 1, created_at: "", updated_at: "",
-    instances: inheritedFrom ? [] : places,
-    effective: places.map((site_id) => ({ site_id, inherited_from_id: inheritedFrom })),
+    version: 1, created_at: "", updated_at: "",
+    sites: places.map((sid) => ({ id: sid, name: sid, kind: "vm" as const, partial: false })),
+    instances: places,
   };
 }
-// Узел поддерева с родителем: контейнер (kids > 0) или лист; effective — площадки,
-// своё размещение (own) или унаследованное от inheritedFrom.
-function tnode(
-  id: string, parent: string | null, places: string[] = [],
-  opts: { kids?: number; inheritedFrom?: string } = {},
-): DeploymentNode {
-  const kids = opts.kids ?? 0;
-  return {
-    ...obj(id, places, opts.inheritedFrom ?? null),
-    parent_id: parent, has_children: kids > 0, child_count: kids,
-  };
+// Узел поддерева с родителем: контейнер (kids > 0) или лист.
+function tnode(id: string, parent: string | null, places: string[] = [], kids = 0): DeploymentNode {
+  return { ...obj(id, places), parent_id: parent, has_children: kids > 0, child_count: kids };
 }
 function graph(sites: SiteOut[], nodes: DeploymentNode[], edges: [string, string, string][] = []): DeploymentGraph {
   return {
@@ -75,11 +68,6 @@ describe("projectDeployment", () => {
     expect(p.groupOf(instanceKey("a", "t"))).toBe("a");
     expect(p.groupOf(siteKey("t"))).toBeUndefined();
     expect(p.siteOf.get(instanceKey("a", "s1"))).toEqual({ nodeId: "a", siteId: "s1" });
-  });
-
-  it("унаследованное размещение рисуется так же, как своё", () => {
-    const p = projectDeployment(graph([site("s1")], [obj("a", ["s1"], "parent")]));
-    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("a", "s1")]);
   });
 
   it("группа «Размещение не указано» — есть, когда есть объекты без размещения", () => {
@@ -130,10 +118,10 @@ describe("projectDeployment", () => {
 
   it("цельный контейнер на одной площадке — одна карточка, бейдж — число объектов внутри", () => {
     const p = projectDeployment(graph([site("s1")], [
-      tnode("c", null, ["s1"], { kids: 2 }),
-      tnode("l1", "c", ["s1"], { inheritedFrom: "c" }),
-      tnode("sub", "c", ["s1"], { kids: 2, inheritedFrom: "c" }),
-      tnode("l2", "sub", ["s1"], { inheritedFrom: "c" }),
+      tnode("c", null, ["s1"], 2),
+      tnode("l1", "c", ["s1"]),
+      tnode("sub", "c", ["s1"], 2),
+      tnode("l2", "sub", ["s1"]),
       tnode("l3", "sub", ["s1"]),
     ]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("c", "s1")]);
@@ -150,8 +138,8 @@ describe("projectDeployment", () => {
 
   it("цельный контейнер на двух площадках — две карточки с пометками 1/2 и 2/2", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
-      tnode("c", null, ["s1", "t"], { kids: 2 }),
-      tnode("l1", "c", ["s1", "t"], { inheritedFrom: "c" }),
+      tnode("c", null, ["s1", "t"], 2),
+      tnode("l1", "c", ["s1", "t"]),
       tnode("l2", "c", ["t", "s1"]),
     ]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("c", "s1")]);
@@ -161,7 +149,7 @@ describe("projectDeployment", () => {
 
   it("цельный контейнер без размещения — одна карточка в группе «не указано»", () => {
     const p = projectDeployment(graph([site("s1")], [
-      tnode("c", null, [], { kids: 2 }), tnode("l1", "c"), tnode("l2", "c"),
+      tnode("c", null, [], 2), tnode("l1", "c"), tnode("l2", "c"),
     ]));
     expect(ids(p.children[siteKey(UNPLACED)])).toEqual([instanceKey("c", UNPLACED)]);
     expect(p.children[siteKey(UNPLACED)][0].child_count).toBe(2);
@@ -169,11 +157,11 @@ describe("projectDeployment", () => {
 
   it("рассыпанный контейнер — объекты по отдельности, вложенный цельный — карточка", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
-      tnode("c", null, [], { kids: 2 }),
+      tnode("c", null, [], 2),
       tnode("l1", "c", ["s1"]),
-      tnode("sub", "c", ["t"], { kids: 2 }),
-      tnode("l2", "sub", ["t"], { inheritedFrom: "sub" }),
-      tnode("l3", "sub", ["t"], { inheritedFrom: "sub" }),
+      tnode("sub", "c", ["t"], 2),
+      tnode("l2", "sub", ["t"]),
+      tnode("l3", "sub", ["t"]),
     ]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("l1", "s1")]);
     expect(ids(p.children[siteKey("t")])).toEqual([instanceKey("sub", "t")]);
@@ -182,15 +170,15 @@ describe("projectDeployment", () => {
   });
 
   it("контейнер без листьев в ответе (внутри одни «Пользователи») не рисуется", () => {
-    const p = projectDeployment(graph([site("s1")], [tnode("c", null, ["s1"], { kids: 1 }), tnode("x", null, ["s1"])]));
+    const p = projectDeployment(graph([site("s1")], [tnode("c", null, ["s1"], 1), tnode("x", null, ["s1"])]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);
   });
 
   it("связи поднимаются к представителям: внутри цельного — скрыта, наружу — от карточки контейнера", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
-      tnode("c", null, ["s1"], { kids: 2 }),
-      tnode("l1", "c", ["s1"], { inheritedFrom: "c" }),
-      tnode("l2", "c", ["s1"], { inheritedFrom: "c" }),
+      tnode("c", null, ["s1"], 2),
+      tnode("l1", "c", ["s1"]),
+      tnode("l2", "c", ["s1"]),
       tnode("x", null, ["t"]),
     ], [["in", "l1", "l2"], ["out", "l1", "x"], ["own", "c", "x"]]));
     expect(p.edges.map((e) => `${e.id}:${e.source_id}>${e.target_id}`)).toEqual([
@@ -201,7 +189,7 @@ describe("projectDeployment", () => {
 
   it("связь с концом-рассыпанным контейнером не рисуется — у него нет представителя", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
-      tnode("c", null, [], { kids: 2 }),
+      tnode("c", null, [], 2),
       tnode("l1", "c", ["s1"]),
       tnode("l2", "c", ["t"]),
       tnode("x", null, ["t"]),
@@ -285,7 +273,7 @@ describe("проекция + конвейер: свёрнутая площадк
 describe("cardsOf и pickedSite", () => {
   const g = () => projectDeployment(graph([site("s1"), site("t", "s1")], [
     obj("a", ["s1", "t"]), obj("b", []),
-    tnode("c", null, ["t"], { kids: 1 }), tnode("l", "c", ["t"], { inheritedFrom: "c" }),
+    tnode("c", null, ["t"], 1), tnode("l", "c", ["t"]),
   ]));
 
   it("cardsOf: карточки представителя в порядке размещения; не представитель — пусто", () => {

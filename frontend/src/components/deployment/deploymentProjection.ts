@@ -21,7 +21,7 @@
 // представителя не рисуется, конец без представителя — тоже), затем по правилу
 // БЛИЖАЙШЕГО экземпляра: от каждого экземпляра источника ровно одна стрелка к экземпляру
 // цели — на той же площадке, иначе под той же корневой площадкой, иначе к первому
-// экземпляру цели (порядок effective). Реестр концов (endpoints) — цепочка площадок над
+// экземпляру цели (порядок instances). Реестр концов (endpoints) — цепочка площадок над
 // каждой карточкой: у свёрнутой площадки конец связи поднимается к её карточке штатным
 // подъёмом конвейера (liftEdgesToLevel, D23).
 import type {
@@ -164,10 +164,10 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   // контейнер, внутри которого одни «Пользователи», листом не становится.
   const isLeaf = (n: DeploymentNode): boolean => !n.has_children && !kidsOf.has(n.id);
 
-  // Действующие площадки листа в порядке effective (неизвестные отброшены);
-  // без площадок — группа «не указано».
+  // Площадки листа в порядке ответа (неизвестные отброшены); без площадок — группа
+  // «не указано». Размещение хранится у листьев: контейнер — производное от них.
   const leafPlaces = (n: DeploymentNode): string[] => {
-    const places = n.effective.map((e) => e.site_id).filter((id) => siteById.has(id));
+    const places = n.instances.filter((id) => siteById.has(id));
     return places.length > 0 ? [...new Set(places)] : [UNPLACED];
   };
 

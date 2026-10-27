@@ -602,7 +602,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await waitFor(() => expect(screen.getByText("не указано")).toBeInTheDocument(), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", {
-      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes" }],
+      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes", partial: false }],
     }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 2, process_rev: 0 });
     await тик();
@@ -622,7 +622,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
     // Сервер после записи: у узла площадка, курсоры схемы и меты сдвинуты своей записью.
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", {
-      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes" }],
+      sites: [{ id: "k8s", name: "Кластер prod", kind: "kubernetes", partial: false }],
     }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 2, process_rev: 0 });
     const stateCalls = vi.mocked(viewsApi.state).mock.calls.length;

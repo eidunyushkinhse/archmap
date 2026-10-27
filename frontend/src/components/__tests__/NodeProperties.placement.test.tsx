@@ -1,9 +1,9 @@
 // Строка «Размещение» карточки «Свойства» (docs/tasks/deployment-view.md, Ф3): перечень
-// действующих площадок из node.sites (имя, «в <родитель>», у унаследованных — «от
-// контейнера «X»»), пусто — «не указано», у «Пользователя» строки нет. Редактор
-// открывает настоящее окно «Размещение» на одном объекте: площадки грузятся по нажатию,
-// своё размещение в окне отмечено, применение зовёт перечитывание страницы. Хук правки
-// свойств — настоящий (useNodePatch), моков нет ни у него, ни у окна.
+// площадок из node.sites (имя, «в <родитель>»; у контейнера это площадки его объектов,
+// где стоит часть — «часть объектов»), пусто — «не указано», у «Пользователя» строки
+// нет. Редактор открывает настоящее окно «Размещение» на одном объекте: площадки
+// грузятся по нажатию, размещение в окне отмечено, применение зовёт перечитывание
+// страницы. Хук правки свойств — настоящий (useNodePatch), моков нет ни у него, ни у окна.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -11,25 +11,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodeProperties from "../nodePage/NodeProperties";
 import { useNodePatch } from "../../pages/useNodePatch";
 import { deploymentApi } from "../../api/deployment";
+import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import type { Node, SiteOut } from "../../types";
 
 // Модалка — прозрачная обёртка: jsdom не выставляет содержимое <dialog> в a11y-дерево.
 vi.mock("../../ui/Modal", () => ({ default: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("../../api/nodes", () => ({
-  nodesApi: { update: vi.fn(), get: vi.fn(), anchorPreview: vi.fn() },
+  nodesApi: { update: vi.fn(), get: vi.fn(), getAll: vi.fn(), anchorPreview: vi.fn() },
 }));
 vi.mock("../../api/deployment", () => ({
   deploymentApi: { sites: vi.fn(), setPlacements: vi.fn(), createSite: vi.fn() },
 }));
 
 type Site = Node["sites"][number];
-const OWN_K8S: Site = { id: "k8s", name: "Кластер prod", kind: "kubernetes", parent_id: "aws", parent_name: "AWS" };
-const OWN_VM: Site = { id: "vm1", name: "vm-1", kind: "vm" };
-const FROM_SHOP: Site = {
-  id: "k8s", name: "Кластер prod", kind: "kubernetes", parent_id: "aws", parent_name: "AWS",
-  inherited_from_id: "shop", inherited_from_name: "Магазин",
-};
+const OWN_K8S: Site = { id: "k8s", name: "Кластер prod", kind: "kubernetes", parent_id: "aws", parent_name: "AWS", partial: false };
+const OWN_VM: Site = { id: "vm1", name: "vm-1", kind: "vm", partial: false };
+const PART_K8S: Site = { ...OWN_K8S, partial: true };
 
 function node(over: Partial<Node> = {}): Node {
   return {
@@ -90,19 +88,20 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(screen.getByText("не указано")).toBeInTheDocument();
   });
 
-  it("своё размещение: имена площадок, «в <родитель>» у вложенной, без пометки наследования", () => {
+  it("размещение объекта: имена площадок, «в <родитель>» у вложенной", () => {
     setup({ sites: [OWN_K8S, OWN_VM] }, { isArchitect: false });
     expect(screen.getByText("Кластер prod")).toBeInTheDocument();
     expect(screen.getByText("в AWS")).toBeInTheDocument();
     expect(screen.getByText("vm-1")).toBeInTheDocument();
-    expect(screen.queryByText(/от контейнера/)).toBeNull();
+    expect(screen.queryByText(/часть объектов/)).toBeNull();
     expect(screen.queryByText("не указано")).toBeNull();
   });
 
-  it("унаследованное размещение помечено «от контейнера «X»»", () => {
-    setup({ sites: [FROM_SHOP] }, { isArchitect: false });
+  it("у контейнера площадка, где стоит часть его объектов, помечена «часть объектов»", () => {
+    setup({ sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2 }, { isArchitect: false, isContainer: true });
     expect(screen.getByText("Кластер prod")).toBeInTheDocument();
-    expect(screen.getByText("от контейнера «Магазин»")).toBeInTheDocument();
+    expect(screen.getAllByText("часть объектов")).toHaveLength(1);
+    expect(screen.getByText("vm-1")).toBeInTheDocument();
   });
 
   it("у «Пользователя» строки нет", () => {
@@ -116,27 +115,12 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(editButton()).toBeNull();
   });
 
-  it("контейнер со своим размещением поясняет, что его наследуют объекты внутри", () => {
-    setup({ sites: [OWN_K8S], has_children: true, child_count: 2 }, { isContainer: true });
-    expect(screen.getByText("наследуют объекты внутри без своего размещения")).toBeInTheDocument();
-  });
-
-  it("пояснения нет у листа со своим размещением", () => {
-    setup({ sites: [OWN_K8S] });
-    expect(screen.queryByText(/наследуют объекты внутри/)).toBeNull();
-  });
-
-  it("пояснения нет у контейнера с унаследованным размещением", () => {
-    setup({ sites: [FROM_SHOP], has_children: true, child_count: 2 }, { isContainer: true });
-    expect(screen.queryByText(/наследуют объекты внутри/)).toBeNull();
-  });
-
   it("«Изменить» грузит площадки и открывает окно на объекте; применение перечитывает страницу", async () => {
     const onPlacementChanged = setup({ sites: [OWN_K8S] });
     await userEvent.click(editButton()!);
 
     expect(deploymentApi.sites).toHaveBeenCalledTimes(1);
-    // Окно «Размещение» на одном объекте: в подзаголовке его имя, своя площадка отмечена.
+    // Окно «Размещение» на одном объекте: в подзаголовке его имя, его площадка отмечена.
     const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ });
     expect(screen.getAllByText("Витрина").length).toBeGreaterThan(0);
     expect((k8s as HTMLInputElement).checked).toBe(true);
@@ -147,16 +131,30 @@ describe("NodeProperties: строка «Размещение»", () => {
 
     await waitFor(() => expect(onPlacementChanged).toHaveBeenCalledTimes(1));
     expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["n1"], ["k8s", "vm1"]);
+    expect(nodesApi.getAll).not.toHaveBeenCalled();
     // Окно закрылось — строка перечитает node.sites от страницы.
     expect(screen.queryByRole("button", { name: "Применить" })).toBeNull();
   });
 
-  it("в окне унаследованная площадка подписана предком, а не отмечена", async () => {
-    setup({ sites: [FROM_SHOP] });
+  it("контейнер в окне: площадка части объектов — частичная галочка, набор пишется его объектам", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      node({ sites: [PART_K8S], has_children: true, child_count: 2 }),
+      node({ id: "x", name: "API", parent_id: "n1", sites: [OWN_K8S] }),
+      node({ id: "y", name: "Корзина", parent_id: "n1", sites: [] }),
+    ]);
+    const onPlacementChanged = setup({ sites: [PART_K8S], has_children: true, child_count: 2 }, { isContainer: true });
     await userEvent.click(editButton()!);
-    const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ });
-    expect((k8s as HTMLInputElement).checked).toBe(false);
-    expect(screen.getByText("унаследовано от «Магазин»")).toBeInTheDocument();
+    const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ }) as HTMLInputElement;
+    expect(k8s.checked).toBe(false);
+    expect(k8s.indeterminate).toBe(true);
+
+    await userEvent.click(screen.getByRole("checkbox", { name: /^vm-1/ }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+
+    await waitFor(() => expect(onPlacementChanged).toHaveBeenCalledTimes(1));
+    expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["x"], ["vm1", "k8s"]);
+    expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["y"], ["vm1"]);
   });
 
   it("отказ загрузки площадок — текстом под строкой, окно не открывается", async () => {

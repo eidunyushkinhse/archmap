@@ -148,17 +148,6 @@ def build_export_ordered(
     by_id: dict[uuid.UUID, Node] = {n.id: n for n in nodes}
     included = set(by_id)
 
-    # Свои площадки каждого узла набора — в порядке площадок (по имени): так их
-    # пишет ключ sites, и так же импорт вернёт их строкой «Размещение».
-    site_by_id = {s.id: s for s in sites}
-    site_rank = {s.id: i for i, s in enumerate(sites)}
-    own_sites: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
-    for node_id, site_id in instances:
-        if node_id in included and site_id in site_by_id and site_id not in own_sites[node_id]:
-            own_sites[node_id].append(site_id)
-    for site_ids in own_sites.values():
-        site_ids.sort(key=lambda sid: site_rank[sid])
-
     # Группируем детей по родителю (только в пределах набора).
     children_by_parent: dict[uuid.UUID, list[Node]] = defaultdict(list)
     roots: list[Node] = []
@@ -167,6 +156,41 @@ def build_export_ordered(
             children_by_parent[n.parent_id].append(n)
         else:
             roots.append(n)
+
+    # Площадки объектов набора (листьев, не «Пользователей») — в порядке площадок (по
+    # имени): так их пишет ключ sites, и так же импорт вернёт их строкой «Размещение».
+    # Экземпляры контейнера (данные прежней модели) не в счёт: его размещение — объекты.
+    site_by_id = {s.id: s for s in sites}
+    site_rank = {s.id: i for i, s in enumerate(sites)}
+    own_sites: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    for node_id, site_id in instances:
+        node = by_id.get(node_id)
+        if node is None or node_id in children_by_parent or node.shape == "person":
+            continue
+        if site_id in site_by_id and site_id not in own_sites[node_id]:
+            own_sites[node_id].append(site_id)
+    for site_ids in own_sites.values():
+        site_ids.sort(key=lambda sid: site_rank[sid])
+
+    def whole_sites(node: Node) -> list[uuid.UUID] | None:
+        """Контейнер, все объекты которого стоят на одном наборе площадок, пишет
+        sites сам, а его поддерево — нет: короче, и читается как размещение целиком
+        (импорт раздаёт объявление контейнера объектам — leaf_placements). Иначе None."""
+        leaves: list[Node] = []
+        stack = [node]
+        while stack:
+            cur = stack.pop()
+            kids = children_by_parent.get(cur.id)
+            if kids:
+                stack.extend(kids)
+            elif cur.shape != "person":
+                leaves.append(cur)
+        if not leaves:
+            return None
+        first = own_sites.get(leaves[0].id, [])
+        if not first or any(own_sites.get(leaf.id, []) != first for leaf in leaves[1:]):
+            return None
+        return first
 
     # Сколько раз имя встречается в наборе — чтобы решить, нужен ли путь в edges.
     name_counts = Counter(n.name for n in nodes)
@@ -197,9 +221,10 @@ def build_export_ordered(
             return node.name
         return addresses[node.id] or node.name
 
-    def node_dict(node: Node) -> dict:
+    def node_dict(node: Node, covered: bool = False) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
-        # и тип, потом необязательная семантика, дети — последними.
+        # и тип, потом необязательная семантика, дети — последними. covered —
+        # размещение уже записано у контейнера выше: у поддерева ключа sites нет.
         order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
         if node.status != "existing":
@@ -219,11 +244,12 @@ def build_export_ordered(
             src = source_ref_dict(node.source_ref)
             if src:
                 d["source"] = src
-        if own_sites.get(node.id):
-            d["sites"] = [site_by_id[sid].name for sid in own_sites[node.id]]
         kids = sort(children_by_parent.get(node.id, []))
+        placed = None if covered else (whole_sites(node) if kids else own_sites.get(node.id))
+        if placed:
+            d["sites"] = [site_by_id[sid].name for sid in placed]
         if kids:
-            d["children"] = [node_dict(k) for k in kids]
+            d["children"] = [node_dict(k, covered or bool(placed)) for k in kids]
         return d
 
     def edge_dict(e: Edge) -> dict:
