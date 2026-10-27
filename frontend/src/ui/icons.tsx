@@ -71,6 +71,14 @@ export const PropsIcon = ({ size = 17 }: IcoProps) => (
 export const PlusIcon = ({ size = 17 }: IcoProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
     <path d="M12 5 V19 M5 12 H19" /></svg>);
+// «Площадки» — дерево площадок (окно SitesDialog): узел с двумя потомками. Кнопка
+// тулбара «Развёртывание» рядом с «Переразложить» и тумблером подписей.
+export const SitesIcon = ({ size = 17 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <rect x="8.5" y="3" width="7" height="5" rx="1.3" />
+    <rect x="2.5" y="16" width="7" height="5" rx="1.3" />
+    <rect x="14.5" y="16" width="7" height="5" rx="1.3" />
+    <path d="M12 8 V12 M6 16 V12 H18 V16" /></svg>);
 // «Указать размещение» — маркер места (булавка): иконка строки дерева в режиме
 // «Развёртывание» включает режим размещения объекта щелчком по площадке.
 export const PlaceIcon = ({ size = 17 }: IcoProps) => (

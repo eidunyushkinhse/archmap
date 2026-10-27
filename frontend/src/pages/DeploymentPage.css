@@ -53,6 +53,41 @@
   color: #b91c1c;
 }
 
+/* Квадратные белые иконочные кнопки тулбара («Площадки», «Переразложить», тумблер
+   «Подписи связей») — как кнопки угла холста (lg-seg) и топбара редактора-карты. */
+.dp-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dp-iconbtn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #cbd5e1;
+  color: #1d4ed8;
+}
+.dp-iconbtn:active:not(:disabled) {
+  background: #dbeafe;
+}
+/* Нажатое состояние тумблера (aria-pressed): подписи скрыты. */
+.dp-iconbtn[aria-pressed="true"] {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.dp-iconbtn:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
 .dp-canvas {
   flex: 1;
   min-height: 0;

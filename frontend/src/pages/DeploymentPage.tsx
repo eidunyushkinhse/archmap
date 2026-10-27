@@ -5,11 +5,13 @@
 // — зоны (вложенность без предела, сворачиваются в карточку), представитель — карточка в
 // каждой площадке, где он стоит: объект или цельный контейнер одной карточкой; без
 // размещения — в пунктирной группе. Уровень (объём холста) — из адреса
-// #/p/<pid>/deploy/<уровень?>, в тулбаре — путь текстом. Архитектору — расстановка (драг,
+// #/p/<pid>/deploy/<уровень?>, в тулбаре — путь текстом и справа квадратные иконки
+// «Площадки», «Переразложить» (архитектор) и тумблер «Подписи связей» (CV32: холст в
+// управляемом режиме, свой тумблер в углу не рисует). Архитектору — расстановка (драг,
 // персист ключами deploy:…, undo), «Переразложить» и размещение; читателю — просмотр.
 // Связи — как на холсте объектов: двойной клик по стрелке (или клик по плашке)
 // подсвечивает её и оба конца, несколько связей в пучке — окно выбора (useEdgeChoice).
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Node as AppNode, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import NodeTreePanel from "../components/NodeTreePanel";
@@ -19,6 +21,7 @@ import type {
   LinkedHighlight, LocateRequest,
 } from "../components/graph/types";
 import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
+import { readEdgeLabelsHidden, writeEdgeLabelsHidden } from "../components/graph/labelsPref";
 import { cardsOf, projectDeployment } from "../components/deployment/deploymentProjection";
 import PlacementDialog from "../components/deployment/PlacementDialog";
 import PlacementConflictList from "../components/deployment/PlacementConflictList";
@@ -31,6 +34,7 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
 import { listToast } from "../ui/pageChrome";
 import { primaryBtn } from "../ui/styles";
+import { EdgeLabelsIcon, RelayoutIcon, SitesIcon } from "../ui/icons";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
 import { useDeploymentGraph } from "./useDeploymentGraph";
@@ -179,6 +183,11 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     };
   }, [isArchitect, dep.mergeLayout, dep.viewMetaRef, dep.gestureActiveRef, host.resync, host.onConflict, host.retryPatch]);
 
+  // «Скрыть подписи связей» (CV32) — тумблер в тулбаре страницы (управляемый режим
+  // холста, как в редакторе-карте): настройка на проект, общая со схемой объектов.
+  const [edgeLabelsHidden, setEdgeLabelsHidden] = useState(readEdgeLabelsHidden);
+  useEffect(() => { writeEdgeLabelsHidden(edgeLabelsHidden); }, [edgeLabelsHidden]);
+
   const mode = useMemo<LevelModeFlags>(() => ({
     readOnly: true,
     arrangeOnly: isArchitect,
@@ -186,7 +195,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     edgesInspectable: true,
     fitOnLoad: true,
     ignorePersistedExpanded: false,
-  }), [isArchitect]);
+    edgeLabelsHidden,
+  }), [isArchitect, edgeLabelsHidden]);
 
   const projection = useMemo<LevelProjectionProps | undefined>(() => (proj
     ? {
@@ -346,14 +356,34 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
           </nav>
           <span style={{ flex: 1 }} />
           {actionError && <span role="alert" className="dp-error">{actionError}</span>}
-          <button type="button" className="btn-soft" onClick={() => setSitesOpen(true)}>
-            Площадки
+          {/* Квадратные иконки (приёмка 2026-10-27): «Площадки», «Переразложить» и тумблер
+              «Подписи связей» — сосед «Переразложить», как в углу холста на страницах и
+              в топбаре редактора (CV32). */}
+          <button type="button" className="dp-iconbtn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
+            <SitesIcon />
           </button>
           {isArchitect && (
-            <button type="button" className="btn-soft" onClick={() => { void handleRelayout(); }} disabled={!hasObjects}>
-              Переразложить
+            <button
+              type="button"
+              className="dp-iconbtn"
+              onClick={() => { void handleRelayout(); }}
+              disabled={!hasObjects}
+              title="Переразложить уровень"
+              aria-label="Переразложить"
+            >
+              <RelayoutIcon />
             </button>
           )}
+          <button
+            type="button"
+            className="dp-iconbtn"
+            onClick={() => setEdgeLabelsHidden((v) => !v)}
+            aria-pressed={edgeLabelsHidden}
+            title={edgeLabelsHidden ? "Показать подписи связей" : "Скрыть подписи связей"}
+            aria-label="Подписи связей"
+          >
+            <EdgeLabelsIcon off={edgeLabelsHidden} />
+          </button>
         </div>
 
         <div className="dp-canvas">

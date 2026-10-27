@@ -6,7 +6,8 @@
 // двойной клик по объекту ведёт на страницу объекта. Ф6: дерево слева (уровень, показ
 // объекта), путь уровня текстом, режим размещения щелчком по площадке, контейнер целиком.
 // Приёмка 2026-10-27: глубина цвета карточек — архитектурная (depths от глубины уровня),
-// выбор связи — подсветка (linkedHighlight) и окно выбора у пучка. Холст, дерево и
+// выбор связи — подсветка (linkedHighlight) и окно выбора у пучка; тумблер «Подписи
+// связей» — в тулбаре страницы, холст в управляемом режиме. Холст, дерево и
 // поллинг замоканы: проверяется оркестрация страницы.
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -122,6 +123,8 @@ describe("DeploymentPage", () => {
     vi.clearAllMocks();
     lg.current = null;
     tree.current = null;
+    // настройка «подписи скрыты» — на проект в localStorage; тесты стартуют с дефолта
+    localStorage.removeItem("archmap-hide-edge-labels");
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true }),
       pnode("c2", "Каталог", "c1", { has_children: true }),
@@ -367,6 +370,24 @@ describe("DeploymentPage", () => {
     act(() => { props().drill.onSelectionChange?.(["deploy:a@s1"]); });
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.queryByRole("button", { name: "Переразложить" })).toBeNull();
+    // просмотровые кнопки тулбара — всем ролям
+    expect(screen.getByRole("button", { name: "Площадки" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Подписи связей" })).toBeInTheDocument();
+  });
+
+  it("тумблер «Подписи связей» в тулбаре: холст в управляемом режиме, выбор помнится на проект", async () => {
+    await setup();
+    expect(props().mode?.edgeLabelsHidden).toBe(false);
+    const toggle = screen.getByRole("button", { name: "Подписи связей" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(toggle);
+    expect(props().mode?.edgeLabelsHidden).toBe(true);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toHaveAttribute("title", "Показать подписи связей");
+    expect(localStorage.getItem("archmap-hide-edge-labels")).toBe("1");
+    await userEvent.click(toggle);
+    expect(props().mode?.edgeLabelsHidden).toBe(false);
+    expect(localStorage.getItem("archmap-hide-edge-labels")).toBeNull();
   });
 
   it("нет листьев — заглушка вместо холста", async () => {

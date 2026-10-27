@@ -450,6 +450,10 @@ D17, D18, D20, D30 пересмотрены).
   ROUTER_VERSION 19, ROUTER_ALGO_REV 6, golden полигона перегенерирован) и рисуется
   общим `graph/FramePlaque.tsx` в слое плашек подписей (над линиями, под блоками; CV33)
   у compound-рамок, нативных рамок уровня и площадок.
+- Тулбар (приёмка 2026-10-27): «Площадки», «Переразложить» и тумблер «Подписи связей»
+  — квадратные белые иконки (`dp-iconbtn`, `SitesIcon`/`RelayoutIcon`/`EdgeLabelsIcon`);
+  тумблер переехал из угла холста в тулбар, холст в управляемом режиме
+  (`mode.edgeLabelsHidden`, настройка `labelsPref` на проект, общая со схемой объектов).
 - Цвет (п. 15): `projectDeployment(graph, levelDepth)` считает `depths` (карточка →
   число предков узла; корни объёма — длина цепочки контейнера уровня по
   `nodesApi.getAll()`, `levelChain`), `LevelProjectionProps.depths` → `assembleRf`
