@@ -8,12 +8,13 @@
 //   node scripts/landing-shots.mjs --out /tmp/shots     # другой каталог
 //   node scripts/landing-shots.mjs --project "Имя"      # другой проект (по умолчанию «… v2»)
 // Кадры shot-* — запасная анимация видео на лендинге; crop-* — врезки (вкладки «Не только
-// схема», карточка «Схемы с навигацией», импорт). Снимать лучше на КОПИИ эталона («Новый
-// проект» → «Копия», корень переразложен «Переразложить уровень», «Сервис уведомлений»
-// раскрыт): сам эталон «… v2» не трогаем — из него пересобирается демо-шаблон, а ручные
-// позиции его корня дают кадру статусов налезающие узлы. Кадр depth-canvas снимается
-// ТОЛЬКО на копии: в ней через интерфейс готовится схема страницы «Сервиса поиска» (что
-// именно — в комментарии сцены).
+// схема», карточка «Схемы с навигацией», импорт, холст «Развёртывание»). Снимать лучше на
+// КОПИИ эталона («Новый проект» → «Копия», корень переразложен «Переразложить уровень»,
+// «Маркетплейс» и «Сервис уведомлений» раскрыты): сам эталон «… v2» не трогаем — из него
+// пересобирается демо-шаблон, а ручные позиции его корня дают кадру статусов налезающие
+// узлы. Кадры depth-canvas и deploy-canvas снимаются ТОЛЬКО на копии: в ней через интерфейс
+// готовятся схема страницы «Сервиса поиска» и расстановка холста «Развёртывание» (что
+// именно — в комментариях сцен).
 // Учётка — ARCHMAP_USERNAME/ARCHMAP_PASSWORD из окружения, иначе из mcp/.env
 // (учётка демо-проекта). Токен в вывод не печатается.
 //
@@ -429,7 +430,9 @@ async function applyView(page, canvas, z, tx, ty) {
   for (let i = 0; i < 8; i++) {
     const v = await rfView(canvas);
     const dx = tx - v.tx, dy = ty - v.ty;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) return;
+    // Точность — пиксель: сдвиг меньше пикселя мышью не выполнить (порог драга), а кадру
+    // такая точность не нужна.
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
     const start = await canvas.evaluate((c, [dx, dy]) => {
       const r = c.getBoundingClientRect();
       for (let gy = 0.1; gy <= 0.9; gy += 0.05) for (let gx = 0.1; gx <= 0.9; gx += 0.05) {
@@ -447,9 +450,10 @@ async function applyView(page, canvas, z, tx, ty) {
     await page.mouse.up({ button: buttons[0] });
     await page.waitForTimeout(300);
     const after = await rfView(canvas);
+    if (process.env.SHOTS_DEBUG) console.log(`  пан ${buttons[0]} на ${dx.toFixed(0)},${dy.toFixed(0)} из ${start.x.toFixed(0)},${start.y.toFixed(0)}: ${v.tx.toFixed(0)},${v.ty.toFixed(0)} → ${after.tx.toFixed(0)},${after.ty.toFixed(0)} (цель ${tx.toFixed(0)},${ty.toFixed(0)})`);
     if (Math.abs(after.tx - v.tx) < 0.5 && Math.abs(after.ty - v.ty) < 0.5) buttons.reverse(); // эта кнопка не панорамирует
   }
-  throw new Error("вьюпорт не встал в расчётное положение");
+  throw new Error("вьюпорт не встал в расчётное положение (SHOTS_DEBUG=1 печатает попытки)");
 }
 // Кадр-врезка: как shoot, но только прямоугольник clip (px страницы)
 async function shootClip(page, file, clip) {
@@ -495,16 +499,30 @@ async function shootFlat(page, file, target, { maxWidth = Infinity, cutText = tr
   }
   const clip = { x: Math.round(box.x), y: Math.round(box.y), width, height };
   if (cutText) {
-    // По текстовым узлам, а не по элементам: текст бывает прямо в ячейке рядом с вложенными
+    // По текстовым узлам, а не по элементам: текст бывает прямо в ячейке рядом с вложенными.
+    // Поля ввода (textarea описания у архитектора) текстовых узлов не имеют — их край ловится
+    // по самому элементу; строка свойств (термин + значение) при этом прячется целиком, иначе
+    // у нижнего края остался бы термин без значения.
     await target.evaluate((e, edge) => {
+      const crosses = (r) => r.top < edge && r.bottom > edge;
+      const hide = (el) => el.style.setProperty("visibility", "hidden", "important");
       const w = document.createTreeWalker(e, NodeFilter.SHOW_TEXT);
       for (let n; (n = w.nextNode());) {
         if (!n.textContent.trim()) continue;
         const rg = document.createRange();
         rg.selectNodeContents(n);
         for (const r of rg.getClientRects()) {
-          if (r.top < edge && r.bottom > edge) { n.parentElement.style.setProperty("visibility", "hidden", "important"); break; }
+          if (crosses(r)) { hide(n.parentElement); break; }
         }
+      }
+      for (const f of e.querySelectorAll("textarea, input, select")) {
+        if (!crosses(f.getBoundingClientRect())) continue;
+        const value = f.closest(".np-value");
+        if (value) {
+          hide(value);
+          const term = value.previousElementSibling;
+          if (term && term.classList.contains("np-term")) hide(term);
+        } else hide(f);
       }
     }, clip.y + clip.height);
   }
@@ -648,6 +666,57 @@ const SHOTS = {
     const title = 13 * v1.k;
     console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок узла ≈ ${title.toFixed(1)} px в кадре, ${(title * 466 / area.w).toFixed(1)} px в три колонки, ${(title * 348 / area.w).toFixed(1)} px на телефоне`);
     await shootClip(page, "crop-depth-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
+  } },
+
+  // Врезка раздела «Развёртывание»: холст «Развёртывание» всего проекта — площадки вложены
+  // («Облако» ⊃ кластеры, управляемая база, ВМ), API Gateway и Order API стоят в двух кластерах
+  // (пометки «1/2» и «2/2»), «Сервис оплаты» — цельный контейнер («· 3»), серверная офиса с
+  // выводимым SMS-рассыльщиком, группа «Размещение не указано». Кадр 16:10 (1280×800 CSS →
+  // 2560×1600), только холст; подписи связей скрыты тумблером тулбара (настройка вида в
+  // localStorage, в БД не пишет), дерево слева свёрнуто — холсту вся ширина окна.
+  // ⚠ Только на КОПИИ эталона с компактной расстановкой карточек (авто-раскладка холста для
+  // врезки слишком разрежена; карточки расставлены перетаскиванием — батчем раскладки вида):
+  // первый показ холста пишет раскладку вида, на эталоне «… v2» сторож оборвёт запись.
+  "deploy-canvas": { size: [1600, 1100], async run(page, s) {
+    await go(page, `/p/${s.pid}/deploy`);
+    await page.locator(".react-flow__node").first().waitFor();
+    await settle(page);
+    await page.getByRole("button", { name: "Свернуть панель" }).first().click(); // дерево → рельс
+    await page.locator('button[title="Развернуть панель"]').first().waitFor();
+    const labels = page.getByRole("button", { name: "Подписи связей" });
+    if ((await labels.getAttribute("aria-pressed")) !== "true") await labels.click();
+    await settle(page);
+    // кнопки холста (undo, зум), мини-карта, легенда — не в кадр (только в этой сцене)
+    await page.addStyleTag({ content: ".react-flow__controls, .react-flow__minimap, .react-flow__panel, .sleg-btn, .sleg-panel { display: none !important; }" });
+    const canvas = page.locator(".dp-stage .react-flow").first();
+    const cb = await canvas.boundingBox();
+    const area = { w: 1280, h: 800 };
+    area.x = Math.round((cb.width - area.w) / 2);
+    area.y = Math.round((cb.height - area.h) / 2);
+    if (area.x < 40 || area.y < 40) throw new Error(`холст ${Math.round(cb.width)}×${Math.round(cb.height)} мал для кадра ${area.w}×${area.h}`);
+    const texts = await flowTexts(canvas);
+    const v0 = await rfView(canvas);
+    // обязательное — все карточки и рамки площадок целиком (плашки площадок — в надписях)
+    const req = await canvas.evaluate((c, [tx, ty, k]) => {
+      const cr = c.getBoundingClientRect();
+      let b = null;
+      for (const n of c.querySelectorAll(".react-flow__node")) {
+        const r = n.getBoundingClientRect();
+        if (!r.width) continue;
+        const f = { x0: (r.left - cr.left - tx) / k, y0: (r.top - cr.top - ty) / k, x1: (r.right - cr.left - tx) / k, y1: (r.bottom - cr.top - ty) / k };
+        b = b ? { x0: Math.min(b.x0, f.x0), y0: Math.min(b.y0, f.y0), x1: Math.max(b.x1, f.x1), y1: Math.max(b.y1, f.y1) } : f;
+      }
+      return b;
+    }, [v0.tx, v0.ty, v0.k]);
+    const win = [[0, 0, area.w, area.h]];
+    const plan = planFrame(texts.reduce(unite, req), texts, area, 24, win, [0], 2);
+    if (!plan) throw new Error("не нашлось кадра без разрезанных надписей");
+    await applyView(page, canvas, plan.z, area.x - plan.x0 * plan.z, area.y - plan.y0 * plan.z);
+    await settle(page, 300);
+    const v1 = await rfView(canvas);
+    const title = 13 * v1.k;
+    console.log(`  масштаб холста ${v1.k.toFixed(2)}: заголовок карточки ≈ ${title.toFixed(1)} px в кадре, ${(title * 944 / area.w).toFixed(1)} px на лендинге (944 px)`);
+    await shootClip(page, "crop-deploy-canvas.png", { x: cb.x + area.x, y: cb.y + area.y, width: area.w, height: area.h });
   } },
 
   // Страница Order API: конфигурация (страница упирается в конец — на кадре заодно

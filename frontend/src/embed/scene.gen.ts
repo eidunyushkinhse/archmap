@@ -329,8 +329,8 @@ export const SCENE: LandingScene = {
       }
     },
     "version": 15,
-    "graph_rev": 639,
-    "meta_rev": 28,
+    "graph_rev": 753,
+    "meta_rev": 40,
     "has_status_info": true
   },
   "containerId": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
@@ -371,7 +371,24 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          },
+          {
+            "id": "f94fed40-757c-4524-953b-8104eaaafad7",
+            "name": "Кластер резерв",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371798+03:00",
         "updated_at": "2026-08-19T10:12:17.371800+03:00"
@@ -394,7 +411,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "a5da4edf-1e26-4616-80e3-663412a8f26d",
+            "name": "ВМ брокера",
+            "kind": "vm",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371801+03:00",
         "updated_at": "2026-08-19T10:12:17.371802+03:00"
@@ -438,7 +464,16 @@ export const SCENE: LandingScene = {
           "path": null,
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 4,
         "created_at": "2026-08-19T10:12:17.371803+03:00",
         "updated_at": "2026-08-19T18:11:05.892976+03:00"
@@ -488,7 +523,32 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "f94fed40-757c-4524-953b-8104eaaafad7",
+            "name": "Кластер резерв",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
         "updated_at": "2026-08-19T10:12:17.371806+03:00"
@@ -511,7 +571,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371820+03:00",
         "updated_at": "2026-08-19T10:12:17.371821+03:00"
@@ -534,7 +603,24 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "87aa8b8d-ae87-4478-8bbb-82df9f6c34fe",
+            "name": "ВМ поиска",
+            "kind": "vm",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371826+03:00",
         "updated_at": "2026-08-19T10:12:17.371827+03:00"
@@ -557,7 +643,24 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371831+03:00",
         "updated_at": "2026-08-19T10:12:17.371832+03:00"
@@ -580,7 +683,32 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "0c0102f2-9840-4d42-8067-e0668b012493",
+            "name": "Серверная офиса",
+            "kind": "physical",
+            "parent_id": null,
+            "parent_name": null,
+            "partial": true
+          },
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371837+03:00",
         "updated_at": "2026-08-19T10:12:17.371838+03:00"
@@ -626,36 +754,30 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          }
+        ],
         "version": 13,
         "created_at": "2026-08-19T10:12:17.371813+03:00",
         "updated_at": "2026-09-04T22:05:39.818046+03:00"
       }
     ],
     "f02c675c-1da7-4e08-b8bb-7a512ad63299": [
-      {
-        "id": "f665d127-739f-464a-b423-cc71ef051f24",
-        "name": "БД заказов",
-        "description": "Заказы, их позиции и журнал саги исполнения.",
-        "role": "база данных",
-        "technology": "PostgreSQL",
-        "parent_id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-        "openapi_spec": null,
-        "docs": [],
-        "is_external": false,
-        "shape": "database",
-        "status": "existing",
-        "child_count": 0,
-        "has_children": false,
-        "approval": "in_progress",
-        "approval_effective": "in_progress",
-        "source_ref": null,
-        "source": null,
-        "sites": [],
-        "version": 1,
-        "created_at": "2026-08-19T10:12:17.371808+03:00",
-        "updated_at": "2026-08-19T10:12:17.371809+03:00"
-      },
       {
         "id": "8259621d-d755-4b39-82d4-33b92558a622",
         "name": "Оркестратор заказа",
@@ -679,18 +801,59 @@ export const SCENE: LandingScene = {
         "status": "existing",
         "child_count": 0,
         "has_children": false,
-        "approval": "in_progress",
-        "approval_effective": "in_progress",
+        "approval": "approved",
+        "approval_effective": "approved",
         "source_ref": "git:github.com/yarmarka/orders#services/order-saga",
         "source": {
           "repo": "github.com/yarmarka/orders",
           "path": "services/order-saga",
           "host": null
         },
-        "sites": [],
-        "version": 1,
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
+        "version": 4,
         "created_at": "2026-08-19T10:12:17.371810+03:00",
-        "updated_at": "2026-08-19T10:12:17.371812+03:00"
+        "updated_at": "2026-10-22T14:13:38.947682+03:00"
+      },
+      {
+        "id": "f665d127-739f-464a-b423-cc71ef051f24",
+        "name": "БД заказов",
+        "description": "Заказы, их позиции и журнал саги исполнения.",
+        "role": "база данных",
+        "technology": "PostgreSQL",
+        "parent_id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
+        "openapi_spec": null,
+        "docs": [],
+        "is_external": false,
+        "shape": "database",
+        "status": "existing",
+        "child_count": 0,
+        "has_children": false,
+        "approval": "in_progress",
+        "approval_effective": "in_progress",
+        "source_ref": null,
+        "source": null,
+        "sites": [
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
+        "version": 1,
+        "created_at": "2026-08-19T10:12:17.371808+03:00",
+        "updated_at": "2026-08-19T10:12:17.371809+03:00"
       },
       {
         "id": "77f5a050-ca2b-4991-9f1f-a1b54783564a",
@@ -731,18 +894,35 @@ export const SCENE: LandingScene = {
         "status": "existing",
         "child_count": 0,
         "has_children": false,
-        "approval": "in_progress",
-        "approval_effective": "in_progress",
+        "approval": "approved",
+        "approval_effective": "approved",
         "source_ref": "git:github.com/yarmarka/orders#services/order-api",
         "source": {
           "repo": "github.com/yarmarka/orders",
           "path": "services/order-api",
           "host": null
         },
-        "sites": [],
-        "version": 1,
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          },
+          {
+            "id": "f94fed40-757c-4524-953b-8104eaaafad7",
+            "name": "Кластер резерв",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371807+03:00",
-        "updated_at": "2026-08-19T10:12:17.815805+03:00"
+        "updated_at": "2026-10-22T12:27:41.557831+03:00"
       }
     ],
     "21349aeb-5697-436b-b217-7502d919168b": [
@@ -793,7 +973,16 @@ export const SCENE: LandingScene = {
           "path": "services/payment-api",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371822+03:00",
         "updated_at": "2026-08-19T10:12:17.815803+03:00"
@@ -816,7 +1005,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371825+03:00",
         "updated_at": "2026-08-19T10:12:17.371825+03:00"
@@ -846,12 +1044,25 @@ export const SCENE: LandingScene = {
         "has_children": false,
         "approval": "in_progress",
         "approval_effective": "in_progress",
-        "source_ref": null,
-        "source": null,
-        "sites": [],
-        "version": 2,
+        "source_ref": "git:github.com/yarmarka/payments#services/antifraud",
+        "source": {
+          "repo": "github.com/yarmarka/payments",
+          "path": "services/antifraud",
+          "host": null
+        },
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
+        "version": 3,
         "created_at": "2026-08-19T10:12:17.371823+03:00",
-        "updated_at": "2026-09-29T17:41:52.878652+03:00"
+        "updated_at": "2026-10-27T20:20:01.142829+03:00"
       }
     ],
     "f3fc0c75-b6c0-4031-b31e-c851df2e0824": [
@@ -873,7 +1084,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "87aa8b8d-ae87-4478-8bbb-82df9f6c34fe",
+            "name": "ВМ поиска",
+            "kind": "vm",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371828+03:00",
         "updated_at": "2026-08-19T10:12:17.371828+03:00"
@@ -909,7 +1129,16 @@ export const SCENE: LandingScene = {
           "path": "services/search-api",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371829+03:00",
         "updated_at": "2026-08-19T10:12:17.815805+03:00"
@@ -971,7 +1200,16 @@ export const SCENE: LandingScene = {
           "path": "services/auth-api",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371832+03:00",
         "updated_at": "2026-08-19T10:12:17.815799+03:00"
@@ -994,7 +1232,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371835+03:00",
         "updated_at": "2026-08-19T10:12:17.371836+03:00"
@@ -1038,7 +1285,16 @@ export const SCENE: LandingScene = {
           "path": "services/profile-api",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371834+03:00",
         "updated_at": "2026-08-19T10:12:17.815806+03:00"
@@ -1084,7 +1340,16 @@ export const SCENE: LandingScene = {
           "path": "services/notification-worker",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371839+03:00",
         "updated_at": "2026-08-19T10:12:17.371840+03:00"
@@ -1107,7 +1372,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371841+03:00",
         "updated_at": "2026-08-19T10:12:17.371841+03:00"
@@ -1143,7 +1417,16 @@ export const SCENE: LandingScene = {
           "path": "services/sms-sender",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "0c0102f2-9840-4d42-8067-e0668b012493",
+            "name": "Серверная офиса",
+            "kind": "physical",
+            "parent_id": null,
+            "parent_name": null,
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-09-14T14:19:22.186733+03:00",
         "updated_at": "2026-09-14T14:19:22.186738+03:00"
@@ -1168,7 +1451,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Управляемая PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371816+03:00",
         "updated_at": "2026-08-19T10:12:17.371817+03:00"
@@ -1204,7 +1496,16 @@ export const SCENE: LandingScene = {
           "path": "services/product-indexer",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371817+03:00",
         "updated_at": "2026-08-19T10:12:17.371818+03:00"
@@ -1227,7 +1528,16 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371819+03:00",
         "updated_at": "2026-08-19T10:12:17.371819+03:00"
@@ -1279,7 +1589,16 @@ export const SCENE: LandingScene = {
           "path": "services/catalog-api",
           "host": null
         },
-        "sites": [],
+        "sites": [
+          {
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": false
+          }
+        ],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371814+03:00",
         "updated_at": "2026-08-19T10:12:17.815804+03:00"
