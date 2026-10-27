@@ -34,7 +34,7 @@ import ConfirmDialog from "../ui/ConfirmDialog";
 import LoadError from "../ui/LoadError";
 import { listToast } from "../ui/pageChrome";
 import { primaryBtn } from "../ui/styles";
-import { EdgeLabelsIcon, RelayoutIcon, SitesIcon } from "../ui/icons";
+import { EdgeLabelsIcon, RelayoutIcon, SiteKindIcon } from "../ui/icons";
 import { loadErrorText } from "../ui/loadErrorText";
 import { plural } from "../ui/plural";
 import { useDeploymentGraph } from "./useDeploymentGraph";
@@ -356,11 +356,12 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
           </nav>
           <span style={{ flex: 1 }} />
           {actionError && <span role="alert" className="dp-error">{actionError}</span>}
-          {/* Квадратные иконки (приёмка 2026-10-27): «Площадки», «Переразложить» и тумблер
-              «Подписи связей» — сосед «Переразложить», как в углу холста на страницах и
-              в топбаре редактора (CV32). */}
+          {/* Квадратные иконки (приёмка 2026-10-27): «Площадки» — тот же знак вида площадки,
+              что на карточках и плашках площадок (вид по умолчанию «другое»); «Переразложить»
+              и тумблер «Подписи связей» — сосед «Переразложить», как в углу холста на
+              страницах и в топбаре редактора (CV32). */}
           <button type="button" className="dp-iconbtn" onClick={() => setSitesOpen(true)} title="Площадки" aria-label="Площадки">
-            <SitesIcon />
+            <SiteKindIcon kind="other" size={17} />
           </button>
           {isArchitect && (
             <button
