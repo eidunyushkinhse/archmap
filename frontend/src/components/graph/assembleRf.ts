@@ -22,6 +22,15 @@ import { parentFrameOf, deepestFrameContaining } from "./layout/frames";
 // Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
 // см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
 const DIM_STYLE = { opacity: 0.12, pointerEvents: "none" as const };
+// z-index всех блоков (карточки, гости, свёрнутые контейнеры, карточки площадок): НАД
+// рёбрами и НАД слоем плашек подписей. RF даёт ребру z его вложенного конца (ребёнка
+// рамки), а ребёнку рамки — не меньше z родителя + 1: при рамке в рамке в рамке
+// (площадки развёртывания) рёбра доходили до z:2 и резали плашки на z:1. Явный z у
+// блоков один на любой вложенности, рёбра получают его же, слой плашек стоит на том
+// же числе (LevelGraph.css, .react-flow__edgelabel-renderer) — при равном z побеждает
+// DOM-порядок: рёбра < плашки < блоки. Рамки ниже: отрицательный z, у вложенной —
+// z родителя + 1, до BLOCK_Z не дотягивает.
+const BLOCK_Z = 10;
 
 // Снимок колбэков узлов/рёбер (latest-ref cbRef в LevelGraph).
 export interface AssembleCallbacks {
@@ -205,6 +214,7 @@ export function assembleRfGraph(params: {
           id: n.id,
           type: "site" as const,
           ...compound,
+          zIndex: BLOCK_Z,
           data: {
             name: n.name,
             icon: siteDecor.icon ?? "other",
@@ -220,6 +230,7 @@ export function assembleRfGraph(params: {
         id: n.id,
         type: "block" as const,
         ...compound,
+        zIndex: BLOCK_Z,
         ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
         data: {
           appNode: n,
@@ -266,6 +277,7 @@ export function assembleRfGraph(params: {
           id: ent.id,
           type: "ghost" as const,
           ...compound,
+          zIndex: BLOCK_Z,
           ...(dimNode(ent.ghost.status) ? { style: DIM_STYLE } : null),
           data: {
             appNode: ent.ghost,
@@ -284,6 +296,7 @@ export function assembleRfGraph(params: {
         id: ent.id,
         type: "container" as const,
         ...compound,
+        zIndex: BLOCK_Z,
         data: {
           id: ent.id,
           name: ent.name,

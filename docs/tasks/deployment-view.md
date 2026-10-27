@@ -452,6 +452,9 @@ D17, D18, D20, D30 пересмотрены).
   (`resolveEdge` по `proj.edges`, `labelOf` по реестру концов), `linkedHighlight` на
   выбранной связи, `drill.onClearSelection` и смена уровня снимают; `choiceModal` в
   разметке страницы.
+- Плашки под стрелками (приёмка 2026-10-27, canvas.md CV33): `assembleRf.BLOCK_Z = 10`
+  у всех блоков, слой `.react-flow__edgelabel-renderer` на том же z — рёбра вложенных
+  карточек больше не обгоняют плашки.
 
 ## 5. Рендер
 

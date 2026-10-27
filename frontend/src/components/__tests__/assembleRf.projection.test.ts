@@ -67,6 +67,20 @@ function assemble(projection: boolean) {
 }
 
 describe("assembleRfGraph — проекция хозяина (развёртывание)", () => {
+  it("блоки и карточки площадок несут z-index 10 (слой плашек стоит на том же z — LevelGraph.css), рамки ниже нуля", () => {
+    // Свёрнутая площадка S3 — карточкой площадки (декор site у узла, не рамки).
+    const nodes = assembleRfGraph({
+      layout: { ...layout, nodes: [...layout.nodes, appNode("S3")], positions: new Map([...layout.positions, ["S3", { x: 0, y: 0 }]]) },
+      isArchitect: true, isReadOnly: true, drillNav: false, depth: 0, schemaView: "all", getCb: cb,
+      maxInlineDepth: Infinity, frameDecor: decorOf, marks: {},
+    }).nextNodes;
+    const z = (id: string) => nodes.find((n) => n.id === id)?.zIndex;
+    expect(nodes.find((n) => n.id === "S3")?.type).toBe("site");
+    expect([z("a@S"), z("inner"), z("u"), z("S3")]).toEqual([10, 10, 10, 10]);
+    expect(z("S")).toBeLessThan(0);
+    expect(z("S2")).toBeLessThan(0);
+  });
+
   it("декор рамки доезжает до FrameData; collapsible:false — без onCollapse", () => {
     const nodes = assemble(true);
     const data = (id: string) => nodes.find((n) => n.id === id)!.data as FrameData;
