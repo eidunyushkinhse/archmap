@@ -1,7 +1,8 @@
 // Проекция графа развёртывания на холст (docs/specs/deployment.md): вложенность
 // площадок, экземпляры с пометками «i/n», группа «Размещение не указано», правило
 // ближайшего экземпляра для связей, пустая площадка карточкой, правило цельного
-// контейнера (представители), реестр концов и подъём связи к свёрнутой площадке.
+// контейнера (представители), реестр концов и подъём связи к свёрнутой площадке,
+// глубина цвета карточки — архитектурная глубина узла (D9).
 import { describe, it, expect } from "vitest";
 import {
   projectDeployment, siteKey, instanceKey, UNPLACED, UNPLACED_NAME, cardsOf, pickedSite,
@@ -266,6 +267,33 @@ describe("проекция + конвейер: свёрнутая площадк
     const out = await run([siteKey("cloud")]);
     expect(ends(out)).toEqual([`${siteKey("cloud")}>${instanceKey("x", "vm")}`]);
     expect(out.layout.entities).toEqual([]);
+  });
+});
+
+// Глубина цвета карточки (D9): число предков узла в дереве объектов — у корней объёма
+// глубина уровня, вложенность площадок не считается.
+describe("depths", () => {
+  it("корни объёма — глубина уровня, дети рассыпанного контейнера — глубже; площадки не считаются", () => {
+    const p = projectDeployment(graph(
+      [site("cloud", null, "cloud"), site("k8s", "cloud"), site("ns", "k8s")],
+      [
+        obj("a", ["ns"]),
+        tnode("c", null, [], 2), tnode("l1", "c", ["cloud"]), tnode("sub", "c", ["k8s"], 1), tnode("l2", "sub", ["k8s"]),
+      ],
+    ), 1);
+    expect(p.depths).toEqual({
+      [instanceKey("a", "ns")]: 1,
+      [instanceKey("l1", "cloud")]: 2,
+      // вложенный цельный подконтейнер — карточка с глубиной самого подконтейнера
+      [instanceKey("sub", "k8s")]: 2,
+    });
+  });
+
+  it("по умолчанию уровень — весь проект: глубина корней 0; у каждой карточки объекта на двух площадках — одна", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], [obj("a", ["s1", "t"]), obj("u", [])]));
+    expect(p.depths).toEqual({
+      [instanceKey("a", "s1")]: 0, [instanceKey("a", "t")]: 0, [instanceKey("u", UNPLACED)]: 0,
+    });
   });
 });
 

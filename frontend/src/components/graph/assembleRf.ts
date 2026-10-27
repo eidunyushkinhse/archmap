@@ -62,13 +62,15 @@ export function assembleRfGraph(params: {
   maxInlineDepth?: number;
   frameDecor?: (frameId: string) => FrameDecor | undefined;
   marks?: Record<string, string>;
+  // depths — глубина цвета карточки по id блока (вместо глубины уровня + вложенности рамки)
+  depths?: Record<string, number>;
   expandableIds?: ReadonlySet<string>;
   // Режим выбора площадки (pickFrame хозяина задан): рамки, карточки площадок и объектов
   // получают onPick — щелчок зовёт getCb().pickFrame(id) в момент клика.
   picking?: boolean;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
-  const { frameDecor, marks, expandableIds, picking } = params;
+  const { frameDecor, marks, depths, expandableIds, picking } = params;
   // Колбэк выбора — один на сборку, лениво через getCb (как остальные обработчики).
   const pick = picking ? { onPick: (id: string) => getCb().pickFrame?.(id) } : null;
   const inlineDepth = params.maxInlineDepth ?? MAX_INLINE_DEPTH;
@@ -225,8 +227,10 @@ export function assembleRfGraph(params: {
           onDrillDown: drillNav ? (node) => getCb().drillWithPath(node) : undefined,
           isArchitect,
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
-          // к глубине уровня прибавляется вложенность рамки относительно уровня
-          colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
+          // к глубине уровня прибавляется вложенность рамки относительно уровня.
+          // Проекция хозяина задаёт глубину сама (развёртывание: рамки — площадки,
+          // цвет — архитектурная глубина объекта, как на холсте объектов).
+          colors: getNodeColors(n.is_external, depths?.[n.id] ?? depth + (pf ? frameNesting(pf) : 0), n.status),
           hideActions: false,
           connectable: isArchitect && !isReadOnly,
           // quickConnect — объект-снимок: он стабилен по построению (useMemo []

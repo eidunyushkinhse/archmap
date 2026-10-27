@@ -5,7 +5,9 @@
 // возвращает свёрнутость площадок, смена уровня и вход в контейнер — навигацией,
 // двойной клик по объекту ведёт на страницу объекта. Ф6: дерево слева (уровень, показ
 // объекта), путь уровня текстом, режим размещения щелчком по площадке, контейнер целиком.
-// Холст, дерево и поллинг замоканы: проверяется оркестрация страницы.
+// Приёмка 2026-10-27: глубина цвета карточек — архитектурная (depths от глубины уровня),
+// выбор связи — подсветка (linkedHighlight) и окно выбора у пучка. Холст, дерево и
+// поллинг замоканы: проверяется оркестрация страницы.
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps, ReactNode } from "react";
@@ -143,8 +145,54 @@ describe("DeploymentPage", () => {
     expect(p.projection?.marks).toEqual({ "deploy:a@s1": "1/2", "deploy:a@t": "2/2" });
     // реестр концов — по записи на карточку, с цепочкой площадок
     expect(p.endpoints.map((e) => e.id).sort()).toEqual(["deploy:a@s1", "deploy:a@t", "deploy:b@s1"]);
-    expect(p.mode).toMatchObject({ readOnly: true, arrangeOnly: true, edgesInspectable: false });
+    expect(p.mode).toMatchObject({ readOnly: true, arrangeOnly: true, edgesInspectable: true });
     expect(p.persistence?.viewMeta?.current).toEqual({ version: 7, graphRev: 3, metaRev: 2 });
+    // глубина цвета карточек: весь проект — корни объёма на глубине 0
+    expect(p.projection?.depths).toEqual({ "deploy:a@s1": 0, "deploy:a@t": 0, "deploy:b@s1": 0 });
+  });
+
+  it("глубина цвета на вложенном уровне — длина цепочки контейнера уровня по составу проекта", async () => {
+    await setup(true, graph({ nodes: [{ ...obj("x", ["s1"]), parent_id: "c2" }], edges: [] }), "c2");
+    // c2 «Каталог» лежит в c1 «Витрина»: его дети — на глубине 2
+    await waitFor(() => expect(props().projection?.depths).toEqual({ "deploy:x@s1": 2 }));
+  });
+
+  // ── Выбор связи: подсветка и окно выбора у пучка (как на холсте объектов) ──
+  it("одна связь — сразу подсветка её и концов (linkedHighlight); двойной клик по пустому — снимает", async () => {
+    await setup();
+    expect(props().linkedHighlight).toBeNull();
+    const e = props().edges.find((x) => x.id === "deploy:e1@s1@s1")!;
+    act(() => { props().edgeCallbacks.onEdgesChoice([e]); });
+    expect(props().linkedHighlight).toEqual({ kind: "edge", id: "deploy:e1@s1@s1" });
+    act(() => { props().drill.onClearSelection?.(); });
+    expect(props().linkedHighlight).toBeNull();
+  });
+
+  it("несколько связей в пучке — окно «Выберите связь» с именами объектов; выбор подсвечивает выбранную", async () => {
+    await setup(true, graph({
+      edges: [
+        { id: "e1", label: "читает", technology: null, source_id: "a", target_id: "b", version: 1 },
+        { id: "e2", label: "пишет", technology: "Kafka", source_id: "a", target_id: "b", version: 1 },
+      ],
+    }));
+    const bundle = props().edges.filter((x) => x.id.endsWith("@s1@s1"));
+    expect(bundle.map((x) => x.id)).toEqual(["deploy:e1@s1@s1", "deploy:e2@s1@s1"]);
+    act(() => { props().edgeCallbacks.onEdgesChoice(bundle); });
+    const modal = screen.getByTestId("modal");
+    expect(modal).toHaveTextContent("Выберите связь");
+    expect(modal).toHaveTextContent("A → B");
+    await userEvent.click(within(modal).getByRole("button", { name: "пишет · Kafka" }));
+    expect(screen.queryByTestId("modal")).toBeNull();
+    expect(props().linkedHighlight).toEqual({ kind: "edge", id: "deploy:e2@s1@s1" });
+  });
+
+  it("смена уровня снимает подсветку связи", async () => {
+    const { goTo } = await setup();
+    act(() => { props().edgeCallbacks.onEdgesChoice([props().edges[0]]); });
+    expect(props().linkedHighlight).not.toBeNull();
+    goTo("c1");
+    await waitFor(() => expect(props().containerId).toBe("c1"));
+    expect(props().linkedHighlight).toBeNull();
   });
 
   it("дерево слева в режиме deploy: уровень подсвечен, клик по контейнеру — навигация на его уровень", async () => {

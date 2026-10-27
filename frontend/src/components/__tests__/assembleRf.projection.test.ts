@@ -1,11 +1,13 @@
 // Проекция хозяина в сборке RF (холст развёртывания, docs/specs/deployment.md):
-// декор рамки (FrameData.decor), пометка карточки (BlockData.mark) и предел гейта лупы
-// входом (maxInlineDepth). Без проекции сборка прежняя: decor/mark не появляются,
-// рамка сворачивается, предел — MAX_INLINE_DEPTH.
+// декор рамки (FrameData.decor), пометка карточки (BlockData.mark), глубина цвета
+// карточки входом (depths — вместо глубины уровня + вложенности рамки) и предел гейта
+// лупы входом (maxInlineDepth). Без проекции сборка прежняя: decor/mark не появляются,
+// цвет — по вложенности рамки, рамка сворачивается, предел — MAX_INLINE_DEPTH.
 import { describe, it, expect, vi } from "vitest";
 import { assembleRfGraph, type AssembleCallbacks } from "../graph/assembleRf";
 import type { LayoutResult } from "../graph/layout/pipeline";
 import type { BlockData, FrameData, FrameDecor, SiteCardData } from "../graph/types";
+import { getNodeColors } from "../graph/colors";
 import type { Node as AppNode } from "../../types";
 
 function appNode(id: string, kids = false): AppNode {
@@ -59,7 +61,7 @@ function assemble(projection: boolean) {
     layout, isArchitect: true, isReadOnly: true, drillNav: false,
     depth: 0, schemaView: "all", getCb: cb,
     ...(projection
-      ? { maxInlineDepth: Infinity, frameDecor: decorOf, marks: { "a@S": "1/2" } }
+      ? { maxInlineDepth: Infinity, frameDecor: decorOf, marks: { "a@S": "1/2" }, depths: { inner: 0, "a@S": 3 } }
       : null),
   }).nextNodes;
 }
@@ -80,6 +82,18 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
     const block = (id: string) => nodes.find((n) => n.id === id)!.data as BlockData;
     expect(block("a@S").mark).toBe("1/2");
     expect("mark" in block("u")).toBe(false);
+  });
+
+  it("глубина цвета — из depths проекции, а не из вложенности рамки; без записи — как прежде", () => {
+    const block = (nodes: ReturnType<typeof assemble>, id: string) => nodes.find((n) => n.id === id)!.data as BlockData;
+    const withProj = assemble(true);
+    // «inner» лежит в рамке глубины 2 (S ⊃ S2), но проекция велит глубину 0; «a@S» — 3
+    expect(block(withProj, "inner").colors).toEqual(getNodeColors(false, 0));
+    expect(block(withProj, "a@S").colors).toEqual(getNodeColors(false, 3));
+    // «u» в depths нет — глубина по вложенности рамки U (1)
+    expect(block(withProj, "u").colors).toEqual(getNodeColors(false, 1));
+    const plain = assemble(false);
+    expect(block(plain, "inner").colors).toEqual(getNodeColors(false, 2));
   });
 
   it("maxInlineDepth: Infinity — лупа на вложенности 2 активна (без предела C8)", () => {

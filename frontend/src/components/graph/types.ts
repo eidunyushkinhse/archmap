@@ -353,6 +353,10 @@ export interface LevelProjectionProps {
   frameDecor?: (frameId: string) => FrameDecor | undefined;
   // Пометки карточек по id блока (BlockData.mark).
   marks?: Record<string, string>;
+  // Глубина цвета карточки по id блока (рампа getNodeColors) вместо «глубина уровня +
+  // вложенность рамки»: на холсте развёртывания рамки — площадки, а цвет объекта должен
+  // быть таким же, как на холсте объектов (его архитектурная глубина).
+  depths?: Record<string, number>;
   // Группа карточки («близнецы» — карточки одного объекта в разных рамках): у близнецов
   // выделенного блока класс lg-linked-node, RF-выделение остаётся на самой карточке.
   groupOf?: (id: string) => string | undefined;

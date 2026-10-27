@@ -7,15 +7,18 @@
 // размещения — в пунктирной группе. Уровень (объём холста) — из адреса
 // #/p/<pid>/deploy/<уровень?>, в тулбаре — путь текстом. Архитектору — расстановка (драг,
 // персист ключами deploy:…, undo), «Переразложить» и размещение; читателю — просмотр.
+// Связи — как на холсте объектов: двойной клик по стрелке (или клик по плашке)
+// подсвечивает её и оба конца, несколько связей в пучке — окно выбора (useEdgeChoice).
 import { useCallback, useMemo, useRef, useState } from "react";
-import type { Node as AppNode, ViewLayoutPayload } from "../types";
+import type { Node as AppNode, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import NodeTreePanel from "../components/NodeTreePanel";
 import SchemaLegend from "../components/SchemaLegend";
 import type {
   LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelProjectionProps,
-  LocateRequest,
+  LinkedHighlight, LocateRequest,
 } from "../components/graph/types";
+import { useEdgeChoice } from "../components/graph/interaction/useEdgeChoice";
 import { cardsOf, projectDeployment } from "../components/deployment/deploymentProjection";
 import PlacementDialog from "../components/deployment/PlacementDialog";
 import PlacementConflictList from "../components/deployment/PlacementConflictList";
@@ -51,20 +54,19 @@ interface Props {
 
 // Стабильный пустой вход холста: у развёртывания нет breadcrumb-рамок (уровень — объём).
 const NO_ANCESTORS: string[] = [];
-// Связи развёртывания не инспектируются — выбирать в окне нечего.
-const EDGE_CALLBACKS: LevelEdgeCallbacks = { onEdgesChoice: () => {} };
 
-/** Путь уровня именами предков: «Витрина › Заказы»; пусто, пока объекты не загружены. */
-function levelPath(all: readonly AppNode[], level: string | null): string {
-  if (level === null) return "";
+/** Цепочка контейнера уровня от корня проекта (он сам — последним); пусто у всего проекта
+ *  и пока объекты не загружены. Обход с seen: данные могут оказаться циклом. */
+function levelChain(all: readonly AppNode[], level: string | null): AppNode[] {
+  if (level === null) return [];
   const byId = new Map(all.map((n) => [n.id, n] as const));
-  const names: string[] = [];
+  const chain: AppNode[] = [];
   const seen = new Set<string>();
   for (let cur = byId.get(level); cur && !seen.has(cur.id); cur = cur.parent_id ? byId.get(cur.parent_id) : undefined) {
     seen.add(cur.id);
-    names.unshift(cur.name);
+    chain.unshift(cur);
   }
-  return names.join(" › ");
+  return chain;
 }
 
 export default function DeploymentPage({ isArchitect, level, onNavigateLevel, onOpenNode }: Props) {
@@ -85,7 +87,32 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onMetaChange: () => { void dep.reload(); },
   });
 
-  const proj = useMemo(() => (dep.graph ? projectDeployment(dep.graph) : null), [dep.graph]);
+  // Путь уровня в тулбаре и глубина цвета карточек: корни объёма — дети контейнера
+  // уровня, их архитектурная глубина — длина его цепочки (0 у всего проекта).
+  const chain = useMemo(() => levelChain(allNodes, level), [allNodes, level]);
+  const path = chain.map((n) => n.name).join(" › ");
+  const proj = useMemo(() => (dep.graph ? projectDeployment(dep.graph, chain.length) : null), [dep.graph, chain.length]);
+
+  // Выбранная связь (двойной клик по стрелке или клик по плашке): подсветка её и обоих
+  // концов (linkedHighlight), несколько связей в пучке — окно выбора. Снимается двойным
+  // кликом по пустому холсту и сменой уровня.
+  const [selectedEdge, setSelectedEdge] = useState<LevelEdge | null>(null);
+  const resolveEdge = useCallback(
+    (id: string): LevelEdge | null => (proj?.edges.find((e) => e.id === id) as LevelEdge | undefined) ?? null,
+    [proj],
+  );
+  // Подпись конца в окне выбора — имя объекта карточки (реестр концов) или площадки.
+  const labelOf = useCallback(
+    (id: string): string =>
+      proj?.endpoints.find((ep) => ep.id === id)?.name ?? proj?.nodes.find((n) => n.id === id)?.name ?? id,
+    [proj],
+  );
+  const linkedHighlight = useMemo(
+    (): LinkedHighlight | null => (selectedEdge ? { kind: "edge", id: selectedEdge.id } : null),
+    [selectedEdge],
+  );
+  const { onEdgesChoice, choiceModal } = useEdgeChoice({ resolveEdge, labelOf, onPick: setSelectedEdge });
+  const edgeCallbacks = useMemo<LevelEdgeCallbacks>(() => ({ onEdgesChoice }), [onEdgesChoice]);
 
   // Выделение холста (id карточек) → выбранные объекты без повторов.
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -155,7 +182,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
   const mode = useMemo<LevelModeFlags>(() => ({
     readOnly: true,
     arrangeOnly: isArchitect,
-    edgesInspectable: false,
+    // связи инспектируются и в просмотре: подсветка пути и окно выбора у пучка
+    edgesInspectable: true,
     fitOnLoad: true,
     ignorePersistedExpanded: false,
   }), [isArchitect]);
@@ -166,6 +194,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
         inlineDepth: Infinity,
         frameDecor: proj.frameDecor,
         marks: proj.marks,
+        depths: proj.depths,
         groupOf: proj.groupOf,
         clearSelectionToken: clearToken,
         pickFrame: placingMode.pickFrame,
@@ -185,6 +214,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
   if (shownLevel !== level) {
     setShownLevel(level);
     setSelectedIds([]);
+    setSelectedEdge(null);
     setFocus((f) => ({ ids: [], token: f.token, locate: false }));
     setActionError(null);
     if (pendingShow && pendingShow.level !== level) setPendingShow(null);
@@ -224,6 +254,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onDrillDown: openCard,
     onEditNode: openCard,
     onSelectionChange: setSelectedIds,
+    // двойной клик по пустому холсту — снять подсветку связи
+    onClearSelection: () => setSelectedEdge(null),
   }), [openCard]);
 
   // «Переразложить» (архитектор): снять все ключи deploy: этого вида одним батчем и
@@ -284,7 +316,6 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
   };
 
   const placing = placingMode.placing;
-  const path = levelPath(allNodes, level);
 
   return (
     <>
@@ -362,9 +393,10 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
                 ancestorNames={NO_ANCESTORS}
                 isArchitect={isArchitect}
                 persistence={persistence}
+                linkedHighlight={linkedHighlight}
                 mode={mode}
                 drill={drill}
-                edgeCallbacks={EDGE_CALLBACKS}
+                edgeCallbacks={edgeCallbacks}
                 relayoutToken={relayoutToken}
                 mutationToken={mutationToken}
                 locate={locate}
@@ -426,6 +458,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             <PlacementConflictList items={placingMode.confirm.conflicts} />
           </ConfirmDialog>
         )}
+        {/* Окно выбора связи (несколько связей в пучке) — рендерит useEdgeChoice */}
+        {choiceModal}
         {toast && <div style={listToast} aria-live="polite">{toast}</div>}
       </div>
     </>

@@ -217,7 +217,7 @@ function LevelGraphInner({
   } = mode ?? {};
   const { onDrillDown, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange } = drill;
   const {
-    children: projectedChildren, inlineDepth, frameDecor, marks, groupOf, clearSelectionToken,
+    children: projectedChildren, inlineDepth, frameDecor, marks, depths, groupOf, clearSelectionToken,
     pickFrame, selectRequest,
   } = projection ?? {};
   // Режим выбора площадки хозяина (развёртывание, режим размещения): щелчок по рамке или
@@ -632,7 +632,7 @@ function LevelGraphInner({
       // проекция хозяина (холст развёртывания): предел гейта лупы, декор рамок, пометки,
       // раскрываемые контейнеры, режим выбора площадки; без проекции все undefined —
       // сборка прежняя
-      maxInlineDepth: inlineDepth, frameDecor, marks, expandableIds, picking,
+      maxInlineDepth: inlineDepth, frameDecor, marks, depths, expandableIds, picking,
     });
     // Реконсиляция (Ф2): содержательно неизменённые объекты заменяются ПРОШЛЫМИ
     // из стейта RF — React.memo узлов/рёбер снова работает, apply перестаёт
@@ -666,7 +666,7 @@ function LevelGraphInner({
     // именно ПРИМЕНЕНИЯ (не конца счёта), чтобы drawIn рисовал свежие маршруты.
     appliedResolveRef.current?.();
     appliedResolveRef.current = null;
-  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks, expandableIds, picking]);
+  }, [layout, isArchitect, canArrange, depth, isReadOnly, drillNav, relevantCounts, schemaView, applyLayout, getCb, getNodes, getEdges, containerId, showOverloadToast, showDirtyToast, inlineDepth, frameDecor, marks, depths, expandableIds, picking]);
 
   // НЕВИДИМАЯ УБОРКА СКОУПНОЙ ГРЯЗИ (спека perf.md P14): скоупный прогон (E82/E84)
   // кладёт часть рёбер хуже полного и не обновляет кэш вида — по паузе бездействия

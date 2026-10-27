@@ -73,6 +73,9 @@ export interface DeploymentProjection {
   groupOf: (id: string) => string | undefined;
   // карточка → её узел и площадка (UNPLACED у группы «не указано»)
   siteOf: Map<string, { nodeId: string; siteId: string }>;
+  // глубина цвета карточки — архитектурная глубина её узла (число предков в дереве
+  // объектов), как на холсте объектов; вложенность площадок на цвет не влияет
+  depths: Record<string, number>;
 }
 
 // Представитель: узел (лист или цельный контейнер), его площадки и число объектов
@@ -131,7 +134,9 @@ function repCard(rep: Rep, siteId: string): AppNode {
   };
 }
 
-export function projectDeployment(graph: DeploymentGraph): DeploymentProjection {
+/** Проекция графа уровня на холст. levelDepth — число предков у корней объёма (прямых
+ *  детей контейнера уровня; 0 у всего проекта): от него считается глубина цвета карточек. */
+export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): DeploymentProjection {
   const siteById = new Map(graph.sites.map((s) => [s.id, s] as const));
   // Корневая площадка каждой площадки (обход с seen: данные могут оказаться циклом).
   const rootOf = (siteId: string): string => {
@@ -212,9 +217,26 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   reps.sort((a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0));
   const repById = new Map(reps.map((r) => [r.node.id, r] as const));
 
-  // Карточки по площадкам + пометки + обратная карта.
+  // Архитектурная глубина узла: у корня объёма — глубина уровня, у ребёнка — на один
+  // больше (подъём по parent_id в пределах ответа, с seen на случай цикла в данных).
+  const depthMemo = new Map<string, number>();
+  const depthOf = (id: string): number => {
+    const hit = depthMemo.get(id);
+    if (hit !== undefined) return hit;
+    let d = levelDepth;
+    const seen = new Set<string>([id]);
+    for (let p = nodeById.get(id)?.parent_id; p && nodeById.has(p) && !seen.has(p); p = nodeById.get(p)?.parent_id) {
+      seen.add(p);
+      d++;
+    }
+    depthMemo.set(id, d);
+    return d;
+  };
+
+  // Карточки по площадкам + пометки + обратная карта + глубина цвета.
   const cardsBySite = new Map<string, AppNode[]>();
   const marks: Record<string, string> = {};
+  const depths: Record<string, number> = {};
   const siteOf = new Map<string, { nodeId: string; siteId: string }>();
   for (const rep of reps) {
     rep.places.forEach((siteId, i) => {
@@ -223,6 +245,7 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
       if (list) list.push(card);
       else cardsBySite.set(siteId, [card]);
       siteOf.set(card.id, { nodeId: rep.node.id, siteId });
+      depths[card.id] = depthOf(rep.node.id);
       if (rep.places.length > 1) marks[card.id] = `${i + 1}/${rep.places.length}`;
     });
   }
@@ -352,5 +375,5 @@ export function projectDeployment(graph: DeploymentGraph): DeploymentProjection 
   };
   const groupOf = (id: string): string | undefined => siteOf.get(id)?.nodeId;
 
-  return { nodes, children, edges, endpoints, marks, frameDecor, groupOf, siteOf };
+  return { nodes, children, edges, endpoints, marks, frameDecor, groupOf, siteOf, depths };
 }
