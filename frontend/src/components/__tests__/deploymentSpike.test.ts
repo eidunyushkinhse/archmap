@@ -33,8 +33,8 @@ const A_S3 = "deploy:A@S3", B_S2 = "deploy:B@S2", C_S1 = "deploy:C@S1", A_T = "d
 
 // Сцена: корневые площадки S1 ⊃ S2 ⊃ S3 и T; объект A размещён в двух ветках (S3 и T),
 // B — в S2, C — в S1; U — объект без размещения (голый локал уровня). Связи — по правилу
-// ближайшего экземпляра (§5): A@S3→B@S2 (та же корневая площадка), A@T→B@S2 (первый
-// экземпляр цели), B@S2→C@S1.
+// ближайших экземпляров (D11): A@S3→B@S2 (та же корневая площадка), A@T→B@S2
+// (единственный экземпляр цели), B@S2→C@S1.
 function scene(viewLayout: PipelineInput["viewLayout"] = {}): PipelineInput {
   return {
     nodes: [block(S1, null, 2), block(T, null, 1), block("U", null)],

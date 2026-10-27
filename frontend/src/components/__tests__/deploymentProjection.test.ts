@@ -1,6 +1,6 @@
 // Проекция графа развёртывания на холст (docs/specs/deployment.md): вложенность
 // площадок, экземпляры с пометками «i/n», группа «Размещение не указано», правило
-// ближайшего экземпляра для связей, пустая площадка карточкой, правило цельного
+// ближайших экземпляров для связей, пустая площадка карточкой, правило цельного
 // контейнера (представители), реестр концов и подъём связи к свёрнутой площадке,
 // глубина цвета карточки — архитектурная глубина узла (D9).
 import { describe, it, expect } from "vitest";
@@ -95,7 +95,7 @@ describe("projectDeployment", () => {
     expect(p.marks[siteKey("empty")]).toBeUndefined();
   });
 
-  it("ближайший экземпляр: та же площадка", () => {
+  it("ближайшие экземпляры: та же площадка", () => {
     const p = projectDeployment(graph(
       [site("s1"), site("t")], [obj("a", ["s1", "t"]), obj("b", ["s1", "t"])], [["e", "a", "b"]],
     ));
@@ -107,13 +107,45 @@ describe("projectDeployment", () => {
     expect(p.edges[0].label).toBe("e");
   });
 
-  it("ближайший экземпляр: та же корневая площадка", () => {
+  it("ближайшие экземпляры: общий предок ближе, чем его отсутствие", () => {
     const p = projectDeployment(graph(
       [site("root"), site("s2", "root"), site("s3", "root"), site("t")],
       [obj("a", ["s2"]), obj("b", ["t", "s3"])], [["e", "a", "b"]],
     ));
     expect(p.edges.map((e) => `${e.source_id}>${e.target_id}`)).toEqual([
       `${instanceKey("a", "s2")}>${instanceKey("b", "s3")}`,
+    ]);
+  });
+
+  it("ближайшие экземпляры: длиннее общая цепочка площадок — ближе (машина той же группы, не соседней)", () => {
+    const p = projectDeployment(graph(
+      [site("dc"), site("g1", "dc"), site("g2", "dc"), site("v11", "g1"), site("v12", "g1"), site("v21", "g2"), site("v22", "g2")],
+      [obj("a", ["v11", "v21"]), obj("b", ["v12", "v22"])], [["e", "a", "b"]],
+    ));
+    expect(p.edges.map((e) => `${e.source_id}>${e.target_id}`)).toEqual([
+      `${instanceKey("a", "v11")}>${instanceKey("b", "v12")}`,
+      `${instanceKey("a", "v21")}>${instanceKey("b", "v22")}`,
+    ]);
+  });
+
+  it("равноудалённые экземпляры цели — стрелка к каждому (соседние группы одного ЦОД)", () => {
+    const p = projectDeployment(graph(
+      [site("dc"), site("g1", "dc"), site("g2", "dc"), site("g3", "dc"), site("v11", "g1"), site("v21", "g2"), site("v31", "g3")],
+      [obj("a", ["v31"]), obj("b", ["v11", "v21"])], [["e", "a", "b"]],
+    ));
+    expect(p.edges.map((e) => `${e.id}:${e.source_id}>${e.target_id}`)).toEqual([
+      `deploy:e@v31@v11:${instanceKey("a", "v31")}>${instanceKey("b", "v11")}`,
+      `deploy:e@v31@v21:${instanceKey("a", "v31")}>${instanceKey("b", "v21")}`,
+    ]);
+  });
+
+  it("та же площадка ближе вложенной в неё", () => {
+    const p = projectDeployment(graph(
+      [site("k8s"), site("ns", "k8s")],
+      [obj("a", ["k8s"]), obj("b", ["ns", "k8s"])], [["e", "a", "b"]],
+    ));
+    expect(p.edges.map((e) => `${e.source_id}>${e.target_id}`)).toEqual([
+      `${instanceKey("a", "k8s")}>${instanceKey("b", "k8s")}`,
     ]);
   });
 
@@ -213,7 +245,7 @@ describe("projectDeployment", () => {
     expect(p.endpoints).toHaveLength(4);
   });
 
-  it("ближайший экземпляр: иначе первый экземпляр цели; «не указано» — по тому же правилу", () => {
+  it("без общих предков все экземпляры цели равны — стрелка к каждому; от «не указано» — ко всем", () => {
     const p = projectDeployment(graph(
       [site("s1"), site("u"), site("t")],
       [obj("a", ["t"]), obj("b", ["s1", "u"]), obj("c", [])],
@@ -221,7 +253,9 @@ describe("projectDeployment", () => {
     ));
     expect(p.edges.map((e) => `${e.id}:${e.source_id}>${e.target_id}`)).toEqual([
       `deploy:e1@t@s1:${instanceKey("a", "t")}>${instanceKey("b", "s1")}`,
+      `deploy:e1@t@u:${instanceKey("a", "t")}>${instanceKey("b", "u")}`,
       `deploy:e2@${UNPLACED}@s1:${instanceKey("c", UNPLACED)}>${instanceKey("b", "s1")}`,
+      `deploy:e2@${UNPLACED}@u:${instanceKey("c", UNPLACED)}>${instanceKey("b", "u")}`,
       `deploy:e3@s1@${UNPLACED}:${instanceKey("b", "s1")}>${instanceKey("c", UNPLACED)}`,
       `deploy:e3@u@${UNPLACED}:${instanceKey("b", "u")}>${instanceKey("c", UNPLACED)}`,
     ]);

@@ -19,9 +19,11 @@
 //
 // Связи — сырые связи поддерева, поднятые к представителям (связь внутри одного
 // представителя не рисуется, конец без представителя — тоже), затем по правилу
-// БЛИЖАЙШЕГО экземпляра: от каждого экземпляра источника ровно одна стрелка к экземпляру
-// цели — на той же площадке, иначе под той же корневой площадкой, иначе к первому
-// экземпляру цели (порядок instances). Реестр концов (endpoints) — цепочка площадок над
+// БЛИЖАЙШИХ экземпляров (D11): от каждого экземпляра источника — стрелка к каждому из
+// ближайших экземпляров цели. Ближе тот, у чьей площадки длиннее общая с площадкой
+// источника цепочка предков (та же площадка — ближе всего); равноудалённые — все, в том
+// числе когда общих предков нет ни у кого (объект без размещения — ко всем экземплярам
+// цели, порядок — instances). Реестр концов (endpoints) — цепочка площадок над
 // каждой карточкой: у свёрнутой площадки конец связи поднимается к её карточке штатным
 // подъёмом конвейера (liftEdgesToLevel, D23).
 import type {
@@ -60,7 +62,7 @@ export interface DeploymentProjection {
   nodes: AppNode[];
   // полный состав раскрываемых контейнеров: площадка → вложенные площадки и карточки
   children: Record<string, AppNode[]>;
-  // связи между карточками представителей (правило ближайшего экземпляра)
+  // связи между карточками представителей (правило ближайших экземпляров, D11)
   edges: AppEdge[];
   // реестр концов: каждая карточка с цепочкой площадок над ней (корневая — первой)
   endpoints: GhostNode[];
@@ -343,26 +345,43 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
     return undefined;
   };
 
-  // Связи: подъём к представителям, затем правило ближайшего экземпляра.
+  // Близость площадки экземпляра цели к площадке экземпляра источника: та же площадка —
+  // ближе всего, иначе — длина общей цепочки предков (от корневой; 0 — общих нет; у
+  // «не указано» цепочка из одной группы, общей ни с одной площадкой).
+  const chainIds = (siteId: string): string[] => (chainOf.get(siteId) ?? []).map((a) => a.id);
+  const closeness = (s: string, t: string): number => {
+    if (s === t) return Infinity;
+    const a = chainIds(s);
+    const b = chainIds(t);
+    let n = 0;
+    while (n < a.length && n < b.length && a[n] === b[n]) n++;
+    return n;
+  };
+  // Ближайшие экземпляры цели — все с наибольшей близостью, в порядке размещения.
+  const nearest = (s: string, places: string[]): string[] => {
+    const best = Math.max(...places.map((t) => closeness(s, t)));
+    return places.filter((t) => closeness(s, t) === best);
+  };
+
+  // Связи: подъём к представителям, затем правило ближайших экземпляров (D11).
   const edges: AppEdge[] = [];
   for (const e of graph.edges) {
     const src = repOf(e.source_id);
     const tgt = repOf(e.target_id);
     if (!src || !tgt || src === tgt) continue;
     for (const s of src.places) {
-      const t = tgt.places.includes(s)
-        ? s
-        : tgt.places.find((x) => x !== UNPLACED && s !== UNPLACED && rootOf(x) === rootOf(s)) ?? tgt.places[0];
-      edges.push({
-        id: `deploy:${e.id}@${s}@${t}`,
-        label: e.label,
-        technology: e.technology,
-        channel: e.channel,
-        source_id: instanceKey(src.node.id, s),
-        target_id: instanceKey(tgt.node.id, t),
-        version: e.version,
-        created_at: "",
-      });
+      for (const t of nearest(s, tgt.places)) {
+        edges.push({
+          id: `deploy:${e.id}@${s}@${t}`,
+          label: e.label,
+          technology: e.technology,
+          channel: e.channel,
+          source_id: instanceKey(src.node.id, s),
+          target_id: instanceKey(tgt.node.id, t),
+          version: e.version,
+          created_at: "",
+        });
+      }
     }
   }
 
