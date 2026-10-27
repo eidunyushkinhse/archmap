@@ -1,7 +1,9 @@
 // Окно «Размещение» (docs/tasks/deployment-view.md §6): галочки по своим экземплярам
 // выбранных объектов (все — отмечена, часть — частичная, только унаследовано — подпись),
 // «Применить» шлёт набор целиком (нетронутая частичная сохраняется у каждого объекта),
-// «Убрать размещение» — пустой набор, новая площадка появляется отмеченной, отказ
+// «Убрать размещение» — пустой набор. Дерево площадок общее с окном «Площадки»
+// (SiteTree): свёрнуто, кроме предков площадок, где стоят выбранные; новая площадка
+// заводится «+» в дереве (родитель — где нажали) и появляется отмеченной, отказ
 // по пределу демо — строкой в окне. Контейнер размещается целиком: объекты внутри на
 // других площадках — второй шаг в том же окне («Разместить» с флагом, «Назад»).
 import { render, screen, waitFor } from "@testing-library/react";
@@ -43,6 +45,7 @@ function obj(id: string, own: string[], inherited: { site: string; from: string 
 
 const SITES = [site("cloud", null, "AWS"), site("k8s", "cloud"), site("vm1"), site("vm2")];
 const box = (name: string) => screen.getByRole("checkbox", { name: new RegExp(`^${name}`) }) as HTMLInputElement;
+const expand = (name: string) => userEvent.click(screen.getByRole("button", { name: `Развернуть «${name}»` }));
 
 function setup(objects: DeploymentNode[], sites: SiteOut[] = SITES) {
   const props = { onClose: vi.fn(), onApplied: vi.fn(), onSitesChanged: vi.fn() };
@@ -67,6 +70,8 @@ describe("PlacementDialog", () => {
       obj("b", ["k8s"], [{ site: "vm2", from: "Витрина" }]),
     ]);
     expect(screen.getByText("2 объекта")).toBeInTheDocument();
+    // объекты стоят на вложенной k8s — её родитель cloud раскрыт сразу
+    expect(screen.getByRole("button", { name: "Свернуть «cloud»" })).toBeInTheDocument();
     expect(box("k8s").checked).toBe(true);
     expect(box("k8s").indeterminate).toBe(false);
     expect(box("vm1").checked).toBe(false);
@@ -115,15 +120,25 @@ describe("PlacementDialog", () => {
     expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeDisabled();
   });
 
-  it("новая площадка появляется в дереве отмеченной и уходит в набор", async () => {
-    vi.mocked(deploymentApi.createSite).mockResolvedValue({ ...site("new-id"), name: "Кластер prod" });
+  it("дерево свёрнуто, когда выбранные нигде не стоят; «+» под площадкой — после шеврона", async () => {
+    setup([obj("a", [])]);
+    expect(screen.queryByRole("checkbox", { name: /^k8s/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /внутри «cloud»/ })).toBeNull();
+    await expand("cloud");
+    expect(box("k8s")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Добавить площадку внутри «cloud»" })).toBeInTheDocument();
+  });
+
+  it("новая площадка «+» под cloud появляется в дереве отмеченной и уходит в набор", async () => {
+    vi.mocked(deploymentApi.createSite).mockResolvedValue({ ...site("new-id", "cloud"), name: "Кластер prod" });
     const props = setup([obj("a", [])]);
-    await userEvent.click(screen.getByRole("button", { name: "+ Новая площадка" }));
+    await expand("cloud");
+    await userEvent.click(screen.getByRole("button", { name: "Добавить площадку внутри «cloud»" }));
+    expect(screen.queryByRole("combobox", { name: "Внутри площадки" })).toBeNull();
     await userEvent.type(screen.getByRole("textbox", { name: "Имя" }), "Кластер prod");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Внутри площадки" }), "cloud");
     await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     await waitFor(() => expect(deploymentApi.createSite).toHaveBeenCalledWith({
-      name: "Кластер prod", kind: "other", technology: null, parent_id: "cloud",
+      name: "Кластер prod", kind: "other", technology: null, description: null, parent_id: "cloud",
     }));
     expect(box("Кластер prod").checked).toBe(true);
     expect(props.onSitesChanged).toHaveBeenCalled();
@@ -136,7 +151,7 @@ describe("PlacementDialog", () => {
       new ApiError(409, "Демо-проект поддерживает до 20 площадок.", "demo_limit"),
     );
     setup([obj("a", [])]);
-    await userEvent.click(screen.getByRole("button", { name: "+ Новая площадка" }));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить площадку" }));
     await userEvent.type(screen.getByRole("textbox", { name: "Имя" }), "Ещё одна");
     await userEvent.click(screen.getByRole("button", { name: "Добавить" }));
     const alert = await screen.findByRole("alert");
@@ -169,6 +184,7 @@ describe("PlacementDialog", () => {
     // состав грузится: галочки работают, ждёт только «Применить»
     expect(screen.getByText("Загрузка…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+    await expand("cloud");
     await userEvent.click(box("k8s"));
     resolveAll(inside());
     await waitFor(() => expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled());
@@ -190,6 +206,7 @@ describe("PlacementDialog", () => {
   it("второй шаг: «Назад» возвращает галочки как были, без записи", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
     setup([container()]);
+    await expand("cloud");
     await userEvent.click(box("k8s"));
     await waitFor(() => expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled());
     await userEvent.click(screen.getByRole("button", { name: "Применить" }));

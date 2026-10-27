@@ -1,5 +1,5 @@
-/* Окна «Размещение» и «Площадки» (components/deployment): дерево площадок, форма
-   площадки, футер. Тихо: строки без рамок, второстепенное — серым. */
+/* Окна «Размещение» и «Площадки» (components/deployment): дерево площадок (SiteTree),
+   форма площадки, футер. Тихо: строки без рамок, второстепенное — серым. */
 .site-tree {
   display: flex;
   flex-direction: column;
@@ -23,11 +23,77 @@
   font-size: 14px;
   color: #0f172a;
 }
-label.site-row {
-  cursor: pointer;
-}
 .site-row:hover {
   background: #f8fafc;
+}
+
+/* Галочка с именем — одна подпись на всю строку (окно «Размещение»). */
+.site-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* Шеврон раскрытия — зона 22×22, как у дерева объектов (NodeTreePanel .nt-chevhit);
+   раскрытый повёрнут вниз. Спейсер той же ширины держит строки без шеврона в ряд. */
+.site-row-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.site-row-chev svg {
+  transition: transform 0.15s ease;
+}
+.site-row-chev--open svg {
+  transform: rotate(90deg);
+}
+.site-row-chev:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.site-row-chevspacer {
+  width: 22px;
+  flex: none;
+}
+
+/* «+» под вложенными площадками и под корнями: строка с одной кнопкой на месте шеврона. */
+.site-add {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding-right: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.site-add-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #94a3b8;
+}
+.site-add:hover:not(:disabled) .site-add-glyph {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.site-add:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .site-row-icon {
@@ -41,8 +107,8 @@ label.site-row {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  /* Имя площадки не сжимается первым: в тесной строке окна «Площадки» усекаются
-     технология и счётчик (серые), а имя остаётся целым (до половины строки). */
+  /* Имя площадки не сжимается первым: в тесной строке усекается технология
+     (серая), а имя остаётся целым (до половины строки). */
   flex: 0 0 auto;
   max-width: 48%;
 }
@@ -55,9 +121,29 @@ label.site-row {
   text-overflow: ellipsis;
   min-width: 0;
 }
-/* Счётчик объектов короткий — не сжимается; в тесной строке уступает технология. */
-.site-row-count {
+
+/* Карандаш и корзина строки окна «Площадки». */
+.site-row-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
   flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #64748b;
+  cursor: pointer;
+}
+.site-row-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.site-row-btn:disabled {
+  color: #cbd5e1;
+  cursor: default;
 }
 
 .site-row-link {
@@ -70,16 +156,6 @@ label.site-row {
 }
 .site-row-link:hover:not(:disabled) {
   text-decoration: underline;
-}
-
-.site-new-toggle {
-  font: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 0;
-  border: none;
-  background: none;
-  color: #2563eb;
 }
 
 .site-new {
@@ -120,8 +196,7 @@ label.site-row {
   resize: vertical;
 }
 /* описание и родитель — во всю ширину формы */
-.site-form-field:has(textarea),
-.site-form-field:last-of-type {
+.site-form-field--wide {
   grid-column: 1 / -1;
 }
 

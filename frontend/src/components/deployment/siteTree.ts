@@ -3,6 +3,12 @@
 // циклическими (правило проекта для обходов предков и потомков).
 import type { SiteOut } from "../../types";
 
+export interface SiteNode {
+  site: SiteOut;
+  // вложенные площадки в порядке списка
+  children: SiteNode[];
+}
+
 export interface SiteRow {
   site: SiteOut;
   // глубина вложенности (0 — корневая площадка)
@@ -11,8 +17,9 @@ export interface SiteRow {
   hasChildren: boolean;
 }
 
-/** Площадки строками дерева: родитель, затем его вложенные (порядок списка сохранён). */
-export function siteRows(sites: readonly SiteOut[]): SiteRow[] {
+/** Площадки деревом: корни с вложенными (порядок списка сохранён); недостижимые от
+ *  корней из-за цикла в данных — в конец как корни. */
+export function siteForest(sites: readonly SiteOut[]): SiteNode[] {
   const ids = new Set(sites.map((s) => s.id));
   const kids = new Map<string, SiteOut[]>();
   const roots: SiteOut[] = [];
@@ -25,18 +32,38 @@ export function siteRows(sites: readonly SiteOut[]): SiteRow[] {
       roots.push(s);
     }
   }
-  const out: SiteRow[] = [];
   const seen = new Set<string>();
-  const walk = (s: SiteOut, depth: number) => {
-    if (seen.has(s.id)) return;
+  const build = (s: SiteOut): SiteNode | null => {
+    if (seen.has(s.id)) return null;
     seen.add(s.id);
-    const children = kids.get(s.id) ?? [];
-    out.push({ site: s, depth, hasChildren: children.length > 0 });
-    for (const c of children) walk(c, depth + 1);
+    const children: SiteNode[] = [];
+    for (const c of kids.get(s.id) ?? []) {
+      const n = build(c);
+      if (n) children.push(n);
+    }
+    return { site: s, children };
   };
-  for (const r of roots) walk(r, 0);
-  // площадки, недостижимые от корней (цикл в данных), — в конец плоско
-  for (const s of sites) if (!seen.has(s.id)) walk(s, 0);
+  const out: SiteNode[] = [];
+  for (const r of roots) {
+    const n = build(r);
+    if (n) out.push(n);
+  }
+  for (const s of sites) {
+    if (seen.has(s.id)) continue;
+    const n = build(s);
+    if (n) out.push(n);
+  }
+  return out;
+}
+
+/** Площадки строками дерева: родитель, затем его вложенные (порядок списка сохранён). */
+export function siteRows(sites: readonly SiteOut[]): SiteRow[] {
+  const out: SiteRow[] = [];
+  const walk = (n: SiteNode, depth: number) => {
+    out.push({ site: n.site, depth, hasChildren: n.children.length > 0 });
+    for (const c of n.children) walk(c, depth + 1);
+  };
+  for (const n of siteForest(sites)) walk(n, 0);
   return out;
 }
 
@@ -52,6 +79,21 @@ export function siteSubtree(sites: readonly SiteOut[], rootId: string): Set<stri
         grew = true;
       }
     }
+  }
+  return out;
+}
+
+/** id предков площадки от родителя к корню (без неё самой). */
+export function siteAncestorIds(sites: readonly SiteOut[], id: string): string[] {
+  const byId = new Map(sites.map((s) => [s.id, s] as const));
+  const out: string[] = [];
+  const seen = new Set<string>([id]);
+  for (let cur = byId.get(id); cur; ) {
+    const parent = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+    if (!parent || seen.has(parent.id)) break;
+    seen.add(parent.id);
+    out.push(parent.id);
+    cur = parent;
   }
   return out;
 }

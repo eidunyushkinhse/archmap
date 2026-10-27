@@ -1,7 +1,8 @@
-// Окно «Площадки» (docs/tasks/deployment-view.md §4): площадки проекта деревом с числом
-// объектов, поставленных на каждую. Архитектору — добавить, изменить (CAS: чужая правка
-// перечитывает окно) и удалить (с подтверждением; площадку с вложенными удалить нельзя,
-// пока их не перенесут). Читателю — просмотр.
+// Окно «Площадки» (docs/tasks/deployment-view.md §4): площадки проекта деревом
+// (SiteTree — то же дерево, что в окне «Размещение»). Архитектору — «+» в дереве
+// (под вложенными площадки и под корнями), карандаш — изменить (CAS: чужая правка
+// перечитывает окно), корзина — удалить (с подтверждением; площадку с вложенными
+// удалить нельзя, пока их не перенесут). Читателю — просмотр.
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { SiteOut } from "../../types";
@@ -9,7 +10,7 @@ import Modal from "../../ui/Modal";
 import DialogTitle from "../../ui/DialogTitle";
 import ConfirmDialog from "../../ui/ConfirmDialog";
 import LoadError from "../../ui/LoadError";
-import { SiteKindIcon } from "../../ui/icons";
+import { PencilIcon, TrashIcon } from "../../ui/icons";
 import { errText } from "../../ui/styles";
 import { plural } from "../../ui/plural";
 import { loadErrorText } from "../../ui/loadErrorText";
@@ -19,7 +20,9 @@ import { isConflict } from "../../api/client";
 import { limitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
 import SiteForm, { type SiteFormValue } from "./SiteForm";
-import { siteRows } from "./siteTree";
+import SiteTree, { SiteRowTitle } from "./SiteTree";
+import { useSiteExpansion } from "./useSiteExpansion";
+import { siteAncestorIds } from "./siteTree";
 import "./deployment.css";
 
 interface Props {
@@ -29,15 +32,14 @@ interface Props {
   onChanged: () => void;
 }
 
-const objects = (n: number): string => `${n} ${plural(n, ["объект", "объекта", "объектов"])}`;
 // Родительный падеж при числе: «Размещение 1 объекта / 3 объектов на ней будет снято».
 const objectsOf = (n: number): string => `${n} ${plural(n, ["объекта", "объектов", "объектов"])}`;
 
 export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) {
   const list = useAsyncLoad("deployment-sites", () => deploymentApi.sites());
   const sites = useMemo(() => list.data ?? [], [list.data]);
-  const rows = useMemo(() => siteRows(sites), [sites]);
-  // Что сейчас правится: "new" — добавление, id — правка площадки, null — ничего.
+  const { expanded, toggle, expand } = useSiteExpansion();
+  // id площадки, которая правится на месте (null — никакая).
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<SiteOut | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,7 +51,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
     onChanged();
   };
 
-  const create = async (v: SiteFormValue) => {
+  const create = async (parentId: string | null, v: SiteFormValue): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
@@ -58,12 +60,14 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
         kind: v.kind,
         technology: v.technology.trim() || null,
         description: v.description.trim() || null,
-        parent_id: v.parentId || null,
+        parent_id: parentId,
       });
       done();
+      return true;
     } catch (e) {
       const limit = limitMessage(e, "site");
       setError(limit ? <LimitText message={limit} /> : loadErrorText(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -81,6 +85,9 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
         parent_id: v.parentId || null,
         base_version: site.version,
       });
+      // Перенесли под другого родителя — раскрыть его и предков, иначе площадка
+      // пропадёт из виду под свёрнутой веткой.
+      if (v.parentId && v.parentId !== site.parent_id) expand([v.parentId, ...siteAncestorIds(sites, v.parentId)]);
       done();
     } catch (e) {
       if (isConflict(e)) {
@@ -111,6 +118,8 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
     }
   };
 
+  const editingSite = editing ? sites.find((s) => s.id === editing) ?? null : null;
+
   return (
     <>
       <Modal onClose={onClose} boxStyle={{ width: 620, maxHeight: "86vh", overflowY: "auto" }}>
@@ -120,71 +129,59 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
         ) : list.loading ? (
           <p className="site-tree-empty">Загрузка…</p>
         ) : (
-          <div className="site-tree">
-            {rows.length === 0 && <p className="site-tree-empty">Площадок пока нет</p>}
-            {rows.map(({ site, depth, hasChildren }) => (
-              editing === site.id ? (
-                <div key={site.id} className="site-new" style={{ marginLeft: depth * 18 }}>
-                  <SiteForm
-                    sites={sites}
-                    editingId={site.id}
-                    withDescription
-                    initial={{
-                      name: site.name, kind: site.kind, technology: site.technology ?? "",
-                      description: site.description ?? "", parentId: site.parent_id ?? "",
-                    }}
-                    submitLabel="Сохранить"
-                    busy={busy}
-                    onSubmit={(v) => { void update(site, v); }}
-                    onCancel={() => setEditing(null)}
-                  />
-                </div>
-              ) : (
-                <div key={site.id} className="site-row" style={{ paddingLeft: 8 + depth * 18 }}>
-                  <span className="site-row-icon"><SiteKindIcon kind={site.kind} size={14} /></span>
-                  <span className="site-row-name">{site.name}</span>
-                  {site.technology && <span className="site-row-muted">{site.technology}</span>}
-                  <span style={{ flex: 1 }} />
-                  {site.instance_count > 0 && <span className="site-row-muted site-row-count">{objects(site.instance_count)}</span>}
-                  {isArchitect && (
-                    <>
-                      <button type="button" className="site-row-link" onClick={() => { setError(null); setEditing(site.id); }} disabled={busy}>
-                        изменить
-                      </button>
-                      <button
-                        type="button"
-                        className="site-row-link"
-                        onClick={() => { setError(null); setConfirmDelete(site); }}
-                        disabled={busy || hasChildren}
-                        title={hasChildren ? "Сначала перенесите вложенные площадки" : undefined}
-                      >
-                        удалить
-                      </button>
-                    </>
-                  )}
-                </div>
-              )
-            ))}
-          </div>
-        )}
-
-        {isArchitect && !list.loading && !list.error && (
-          editing === "new" ? (
-            <div className="site-new">
-              <SiteForm
-                sites={sites}
-                withDescription
-                submitLabel="Добавить"
-                busy={busy}
-                onSubmit={(v) => { void create(v); }}
-                onCancel={() => setEditing(null)}
-              />
-            </div>
-          ) : (
-            <button type="button" className="site-new-toggle" onClick={() => { setError(null); setEditing("new"); }} disabled={busy}>
-              + Добавить площадку
-            </button>
-          )
+          <SiteTree
+            sites={sites}
+            expanded={expanded}
+            onToggle={toggle}
+            disabled={busy}
+            create={isArchitect ? { busy, onOpen: () => setError(null), onSubmit: create } : undefined}
+            editing={editingSite ? {
+              id: editingSite.id,
+              form: (
+                <SiteForm
+                  parent={{ sites, editingId: editingSite.id }}
+                  initial={{
+                    name: editingSite.name, kind: editingSite.kind, technology: editingSite.technology ?? "",
+                    description: editingSite.description ?? "", parentId: editingSite.parent_id ?? "",
+                  }}
+                  submitLabel="Сохранить"
+                  busy={busy}
+                  onSubmit={(v) => { void update(editingSite, v); }}
+                  onCancel={() => setEditing(null)}
+                />
+              ),
+            } : null}
+            row={(site, { hasChildren }) => (
+              <>
+                <SiteRowTitle site={site} />
+                <span style={{ flex: 1 }} />
+                {isArchitect && (
+                  <>
+                    <button
+                      type="button"
+                      className="site-row-btn"
+                      onClick={() => { setError(null); setEditing(site.id); }}
+                      disabled={busy}
+                      title="Изменить"
+                      aria-label={`Изменить площадку «${site.name}»`}
+                    >
+                      <PencilIcon size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      className="site-row-btn"
+                      onClick={() => { setError(null); setConfirmDelete(site); }}
+                      disabled={busy || hasChildren}
+                      title={hasChildren ? "Сначала перенесите вложенные площадки" : "Удалить"}
+                      aria-label={`Удалить площадку «${site.name}»`}
+                    >
+                      <TrashIcon size={15} />
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          />
         )}
 
         {error && <p style={errText} role="alert">{error}</p>}

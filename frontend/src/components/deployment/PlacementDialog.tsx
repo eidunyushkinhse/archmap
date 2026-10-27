@@ -3,16 +3,17 @@
 // стоит, если СВОЙ экземпляр на площадке есть у всех выбранных; частичная — у части;
 // у площадки, где размещение только унаследовано, — подпись «унаследовано от «X»».
 // Частичную галочку, которую не трогали, применение сохраняет как есть у каждого
-// объекта. «Новая площадка» заводится тут же и сразу отмечена. Контейнер размещается
+// объекта. Дерево площадок — общее с окном «Площадки» (SiteTree): свёрнуто, кроме
+// предков площадок, где стоят выбранные; новая площадка заводится «+» в дереве
+// (родитель — где нажали) и сразу отмечена. Контейнер размещается
 // ЦЕЛИКОМ (deployment.md D30): своё размещение объектов внутри снимается; если у кого-то
 // оно на других площадках — второй шаг в том же окне со списком «объект: площадки»
 // (вложенный <dialog> нельзя), «Разместить» / «Назад».
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
 import Modal from "../../ui/Modal";
 import DialogTitle from "../../ui/DialogTitle";
-import { SiteKindIcon } from "../../ui/icons";
 import { errText, primaryBtn, secondaryBtn } from "../../ui/styles";
 import { plural } from "../../ui/plural";
 import { loadErrorText } from "../../ui/loadErrorText";
@@ -21,8 +22,10 @@ import { nodesApi } from "../../api/nodes";
 import { useAsyncLoad } from "../../lib/useAsyncLoad";
 import { limitMessage } from "../demo/demoLimits";
 import { LimitText } from "../demo/DemoLimitToast";
-import SiteForm, { type SiteFormValue } from "./SiteForm";
-import { siteRows } from "./siteTree";
+import type { SiteFormValue } from "./SiteForm";
+import SiteTree, { SiteRowTitle } from "./SiteTree";
+import { useSiteExpansion } from "./useSiteExpansion";
+import { siteAncestorIds } from "./siteTree";
 import PlacementConflictList from "./PlacementConflictList";
 import { PLACE_LEAD, placementConflicts, placeQuestion, type PlacementConflict } from "./placementConflicts";
 import "./deployment.css";
@@ -58,13 +61,22 @@ function initialMarks(objects: DeploymentNode[], sites: SiteOut[]): Record<strin
   return out;
 }
 
+// Площадки, где стоят выбранные (своё или унаследованное размещение), видны сразу:
+// их предки раскрыты, остальное дерево свёрнуто.
+function initialExpanded(objects: DeploymentNode[], sites: SiteOut[]): Set<string> {
+  const out = new Set<string>();
+  for (const o of objects) {
+    for (const e of o.effective) for (const id of siteAncestorIds(sites, e.site_id)) out.add(id);
+  }
+  return out;
+}
+
 export default function PlacementDialog({ objects, sites: initialSites, onClose, onApplied, onSitesChanged }: Props) {
   const [sites, setSites] = useState<SiteOut[]>(initialSites);
   const [marks, setMarks] = useState<Record<string, Mark>>(() => initialMarks(objects, initialSites));
-  const [creating, setCreating] = useState(false);
+  const { expanded, toggle } = useSiteExpansion(() => initialExpanded(objects, initialSites));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReactNode>(null);
-  const rows = useMemo(() => siteRows(sites), [sites]);
   // Среди объектов есть контейнер — для предупреждения нужен состав проекта (один запрос
   // при открытии; галочки им не блокируются, ждёт только «Применить»).
   const needAll = objects.some((o) => o.has_children);
@@ -84,7 +96,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     return null;
   };
 
-  const toggle = (siteId: string) => {
+  const toggleMark = (siteId: string) => {
     setMarks((m) => ({ ...m, [siteId]: m[siteId] === "on" ? "off" : "on" }));
   };
 
@@ -153,7 +165,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   };
   const removeAll = () => run(() => deploymentApi.setPlacements(nodeIds, []));
 
-  const createSite = async (v: SiteFormValue) => {
+  const createSite = async (parentId: string | null, v: SiteFormValue): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
@@ -161,15 +173,17 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
         name: v.name.trim(),
         kind: v.kind,
         technology: v.technology.trim() || null,
-        parent_id: v.parentId || null,
+        description: v.description.trim() || null,
+        parent_id: parentId,
       });
       setSites((s) => [...s, created]);
       setMarks((m) => ({ ...m, [created.id]: "on" }));
-      setCreating(false);
       onSitesChanged();
+      return true;
     } catch (e) {
       const limit = limitMessage(e, "site");
       setError(limit ? <LimitText message={limit} /> : loadErrorText(e));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -218,44 +232,30 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   return (
     <Modal onClose={onClose} boxStyle={{ width: 520, maxHeight: "86vh", overflowY: "auto" }}>
       <DialogTitle lead={subtitle}>Размещение</DialogTitle>
-      <div className="site-tree" role="group" aria-label="Площадки">
-        {rows.length === 0 && <p className="site-tree-empty">Площадок пока нет</p>}
-        {rows.map(({ site, depth }) => {
+      <SiteTree
+        sites={sites}
+        expanded={expanded}
+        onToggle={toggle}
+        disabled={busy}
+        create={{ busy, onOpen: () => setError(null), onSubmit: createSite }}
+        row={(site) => {
           const mark = marks[site.id] ?? "off";
           const inherited = inheritedFrom(site.id);
           return (
-            <label key={site.id} className="site-row" style={{ paddingLeft: 8 + depth * 18 }}>
+            <label className="site-row-label">
               <input
                 type="checkbox"
                 checked={mark === "on"}
                 ref={(el) => { if (el) el.indeterminate = mark === "mixed"; }}
-                onChange={() => toggle(site.id)}
+                onChange={() => toggleMark(site.id)}
                 disabled={busy}
               />
-              <span className="site-row-icon"><SiteKindIcon kind={site.kind} size={14} /></span>
-              <span className="site-row-name">{site.name}</span>
-              {site.technology && <span className="site-row-muted">{site.technology}</span>}
+              <SiteRowTitle site={site} />
               {inherited && <span className="site-row-muted">унаследовано от «{inherited}»</span>}
             </label>
           );
-        })}
-      </div>
-
-      {creating ? (
-        <div className="site-new">
-          <SiteForm
-            sites={sites}
-            submitLabel="Добавить"
-            busy={busy}
-            onSubmit={(v) => { void createSite(v); }}
-            onCancel={() => setCreating(false)}
-          />
-        </div>
-      ) : (
-        <button type="button" className="site-new-toggle" onClick={() => setCreating(true)} disabled={busy}>
-          + Новая площадка
-        </button>
-      )}
+        }}
+      />
 
       {error && <p style={errText} role="alert">{error}</p>}
       {needAll && all.error !== null && (

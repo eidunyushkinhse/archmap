@@ -1,7 +1,9 @@
-// Форма площадки — общая для «Новой площадки» в окне «Размещение» и для добавления и
-// правки в окне «Площадки»: имя, вид, технология, (описание), родитель. Родителем
-// нельзя выбрать саму площадку и её вложенные — получился бы цикл.
-import { useMemo, useState } from "react";
+// Форма площадки — общая для создания в дереве площадок (SiteTree, оба окна) и для
+// правки в окне «Площадки»: имя, вид, технология, описание. Поле «Внутри площадки» —
+// только у правки (перенос под другого родителя): при создании родитель — та площадка,
+// под которой нажали «+». Родителем нельзя выбрать саму площадку и её вложенные —
+// получился бы цикл.
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { SiteKind, SiteOut } from "../../types";
 import { SITE_KIND_LABEL, SITE_KIND_ORDER } from "../nodeTerms";
@@ -18,20 +20,16 @@ export interface SiteFormValue {
 }
 
 interface Props {
-  sites: readonly SiteOut[];
   initial?: Partial<SiteFormValue>;
-  // правка: сама площадка (и её вложенные) в родители не годится
-  editingId?: string;
-  withDescription?: boolean;
+  // правка: поле «Внутри площадки»; сама площадка (и её вложенные) в родители не годится
+  parent?: { sites: readonly SiteOut[]; editingId: string };
   submitLabel: string;
   busy?: boolean;
   onSubmit: (value: SiteFormValue) => void;
   onCancel?: () => void;
 }
 
-export default function SiteForm({
-  sites, initial, editingId, withDescription = false, submitLabel, busy = false, onSubmit, onCancel,
-}: Props) {
+export default function SiteForm({ initial, parent, submitLabel, busy = false, onSubmit, onCancel }: Props) {
   const [value, setValue] = useState<SiteFormValue>({
     name: initial?.name ?? "",
     kind: initial?.kind ?? "other",
@@ -41,11 +39,16 @@ export default function SiteForm({
   });
   const set = (patch: Partial<SiteFormValue>) => setValue((v) => ({ ...v, ...patch }));
   const parents = useMemo(() => {
-    const banned = editingId ? siteSubtree(sites, editingId) : new Set<string>();
-    return siteRows(sites)
+    if (!parent) return [];
+    const banned = siteSubtree(parent.sites, parent.editingId);
+    return siteRows(parent.sites)
       .filter((r) => !banned.has(r.site.id))
-      .map((r) => ({ id: r.site.id, path: sitePath(sites, r.site.id) }));
-  }, [sites, editingId]);
+      .map((r) => ({ id: r.site.id, path: sitePath(parent.sites, r.site.id) }));
+  }, [parent]);
+  // Форма раскрывается по «+» или карандашу в уже открытом окне — автофокус окна
+  // (data-autofocus) на неё не сработает, фокус на имя ставим сами.
+  const nameRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { nameRef.current?.focus(); }, []);
   const ready = value.name.trim().length > 0 && !busy;
   const submit = () => { if (ready) onSubmit(value); };
   // Enter в однострочном поле — то же, что кнопка формы (окно Enter не перехватывает).
@@ -60,6 +63,7 @@ export default function SiteForm({
       <label className="site-form-field">
         <span>Имя</span>
         <input
+          ref={nameRef}
           data-autofocus
           value={value.name}
           onChange={(e) => set({ name: e.target.value })}
@@ -83,19 +87,19 @@ export default function SiteForm({
           placeholder="AWS, k8s 1.30, Ubuntu 24.04"
         />
       </label>
-      {withDescription && (
-        <label className="site-form-field">
-          <span>Описание</span>
-          <textarea value={value.description} onChange={(e) => set({ description: e.target.value })} rows={2} />
+      <label className="site-form-field site-form-field--wide">
+        <span>Описание</span>
+        <textarea value={value.description} onChange={(e) => set({ description: e.target.value })} rows={2} />
+      </label>
+      {parent && (
+        <label className="site-form-field site-form-field--wide">
+          <span>Внутри площадки</span>
+          <select value={value.parentId} onChange={(e) => set({ parentId: e.target.value })}>
+            <option value="">Нет, корневая</option>
+            {parents.map((p) => <option key={p.id} value={p.id}>{p.path}</option>)}
+          </select>
         </label>
       )}
-      <label className="site-form-field">
-        <span>Внутри площадки</span>
-        <select value={value.parentId} onChange={(e) => set({ parentId: e.target.value })}>
-          <option value="">Нет, корневая</option>
-          {parents.map((p) => <option key={p.id} value={p.id}>{p.path}</option>)}
-        </select>
-      </label>
       <div className="site-form-actions">
         <button type="button" className="btn-sm-primary" onClick={submit} disabled={!ready}>{submitLabel}</button>
         {onCancel && <button type="button" className="btn-soft" onClick={onCancel} disabled={busy}>Отмена</button>}

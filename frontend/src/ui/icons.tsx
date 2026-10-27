@@ -107,6 +107,17 @@ export const BulbIcon = ({ size = 16 }: IcoProps) => (
     <path d="M9 18h6M10 21h4" />
     <path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1.1 2V16h5v-.2c.1-.8.5-1.5 1.1-2A6 6 0 0 0 12 3Z" /></svg>);
 
+// Карандаш и корзина — кнопки строки окна «Площадки» (изменить, удалить): значки
+// вместо подписей словами, того же линейного семейства.
+export const PencilIcon = ({ size = 15 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <path d="M16.5 3.5 a2.1 2.1 0 0 1 3 3 L8 18 L4 19 L5 15 Z" /><path d="M14 6 L18 10" /></svg>);
+export const TrashIcon = ({ size = 15 }: IcoProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" {...base} strokeWidth={1.8} aria-hidden>
+    <path d="M4 7 H20" /><path d="M9 7 V4.5 H15 V7" />
+    <path d="M6.5 7 L7.4 19.3 a1.5 1.5 0 0 0 1.5 1.4 H15.1 a1.5 1.5 0 0 0 1.5-1.4 L17.5 7" />
+    <path d="M10 11 V17 M14 11 V17" /></svg>);
+
 // Вид площадки развёртывания (docs/specs/deployment.md): плашка рамки площадки на
 // холсте, дерево площадок в окнах «Размещение» и «Площадки». Пять глифов того же
 // линейного семейства: облако, штурвал Kubernetes, окно ВМ, стойка сервера, слои.
