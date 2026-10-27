@@ -9,11 +9,16 @@ nodes:
     role: шлюз
     technology: Kong
     description: 'Единая точка входа: маршрутизация к сервисам, проверка JWT, ограничение частоты запросов.'
+    sites:
+    - Кластер prod
+    - Кластер резерв
   - name: Kafka
     shape: broker
     role: шина событий
     technology: Apache Kafka
     description: Асинхронный обмен событиями между сервисами. Несёт события жизненного цикла заказа и изменения каталога.
+    sites:
+    - ВМ брокера
   - name: Веб-витрина
     shape: service
     role: SPA
@@ -21,6 +26,8 @@ nodes:
     description: 'Витрина маркетплейса в браузере: каталог, корзина, оформление заказа, кабинет продавца.'
     source:
       repo: github.com/yarmarka/storefront-web
+    sites:
+    - Кластер prod
   - name: Мобильное приложение
     shape: service
     role: клиент
@@ -41,11 +48,16 @@ nodes:
       source:
         repo: github.com/yarmarka/orders
         path: services/order-api
+      sites:
+      - Кластер prod
+      - Кластер резерв
     - name: БД заказов
       shape: database
       role: база данных
       technology: PostgreSQL
       description: Заказы, их позиции и журнал саги исполнения.
+      sites:
+      - Управляемая PostgreSQL
     - name: Оркестратор заказа
       shape: service
       role: воркер (сага)
@@ -54,6 +66,8 @@ nodes:
       source:
         repo: github.com/yarmarka/orders
         path: services/order-saga
+      sites:
+      - Кластер prod
   - name: Сервис каталога
     shape: service
     role: сервис
@@ -67,11 +81,15 @@ nodes:
       source:
         repo: github.com/yarmarka/catalog
         path: services/catalog-api
+      sites:
+      - Кластер prod
     - name: БД каталога
       shape: database
       role: база данных
       technology: PostgreSQL
       description: Товары, категории и их привязки.
+      sites:
+      - Управляемая PostgreSQL
     - name: Индексатор товаров
       shape: service
       role: воркер
@@ -80,15 +98,21 @@ nodes:
       source:
         repo: github.com/yarmarka/catalog
         path: services/product-indexer
+      sites:
+      - Кластер prod
     - name: Кэш каталога
       shape: database
       role: кэш
       technology: Redis
       description: Кэш собранных карточек товара. Сбрасывается при изменении товара.
+      sites:
+      - Кластер prod
   - name: Сервис оплаты
     shape: service
     role: сервис
     description: 'Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.'
+    sites:
+    - Кластер prod
     children:
     - name: Payment API
       shape: service
@@ -121,6 +145,8 @@ nodes:
       role: поисковый индекс
       technology: Elasticsearch
       description: Полнотекстовый индекс карточек товаров. Наполняется индексатором, читается Search API.
+      sites:
+      - ВМ поиска
     - name: Search API
       shape: service
       role: сервис
@@ -129,6 +155,8 @@ nodes:
       source:
         repo: github.com/yarmarka/search
         path: services/search-api
+      sites:
+      - Кластер prod
   - name: Сервис пользователей
     shape: service
     role: сервис
@@ -142,6 +170,8 @@ nodes:
       source:
         repo: github.com/yarmarka/users
         path: services/auth-api
+      sites:
+      - Кластер prod
     - name: Profile API
       shape: service
       role: сервис
@@ -150,11 +180,15 @@ nodes:
       source:
         repo: github.com/yarmarka/users
         path: services/profile-api
+      sites:
+      - Кластер prod
     - name: БД пользователей
       shape: database
       role: база данных
       technology: PostgreSQL
       description: Учётные записи, refresh-токены и адреса доставки.
+      sites:
+      - Управляемая PostgreSQL
   - name: Сервис рекомендаций
     shape: service
     status: planned
@@ -174,6 +208,8 @@ nodes:
       source:
         repo: github.com/yarmarka/notifications
         path: services/notification-worker
+      sites:
+      - Кластер prod
     - name: SMS-рассыльщик
       shape: service
       status: deprecated
@@ -183,11 +219,15 @@ nodes:
       source:
         repo: github.com/yarmarka/notifications
         path: services/sms-sender
+      sites:
+      - Серверная офиса
     - name: БД уведомлений
       shape: database
       role: база данных
       technology: PostgreSQL
       description: Шаблоны сообщений и журнал отправленных уведомлений.
+      sites:
+      - Управляемая PostgreSQL
 - name: Платёжный шлюз ЮKassa
   shape: service
   role: внешний сервис
@@ -386,3 +426,36 @@ edges:
   to: Покупатель
   label: Доставляет заказы
   technology: Курьерская сеть
+deployment:
+  sites:
+  - name: Облако
+    kind: cloud
+    description: 'Публичное облако: кластеры, управляемая база и виртуальные машины'
+  - name: ВМ брокера
+    kind: vm
+    technology: Ubuntu 24.04
+    description: Виртуальная машина под Kafka
+    parent: Облако
+  - name: ВМ поиска
+    kind: vm
+    technology: Ubuntu 24.04
+    description: Виртуальная машина под Elasticsearch
+    parent: Облако
+  - name: Кластер prod
+    kind: kubernetes
+    technology: Kubernetes
+    description: 'Основной кластер: все сервисы и воркеры'
+    parent: Облако
+  - name: Кластер резерв
+    kind: kubernetes
+    technology: Kubernetes
+    description: 'Резервный кластер: вторые экземпляры шлюза и API заказов'
+    parent: Облако
+  - name: Управляемая PostgreSQL
+    technology: PostgreSQL 16
+    description: 'Управляемая база данных: по базе на сервис'
+    parent: Облако
+  - name: Серверная офиса
+    kind: physical
+    technology: Ubuntu 22.04
+    description: 'Старый сервер в офисе: что ещё не переехало в облако'
