@@ -3,7 +3,9 @@
 ТЗ — docs/tasks/doc-versions.md §3. Снимок версии = снимок удаления без раскладки
 плюс процессы с участием объекта: строки — схемами app/schemas/restore.py, выборка
 документации поддерева — общая с ним (restore.collect_subtree_docs), поэтому новая
-колонка модели или семья фактов попадает в версию вместе со снимком удаления.
+колонка модели или семья фактов попадает в версию вместе со снимком удаления. Оттуда
+же — свои экземпляры размещения узлов среза; к ним снимок добавляет путь площадки
+для показа (docs/tasks/deployment-view.md, Ф0б).
 
 Детерминизм — условие всего механизма: «есть ли изменения с vN» отвечается
 сравнением content_hash, и два снимка одного состояния обязаны совпасть байт-в-байт.
@@ -17,7 +19,7 @@ import hashlib
 import json
 import uuid
 import zlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, Protocol
 
 from sqlalchemy import or_, select
@@ -31,6 +33,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -53,11 +57,17 @@ from app.schemas.restore import (
     ConfigParamSnapshot,
     DbColumnSnapshot,
     DbTableSnapshot,
+    DeploymentInstanceSnapshot,
     EdgeSnapshot,
     NodeDocSnapshot,
     NodeSnapshot,
 )
-from app.schemas.versions import ProcessVersion, VersionEdge, VersionSnapshot
+from app.schemas.versions import (
+    ProcessVersion,
+    VersionEdge,
+    VersionInstance,
+    VersionSnapshot,
+)
 from app.versions_diff import semantic
 
 # Формат снимка в колонке node_versions.snapshot_format. Меняется вместе с формой
@@ -69,7 +79,9 @@ SNAPSHOT_FORMAT = 1
 _ZLIB_LEVEL = 6
 
 # Модель → схема строки в снимке версии. Те же пары, что у снимка удаления
-# (restore.SNAPSHOT_PLAN), кроме раскладки: схемы одни на оба снимка.
+# (restore.SNAPSHOT_PLAN), кроме раскладки: схемы одни на оба снимка. Связи и экземпляры
+# размещения едут в снимке подклассами этих схем (VersionEdge, VersionInstance) — с
+# путями для показа сверх полей строки.
 VERSION_PLAN: dict[type[Base], type] = {
     Node: NodeSnapshot,
     Edge: EdgeSnapshot,
@@ -79,6 +91,7 @@ VERSION_PLAN: dict[type[Base], type] = {
     BrokerChannel: BrokerChannelSnapshot,
     ChannelField: ChannelFieldSnapshot,
     ConfigParam: ConfigParamSnapshot,
+    DeploymentInstance: DeploymentInstanceSnapshot,
 }
 
 _LAYOUT = "раскладка холста — не документация: версия несёт только семантику (ТЗ §2 п.7)"
@@ -101,12 +114,17 @@ NOT_IN_VERSION: dict[type[Base], str] = {
     ProcessMessage: _PROCESS,
     ProcessFragment: _PROCESS,
     ProcessFragmentBranch: _PROCESS,
+    DeploymentSite: (
+        "площадка — общая сущность проекта, как процесс: в версию входит размещение "
+        "объекта на ней (экземпляр с путём площадки для показа), а сама она — нет; её "
+        "правка и удаление версией не откатываются"
+    ),
 }
 
 # Что входит в content_hash, решает одна функция — versions_diff.semantic: по ней же
 # сравнивает дельта, и «есть изменения с vN» не расходится с перечнем изменённого. Вне
-# проекции — производное для показа: пути концов связей, mermaid процесса, живые имена
-# и свойства чужих узлов в detail процесса, CAS-счётчик шага.
+# проекции — производное для показа: пути концов связей и площадок размещения, mermaid
+# процесса, живые имена и свойства чужих узлов в detail процесса, CAS-счётчик шага.
 
 
 class _HasId(Protocol):
@@ -126,6 +144,39 @@ def _path(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> str:
     """Путь узла именами от корня («Система / Сервис») для показа конца связи. Узел
     вне карты проекта (гонка с удалением) — пустой путь, а не 500."""
     return processes.node_path(all_nodes, node_id) if node_id in all_nodes else ""
+
+
+def _site_path(sites: Mapping[uuid.UUID, tuple[str, uuid.UUID | None]], site_id: uuid.UUID) -> str:
+    """Путь площадки именами от корневой («Облако / Кластер prod») по карте площадок
+    проекта «id → (имя, родитель)». Подъём с seen: данные снимков и импорта бывают
+    циклическими, и цикл даёт обрезанный путь, а не зависание. Площадки нет в карте
+    (гонка с удалением) — пустой путь."""
+    names: list[str] = []
+    seen: set[uuid.UUID] = set()
+    cur: uuid.UUID | None = site_id
+    while cur is not None and cur in sites and cur not in seen:
+        seen.add(cur)
+        name, cur = sites[cur]
+        names.append(name)
+    return " / ".join(reversed(names))
+
+
+def _version_instances(
+    db: Session, project_id: uuid.UUID, rows: list[DeploymentInstanceSnapshot]
+) -> list[VersionInstance]:
+    """Свои экземпляры размещения узлов среза с путями площадок. Площадки проекта
+    читаются одним запросом и только если размещать есть что."""
+    if not rows:
+        return []
+    sites = {
+        sid: (name, parent_id)
+        for sid, name, parent_id in db.query(
+            DeploymentSite.id, DeploymentSite.name, DeploymentSite.parent_id
+        ).filter(DeploymentSite.project_id == project_id)
+    }
+    return _by_id(
+        VersionInstance(**i.model_dump(), site_path=_site_path(sites, i.site_id)) for i in rows
+    )
 
 
 def _stable_detail(detail: ProcessDetail) -> ProcessDetail:
@@ -232,6 +283,7 @@ def build_snapshot(
         broker_channels=_by_id(docs.broker_channels),
         channel_fields=_by_id(docs.channel_fields),
         config_params=_by_id(docs.config_params),
+        instances=_version_instances(db, project_id, docs.instances),
         processes=_process_versions(
             db,
             project_id,

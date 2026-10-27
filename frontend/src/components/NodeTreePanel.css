@@ -243,6 +243,45 @@
   background: #eff6ff;
 }
 
+/* «Указать размещение» на строке дерева (режим «Развёртывание», архитектор): маркер
+   места, как «+», но слот занимает место ВСЕГДА (visibility, не display) — иначе имя
+   сжималось бы и строка дёргалась на hover. Проявляется при наведении на строку. */
+.nt-place {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  margin-left: auto;
+  background: none;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 0;
+  visibility: hidden;
+}
+.nt-row:hover .nt-place {
+  visibility: visible;
+}
+.nt-place:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #eff6ff;
+}
+/* Строка объекта, который сейчас размещают: фон и иконка остаются видны, пока холст
+   ждёт щелчка по площадке. */
+.nt-row--placing {
+  background: #eff6ff;
+}
+.nt-row--placing .nt-place {
+  visibility: visible;
+  border-color: #93c5fd;
+  color: #2563eb;
+  background: #fff;
+}
+
 /* Зона захвата для переноса узла на другой уровень: шесть точек слева от глифа.
    Место занимает ВСЕГДА (visibility, не display) — иначе строки дёргались бы на
    hover. Проявляется при наведении на строку. */

@@ -140,6 +140,14 @@ describe("planCollapse", () => {
     expect(plan.hiddenEdgeIds.has("eSS")).toBe(false);
   });
 
+  it("карточка площадки (тип site, холст развёртывания) — такой же свёрнутый узел", () => {
+    const siteNext = next.map((n) => (n.id === "X" ? { ...n, type: "site" } : n));
+    expect(planCollapse(prev, prevEdges, siteNext, "X")).not.toBeNull();
+    // и обратно: раскрытие из карточки площадки
+    const sitePrev = siteNext;
+    expect(planExpand(sitePrev, [], prev, [], "X")).not.toBeNull();
+  });
+
   it("снимки не в той фазе (рамки уже нет / узла ещё нет) → null", () => {
     expect(planCollapse(next, [], next, "X")).toBeNull(); // prev без рамки
     const nextNoX = [node("N", "block", 800, 100)];

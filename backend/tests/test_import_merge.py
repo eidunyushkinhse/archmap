@@ -2746,3 +2746,90 @@ def test_остаток_пуст_у_чистого_слияния():
     assert report.conflicts == [] and report.warnings == []
     assert report.field_disputes == [] and report.fuzzy_pairs == []
     assert report.isolated_groups == [] and report.container_edges == []
+
+
+# ── Площадки развёртывания (Ф4 эпика развёртывания) ───────────────────────────
+
+ПЛОЩАДКИ_1 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: api
+        sites: [Кластер, ВМ]
+edges: []
+deployment:
+  sites:
+    - {name: Облако, kind: cloud, technology: Yandex Cloud}
+    - {name: Кластер, kind: kubernetes, parent: Облако}
+"""
+
+ПЛОЩАДКИ_2 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: api
+        sites: [Стойка, Кластер]
+      - name: worker
+        sites: [ВМ]
+edges: []
+deployment:
+  sites:
+    - {name: Кластер, kind: vm, technology: k3s, description: прод}
+    - {name: ВМ, kind: vm, parent: Стойка}
+    - {name: Стойка, kind: physical}
+"""
+
+
+def test_площадки_склеиваются_по_имени_первая_объявившая_задаёт_вид():
+    merged, report = merge_imports([_parse(ПЛОЩАДКИ_1), _parse(ПЛОЩАДКИ_2)])
+
+    сводка = [
+        (s.name, s.kind, s.technology, s.description,
+         None if s.parent_idx is None else merged.sites[s.parent_idx].name)
+        for s in merged.sites
+    ]
+    assert сводка == [
+        ("Облако", "cloud", "Yandex Cloud", None, None),
+        ("Кластер", "kubernetes", "k3s", "прод", "Облако"),
+        # ВМ — неявная в файле 1: объявленная в файле 2 берёт её место целиком.
+        ("Стойка", "physical", None, None, None),
+        ("ВМ", "vm", None, None, "Стойка"),
+    ]
+    assert "площадка «Кластер»: вид расходится между файлами (kubernetes / vm) — взят первый" in (
+        report.warnings
+    )
+    # Узел, склеенный из двух файлов, стоит везде, где его поставил любой из них.
+    assert _node_by_path(merged, "Ярмарка / api").sites == ["Кластер", "ВМ", "Стойка"]
+    assert _node_by_path(merged, "Ярмарка / worker").sites == ["ВМ"]
+
+
+def test_родитель_площадки_первый_непустой_без_цикла():
+    узлы = "nodes:\n  - name: Ярмарка\n"
+    первый = _parse(узлы + "deployment:\n  sites:\n    - {name: A}\n    - {name: B, parent: A}\n")
+    второй = _parse(узлы + "deployment:\n  sites:\n    - {name: A, parent: B}\n    - {name: B}\n")
+
+    merged, report = merge_imports([первый, второй])
+
+    # A из второго файла легла бы в B, а B уже в A — цикл не ставится.
+    assert [(s.name, s.parent_idx) for s in merged.sites] == [("A", None), ("B", 0)]
+    assert report.warnings == [
+        "площадка «A»: родитель «B» из файла 2 замкнул бы вложенность в цикл — оставлена без него"
+    ]
+
+
+def test_площадки_без_второго_файла_проходят_насквозь():
+    один = _parse(ПЛОЩАДКИ_1)
+
+    merged, _report = merge_imports([один])
+
+    assert merged.sites == один.sites
+
+
+def test_слияние_не_трогает_размещение_исходных_вкладов():
+    """Объединение пишет НОВЫЙ список: разобранный файл остаётся тем, что пришло."""
+    первый, второй = _parse(ПЛОЩАДКИ_1), _parse(ПЛОЩАДКИ_2)
+
+    merge_imports([первый, второй])
+
+    assert _node_by_path(первый, "Ярмарка / api").sites == ["Кластер", "ВМ"]
+    assert _node_by_path(второй, "Ярмарка / api").sites == ["Стойка", "Кластер"]

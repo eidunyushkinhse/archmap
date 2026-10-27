@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Query, Session
 
 from app.models.project import Project
-from app.models.view_layout import ViewLayoutItem
+from app.models.view_layout import DEPLOY_KEY_PREFIX, ViewLayoutItem
 from app.models.view_state import ViewState
 
 
@@ -106,7 +106,9 @@ def reset_view_layout(db: Session, project: Project, container_id: uuid.UUID | N
     при перезагрузке). После сброса уровень выглядит как при первом открытии
     (ELK + кольца + авто-маршруты + пере-засев владения) с сохранёнными
     раскрытиями. Скоуп строго по виду: соседние уровни и другие виды нетронуты.
-    Коммит — на вызывающей стороне."""
+    Строки холста «Развёртывание» того же вида (ключи DEPLOY_KEY_PREFIX) тоже
+    нетронуты: «Переразложить» на холсте объектов не должно сбрасывать раскладку
+    другого холста. Коммит — на вызывающей стороне."""
     view_filter = (
         ViewLayoutItem.view_id.is_(None)
         if container_id is None
@@ -117,6 +119,8 @@ def reset_view_layout(db: Session, project: Project, container_id: uuid.UUID | N
         .filter(ViewLayoutItem.project_id == project.id, view_filter)
         .all()
     ):
+        if it.item_id.startswith(DEPLOY_KEY_PREFIX):
+            continue
         if isinstance(it.payload, dict) and it.payload.get("expanded") is True:
             it.payload = {"expanded": True}
         else:

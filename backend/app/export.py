@@ -8,6 +8,11 @@
 контекст).
 Тот же принцип, что у версионирования: «сериализуется только семантика».
 
+Размещение (docs/tasks/deployment-view.md) — тоже семантика: раздел deployment.sites
+после edges (площадки с вложенностью по имени родителя) и у узла sites — имена
+площадок, где он стоит САМ. Унаследованное от контейнера — производное, его не пишем:
+импорт восстановит его тем же наследованием.
+
 Связи ссылаются на узлы ПО ИМЕНИ. Имя по построению дерева уникальным быть не
 обязано — если в экспортируемом наборе оно встречается дважды, в edges
 подставляется квалифицированный путь «Предок / Имя» (в самом дереве имя
@@ -21,10 +26,12 @@
 
 import uuid
 from collections import Counter, defaultdict
+from collections.abc import Sequence
 
 import yaml
 
 from app.identity import source_ref_dict
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.node_ref import RefIndex, sibling_sorter
@@ -44,19 +51,91 @@ def _str_representer(dumper: yaml.Dumper, data: str) -> yaml.Node:
 _Dumper.add_representer(str, _str_representer)
 
 
-def build_export(nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None = None) -> str:
+def build_export(
+    nodes: list[Node],
+    edges: list[Edge],
+    root_id: uuid.UUID | None = None,
+    sites: Sequence[DeploymentSite] = (),
+    instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
+) -> str:
     """Собирает YAML-документ {nodes: <дерево>, edges: <список>} для набора узлов.
 
     nodes/edges — уже отфильтрованный набор (вся схема или закрытое поддерево).
-    root_id не используется напрямую: «корнями» дерева считаются узлы, чей
-    родитель вне набора (для поддерева это и есть его корень, для всей схемы —
-    настоящие корни parent_id=None).
+    root_id в дереве не используется напрямую: «корнями» дерева считаются узлы,
+    чей родитель вне набора (для поддерева это и есть его корень, для всей схемы —
+    настоящие корни parent_id=None). Он решает состав площадок: без него — все
+    площадки проекта, с ним — только нужные поддереву (см. _sites_section).
+
+    sites и instances — площадки проекта (deployment.project_sites) и свои
+    экземпляры парами (узел, площадка) (deployment.ordered_instances). Без них
+    документ ровно прежний: раздела deployment и ключа sites у узлов нет.
     """
-    return build_export_ordered(nodes, edges, root_id)[0]
+    return build_export_ordered(nodes, edges, root_id, sites, instances)[0]
+
+
+def _sites_section(
+    sites: Sequence[DeploymentSite], used: set[uuid.UUID], whole: bool
+) -> list[dict]:
+    """Площадки раздела deployment.sites: родители раньше детей, внутри — по имени.
+
+    whole — экспорт всего проекта: пишутся все площадки, и пустые тоже (пустая
+    площадка — такая же часть топологии). Экспорт поддерева пишет только площадки,
+    на которые ссылаются его узлы (used), вместе с их предками: документ обязан быть
+    самодостаточным — импорт отвергает родителя, которого нет в разделе.
+
+    Подъём к предкам и обход — с seen: цикл в данных (его не пропускают ручки, но
+    данные бывают и из снимков) не вешает экспорт. Площадка, до которой обход от
+    корней не дошёл (член цикла), пишется корневой — документ остаётся разбираемым.
+    """
+    by_id = {s.id: s for s in sites}
+    keep: set[uuid.UUID] = set(by_id)
+    if not whole:
+        keep = set()
+        for sid in used:
+            cur: uuid.UUID | None = sid
+            while cur is not None and cur in by_id and cur not in keep:
+                keep.add(cur)
+                cur = by_id[cur].parent_id
+    chosen = sorted((by_id[sid] for sid in keep), key=lambda s: (s.name, str(s.id)))
+    kids: dict[uuid.UUID | None, list[DeploymentSite]] = defaultdict(list)
+    for s in chosen:
+        parent = s.parent_id if s.parent_id in keep else None
+        kids[parent].append(s)
+
+    out: list[dict] = []
+    written: set[uuid.UUID] = set()
+
+    def visit(site: DeploymentSite) -> None:
+        if site.id in written:
+            return
+        d: dict = {"name": site.name}
+        if site.kind != "other":
+            d["kind"] = site.kind
+        if site.technology:
+            d["technology"] = site.technology
+        if site.description:
+            d["description"] = site.description
+        parent_id = site.parent_id
+        if parent_id is not None and parent_id in written:
+            d["parent"] = by_id[parent_id].name
+        written.add(site.id)
+        out.append(d)
+        for k in kids.get(site.id, []):
+            visit(k)
+
+    for s in kids.get(None, []):
+        visit(s)
+    for s in chosen:  # члены цикла — корневыми, в порядке имени
+        visit(s)
+    return out
 
 
 def build_export_ordered(
-    nodes: list[Node], edges: list[Edge], root_id: uuid.UUID | None = None
+    nodes: list[Node],
+    edges: list[Edge],
+    root_id: uuid.UUID | None = None,
+    sites: Sequence[DeploymentSite] = (),
+    instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
 ) -> tuple[str, list[uuid.UUID]]:
     """То же, что build_export, плюс ПОРЯДОК id узлов в готовом документе.
 
@@ -77,6 +156,41 @@ def build_export_ordered(
             children_by_parent[n.parent_id].append(n)
         else:
             roots.append(n)
+
+    # Площадки объектов набора (листьев, не «Пользователей») — в порядке площадок (по
+    # имени): так их пишет ключ sites, и так же импорт вернёт их строкой «Размещение».
+    # Экземпляры контейнера (данные прежней модели) не в счёт: его размещение — объекты.
+    site_by_id = {s.id: s for s in sites}
+    site_rank = {s.id: i for i, s in enumerate(sites)}
+    own_sites: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    for node_id, site_id in instances:
+        node = by_id.get(node_id)
+        if node is None or node_id in children_by_parent or node.shape == "person":
+            continue
+        if site_id in site_by_id and site_id not in own_sites[node_id]:
+            own_sites[node_id].append(site_id)
+    for site_ids in own_sites.values():
+        site_ids.sort(key=lambda sid: site_rank[sid])
+
+    def whole_sites(node: Node) -> list[uuid.UUID] | None:
+        """Контейнер, все объекты которого стоят на одном наборе площадок, пишет
+        sites сам, а его поддерево — нет: короче, и читается как размещение целиком
+        (импорт раздаёт объявление контейнера объектам — leaf_placements). Иначе None."""
+        leaves: list[Node] = []
+        stack = [node]
+        while stack:
+            cur = stack.pop()
+            kids = children_by_parent.get(cur.id)
+            if kids:
+                stack.extend(kids)
+            elif cur.shape != "person":
+                leaves.append(cur)
+        if not leaves:
+            return None
+        first = own_sites.get(leaves[0].id, [])
+        if not first or any(own_sites.get(leaf.id, []) != first for leaf in leaves[1:]):
+            return None
+        return first
 
     # Сколько раз имя встречается в наборе — чтобы решить, нужен ли путь в edges.
     name_counts = Counter(n.name for n in nodes)
@@ -107,9 +221,10 @@ def build_export_ordered(
             return node.name
         return addresses[node.id] or node.name
 
-    def node_dict(node: Node) -> dict:
+    def node_dict(node: Node, covered: bool = False) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
-        # и тип, потом необязательная семантика, дети — последними.
+        # и тип, потом необязательная семантика, дети — последними. covered —
+        # размещение уже записано у контейнера выше: у поддерева ключа sites нет.
         order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
         if node.status != "existing":
@@ -130,8 +245,11 @@ def build_export_ordered(
             if src:
                 d["source"] = src
         kids = sort(children_by_parent.get(node.id, []))
+        placed = None if covered else (whole_sites(node) if kids else own_sites.get(node.id))
+        if placed:
+            d["sites"] = [site_by_id[sid].name for sid in placed]
         if kids:
-            d["children"] = [node_dict(k) for k in kids]
+            d["children"] = [node_dict(k, covered or bool(placed)) for k in kids]
         return d
 
     def edge_dict(e: Edge) -> dict:
@@ -157,10 +275,14 @@ def build_export_ordered(
     ]
     edge_dicts.sort(key=lambda d: (d["from"], d["to"], d.get("label") or ""))
 
-    structure = {
+    structure: dict = {
         "nodes": [node_dict(r) for r in sort(roots)],
         "edges": edge_dicts,
     }
+    used = {sid for site_ids in own_sites.values() for sid in site_ids}
+    site_dicts = _sites_section(sites, used, whole=root_id is None)
+    if site_dicts:
+        structure["deployment"] = {"sites": site_dicts}
     text = yaml.dump(
         structure,
         Dumper=_Dumper,

@@ -1889,6 +1889,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/deployment/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Sites
+         * @description Площадки проекта плоским списком по имени; дерево фронт строит по parent_id.
+         */
+        get: operations["list_sites_api_v1_deployment_sites_get"];
+        put?: never;
+        /** Create Site */
+        post: operations["create_site_api_v1_deployment_sites_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deployment/sites/{site_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Site
+         * @description Удалить площадку; её экземпляры уходят каскадом БД (окно подтверждения на
+         *     фронте называет их число — SiteOut.instance_count). С вложенными — 422.
+         */
+        delete: operations["delete_site_api_v1_deployment_sites__site_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Site */
+        patch: operations["update_site_api_v1_deployment_sites__site_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/deployment/placements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Placements
+         * @description Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять);
+         *     контейнер размещается целиком — набор получает каждый объект внутри. Объект или
+         *     площадка не из проекта — 404, «Пользователь» среди объектов или контейнер без
+         *     объектов — 422; при отказе не записывается ничего: проверки идут до записи.
+         */
+        put: operations["put_placements_api_v1_deployment_placements_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/deployment/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deployment Graph
+         * @description Граф вида «Развёртывание» уровня level (пусто — весь проект).
+         *
+         *     Объекты — ВСЁ ПОДДЕРЕВО уровня: контейнеры и листья любой глубины (сам контейнер
+         *     уровня не входит — уровень это объём, а не объект), кроме «Пользователей»: они
+         *     живут вне системы. Кого рисовать — цельный контейнер одной карточкой или его
+         *     объекты по отдельности — решает фронт по размещению листьев, поэтому у каждого
+         *     узла есть instances (у контейнера — площадки, где стоят все его объекты) и число
+         *     прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
+         *     «к ближайшему экземпляру» и подъём к представителю применяет фронт). Площадки —
+         *     все площадки проекта: на любом уровне они одни и те же.
+         */
+        get: operations["get_deployment_graph_api_v1_deployment_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/export": {
         parameters: {
             query?: never;
@@ -1898,7 +1993,7 @@ export interface paths {
         };
         /**
          * Export All
-         * @description Экспорт ВСЕЙ схемы текущего проекта.
+         * @description Экспорт ВСЕЙ схемы текущего проекта — с разделом deployment (все площадки).
          */
         get: operations["export_all_api_v1_export_get"];
         put?: never;
@@ -1944,6 +2039,7 @@ export interface paths {
         /**
          * Export Subtree
          * @description Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
+         *     Площадки — только те, на которых стоят узлы поддерева, с их предками.
          */
         get: operations["export_subtree_api_v1_export__node_id__get"];
         put?: never;
@@ -4139,8 +4235,8 @@ export interface components {
          * DeletionSnapshot
          * @description Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
          *     документация (схемы логики, таблицы БД с колонками, каналы брокера с полями,
-         *     параметры конфигурации), инцидентные рёбра и строки раскладки. Достаточно для
-         *     точного восстановления.
+         *     параметры конфигурации), экземпляры развёртывания, инцидентные рёбра и строки
+         *     раскладки. Достаточно для точного восстановления.
          */
         DeletionSnapshot: {
             /** Nodes */
@@ -4182,20 +4278,25 @@ export interface components {
              * @default []
              */
             config_params: components["schemas"]["ConfigParamSnapshot"][];
+            /**
+             * Instances
+             * @default []
+             */
+            instances: components["schemas"]["DeploymentInstanceSnapshot"][];
         };
         /**
          * DemoExcess
          * @description Превышение предела демо-проекта, которое дало бы применение импорта: что
-         *     (объекты, связи, схемы логики, процессы, объём текста в байтах), сколько вышло и
-         *     сколько можно. Есть только в демо-режиме и только при превышении; фронт по нему
-         *     гасит кнопку применения и показывает полоску «142 из 100».
+         *     (объекты, связи, схемы логики, процессы, площадки развёртывания, объём текста в
+         *     байтах), сколько вышло и сколько можно. Есть только в демо-режиме и только при
+         *     превышении; фронт по нему гасит кнопку применения и показывает полоску «142 из 100».
          */
         DemoExcess: {
             /**
              * Kind
              * @enum {string}
              */
-            kind: "nodes" | "edges" | "docs" | "processes" | "text";
+            kind: "nodes" | "edges" | "docs" | "processes" | "sites" | "text";
             /** Actual */
             actual: number;
             /** Limit */
@@ -4219,6 +4320,162 @@ export interface components {
             text_bytes: number;
             /** File Bytes */
             file_bytes: number;
+        };
+        /**
+         * DeploymentGraph
+         * @description Граф вида «Развёртывание» уровня: всё его поддерево — контейнеры и листья (без
+         *     «Пользователей» и без самого контейнера уровня), все площадки проекта, сырые связи
+         *     с обоими концами в этом поддереве и раскладка вида.
+         *
+         *     layout — строки view_layout вида этого уровня с ключами «deploy:<узел>@<площадка>»
+         *     (карточка экземпляра) и «deploy:site:<площадка>» (рамка площадки): вид делит
+         *     хранилище раскладки с холстом объектов, а префикс разводит их ключи. Пишутся тем
+         *     же PUT /views/{view_id}/layout. version — версия вида (fence записей раскладки),
+         *     graph_rev/meta_rev — курсоры проекта для поллинга, как у графа уровня.
+         */
+        DeploymentGraph: {
+            /** Sites */
+            sites: components["schemas"]["SiteOut"][];
+            /** Nodes */
+            nodes: components["schemas"]["DeploymentNodeOut"][];
+            /** Edges */
+            edges: components["schemas"]["GraphEdgeResponse"][];
+            /**
+             * Layout
+             * @default {}
+             */
+            layout: {
+                [key: string]: components["schemas"]["ViewLayoutPayload"];
+            };
+            /**
+             * Version
+             * @default 0
+             */
+            version: number;
+            /**
+             * Graph Rev
+             * @default 0
+             */
+            graph_rev: number;
+            /**
+             * Meta Rev
+             * @default 0
+             */
+            meta_rev: number;
+        };
+        /**
+         * DeploymentInstanceSnapshot
+         * @description Экземпляр развёртывания объекта (deployment_instances) — «объект стоит на
+         *     площадке»; умирает каскадом node_id вместе с узлом. Площадка — не потомок узла и в
+         *     снимок не входит: если её успели удалить, откат вернёт объект без этого экземпляра
+         *     (app/restore.apply_snapshot пропускает его молча).
+         */
+        DeploymentInstanceSnapshot: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /**
+             * Site Id
+             * Format: uuid
+             */
+            site_id: string;
+        };
+        /**
+         * DeploymentNodeOut
+         * @description Узел поддерева уровня на холсте развёртывания: все поля узла плюс instances —
+         *     id площадок, где стоит объект; у контейнера — где стоят ВСЕ его объекты (а где
+         *     часть — видно в sites с пометкой partial). Кого рисовать карточкой — объект или
+         *     цельный контейнер — решает фронт по размещению листьев.
+         */
+        DeploymentNodeOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description: string | null;
+            /** Role */
+            role: string | null;
+            /** Technology */
+            technology: string | null;
+            /** Parent Id */
+            parent_id: string | null;
+            /** Openapi Spec */
+            openapi_spec: string | null;
+            /**
+             * Docs
+             * @default []
+             */
+            docs: components["schemas"]["NodeDocMeta"][];
+            /** Is External */
+            is_external: boolean;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "service" | "database" | "broker" | "person";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "existing" | "planned" | "deprecated";
+            /**
+             * Child Count
+             * @default 0
+             */
+            child_count: number;
+            /**
+             * Has Children
+             * @default false
+             */
+            has_children: boolean;
+            /**
+             * Approval
+             * @default in_progress
+             * @enum {string}
+             */
+            approval: "in_progress" | "approved";
+            /**
+             * Approval Effective
+             * @default in_progress
+             * @enum {string}
+             */
+            approval_effective: "in_progress" | "approved";
+            /** Source Ref */
+            source_ref?: string | null;
+            source?: components["schemas"]["NodeSource"] | null;
+            /**
+             * Sites
+             * @default []
+             */
+            sites: components["schemas"]["NodeSiteOut"][];
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Instances */
+            instances: string[];
         };
         /**
          * DescendantEdgeAlert
@@ -5243,7 +5500,8 @@ export interface components {
              *       "tables": 0,
              *       "channels": 0,
              *       "params": 0,
-             *       "processes": 0
+             *       "processes": 0,
+             *       "sites": 0
              *     }
              */
             families: components["schemas"]["UnifiedFamilyCountsOut"];
@@ -5836,6 +6094,11 @@ export interface components {
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
             /**
+             * Sites
+             * @default []
+             */
+            sites: components["schemas"]["NodeSiteOut"][];
+            /**
              * Version
              * @default 1
              */
@@ -5850,6 +6113,39 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * NodeSiteOut
+         * @description Площадка, на которой стоит объект (строка «Размещение» страницы объекта и
+         *     карточка MCP; docs/tasks/deployment-view.md).
+         *
+         *     id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
+         *     Облако»); имя — в ответе, чтобы строке «Размещение» и карточке MCP не ходить за
+         *     списком площадок. partial — только у контейнера: на площадке стоит часть его
+         *     объектов, а не все (у объекта всегда False).
+         */
+        NodeSiteOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "cloud" | "kubernetes" | "vm" | "physical" | "other";
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Parent Name */
+            parent_name?: string | null;
+            /**
+             * Partial
+             * @default false
+             */
+            partial: boolean;
         };
         /** NodeSnapshot */
         NodeSnapshot: {
@@ -5940,6 +6236,8 @@ export interface components {
             /** Approval */
             approval?: ("in_progress" | "approved") | null;
             source?: components["schemas"]["NodeSource"] | null;
+            /** Site Ids */
+            site_ids?: string[] | null;
             /** Base Version */
             base_version?: number | null;
         };
@@ -6137,6 +6435,19 @@ export interface components {
             last_used_at: string | null;
             /** Expires At */
             expires_at: string | null;
+        };
+        /**
+         * PlacementsIn
+         * @description Размещение нескольких объектов разом: КАЖДОМУ объекту — ровно этот набор
+         *     площадок (лишние экземпляры снимаются, недостающие добавляются); пустой
+         *     site_ids — снять размещение у всех перечисленных. Контейнер среди node_ids
+         *     размещается целиком: набор получает каждый объект внутри него.
+         */
+        PlacementsIn: {
+            /** Node Ids */
+            node_ids: string[];
+            /** Site Ids */
+            site_ids: string[];
         };
         /** ProcessCreate */
         ProcessCreate: {
@@ -6658,6 +6969,75 @@ export interface components {
             /** Hits */
             hits: components["schemas"]["SearchHit"][];
         };
+        /** SiteCreate */
+        SiteCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @default other
+             * @enum {string}
+             */
+            kind: "cloud" | "kubernetes" | "vm" | "physical" | "other";
+            /** Technology */
+            technology?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+        };
+        /**
+         * SiteOut
+         * @description Площадка плоским списком: дерево фронт строит сам по parent_id.
+         */
+        SiteOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "cloud" | "kubernetes" | "vm" | "physical" | "other";
+            /** Technology */
+            technology?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+            /**
+             * Instance Count
+             * @default 0
+             */
+            instance_count: number;
+        };
+        /**
+         * SiteUpdate
+         * @description Правка площадки: не прислано — не трогаем. parent_id: null — вынести в корень.
+         */
+        SiteUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Kind */
+            kind?: ("cloud" | "kubernetes" | "vm" | "physical" | "other") | null;
+            /** Technology */
+            technology?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Parent Id */
+            parent_id?: string | null;
+            /** Base Version */
+            base_version?: number | null;
+        };
         /**
          * SyncApplyIn
          * @description Применение прогона. Вход тот же, что у превью (план ПЕРЕСЧИТЫВАЕТСЯ на
@@ -7054,6 +7434,8 @@ export interface components {
         /**
          * UnifiedFamilyCountsOut
          * @description Что приедет при ДЕФОЛТНЫХ резолюциях: доки спора едут все, скаляры — первый.
+         *     sites — площадки развёртывания (раздел deployment): у создания — все площадки
+         *     плана, у догрузки — только те, которых в проекте ещё нет (по имени).
          */
         UnifiedFamilyCountsOut: {
             /**
@@ -7086,6 +7468,11 @@ export interface components {
              * @default 0
              */
             processes: number;
+            /**
+             * Sites
+             * @default 0
+             */
+            sites: number;
         };
         /**
          * UnifiedPreviewOut
@@ -7107,7 +7494,8 @@ export interface components {
              *       "tables": 0,
              *       "channels": 0,
              *       "params": 0,
-             *       "processes": 0
+             *       "processes": 0,
+             *       "sites": 0
              *     }
              */
             families: components["schemas"]["UnifiedFamilyCountsOut"];
@@ -7327,7 +7715,7 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "placement" | "approval" | "process";
             /** Name */
             name: string;
             /**
@@ -7362,8 +7750,8 @@ export interface components {
          *
          *     item_id — адрес элемента для GET …/diff/{item_id}: «props:<id узла>»,
          *     «approval:<id узла>», «edge:<id связи>», «doc:<id схемы>», «spec:<id узла>»,
-         *     «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «process:<id
-         *     процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
+         *     «table:<id таблицы>», «channel:<id канала>», «config:<id узла>», «placement:<id
+         *     узла>», «process:<id процесса>». node_path — путь объекта ВНУТРИ среза именами («Заказы / Сервис
          *     заказов»; у самого корня среза — пустая строка, у процесса — тоже: он общий).
          *     summary — короткая подробность для строки списка («+3 −2», «переименована: A → B»,
          *     «+1 ~1», «+2 ~1 шага», «в работе → согласовано»); статус словами — по status.
@@ -7375,7 +7763,7 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "approval" | "process";
+            category: "props" | "edges" | "doc" | "spec" | "db" | "channels" | "config" | "placement" | "approval" | "process";
             /** Node Path */
             node_path: string;
             /** Name */
@@ -11172,6 +11560,206 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ViewLayoutResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sites_api_v1_deployment_sites_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_site_api_v1_deployment_sites_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_site_api_v1_deployment_sites__site_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_site_api_v1_deployment_sites__site_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                site_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SiteUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SiteOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_placements_api_v1_deployment_placements_put: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlacementsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_deployment_graph_api_v1_deployment_graph_get: {
+        parameters: {
+            query?: {
+                level?: string | null;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeploymentGraph"];
                 };
             };
             /** @description Validation Error */

@@ -44,6 +44,7 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
+from app.import_merge import union_sites
 from app.import_yaml import ParsedImport, _ImpEdge, seed_import
 from app.models.edge import Edge
 from app.models.node import Node
@@ -517,6 +518,12 @@ def apply_unified_plan(
     # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
     # посева: узлы уже созданы, а семьи адресованы индексами плана.
     apply_tree_decisions(merged, решения)
+    # Размещение склеиваемых — выжившему ДО посева (объединением, как у мерджа):
+    # поглощённый уйдёт из проекта вместе со своими экземплярами.
+    for survivor, absorbed, _имя in merge_chain(решения.merges):
+        merged.nodes[survivor].sites = union_sites(
+            merged.nodes[survivor].sites, merged.nodes[absorbed].sites
+        )
 
     # ── Имя и описание: поля пользователя либо манифест единственного архива (П3).
     project_name = (name or "").strip()

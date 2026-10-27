@@ -155,7 +155,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
           )}
         </MetaRow>
 
-        <MetaRow icon={META_ICON.placement} label="Размещение">
+        <MetaRow icon={META_ICON.membership} label="Принадлежность">
           {isArchitect ? (
             <span className="insp-value">
               {/* Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой

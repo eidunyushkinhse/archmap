@@ -33,9 +33,18 @@ VERSION_KINDS: tuple[VersionKind, ...] = get_args(VersionKind)
 
 # Категория элемента дельты версий (app/versions_diff.py), в порядке показа: свойства
 # объекта, связи, схема логики, спека OpenAPI, структура БД, каналы брокера,
-# конфигурация, статус страницы, процесс. Размещение добавит эпик развёртывания.
+# конфигурация, размещение на площадках, статус страницы, процесс.
 VersionCategory = Literal[
-    "props", "edges", "doc", "spec", "db", "channels", "config", "approval", "process"
+    "props",
+    "edges",
+    "doc",
+    "spec",
+    "db",
+    "channels",
+    "config",
+    "placement",
+    "approval",
+    "process",
 ]
 VERSION_CATEGORIES: tuple[VersionCategory, ...] = get_args(VersionCategory)
 
@@ -52,6 +61,13 @@ DiffMark = Literal["", "add", "del", "mod", "move"]
 # заполняется только у операций СОБСТВЕННОГО API узла.
 NodeDocKind = Literal["operation", "worker"]
 NODE_DOC_KINDS: tuple[NodeDocKind, ...] = get_args(NodeDocKind)
+
+# Вид площадки развёртывания (docs/tasks/deployment-view.md): облако или управляемый
+# сервис, кластер Kubernetes, виртуальная машина, физический сервер, прочее (ЦОД,
+# стойка). Конкретика («Yandex Cloud», «k3s 1.30») — технологией площадки свободным
+# текстом, как у узла: перечисление поставщиков здесь врало бы про их разнообразие.
+SiteKind = Literal["cloud", "kubernetes", "vm", "physical", "other"]
+SITE_KINDS: tuple[SiteKind, ...] = get_args(SiteKind)
 
 # Подписи словарей узла по-русски — для текстов, которые собирает бэк (дельта версий
 # документации). Зеркало фронтовых SHAPE_LABEL / APPROVAL_LABEL / DOC_KIND_LABEL

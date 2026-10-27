@@ -180,6 +180,22 @@ export type ViewLayout = Record<string, ViewLayoutPayload>;
 // кольца/разведение/keep-out). Производится конвейером из ViewLayout.
 export type LevelPos = { pos_x: number; pos_y: number };
 
+// ── Схема развёртывания (docs/tasks/deployment-view.md) ──────────────────────
+// Вид площадки (облако, кластер, ВМ, физический сервер, другое) — Literal контракта.
+export type SiteKind = Schemas["SiteOut"]["kind"];
+// Площадка (плоско, дерево — по parent_id; instance_count — свои экземпляры на ней),
+// создание и частичная правка с CAS.
+export type SiteOut = Schemas["SiteOut"];
+export type SiteCreate = Schemas["SiteCreate"];
+export type SiteUpdate = Schemas["SiteUpdate"];
+// Размещение набором: каждому объекту ровно site_ids; контейнер — целиком (набор
+// получает каждый объект внутри).
+export type PlacementsIn = Schemas["PlacementsIn"];
+// Граф холста «Развёртывание»: площадки, поддерево уровня с размещением (instances —
+// площадки объекта; у контейнера — где стоят все его объекты), сырые связи, раскладка deploy:….
+export type DeploymentGraph = Schemas["DeploymentGraph"];
+export type DeploymentNode = Schemas["DeploymentNodeOut"];
+
 export type Edge = Schemas["EdgeResponse"];
 export type EdgeUpdate = Schemas["EdgeUpdate"];
 export type EdgeCreate = Schemas["EdgeCreate"];

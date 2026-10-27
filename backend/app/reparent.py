@@ -29,6 +29,7 @@ from app import tree
 from app.domain_types import NodeShape
 from app.models.broker_channel import BrokerChannel
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
 from app.models.node import Node
 from app.models.project import Project
 from app.models.view_layout import ViewLayoutItem
@@ -127,6 +128,9 @@ def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str 
       • КАНАЛЫ БРОКЕРА. Ровно тот же довод у shape=broker (routers/broker_channels.py):
         каналы рендерятся только у брокера, и CRUD их брокером же и ограничивает —
         запрет здесь замыкает правило с другой стороны.
+      • РАЗМЕЩЕНИЕ. «Пользователь» живёт вне системы, и поставить его на площадку
+        нельзя (app/deployment.set_placements). Объект со своими экземплярами,
+        ставший пользователем, держал бы размещение, которого не видно нигде.
 
     Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
     показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
@@ -150,4 +154,11 @@ def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str 
         )
         if has_channels:
             return "У узла описаны каналы брокера — сначала перенесите или удалите их"
+    if new_shape == "person" and node.shape != "person":
+        placed = (
+            db.query(DeploymentInstance.id).filter(DeploymentInstance.node_id == node.id).first()
+            is not None
+        )
+        if placed:
+            return "У объекта указано размещение — у пользователя его нет, сначала снимите его"
     return None

@@ -98,7 +98,7 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
     ["A", { x: 0, y: 100 }],
     ["B", { x: 700, y: 100 }],
   ]);
-  const frame = { rect: { x: 250, y: 0, w: 200, h: 300 }, plaque: { x: 260, y: 270, w: 100, h: 22 }, memberIds: new Set<string>() };
+  const frame = { rect: { x: 250, y: 0, w: 200, h: 300 }, memberIds: new Set<string>() };
   const groups = [group("g1", "A", "B")];
 
   it("чужое ребро обходит рамку (2 перехода дороже обхода)", () => {
@@ -120,8 +120,8 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
     expect(out.routes.get("g1")!.length).toBe(2); // прямая
   });
 
-  it("ребро внутрь СВОЕЙ рамки идёт без штрафа (не вьётся), но не сквозь плашку", () => {
-    // C — «ребёнок» внутри рамки, у нижнего края возле плашки
+  it("ребро внутрь СВОЕЙ рамки идёт без штрафа (не вьётся)", () => {
+    // C — «ребёнок» внутри рамки, у нижнего края
     const pos = new Map([...positions, ["C", { x: 270, y: 180 }]]);
     const g = [group("g2", "A", "C")];
     const ownFrame = { ...frame, memberIds: new Set(["C"]) };
@@ -131,7 +131,23 @@ describe("buildAutoRoutes — рамки-препятствия с ворота�
     });
     const r = out.routes.get("g2")!;
     expect(r.length).toBeLessThanOrEqual(5); // прямой заход, без вихляний от штрафа своей рамки
-    expect(pathCrossesRects(r, [ownFrame.plaque])).toBe(false); // плашка — жёсткое препятствие
+  });
+
+  it("плашка подписи рамки — не препятствие: линия вниз из рамки идёт прямо сквозь полосу плашки (E21)", () => {
+    // C — член рамки у её левого нижнего угла, D — снаружи под ней. Прямая вниз из C
+    // проходит ровно там, где нарисована плашка «🔍 имя ✕» (слева-внизу рамки: x+10,
+    // нижняя полоса высотой ~22 над отступом 8). До 2026-10-27 плашка была жёстким
+    // препятствием, и линия огибала её ступенькой; теперь она проходит под плашкой.
+    const pos = new Map([["C", { x: 0, y: 150 }], ["D", { x: 0, y: 400 }]]);
+    const f = { rect: { x: -10, y: 0, w: 400, h: 300 }, memberIds: new Set(["C"]) };
+    const plaque = { x: f.rect.x + 10, y: f.rect.y + f.rect.h - 30, w: 150, h: 22 };
+    const out = buildAutoRoutes({
+      groups: [group("g3", "C", "D")], routableIds: new Set(["g3"]),
+      positions: pos, displayIds: ["C", "D"], frames: [f],
+    });
+    const r = out.routes.get("g3")!;
+    expect(r.length).toBe(2); // прямая, без ступеньки вокруг плашки
+    expect(pathCrossesRects(r, [plaque])).toBe(true);
   });
 });
 
@@ -142,7 +158,7 @@ describe("buildAutoRoutes — рамка как КОНЕЦ связи", () => {
     ["C", { x: 500, y: 100 }],
   ]);
   const frameRect = { x: 450, y: 20, w: 260, h: 260 };
-  const frame = { id: "F", rect: frameRect, plaque: { x: 460, y: 250, w: 100, h: 22 }, memberIds: new Set(["C"]) };
+  const frame = { id: "F", rect: frameRect, memberIds: new Set(["C"]) };
 
   it("конец-рамка стыкуется с ГРАНИЦЕЙ её прямоугольника: порт — проекция дальнего конца", () => {
     const out = buildAutoRoutes({

@@ -9,8 +9,8 @@
 //
 // КАК ЗАКРЫТО. Не дисциплиной («не забудь бампнуть»), а МЕХАНИКОЙ:
 //   1. collectRouterConstants() собирает ВСЕ значения, влияющие на геометрию маршрутов
-//      и плашек (роутер, набор, порты, мост домена, нуджинг, джоги, рамочная плашка,
-//      модель габаритов подписи);
+//      и плашек (роутер, набор, порты, мост домена, нуджинг, джоги, модель габаритов
+//      подписи);
 //   2. hashRouterConstants() сворачивает их в хэш;
 //   3. CONSTANTS_HASH_BY_VERSION хранит ИСТОРИЮ пар «версия → хэш»;
 //   4. routerVersion.test.ts сверяет живой хэш с зарегистрированным для ROUTER_VERSION
@@ -70,10 +70,6 @@ import {
   MAX_EVICT as NUDGE_MAX_EVICT,
 } from "./channelNudge";
 import {
-  FRAME_PLAQUE_INSET_X, FRAME_PLAQUE_BOTTOM, FRAME_PLAQUE_H,
-  FRAME_PLAQUE_BASE_W, FRAME_PLAQUE_CHAR_W,
-} from "./frames";
-import {
   LABEL_FONT_PX, LABEL_CHAR_PX, LABEL_CHROME_X, LABEL_CHROME_Y, LABEL_END, metaLabelBox,
 } from "./labelBox";
 import { EDGE_STUB, NODE_W, NODE_H } from "../constants";
@@ -89,7 +85,7 @@ import { CALL_EXPANSION_CAP } from "./orthoRoute";
  * реестра ниже. Кэш маршрутов, записанный с другой версией, не читается (см.
  * routeCacheStore.load).
  */
-export const ROUTER_VERSION = 18;
+export const ROUTER_VERSION = 19;
 
 /**
  * РЕВИЗИЯ АЛГОРИТМА — ручной слой сторожа (см. шапку). Растёт на 1 при правке, которая
@@ -114,8 +110,13 @@ export const ROUTER_VERSION = 18;
  * Правки целиком лежат ВНЕ охвата фазз-полигона (размещение плашек, T4-оркестрация и
  * канальный нуджинг — стадии конвейера, а полигон зовёт buildAutoRoutes напрямую, минуя
  * pipeline) — золото не дрогнуло, сторожит ручной слой.
+ * 6 — плашки подписей РАМОК сняты с препятствий (2026-10-27, замечание пользователя
+ * «стрелки огибают имена рамок»; E21): линия проходит под плашкой. Ядро (терминалы A*,
+ * валидация prev) перегенерировало golden само; ручной слой — за полировку джогов по
+ * финальной геометрии в pipeline (jogObstacles без плашек) и за сигнатуру кэша без
+ * плашки. Реестр лишился пяти констант плашки.
  */
-export const ROUTER_ALGO_REV = 5;
+export const ROUTER_ALGO_REV = 6;
 
 // Зонды формул, у которых нет отдельной именованной константы: изменение ЛЮБОГО их
 // внутреннего параметра (высота строки, ширина переноса wrapLabel, модель мастера)
@@ -194,12 +195,8 @@ export function collectRouterConstants(): Record<string, unknown> {
     "channelNudge.OVERLAP_MIN": NUDGE_OVERLAP_MIN,
     "channelNudge.NEAR_OVERLAP_MIN": NUDGE_NEAR_OVERLAP_MIN,
     "channelNudge.MAX_EVICT": NUDGE_MAX_EVICT,
-    // --- плашка подписи РАМКИ: жёсткое препятствие роутера (E21) ---
-    "frames.FRAME_PLAQUE_INSET_X": FRAME_PLAQUE_INSET_X,
-    "frames.FRAME_PLAQUE_BOTTOM": FRAME_PLAQUE_BOTTOM,
-    "frames.FRAME_PLAQUE_H": FRAME_PLAQUE_H,
-    "frames.FRAME_PLAQUE_BASE_W": FRAME_PLAQUE_BASE_W,
-    "frames.FRAME_PLAQUE_CHAR_W": FRAME_PLAQUE_CHAR_W,
+    // (плашка подписи РАМКИ до v18 была жёстким препятствием с пятью константами
+    // семьи frames.*; с v19 она не препятствие — семьи в реестре нет, E21.)
     // --- модель габаритов плашки ПОДПИСИ РЕБРА (T4 делает их препятствиями) ---
     "labelBox.LABEL_FONT_PX": LABEL_FONT_PX,
     "labelBox.LABEL_CHAR_PX": LABEL_CHAR_PX,
@@ -272,6 +269,11 @@ export function hashRouterConstants(): string {
  * Сравнивать пары РАЗНЫХ эпох между собой бессмысленно, их дело — быть различными.
  */
 export const CONTRACT_HASH_BY_VERSION: Record<number, string> = {
+  // v19 — плашки подписей рамок сняты с препятствий (2026-10-27, приёмка эпика
+  // «развёртывание», E21): линия проходит под плашкой рамки, а плашка рисуется в слое
+  // подписей над линиями (CV33). Реестр −5 констант (frames.*), ROUTER_ALGO_REV 6
+  // (полировка джогов и сигнатура кэша в pipeline), golden перегенерирован.
+  19: "29196a3ccf964606",
   // v18 — Ф5 эпика «стрелки без жёстких хэндлов» (2026-10-12, решение пользователя):
   // ОТСТУП ПЛАШКИ ОТ КОНЦА СТРЕЛКИ (labelBox.LABEL_END.clear = 24, E96 v2 / E50 v3):
   // слот стаба-носителя отодвинут от узла к дорожке, насколько позволяет полоса, желаемое

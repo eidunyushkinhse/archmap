@@ -116,6 +116,208 @@ def approval_line(node: dict[str, Any], children: list[dict[str, Any]]) -> str |
     )
 
 
+# ── Размещение на площадках (docs/tasks/deployment-view.md) ───────────────────
+#
+# Площадка — где крутится объект: облако, кластер, ВМ, сервер. В карточке объекта —
+# только имена (строка «Размещение» страницы объекта); вид площадки словом — в
+# archmap_deployment, где площадки показываются деревом. Один словарь на модуль.
+SITE_KIND_WORD = {
+    "cloud": "облако",
+    "kubernetes": "kubernetes",
+    "vm": "вм",
+    "physical": "сервер",
+    "other": "другое",
+}
+NO_SITES = (
+    "Площадок нет: размещение задаётся на холсте «Развёртывание» или разделом "
+    "deployment в YAML импорта"
+)
+PLACEMENT_CAP = 20  # объектов на площадку и в «Без размещения»: дальше — счётчиком
+
+
+def _site_name(s: dict[str, Any]) -> str:
+    """Площадка строкой карточки: «Кластер prod (в Облако)»; у контейнера площадка, где
+    стоит часть его объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
+    notes = [f"в {s['parent_name']}"] if s.get("parent_name") else []
+    if s.get("partial"):
+        notes.append("часть объектов")
+    name = str(s.get("name", "?"))
+    return f"{name} ({', '.join(notes)})" if notes else name
+
+
+def placement_line(node: dict[str, Any]) -> str | None:
+    """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
+    (NodeResponse.sites); у контейнера — площадки его объектов, частичные помечены.
+    Пусто — строки нет."""
+    sites = list(node.get("sites") or [])
+    if not sites:
+        return None
+    return "Размещение: " + ", ".join(_site_name(s) for s in sites)
+
+
+def site_label(site: dict[str, Any]) -> str:
+    """Площадка строкой дерева: «Облако [облако, Yandex Cloud]»."""
+    bits = [SITE_KIND_WORD.get(str(site.get("kind")), str(site.get("kind") or ""))]
+    if site.get("technology"):
+        bits.append(str(site["technology"]))
+    return f"{site.get('name', '?')} [{', '.join(b for b in bits if b)}]"
+
+
+def site_paths(sites: list[dict[str, Any]]) -> dict[str, str]:
+    """id площадки → путь от корневой («Облако / Кластер prod»); подъём с seen."""
+    by_id = {str(s["id"]): s for s in sites}
+    out: dict[str, str] = {}
+    for sid, site in by_id.items():
+        parts: list[str] = []
+        seen: set[str] = set()
+        cur: dict[str, Any] | None = site
+        while cur is not None and str(cur["id"]) not in seen:
+            seen.add(str(cur["id"]))
+            parts.append(str(cur.get("name", "?")))
+            parent = cur.get("parent_id")
+            cur = by_id.get(str(parent)) if parent else None
+        out[sid] = " / ".join(reversed(parts))
+    return out
+
+
+def _objects(n: int) -> str:
+    return f"{n} {_plural(n, ('объект', 'объекта', 'объектов'))}"
+
+
+def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str, Any], int]]]:
+    """Состав площадок: площадка → [(узел, объектов в нём)]. Контейнер, все объекты
+    которого стоят на одном наборе площадок (sites без partial), — одной строкой со
+    счётчиком объектов, внутрь не спускаемся; иначе — его объекты по отдельности."""
+    kids_of: dict[str | None, list[dict[str, Any]]] = {}
+    for n in nodes:
+        parent = str(n["parent_id"]) if n.get("parent_id") else None
+        kids_of.setdefault(parent, []).append(n)
+    members: dict[str, list[tuple[dict[str, Any], int]]] = {}
+
+    def leaves(n: dict[str, Any], seen: set[str]) -> int:
+        """Объектов в поддереве n; его узлы ложатся в seen — контейнер, взятый целиком,
+        второй раз (по списку всех узлов) не обходится."""
+        children = kids_of.get(str(n["id"]), [])
+        if not children:
+            return 0 if n.get("shape") == "person" else 1
+        total = 0
+        for k in children:
+            kid = str(k["id"])
+            if kid in seen:
+                continue
+            seen.add(kid)
+            total += leaves(k, seen)
+        return total
+
+    def walk(n: dict[str, Any], seen: set[str]) -> None:
+        nid = str(n["id"])
+        if nid in seen or n.get("shape") == "person":
+            return
+        seen.add(nid)
+        placed = list(n.get("sites") or [])
+        children = kids_of.get(nid, [])
+        if not children:
+            for s in placed:
+                members.setdefault(str(s["id"]), []).append((n, 1))
+            return
+        if placed and not any(s.get("partial") for s in placed):
+            count = leaves(n, seen)
+            for s in placed:
+                members.setdefault(str(s["id"]), []).append((n, count))
+            return
+        for k in children:
+            walk(k, seen)
+
+    seen: set[str] = set()
+    for root in kids_of.get(None, []):
+        walk(root, seen)
+    for n in nodes:  # узлы в цикле родителей (страховка) — как корневые
+        walk(n, seen)
+    return members
+
+
+def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) -> list[str]:
+    """Площадки деревом с составом (archmap_deployment без объекта).
+
+    Под площадкой — что на ней стоит: контейнер целиком одной строкой («целиком, N
+    объектов») или объекты по отдельности (_site_members). Затем «Без размещения» —
+    объекты без площадок, кроме «Пользователей» (они живут вне системы). nodes —
+    /nodes/all: sites объекта — его площадки, контейнера — площадки его объектов."""
+    by_id = {str(n["id"]): n for n in nodes}
+    own = _site_members(nodes)
+    ids = {str(s["id"]) for s in sites}
+    kids: dict[str | None, list[dict[str, Any]]] = {}
+    for s in sites:
+        parent = str(s["parent_id"]) if s.get("parent_id") and str(s["parent_id"]) in ids else None
+        kids.setdefault(parent, []).append(s)
+
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def walk(site: dict[str, Any], depth: int) -> None:
+        sid = str(site["id"])
+        if sid in seen:
+            return
+        seen.add(sid)
+        pad = "  " * depth
+        members = sorted(own.get(sid, []), key=lambda m: path_of(str(m[0]["id"]), by_id))
+        total = sum(c for _n, c in members)
+        out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
+        for n, c in members[:PLACEMENT_CAP]:
+            tail = f" (целиком, {_objects(c)})" if n.get("has_children") else ""
+            out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
+        if len(members) > PLACEMENT_CAP:
+            out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
+        for k in sorted(kids.get(sid, []), key=lambda s: str(s.get("name"))):
+            walk(k, depth + 1)
+
+    for root in sorted(kids.get(None, []), key=lambda s: str(s.get("name"))):
+        walk(root, 0)
+    for s in sites:  # площадки в цикле вложенности (страховка) — корневыми
+        walk(s, 0)
+
+    unplaced = sorted(
+        path_of(str(n["id"]), by_id) + f"  id={n['id']}"
+        for n in nodes
+        if not n.get("has_children") and n.get("shape") != "person" and not n.get("sites")
+    )
+    if not unplaced:
+        out.append("Без размещения: нет — все объекты стоят на площадках")
+        return out
+    out.append(f"Без размещения: {_objects(len(unplaced))}")
+    out.extend(f"  • {u}" for u in unplaced[:PLACEMENT_CAP])
+    if len(unplaced) > PLACEMENT_CAP:
+        out.append(f"  …и ещё {len(unplaced) - PLACEMENT_CAP}")
+    return out
+
+
+def node_placement(
+    node: dict[str, Any], by_id: dict[str, dict[str, Any]], sites: list[dict[str, Any]]
+) -> list[str]:
+    """Размещение одного объекта (archmap_deployment с node_id): путь объекта, затем
+    площадки путями с видом; у контейнера это площадки его объектов, и где стоит часть
+    — пометка «часть объектов»."""
+    out = [f"Путь: {path_of(str(node['id']), by_id)}  id={node['id']}"]
+    if node.get("shape") == "person":
+        out.append("Размещения нет: пользователь живёт вне системы")
+        return out
+    placed = list(node.get("sites") or [])
+    if not placed:
+        out.append("Размещение: не указано")
+        return out
+    paths = site_paths(sites)
+    by_site = {str(s["id"]): s for s in sites}
+    out.append(f"Размещение ({len(placed)} {_plural(len(placed), ('площадка', 'площадки', 'площадок'))}):")
+    for e in placed:
+        sid = str(e.get("id"))
+        site = by_site.get(sid, e)
+        label = site_label({**site, "name": paths.get(sid, e.get("name", "?"))})
+        if e.get("partial"):
+            label += " — часть объектов"
+        out.append(f"  • {label}")
+    return out
+
+
 def anchor_note(source: dict[str, Any] | None) -> str:
     """Источник НОВОГО объекта строкой: с ним — какой именно, без него — последствие."""
     kind = anchor_kind(source)
@@ -1071,6 +1273,7 @@ FAMILY_COUNTS: list[tuple[str, str]] = [
     ("channels", "каналов"),
     ("params", "параметров"),
     ("processes", "процессов"),
+    ("sites", "площадок"),
 ]
 
 
@@ -1521,6 +1724,7 @@ VERSION_CATEGORY_WORD = {
     "db": "таблица",
     "channels": "канал",
     "config": "конфигурация",
+    "placement": "размещение",
     "approval": "статус страницы",
     "process": "процесс",
 }

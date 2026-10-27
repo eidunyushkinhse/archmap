@@ -1,0 +1,221 @@
+/* Окна «Размещение» и «Площадки» (components/deployment): дерево площадок (SiteTree),
+   форма площадки, футер. Тихо: строки без рамок, второстепенное — серым. */
+.site-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.site-tree-empty {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  color: #64748b;
+}
+
+.site-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding-right: 6px;
+  border-radius: 7px;
+  font-size: 14px;
+  color: #0f172a;
+}
+.site-row:hover {
+  background: #f8fafc;
+}
+
+/* Галочка с именем — одна подпись на всю строку (окно «Размещение»). */
+.site-row-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+}
+
+/* Шеврон раскрытия — зона 22×22, как у дерева объектов (NodeTreePanel .nt-chevhit);
+   раскрытый повёрнут вниз. Спейсер той же ширины держит строки без шеврона в ряд. */
+.site-row-chev {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #94a3b8;
+  cursor: pointer;
+}
+.site-row-chev svg {
+  transition: transform 0.15s ease;
+}
+.site-row-chev--open svg {
+  transform: rotate(90deg);
+}
+.site-row-chev:hover {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.site-row-chevspacer {
+  width: 22px;
+  flex: none;
+}
+
+/* «+» под вложенными площадками и под корнями: строка с одной кнопкой на месте шеврона. */
+.site-add {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  padding-right: 6px;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.site-add-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: #94a3b8;
+}
+.site-add:hover:not(:disabled) .site-add-glyph {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+.site-add:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.site-row-icon {
+  display: inline-flex;
+  color: #64748b;
+  flex: none;
+}
+
+.site-row-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Имя площадки не сжимается первым: в тесной строке усекается технология
+     (серая), а имя остаётся целым (до половины строки). */
+  flex: 0 0 auto;
+  max-width: 48%;
+}
+
+.site-row-muted {
+  font-size: 12.5px;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Карандаш и корзина строки окна «Площадки». */
+.site-row-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #64748b;
+  cursor: pointer;
+}
+.site-row-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+.site-row-btn:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+.site-row-link {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 4px;
+  border: none;
+  background: none;
+  color: #2563eb;
+}
+.site-row-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.site-new {
+  margin: 4px 0 10px;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.site-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+}
+
+.site-form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #475569;
+}
+.site-form-field input,
+.site-form-field select,
+.site-form-field textarea {
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 400;
+  padding: 6px 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  color: #0f172a;
+}
+.site-form-field textarea {
+  resize: vertical;
+}
+/* описание и родитель — во всю ширину формы */
+.site-form-field--wide {
+  grid-column: 1 / -1;
+}
+
+.site-form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.site-dialog-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* Окно «Размещение»: состав проекта для предупреждения о контейнере ещё грузится. */
+.placement-loading {
+  font-size: 12.5px;
+  color: #94a3b8;
+}

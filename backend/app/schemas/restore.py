@@ -151,6 +151,19 @@ class ChannelFieldSnapshot(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DeploymentInstanceSnapshot(BaseModel):
+    """Экземпляр развёртывания объекта (deployment_instances) — «объект стоит на
+    площадке»; умирает каскадом node_id вместе с узлом. Площадка — не потомок узла и в
+    снимок не входит: если её успели удалить, откат вернёт объект без этого экземпляра
+    (app/restore.apply_snapshot пропускает его молча)."""
+
+    id: uuid.UUID
+    node_id: uuid.UUID
+    site_id: uuid.UUID
+
+    model_config = {"from_attributes": True}
+
+
 class EdgeSnapshot(BaseModel):
     id: uuid.UUID
     label: str | None = None
@@ -178,8 +191,8 @@ class ViewLayoutItemSnapshot(BaseModel):
 class DeletionSnapshot(BaseModel):
     """Полный снимок того, что исчезнет при удалении узла: поддерево узлов, ВСЯ их
     документация (схемы логики, таблицы БД с колонками, каналы брокера с полями,
-    параметры конфигурации), инцидентные рёбра и строки раскладки. Достаточно для
-    точного восстановления."""
+    параметры конфигурации), экземпляры развёртывания, инцидентные рёбра и строки
+    раскладки. Достаточно для точного восстановления."""
 
     nodes: list[NodeSnapshot]
     edges: list[EdgeSnapshot]
@@ -193,3 +206,5 @@ class DeletionSnapshot(BaseModel):
     broker_channels: list[BrokerChannelSnapshot] = []
     channel_fields: list[ChannelFieldSnapshot] = []
     config_params: list[ConfigParamSnapshot] = []
+    # Размещение объектов поддерева на площадках (docs/tasks/deployment-view.md).
+    instances: list[DeploymentInstanceSnapshot] = []

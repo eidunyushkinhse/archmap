@@ -419,3 +419,54 @@ async def test_слова_статуса_страницы_те_же_что_в_и
     block = text.split("export const APPROVAL_LABEL", 1)[1].split("};", 1)[0]
     labels = dict(re.findall(r'(in_progress|approved): "([^"]+)"', block))
     assert {k: v.lower() for k, v in labels.items()} == render.APPROVAL_WORD
+
+
+# ── Размещение на площадках (Ф4 эпика развёртывания) ─────────────────────────
+
+def site_ref(site_id: str, name: str, parent_name: str | None = None,
+             partial: bool = False) -> dict[str, Any]:
+    """Строка NodeResponse.sites — площадка объекта (у контейнера partial — стоит часть)."""
+    return {
+        "id": site_id, "name": name, "kind": "kubernetes",
+        "parent_id": u(71) if parent_name else None, "parent_name": parent_name,
+        "partial": partial,
+    }
+
+
+async def test_карточка_называет_размещение_после_источника(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    base_routes(api, "service", sites=check("node", "NodeSiteOut", [
+        site_ref(u(70), "Кластер prod", "Облако"), site_ref(u(72), "ВМ-2"),
+    ]))
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    lines = out.splitlines()
+    i = lines.index("Размещение: Кластер prod (в Облако), ВМ-2")
+    assert lines[i - 1].startswith("Источник:")
+    # Вид площадки словом — в archmap_deployment; карточке хватает имён.
+    assert "kubernetes" not in out
+
+
+async def test_частичное_размещение_контейнера_помечено(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    base_routes(api, "service", sites=check("node", "NodeSiteOut", [
+        site_ref(u(70), "Кластер prod", "Облако", partial=True), site_ref(u(72), "ВМ-2", partial=True),
+    ]))
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Размещение: Кластер prod (в Облако, часть объектов), ВМ-2 (часть объектов)" in out
+
+
+async def test_без_размещения_строки_нет(client: ArchMapClient, api: FakeApi) -> None:
+    base_routes(api, "service", sites=[])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Размещение" not in out

@@ -6,7 +6,9 @@ build_export импортируется без ошибок с той же се�
 роль, технология, external, описание, якорь source, вложенность, связи с
 каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
 уточнителем — якорным «путь @ ключ» или порядковым «путь @ #N», — резолвер связей
-его понимает (app/node_ref.py). Раскладки в формате
+его понимает (app/node_ref.py). Размещение (docs/tasks/deployment-view.md): раздел
+deployment.sites — площадки с вложенностью по имени родителя, у узла sites — имена
+площадок, где он стоит сам. Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -22,15 +24,26 @@ dry-run превью единого ввоза (POST /projects/import/unified-pr
 import re
 import uuid
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 
 import yaml
 from sqlalchemy.orm import Session
 
 from app import yaml_io
-from app.domain_types import NODE_SHAPES, NODE_STATUSES, NodeShape, NodeStatus, pick
+from app.deployment import leaf_placements
+from app.domain_types import (
+    NODE_SHAPES,
+    NODE_STATUSES,
+    SITE_KINDS,
+    NodeShape,
+    NodeStatus,
+    SiteKind,
+    pick,
+)
 from app.identity import SourceRef, source_keys
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.name_match import HINT_CUTOFF, HINT_MAX_DIFF, tiny_diff
@@ -41,6 +54,8 @@ from app.text import loose_name
 MAX_NODES = 2000
 MAX_EDGES = 4000
 MAX_DEPTH = 32
+# Площадок в документе (объявленных и неявных вместе) — тот же «щедрый» предел.
+MAX_SITES = 1000
 
 _SHAPES = NODE_SHAPES
 _STATUSES = NODE_STATUSES
@@ -59,6 +74,24 @@ class _ImpNode:
     # Канонические ключи источника (app/identity): чем узел опознаётся между
     # прогонами агента поверх имени. Пусто — якорей нет, тождество решает имя.
     source_keys: list[str] = field(default_factory=list)
+    # Имена площадок, где узел стоит САМ (ключ sites), без повторов. Унаследованное
+    # от контейнера сюда не входит: оно производное и восстанавливается само.
+    sites: list[str] = field(default_factory=list)
+
+
+@dataclass
+class _ImpSite:
+    """Площадка раздела deployment.sites (docs/tasks/deployment-view.md)."""
+
+    name: str
+    kind: SiteKind
+    technology: str | None
+    description: str | None
+    parent_idx: int | None  # индекс родителя в ParsedImport.sites (родители раньше детей)
+    # Объявлена разделом deployment, а не только названа в sites узла. Неявная площадка
+    # (вид «другое», без технологии) — догадка разбора, и слияние уступает её поля
+    # площадке, объявленной в другом файле.
+    declared: bool = True
 
 
 @dataclass
@@ -87,6 +120,9 @@ class ParsedImport:
     # их подхватывает parse_and_merge/единый импорт и кладёт в отчёт с адресацией
     # тому файлу, где они найдены.
     warnings: list[str] = field(default_factory=list)
+    # Площадки развёртывания: родители раньше детей (order_sites). Пусто — документ
+    # без раздела deployment и без sites у узлов, то есть прежний формат.
+    sites: list[_ImpSite] = field(default_factory=list)
 
 
 def _yaml_error(e: yaml.YAMLError) -> str:
@@ -120,6 +156,189 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
     if not isinstance(doc, dict):
         return None, ["Корень документа должен быть словарём с ключами nodes и edges"]
     return doc, []
+
+
+def _opt_str(raw: dict, key: str, path: str, max_len: int | None, errors: list[str]) -> str | None:
+    """Опциональное строковое поле (None — отсутствует или кривое, ошибка — в errors)."""
+    val = raw.get(key)
+    if val is None:
+        return None
+    if not isinstance(val, str):
+        errors.append(f"{path}.{key}: ожидается строка")
+        return None
+    if max_len is not None and len(val) > max_len:
+        errors.append(f"{path}.{key}: длиннее {max_len} символов")
+        return None
+    return val
+
+
+# --- площадки развёртывания (раздел deployment) -------------------------------
+# Площадку называют ИМЕНЕМ: имя уникально в проекте (DeploymentSite), путь не нужен.
+# Ошибки — как у узлов: списком с путём до места, а не обрывом на первой.
+
+_SITE_KINDS_TEXT = " | ".join(SITE_KINDS)
+
+
+def _site_name(val: object) -> str | None:
+    """Имя площадки без краевых пробелов (так его хранит ручка) или None, если это
+    не непустая строка."""
+    if not isinstance(val, str) or not val.strip():
+        return None
+    return val.strip()
+
+
+@dataclass
+class _SiteDraft:
+    """Площадки документа до упорядочения: в порядке объявления, родитель — именем."""
+
+    sites: list[_ImpSite] = field(default_factory=list)
+    paths: list[str] = field(default_factory=list)
+    parent_refs: list[str | None] = field(default_factory=list)
+    index: dict[str, int] = field(default_factory=dict)
+
+    def add(self, site: _ImpSite, path: str, parent: str | None) -> None:
+        self.index[site.name] = len(self.sites)
+        self.sites.append(site)
+        self.paths.append(path)
+        self.parent_refs.append(parent)
+
+
+def _parse_site(raw: object, path: str, draft: _SiteDraft, errors: list[str]) -> None:
+    """Одна площадка раздела → в draft (кривая — только ошибка)."""
+    if not isinstance(raw, dict):
+        errors.append(f"{path}: площадка должна быть словарём (mapping)")
+        return
+    name = _site_name(raw.get("name"))
+    if name is None:
+        errors.append(f"{path}: name — обязательная непустая строка")
+        return
+    if len(name) > 256:
+        errors.append(f"{path}: name длиннее 256 символов")
+        return
+    if name in draft.index:
+        errors.append(f"{path}: площадка «{name}» объявлена дважды")
+        return
+    raw_kind = raw.get("kind", "other")
+    kind = pick(raw_kind, SITE_KINDS)
+    if kind is None:
+        errors.append(f"{path}: kind {raw_kind!r} не поддерживается ({_SITE_KINDS_TEXT})")
+        kind = "other"
+    raw_parent = raw.get("parent")
+    parent = _site_name(raw_parent)
+    if raw_parent is not None and parent is None:
+        errors.append(f"{path}.parent: ожидается имя площадки строкой")
+    site = _ImpSite(
+        name=name,
+        kind=kind,
+        technology=_opt_str(raw, "technology", path, 128, errors),
+        description=_opt_str(raw, "description", path, None, errors),
+        parent_idx=None,
+    )
+    draft.add(site, path, parent)
+
+
+def _parse_sites(doc: dict, errors: list[str]) -> _SiteDraft:
+    """Раздел deployment.sites → площадки в порядке объявления. Родители — именем:
+    сослаться можно и на площадку, объявленную ниже; разрешает их _site_parents."""
+    draft = _SiteDraft()
+    raw_dep = doc.get("deployment")
+    if raw_dep is None:
+        return draft
+    if not isinstance(raw_dep, dict):
+        errors.append("deployment: ожидается словарь с ключом sites")
+        return draft
+    raw_sites = raw_dep.get("sites") or []  # явный `sites:` без значения — None
+    if not isinstance(raw_sites, list):
+        errors.append("deployment.sites: ожидается список площадок")
+        return draft
+    if len(raw_sites) > MAX_SITES:
+        errors.append(f"Слишком много площадок (больше {MAX_SITES})")
+        return draft
+    for i, raw in enumerate(raw_sites):
+        _parse_site(raw, f"deployment.sites[{i}]", draft, errors)
+    return draft
+
+
+def _site_parents(draft: _SiteDraft, errors: list[str]) -> list[int | None]:
+    """Родитель каждой площадки индексом в draft.sites; кривые ссылки и циклы — ошибки.
+
+    Цикл ищется подъёмом от каждой площадки (с seen — подъём не зацикливается) и
+    называется ОДИН раз, первой по порядку объявления площадкой цикла."""
+    parents: list[int | None] = []
+    for i, ref in enumerate(draft.parent_refs):
+        p = None if ref is None else draft.index.get(ref)
+        if ref is not None and p is None:
+            errors.append(f"{draft.paths[i]}.parent: площадка «{ref}» не объявлена в deployment.sites")
+        elif p == i:
+            errors.append(f"{draft.paths[i]}.parent: площадка не может быть вложена сама в себя")
+            p = None
+        parents.append(p)
+    in_cycle: set[int] = set()
+    for i in range(len(parents)):
+        if i in in_cycle:
+            continue
+        chain = [i]
+        seen = {i}
+        cur = parents[i]
+        while cur is not None and cur not in seen:
+            chain.append(cur)
+            seen.add(cur)
+            cur = parents[cur]
+        if cur == i and len(chain) > 1:
+            in_cycle.update(chain)
+            names = " → ".join(f"«{draft.sites[k].name}»" for k in [*chain, i])
+            errors.append(f"{draft.paths[i]}.parent: цикл вложенности площадок ({names})")
+    return parents
+
+
+def _site_refs(raw: dict, path: str, errors: list[str]) -> list[str]:
+    """Ключ sites узла → имена площадок без повторов (повтор схлопывается молча)."""
+    val = raw.get("sites")
+    if val is None:
+        return []
+    if not isinstance(val, list):
+        errors.append(f"{path}.sites: ожидается список имён площадок")
+        return []
+    out: list[str] = []
+    for j, item in enumerate(val):
+        name = _site_name(item)
+        if name is None:
+            errors.append(f"{path}.sites[{j}]: ожидается имя площадки строкой")
+        elif len(name) > 256:
+            errors.append(f"{path}.sites[{j}]: имя площадки длиннее 256 символов")
+        elif name not in out:
+            out.append(name)
+    return out
+
+
+def order_sites(sites: list[_ImpSite], parents: list[int | None]) -> list[_ImpSite]:
+    """Площадки в порядке «родители раньше детей» с перенумерованными parent_idx.
+
+    parents — родитель каждой площадки индексом во ВХОДНОМ списке. Порядок устойчивый:
+    корни — в порядке входа, за каждой площадкой — её поддерево в порядке входа (так же
+    пишет раздел экспорт). Член цикла (циклы отвергают раньше, это страховка) выходит
+    корневым: обход не зацикливается и площадку не теряет."""
+    kids: dict[int | None, list[int]] = defaultdict(list)
+    for i, p in enumerate(parents):
+        kids[p].append(i)
+    new_idx: dict[int, int] = {}
+    out: list[_ImpSite] = []
+
+    def emit(start: int) -> None:
+        stack: list[tuple[int, int | None]] = [(start, None)]
+        while stack:
+            i, parent_new = stack.pop()
+            if i in new_idx:
+                continue
+            new_idx[i] = len(out)
+            out.append(replace(sites[i], parent_idx=parent_new))
+            stack.extend((k, new_idx[i]) for k in reversed(kids.get(i, [])))
+
+    for root in kids.get(None, []):
+        emit(root)
+    for i in range(len(sites)):
+        emit(i)
+    return out
 
 
 # --- did-you-mean к «узел не найден» -----------------------------------------
@@ -268,16 +487,10 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
     def opt_str(raw: dict, key: str, path: str, max_len: int | None) -> str | None:
         """Опциональное строковое поле узла/связи (None — отсутствует или кривое)."""
-        val = raw.get(key)
-        if val is None:
-            return None
-        if not isinstance(val, str):
-            errors.append(f"{path}.{key}: ожидается строка")
-            return None
-        if max_len is not None and len(val) > max_len:
-            errors.append(f"{path}.{key}: длиннее {max_len} символов")
-            return None
-        return val
+        return _opt_str(raw, key, path, max_len, errors)
+
+    # Площадки раздела deployment — до узлов: их sites ссылаются на имена отсюда.
+    site_draft = _parse_sites(doc, errors)
 
     def parse_source(raw: dict, path: str) -> list[str]:
         """Блок source узла → канонические ключи (app/identity). Блок целиком
@@ -339,6 +552,12 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         if not isinstance(ext, bool):
             errors.append(f"{path}.external: ожидается true/false")
             ext = False
+        node_sites = _site_refs(raw, path, errors)
+        if node_sites and shape == "person":
+            # Пользователь живёт вне системы — размещения у него не бывает (ручка
+            # отвечает на это 422). Документ из-за этого не отвергаем.
+            warnings.append(f"{path}.sites: у пользователя нет размещения — список проигнорирован")
+            node_sites = []
 
         idx = len(nodes)
         nodes.append(
@@ -352,6 +571,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 description=opt_str(raw, "description", path, None),
                 parent_idx=parent_idx,
                 source_keys=parse_source(raw, path),
+                sites=node_sites,
             )
         )
         full = f"{prefix} / {name}" if prefix else name
@@ -515,16 +735,39 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
             )
         )
 
+    # Площадка, названная в sites узла, но не объявленная разделом, создаётся неявно:
+    # вывод агента ввозится, как и с прочими мелкими промахами, — с замечанием.
+    for imp in nodes:
+        for name in imp.sites:
+            if name not in site_draft.index:
+                implicit = _ImpSite(name=name, kind="other", technology=None, description=None,
+                                    parent_idx=None, declared=False)
+                site_draft.add(implicit, "", None)
+                warnings.append(
+                    f"площадка «{name}» не объявлена в deployment — создана с видом «другое»"
+                )
+    if len(site_draft.sites) > MAX_SITES:
+        errors.append(f"Слишком много площадок (больше {MAX_SITES})")
+    site_parents = _site_parents(site_draft, errors)
+
     if errors:
         return None, errors
     roots = [n.name for n in nodes if n.parent_idx is None]
-    return ParsedImport(nodes=nodes, edges=edges, roots=roots, warnings=warnings), []
+    return ParsedImport(
+        nodes=nodes,
+        edges=edges,
+        roots=roots,
+        warnings=warnings,
+        sites=order_sites(site_draft.sites, site_parents),
+    ), []
 
 
 def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> list[uuid.UUID]:
     """Записать разобранный импорт в проект: узлы (родители раньше детей — порядок
     списка это гарантирует по построению walk), flush, затем связи. Строк
-    view_layout не создаём (координат в формате нет). Коммит на вызывающей
+    view_layout не создаём (координат в формате нет). Площадки (родители раньше
+    детей — порядок parsed.sites) и экземпляры узлов — после связей; «Пользователь»
+    не размещается никогда, даже если слияние сделало его таким. Коммит на вызывающей
     стороне (как у сидера демо-пакета, app/demo_package.py).
 
     Возвращает id созданных узлов В ПОРЯДКЕ parsed.nodes: единый импорт (Ф2а,
@@ -566,4 +809,48 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> lis
                 is_synchronous=e.is_synchronous,
             )
         )
+    seed_placements(db, project_id, parsed, ids)
     return ids
+
+
+def seed_placements(
+    db: Session, project_id: uuid.UUID, parsed: ParsedImport, ids: list[uuid.UUID]
+) -> None:
+    """Площадки и экземпляры разобранного импорта в НОВЫЙ проект: ids — узлы в порядке
+    parsed.nodes (возврат seed_import). Размещение достаётся объектам (листьям): свои
+    объявления — себе, объявление контейнера — его объектам без своего
+    (app/deployment.leaf_placements). Догрузка в живой проект — своим путём
+    (unified_into): там площадки сперва ищутся по имени среди живых."""
+    if not parsed.sites:
+        return
+    site_ids: list[uuid.UUID] = []
+    by_name: dict[str, uuid.UUID] = {}
+    for s in parsed.sites:
+        sid = uuid.uuid4()
+        site_ids.append(sid)
+        by_name[s.name] = sid
+        db.add(
+            DeploymentSite(
+                id=sid,
+                project_id=project_id,
+                name=s.name,
+                kind=s.kind,
+                technology=s.technology,
+                description=s.description,
+                parent_id=None if s.parent_idx is None else site_ids[s.parent_idx],
+            )
+        )
+    db.flush()
+    parent_of = {
+        node_id: (ids[n.parent_idx] if n.parent_idx is not None else None)
+        for n, node_id in zip(parsed.nodes, ids, strict=True)
+    }
+    shapes = {node_id: n.shape for n, node_id in zip(parsed.nodes, ids, strict=True)}
+    declared: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for n, node_id in zip(parsed.nodes, ids, strict=True):
+        site_ids_of = [by_name[name] for name in n.sites if name in by_name]
+        if site_ids_of and n.shape != "person":
+            declared[node_id] = site_ids_of
+    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+        for site_id in placed:
+            db.add(DeploymentInstance(project_id=project_id, node_id=node_id, site_id=site_id))

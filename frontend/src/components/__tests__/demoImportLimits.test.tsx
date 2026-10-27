@@ -48,7 +48,7 @@ const REMAINDER = {
 };
 const unified = (demo_excess: UnifiedPreviewOut["demo_excess"]): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),
-  families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+  families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
   family_conflicts: [], remainder: REMAINDER, warnings: [], name_source: "fields", demo_excess,
 });
 
@@ -120,7 +120,7 @@ describe("Импорт проекта (zip) в живой проект", () => {
   const into = (demo_excess: IntoPreviewOut["demo_excess"]): IntoPreviewOut => ({
     ok: true, errors: [], nodes_new: 50, nodes_new_paths: [], new_nodes: [], nodes_matched: 0,
     matched_nodes: [], edges_new: 0,
-    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
     family_conflicts: [], remainder: REMAINDER, warnings: [], base_graph_rev: 1, base_meta_rev: 1,
     demo_excess,
   });
@@ -183,6 +183,7 @@ describe("тексты превышения", () => {
       .toBe("В файлах 121 связь, а в демо можно до 120. Уберите часть файлов или загрузите проект поменьше.");
     expect(excessText({ kind: "docs", actual: 80, limit: 75 }, "files")).toContain("80 схем логики");
     expect(excessText({ kind: "processes", actual: 12, limit: 10 }, "project")).toContain("12 процессов");
+    expect(excessText({ kind: "sites", actual: 22, limit: 20 }, "files")).toContain("22 площадки");
     expect(excessText({ kind: "text", actual: 300 * 1024, limit: 250 * 1024 }, "files"))
       .toContain("В файлах 300 КБ текста, а в демо можно до 250 КБ.");
   });

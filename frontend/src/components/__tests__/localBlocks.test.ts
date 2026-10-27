@@ -12,7 +12,7 @@ function appNode(id: string, parent_id = "P"): AppNode {
     parent_id, shape: "service", is_external: false, status: "existing",
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
-    approval: "in_progress", approval_effective: "in_progress",
+    approval: "in_progress", approval_effective: "in_progress", sites: [],
   } as AppNode;
 }
 function edge(id: string, source_id: string, target_id: string): LayoutEdge {

@@ -10,6 +10,7 @@ from app.approval import manual_approval_refusal, mark_approval
 from app.auth import get_current_user, require_session_user
 from app.context_graph import build_context_graph
 from app.database import get_db
+from app.deployment import PlacementError, mark_sites, set_placements
 from app.deps import (
     check_cas,
     commit_change,
@@ -84,12 +85,13 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
 
 def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
     """Все вычисляемые атрибуты NodeResponse разом: число детей и их наличие, статус
-    страницы с учётом детей (app/approval). Одна точка — новый производный атрибут не
-    забудется ни в одной из выдач роутера."""
+    страницы с учётом детей (app/approval), действующее размещение (app/deployment).
+    Одна точка — новый производный атрибут не забудется ни в одной из выдач роутера."""
     if not nodes:
         return
     _mark_has_children(db, nodes)
     mark_approval(db, project.id, nodes)
+    mark_sites(db, project.id, nodes)
 
 
 @router.get("", response_model=list[NodeResponse])
@@ -397,6 +399,26 @@ def get_node(
 
 
 
+def _apply_site_ids(
+    db: Session, project: Project, node: Node, site_ids: list[uuid.UUID] | None
+) -> None:
+    """Размещение из PATCH узла (NodeUpdate.site_ids): None — не прислано, не трогаем;
+    список — набор площадок целиком, у контейнера — каждому объекту внутри
+    (app/deployment.set_placements). Отказ домена — в HTTP (404 — площадка не из
+    проекта, 422 — «Пользователь» или контейнер без объектов)."""
+    if site_ids is None:
+        return
+    try:
+        placed = set_placements(db, project, [node], set(site_ids))
+    except PlacementError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
+    # Набор изменился — двигаем оба курсора: холст развёртывания (схема) и строку
+    # «Размещение» на странице объекта (мета). CAS узла не трогаем: это не колонка.
+    if placed:
+        bump_graph_rev(db, project)
+        bump_meta_rev(db, project)
+
+
 @router.patch("/{node_id}", response_model=NodeResponse)
 def update_node(
     node_id: uuid.UUID,
@@ -414,6 +436,10 @@ def update_node(
     # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
     if "source" in data:
         data["source_ref"] = _source_ref_of(data.pop("source"))
+    # Размещение — тоже НЕ колонка: набор строк экземпляров. Достаём до цикла setattr;
+    # null равен «не прислано». Применяется после правки полей — правило «у
+    # пользователя размещения нет» смотрит на уже итоговую форму узла.
+    site_ids = data.pop("site_ids", None)
     # Статус страницы у контейнера не хранится, а складывается из детей
     # (app/approval): правка руками отказывается 422, даже если значение совпадает
     # с хранимым. Курсор — мета (approval не в structural ниже): его ставит общее
@@ -464,6 +490,7 @@ def update_node(
             bump_graph_rev(db, project)
         if meta_changed:
             bump_meta_rev(db, project)
+    _apply_site_ids(db, project, node, site_ids)
     commit_change(db, project, user.id)
     db.refresh(node)
     _mark_derived(db, project, [node])

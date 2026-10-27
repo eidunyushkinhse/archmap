@@ -57,7 +57,7 @@ function failedPreview(msg: string): IntoPreviewOut {
     nodes_matched: 0,
     matched_nodes: [],
     edges_new: 0,
-    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0 },
+    families: { docs: 0, specs: 0, tables: 0, channels: 0, params: 0, processes: 0, sites: 0 },
     family_conflicts: [],
     // Остаток слияния (Ф-E): разбирать нечего — превью не состоялось.
     remainder: {
@@ -79,6 +79,7 @@ function familyLine(f: IntoPreviewOut["families"]): string | null {
     f.channels && `${f.channels} ${plural(f.channels, ["канал", "канала", "каналов"])}`,
     f.params && `${f.params} ${plural(f.params, ["параметр", "параметра", "параметров"])}`,
     f.processes && `${f.processes} ${plural(f.processes, ["процесс", "процесса", "процессов"])}`,
+    f.sites && `${f.sites} ${plural(f.sites, ["площадка", "площадки", "площадок"])}`,
   ].filter((s): s is string => typeof s === "string");
   return parts.length ? parts.join(" · ") : null;
 }

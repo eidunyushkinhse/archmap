@@ -13,6 +13,7 @@ from app import tree
 from app.archive_export import build_archive
 from app.auth import get_current_user
 from app.database import get_db
+from app.deployment import ordered_instances, project_sites
 from app.deps import get_current_project
 from app.export import build_export
 from app.models.edge import Edge
@@ -30,10 +31,16 @@ def export_all(
     project: Project = Depends(get_current_project),
     _user: User = Depends(get_current_user),
 ) -> ExportResponse:
-    """Экспорт ВСЕЙ схемы текущего проекта."""
+    """Экспорт ВСЕЙ схемы текущего проекта — с разделом deployment (все площадки)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
-    return ExportResponse(format="yaml", content=build_export(nodes, edges))
+    sites = project_sites(db, project.id)
+    return ExportResponse(
+        format="yaml",
+        content=build_export(
+            nodes, edges, sites=sites, instances=ordered_instances(db, project.id, sites)
+        ),
+    )
 
 
 @router.get("/archive")
@@ -69,7 +76,8 @@ def export_subtree(
     project: Project = Depends(get_current_project),
     _user: User = Depends(get_current_user),
 ) -> ExportResponse:
-    """Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева)."""
+    """Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
+    Площадки — только те, на которых стоят узлы поддерева, с их предками."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     if node_id not in by_id:
@@ -83,4 +91,14 @@ def export_subtree(
         for e in db.query(Edge).filter(Edge.project_id == project.id).all()
         if e.source_id in sub_ids and e.target_id in sub_ids
     ]
-    return ExportResponse(format="yaml", content=build_export(sub_nodes, edges, root_id=node_id))
+    sites = project_sites(db, project.id)
+    return ExportResponse(
+        format="yaml",
+        content=build_export(
+            sub_nodes,
+            edges,
+            root_id=node_id,
+            sites=sites,
+            instances=ordered_instances(db, project.id, sites),
+        ),
+    )

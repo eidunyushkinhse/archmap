@@ -79,6 +79,10 @@ export function useLevelSelection({
       for (const id of nodeIds) {
         const el = document.querySelector(`.react-flow__node[data-id="${CSS.escape(id)}"]`);
         if (el) { el.classList.add("lg-linked-node"); applied.push(el); }
+        // Плашка рамки раскрытого контейнера живёт в слое подписей (FramePlaque) — ореол
+        // ей отдельным классом; адрес — data-frame-plaque.
+        const pl = document.querySelector(`.react-flow__edgelabel-renderer [data-frame-plaque="${CSS.escape(id)}"]`);
+        if (pl) { pl.classList.add("lg-linked-plaque"); applied.push(pl); }
       }
       for (const id of edgeIds) {
         // Плашка подписи живёт в другом контейнере (edgelabel-renderer) — поднимаем её
@@ -100,7 +104,7 @@ export function useLevelSelection({
     });
     return () => {
       cancelAnimationFrame(raf);
-      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge", "lg-linked-label");
+      for (const el of applied) el.classList.remove("lg-linked-node", "lg-linked-edge", "lg-linked-label", "lg-linked-plaque");
       // Возврат <svg> ребра на исходную позицию (best-effort: только если узлы ещё в DOM
       // на прежних местах — иначе RF уже перерисовал список и сам восстановил порядок).
       for (const r of restore) {

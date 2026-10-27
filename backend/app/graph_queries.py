@@ -17,7 +17,7 @@ from app import tree
 from app.approval import effective_approvals
 from app.models.edge import Edge
 from app.models.node import Node
-from app.models.view_layout import ViewLayoutItem
+from app.models.view_layout import DEPLOY_KEY_PREFIX, ViewLayoutItem
 from app.schemas.node import (
     GhostNodeResponse,
     GraphEdgeResponse,
@@ -45,13 +45,18 @@ def project_has_status_info(db: Session, project_id: uuid.UUID) -> bool:
 
 
 def read_view_layout(
-    db: Session, project_id: uuid.UUID, container_id: uuid.UUID | None
+    db: Session, project_id: uuid.UUID, container_id: uuid.UUID | None, *, deploy: bool = False
 ) -> dict[str, ViewLayoutPayload]:
     """Раскладка вида как есть: ВСЕ строки view_layout этого вида (у корня view IS
     NULL — позиции корневых узлов теперь тоже здесь). Строки «не показанных
     сейчас» проекций безвредны (какая проекция видна — решает фронт) и живут
     намеренно: при возврате проекции геометрия воскресает. Инвариант F6а —
-    ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node."""
+    ЧТЕНИЕ НЕ ПИШЕТ В БД; реальных сирот чистят каскад view_id и delete_node.
+
+    Один вид — два холста: объекты и «Развёртывание» (ключи с DEPLOY_KEY_PREFIX).
+    deploy=False (граф уровня) отдаёт ключи БЕЗ префикса, deploy=True (граф
+    развёртывания) — только с ним: чужие ключи холсту не нужны, а фронт уровня
+    принимал бы их за id узлов."""
     layout: dict[str, ViewLayoutPayload] = {}
     view_filter = (
         ViewLayoutItem.view_id.is_(None)
@@ -63,6 +68,8 @@ def read_view_layout(
         .filter(ViewLayoutItem.project_id == project_id, view_filter)
         .all()
     ):
+        if r.item_id.startswith(DEPLOY_KEY_PREFIX) != deploy:
+            continue
         payload = ViewLayoutPayload(**r.payload)
         # легаси-строки пучков (ручной слой стрелок, удалён 2026-07-09): все живые
         # поля пусты — не отдаём мусор
@@ -164,6 +171,9 @@ def build_graph(
     # не показывает, но выдачу читают MCP и страница, и дефолт «в работе» у
     # согласованного узла был бы ложью.
     effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    # Размещение (NodeResponse.sites) здесь НЕ заполняется и остаётся []: холст
+    # объектов его не показывает, а выборка экземпляров и площадок на каждый уровень
+    # была бы лишней. Его отдают выдачи роутера узлов (mark_sites) и граф развёртывания.
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0

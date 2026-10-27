@@ -1,8 +1,8 @@
 """Откат документации объекта к версии (app/versions_restore.py, Ф3 эпика doc-versions).
 
 Главный сторож — фикспойнт (ТЗ §5 п.3 в редакции после Ф1): зафиксировать версию на
-полном срезе, изменить ВСЁ, откатить — проекция versions_diff.restorable живого среза
-равна проекции снимка версии. Процессы и статус страницы откат не трогает, поэтому в
+полном срезе, изменить ВСЁ (и размещение на площадках), откатить — проекция
+versions_diff.restorable живого среза равна проекции снимка версии. Процессы и статус страницы откат не трогает, поэтому в
 проекцию они не входят, а тест проверяет, что они остались как были.
 """
 
@@ -19,6 +19,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -36,7 +38,8 @@ def _scene(db) -> types.SimpleNamespace:
     """«Магазин» (корень среза): «Заказы» (спека, две схемы, два параметра), «Оплаты»,
     «БД» с двумя таблицами и внешним ключом между ними, «Шина» с каналом. Снаружи —
     «Банк» (связан с «Заказами») и «Склад». Процесс «Оформление» через «Заказы» и
-    «Оплаты»."""
+    «Оплаты». Площадки «Облако» → «prod», «stage» и «Стойка»: «Заказы» стоят в prod,
+    «БД» — в стойке."""
     s = types.SimpleNamespace()
     s.user = ensure_architect(db)
     s.p = make_project(db, "Магазин")
@@ -95,11 +98,39 @@ def _scene(db) -> types.SimpleNamespace:
         doc_id=s.doc.id,
     )
     db.add(s.step)
+
+    s.cloud = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="Облако", kind="cloud")
+    s.rack = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="Стойка", kind="physical")
+    db.add_all([s.cloud, s.rack])
+    db.flush()
+    s.prod = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="prod", parent_id=s.cloud.id)
+    s.stage = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="stage", parent_id=s.cloud.id)
+    db.add_all([s.prod, s.stage])
+    db.flush()
+    s.i_orders = _place(db, s.orders, s.prod)
+    s.i_db = _place(db, s.db_node, s.rack)
     db.commit()
     # id строк сцены — отдельно: удалённую строку сессия отвязывает, и её id после
     # коммита уже не прочитать.
     s.id = {k: v.id for k, v in vars(s).items() if k not in ("user", "p") and hasattr(v, "id")}
     return s
+
+
+def _place(db, node: Node, site: DeploymentSite) -> DeploymentInstance:
+    inst = DeploymentInstance(
+        id=uuid.uuid4(), project_id=node.project_id, node_id=node.id, site_id=site.id
+    )
+    db.add(inst)
+    db.flush()
+    return inst
+
+
+def _placements(db, node_id: uuid.UUID) -> set[tuple[uuid.UUID, uuid.UUID]]:
+    """Свои экземпляры объекта парами (id экземпляра, площадка)."""
+    return {
+        (i.id, i.site_id)
+        for i in db.query(DeploymentInstance).filter(DeploymentInstance.node_id == node_id)
+    }
 
 
 def _fix(db, s, node: Node | None, comment: str = "v1") -> NodeVersion:
@@ -181,6 +212,12 @@ def _change_everything(db, s) -> uuid.UUID:
     s.channel.description = "событие заказа"
     db.delete(s.f_total)
     db.add(ChannelField(channel_id=s.channel.id, name="amount", type="int", order=2))
+    # Размещение: снято в prod, поставлено в stage, у нового объекта своё; площадка
+    # переименована (это правка площадки, а не документации объекта).
+    db.delete(s.i_orders)
+    _place(db, s.orders, s.stage)
+    _place(db, search, s.prod)
+    s.prod.name = "prod-2"
     # Процесс — правится, но откатом не возвращается.
     s.step.caption = "провести оплату"
     # Ребёнок удалён — вместе со своими связями (каскад).
@@ -220,6 +257,10 @@ def test_фикспойнт_изменить_всё_и_откатить(db):
     assert db.get(DbColumn, s.id["c_user"]).references_column_id == s.id["c_user_id"]
     assert db.get(Node, search_id) is None
     assert db.query(NodeDoc).filter(NodeDoc.node_id == search_id).count() == 0
+    # Размещение — экземплярами снимка с исходными id; площадка — как есть сейчас.
+    assert _placements(db, s.id["orders"]) == {(s.id["i_orders"], s.id["prod"])}
+    assert db.query(DeploymentInstance).filter_by(node_id=search_id).count() == 0
+    assert db.get(DeploymentSite, s.id["prod"]).name == "prod-2"
     # Процессы и статус страницы — как были перед откатом.
     assert _process(db, s) == process_before
     assert db.get(ProcessMessage, s.id["step"]).caption == "провести оплату"
@@ -334,6 +375,69 @@ def test_внешний_ключ_на_исчезнувшую_колонку_вн
     assert out.remarks == ["внешний ключ «orders.total» не восстановлен: целевой колонки больше нет"]
     assert db.get(DbColumn, s.id["c_total"]).references_column_id is None
     assert db.get(DbTable, s.id["t_orders"]).description is None
+
+
+# ── Размещение ─────────────────────────────────────────────────────────────────
+
+
+def test_снятое_размещение_возвращается_добавленное_снимается(db):
+    s = _scene(db)
+    _fix(db, s, s.orders)
+    v1 = _version_snap(db, s, s.orders, 1)
+    db.delete(s.i_orders)
+    late = _place(db, s.orders, s.stage)
+    db.commit()
+
+    out = _restore(db, s, s.orders, 1)
+
+    assert out.remarks == []
+    assert _placements(db, s.id["orders"]) == {(s.id["i_orders"], s.id["prod"])}
+    assert db.get(DeploymentInstance, late.id) is None
+    assert restorable(_live(db, s, s.orders)) == restorable(v1)
+
+
+def test_размещение_поставленное_заново_на_ту_же_площадку(db):
+    """Сняли и снова поставили в prod: пара «объект, площадка» та же, id другой. Шаг 1
+    отката удаляет новую строку (её id не в снимке) раньше воссоздания исходной — без
+    отказа на уникальности пары."""
+    s = _scene(db)
+    _fix(db, s, s.orders)
+    v1 = _version_snap(db, s, s.orders, 1)
+    db.delete(s.i_orders)
+    db.flush()
+    again = _place(db, s.orders, s.prod)
+    db.commit()
+    assert restorable(_live(db, s, s.orders)) != restorable(v1)
+
+    out = _restore(db, s, s.orders, 1)
+
+    assert out.remarks == []
+    assert _placements(db, s.id["orders"]) == {(s.id["i_orders"], s.id["prod"])}
+    assert db.get(DeploymentInstance, again.id) is None
+    assert restorable(_live(db, s, s.orders)) == restorable(v1)
+
+
+def test_площадки_больше_нет_размещение_пропущено_с_замечанием(db):
+    """Площадка в версию не входит: удалённую откат не вернёт. Остальное возвращается,
+    а проекции расходятся ровно на пропущенный экземпляр."""
+    s = _scene(db)
+    _fix(db, s, s.shop)
+    v1 = _version_snap(db, s, s.shop, 1)
+    db.delete(s.prod)  # каскад унёс экземпляр «Заказов»
+    s.orders.technology = "Go"
+    db.commit()
+
+    out = _restore(db, s, s.shop, 1)
+
+    assert out.remarks == [
+        "размещение «Магазин / Заказы» на площадке «Облако / prod» не восстановлено: "
+        "площадки больше нет"
+    ]
+    assert db.get(Node, s.id["orders"]).technology == "Python 3.11"
+    assert _placements(db, s.id["db_node"]) == {(s.id["i_db"], s.id["rack"])}
+    expected = restorable(v1)
+    expected["instances"] = [i for i in expected["instances"] if i["id"] != str(s.id["i_orders"])]
+    assert restorable(_live(db, s, s.shop)) == expected
 
 
 # ── Перенос и имена ────────────────────────────────────────────────────────────

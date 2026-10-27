@@ -617,3 +617,95 @@ async def test_экспорт_отдаёт_сам_yaml_а_не_одну_шапк
     out = await tools.call("archmap_export", {"project": "Ярмарка"}, client)
 
     assert "nodes:" in out and "name: Маркетплейс" in out
+
+
+# ── Размещение в правке объекта (Ф4 эпика развёртывания) ─────────────────────
+
+CLOUD = "00000001-0000-0000-0000-000000000000"
+CLUSTER = "00000002-0000-0000-0000-000000000000"
+
+
+def site_out(site_id: str, name: str, kind: str, parent: str | None = None) -> dict[str, object]:
+    out: dict[str, object] = {"id": site_id, "name": name, "kind": kind, "technology": None,
+                              "description": None, "parent_id": parent, "version": 1,
+                              "instance_count": 0}
+    backend("schemas.deployment").SiteOut.model_validate(out)
+    return out
+
+
+SITES = [site_out(CLOUD, "Облако", "cloud"), site_out(CLUSTER, "Кластер prod", "kubernetes", CLOUD)]
+
+
+def site_ref(site_id: str, name: str, parent_name: str | None = None) -> dict[str, object]:
+    out = {"id": site_id, "name": name, "kind": "cloud", "parent_id": CLOUD if parent_name else None,
+           "parent_name": parent_name, "partial": False}
+    backend("schemas.node").NodeSiteOut.model_validate(out)
+    return out
+
+
+async def test_правка_размещения_шлёт_id_площадок_по_именам(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.get("/deployment/sites", SITES)
+    api.patch("/nodes/n2", node("n2", "API", sites=[
+        site_ref(CLUSTER, "Кластер prod", "Облако"), site_ref(CLOUD, "Облако"),
+    ]))
+
+    out = await tools.call(
+        "archmap_update_node",
+        # Регистр имени не важен, если площадка одна такая; повтор — одна площадка.
+        {"project": "Ярмарка", "node_id": "n2", "sites": ["Кластер prod", "облако", "Облако"]},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"site_ids": [CLUSTER, CLOUD]}
+    check_node_contract("NodeUpdate", body)
+    assert "обновлён «API»: sites." in out
+    assert out.splitlines()[-1] == "Размещение: Кластер prod (в Облако), Облако"
+
+
+async def test_пустой_список_площадок_снимает_размещение(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """⚠️ Фильтр «не None» отбросил бы [] как пустое поле — и снять размещение было бы
+    нечем. Список площадок при [] не нужен: id не резолвятся."""
+    api.patch("/nodes/n2", node("n2", "API", sites=[]))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "sites": []}, client
+    )
+
+    assert json.loads(api.calls[-1].content) == {"site_ids": []}
+    assert "/deployment/sites" not in " ".join(c.url.path for c in api.calls)
+    assert out.splitlines()[-1] == "Размещение: не указано"
+
+
+async def test_неизвестная_площадка_отказ_с_перечнем_и_без_записи(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.get("/deployment/sites", SITES)
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_update_node",
+            {"project": "Ярмарка", "node_id": "n2", "sites": ["Облако", "Кластер dev"]},
+            client,
+        )
+
+    text = str(exc.value)
+    assert text.startswith("Площадки «Кластер dev» в проекте «Ярмарка» нет. ")
+    assert "Есть: «Кластер prod», «Облако»." in text
+    assert "Через MCP площадки не создаются" in text
+    assert "PATCH" not in [c.method for c in api.calls]
+
+
+async def test_без_ключа_sites_размещение_не_трогается(client: ArchMapClient, api: FakeApi) -> None:
+    api.patch("/nodes/n2", node("n2", "API"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "name": "API"}, client
+    )
+
+    assert json.loads(api.calls[-1].content) == {"name": "API"}
+    assert "Размещение" not in out

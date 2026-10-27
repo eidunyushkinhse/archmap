@@ -414,6 +414,48 @@ button.np-approval {
   font-style: italic;
 }
 
+/* Строка «Размещение» (components/nodePage/PlacementRow): площадки развёртывания
+   перечнем через запятую в ритме соседних строк — иконка вида, имя, серым «в
+   <родитель>» и «от контейнера «X»»; «Изменить» — ссылкой, как у источника. */
+.np-site-ico {
+  display: inline-block;
+  vertical-align: -2px;
+  margin-right: 4px;
+  color: #64748b;
+}
+.np-site-ico svg {
+  display: block;
+}
+.np-site-muted {
+  margin-left: 4px;
+  color: #64748b;
+}
+.np-site-edit {
+  margin-left: 10px;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: #2563eb;
+  cursor: pointer;
+}
+.np-site-edit:hover:not(:disabled) {
+  text-decoration: underline;
+}
+.np-site-edit:disabled {
+  color: #94a3b8;
+  cursor: default;
+}
+/* Отказ загрузки площадок — своей строкой под значением. */
+.np-site-err {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #b91c1c;
+}
+
 .np-field {
   display: block;
   width: 100%;
@@ -510,7 +552,7 @@ button.np-approval {
   z-index: 14;
 }
 
-/* Toggle (размещение) */
+/* Toggle (принадлежность: внутренний / внешний) */
 .np-toggle {
   display: inline-flex;
   align-items: center;

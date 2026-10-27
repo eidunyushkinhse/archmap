@@ -1,0 +1,170 @@
+/* Режим «Развёртывание» (DeploymentPage): дерево объектов слева (NodeTreePanel), справа
+   тулбар над холстом и холст во всю высоту. */
+.dp-page {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0;
+  flex-shrink: 0;
+}
+
+/* Путь уровня текстом: «Весь проект» — ссылкой, если открыт уровень контейнера. */
+.dp-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
+  color: #0f172a;
+}
+.dp-path-root {
+  font: inherit;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #2563eb;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dp-path-root:hover {
+  text-decoration: underline;
+}
+.dp-path-sep {
+  color: #94a3b8;
+}
+.dp-path-current {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dp-error {
+  font-size: 12.5px;
+  color: #b91c1c;
+}
+
+/* Квадратные белые иконочные кнопки тулбара («Площадки», «Переразложить», тумблер
+   «Подписи связей») — как кнопки угла холста (lg-seg) и топбара редактора-карты. */
+.dp-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  background: #fff;
+  color: #475569;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.dp-iconbtn:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #cbd5e1;
+  color: #1d4ed8;
+}
+.dp-iconbtn:active:not(:disabled) {
+  background: #dbeafe;
+}
+/* Нажатое состояние тумблера (aria-pressed): подписи скрыты. */
+.dp-iconbtn[aria-pressed="true"] {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+.dp-iconbtn:disabled {
+  color: #cbd5e1;
+  cursor: default;
+}
+
+.dp-canvas {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 10px 12px 12px;
+}
+
+/* Опора холста, легенды и плавающей панели выделения. */
+.dp-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dp-note {
+  padding: 24px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+/* Плавающая панель выделения: по центру сверху холста, тихо, одной строкой. */
+.dp-selection {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+  white-space: nowrap;
+}
+
+.dp-selection-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+  margin-right: 4px;
+}
+
+/* Баннер режима размещения (D29): по образцу панели выделения, но голубой — холст ждёт
+   щелчка по площадке. Стоит В ПОТОКЕ между тулбаром и холстом, а не поверх него: поверх
+   он накрывал бы верхний ряд площадок, по которым и надо щёлкать (headless-проверка
+   2026-10-23). Виден и на время загрузки уровня. */
+.dp-placing {
+  flex: none;
+  align-self: center;
+  max-width: 100%;
+  margin-bottom: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  background: #eff6ff;
+  border: 1px solid #93c5fd;
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.12);
+}
+
+.dp-placing-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e3a8a;
+  margin-right: 4px;
+}
+
+.dp-placing-error {
+  flex-basis: 100%;
+  font-size: 12.5px;
+  color: #dc2626;
+}

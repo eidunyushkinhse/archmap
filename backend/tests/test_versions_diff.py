@@ -9,7 +9,7 @@
 import types
 import uuid
 
-from conftest import make_project
+from conftest import ensure_architect, make_project
 
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -17,6 +17,8 @@ from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -24,6 +26,7 @@ from app.models.process_fragment import ProcessFragment, ProcessFragmentBranch
 from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.schemas.versions import VersionView
+from app.versions import create_version, list_versions
 from app.versions_diff import diff_item, diff_items, empty_snapshot, semantic
 from app.versions_snapshot import build_snapshot, content_hash
 
@@ -156,13 +159,20 @@ def test_первая_версия_от_пустого_всё_добавлено
 
 def test_порядок_элементов_по_категории_пути_и_имени(db):
     s = _scene(db)
+    _sites(db, s)
+    _place(db, s.orders, s.prod)
+    db.commit()
     snap = _snap(db, s)
 
     items = diff_items(empty_snapshot(s.shop.id), snap)
 
-    order = ["props", "edges", "doc", "spec", "db", "channels", "config", "approval", "process"]
+    order = [
+        "props", "edges", "doc", "spec", "db", "channels", "config", "placement", "approval",
+        "process",
+    ]
     cats = [i.category for i in items]
     assert cats == sorted(cats, key=order.index)
+    assert "placement" in cats
     props = [i.node_path for i in items if i.category == "props"]
     assert props == ["", "БД", "Заказы", "Оплаты", "Шина"]
     assert items == diff_items(empty_snapshot(s.shop.id), _snap(db, s))
@@ -572,6 +582,150 @@ def test_конфигурация_появилась_и_исчезла(db):
     assert (new.status, new.name, new.summary) == ("added", "1 параметр", "+1")
     detail = diff_item(before, after, gone.item_id)
     assert detail is not None and _absent(detail.after)
+
+
+# ── Размещение ─────────────────────────────────────────────────────────────────
+
+
+def _sites(db, s) -> None:
+    """Площадки «Облако» → «prod», «stage» и отдельная «Стойка»."""
+    pid = s.project.id
+    s.cloud = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="Облако", kind="cloud")
+    s.rack = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="Стойка", kind="physical")
+    db.add_all([s.cloud, s.rack])
+    db.flush()
+    s.prod = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="prod", parent_id=s.cloud.id)
+    s.stage = DeploymentSite(id=uuid.uuid4(), project_id=pid, name="stage", parent_id=s.cloud.id)
+    db.add_all([s.prod, s.stage])
+    db.flush()
+
+
+def _place(db, node, site) -> DeploymentInstance:
+    inst = DeploymentInstance(
+        id=uuid.uuid4(), project_id=node.project_id, node_id=node.id, site_id=site.id
+    )
+    db.add(inst)
+    db.flush()
+    return inst
+
+
+def test_размещение_указано_снято_изменено(db):
+    s = _scene(db)
+    _sites(db, s)
+    i_orders = _place(db, s.orders, s.prod)
+    _place(db, s.orders, s.rack)
+    i_db = _place(db, s.db_node, s.prod)
+    db.commit()
+    before = _snap(db, s)
+    db.delete(i_orders)
+    _place(db, s.orders, s.stage)
+    db.delete(i_db)
+    _place(db, s.pay, s.stage)
+    db.commit()
+    after = _snap(db, s)
+
+    items = diff_items(before, after)
+    assert {i.category for i in items} == {"placement"}
+    got = {i.item_id: (i.node_path, i.name, i.status, i.summary) for i in items}
+    assert got == {
+        f"placement:{s.orders.id}": ("Заказы", "2 площадки", "changed", "+1 −1"),
+        f"placement:{s.db_node.id}": ("БД", "1 площадка", "removed", "−1"),
+        f"placement:{s.pay.id}": ("Оплаты", "1 площадка", "added", "+1"),
+    }
+
+    detail = diff_item(before, after, f"placement:{s.orders.id}")
+    assert detail is not None
+    assert detail.changes.columns == ["Площадка"]
+    assert _rows(detail.changes) == [("add", ["Облако / stage"]), ("del", ["Облако / prod"])]
+    assert detail.before.columns == ["Площадка"]
+    assert _rows(detail.before) == [("", ["Облако / prod"]), ("", ["Стойка"])]
+    assert _rows(detail.after) == [("", ["Облако / stage"]), ("", ["Стойка"])]
+
+    gone = diff_item(before, after, f"placement:{s.db_node.id}")
+    assert gone is not None and _absent(gone.after)
+    assert _rows(gone.changes) == [("del", ["Облако / prod"])]
+    new = diff_item(before, after, f"placement:{s.pay.id}")
+    assert new is not None and _absent(new.before)
+    assert _rows(new.after) == [("", ["Облако / stage"])]
+
+
+def test_переименование_и_перенос_площадки_не_элемент(db):
+    """Площадка — общая сущность проекта: её имя и место в дереве площадок — подпись
+    экземпляра, а не документация объекта. Ни хэш, ни дельта их не видят."""
+    s = _scene(db)
+    _sites(db, s)
+    _place(db, s.orders, s.prod)
+    db.commit()
+    before = _snap(db, s)
+    s.prod.name = "prod-2"
+    s.prod.parent_id = s.rack.id
+    db.commit()
+    after = _snap(db, s)
+
+    assert [i.site_path for i in after.instances] == ["Стойка / prod-2"]
+    assert diff_items(before, after) == []
+    assert content_hash(before) == content_hash(after)
+    # В элементе, который появился по другой причине, переименованная площадка — без
+    # строки «было → стало»: смысл экземпляра — площадка, а не её путь.
+    _place(db, s.orders, s.stage)
+    db.commit()
+    detail = diff_item(before, _snap(db, s), f"placement:{s.orders.id}")
+    assert detail is not None
+    assert _rows(detail.changes) == [("add", ["Облако / stage"])]
+
+
+def test_унаследованное_размещение_не_элемент(db):
+    """Контейнер поставили на площадку — у детей действующее размещение появилось, но
+    своего у них нет: элемент один, у самого контейнера."""
+    s = _scene(db)
+    _sites(db, s)
+    db.commit()
+    before = _snap(db, s)
+    _place(db, s.shop, s.prod)
+    db.commit()
+
+    [item] = diff_items(before, _snap(db, s))
+    assert (item.item_id, item.node_path, item.status) == (f"placement:{s.shop.id}", "", "added")
+
+
+def test_размещение_в_хэше_и_в_перечне(db):
+    """«Хэш разный ⇔ элементы есть» на размещении. Снять и снова поставить ту же
+    площадку — новый экземпляр (id — часть проекции): и хэш другой, и элемент есть."""
+    s = _scene(db)
+    _sites(db, s)
+    inst = _place(db, s.orders, s.prod)
+    db.commit()
+    steps = [
+        lambda: _place(db, s.orders, s.stage),
+        lambda: db.delete(inst),
+        lambda: _place(db, s.orders, s.prod),
+    ]
+    for mutate in steps:
+        before = _snap(db, s)
+        mutate()
+        db.commit()
+        after = _snap(db, s)
+        items = diff_items(before, after)
+        assert content_hash(before) != content_hash(after), mutate
+        assert [i.category for i in items] == ["placement"]
+        assert diff_item(before, after, items[0].item_id) is not None
+
+
+def test_список_версий_несёт_изменённое_размещение(db):
+    s = _scene(db)
+    _sites(db, s)
+    user = ensure_architect(db)
+    create_version(db, s.project, user, s.orders, "v1")
+    _place(db, s.orders, s.prod)
+    db.commit()
+    create_version(db, s.project, user, s.orders, "v2")
+    db.commit()
+
+    latest = list_versions(db, s.project, s.orders)[0]
+    assert latest.stats["changed"] == [{
+        "item_id": f"placement:{s.orders.id}", "category": "placement",
+        "name": "1 площадка", "status": "added",
+    }]
 
 
 # ── Процессы ───────────────────────────────────────────────────────────────────

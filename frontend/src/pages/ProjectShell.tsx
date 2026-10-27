@@ -1,5 +1,6 @@
 // Оболочка проекта (pages_pivot): шапка (лого, свитчер, режим, экспорт, профиль,
-// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace.
+// индикатор алертов), дерево с навигацией на страницы, NodePage / ProcessWorkspace /
+// DeploymentPage (режим «Развёртывание»).
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { workBodyRow as bodyRow, workDivider as divider, workPage as page, workTopBar, workTopLeft as topLeft } from "../ui/pageChrome";
@@ -12,6 +13,7 @@ import NodeModal from "../components/NodeModal";
 import NodePage from "./NodePage";
 import ProjectHomePage from "./ProjectHomePage";
 import ProcessWorkspace from "../components/processes/ProcessWorkspace";
+import DeploymentPage from "./DeploymentPage";
 import { processesApi } from "../api/processes";
 import SchemaActions, { type ExportScope } from "../components/SchemaActions";
 import AccountMenu from "../components/users/AccountMenu";
@@ -23,17 +25,18 @@ import { primaryBtn, secondaryBtn } from "../ui/styles";
 import BrandLink from "../ui/BrandLink";
 import "../ui/chrome.css";
 import "../components/NodeTreePanel.css";
-import { safeLocal, safeSession } from "../lib/safeStorage";
+import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
-
-type WorkMode = "schema" | "proc";
-const MODE_KEY = "archmap_mode";
+import { storedMode, storeMode, type WorkMode } from "./workMode";
 
 interface Props {
   projectId: string;
   // null = страница проекта (корень), иначе — страница узла
   nodeId: string | null;
+  // Режим «Развёртывание» живёт в адресе (#/p/<pid>/deploy/<уровень?>): задан — оболочка
+  // в этом режиме на уровне level (null — весь проект); не задан — «Объекты» или «Процессы».
+  deploy?: { level: string | null };
   onLogout: () => void;
   // Экран «Пользователи» — пункт меню профиля, виден только администратору.
   onOpenUsers: () => void;
@@ -43,11 +46,15 @@ interface Props {
   onNavigateNode: (nodeId: string) => void;
   onNavigateProject: () => void;
   onNavigateMap: NavigateMap;
+  // «Развёртывание» на уровне level (null — весь проект): переключатель режима, выбор
+  // уровня и вход в контейнер двойным кликом — навигацией, «назад» браузера работает.
+  onNavigateDeploy: (level: string | null) => void;
 }
 
 export default function ProjectShell({
   projectId,
   nodeId,
+  deploy,
   onLogout,
   onOpenUsers,
   onAllProjects,
@@ -55,6 +62,7 @@ export default function ProjectShell({
   onNavigateNode,
   onNavigateProject,
   onNavigateMap,
+  onNavigateDeploy,
 }: Props) {
   // isArchitect теперь значит «может править этот проект» (роль в проекте owner/editor).
   const isArchitect = canEditProject(useProjectRole());
@@ -64,15 +72,36 @@ export default function ProjectShell({
   // процесс на втором проходе.
   const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
   useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
-  const [mode, setMode] = useState<WorkMode>(() =>
-    pendingProc ? "proc" : safeLocal.getItem(MODE_KEY) === "proc" ? "proc" : "schema",
+  // «Объекты» и «Процессы» — состояние оболочки, «Развёртывание» задаёт адрес. Режим
+  // запоминается (archmap_mode): App по запомненному «Развёртыванию» открывает страницу
+  // проекта сразу на #/p/<pid>/deploy.
+  const [shellMode, setShellMode] = useState<"schema" | "proc">(
+    () => (pendingProc || storedMode() === "proc" ? "proc" : "schema"),
   );
-  useEffect(() => { safeLocal.setItem(MODE_KEY, mode); }, [mode]);
+  const mode: WorkMode = deploy ? "deploy" : shellMode;
+  useEffect(() => { storeMode(mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
   // Процесс, выбранный извне (клик по процессу на странице узла либо по строке
   // процессного алерта в редакторе-карте) — стартовый выбор ProcessWorkspace.
   const [procInitial, setProcInitial] = useState<string | null>(pendingProc);
+  // Перейти в «Объекты» или «Процессы». Из «Развёртывания» уходим на страницу проекта,
+  // если go не ведёт в другое место (#/p/<pid> внутри открытой оболочки App не
+  // перенаправляет обратно в «Развёртывание»).
+  function leaveTo(next: "schema" | "proc", go?: () => void) {
+    setShellMode(next);
+    if (go) go();
+    else if (deploy) onNavigateProject();
+  }
+  // Переключатель режима: «Развёртывание» — адрес уровня «Весь проект».
+  function switchMode(next: WorkMode) {
+    setProcInitial(null);
+    if (next === "deploy") {
+      if (!deploy) onNavigateDeploy(null);
+      return;
+    }
+    leaveTo(next);
+  }
   // Сигнал перезагрузки дерева (после создания/удаления узла)
   const [treeReload, setTreeReload] = useState(0);
   // Счётчик применений синка: перемонтирует страницу — схема грузится свежей, не
@@ -99,8 +128,8 @@ export default function ProjectShell({
   // подтверждение «Открыть в редакторе?».
   function handleAlertLocate(target: LocateTarget) {
     if (target.kind === "node") {
-      setMode("schema"); // страница узла живёт в режиме «Объекты»
-      onNavigateNode(target.id);
+      // страница узла живёт в режиме «Объекты»
+      leaveTo("schema", () => onNavigateNode(target.id));
       return;
     }
     setEditorConfirmTarget(target);
@@ -117,9 +146,11 @@ export default function ProjectShell({
   }
 
   // Что экспортировать сейчас — производное от режима и открытой страницы
-  // (null в «Процессах» без выбранного процесса: кнопка гаснет).
+  // (null в «Процессах» без выбранного процесса и в «Развёртывании»: кнопка гаснет).
   const exportScope: ExportScope | null =
-    mode === "proc"
+    mode === "deploy"
+      ? null
+      : mode === "proc"
       ? procSelection
         ? {
             key: `proc:${procSelection.id}`,
@@ -155,7 +186,7 @@ export default function ProjectShell({
         </div>
 
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <ModeSwitch mode={mode} onChange={(m) => { setMode(m); setProcInitial(null); }} />
+          <ModeSwitch mode={mode} onChange={switchMode} />
           {/* Кнопка «Рекомендации» (архитектор): в шапке для глобальной видимости;
               клик по пункту ведёт на страницу объекта или в редактор-карту.
               Размер — как у соседних «трёх точек» (34). */}
@@ -166,7 +197,7 @@ export default function ProjectShell({
               onLocate={handleAlertLocate}
               // Повисшее сообщение чинят в процессе, а не на схеме: открываем его
               // тем же путём, что клик по процессу на странице объекта.
-              onOpenProcess={(processId) => { setProcInitial(processId); setMode("proc"); }}
+              onOpenProcess={(processId) => { setProcInitial(processId); leaveTo("proc"); }}
             />
           )}
           <SchemaActions
@@ -196,7 +227,16 @@ export default function ProjectShell({
             // Обратный ход к переходу «страница объекта → процесс»: страница узла
             // живёт в режиме «Объекты», поэтому режим переключаем тем же приёмом,
             // что и клик по узловому алерту в шапке (handleAlertLocate).
-            onOpenNode={(nid) => { setMode("schema"); onNavigateNode(nid); }}
+            onOpenNode={(nid) => leaveTo("schema", () => onNavigateNode(nid))}
+          />
+        ) : deploy ? (
+          <DeploymentPage
+            key={`deploy-${syncToken}`}
+            isArchitect={isArchitect}
+            level={deploy.level}
+            onNavigateLevel={onNavigateDeploy}
+            // Страница объекта живёт в режиме «Объекты» — тот же приём, что у процессов.
+            onOpenNode={(nid) => leaveTo("schema", () => onNavigateNode(nid))}
           />
         ) : (
           <>
@@ -218,7 +258,7 @@ export default function ProjectShell({
                 onNavigateMap={onNavigateMap}
                 onNavigateProcesses={(processId) => {
                   setProcInitial(processId);
-                  setMode("proc");
+                  leaveTo("proc");
                 }}
                 onNodeDeleted={(parentId) => {
                   setTreeReload((t) => t + 1);
@@ -236,7 +276,7 @@ export default function ProjectShell({
                 onNavigateMap={onNavigateMap}
                 onNavigateProcesses={(processId) => {
                   setProcInitial(processId);
-                  setMode("proc");
+                  leaveTo("proc");
                 }}
               />
             )}
@@ -275,15 +315,17 @@ export default function ProjectShell({
   );
 }
 
-// Сегмент-переключатель «Объекты / Процессы» со скользящей подсветкой активной
-// вкладки (плавный transition transform).
+// Сегмент-переключатель «Объекты / Процессы / Развёртывание» со скользящей подсветкой
+// активной вкладки (плавный transition transform). Вкладки равной ширины — по трети.
+const MODE_INDEX: Record<WorkMode, number> = { schema: 0, proc: 1, deploy: 2 };
+
 function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode) => void }) {
   const tab = (active: boolean): CSSProperties => ({
     position: "relative",
     zIndex: 1,
     flex: 1,
     height: 30,
-    padding: "0 14px",
+    padding: "0 12px",
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
@@ -299,7 +341,7 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
     transition: "color .22s",
   });
   return (
-    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 236, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
+    <div style={{ position: "relative", display: "inline-flex", alignItems: "stretch", width: 450, padding: 3, background: "#f1f5f9", borderRadius: 9 }}>
       {/* Скользящая подсветка активной вкладки */}
       <div
         aria-hidden
@@ -308,11 +350,11 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
           top: 3,
           bottom: 3,
           left: 3,
-          width: "calc(50% - 3px)",
+          width: "calc((100% - 6px) / 3)",
           background: "#fff",
           borderRadius: 7,
           boxShadow: "0 1px 2px rgba(15,23,42,.10)",
-          transform: mode === "proc" ? "translateX(100%)" : "translateX(0)",
+          transform: `translateX(${MODE_INDEX[mode] * 100}%)`,
           transition: "transform .22s cubic-bezier(.4,0,.2,1)",
         }}
       />
@@ -327,6 +369,12 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
           <circle cx="6" cy="6" r="2.4" /><circle cx="18" cy="12" r="2.4" /><circle cx="6" cy="18" r="2.4" /><path d="M8.4 6 H13 a2.6 2.6 0 0 1 2.6 2.6 V9.6 M8.4 18 H13 a2.6 2.6 0 0 0 2.6-2.6 V14.4" />
         </svg>
         Процессы
+      </button>
+      <button style={tab(mode === "deploy")} data-tour="mode-deploy" onClick={() => onChange("deploy")} title="Развёртывание: где крутятся объекты">
+        <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="3.5" width="16" height="7.5" rx="1.5" /><rect x="4" y="13" width="16" height="7.5" rx="1.5" /><path d="M8 7.25 H8.01 M8 16.75 H8.01" strokeWidth={2.6} />
+        </svg>
+        Развёртывание
       </button>
     </div>
   );

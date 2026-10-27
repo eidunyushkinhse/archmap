@@ -24,6 +24,10 @@ docs/plan-unified-import.md).
 
 Раскладка (view_layout) не трогается вовсе: существующие узлы не двигаются, новым
 координаты построит конвейер (аксиома эпика архива).
+
+Размещение (раздел deployment) — тем же правилом аддитивности: площадка плана
+находится в проекте ПО ИМЕНИ и берётся как есть, отсутствующая создаётся; узлам
+добавляются недостающие экземпляры, ни один живой не снимается.
 """
 
 import uuid
@@ -43,10 +47,13 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
+from app.deployment import leaf_placements, project_sites, project_tree
 from app.identity import known_key, source_ref_dict
-from app.import_yaml import _ImpEdge, _ImpNode
+from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -241,6 +248,10 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
         if w.origin != 0:
             _bump(counts, w.family, 1)
     counts.processes = len(new_processes)
+    # Площадки — только новые для проекта: живая площадка с тем же именем берётся как
+    # есть, и «приедет» про неё было бы неправдой.
+    live_sites = {s.name for s in project_sites(db, project.id)}
+    counts.sites = sum(1 for s in plan.merged.sites if s.name not in live_sites)
     warnings.extend(_merge_notes(plan))
     warnings.extend(_process_notes(plan, new_processes))
 
@@ -455,6 +466,7 @@ def into_preview(into: IntoPlan) -> IntoPreviewOut:
             channels=into.counts.channels,
             params=into.counts.params,
             processes=into.counts.processes,
+            sites=into.counts.sites,
         ),
         family_conflicts=family_conflicts,
         remainder=remainder,
@@ -737,6 +749,13 @@ def apply_into_plan(
     params_replaced = _replace_params(db, winners, lost, node_of, warnings)
     db.flush()
 
+    # Размещение: поглощённый склейкой узел адресован выжившим (node_of), поэтому его
+    # площадки доезжают до выжившего тем же проходом.
+    площадок, размещений = _apply_placements(db, project, merged, node_of, into.ambiguous)
+    if площадок or размещений:
+        части = [(площадок, "площадок создано"), (размещений, "размещений добавлено")]
+        warnings.append("Размещение: " + " · ".join(f"{слово} {n}" for n, слово in части if n))
+
     # ── Семьи-записи: родными приёмниками, ДВА прогона с разными наборами файлов —
     #    новое кладём политикой «не трогать занятое», выигравшее спор накладываем
     #    поверх. Смешивать нельзя: overwrite на весь пакет перетёр бы и то, о чём
@@ -788,6 +807,76 @@ def apply_into_plan(
         graph_rev=project.graph_rev,
         meta_rev=project.meta_rev,
     )
+
+
+def _apply_placements(
+    db: Session,
+    project: Project,
+    merged: ParsedImport,
+    node_of: list[Node],
+    skip: Collection[int],
+) -> tuple[int, int]:
+    """Размещение плана в живом проекте. Возвращает (площадок создано, размещений
+    добавлено).
+
+    Площадка — по имени: есть в проекте — берётся как есть (вид, технологию и описание
+    живой площадки догрузка не трогает, расхождение вида уже назвал мердж), нет —
+    создаётся с родителем по имени из проекта или плана (merged.sites идут «родители
+    раньше детей»). Размещение достаётся объектам (листьям живого дерева): своё
+    объявление — себе, объявление контейнера — его объектам без своего
+    (app/deployment.leaf_placements); объекту добавляются недостающие экземпляры,
+    снимать нечего и нельзя — догрузка не удаляет. skip — merged-узлы, слитые из
+    нескольких живых тёзок: их набор площадок смешан из разных записей, как и поля
+    (_fill_node их тоже не доливает)."""
+    if not merged.sites:
+        return 0, 0
+    by_name = {s.name: s.id for s in project_sites(db, project.id)}
+    plan_ids: list[uuid.UUID] = []
+    created = 0
+    for s in merged.sites:
+        site_id = by_name.get(s.name)
+        if site_id is None:
+            site_id = uuid.uuid4()
+            db.add(
+                DeploymentSite(
+                    id=site_id,
+                    project_id=project.id,
+                    name=s.name,
+                    kind=s.kind,
+                    technology=s.technology,
+                    description=s.description,
+                    parent_id=None if s.parent_idx is None else plan_ids[s.parent_idx],
+                )
+            )
+            by_name[s.name] = site_id
+            created += 1
+        plan_ids.append(site_id)
+    db.flush()
+    have = {
+        (node_id, site_id)
+        for node_id, site_id in db.query(
+            DeploymentInstance.node_id, DeploymentInstance.site_id
+        ).filter(DeploymentInstance.project_id == project.id)
+    }
+    declared: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for m, imp in enumerate(merged.nodes):
+        node = node_of[m]
+        if m in skip or node.shape == "person":
+            continue
+        site_ids = [by_name[name] for name in imp.sites if name in by_name]
+        if site_ids:
+            declared[node.id] = site_ids
+    parent_of, shapes = project_tree(db, project.id)
+    added = 0
+    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+        for site_id in placed:
+            if (node_id, site_id) in have:
+                continue
+            db.add(DeploymentInstance(project_id=project.id, node_id=node_id, site_id=site_id))
+            have.add((node_id, site_id))
+            added += 1
+    db.flush()
+    return created, added
 
 
 def _forced_fields(

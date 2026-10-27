@@ -1,5 +1,5 @@
 // Кастомные компоненты узлов React Flow и их реестр nodeTypes.
-import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties } from "react";
+import { useRef, useState, useLayoutEffect, type ComponentType, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import { Handle, type NodeProps, type NodeTypes } from "@xyflow/react";
 import {
   SIDE_HANDLES, hid, MAX_TAG_FONT, MIN_TAG_FONT, NODE_W, NODE_H,
@@ -10,11 +10,13 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, QuickConnectHandlers } from "./types";
+import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers } from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
+import FramePlaque from "./FramePlaque";
+import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
 // Кэш подобранных размеров шрифта (оптимизация 2026-07-21): одинаковые имена/роли
@@ -66,6 +68,29 @@ function ChildrenBadge({ count, total, color }: { count: number; total?: number;
         <path d="M6 15.7 V13 H18 V15.7" />
       </svg>
       {total !== undefined && total > count ? `${count} из ${total}` : count}
+    </span>
+  );
+}
+
+// Пометка карточки от хозяина проекции (BlockData.mark): на холсте развёртывания —
+// «1/2», экземпляр 1 из 2 (объект стоит на нескольких площадках, deployment.md). Место
+// и вид — как у бейджа детей (правый-нижний угол, цвет текста узла); глиф — две
+// стопкой лежащие карточки. У экземпляра детей нет, поэтому бейджи не встречаются.
+function MarkBadge({ text, color }: { text: string; color: string }) {
+  return (
+    <span className="lg-node-mark" style={{
+      position: "absolute", right: 12, bottom: 12, zIndex: 1,
+      display: "inline-flex", alignItems: "center", gap: 4,
+      fontSize: 11, fontWeight: 700, lineHeight: 1,
+      color, opacity: 0.95, pointerEvents: "none",
+    }}>
+      <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
+        style={{ display: "block" }} aria-hidden>
+        <rect x="8" y="8" width="12" height="12" rx="2" />
+        <path d="M16 8 V6 a2 2 0 0 0-2-2 H6 a2 2 0 0 0-2 2 v8 a2 2 0 0 0 2 2 h2" />
+      </svg>
+      {text}
     </span>
   );
 }
@@ -282,12 +307,14 @@ function NodeName({ name }: { name: string }) {
 const LENS_LIMIT_HINT =
   "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже";
 
-// Лупа «Раскрыть содержимое» — общая для локального блока и гостевого контейнера.
+// Лупа «Раскрыть содержимое» — общая для локального блока, гостевого контейнера и
+// карточки свёрнутой площадки (у неё своя подсказка, title).
 // Ровно одно из двух: активная (onExpand) или неактивная на пределе глубины (limited).
-function ExpandLens({ onExpand, limited, style }: {
+function ExpandLens({ onExpand, limited, style, title = "Раскрыть содержимое" }: {
   onExpand?: () => void;
   limited?: boolean;
   style: CSSProperties;
+  title?: string;
 }) {
   const [hint, showHint] = useToast(6000);
   if (!onExpand && !limited) return null;
@@ -298,7 +325,7 @@ function ExpandLens({ onExpand, limited, style }: {
         data-tour="node-expand"
         onClick={(e) => { e.stopPropagation(); if (limited) showHint(); else onExpand?.(); }}
         style={limited ? { ...style, opacity: 0.45, cursor: "help" } : style}
-        title={limited ? LENS_LIMIT_HINT : "Раскрыть содержимое"}
+        title={limited ? LENS_LIMIT_HINT : title}
         aria-disabled={limited || undefined}
       >🔍</button>
       {hint && (
@@ -321,7 +348,19 @@ function ExpandLens({ onExpand, limited, style }: {
   );
 }
 
-function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
+// Режим выбора площадки (onPick): обёртка RF без выделения и драга прозрачна для мыши
+// (pointer-events: none), поэтому щелчок принимает сам узел.
+const PICK_STYLE: CSSProperties = { pointerEvents: "auto", cursor: "crosshair" };
+
+// Перехват щелчка в режиме выбора площадки (onPick у рамки и карточек, развёртывание):
+// фаза перехвата на корне узла — щелчок по любой его части (плашке, крестику, лупе)
+// выбирает, а не делает своё; дальше событие не идёт.
+function pickCapture(id: string, onPick: ((id: string) => void) | undefined) {
+  if (!onPick) return undefined;
+  return (e: ReactMouseEvent) => { e.stopPropagation(); e.preventDefault(); onPick(id); };
+}
+
+function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
   const c = data.colors;
   const shape = data.appNode.shape;
   // «Провалиться внутрь»/быть зоной входа может только сервис (см. canHaveChildren):
@@ -356,9 +395,14 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
         // формы — цилиндра БД, человечка и т.д.). Сигнал «этот узел активен и
         // исчезнет по Backspace».
         filter: selected ? SELECTED_GLOW : undefined,
+        // Режим выбора площадки: обёртка RF без выделения и драга прозрачна для мыши —
+        // щелчок ловит сама карточка (выбор её площадки).
+        ...(data.onPick ? PICK_STYLE : null),
       }}
+      onClickCapture={pickCapture(id, data.onPick)}
     >
-      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} />
+      {/* Пунктир — цельный контейнер развёртывания (проекция его не раскрывает). */}
+      <NodeShapeSvg shape={shape} bg={c.bg} stroke={c.border} dashed={data.dashed} />
       <StatusBadge status={data.appNode.status} border={c.border} />
       <NodeHandles nodeId={data.appNode.id} connectableStart={data.connectable} quickConnect={data.quickConnect} />
 
@@ -366,6 +410,8 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
       {intoZone && <ChildrenBadge count={childCount} total={data.appNode.child_count} color={c.text} />}
+      {/* Пометка хозяина проекции («1/2» на холсте развёртывания) — тот же угол. */}
+      {data.mark && <MarkBadge text={data.mark} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
           кнопки «Подробнее» больше нет — «Войти» у сервисов (только редактор) и
           лупа «Раскрыть содержимое» (R5, инлайн-раскрытие; и редактор, и страница). */}
@@ -390,7 +436,7 @@ function BlockNode({ data, selected }: NodeProps<BlockRFNode>) {
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, hasActions) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || data.mark ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -491,7 +537,9 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
 // РАСКРЫТАЯ гостевая рамка — настоящий RF-узел (R4, compound). Реальный rect: позицию
 // и размер задаёт раскладка (width/height на самом узле), дети сидят внутри через
 // parentId в координатах рамки. Визуально — прежний lg-frame (пунктир + подпись
-// слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона.
+// слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона. Плашка
+// подписи рисуется НЕ внутри рамки, а в слое плашек подписей (FramePlaque, CV33): рамка
+// лежит под линиями стрелок, а плашка обязана быть над ними — линия проходит под ней.
 // ИНТЕРЬЕР рамки прозрачен для мыши (pointerEvents:none) — клики/драг проходят к
 // канве, узлам и рёбрам под ней. Рамка НЕ таскается (запрет движения рамок,
 // 2026-07-08): её rect производен от детей; прежние драг-ручки R4.2 сняты.
@@ -517,49 +565,123 @@ function FrameHandles({ nodeId }: { nodeId: string }) {
   );
 }
 
-function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+// Декор по данным (FrameData.decor, холст развёртывания, deployment.md): ПЛОЩАДКА — зона:
+// лёгкая заливка и тонкая светлая граница (та же адаптация к зуму через --lg-frame-bw)
+// вместо линии, которая сливалась со стрелками; вложенная зона рисуется поверх и
+// выходит темнее сама. На плашке иконка вида вместо лупы, клик по плашке и крестик
+// сворачивают площадку в карточку (SiteCardNode). ГРУППА («Размещение не указано») —
+// пунктир как у раскрытия, плашка без иконки и крестика.
+function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: NodeProps<FrameRFNode>) {
+  const decor = data.decor;
+  const site = decor?.kind === "site";
+  const collapseTitle = site ? "Свернуть площадку" : "Свернуть";
+  // Режим выбора площадки: тело рамки ловит щелчок (обычно прозрачно для мыши), плашка
+  // не сворачивает, а тоже выбирает (перехват на корне). Курсор и подсветка — CSS
+  // lg-frame--pick.
+  const picking = !!data.onPick;
   return (
     <div
-      className="lg-frame"
+      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "") + (picking ? " lg-frame--pick" : "")}
       data-frame-id={id}
+      onClickCapture={pickCapture(id, data.onPick)}
       style={{
         width: "100%", height: "100%",
         // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
         // при отдалении — на экране рамка всегда ~1px и не исчезает
-        border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
-        boxSizing: "border-box", pointerEvents: "none",
+        border: site
+          ? "var(--lg-frame-bw, 1px) solid #cbd5e1"
+          : "var(--lg-frame-bw, 1px) dashed #9ca3af",
+        borderRadius: 12, background: site ? "rgba(100,116,139,0.07)" : "transparent",
+        boxSizing: "border-box", pointerEvents: picking ? "auto" : "none",
       }}
     >
       <FrameHandles nodeId={id} />
       {/* Плашка подписи: клик по ВСЕЙ плашке сворачивает (крупная цель; раньше был
           только маленький ✕, а плашка занята драгом — драг рамок запрещён, цель
-          вернулась клику) */}
-      <div
-        className="nopan"
-        onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
-        title={data.onCollapse ? "Свернуть" : undefined}
-        style={{
-          position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
-          color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-          border: "1px solid #e5e7eb", whiteSpace: "nowrap",
-          display: "inline-flex", alignItems: "center", gap: 6,
-          pointerEvents: "auto",
-          cursor: data.onCollapse ? "pointer" : "default",
-        }}
+          вернулась клику). Портал в слой плашек: позиция — абсолютная, левый-нижний
+          угол рамки (в режиме выбора площадки щелчок перехватывает корень — портал
+          для React-событий прозрачен). */}
+      <FramePlaque
+        frameId={id}
+        x={positionAbsoluteX}
+        bottom={positionAbsoluteY + (height ?? 0)}
+        interactive
+        onClick={data.onCollapse}
+        title={data.onCollapse ? collapseTitle : undefined}
       >
-        <span>🔍 {data.name}</span>
+        {decor ? (
+          <>
+            {site && <SiteKindIcon kind={decor.icon ?? "other"} size={14} />}
+            <span>{data.name}</span>
+          </>
+        ) : (
+          <span>🔍 {data.name}</span>
+        )}
         {data.onCollapse && (
           <button
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
-            title="Свернуть"
+            title={collapseTitle}
             style={{
               border: "none", background: "transparent", cursor: "pointer",
               padding: 0, fontSize: 12, lineHeight: 1, color: "#64748b", fontWeight: 700,
             }}
           >✕</button>
         )}
+      </FramePlaque>
+    </div>
+  );
+}
+
+// Карточка площадки (холст развёртывания, deployment.md): свёрнутая или пустая на уровне
+// площадка. Белая, а не синяя, — площадка не объект: иконка вида, имя «Имя ·
+// технология», серым число объектов на ней на этом уровне, лупа «Раскрыть площадку» у
+// свёрнутой (двойной клик — то же, LevelGraph). Размер — блока (NODE_W × NODE_H): на
+// него рассчитаны раскладка и замер узлов. Хэндлы как у блока — связи свёрнутой
+// площадки упираются в карточку; начать связь с неё нельзя (холст только для чтения).
+const SITE_LENS_STYLE: CSSProperties = {
+  ...nodeBtn, background: "#f8fafc", color: "#64748b", borderColor: "#e2e8f0",
+};
+
+function SiteCardNode({ id, data, selected }: NodeProps<SiteRFNode>) {
+  return (
+    <div
+      className={"lg-site-card" + (data.onPick ? " lg-site-card--pick" : "")}
+      title={data.onExpand ? undefined : "Площадка пуста на этом уровне"}
+      style={{
+        ...nodeContainer,
+        display: "flex", alignItems: "center", gap: 10, padding: "0 10px 0 14px",
+        background: "#fff", border: "1px solid #94a3b8", borderRadius: 8, color: "#475569",
+        boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+        filter: selected ? SELECTED_GLOW : undefined,
+        // режим выбора площадки: щелчок по карточке (и по лупе) — выбор, не раскрытие
+        ...(data.onPick ? PICK_STYLE : null),
+      }}
+      onClickCapture={pickCapture(id, data.onPick)}
+    >
+      <NodeHandles nodeId={id} />
+      <span style={{ display: "inline-flex", flex: "none", color: "#64748b" }}>
+        <SiteKindIcon kind={data.icon} size={20} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <NodeName name={data.name} />
       </div>
+      {data.count > 0 && (
+        <span
+          className="lg-site-count"
+          title={`Объектов на площадке: ${data.count}`}
+          style={{ flex: "none", fontSize: 12, fontWeight: 600, color: "#94a3b8" }}
+        >{data.count}</span>
+      )}
+      {data.onExpand && (
+        <span style={{ flex: "none", position: "relative" }}>
+          <ExpandLens
+            onExpand={() => data.onExpand?.(id)}
+            title="Раскрыть площадку"
+            style={SITE_LENS_STYLE}
+          />
+        </span>
+      )}
     </div>
   );
 }
@@ -586,6 +708,7 @@ export const nodeTypes: NodeTypes = {
   ghost: GhostBlockNode as ComponentType<NodeProps>,
   container: ContainerNode as ComponentType<NodeProps>,
   frame: FrameNode as ComponentType<NodeProps>,
+  site: SiteCardNode as ComponentType<NodeProps>,
   framedock: FrameDockNode as ComponentType<NodeProps>,
   spacer: SpacerNode as ComponentType<NodeProps>,
 };

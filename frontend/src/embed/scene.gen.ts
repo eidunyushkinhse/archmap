@@ -36,6 +36,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371798+03:00",
         "updated_at": "2026-08-19T10:12:17.371800+03:00"
@@ -58,6 +59,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371801+03:00",
         "updated_at": "2026-08-19T10:12:17.371802+03:00"
@@ -80,6 +82,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
         "updated_at": "2026-08-19T10:12:17.371806+03:00"
@@ -102,6 +105,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371820+03:00",
         "updated_at": "2026-08-19T10:12:17.371821+03:00"
@@ -367,6 +371,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371798+03:00",
         "updated_at": "2026-08-19T10:12:17.371800+03:00"
@@ -389,6 +394,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371801+03:00",
         "updated_at": "2026-08-19T10:12:17.371802+03:00"
@@ -432,6 +438,7 @@ export const SCENE: LandingScene = {
           "path": null,
           "host": null
         },
+        "sites": [],
         "version": 4,
         "created_at": "2026-08-19T10:12:17.371803+03:00",
         "updated_at": "2026-08-19T18:11:05.892976+03:00"
@@ -458,6 +465,7 @@ export const SCENE: LandingScene = {
           "path": null,
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371804+03:00",
         "updated_at": "2026-08-19T10:12:17.371805+03:00"
@@ -480,6 +488,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
         "updated_at": "2026-08-19T10:12:17.371806+03:00"
@@ -502,6 +511,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371820+03:00",
         "updated_at": "2026-08-19T10:12:17.371821+03:00"
@@ -524,6 +534,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371826+03:00",
         "updated_at": "2026-08-19T10:12:17.371827+03:00"
@@ -546,6 +557,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371831+03:00",
         "updated_at": "2026-08-19T10:12:17.371832+03:00"
@@ -568,6 +580,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371837+03:00",
         "updated_at": "2026-08-19T10:12:17.371838+03:00"
@@ -590,6 +603,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 5,
         "created_at": "2026-08-19T10:12:17.371842+03:00",
         "updated_at": "2026-08-19T18:15:00.490713+03:00"
@@ -612,6 +626,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 13,
         "created_at": "2026-08-19T10:12:17.371813+03:00",
         "updated_at": "2026-09-04T22:05:39.818046+03:00"
@@ -636,6 +651,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371808+03:00",
         "updated_at": "2026-08-19T10:12:17.371809+03:00"
@@ -671,6 +687,7 @@ export const SCENE: LandingScene = {
           "path": "services/order-saga",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371810+03:00",
         "updated_at": "2026-08-19T10:12:17.371812+03:00"
@@ -722,6 +739,7 @@ export const SCENE: LandingScene = {
           "path": "services/order-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371807+03:00",
         "updated_at": "2026-08-19T10:12:17.815805+03:00"
@@ -775,6 +793,7 @@ export const SCENE: LandingScene = {
           "path": "services/payment-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371822+03:00",
         "updated_at": "2026-08-19T10:12:17.815803+03:00"
@@ -797,6 +816,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371825+03:00",
         "updated_at": "2026-08-19T10:12:17.371825+03:00"
@@ -828,6 +848,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 2,
         "created_at": "2026-08-19T10:12:17.371823+03:00",
         "updated_at": "2026-09-29T17:41:52.878652+03:00"
@@ -852,6 +873,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371828+03:00",
         "updated_at": "2026-08-19T10:12:17.371828+03:00"
@@ -887,6 +909,7 @@ export const SCENE: LandingScene = {
           "path": "services/search-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371829+03:00",
         "updated_at": "2026-08-19T10:12:17.815805+03:00"
@@ -948,6 +971,7 @@ export const SCENE: LandingScene = {
           "path": "services/auth-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371832+03:00",
         "updated_at": "2026-08-19T10:12:17.815799+03:00"
@@ -970,6 +994,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371835+03:00",
         "updated_at": "2026-08-19T10:12:17.371836+03:00"
@@ -1013,6 +1038,7 @@ export const SCENE: LandingScene = {
           "path": "services/profile-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371834+03:00",
         "updated_at": "2026-08-19T10:12:17.815806+03:00"
@@ -1058,6 +1084,7 @@ export const SCENE: LandingScene = {
           "path": "services/notification-worker",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371839+03:00",
         "updated_at": "2026-08-19T10:12:17.371840+03:00"
@@ -1080,6 +1107,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371841+03:00",
         "updated_at": "2026-08-19T10:12:17.371841+03:00"
@@ -1115,6 +1143,7 @@ export const SCENE: LandingScene = {
           "path": "services/sms-sender",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-09-14T14:19:22.186733+03:00",
         "updated_at": "2026-09-14T14:19:22.186738+03:00"
@@ -1139,6 +1168,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371816+03:00",
         "updated_at": "2026-08-19T10:12:17.371817+03:00"
@@ -1174,6 +1204,7 @@ export const SCENE: LandingScene = {
           "path": "services/product-indexer",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371817+03:00",
         "updated_at": "2026-08-19T10:12:17.371818+03:00"
@@ -1196,6 +1227,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "source_ref": null,
         "source": null,
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371819+03:00",
         "updated_at": "2026-08-19T10:12:17.371819+03:00"
@@ -1247,6 +1279,7 @@ export const SCENE: LandingScene = {
           "path": "services/catalog-api",
           "host": null
         },
+        "sites": [],
         "version": 1,
         "created_at": "2026-08-19T10:12:17.371814+03:00",
         "updated_at": "2026-08-19T10:12:17.815804+03:00"

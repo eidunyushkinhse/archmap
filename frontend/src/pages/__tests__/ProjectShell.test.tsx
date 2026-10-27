@@ -1,5 +1,6 @@
 // Рендер/поведенческие тесты ProjectShell: свитч «Объекты/Процессы» (с сохранением
-// режима в localStorage), открытие экспорта (схема/поддерево/процесс), навигация
+// режима в localStorage), «Развёртывание» из адреса (уровень, переходы туда и обратно
+// навигацией), открытие экспорта (схема/поддерево/процесс), навигация
 // (переход в процессы со страницы узла, удаление узла), locate из алертов шапки,
 // право правки по роли в проекте (my_role через контекст гейта), а не по глобальной.
 // Тяжёлые потомки (дерево, страницы, ProcessWorkspace, модалки) замоканы —
@@ -96,6 +97,20 @@ vi.mock("../../components/processes/ProcessWorkspace", () => ({
     </div>
   ),
 }));
+// Режим «Развёртывание»: маркер страницы с уровнем из адреса, триггеры перехода на
+// страницу объекта и смены уровня.
+vi.mock("../DeploymentPage", () => ({
+  default: ({ onOpenNode, level, onNavigateLevel }: {
+    onOpenNode: (id: string) => void;
+    level: string | null;
+    onNavigateLevel: (level: string | null) => void;
+  }) => (
+    <div data-testid="deployment-page" data-level={level ?? "root"}>
+      <button onClick={() => onOpenNode("n7")}>open-node</button>
+      <button onClick={() => onNavigateLevel("c2")}>to-level</button>
+    </div>
+  ),
+}));
 // Экспорт-модалка: показывает заголовок и запускает load (как реальный fetch контента).
 vi.mock("../../components/ExportModal", () => ({
   default: ({ title, load }: { title: string; load: () => Promise<{ content: string }> }) => (
@@ -120,6 +135,7 @@ const nav = {
   onNavigateNode: vi.fn(),
   onNavigateProject: vi.fn(),
   onNavigateMap: vi.fn(),
+  onNavigateDeploy: vi.fn(),
 };
 
 describe("ProjectShell", () => {
@@ -130,13 +146,17 @@ describe("ProjectShell", () => {
     vi.mocked(getUserRole).mockReturnValue("architect");
   });
 
-  // Роль в проекте приходит контекстом гейта маршрутов (ProjectAccessGate).
-  function setup(nodeId: string | null = null, role: ProjectRole | null = "owner") {
-    return render(
+  // Роль в проекте приходит контекстом гейта маршрутов (ProjectAccessGate); режим
+  // «Развёртывание» — адресом (deploy: уровень из #/p/<pid>/deploy/<уровень?>).
+  function shell(nodeId: string | null, role: ProjectRole | null, deploy?: { level: string | null }) {
+    return (
       <ProjectRoleContext.Provider value={role}>
-        <ProjectShell projectId="proj1" nodeId={nodeId} {...nav} />
-      </ProjectRoleContext.Provider>,
+        <ProjectShell projectId="proj1" nodeId={nodeId} deploy={deploy} {...nav} />
+      </ProjectRoleContext.Provider>
     );
+  }
+  function setup(nodeId: string | null = null, role: ProjectRole | null = "owner", deploy?: { level: string | null }) {
+    return render(shell(nodeId, role, deploy));
   }
 
   it("режим «Объекты» (по умолчанию): дерево + домашняя страница при nodeId=null", () => {
@@ -195,6 +215,94 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("export-modal")).toHaveTextContent("Экспорт поддерева");
     await userEvent.click(screen.getByRole("button", { name: "run-load" }));
     expect(exportApi.subtree).toHaveBeenCalledWith("n1");
+  });
+
+  it("вкладка «Развёртывание» ведёт на адрес режима — уровень «Весь проект»", async () => {
+    setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Развёртывание" }));
+    expect(nav.onNavigateDeploy).toHaveBeenCalledWith(null);
+    // якоря тура на вкладках на месте
+    expect(document.querySelector('[data-tour="mode-proc"]')).not.toBeNull();
+    expect(document.querySelector('[data-tour="mode-deploy"]')).not.toBeNull();
+  });
+
+  it("режим «Развёртывание» — из адреса: страница уровня без дерева, режим запоминается, экспорт погашен", async () => {
+    setup(null, "owner", { level: "c1" });
+    expect(screen.getByTestId("deployment-page")).toHaveAttribute("data-level", "c1");
+    expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("deploy");
+    // вкладка уже активна — повторный клик адрес не трогает
+    await userEvent.click(screen.getByRole("button", { name: "Развёртывание" }));
+    expect(nav.onNavigateDeploy).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
+    expect(screen.getByRole("menuitem", { name: "Экспорт" })).toBeDisabled();
+  });
+
+  it("смена уровня на странице развёртывания — навигация по адресу; новый адрес — новый уровень", async () => {
+    const view = setup(null, "owner", { level: null });
+    expect(screen.getByTestId("deployment-page")).toHaveAttribute("data-level", "root");
+    await userEvent.click(screen.getByRole("button", { name: "to-level" }));
+    expect(nav.onNavigateDeploy).toHaveBeenCalledWith("c2");
+    view.rerender(shell(null, "owner", { level: "c2" }));
+    expect(screen.getByTestId("deployment-page")).toHaveAttribute("data-level", "c2");
+  });
+
+  it("из «Развёртывания» в «Объекты» — на страницу проекта, там «Объекты» и режим запомнен", async () => {
+    const view = setup(null, "owner", { level: "c1" });
+    await userEvent.click(screen.getByRole("button", { name: "Объекты" }));
+    expect(nav.onNavigateProject).toHaveBeenCalledOnce();
+    view.rerender(shell(null, "owner"));
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("project-home")).toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("schema");
+  });
+
+  it("из «Развёртывания» в «Процессы» — на страницу проекта в режиме «Процессы»", async () => {
+    const view = setup(null, "owner", { level: null });
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    expect(nav.onNavigateProject).toHaveBeenCalledOnce();
+    view.rerender(shell(null, "owner"));
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("proc");
+  });
+
+  it("«назад» из «Развёртывания» на адрес проекта возвращает прежний режим", async () => {
+    const view = setup(null);
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    await userEvent.click(screen.getByRole("button", { name: "Развёртывание" }));
+    expect(nav.onNavigateDeploy).toHaveBeenCalledWith(null);
+    view.rerender(shell(null, "owner", { level: null }));
+    expect(screen.getByTestId("deployment-page")).toBeInTheDocument();
+    view.rerender(shell(null, "owner"));
+    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("proc");
+  });
+
+  it("из «Развёртывания» карточка ведёт на страницу объекта в режиме «Объекты»", async () => {
+    const view = setup(null, "owner", { level: null });
+    await userEvent.click(screen.getByRole("button", { name: "open-node" }));
+    expect(nav.onNavigateNode).toHaveBeenCalledWith("n7");
+    expect(nav.onNavigateProject).not.toHaveBeenCalled();
+    // адрес сменился на страницу объекта — оболочка в «Объектах»
+    view.rerender(shell("n7", "owner"));
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("node-page")).toBeInTheDocument();
+    expect(localStorage.getItem("archmap_mode")).toBe("schema");
+  });
+
+  it("запомненное «Развёртывание» без адреса режима — «Объекты» (адрес выправляет App)", () => {
+    localStorage.setItem("archmap_mode", "deploy");
+    setup("n1");
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("node-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("deployment-page")).toBeNull();
+  });
+
+  it("неизвестный сохранённый режим — «Объекты»", () => {
+    localStorage.setItem("archmap_mode", "nonsense");
+    setup(null);
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
   });
 
   it("в «Процессы» без выбранного процесса пункт экспорта заблокирован", async () => {

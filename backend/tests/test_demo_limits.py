@@ -430,6 +430,39 @@ def test_превью_синка_и_догрузки(client, db, small):
     assert _size(db, small).nodes == 4
 
 
+# Новый проект на двух объектах и трёх площадках: предел площадок — два.
+SITES = """
+nodes:
+  - name: api
+    sites: [Кластер, ВМ]
+  - name: worker
+    sites: [Стойка]
+deployment:
+  sites:
+    - {name: Облако, kind: cloud}
+    - {name: Кластер, kind: kubernetes, parent: Облако}
+"""
+
+
+def test_площадки_ввоза_сверх_предела(client, db, small, monkeypatch):
+    monkeypatch.setattr(demo, "MAX_SITES", 2)
+    projects = db.query(Project).count()
+    files = [("files", ("run.yaml", SITES.encode(), "text/yaml"))]
+
+    res = client.post(f"{API}/projects/import/unified-preview", files=files, headers=small["h"])
+    # Облако и Кластер объявлены, ВМ и Стойка — неявные: всего четыре при пределе два.
+    assert res.status_code == 200, res.text
+    assert res.json()["demo_excess"] == {"kind": "sites", "actual": 4, "limit": 2}
+
+    res = client.post(f"{API}/projects/import-unified", files=files, data={"name": "Площадки"},
+                      headers=small["h"])
+    assert res.status_code == 409 and res.json()["code"] == DEMO_LIMIT_CODE
+    assert res.json()["detail"] == (
+        "Демо-проект поддерживает до 2 площадок. Удалите ненужные, чтобы добавить новые."
+    )
+    assert db.query(Project).count() == projects
+
+
 def test_превью_вне_демо_без_превышения(client, scene):
     res = client.post(f"{API}/projects/import/unified-preview",
                       files=[("files", ("run.yaml", GROWN.encode(), "text/yaml"))],

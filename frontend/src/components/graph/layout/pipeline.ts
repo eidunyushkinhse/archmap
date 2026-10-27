@@ -35,7 +35,7 @@ import { projectGhosts } from "./projectGhosts";
 import { layoutLevel } from "./engine";
 import { assignEdgeHandles } from "./level";
 import { placeGhostsOnRings, collectGhostSeeds } from "./ringPlacement";
-import { computeFrames, frameLocalIds, framePlaqueRect, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
+import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN, type FrameRect } from "./frames";
 import { enforceFramesKeepOut, keepOutOfExpandedFrames } from "./keepGhostsOut";
 import { separateOverlappingNodes } from "./separateNodes";
 import { separateGuests } from "./separateGuests";
@@ -131,6 +131,10 @@ export interface PipelineInput {
   // состав неполным нельзя, иначе стрелки не посчитались бы никогда. Не задан — false
   // (прежнее поведение: реплей/полигоны/тесты гоняют полные составы).
   childrenLazyLoad?: boolean;
+  // ПРЕДЕЛ ИНЛАЙН-ВЛОЖЕННОСТИ локальных раскрытий (container.md C8). Не задан —
+  // MAX_INLINE_DEPTH (прежнее поведение). Холст развёртывания передаёт Infinity:
+  // площадки вкладываются без предела (docs/specs/deployment.md).
+  maxInlineDepth?: number;
   // РЕАЛЬНЫЕ габариты узлов из DOM (node.measured, V2.2b): узлы растут по контенту, и
   // стадии КАЧЕСТВА СТРЕЛОК (роутер/плашки/детуры) обязаны видеть настоящие тела —
   // иначе маршрут ложится «по грани»/поверх реального узла (канон libavoid: препятствия
@@ -315,7 +319,7 @@ export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | n
 
 // Сигнатура входов роутинга (гашение осцилляций): всё, что видит роутер и
 // плашки — позиции/габариты отображаемых сущностей, мастер-рёбра с подписями
-// и скоупом, раскрытые рамки с плашками и составом. Детерминированная сборка:
+// и скоупом, раскрытые рамки (rect и состав). Детерминированная сборка:
 // одинаковые входы → одинаковая сигнатура; любое изменение, влияющее на
 // маршруты/хэндлы/плашки, её меняет (позиции, габариты, состав узлов/рёбер,
 // подписи, скоуп, рамки).
@@ -327,7 +331,6 @@ export function buildRouteSig(
   routableIds: ReadonlySet<string>,
   frames: ReadonlyArray<{
     rect: { x: number; y: number; w: number; h: number };
-    plaque: { x: number; y: number; w: number; h: number };
     memberIds: ReadonlySet<string>;
   }>,
 ): string {
@@ -342,7 +345,7 @@ export function buildRouteSig(
     parts.push(`e${g.id}:${g.source}>${g.target}:${m ? `${m.text}#${m.lines}` : ""}:${routableIds.has(g.id) ? 1 : 0}`);
   }
   for (const f of frames) {
-    parts.push(`f:${f.rect.x},${f.rect.y},${f.rect.w},${f.rect.h}|${f.plaque.x},${f.plaque.y},${f.plaque.w},${f.plaque.h}|${[...f.memberIds].sort().join(",")}`);
+    parts.push(`f:${f.rect.x},${f.rect.y},${f.rect.w},${f.rect.h}|${[...f.memberIds].sort().join(",")}`);
   }
   return parts.join(";");
 }
@@ -354,6 +357,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     expanded, localChildren, childrenLazyLoad, sizes, prevRoutes, prevEdgeHandles, scopeNodeIds,
     prevRouteSig, prevLabelPlacements, prevScene,
   } = input;
+  const inlineDepth = input.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const intents: PersistIntent[] = [];
 
   // ТРАССИРОВКА СТАДИЙ (перф-эпик 2026-08-20): необязательный хук __ARCHMAP_TRACE на
@@ -402,12 +406,13 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // раскрытый локал, чьи дети ещё не приехали (запись в localChildren отсутствует —
     // пустой массив означает «загружено, детей нет» и неполнотой не является)
     if (childrenLazyLoad && expanded.has(n.id) && localChildren[n.id] === undefined
-      && path.length < MAX_INLINE_DEPTH) hasPendingChildren = true;
+      && path.length < inlineDepth) hasPendingChildren = true;
     // R5 с пределом глубины (C8): инлайн раскрываем, пока узел НЕ глубже
-    // MAX_INLINE_DEPTH слоёв от уровня (path.length = число раскрытых предков над
-    // узлом). Узел на пределе остаётся свёрнутым, даже если expanded персистно —
-    // рендерер не строит рамки глубже лимита (глубже — только «Войти»).
-    if (kids && kids.length > 0 && path.length < MAX_INLINE_DEPTH) {
+    // inlineDepth слоёв от уровня (path.length = число раскрытых предков над
+    // узлом; предел — MAX_INLINE_DEPTH или вход maxInlineDepth). Узел на пределе
+    // остаётся свёрнутым, даже если expanded персистно — рендерер не строит рамки
+    // глубже лимита (глубже — только «Войти»).
+    if (kids && kids.length > 0 && path.length < inlineDepth) {
       absorbed.add(n.id);
       const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
       for (const k of kids) expandLocal(k, deeper);
@@ -822,19 +827,12 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   mark("рамки+засев");
   // Раскрытые рамки для роутера (V2.4, container-aware): граница рамки — штраф за
   // переход (чужие рёбра обходят, внутренние не выскакивают, ребро внутрь платит один
-  // переход — «ворота» выбирает A*), плашка подписи — жёсткое препятствие. Позиции
+  // переход — «ворота» выбирает A*). Плашка подписи рамки препятствием НЕ служит
+  // (E21, 2026-10-27): линия проходит под ней, плашка рисуется над линиями. Позиции
   // здесь финальные — rect тот же, что у compound-рамок сборки.
   const routerFrames = finalFrames
     .filter((f) => !f.native)
-    .map((f) => ({
-      id: f.id,
-      rect: f.rect,
-      // плашка подписи: слева-внизу рамки (nodes.tsx FrameNode), ширина — моноширинная
-      // оценка «🔍 имя ✕» с паддингами. Формула — в frames.ts (framePlaqueRect):
-      // она константа контракта маршрутов и обязана быть видима реестру ROUTER_VERSION.
-      plaque: framePlaqueRect(f.rect, f.name),
-      memberIds: f.memberIds,
-    }));
+    .map((f) => ({ id: f.id, rect: f.rect, memberIds: f.memberIds }));
 
   // КОНЦЫ-РАМКИ: прямоугольник рамки становится телом стыковки — роутер раздаёт по нему
   // те же 12 портов, что по узлу. В препятствия рамка при этом НЕ идёт (внутри неё живут
@@ -902,7 +900,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // КЭШ-ХИТ ПО СИГНАТУРЕ (он же — прежнее ГАШЕНИЕ ОСЦИЛЛЯЦИЙ, 2026-08-06). Входы
   // роутинга совпали с прошлым прогоном ПО БИТАМ → результат берётся ЦЕЛИКОМ из prev.
   // ЭКВИВАЛЕНТНОСТЬ: sig покрывает ВСЁ, что видят роутер и плашки (позиции/габариты
-  // отображаемых, мастер-рёбра с подписями и routable-флагом, рамки с плашками), а
+  // отображаемых, мастер-рёбра с подписями и routable-флагом, рамки с составом), а
   // константы алгоритмов сторожит ROUTER_VERSION (routerVersion.ts) — значит полный
   // прогон вернул бы ровно prev, и подстановка байт-в-байт равна счёту. Более того,
   // удержание prev — ЕДИНСТВЕННЫЙ фикспойнт: роутер не идемпотентен относительно prev
@@ -1011,9 +1009,10 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // ПОЛИРОВКА ДЖОГОВ ПОСЛЕ НУДЖИНГА (T2 «читаемые пучки»): и роутер (перескок из-за
   // штрафа езды), и канальная разводка умеют оставить короткую «ступеньку» посреди
   // коридора. straightenJogs гоняем по финальной геометрии: те же гарантии — не режет
-  // тела/плашки рамок, не прижимается (JOG_CLEAR), не дорожает по крестам/езде.
+  // тела, не прижимается (JOG_CLEAR), не дорожает по крестам/езде. Плашки рамок — не
+  // препятствие (E21), поэтому препятствия здесь — только тела узлов.
   {
-    const jogObstacles = [...nodeRects, ...routerFrames.map((f) => f.plaque)];
+    const jogObstacles = nodeRects;
     const segsById = new Map<string, PlacedSeg[]>();
     for (const [id, rt] of autoRoutes) segsById.set(id, toPlacedSegs(rt));
     const polished = new Map<string, EdgePoint[]>();

@@ -1,6 +1,7 @@
-// Карточка «Свойства» страницы объекта (аудит F-5): тип, размещение, статус, роль,
-// технология, якорь, описание — у архитектора правкой на месте (inline CAS через
-// useNodePatch), у наблюдателя текстом. Выпадашки типа и статуса — одна PropDropdown.
+// Карточка «Свойства» страницы объекта (аудит F-5): тип, принадлежность, статус, роль,
+// технология, якорь, размещение, описание — у архитектора правкой на месте (inline CAS
+// через useNodePatch; размещение — окном), у наблюдателя текстом. Выпадашки типа и
+// статуса — одна PropDropdown.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { NodeStatus } from "../../types";
@@ -8,6 +9,7 @@ import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
 import AnchorField from "../anchor/AnchorField";
+import PlacementRow from "./PlacementRow";
 import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
 
@@ -72,13 +74,15 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
   );
 }
 
-export default function NodeProperties({ patch, isArchitect, isContainer, techLoading, aggTech }: {
+export default function NodeProperties({ patch, isArchitect, isContainer, techLoading, aggTech, onPlacementChanged }: {
   patch: NodePatch;
   isArchitect: boolean;
   // Контейнер: своей технологии нет — показывается сводная технология потомков.
   isContainer: boolean;
   techLoading: boolean;
   aggTech: string;
+  // Размещение записано из окна строки «Размещение» — страница перечитывает узел.
+  onPlacementChanged: () => void;
 }) {
   const node = patch.node;
   const shape = node.shape;
@@ -104,13 +108,14 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
           )}
         </span>
 
-        {/* Размещение. Внешность — относительно контура ОРГАНИЗАЦИИ (спека
-            N2а): чужой продукт/сторона, а не «вне системы» — границу системы
-            выражает дерево. Подсказка снимает двусмысленность (QA Zabbix v4).
+        {/* Принадлежность (до Ф3 развёртывания — «Размещение»: слово ушло площадкам).
+            Внешность — относительно контура ОРГАНИЗАЦИИ (спека N2а): чужой
+            продукт/сторона, а не «вне системы» — границу системы выражает дерево.
+            Подсказка снимает двусмысленность (QA Zabbix v4).
             Тогл «включён» = ВНУТРЕННИЙ (решение пользователя 2026-09-04): свой
             сервис — активный синий, чужой — серый, как точка у наблюдателя ниже.
             Данные не инвертируются — только вид. */}
-        <span className="np-term" title={EXTERNAL_HINT}>Размещение</span>
+        <span className="np-term" title={EXTERNAL_HINT}>Принадлежность</span>
         <span className="np-value" title={EXTERNAL_HINT}>
           {isArchitect ? (
             <button type="button" className="np-toggle" onClick={patch.toggleExternal} aria-pressed={!patch.isExternal}>
@@ -206,6 +211,12 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
             onSave={patch.commitSource}
           />
         </span>
+
+        {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
+            «Пользователя» размещения нет: он живёт вне системы. */}
+        {shape !== "person" && (
+          <PlacementRow node={node} isArchitect={isArchitect} onChanged={onPlacementChanged} />
+        )}
 
         {/* Описание — последняя строка таблицы свойств */}
         <span className="np-term np-term--top">Описание</span>

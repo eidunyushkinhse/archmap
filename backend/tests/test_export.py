@@ -15,8 +15,10 @@ from conftest import ensure_project
 from fastapi import HTTPException
 
 from app.archive_export import build_archive, build_archive_ordered
-from app.export import build_export_ordered
+from app.export import build_export, build_export_ordered
 from app.import_yaml import parse_import
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -365,3 +367,139 @@ def test_архив_отдаёт_порядок_узлов_своего_c4(db):
     assert [n.name for n in parsed.nodes] == [
         db.get(Node, nid).name for nid in порядок
     ] == ["Ярмарка", "orders"]
+
+
+# ── Раздел deployment (Ф4 эпика развёртывания) ───────────────────────────────
+
+
+def _site(db, name, parent=None, **kw):
+    s = DeploymentSite(
+        id=uuid.uuid4(),
+        name=name,
+        parent_id=parent.id if parent else None,
+        project_id=ensure_project(db).id,
+        **kw,
+    )
+    db.add(s)
+    db.flush()
+    return s
+
+
+def _place(db, node, site):
+    db.flush()  # узел фабрики _node ещё не записан, а FK экземпляра проверяется сразу
+    db.add(DeploymentInstance(project_id=node.project_id, node_id=node.id, site_id=site.id))
+    db.flush()
+
+
+def _площадки(db) -> dict:
+    """Облако → Кластер prod, отдельная ВМ-2 и пустая «Стойка». Размещение — только у
+    объектов: API Витрины — в кластере и на ВМ, Корзина — в облаке, Платежи — на ВМ."""
+    облако = _site(db, "Облако", kind="cloud", technology="Yandex Cloud")
+    кластер = _site(db, "Кластер prod", облако, kind="kubernetes", description="прод")
+    вм = _site(db, "ВМ-2", kind="vm")
+    _site(db, "Стойка")  # пустая площадка: вид other, без технологии
+    витрина = _node(db, "Витрина")
+    api = _node(db, "API", витрина)
+    корзина = _node(db, "Корзина", витрина)
+    платежи = _node(db, "Платежи")
+    _place(db, корзина, облако)
+    _place(db, api, кластер)
+    _place(db, api, вм)
+    _place(db, платежи, вм)
+    db.commit()
+    return {"витрина": витрина, "api": api, "платежи": платежи, "облако": облако}
+
+
+def test_экспорт_пишет_раздел_площадок_и_площадки_объектов(db):
+    _площадки(db)
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+
+    # Родители раньше детей, внутри — по имени; пустые поля и вид «other» не пишутся.
+    assert doc["deployment"] == {
+        "sites": [
+            {"name": "ВМ-2", "kind": "vm"},
+            {"name": "Облако", "kind": "cloud", "technology": "Yandex Cloud"},
+            {"name": "Кластер prod", "kind": "kubernetes", "description": "прод",
+             "parent": "Облако"},
+            {"name": "Стойка"},
+        ]
+    }
+    витрина, платежи = doc["nodes"]
+    # Объекты Витрины стоят на разных площадках — у неё самой ключа sites нет.
+    assert витрина["name"] == "Витрина" and "sites" not in витрина
+    assert платежи["sites"] == ["ВМ-2"]
+    api, корзина = витрина["children"]
+    # Площадки объекта — в порядке площадок по имени.
+    assert api["sites"] == ["ВМ-2", "Кластер prod"]
+    assert корзина["sites"] == ["Облако"]
+    assert list(витрина) == ["name", "shape", "children"]
+    # Раздел — последним, после связей.
+    assert list(doc) == ["nodes", "edges", "deployment"]
+
+
+def test_контейнер_с_объектами_на_одном_наборе_пишет_sites_сам(db):
+    """Все объекты контейнера стоят на одном наборе площадок — sites пишется у
+    контейнера, а у поддерева нет (импорт раздаёт объявление контейнера объектам:
+    test_import). Ключ sites — после source и до children."""
+    узлы = _площадки(db)
+    _place(db, узлы["api"], узлы["облако"])
+    db.commit()
+    # API: ВМ-2, Кластер prod, Облако — всё ещё не как у Корзины (только Облако)
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    assert "sites" not in doc["nodes"][0]
+
+    db.query(DeploymentInstance).filter(DeploymentInstance.node_id == узлы["api"].id).delete()
+    _place(db, узлы["api"], узлы["облако"])
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    витрина = doc["nodes"][0]
+    assert витрина["sites"] == ["Облако"]
+    assert list(витрина) == ["name", "shape", "sites", "children"]
+    assert all("sites" not in k for k in витрина["children"])
+
+
+def test_экспорт_поддерева_берёт_нужные_площадки_с_предками(db):
+    узлы = _площадки(db)
+
+    doc = yaml.safe_load(
+        export_subtree(node_id=узлы["api"].id, db=db, project=ensure_project(db)).content
+    )
+
+    # API стоит в кластере и на ВМ; облако — предок кластера и едет с ним, иначе
+    # раздел сослался бы на необъявленного родителя. Пустая «Стойка» не нужна.
+    assert [s["name"] for s in doc["deployment"]["sites"]] == ["ВМ-2", "Облако", "Кластер prod"]
+    assert doc["nodes"][0]["sites"] == ["ВМ-2", "Кластер prod"]
+    parsed, ошибки = parse_import(
+        export_subtree(node_id=узлы["api"].id, db=db, project=ensure_project(db)).content
+    )
+    assert ошибки == [] and parsed is not None and parsed.warnings == []
+
+
+def test_поддерево_без_размещения_раздела_не_пишет(db):
+    _площадки(db)
+    одиночка = _node(db, "Одиночка")
+    db.commit()
+
+    doc = yaml.safe_load(
+        export_subtree(node_id=одиночка.id, db=db, project=ensure_project(db)).content
+    )
+
+    assert doc == {"nodes": [{"name": "Одиночка", "shape": "service"}], "edges": []}
+
+
+def test_без_площадок_документ_байт_в_байт_прежний(db):
+    корень = _node(db, "Ярмарка", technology="Python")
+    orders = _node(db, "orders", корень)
+    _edge(db, orders, корень, label="зовёт")
+    db.commit()
+    узлы = db.query(Node).filter(Node.project_id == ensure_project(db).id).all()
+    рёбра = db.query(Edge).filter(Edge.project_id == ensure_project(db).id).all()
+
+    текст = export_all(db=db, project=ensure_project(db)).content
+
+    # Вызов без площадок (прежняя сигнатура) и роутер с пустым проектом площадок дают
+    # один и тот же текст — без раздела deployment и без ключа sites у узлов.
+    assert текст == build_export(узлы, рёбра)
+    assert "deployment" not in текст and "sites" not in текст

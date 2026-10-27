@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain_types import NodeApproval, NodeShape, NodeStatus
+from app.domain_types import NodeApproval, NodeShape, NodeStatus, SiteKind
 from app.schemas.node_doc import NodeDocMeta
 from app.schemas.view import ViewLayoutPayload
 
@@ -43,6 +43,25 @@ class AnchorPreviewOut(BaseModel):
     kind: Literal["code", "dependency"] | None = None
     # Канонический ключ (nodes.source_ref) — то, чем узел будет опознаваться.
     key: str | None = None
+
+
+class NodeSiteOut(BaseModel):
+    """Площадка, на которой стоит объект (строка «Размещение» страницы объекта и
+    карточка MCP; docs/tasks/deployment-view.md).
+
+    id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
+    Облако»); имя — в ответе, чтобы строке «Размещение» и карточке MCP не ходить за
+    списком площадок. partial — только у контейнера: на площадке стоит часть его
+    объектов, а не все (у объекта всегда False)."""
+
+    id: uuid.UUID
+    name: str
+    kind: SiteKind
+    parent_id: uuid.UUID | None = None
+    parent_name: str | None = None
+    partial: bool = False
+
+    model_config = {"from_attributes": True}
 
 
 class NodeCreate(BaseModel):
@@ -90,6 +109,12 @@ class NodeUpdate(BaseModel):
     # кладётся в source_ref сильнейшим ключом. Разбор и отказы — в routers.nodes,
     # чтобы 422 приходил в общем формате {"detail": "…"}, а не списком pydantic.
     source: NodeSource | None = None
+    # РАЗМЕЩЕНИЕ — набор площадок, где объект крутится, ЦЕЛИКОМ (как PUT
+    # /deployment/placements для одного объекта). Не прислано (или null) — не
+    # трогаем; [] — снять всё своё размещение (останется унаследованное от предка).
+    # У «Пользователя» — 422: он живёт вне системы. CAS узла правка размещения не
+    # двигает: это не колонка узла, а набор строк экземпляров.
+    site_ids: list[uuid.UUID] | None = None
     # CAS (этап 0 конкурентности): версия узла, от которой клиент правил. Не
     # совпала с текущей → 409 (узел изменён другой сессией — критично для текста
     # openapi_spec). None — без проверки (компенсации undo, совместимость).
@@ -127,6 +152,11 @@ class NodeResponse(BaseModel):
     # объекта, ключ — для синка и внутренних сверок.
     source_ref: str | None = None
     source: NodeSource | None = None
+    # Размещение (app/deployment.mark_sites): площадки объекта, у контейнера —
+    # площадки его объектов (где стоит часть — partial). Вычисляется в выдачах
+    # роутера узлов; граф уровня и контекст-схема его НЕ заполняют (холст объектов
+    # размещение не показывает) — там всегда [].
+    sites: list[NodeSiteOut] = []
     # Версия для optimistic CAS: клиент шлёт её обратно как base_version в PATCH.
     version: int = 1
     created_at: datetime

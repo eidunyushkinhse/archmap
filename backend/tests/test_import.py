@@ -13,9 +13,12 @@ import pytest
 import yaml
 from conftest import seed_project_from_yaml
 
+from app.deployment import ordered_instances, project_sites
 from app.export import build_export
 from app.import_merge import parse_and_merge
 from app.import_yaml import MAX_DEPTH, parse_import, seed_import
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
@@ -1099,3 +1102,168 @@ def test_preview_считает_узлы_без_якоря(db):
     assert out.ok and out.node_count == 3
     assert out.nodes_without_anchor == 2  # корень «Система» и «orders»
     assert out.merged_nodes == []  # один файл — склеек нет
+
+
+# ── Площадки развёртывания: раздел deployment и sites у узла (Ф4) ─────────────
+
+РАЗМЕЩЕНИЕ = """
+nodes:
+  - name: Витрина
+    sites: [Облако]
+    children:
+      - name: API
+        sites: [Кластер prod, ВМ-2, Кластер prod]
+      - name: Корзина
+  - name: Покупатель
+    shape: person
+edges: []
+deployment:
+  sites:
+    - name: Кластер prod
+      kind: kubernetes
+      technology: k3s
+      parent: Облако
+    - name: Облако
+      kind: cloud
+      description: прод
+    - name: ВМ-2
+      kind: vm
+"""
+
+
+def test_площадки_разбираются_родители_раньше_детей():
+    parsed, ошибки = parse_import(РАЗМЕЩЕНИЕ)
+
+    assert ошибки == [] and parsed is not None and parsed.warnings == []
+    # Кластер объявлен раньше облака, но в разборе родитель идёт первым.
+    assert [(s.name, s.kind, s.parent_idx) for s in parsed.sites] == [
+        ("Облако", "cloud", None),
+        ("Кластер prod", "kubernetes", 0),
+        ("ВМ-2", "vm", None),
+    ]
+    assert (parsed.sites[1].technology, parsed.sites[0].description) == ("k3s", "прод")
+    # Повтор имени у одного узла схлопнут молча; у ребёнка без ключа — пусто.
+    assert [(n.name, n.sites) for n in parsed.nodes] == [
+        ("Витрина", ["Облако"]),
+        ("API", ["Кластер prod", "ВМ-2"]),
+        ("Корзина", []),
+        ("Покупатель", []),
+    ]
+
+
+def test_неявная_площадка_создаётся_с_предупреждением():
+    parsed, ошибки = parse_import("nodes:\n  - name: API\n    sites: [prod, prod]\n")
+
+    assert ошибки == [] and parsed is not None
+    assert [(s.name, s.kind, s.declared) for s in parsed.sites] == [("prod", "other", False)]
+    assert parsed.warnings == [
+        "площадка «prod» не объявлена в deployment — создана с видом «другое»"
+    ]
+
+
+def test_размещение_пользователя_игнорируется_с_замечанием():
+    parsed, ошибки = parse_import(
+        "nodes:\n  - name: Клиент\n    shape: person\n    sites: [prod]\n"
+    )
+
+    assert ошибки == [] and parsed is not None
+    assert parsed.nodes[0].sites == [] and parsed.sites == []
+    assert parsed.warnings == [
+        "nodes[0].sites: у пользователя нет размещения — список проигнорирован"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("площадки", "ошибка"),
+    [
+        ("[{name: A, kind: dc}]",
+         "deployment.sites[0]: kind 'dc' не поддерживается "
+         "(cloud | kubernetes | vm | physical | other)"),
+        ("[{name: A, parent: Б}]",
+         "deployment.sites[0].parent: площадка «Б» не объявлена в deployment.sites"),
+        ("[{name: A, parent: A}]",
+         "deployment.sites[0].parent: площадка не может быть вложена сама в себя"),
+        ("[{name: A, parent: B}, {name: B, parent: C}, {name: C, parent: A}]",
+         "deployment.sites[0].parent: цикл вложенности площадок («A» → «B» → «C» → «A»)"),
+        ("[{name: A}, {name: A}]", "deployment.sites[1]: площадка «A» объявлена дважды"),
+        ("[{name: '  '}]", "deployment.sites[0]: name — обязательная непустая строка"),
+        ("[{name: A, technology: [k3s]}]", "deployment.sites[0].technology: ожидается строка"),
+        ("{name: A}", "deployment.sites: ожидается список площадок"),
+    ],
+)
+def test_ошибки_раздела_площадок(площадки, ошибка):
+    parsed, ошибки = parse_import(f"nodes: []\ndeployment:\n  sites: {площадки}\n")
+
+    assert parsed is None
+    assert ошибки == [ошибка]
+
+
+def test_ошибки_ключа_sites_у_узла():
+    parsed, ошибки = parse_import(
+        "nodes:\n  - name: A\n    sites: prod\n  - name: B\n    sites: [prod, 3]\n"
+    )
+
+    assert parsed is None
+    assert ошибки == [
+        "nodes[0].sites: ожидается список имён площадок",
+        "nodes[1].sites[1]: ожидается имя площадки строкой",
+    ]
+
+
+def test_документ_без_раздела_и_ключа_разбирается_по_прежнему():
+    parsed, ошибки = parse_import("nodes:\n  - name: A\nedges: []\n")
+
+    assert ошибки == [] and parsed is not None
+    assert parsed.sites == [] and parsed.nodes[0].sites == [] and parsed.warnings == []
+
+
+def test_посев_создаёт_площадки_и_экземпляры(db):
+    parsed, _ = parse_import(РАЗМЕЩЕНИЕ)
+    assert parsed is not None
+    p = _project(db)
+
+    ids = seed_import(db, p.id, parsed)
+    db.commit()
+
+    площадки = {s.name: s for s in db.query(DeploymentSite).filter(DeploymentSite.project_id == p.id)}
+    assert set(площадки) == {"Облако", "Кластер prod", "ВМ-2"}
+    assert площадки["Кластер prod"].parent_id == площадки["Облако"].id
+    assert (площадки["Кластер prod"].kind, площадки["Кластер prod"].technology) == (
+        "kubernetes", "k3s"
+    )
+    имя_площадки = {s.id: name for name, s in площадки.items()}
+    имя_узла = dict(zip(ids, (n.name for n in parsed.nodes), strict=True))
+    экземпляры = {
+        (имя_узла[i.node_id], имя_площадки[i.site_id])
+        for i in db.query(DeploymentInstance).filter(DeploymentInstance.project_id == p.id)
+    }
+    # Размещение — у объектов: API — своё объявление, Корзина — объявление контейнера
+    # «Витрина» (размещается целиком), у самой «Витрины» экземпляров нет.
+    assert экземпляры == {("Корзина", "Облако"), ("API", "Кластер prod"), ("API", "ВМ-2")}
+
+
+def test_roundtrip_площадок_байт_в_байт(db):
+    """Экспорт → импорт → экспорт: раздел deployment и sites узлов возвращаются теми
+    же байтами (у нового проекта другие id, а документ — тот же)."""
+    parsed, _ = parse_import(РАЗМЕЩЕНИЕ)
+    assert parsed is not None
+    src = _project(db, "Источник")
+    seed_import(db, src.id, parsed)
+    db.commit()
+
+    def экспорт(project_id) -> str:
+        nodes = db.query(Node).filter(Node.project_id == project_id).all()
+        edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+        sites = project_sites(db, project_id)
+        return build_export(nodes, edges, sites=sites,
+                            instances=ordered_instances(db, project_id, sites))
+
+    первый = экспорт(src.id)
+    повтор, ошибки = parse_import(первый)
+    assert ошибки == [] and повтор is not None
+    dst = _project(db, "Приёмник")
+    seed_import(db, dst.id, повтор)
+    db.commit()
+
+    assert "deployment:" in первый and "sites:" in первый
+    assert экспорт(dst.id) == первый

@@ -50,13 +50,20 @@ export interface RouteCacheStore {
   save(key: string, entry: RouteCacheEntry): void;
 }
 
-/** Ключ вида: проект + уровень + поверхность (карта против контекст-схемы страницы). */
+/**
+ * Ключ вида: проект + уровень + поверхность (карта против контекст-схемы страницы) +
+ * признак проекции. projection — холст с составом от хозяина (развёртывание: "deploy")
+ * делит уровень и view_id с холстом объектов, но сцена у него своя: без суффикса кэш
+ * маршрутов одного холста отравлял бы другой. Не задан — прежний ключ байт-в-байт.
+ */
 export function viewCacheKey(
   projectId: string | null,
   containerId: string | null,
   layoutViewId?: string,
+  projection?: string,
 ): string {
-  return `${projectId ?? "__noproject__"}|${containerId ?? "__root__"}|${layoutViewId ?? "-"}`;
+  const base = `${projectId ?? "__noproject__"}|${containerId ?? "__root__"}|${layoutViewId ?? "-"}`;
+  return projection ? `${base}|${projection}` : base;
 }
 
 /** Свернуть результат прогона в запись кэша. `at` берётся вызывающим (клиентский код). */

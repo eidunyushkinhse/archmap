@@ -10,7 +10,8 @@ import type { Node as AppNode, NodeStatus, AncestorRef } from "../../types";
 import { canHaveChildren } from "../../types";
 import { MAX_INLINE_DEPTH } from "./constants";
 import type {
-  WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, QuickConnectHandlers,
+  WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, FrameDecor, QuickConnectHandlers,
+  SiteCardData,
 } from "./types";
 import { edgeText } from "./text";
 import { getNodeColors, STATUS_META } from "./colors";
@@ -21,6 +22,15 @@ import { parentFrameOf, deepestFrameContaining } from "./layout/frames";
 // Стиль приглушения узла, скрытого фильтром «Вид схемы» (мгновенно, без transition —
 // см. ТЗ: fade на opacity в наших прогонах вёл себя нестабильно).
 const DIM_STYLE = { opacity: 0.12, pointerEvents: "none" as const };
+// z-index всех блоков (карточки, гости, свёрнутые контейнеры, карточки площадок): НАД
+// рёбрами и НАД слоем плашек подписей. RF даёт ребру z его вложенного конца (ребёнка
+// рамки), а ребёнку рамки — не меньше z родителя + 1: при рамке в рамке в рамке
+// (площадки развёртывания) рёбра доходили до z:2 и резали плашки на z:1. Явный z у
+// блоков один на любой вложенности, рёбра получают его же, слой плашек стоит на том
+// же числе (LevelGraph.css, .react-flow__edgelabel-renderer) — при равном z побеждает
+// DOM-порядок: рёбра < плашки < блоки. Рамки ниже: отрицательный z, у вложенной —
+// z родителя + 1, до BLOCK_Z не дотягивает.
+const BLOCK_Z = 10;
 
 // Снимок колбэков узлов/рёбер (latest-ref cbRef в LevelGraph).
 export interface AssembleCallbacks {
@@ -31,6 +41,8 @@ export interface AssembleCallbacks {
   collapseContainer: (id: string) => void;
   openEdgeMembers: (memberIds: string[]) => void;
   quickConnect: QuickConnectHandlers;
+  // режим выбора площадки хозяина (LevelProjectionProps.pickFrame); нет — режима нет
+  pickFrame?: (id: string) => void;
 }
 
 export function assembleRfGraph(params: {
@@ -50,8 +62,27 @@ export function assembleRfGraph(params: {
   depth: number;
   schemaView: SchemaView;
   getCb: () => AssembleCallbacks;
+  // ПРОЕКЦИЯ ХОЗЯИНА (LevelProjectionProps, холст развёртывания). Все необязательны:
+  // не заданы — сборка прежняя байт-в-байт. maxInlineDepth — предел гейта лупы вместо
+  // MAX_INLINE_DEPTH (тот же вход, что у конвейера); frameDecor — декор рамки по id;
+  // marks — пометка карточки по id блока; expandableIds — раскрываемые контейнеры
+  // (ключи карты состава проекции): лупа только у них, у прочих карточек с детьми
+  // (цельный контейнер развёртывания) её нет вовсе, бейдж детей остаётся.
+  maxInlineDepth?: number;
+  frameDecor?: (frameId: string) => FrameDecor | undefined;
+  marks?: Record<string, string>;
+  // depths — глубина цвета карточки по id блока (вместо глубины уровня + вложенности рамки)
+  depths?: Record<string, number>;
+  expandableIds?: ReadonlySet<string>;
+  // Режим выбора площадки (pickFrame хозяина задан): рамки, карточки площадок и объектов
+  // получают onPick — щелчок зовёт getCb().pickFrame(id) в момент клика.
+  picking?: boolean;
 }): { nextNodes: RFNode[]; nextEdges: RFEdge[] } {
   const { layout, isArchitect, isReadOnly, drillNav, relevantCounts, depth, schemaView, getCb } = params;
+  const { frameDecor, marks, depths, expandableIds, picking } = params;
+  // Колбэк выбора — один на сборку, лениво через getCb (как остальные обработчики).
+  const pick = picking ? { onPick: (id: string) => getCb().pickFrame?.(id) } : null;
+  const inlineDepth = params.maxInlineDepth ?? MAX_INLINE_DEPTH;
   const {
     nodes: layoutNodes, entities, positions, edgeHandles,
     autoRoutes, labelPlacements, guestFrames, levelFrame, frameEnds, groupArr, spacers,
@@ -77,11 +108,12 @@ export function assembleRfGraph(params: {
     return n;
   };
   // Предел инлайн-раскрытия (C8): контейнер внутри рамки, вложенной уже на
-  // MAX_INLINE_DEPTH слоёв, лупой не раскрывается. Лупу при этом НЕ убираем — она
-  // остаётся неактивной и по клику объясняет предел (иначе кнопка просто исчезает и
-  // непонятно, почему у одинаковых с виду контейнеров разный набор действий).
+  // inlineDepth слоёв (MAX_INLINE_DEPTH или вход проекции), лупой не раскрывается.
+  // Лупу при этом НЕ убираем — она остаётся неактивной и по клику объясняет предел
+  // (иначе кнопка просто исчезает и непонятно, почему у одинаковых с виду
+  // контейнеров разный набор действий).
   const atInlineLimit = (pf: (typeof guestFrames)[number] | null): boolean =>
-    (pf ? frameNesting(pf) : 0) >= MAX_INLINE_DEPTH;
+    (pf ? frameNesting(pf) : 0) >= inlineDepth;
   // Статус каждой ОТОБРАЖАЕМОЙ сущности (для цвета рёбер и фильтра вида). Блок —
   // свой status; гость-лист — статус реального узла; свёрнутый контейнер статуса
   // не носит → existing. Ключ — id отображаемой сущности (как в g.source/g.target).
@@ -125,6 +157,18 @@ export function assembleRfGraph(params: {
     // Реальный rect из раскладки; тело прозрачно для мыши (см. FrameNode).
     ...guestFrames.map((f) => {
       const pf = frameOfFrame(f);
+      // Декор рамки по данным хозяина (холст развёртывания): площадка/группа. Рамку с
+      // collapsible: false (группа «не указано») не свернуть — onCollapse не задаётся,
+      // крестика нет; площадка сворачивается, как рамка раскрытия.
+      const decor = frameDecor?.(f.id);
+      const data: FrameData = decor?.collapsible === false
+        ? { name: f.name, decor, ...pick }
+        : {
+            name: f.name,
+            onCollapse: () => getCb().collapseContainer(f.id),
+            ...(decor ? { decor } : null),
+            ...pick,
+          };
       // Рамки НЕ таскаются (запрет движения рамок, 2026-07-08): rect рамки всегда
       // производен от детей — двигаются только сами узлы.
       return {
@@ -139,10 +183,7 @@ export function assembleRfGraph(params: {
         draggable: false,
         selectable: false,
         zIndex: -1, // под узлами (и под их рёбрами внутри рамки)
-        data: {
-          name: f.name,
-          onCollapse: () => getCb().collapseContainer(f.id),
-        } satisfies FrameData,
+        data,
       };
     }),
     ...layoutNodes.map((n) => {
@@ -156,11 +197,40 @@ export function assembleRfGraph(params: {
       // поддерева по рёбрам, X16 v2); редактор — все по child_count (Д3).
       const childCount = relevantCounts ? (relevantCounts.get(n.id) ?? 0) : n.child_count;
       const hasKids = (relevantCounts ? childCount > 0 : n.has_children) && canHaveChildren(n.shape);
+      // Проекция хозяина раскрывает только ключи своей карты состава (expandableIds);
+      // карточка с детьми вне карты — цельный контейнер развёртывания: без лупы, с
+      // пунктирным контуром и бейджем числа объектов внутри.
+      const expandable = hasKids && (!expandableIds || expandableIds.has(n.id));
+      const sealed = hasKids && !expandable;
       const atLimit = atInlineLimit(pf);
+      const onExpand = expandable && !atLimit
+        ? (id: string) => getCb().expandLocalContainer(id)
+        : undefined;
+      // Узел с декором площадки — свёрнутая или пустая площадка (раскрытая рисуется
+      // рамкой): карточка площадки, а не объект (deployment.md).
+      const siteDecor = frameDecor?.(n.id);
+      if (siteDecor?.kind === "site") {
+        return {
+          id: n.id,
+          type: "site" as const,
+          ...compound,
+          zIndex: BLOCK_Z,
+          data: {
+            name: n.name,
+            icon: siteDecor.icon ?? "other",
+            count: siteDecor.count ?? 0,
+            onExpand,
+            ...pick,
+          } satisfies SiteCardData,
+        };
+      }
+      // пометка карточки от хозяина (развёртывание: «1/2») — только если задана
+      const mark = marks?.[n.id];
       return {
         id: n.id,
         type: "block" as const,
         ...compound,
+        zIndex: BLOCK_Z,
         ...(dimNode(n.status) ? { style: DIM_STYLE } : null),
         data: {
           appNode: n,
@@ -168,8 +238,10 @@ export function assembleRfGraph(params: {
           onDrillDown: drillNav ? (node) => getCb().drillWithPath(node) : undefined,
           isArchitect,
           // C4: дети раскрытых инлайн контейнеров светлее родительского уровня —
-          // к глубине уровня прибавляется вложенность рамки относительно уровня
-          colors: getNodeColors(n.is_external, depth + (pf ? frameNesting(pf) : 0), n.status),
+          // к глубине уровня прибавляется вложенность рамки относительно уровня.
+          // Проекция хозяина задаёт глубину сама (развёртывание: рамки — площадки,
+          // цвет — архитектурная глубина объекта, как на холсте объектов).
+          colors: getNodeColors(n.is_external, depths?.[n.id] ?? depth + (pf ? frameNesting(pf) : 0), n.status),
           hideActions: false,
           connectable: isArchitect && !isReadOnly,
           // quickConnect — объект-снимок: он стабилен по построению (useMemo []
@@ -181,11 +253,12 @@ export function assembleRfGraph(params: {
           // MAX_INLINE_DEPTH слоёв от уровня лупа неактивна и объясняет предел (C8).
           // На странице лупа — только при РЕЛЕВАНТНЫХ детях (childCount, X16 v2):
           // узел без связанных детей ведёт себя как лист.
-          onExpand: hasKids && !atLimit
-            ? (id) => getCb().expandLocalContainer(id)
-            : undefined,
-          expandLimited: hasKids && atLimit,
+          onExpand,
+          expandLimited: expandable && atLimit,
           badgeCount: childCount,
+          ...(mark ? { mark } : null),
+          ...(sealed ? { dashed: true } : null),
+          ...pick,
         } satisfies BlockData,
       };
     }),
@@ -204,6 +277,7 @@ export function assembleRfGraph(params: {
           id: ent.id,
           type: "ghost" as const,
           ...compound,
+          zIndex: BLOCK_Z,
           ...(dimNode(ent.ghost.status) ? { style: DIM_STYLE } : null),
           data: {
             appNode: ent.ghost,
@@ -222,6 +296,7 @@ export function assembleRfGraph(params: {
         id: ent.id,
         type: "container" as const,
         ...compound,
+        zIndex: BLOCK_Z,
         data: {
           id: ent.id,
           name: ent.name,
