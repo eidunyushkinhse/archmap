@@ -15,6 +15,7 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
+import FramePlaque from "./FramePlaque";
 import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
@@ -536,7 +537,9 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
 // РАСКРЫТАЯ гостевая рамка — настоящий RF-узел (R4, compound). Реальный rect: позицию
 // и размер задаёт раскладка (width/height на самом узле), дети сидят внутри через
 // parentId в координатах рамки. Визуально — прежний lg-frame (пунктир + подпись
-// слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона.
+// слева-внизу); класс и data-frame-id сохранены как стабильный хук полигона. Плашка
+// подписи рисуется НЕ внутри рамки, а в слое плашек подписей (FramePlaque, CV33): рамка
+// лежит под линиями стрелок, а плашка обязана быть над ними — линия проходит под ней.
 // ИНТЕРЬЕР рамки прозрачен для мыши (pointerEvents:none) — клики/драг проходят к
 // канве, узлам и рёбрам под ней. Рамка НЕ таскается (запрет движения рамок,
 // 2026-07-08): её rect производен от детей; прежние драг-ручки R4.2 сняты.
@@ -568,7 +571,7 @@ function FrameHandles({ nodeId }: { nodeId: string }) {
 // выходит темнее сама. На плашке иконка вида вместо лупы, клик по плашке и крестик
 // сворачивают площадку в карточку (SiteCardNode). ГРУППА («Размещение не указано») —
 // пунктир как у раскрытия, плашка без иконки и крестика.
-function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
+function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: NodeProps<FrameRFNode>) {
   const decor = data.decor;
   const site = decor?.kind === "site";
   const collapseTitle = site ? "Свернуть площадку" : "Свернуть";
@@ -595,19 +598,16 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
       <FrameHandles nodeId={id} />
       {/* Плашка подписи: клик по ВСЕЙ плашке сворачивает (крупная цель; раньше был
           только маленький ✕, а плашка занята драгом — драг рамок запрещён, цель
-          вернулась клику) */}
-      <div
-        className="nopan"
-        onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
+          вернулась клику). Портал в слой плашек: позиция — абсолютная, левый-нижний
+          угол рамки (в режиме выбора площадки щелчок перехватывает корень — портал
+          для React-событий прозрачен). */}
+      <FramePlaque
+        frameId={id}
+        x={positionAbsoluteX}
+        bottom={positionAbsoluteY + (height ?? 0)}
+        interactive
+        onClick={data.onCollapse}
         title={data.onCollapse ? collapseTitle : undefined}
-        style={{
-          position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
-          color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-          border: "1px solid #e5e7eb", whiteSpace: "nowrap",
-          display: "inline-flex", alignItems: "center", gap: 6,
-          pointerEvents: "auto",
-          cursor: data.onCollapse ? "pointer" : "default",
-        }}
       >
         {decor ? (
           <>
@@ -628,7 +628,7 @@ function FrameNode({ id, data }: NodeProps<FrameRFNode>) {
             }}
           >✕</button>
         )}
-      </div>
+      </FramePlaque>
     </div>
   );
 }

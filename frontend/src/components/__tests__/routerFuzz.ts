@@ -29,7 +29,6 @@ export interface FuzzRect { x: number; y: number; w: number; h: number }
 export interface FuzzFrame {
   id: string;
   rect: FuzzRect;
-  plaque: FuzzRect;
   memberIds: Set<string>;
 }
 
@@ -192,8 +191,8 @@ export function generateScene(seed: number): FuzzScene {
   }
 
   // ── раскрытые рамки ────────────────────────────────────────────────────────
-  // Члены — СМЕЖНЫЕ узлы одного ряда: рамка тогда не накрывает посторонний узел, а её
-  // плашка (нижняя полоса) гарантированно стоит в пустоте.
+  // Члены — СМЕЖНЫЕ узлы одного ряда: рамка тогда не накрывает посторонний узел (её
+  // нижняя полоса под подпись гарантированно стоит в пустоте).
   const frames: FuzzFrame[] = [];
   const rows: string[][] = [];
   for (const id of ids) {
@@ -226,15 +225,9 @@ export function generateScene(seed: number): FuzzScene {
       h: (maxY - minY) + FRAME_PAD + FRAME_PAD_BOTTOM,
     };
     const id = `f${f}`;
-    const name = `Рамка ${id}`;
-    // формула плашки рамки — из pipeline.ts (E21): x+10, y+h−30, w = min(w−20, 56+6.5·len)
-    const plaque: FuzzRect = {
-      x: rect.x + 10,
-      y: rect.y + rect.h - 30,
-      w: Math.min(rect.w - 20, 56 + 6.5 * name.length),
-      h: 22,
-    };
-    frames.push({ id, rect, plaque, memberIds: new Set(members) });
+    // Плашка подписи рамки с 2026-10-27 не препятствие (E21) — в сцене её нет; сама
+    // последовательность случайных чисел генератора при этом прежняя.
+    frames.push({ id, rect, memberIds: new Set(members) });
   }
 
   // ── конец-рамка (E21a) в части сцен ────────────────────────────────────────
@@ -384,9 +377,6 @@ export function sceneDump(scene: FuzzScene, res: AutoRoutesResult): RouteDump {
     const s = scene.sizes.get(id);
     return p && s ? [{ id, x: p.x, y: p.y, w: s.w, h: s.h }] : [];
   });
-  // плашки раскрытых рамок — тоже жёсткие препятствия (E21), но у них нет группы:
-  // в дамп кладём их телами, чтобы «сквозь тела» видело и их
-  for (const f of scene.frames) rects.push({ id: `plaque:${f.id}`, ...f.plaque });
   return {
     routes: [...res.routes.entries()].sort(byKey).map(([id, pts]) => [id, pts.map((p) => ({ x: p.x, y: p.y }))]),
     rects,

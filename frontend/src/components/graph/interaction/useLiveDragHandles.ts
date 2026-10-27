@@ -27,10 +27,9 @@ import { absPositionOf } from "../absPos";
 
 type NodeRect = { x: number; y: number; w: number; h: number };
 
-// Rect + плашка + члены раскрытой рамки для роутера (тот же формат, что buildAutoRoutes.frames).
+// Rect + члены раскрытой рамки для роутера (тот же формат, что buildAutoRoutes.frames).
 type RouterFrame = {
   rect: { x: number; y: number; w: number; h: number };
-  plaque: { x: number; y: number; w: number; h: number };
   memberIds: ReadonlySet<string>;
 };
 

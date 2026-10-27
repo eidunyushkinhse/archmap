@@ -349,8 +349,12 @@
   filter: drop-shadow(0 0 2px #6366f1) drop-shadow(0 0 7px rgba(99, 102, 241, 0.65)) !important;
 }
 /* Рамке раскрытого контейнера (наследует id узла) полное сияние не по размеру —
-   ей остаётся прежний мягкий ореол по пунктиру и плашке. */
+   ей остаётся прежний мягкий ореол по пунктиру; плашка с именем живёт в слое подписей
+   (FramePlaque) и получает тот же ореол своим классом (useLevelSelection). */
 .react-flow__node.lg-linked-node > .lg-frame {
+  filter: drop-shadow(0 0 3px rgba(99, 102, 241, 0.55));
+}
+.lg-frame-plaque.lg-linked-plaque {
   filter: drop-shadow(0 0 3px rgba(99, 102, 241, 0.55));
 }
 /* РЕЖИМ ВЫБОРА ПЛОЩАДКИ (холст развёртывания, режим размещения — deployment.md D27):
@@ -407,9 +411,16 @@
    z:1. Все блоки несут явный z:10 (assembleRf, BLOCK_Z) на любой вложенности, рёбра
    получают его же, и слой плашек стоит на том же числе: при равном z побеждает
    DOM-порядок — слой рёбер, затем renderer, затем узлы → рёбра < плашки < блоки.
-   Выделенный узел (RF: +1000) и рёбра его вложенного конца — выше плашек, принято. */
+   Выделенный узел (RF: +1000) и рёбра его вложенного конца — выше плашек, принято.
+   Плашки подписей РАМОК (FramePlaque) живут в том же слое: рамка лежит под линиями, а
+   её имя — над ними (линия проходит под плашкой, для роутера она не препятствие). */
 .react-flow__edgelabel-renderer {
   z-index: 10;
+}
+/* Плашка рамки едет за рамкой в окне анимации теми же таймингами (позиция — transform
+   в координатах графа). */
+.lg-canvas--anim .lg-frame-plaque {
+  transition: transform 420ms cubic-bezier(0.22, 0.8, 0.3, 1);
 }
 
 /* Плашка ПАНЕЛЬНО выделенной стрелки (индиго, lg-linked) — над соседними плашками:
@@ -486,7 +497,8 @@
    reducedMotion в useLayoutAnimation), это страховка на случай гонки класса. */
 @media (prefers-reduced-motion: reduce) {
   .lg-canvas--anim .react-flow__node,
-  .lg-canvas--anim .lg-frame {
+  .lg-canvas--anim .lg-frame,
+  .lg-canvas--anim .lg-frame-plaque {
     transition: none;
   }
   .lg-edge-drawin,

@@ -210,12 +210,11 @@ export function buildAutoRoutes(params: {
   sizes?: ReadonlyMap<string, { w: number; h: number }>;
   // РАСКРЫТЫЕ рамки (V2.4, container-aware): rect — граница (переход ЧУЖОЙ рамки
   // штрафуется; рамка, содержащая конец ребра — memberIds, — бесплатна: переход туда
-  // неизбежен, штраф лишь заставлял бы виться), plaque — плашка подписи (жёсткое
-  // препятствие, сквозь текст не ходим).
+  // неизбежен, штраф лишь заставлял бы виться). Плашка подписи рамки препятствием не
+  // служит (E21, 2026-10-27): линия проходит под ней, плашка рисуется над линиями.
   frames?: Array<{
     id?: string;
     rect: { x: number; y: number; w: number; h: number };
-    plaque: { x: number; y: number; w: number; h: number };
     memberIds: ReadonlySet<string>;
   }>;
   // КОНЦЫ-РАМКИ (2026-08-11): id рамки → её прямоугольник. Связь, чей конец — раскрытый
@@ -225,8 +224,8 @@ export function buildAutoRoutes(params: {
   // мягкой границей со штрафом перехода, а для СВОЕГО ребра штраф снимается.
   frameEndpoints?: ReadonlyMap<string, { x: number; y: number; w: number; h: number }>;
   // ГИСТЕРЕЗИС (2026-07-09): финальные маршруты и хэндлы ПРОШЛОГО прогона. Валидный
-  // прежний маршрут (концы сидят на ТЕКУЩИХ портах — порты не сдвинулись; тела/плашки
-  // не режутся) идёт в routeAll кандидатом: сохраняется, пока не хуже свежего на
+  // прежний маршрут (концы сидят на ТЕКУЩИХ портах — порты не сдвинулись; тела не
+  // режутся) идёт в routeAll кандидатом: сохраняется, пока не хуже свежего на
   // ROUTE_STICKINESS. Прежние стороны пар держат гистерезис выбора стороны (R2).
   prev?: {
     routes: ReadonlyMap<string, EdgePoint[]>;
@@ -283,9 +282,8 @@ export function buildAutoRoutes(params: {
   }
   const groupById = new Map<string, EdgeGroup>(groups.map((g) => [g.id, g]));
 
-  // тела узлов + плашки раскрытых рамок — препятствия терминалов
-  const framePlaques = (frames ?? []).map((f) => f.plaque);
-  const obstacleBodies = [...rects.values(), ...framePlaques];
+  // тела узлов — препятствия терминалов (плашки раскрытых рамок ими не являются: E21)
+  const obstacleBodies = [...rects.values()];
   // Границы ЧУЖИХ рамок связи (ни один конец не член, рамка — не конец): A* платит за
   // переход FRAME_CROSS_COST, Z сквозь них не ходит вовсе.
   const foreignRectsOf = (g: EdgeGroup): NodeRect[] => (frames ?? [])
@@ -344,14 +342,13 @@ export function buildAutoRoutes(params: {
   // ИНДЕКС ГРАНЕЙ ПЛАШЕК — ОДИН на вызов, а не на ребро: своя плашка отсеивается по gid
   // прямо в счёте хода (А1). Без плашек (проход 1) индекса нет и путь прежний.
   const labelFaces = labelObstacles ? buildLabelFaceIndex(labelObstacles) : null;
-  // ВАЛИДАЦИЯ prev-маршрута: концы на ТЕКУЩИХ портах, тела чужих узлов и плашки рамок
-  // не режутся (раздутие 2px — терпим легально-тесные маршруты margin-лестницы (3px),
-  // но узел, надвинувшийся на линию, инвалидирует).
+  // ВАЛИДАЦИЯ prev-маршрута: концы на ТЕКУЩИХ портах, тела чужих узлов не режутся
+  // (раздутие 2px — терпим легально-тесные маршруты margin-лестницы (3px), но узел,
+  // надвинувшийся на линию, инвалидирует).
   const GROW = 2;
-  const grownBodiesOf = (g: EdgeGroup): NodeRect[] => [
-    ...[...rects.entries()].filter(([id]) => id !== g.source && id !== g.target).map(([, r]) => r),
-    ...framePlaques,
-  ].map((r) => ({ x: r.x - GROW, y: r.y - GROW, w: r.w + 2 * GROW, h: r.h + 2 * GROW }));
+  const grownBodiesOf = (g: EdgeGroup): NodeRect[] => [...rects.entries()]
+    .filter(([id]) => id !== g.source && id !== g.target)
+    .map(([, r]) => ({ x: r.x - GROW, y: r.y - GROW, w: r.w + 2 * GROW, h: r.h + 2 * GROW }));
   const prevValidOf = (g: EdgeGroup, pp: PortPair): EdgePoint[] | undefined => {
     const pr = prev?.routes.get(g.id);
     if (!pr || pr.length < 2) return undefined;

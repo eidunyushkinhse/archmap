@@ -6,11 +6,18 @@
 //     по гостю сам больше не уводит); у пользователя (person) документации нет.
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ReactFlowProvider, type NodeProps } from "@xyflow/react";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { nodeTypes } from "../graph/nodes";
 import GhostInspector from "../inspector/GhostInspector";
 import type { GhostNode } from "../../types";
+
+// Плашка рамки рисуется порталом в слой плашек подписей холста (FramePlaque →
+// EdgeLabelRenderer); холста здесь нет — портал подменён на рендер на месте.
+vi.mock("@xyflow/react", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@xyflow/react")>();
+  return { ...actual, EdgeLabelRenderer: ({ children }: { children?: ReactNode }) => <>{children}</> };
+});
 
 const Frame = nodeTypes.frame as ComponentType<Partial<NodeProps>>;
 

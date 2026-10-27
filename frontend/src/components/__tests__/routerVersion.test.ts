@@ -85,10 +85,11 @@ describe("ROUTER_VERSION — сторож контракта роутера", ()
 
   it("реестр покрывает все семьи констант геометрии и детерминирован", () => {
     const reg = collectRouterConstants();
-    // семьи из карты «модуль → константы» (шапка routerVersion.ts)
+    // семьи из карты «модуль → константы» (шапка routerVersion.ts); семьи frames.*
+    // (плашка рамки) с v19 нет — плашка не препятствие (E21)
     for (const prefix of [
       "orthoRoute.", "routeAll.", "ports.", "autoRoutes.",
-      "channelNudge.", "frames.", "labelBox.", "constants.", "routerVersion.",
+      "channelNudge.", "labelBox.", "constants.", "routerVersion.",
     ]) {
       expect(Object.keys(reg).some((k) => k.startsWith(prefix)), `нет констант семьи ${prefix}`).toBe(true);
     }

@@ -212,6 +212,7 @@ export const xyflowMock = {
   Background: MockNull,
   Controls: MockNull,
   ViewportPortal: MockPortal,
+  EdgeLabelRenderer: MockPortal,
   Handle: MockNull,
   BackgroundVariant: { Dots: "dots", Lines: "lines", Cross: "cross" },
   ConnectionMode: { Loose: "loose", Strict: "strict" },

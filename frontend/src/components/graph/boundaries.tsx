@@ -2,8 +2,10 @@
 // магнитного выравнивания. Оба рендерятся через ViewportPortal — в координатах графа.
 // Геометрия рамок (членство + прямоугольники) живёт в layout/frames.ts — единый
 // источник правды, общий с энфорсом запрета проникновения гостей (keepGhostsOut.ts).
+import { Fragment } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN } from "./layout/frames";
+import FramePlaque from "./FramePlaque";
 import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
@@ -15,6 +17,8 @@ import type { AncestorRef } from "../../types";
  * пунктирный прямоугольник вокруг bbox всех отображаемых членов. Живой bbox-follow:
  * пересчитывается на каждый рендер rfNodes, поэтому рамка растёт за перетаскиваемым
  * узлом. Рендерится через ViewportPortal — в координатах графа, пан/зум с узлами.
+ * Плашка с именем — в слое плашек подписей (FramePlaque, CV33): над линиями стрелок,
+ * под блоками, как у compound-рамок.
  * РАСКРЫТЫЕ гостевые рамки здесь больше не рисуются (R4): они — настоящие
  * compound-узлы RF (type "frame", см. nodes.tsx), их rect задаёт раскладка.
  */
@@ -66,30 +70,24 @@ export function LevelBoundary({
       {rects.map((f) => {
         const r = f.rect;
         return (
-          <div
-            key={f.id}
-            // класс — стабильный хук для полигона (scripts/dump-levels.mjs): рамки
-            // входят в структурную сигнатуру уровня
-            className="lg-frame"
-            data-frame-id={f.id}
-            style={{
-              position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
-              // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме,
-              // растёт при отдалении — на экране рамка всегда ~1px и не исчезает
-              border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
-              boxSizing: "border-box", pointerEvents: "none",
-            }}
-          >
+          <Fragment key={f.id}>
             <div
+              // класс — стабильный хук для полигона (scripts/dump-levels.mjs): рамки
+              // входят в структурную сигнатуру уровня
+              className="lg-frame"
+              data-frame-id={f.id}
               style={{
-                position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
-                color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-                border: "1px solid #e5e7eb", whiteSpace: "nowrap", pointerEvents: "none",
+                position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
+                // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме,
+                // растёт при отдалении — на экране рамка всегда ~1px и не исчезает
+                border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
+                boxSizing: "border-box", pointerEvents: "none",
               }}
-            >
+            />
+            <FramePlaque frameId={f.id} x={r.x} bottom={r.y + r.h} interactive={false}>
               {f.name}
-            </div>
-          </div>
+            </FramePlaque>
+          </Fragment>
         );
       })}
     </>

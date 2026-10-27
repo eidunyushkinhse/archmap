@@ -97,7 +97,7 @@ type Uniform = { places: string[]; leaves: number } | "mixed" | "empty";
 const setKey = (places: string[]): string => [...places].sort().join("|");
 
 // Узел-площадка (контейнер холста). Имя — текст плашки рамки и карточки: «Имя ·
-// технология»; от него же препятствие плашки для роутера (framePlaqueRect).
+// технология».
 function siteNode(site: SiteOut, parentKey: string | null, childCount: number): AppNode {
   return {
     id: siteKey(site.id),
