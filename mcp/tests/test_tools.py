@@ -324,6 +324,38 @@ async def test_план_синка_считает_и_не_пишет(client: Arc
     check_contract("SyncPreviewIn", body)
 
 
+async def test_план_синка_показывает_связи_с_каналами(client: ArchMapClient, api: FakeApi) -> None:
+    """С 2026-10-28 план называет связи: новой — её канал, обновляемой — чем заполнится
+    пустое. Без этого агент не видел, что канал из прогона будет (или не будет) записан."""
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        nodes=[],
+        edges=[
+            {"source_path": "С / producer", "target_path": "С / bus", "action": "create",
+             "channel": "topic.c"},
+            {"source_path": "С / producer", "target_path": "С / bus", "action": "update",
+             "fields": ["channel"], "channel": "topic.a"},
+            {"source_path": "С / bus", "target_path": "С / consumer", "action": "update",
+             "fields": ["channel", "is_synchronous"], "channel": "topic.a", "is_synchronous": False},
+            {"source_path": "С / a", "target_path": "С / b", "action": "unchanged"},
+            {"source_path": "С / x", "target_path": "С / y", "action": "missing"},
+        ],
+        summary={"edges_create": 1, "edges_update": 2, "edges_unchanged": 1, "edges_missing": 1},
+    ))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x"}]},
+        client,
+    )
+
+    assert "связей дополнить: 2" in out and "связей пропало из кода: 1" in out
+    assert "create: С / producer → С / bus (канал topic.c)" in out
+    assert "update: С / producer → С / bus (канал ← topic.a)" in out
+    assert "update: С / bus → С / consumer (канал ← topic.a, тип ← асинхронный)" in out
+    assert "missing: С / x → С / y" in out
+    assert "С / a → С / b" not in out  # без изменений не перечисляется
+
+
 async def test_план_синка_без_изменений_говорит_это_вслух(
     client: ArchMapClient, api: FakeApi
 ) -> None:
@@ -373,6 +405,7 @@ async def test_применение_синка_шлёт_contents_текстам�
         updated_nodes=["Маркетплейс / Заказы"],
         deprecated_nodes=[],
         created_edges=["Маркетплейс / Новый → Маркетплейс / Kafka"],
+        updated_edges=["Маркетплейс / Заказы → Маркетплейс / Kafka"],
         skipped=[],
         graph_rev=12,
     ).model_dump(mode="json"))
@@ -387,6 +420,7 @@ async def test_применение_синка_шлёт_contents_текстам�
     assert "Создано объектов: 1" in out and "• Маркетплейс / Новый" in out
     assert "Обновлено: 1" in out
     assert "Создано связей: 1" in out
+    assert "Дополнено связей (канал, тип канала): 1" in out
     assert "graph_rev=12" in out
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
@@ -400,6 +434,24 @@ async def test_правка_узла_без_полей_отклоняется(cl
         await tools.call("archmap_update_node", {"project": "Ярмарка", "node_id": "n2"}, client)
 
     assert "Нечего менять" in str(exc.value)
+
+
+async def test_правка_связи_шлёт_канал(client: ArchMapClient, api: FakeApi) -> None:
+    """Канал брокера правится агентом (с 0.9.1): до того связи без канала, оставленные
+    синком, через MCP было не вылечить."""
+    api.patch("/edges/e9", {"id": "e9"})
+
+    out = await tools.call(
+        "archmap_update_edge",
+        {"project": "Ярмарка", "edge_id": "e9", "channel": "orders.created"},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"channel": "orders.created"}
+    # Контракт связи живёт в schemas.edge, а не schemas.project (как у check_contract).
+    backend("schemas.edge").EdgeUpdate.model_validate(body)
+    assert "channel" in out
 
 
 async def test_создание_связи_шлёт_тип_канала(client: ArchMapClient, api: FakeApi) -> None:
