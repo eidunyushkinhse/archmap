@@ -59,7 +59,10 @@ def full_payload() -> dict[str, Any]:
             {"node_ids": [u(9)], "node_names": ["Биллинг"]},
         ],
         "container_own_docs": [
-            {"node_id": u(4), "node_name": "Маркетплейс", "has_docs": True, "has_spec": False}
+            {
+                "node_id": u(4), "node_name": "Маркетплейс",
+                "has_docs": True, "has_spec": False, "has_config": False,
+            }
         ],
         "persons_inside": [
             {"node_id": u(3), "node_name": "Покупатель", "parent_id": u(4), "parent_name": "Маркетплейс"}

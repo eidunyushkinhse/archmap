@@ -15,6 +15,7 @@ import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -23,8 +24,15 @@ from app.models.upload import Upload
 from app.models.user import User
 
 TTL = timedelta(minutes=10)
-# Сколько незавершённых и ещё живых загрузок держит один пользователь.
-MAX_LIVE_PER_USER = 16
+# Сколько ссылок БЕЗ ФАЙЛА (выданных, но не заполненных) и ещё живых держит один
+# пользователь: лимит на пустые строки, которые плодятся без единого байта. Принятые
+# файлы ограничены БАЙТАМИ (MAX_LIVE_BYTES_PER_USER), а не штуками: считать их штуками
+# было ошибкой (полевой репорт 2026-10-28) — пакет документации это десятки .mmd по
+# отдельной ссылке каждый, несколько агентов ходят под одним токеном, и 16 на всех
+# кончались за минуты, а освобождать строку использованием нельзя: превью и применение
+# читают одни и те же входы.
+MAX_PENDING_PER_USER = 16
+MAX_LIVE_BYTES_PER_USER = 64 * 1024 * 1024
 KEY_BYTES = 32
 
 DEMO_DETAIL = "В демо-режиме загрузка файлов недоступна"
@@ -34,7 +42,14 @@ ALREADY_DETAIL = "По этой ссылке файл уже принят: сс�
 EMPTY_DETAIL = "Пустой файл"
 NOT_UPLOADED_DETAIL = "Файл по этой загрузке ещё не принят — сначала положите его по ссылке"
 NOT_TEXT_DETAIL = "Файл не текстовый (не UTF-8): инструменты принимают YAML и текстовые пакеты"
-TOO_MANY_DETAIL = f"Больше {MAX_LIVE_PER_USER} живых загрузок не держим — дождитесь истечения прежних"
+TOO_MANY_DETAIL = (
+    f"Больше {MAX_PENDING_PER_USER} ссылок без файла не держим — положите файлы по "
+    "выданным ссылкам или дождитесь их истечения"
+)
+TOO_MUCH_DETAIL = (
+    f"Принятых и ещё живых загрузок больше {MAX_LIVE_BYTES_PER_USER // (1024 * 1024)} МБ — "
+    "дождитесь истечения прежних"
+)
 
 
 def too_large_detail() -> str:
@@ -69,9 +84,13 @@ def create(db: Session, user: User, name: str) -> tuple[Upload, str]:
     """Новая ссылка: строка без содержимого и ключ (вернуть один раз, в БД — хэш)."""
     now = datetime.now(UTC)
     purge_expired(db, now)
-    live = db.query(Upload).filter(Upload.user_id == user.id, Upload.expires_at >= now).count()
-    if live >= MAX_LIVE_PER_USER:
+    live = db.query(Upload).filter(Upload.user_id == user.id, Upload.expires_at >= now)
+    if live.filter(Upload.uploaded_at.is_(None)).count() >= MAX_PENDING_PER_USER:
         raise UploadError(429, TOO_MANY_DETAIL)
+    # У строки без файла size = 0, так что сумма по всем живым — ровно принятые байты.
+    taken = live.with_entities(func.coalesce(func.sum(Upload.size), 0)).scalar()
+    if int(taken or 0) >= MAX_LIVE_BYTES_PER_USER:
+        raise UploadError(429, TOO_MUCH_DETAIL)
     key = secrets.token_urlsafe(KEY_BYTES)
     row = Upload(
         id=uuid.uuid4(),

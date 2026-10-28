@@ -203,7 +203,6 @@ class _DataRefCheck:
         self.over = 0  # сколько ссылок не поместилось в кап
         self.saw_table_refs = False
         self.saw_channel_refs = False
-        self.saw_config_refs = False
         self.data_total = 0  # пометок «читает:/пишет:» в пакете
         self.channel_total = 0  # пометок «публикует:/потребляет:» в пакете
         # Конфигурационные пометки («зависит от:») в СЧЁТЧИКИ ОТЧЁТА не идут: те
@@ -283,17 +282,32 @@ class _DataRefCheck:
             return
         owner_params = self.params_by_node.get(owner_id, {})
         for parsed in refs:
-            if parsed.mode in CONFIG_MODES:
-                self.saw_config_refs = True
-            elif parsed.mode in CHANNEL_MODES:
+            if parsed.mode in CHANNEL_MODES:
                 self.saw_channel_refs = True
                 self.channel_total += 1
-            else:
+            elif parsed.mode not in CONFIG_MODES:
                 self.saw_table_refs = True
                 self.data_total += 1
         # Считать — считаем всегда, а резолвить нечем: без db каталогов нет.
         if not self.enabled:
             return
+
+        config_refs = [r for r in refs if r.mode in CONFIG_MODES]
+        if config_refs and not owner_params:
+            # Каталог конфигурации у каждого узла СВОЙ, и пустой у владельца — не
+            # «структуры ещё нет» (заметки flush — про проект целиком), а промах
+            # адресата: после применения каждая такая пометка загорится AL33, а превью
+            # молчало (полевой репорт 2026-10-28, п. 2). Одна строка на файл, не на
+            # пометку, и без упрёка: логику часто описывают раньше конфигурации.
+            key = (fname, "", "no_owner_params")
+            if key not in self.seen:
+                self.seen.add(key)
+                names = ", ".join(dict.fromkeys(r.ref for r in config_refs))
+                where = self.node_paths.get(owner_id, "объект окна")
+                self.warnings.append(
+                    f"{fname}: у объекта «{where}» конфигурация не описана — пометки "
+                    f"«зависит от:» ({names}) останутся ненайденными, пока её не опишут"
+                )
 
         def каталог(mode: str) -> object:
             """Каталог семьи пометки — тот, по которому её будут резолвить."""
@@ -359,12 +373,8 @@ class _DataRefCheck:
                 "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
                 "они появятся"
             )
-        if self.saw_config_refs and not self.params_by_node:
-            plan.warnings.append(
-                "В пакете есть пометки конфигурации (зависит от:), а параметры "
-                "объектов в проекте ещё не описаны — резолв пометок проверится, когда "
-                "они появятся"
-            )
+        # У конфигурации общей заметки нет: её каталог у каждого узла свой, и пустой у
+        # владельца схемы check называет поимённо (объект и пометки).
 
 
 def build_docs_plan(

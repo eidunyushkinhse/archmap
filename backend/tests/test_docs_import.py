@@ -24,6 +24,7 @@ from app.docs_import import (
 )
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -802,6 +803,10 @@ def test_папку_целиком_можно_бросить_в_окно_спе�
 # ── окно спеки без манифеста (docs/plan-docs-mmd.md, Фаза 4, бэковая часть) ────
 
 SPEC_WITH_ORIGIN = "# archmap-origin: generated\n" + SPEC
+SPEC_JSON = (
+    '{"openapi": "3.0.0", "info": {"title": "Orders", "version": "1.0.0", '
+    '"x-archmap-origin": "generated"}, "paths": {"/orders": {"post": {}}}}'
+)
 
 
 def _spec_payload(*files, node=None, overwrite=True):
@@ -838,6 +843,46 @@ def test_происхождение_читается_комментарием_в
     )
 
     assert report.specs[0].origin == "generated"
+
+
+def test_происхождение_json_спеки_читается_ключом(db):
+    """Комментариев в JSON нет (полевой репорт 2026-10-28: агент переводил сгенерированный
+    JSON в YAML ради одной строки) — происхождение едет ключом x-archmap-origin в info."""
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.json", SPEC_JSON), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin == "generated"
+    assert report.specs[0].looks_openapi
+    assert not any("происхождение" in w for w in report.warnings)
+
+
+def test_json_без_ключа_предупреждает_как_и_yaml(db):
+    _, orders, *_ = _tree(db)
+    без_ключа = SPEC_JSON.replace(', "x-archmap-origin": "generated"', "")
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.json", без_ключа), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin is None
+    assert any("происхождение" in w for w in report.warnings)
+
+
+def test_ключ_происхождения_работает_и_в_yaml(db):
+    _, orders, *_ = _tree(db)
+    спека = SPEC.replace("  version: 1.0.0\n", "  version: 1.0.0\n  x-archmap-origin: found\n")
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.yaml", спека), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin == "found"
 
 
 def test_две_спеки_в_пакете_это_вопрос_а_не_догадка(db):
@@ -1061,6 +1106,33 @@ def test_заметки_о_неописанной_структуре_незав�
     тихо = _plan(db, [("c.mmd", _refs_mmd("читает: orders.status", name="Только данные"))],
                  window=orders)
     assert not any("каналы брокеров" in w for w in тихо.warnings)
+
+
+def test_пустая_конфигурация_владельца_не_молчит(db):
+    """Каталог конфигурации у каждого узла свой: пустой у владельца схемы — промах
+    адресата, а не «структуры ещё нет». Раньше превью молчало, а после применения каждая
+    пометка горела AL33 (полевой репорт 2026-10-28, п. 2)."""
+    _root, orders, _billing, _shipping, b_api, _s_api = _tree(db)
+    db.add(ConfigParam(
+        id=uuid.uuid4(), node_id=b_api.id, name="FEATURE_X",
+        value_type="string", required=False, default_value="",
+    ))
+    db.commit()
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: FEATURE_X, RETRY_TIMEOUT",
+                                          name="Развилка"))], window=orders)
+
+    строки = [w for w in plan.warnings if "конфигурация не описана" in w]
+    assert len(строки) == 1
+    assert "«Ярмарка / orders»" in строки[0] and "FEATURE_X, RETRY_TIMEOUT" in строки[0]
+    # Поимённых промахов нет: резолвить нечем, и дублировать заметку на пометку незачем.
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+    # У владельца с описанной конфигурацией промах по-прежнему называется поимённо.
+    план2 = _plan(db, [("b.mmd", _refs_mmd("зависит от: RETRY_TIMEOUT", name="Другая"))],
+                  window=b_api)
+    assert any("пометка «RETRY_TIMEOUT»" in w and "параметра нет" in w for w in план2.warnings)
+    assert not any("конфигурация не описана" in w for w in план2.warnings)
 
 
 def test_счётчики_пометок_считают_обе_семьи_отдельно(db):

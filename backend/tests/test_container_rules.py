@@ -15,6 +15,7 @@ from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
 from app.alerts import compute_alerts
+from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.routers.node_docs import distribute_docs
@@ -54,6 +55,25 @@ def test_alert_container_with_own_docs(db):
     assert a.node_id == root.id
     assert a.has_docs is True
     assert a.has_spec is False
+    assert a.has_config is False
+
+
+def test_alert_container_with_config_only(db):
+    """Контейнер — абстракция и для конфигурации (полевой репорт 2026-10-28): параметры
+    на нём зажигают тот же алерт, что доки и спека, — пометки «зависит от:» в схемах
+    компонентов ищут ручку у себя и родительскую не найдут."""
+    root = _node(db, "Контейнер")
+    _node(db, "Дети", parent=root)
+    db.add(ConfigParam(
+        id=uuid.uuid4(), node_id=root.id, name="LOG_LEVEL",
+        value_type="string", required=False, default_value="info",
+    ))
+    db.commit()
+
+    rep = compute_alerts(db, ensure_project(db).id)
+    assert len(rep.container_own_docs) == 1
+    a = rep.container_own_docs[0]
+    assert (a.has_docs, a.has_spec, a.has_config) == (False, False, True)
 
 
 def test_alert_container_with_spec_only(db):

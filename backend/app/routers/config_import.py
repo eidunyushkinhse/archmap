@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app import demo_limits
-from app.config_import import ConfigPlan, apply_config_plan, build_config_plan
+from app.config_import import (
+    ConfigPlan,
+    apply_config_plan,
+    build_config_plan,
+    owner_service_paths,
+)
 from app.config_prompt import build_config_prompt
 from app.database import get_db
 from app.deps import (
@@ -46,8 +51,9 @@ def config_prompt(
     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
-    service_paths = [fulls[i] for i, n in enumerate(flat) if n.shape == "service"]
+    # Адреса владельца — листовые сервисы: контейнер для конфигурации такая же
+    # абстракция, как для связей и доков (app.config_import.owner_service_paths).
+    service_paths = owner_service_paths(NodeIndex.of(nodes))
     return ConfigPromptOut(
         prompt=prompt_for_variant(variant, "config", build_config_prompt(service_paths))
     )
