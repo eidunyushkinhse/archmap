@@ -895,6 +895,9 @@ export default function SequenceDiagram({
           <div
             key={p.id}
             className="bp-phead"
+            // Роль и признак «внешний» из шапки ушли в подсказку (2026-10-28): строка
+            // роли под именем съедала высоту, а имя резалось на шести знаках.
+            title={[p.name, unbound ? "нет узла в схеме" : p.role, p.external ? "внешний" : ""].filter(Boolean).join(" · ")}
             onPointerDown={(e) => onHeaderDown(e, k)}
             style={{
               position: "absolute",
@@ -908,8 +911,8 @@ export default function SequenceDiagram({
               boxShadow: isDragged ? "0 6px 18px rgba(15,23,42,.22)" : "0 1px 3px rgba(15,23,42,.06)",
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: "0 11px",
+              gap: 7,
+              padding: "0 9px",
               boxSizing: "border-box",
               zIndex: isDragged ? 7 : 4,
               opacity: dimmed ? 0.12 : 1,
@@ -987,9 +990,9 @@ export default function SequenceDiagram({
             )}
             <span
               style={{
-                width: 28,
-                height: 28,
-                borderRadius: 7,
+                width: 22,
+                height: 22,
+                borderRadius: 6,
                 background: unbound ? BROKEN.soft : isStatus ? sc.bg : p.external ? "#f8fafc" : BPT.wash,
                 color: unbound ? BROKEN.ink : isStatus ? "#fff" : p.external ? BPT.mut : BPT.accent,
                 display: "inline-flex",
@@ -1000,16 +1003,33 @@ export default function SequenceDiagram({
             >
               {/* Формы у непривязанного нет — вместо неё знак разрыва, как у
                   повисшей стрелки. */}
-              {p.shape ? <C4Glyph shape={p.shape} s={17} /> : <IcoBrokenLink s={15} />}
+              {p.shape ? <C4Glyph shape={p.shape} s={14} /> : <IcoBrokenLink s={13} />}
             </span>
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: BPT.head, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {/* Имя — до двух строк, длинное слово ломается, а не режется; у
+                  непривязанного одна строка: вторую занимает причина. Форму
+                  показывает значок, роль — подсказка шапки. */}
+              <div
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  lineHeight: 1.2,
+                  color: BPT.head,
+                  display: "-webkit-box",
+                  WebkitLineClamp: unbound ? 1 : 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                  hyphens: "auto",
+                  overflowWrap: "anywhere",
+                }}
+              >
                 {p.name}
               </div>
-              <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {unbound ? "нет узла в схеме" : p.role}
-                {p.external ? " · внеш." : ""}
-              </div>
+              {unbound && (
+                <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  нет узла в схеме
+                </div>
+              )}
             </div>
             {/* Переход на страницу объекта — зеркало «страница объекта → процесс».
                 Проявляется по ховеру, как и крестик удаления. У непривязанного
@@ -1222,22 +1242,27 @@ const pheadDel: CSSProperties = {
   boxShadow: "0 1px 3px rgba(15,23,42,.12)",
   zIndex: 5,
 };
-// Стрелка «на страницу объекта» в правом краю шапки. Проявление по ховеру — в
-// bp-phead-open (processes.css), как у крестика удаления.
+// Стрелка «на страницу объекта» — кружок на правом нижнем углу шапки, зеркало
+// крестика удаления на правом верхнем. Проявление по ховеру — в bp-phead-open
+// (processes.css). Раньше стояла в потоке у правого края и даже невидимой
+// отъедала у имени 27 px — «Покупатель» ломался посреди слова.
 const pheadOpen: CSSProperties = {
-  marginLeft: "auto",
-  flex: "none",
+  position: "absolute",
+  right: -8,
+  bottom: -8,
   width: 20,
   height: 20,
-  border: "none",
-  background: "none",
-  borderRadius: 5,
+  borderRadius: "50%",
+  border: "1px solid " + BPT.line,
+  background: "#fff",
   color: BPT.mut,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
   padding: 0,
   cursor: "pointer",
+  boxShadow: "0 1px 3px rgba(15,23,42,.12)",
+  zIndex: 5,
 };
 
 // Кружок «+» под участником — источник/цель drag-to-connect.
