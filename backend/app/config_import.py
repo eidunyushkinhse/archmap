@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app import yaml_io
 from app.data_import import NODE_HEADER
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
+from app.facts_import import as_bool, as_str, resolve_owner, warn_duplicates
 from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.node_ref import NodeIndex
@@ -142,6 +142,24 @@ class _Merged:
     meta_notes: list[str] = field(default_factory=list)
 
 
+def owner_service_paths(index: NodeIndex) -> list[str]:
+    """Допустимые адреса владельца конфигурации — ЛИСТОВЫЕ сервисы.
+
+    Контейнер (сервис с детьми) в ArchMap — абстракция, и все семьи это держат:
+    связи переносятся на детей, доки и спека на контейнере дают AL24, заглушки
+    разведки — предупреждение превью (Р15). Конфигурация была единственным
+    исключением (полевой репорт 2026-10-28, docs/plan-config-docs.md §11): параметры
+    читает код КОМПОНЕНТОВ, а пометки «зависит от:» в их схемах ищут ручку у владельца
+    схемы (data_refs._resolve_config) — контейнер в перечне адресов звал агента на
+    абстракцию, и каждая пометка потом горела AL33."""
+    parents = {n.parent_id for n in index.flat if n.parent_id is not None}
+    return [
+        index.paths[i]
+        for i, n in enumerate(index.flat)
+        if n.shape == "service" and n.id not in parents
+    ]
+
+
 def build_config_plan(
     db: Session,
     nodes: list[Node],
@@ -153,7 +171,9 @@ def build_config_plan(
     index = NodeIndex.of(nodes)
     path_of = index.path_by_id()
     plan.path_of = path_of
-    hint = nodes_hint(index, "service")
+    owner_paths = owner_service_paths(index)
+    hint = ", ".join(owner_paths) if owner_paths else "в проекте их нет"
+    parents = {n.parent_id for n in nodes if n.parent_id is not None}
 
     parsed: list[tuple[str, ParsedConfig]] = []
     for fname, content in files:
@@ -200,6 +220,17 @@ def build_config_plan(
             plan.report.warnings.append(
                 f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — не сервис; "
                 "конфигурацию описывают у сервиса, чей код её читает. "
+                f"Узлы-сервисы проекта: {hint}"
+            )
+        elif owner.id in parents:
+            # Контейнер — абстракция и для конфигурации (owner_service_paths).
+            # Предупреждение, а не ошибка, как у заглушек разведки (Р15): записи у
+            # контейнера видны в его секции и переносятся руками.
+            plan.report.warnings.append(
+                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — контейнер; "
+                "параметры читает код его компонентов, опишите их у листового объекта: "
+                "у контейнера они попадут в алерт «Контейнеры со своей документацией», "
+                "а пометки «зависит от:» в схемах компонентов их не найдут. "
                 f"Узлы-сервисы проекта: {hint}"
             )
         for p in pc.params:

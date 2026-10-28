@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, aliased
 from app.connectivity import connected_components
 from app.data_refs import ProjectCatalog, RefStatus, catalog_for_project, doc_ref_hits
 from app.models.business_process import BusinessProcess
+from app.models.config_param import ConfigParam
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -140,8 +141,8 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
        иерархией; класс свой, и такие связи не попадают ни в (2), ни в (11):
        «уточните конец» и «допишите канал» противоречат совету «удалите связь»;
     3) изолированные группы — связные компоненты графа рёбер;
-    4) контейнеры с СОБСТВЕННЫМИ доками/спекой (grandfather) — логика и спеки
-       должны жить на атомарных детях, такие доки распределяют по детям;
+    4) контейнеры с СОБСТВЕННЫМИ доками/спекой/конфигурацией (grandfather) — логика,
+       спеки и параметры должны жить на атомарных детях, такие доки распределяют по детям;
     5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
        контекстном уровне, ВНЕ границы системы;
     6) повисшие сообщения процессов — связь, которой шло сообщение, удалена
@@ -271,26 +272,44 @@ def _isolated_groups(ctx: AlertContext) -> list[IsolatedGroupAlert]:
 
 
 def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
-    """4) Контейнеры с собственными доками/спекой (grandfather). Контейнер = service с
-    детьми. Алерт: узел стал контейнером, но логика/спека остались на нём — надо
-    распределить по детям."""
+    """4) Контейнеры с собственными доками/спекой/конфигурацией (grandfather). Контейнер =
+    service с детьми. Алерт: узел стал контейнером, но логика/спека/параметры остались
+    на нём — надо распределить по детям.
+
+    Конфигурация — третий жилец (2026-10-28, полевой репорт): контейнер для неё такая
+    же абстракция, параметры читает код компонентов, а пометки «зависит от:» в их
+    схемах ищут ручку у владельца схемы (data_refs._resolve_config), не у родителя —
+    параметры на контейнере не найдёт никто."""
     node_ids = [n.id for n in ctx.nodes]
     doc_owners: set[uuid.UUID] = set()
+    param_owners: set[uuid.UUID] = set()
     if node_ids:
         rows = (
             ctx.db.query(NodeDoc.node_id).filter(NodeDoc.node_id.in_(node_ids)).distinct().all()
         )
         doc_owners = {nid for (nid,) in rows}
+        prow = (
+            ctx.db.query(ConfigParam.node_id)
+            .filter(ConfigParam.node_id.in_(node_ids))
+            .distinct()
+            .all()
+        )
+        param_owners = {nid for (nid,) in prow}
     out: list[ContainerOwnDocsAlert] = []
     for n in ctx.nodes:
         if n.id not in ctx.intermediate_ids or n.shape != "service":
             continue
         has_docs = n.id in doc_owners
         has_spec = bool(n.openapi_spec)
-        if has_docs or has_spec:
+        has_config = n.id in param_owners
+        if has_docs or has_spec or has_config:
             out.append(
                 ContainerOwnDocsAlert(
-                    node_id=n.id, node_name=n.name, has_docs=has_docs, has_spec=has_spec
+                    node_id=n.id,
+                    node_name=n.name,
+                    has_docs=has_docs,
+                    has_spec=has_spec,
+                    has_config=has_config,
                 )
             )
     return out
