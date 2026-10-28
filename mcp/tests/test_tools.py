@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any, get_args
 
@@ -354,6 +355,91 @@ async def test_план_синка_показывает_связи_с_канал
     assert "update: С / bus → С / consumer (канал ← topic.a, тип ← асинхронный)" in out
     assert "missing: С / x → С / y" in out
     assert "С / a → С / b" not in out  # без изменений не перечисляется
+
+
+async def test_ссылка_на_загрузку_и_команда(client: ArchMapClient, api: FakeApi) -> None:
+    """archmap_upload_url: адрес складывается из адреса ArchMap глазами агента, команда
+    curl готова к вставке, upload_id назван отдельно — его передают в files."""
+    api.post("/uploads", {"id": "u1", "name": "repo-a.yaml", "path": "/api/v1/uploads/u1/КЛЮЧ",
+                          "expires_at": "2026-10-28T12:10:00Z", "max_bytes": 2 * 1024 * 1024})
+
+    out = await tools.call("archmap_upload_url", {"project": "Ярмарка", "name": "repo-a.yaml"}, client)
+
+    assert f"{client.public_base_url}/api/v1/uploads/u1/КЛЮЧ" in out
+    assert "curl -sS -T путь/к/repo-a.yaml" in out and "2 МБ" in out
+    assert "upload_id: u1" in out
+    body = json.loads(api.calls[-1].content)
+    assert body == {"name": "repo-a.yaml"}
+
+
+async def test_файл_по_upload_id_подставляется_и_сверяется(client: ArchMapClient, api: FakeApi) -> None:
+    """{name, upload_id} в files: содержимое берётся из загрузки (GET /uploads/{id}),
+    бэкенду уходит текст как обычно, а в конце — эхо размера и sha256."""
+    text = "nodes:\n  - name: Система\n"
+    digest = hashlib.sha256(text.encode()).hexdigest()
+    api.get("/uploads/u1", {"id": "u1", "name": "r.yaml", "size": len(text.encode()), "sha256": digest,
+                            "content": text})
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan())
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "r.yaml", "upload_id": "u1"}]},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["contents"] == [text]
+    assert "Получено входов: 1" in out
+    assert f"r.yaml — {len(text.encode())} байт, sha256 {digest} (загрузкой по ссылке)" in out
+
+
+async def test_эхо_sha256_у_текста_вызова(client: ArchMapClient, api: FakeApi) -> None:
+    """И у файла текстом вызова — эхо: только так агент заметит, что модель набрала
+    текст с ошибками (сервер и превью этого не видят)."""
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan())
+    text = "nodes: []\n"
+
+    out = await tools.call(
+        "archmap_sync_preview", {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": text}]}, client
+    )
+
+    assert f"sha256 {hashlib.sha256(text.encode()).hexdigest()} (текстом вызова)" in out
+
+
+async def test_paths_у_синка_локально_читаются_с_диска(client: ArchMapClient, api: FakeApi, tmp_path) -> None:
+    """Локальный режим: файл с диска встаёт в files под своим именем, без перепечатки."""
+    p = tmp_path / "repo-b.yaml"
+    p.write_text("nodes:\n  - name: B\n", encoding="utf-8")
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan())
+
+    out = await tools.call("archmap_sync_preview", {"project": "Ярмарка", "paths": [str(p)]}, client)
+
+    body = json.loads(api.calls[-1].content)
+    assert body["contents"] == ["nodes:\n  - name: B\n"]
+    assert "repo-b.yaml" in out and "(с диска)" in out
+    check_contract("SyncPreviewIn", body)
+
+
+async def test_файл_без_content_и_upload_id_или_с_обоими_отклоняется(client: ArchMapClient) -> None:
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call("archmap_sync_preview", {"project": "Ярмарка", "files": [{"name": "r.yaml"}]}, client)
+    assert "archmap_upload_url" in str(exc.value)
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_sync_preview",
+            {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "x", "upload_id": "u1"}]},
+            client,
+        )
+    assert "не оба" in str(exc.value)
+
+
+async def test_просроченная_загрузка_называет_файл(client: ArchMapClient, api: FakeApi) -> None:
+    api.get("/uploads/u9", httpx.Response(410, json={"detail": "Срок загрузки истёк — запросите новую ссылку"}))
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_sync_preview", {"project": "Ярмарка", "files": [{"name": "old.yaml", "upload_id": "u9"}]}, client
+        )
+    assert "old.yaml" in str(exc.value) and "истёк" in str(exc.value)
 
 
 async def test_план_синка_без_изменений_говорит_это_вслух(
