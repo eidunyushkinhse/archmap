@@ -706,7 +706,30 @@ SYNC_COUNTS: list[tuple[str, str]] = [
     ("nodes_missing", "пропало из кода"),
     ("nodes_returned", "вернулось"),
     ("edges_create", "связей создать"),
+    ("edges_update", "связей дополнить"),
+    ("edges_missing", "связей пропало из кода"),
 ]
+
+
+def _sync_edge_line(e: dict[str, Any]) -> str:
+    """Строка связи в плане: у create — какой канал получит, у update — чем заполнится
+    пустое (с 2026-10-28 синк переносит канал и тип канала и заполняет их у живых
+    связей без канала — так повторный синк тех же файлов лечит проект)."""
+    head = f"  {e.get('action')}: {e.get('source_path')} → {e.get('target_path')}"
+    channel = e.get("channel")
+    if e.get("action") == "update":
+        fills = []
+        for f in e.get("fields") or []:
+            if f == "channel":
+                fills.append(f"канал ← {channel}")
+            elif f == "is_synchronous":
+                fills.append("тип ← " + ("асинхронный" if e.get("is_synchronous") is False else "синхронный"))
+            else:
+                fills.append(str(f))
+        return head + (f" ({', '.join(fills)})" if fills else "")
+    if e.get("action") == "create" and channel:
+        return head + f" (канал {channel})"
+    return head
 
 
 def _sync_report(data: dict[str, Any]) -> str:
@@ -732,6 +755,15 @@ def _sync_report(data: dict[str, Any]) -> str:
             out.append(f"  {a['action']}: {a['path']}{fields}{_sync_basis(a)}")
         if len(changed) > 60:
             out.append(f"  … и ещё {len(changed) - 60}")
+    edges = [
+        e for e in data.get("edges", []) if e.get("action") in ("create", "update", "missing")
+    ]
+    if edges:
+        out.append("")
+        out.append("СВЯЗИ:")
+        out.extend(_sync_edge_line(e) for e in edges[:60])
+        if len(edges) > 60:
+            out.append(f"  … и ещё {len(edges) - 60}")
     for key, title in (("conflicts", "Расхождения (решены правилом)"), ("warnings", "Проверьте")):
         rows = [str(r) for r in (data.get(key) or [])]
         if rows:
@@ -753,6 +785,7 @@ SYNC_APPLIED: list[tuple[str, str]] = [
     ("updated_nodes", "Обновлено"),
     ("deprecated_nodes", "Помечено выводимыми"),
     ("created_edges", "Создано связей"),
+    ("updated_edges", "Дополнено связей (канал, тип канала)"),
     ("skipped", "Пропущено (цель исчезла между расчётом и записью)"),
 ]
 
@@ -1032,7 +1065,9 @@ async def t_create_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_update_edge(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     body = {
-        k: args[k] for k in ("label", "technology", "is_synchronous") if args.get(k) is not None
+        k: args[k]
+        for k in ("label", "technology", "channel", "is_synchronous")
+        if args.get(k) is not None
     }
     if not body:
         raise ArchMapError("Нечего менять: не передано ни одного поля.")
@@ -1882,7 +1917,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_update_edge",
         "writes": True,
-        "description": "Правка связи: подпись, технология, тип канала.",
+        "description": "Правка связи: подпись, технология, канал брокера, тип канала.",
         "schema": {
             "type": "object",
             "properties": {
@@ -1890,6 +1925,11 @@ TOOLS: list[dict[str, Any]] = [
                 "edge_id": {"type": "string", "description": "id связи (из archmap_schema или archmap_node)."},
                 "label": {"type": "string", "description": "Что передаётся: «создать заказ»."},
                 "technology": {"type": "string", "description": "REST, gRPC, Kafka."},
+                "channel": {
+                    "type": "string",
+                    "description": "Имя топика или очереди брокера дословно из кода: «orders.created». "
+                    "Только у связи, один конец которой — брокер.",
+                },
                 "is_synchronous": SYNC_ARG,
             },
             "required": ["project", "edge_id"],

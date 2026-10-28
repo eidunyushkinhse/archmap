@@ -9,7 +9,7 @@ import inspect
 import uuid
 
 import pytest
-from conftest import ensure_architect, seed_project_from_yaml
+from conftest import ensure_architect, make_project, seed_project_from_yaml
 from fastapi import HTTPException
 
 from app.models.deployment_instance import DeploymentInstance
@@ -205,6 +205,86 @@ def test_apply_переносит_имя_и_описание_по_политик
     assert (payments.name, payments.description) == ("billing", "Платежи")
     assert payments.version == version + 1
     assert "Система / billing" in report.updated_nodes
+
+
+BROKER_RUN = """
+nodes:
+  - name: Система
+    children:
+      - name: producer
+        source: {host: producer}
+      - name: consumer
+        source: {host: consumer}
+      - name: bus
+        shape: broker
+        source: {host: bus}
+edges:
+  - {from: producer, to: bus, label: публикует A, technology: AMQP, channel: topic.a}
+  - {from: producer, to: bus, label: публикует B, technology: AMQP, channel: topic.b}
+  - {from: bus, to: consumer, label: доставляет A, technology: AMQP, channel: topic.a, sync: false}
+"""
+
+
+def _edges(db, project_id) -> dict[str, Edge]:
+    return {e.label: e for e in db.query(Edge).filter(Edge.project_id == project_id).all()}
+
+
+def test_apply_пишет_канал_и_тип_канала_новой_связи(db):
+    """Репорт 2026-10-28: синк создавал связи без канала и типа — связи с брокером
+    горели алертом AL31, а асинхронный канал молча становился синхронным."""
+    user = ensure_architect(db)
+    p = make_project(db, owner=user)
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[BROKER_RUN], sync_components=True), db=db, user=user)
+
+    assert len(out.created_edges) == 3 and out.updated_edges == []
+    edges = _edges(db, p.id)
+    assert (edges["публикует A"].channel, edges["публикует B"].channel) == ("topic.a", "topic.b")
+    assert edges["доставляет A"].is_synchronous is False
+    assert edges["публикует A"].is_synchronous is None  # sync не прислан — дефолт
+    # Фикспойнт: повторное превью на том же входе пусто, две связи пары не путаются.
+    assert sync_preview(p.id, SyncPreviewIn(contents=[BROKER_RUN], sync_components=True), db=db, user=user).is_noop
+
+
+def test_apply_лечит_связи_без_канала_повторным_синком(db):
+    """Проект, заполненный синком до фикса: повторный синк тех же файлов заполняет
+    пустые каналы и тип действием update — без дублей, с ответом, что обновлено."""
+    user = ensure_architect(db)
+    p = seed_project_from_yaml(db, [BROKER_RUN], owner=user)
+    for e in _edges(db, p.id).values():
+        e.channel = None
+        e.is_synchronous = None
+    db.commit()
+    versions = {label: e.version for label, e in _edges(db, p.id).items()}
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[BROKER_RUN], sync_components=True), db=db, user=user)
+
+    assert out.created_edges == [] and len(out.updated_edges) == 3
+    assert "Система / producer → Система / bus" in out.updated_edges
+    edges = _edges(db, p.id)
+    assert len(edges) == 3
+    assert (edges["публикует A"].channel, edges["публикует B"].channel) == ("topic.a", "topic.b")
+    assert edges["доставляет A"].is_synchronous is False
+    assert all(e.version == versions[label] + 1 for label, e in edges.items())
+    assert sync_preview(p.id, SyncPreviewIn(contents=[BROKER_RUN], sync_components=True), db=db, user=user).is_noop
+
+
+def test_превью_называет_канал_связи(db):
+    """Строке плана нужен не только список полей, но и значение: какой канал
+    получит новая связь и чем заполнится пустой."""
+    user = ensure_architect(db)
+    p = seed_project_from_yaml(db, [BROKER_RUN], owner=user)
+    edges = _edges(db, p.id)
+    edges["публикует B"].channel = None
+    db.commit()
+    grown = BROKER_RUN + "  - {from: producer, to: bus, label: публикует C, technology: AMQP, channel: topic.c}\n"
+
+    pv = sync_preview(p.id, SyncPreviewIn(contents=[grown], sync_components=True), db=db, user=user)
+
+    by = {(e.action, e.channel): e for e in pv.edges}
+    assert by[("update", "topic.b")].fields == ["channel"]
+    assert by[("create", "topic.c")].fields == []
+    assert pv.summary["edges_update"] == 1 and pv.summary["edges_create"] == 1
 
 
 def test_apply_без_политик_имя_не_трогает(db):

@@ -168,7 +168,12 @@ class SyncNodeActionOut(BaseModel):
 class SyncEdgeActionOut(BaseModel):
     source_path: str
     target_path: str
-    action: Literal["create", "unchanged", "missing"]
+    action: Literal["create", "update", "unchanged", "missing"]
+    fields: list[str] = []  # какие поля заполнит update: channel, is_synchronous
+    # Канал и тип канала из прогона: у create — какие получит новая связь, у update —
+    # чем заполнятся пустые (превью показывает значение, а не только имя поля).
+    channel: str | None = None
+    is_synchronous: bool | None = None
 
 
 class SyncPreviewOut(BaseModel):
@@ -197,6 +202,7 @@ class SyncApplyOut(BaseModel):
     updated_nodes: list[str] = []
     deprecated_nodes: list[str] = []
     created_edges: list[str] = []
+    updated_edges: list[str] = []  # связи, у которых заполнен канал или тип канала
     skipped: list[str] = []  # действия, потерявшие цель между расчётом и записью
     graph_rev: int = 0  # новый курсор схемы
 

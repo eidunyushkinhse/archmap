@@ -51,6 +51,8 @@ def _seed(parsed: ParsedImport) -> tuple[list[Node], list[Edge]]:
             target_id=nodes[e.target_idx].id,
             label=e.label,
             technology=e.technology,
+            channel=e.channel,
+            is_synchronous=e.is_synchronous,
         )
         for e in parsed.edges
     ]
@@ -259,6 +261,143 @@ class TestEdges:
         assert _by_action(plan, "create") == ["Система / cache"]
         created = [(e.source_path, e.target_path) for e in plan.edges if e.action == "create"]
         assert created == [("Система / payments", "Система / cache")]
+
+
+# Связи с брокером: одна пара ходит по двум топикам — по ребру на канал (конвенция
+# промпта импорта). Репорт 2026-10-28: синк терял канал и не различал каналы пары.
+BROKER_RUN = """
+nodes:
+  - name: Система
+    children:
+      - name: producer
+        source: {host: producer}
+      - name: consumer
+        source: {host: consumer}
+      - name: bus
+        shape: broker
+        source: {host: bus}
+edges:
+  - {from: producer, to: bus, label: публикует A, technology: AMQP, channel: topic.a}
+  - {from: producer, to: bus, label: публикует B, technology: AMQP, channel: topic.b}
+  - {from: bus, to: consumer, label: доставляет A, technology: AMQP, channel: topic.a, sync: false}
+"""
+
+
+def _edge_actions(plan) -> list[tuple[str, str, str]]:
+    return [(e.source_path, e.target_path, e.action) for e in plan.edges]
+
+
+class TestEdgeChannels:
+    def test_фикспойнт_с_каналами(self):
+        """Схема, созданная этим прогоном (импортом, с каналами), даёт пустой план —
+        две связи одной пары не принимаются друг за друга."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        plan = build_sync_plan(nodes, edges, parsed)
+        assert plan.is_noop, _edge_actions(plan)
+
+    def test_пустой_канал_заполняется_действием_update_по_подписи(self):
+        """Проект, заполненный синком до фикса: связи есть, каналов нет. Повторный
+        синк тех же файлов подбирает каждому ребру прогона живую связь пары по подписи
+        и заполняет канал (и явный асинхронный тип) — не дублирует и не молчит."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        by_label = {e.label: e for e in edges}
+        for e in edges:
+            e.channel = None
+            e.is_synchronous = None
+
+        plan = build_sync_plan(nodes, edges, parsed)
+
+        assert [e.action for e in plan.edges] == ["update", "update", "update"]
+        assert plan.summary["edges_update"] == 3 and not plan.is_noop
+        fills = {e.edge_id: e.fields for e in plan.edges}
+        assert fills[by_label["публикует A"].id] == ["channel"]
+        assert fills[by_label["публикует B"].id] == ["channel"]
+        assert fills[by_label["доставляет A"].id] == ["channel", "is_synchronous"]
+        # imp_idx ведёт на ребро прогона с правильным каналом.
+        a = next(e for e in plan.edges if e.edge_id == by_label["публикует A"].id)
+        assert parsed.edges[a.imp_idx].channel == "topic.a"
+
+    def test_заполненное_не_перезаписывается(self):
+        """Канал и тип, которые уже стоят у живой связи, синк не трогает: явный
+        sync: true у прогона — не повод писать «тип» в план (дефолт тот же)."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        explicit = _parse(BROKER_RUN.replace("channel: topic.b}", "channel: topic.b, sync: true}"))
+        assert build_sync_plan(nodes, edges, explicit).is_noop
+
+    def test_новый_канал_той_же_пары_создаётся(self):
+        """Второй топик между уже связанными сервисами — новая связь, а не «без
+        изменений» (до фикса превью показывало её как существующую)."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        grown = _parse(BROKER_RUN + "  - {from: producer, to: bus, label: публикует C, technology: AMQP, channel: topic.c}\n")
+
+        plan = build_sync_plan(nodes, edges, grown)
+
+        created = [e for e in plan.edges if e.action == "create"]
+        assert [(e.source_path, e.target_path) for e in created] == [("Система / producer", "Система / bus")]
+        assert grown.edges[created[0].imp_idx].channel == "topic.c"
+        assert plan.summary == {"nodes_unchanged": 4, "edges_unchanged": 3, "edges_create": 1}
+
+    def test_пропавшая_связь_пары_видна_даже_когда_другая_осталась(self):
+        """Из кода ушёл один из двух топиков пары — именно он в «пропавших», вторая
+        связь пары без изменений (до фикса в учёт попадала только первая связь пары)."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        gone_b = next(e for e in edges if e.channel == "topic.b")
+        without_b = _parse(BROKER_RUN.replace(
+            "  - {from: producer, to: bus, label: публикует B, technology: AMQP, channel: topic.b}\n", ""
+        ))
+
+        plan = build_sync_plan(nodes, edges, without_b)
+
+        missing = [e for e in plan.edges if e.action == "missing"]
+        assert [e.edge_id for e in missing] == [gone_b.id]
+        assert plan.summary["edges_unchanged"] == 2
+
+    def test_другой_канал_это_другая_связь(self):
+        """Канал — идентичность связи с брокером: прогон назвал другой топик —
+        создаётся новая связь, старая показана пропавшей. Заполненный канал не
+        перезаписывается молча (его могли поправить руками)."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        renamed = _parse(BROKER_RUN.replace("channel: topic.b}", "channel: topic.b2}"))
+
+        plan = build_sync_plan(nodes, edges, renamed)
+
+        assert sorted(e.action for e in plan.edges) == ["create", "missing", "unchanged", "unchanged"]
+        assert all(e.channel == "topic.b" for e in edges if e.id in {m.edge_id for m in plan.edges if m.action == "missing"})
+
+    def test_ребро_без_канала_не_дублирует_живую_связь_с_каналом(self):
+        """Агент в этот раз не нашёл имя канала (channel пуст): ребро прогона
+        относится к живой связи пары, а не создаёт дубль без канала рядом с ней."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        lost = _parse(BROKER_RUN.replace(", channel: topic.a, sync: false}", "}"))
+
+        plan = build_sync_plan(nodes, edges, lost)
+
+        assert plan.is_noop, _edge_actions(plan)
+
+    def test_рёбра_с_каналом_разбираются_раньше_рёбер_без_канала(self):
+        """Порядок рёбер в прогоне не меняет решения: ребро без канала, идущее
+        первым, не забирает живую связь с каналом у своего настоящего ребра."""
+        parsed = _parse(BROKER_RUN)
+        nodes, edges = _seed(parsed)
+        live_a = next(e for e in edges if e.label == "публикует A")
+        reordered = _parse(BROKER_RUN.replace(
+            "edges:\n",
+            "edges:\n  - {from: producer, to: bus, label: публикует без имени, technology: AMQP}\n",
+        ))
+
+        plan = build_sync_plan(nodes, edges, reordered)
+
+        a = next(e for e in plan.edges if reordered.edges[e.imp_idx].channel == "topic.a" and e.imp_idx is not None)
+        assert (a.action, a.edge_id) == ("unchanged", live_a.id)
+        nameless = plan.edges[0]
+        assert reordered.edges[nameless.imp_idx].channel is None and nameless.action == "create"
 
 
 # ── Эндпоинт POST /projects/{id}/sync/preview ─────────────────────────────────

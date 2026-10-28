@@ -22,7 +22,7 @@ from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
-from app.sync_plan import SyncNodeAction, SyncPlan
+from app.sync_plan import SyncEdgeAction, SyncNodeAction, SyncPlan
 from app.view_state import bump_graph_rev
 
 
@@ -34,6 +34,7 @@ class SyncReport:
     updated_nodes: list[str] = field(default_factory=list)
     deprecated_nodes: list[str] = field(default_factory=list)
     created_edges: list[str] = field(default_factory=list)
+    updated_edges: list[str] = field(default_factory=list)  # заполнен канал или тип
     skipped: list[str] = field(default_factory=list)  # действия, потерявшие цель
 
     @property
@@ -43,6 +44,7 @@ class SyncReport:
             + len(self.updated_nodes)
             + len(self.deprecated_nodes)
             + len(self.created_edges)
+            + len(self.updated_edges)
         )
 
 
@@ -87,8 +89,16 @@ def apply_sync_plan(
         if act.action != "unchanged" and act.fields:
             _update_node(act, imp, node, report)
 
+    live_edges = {
+        e.id: e for e in db.query(Edge).filter(Edge.project_id == project.id).all()
+    }
     for eact in plan.edges:
-        if eact.action != "create" or eact.imp_idx is None:
+        if eact.imp_idx is None:
+            continue
+        if eact.action == "update":
+            _update_edge(eact, parsed, live_edges, report)
+            continue
+        if eact.action != "create":
             continue
         src = by_path.get(eact.source_path)
         dst = by_path.get(eact.target_path)
@@ -96,6 +106,8 @@ def apply_sync_plan(
             report.skipped.append(f"{eact.source_path} → {eact.target_path}: конец не найден")
             continue
         ie = parsed.edges[eact.imp_idx]
+        # Канал и тип канала — те же поля прогона, что пишет импорт (unified_into):
+        # до 2026-10-28 синк их терял, и связи с брокером приезжали без канала (AL31).
         db.add(
             Edge(
                 id=uuid.uuid4(),
@@ -104,6 +116,8 @@ def apply_sync_plan(
                 target_id=dst.id,
                 label=ie.label,
                 technology=ie.technology,
+                channel=ie.channel,
+                is_synchronous=ie.is_synchronous,
             )
         )
         report.created_edges.append(f"{eact.source_path} → {eact.target_path}")
@@ -112,6 +126,29 @@ def apply_sync_plan(
         # Курсор поллинга: чужие сессии подтянут обновлённую схему.
         bump_graph_rev(db, project)
     return report
+
+
+def _update_edge(
+    eact: SyncEdgeAction,
+    parsed: ParsedImport,
+    live_edges: dict[uuid.UUID, Edge],
+    report: SyncReport,
+) -> None:
+    """Заполнить у живой связи пустые поля из прогона. Что заполнять — решил план
+    (fields); здесь только присваивание, как у _update_node."""
+    edge = live_edges.get(eact.edge_id) if eact.edge_id else None
+    path = f"{eact.source_path} → {eact.target_path}"
+    if edge is None or eact.imp_idx is None:
+        report.skipped.append(f"{path}: связь исчезла до применения")
+        return
+    ie = parsed.edges[eact.imp_idx]
+    for fld in eact.fields:
+        if fld == "channel":
+            edge.channel = ie.channel
+        elif fld == "is_synchronous":
+            edge.is_synchronous = ie.is_synchronous
+    edge.version += 1
+    report.updated_edges.append(path)
 
 
 def _mark_missing(
