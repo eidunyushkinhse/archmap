@@ -24,6 +24,7 @@ from app.docs_import import (
 )
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
+from app.models.config_param import ConfigParam
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -1061,6 +1062,33 @@ def test_заметки_о_неописанной_структуре_незав�
     тихо = _plan(db, [("c.mmd", _refs_mmd("читает: orders.status", name="Только данные"))],
                  window=orders)
     assert not any("каналы брокеров" in w for w in тихо.warnings)
+
+
+def test_пустая_конфигурация_владельца_не_молчит(db):
+    """Каталог конфигурации у каждого узла свой: пустой у владельца схемы — промах
+    адресата, а не «структуры ещё нет». Раньше превью молчало, а после применения каждая
+    пометка горела AL33 (полевой репорт 2026-10-28, п. 2)."""
+    _root, orders, _billing, _shipping, b_api, _s_api = _tree(db)
+    db.add(ConfigParam(
+        id=uuid.uuid4(), node_id=b_api.id, name="FEATURE_X",
+        value_type="string", required=False, default_value="",
+    ))
+    db.commit()
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: FEATURE_X, RETRY_TIMEOUT",
+                                          name="Развилка"))], window=orders)
+
+    строки = [w for w in plan.warnings if "конфигурация не описана" in w]
+    assert len(строки) == 1
+    assert "«Ярмарка / orders»" in строки[0] and "FEATURE_X, RETRY_TIMEOUT" in строки[0]
+    # Поимённых промахов нет: резолвить нечем, и дублировать заметку на пометку незачем.
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+    # У владельца с описанной конфигурацией промах по-прежнему называется поимённо.
+    план2 = _plan(db, [("b.mmd", _refs_mmd("зависит от: RETRY_TIMEOUT", name="Другая"))],
+                  window=b_api)
+    assert any("пометка «RETRY_TIMEOUT»" in w and "параметра нет" in w for w in план2.warnings)
+    assert not any("конфигурация не описана" in w for w in план2.warnings)
 
 
 def test_счётчики_пометок_считают_обе_семьи_отдельно(db):
