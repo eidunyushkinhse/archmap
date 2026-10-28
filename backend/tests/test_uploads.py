@@ -162,12 +162,34 @@ def test_только_чтение_и_демо_не_выпускают_ссыл�
     assert client.post(UPLOADS, json={"name": "a.yaml"}, headers=_h(full)).status_code in (401, 403)
 
 
-def test_предел_живых_загрузок(client, db):
+def test_предел_ссылок_без_файла(client, db):
     secret = _token(db, _user(db, "arch"))
-    for _ in range(uploads.MAX_LIVE_PER_USER):
+    for _ in range(uploads.MAX_PENDING_PER_USER):
         _slot(client, secret)
     r = client.post(UPLOADS, json={"name": "x.yaml"}, headers=_h(secret))
     assert r.status_code == 429 and uploads.TOO_MANY_DETAIL in r.text
+
+
+def test_принятые_файлы_штуками_не_считаются(client, db):
+    """Полевой репорт 2026-10-28: пакет документации — десятки .mmd по ссылке каждый, и
+    несколько агентов под одним токеном упирались в «16 живых» за минуты. Принятые файлы
+    ограничены байтами, а не штуками; использование строку не освобождает — превью и
+    применение читают одни и те же входы."""
+    secret = _token(db, _user(db, "arch"))
+    for i in range(uploads.MAX_PENDING_PER_USER):
+        slot = _slot(client, secret, f"{i}.mmd")
+        assert client.put(slot["path"], content=YAML).status_code == 200
+    r = client.post(UPLOADS, json={"name": "ещё.mmd"}, headers=_h(secret))
+    assert r.status_code == 201, r.text
+
+
+def test_предел_байтов_принятых(client, db, monkeypatch):
+    secret = _token(db, _user(db, "arch"))
+    monkeypatch.setattr(uploads, "MAX_LIVE_BYTES_PER_USER", len(YAML))
+    slot = _slot(client, secret)
+    assert client.put(slot["path"], content=YAML).status_code == 200
+    r = client.post(UPLOADS, json={"name": "x.yaml"}, headers=_h(secret))
+    assert r.status_code == 429 and uploads.TOO_MUCH_DETAIL in r.text
 
 
 def test_неудачные_put_ограничены_по_адресу(client, db):
