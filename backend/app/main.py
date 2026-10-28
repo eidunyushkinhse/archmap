@@ -36,6 +36,7 @@ from app.routers import (
     recon,
     search,
     tokens,
+    uploads,
     users,
     versions,
     views,
@@ -118,6 +119,7 @@ app.include_router(recon.router, prefix="/api/v1")
 app.include_router(edges.router, prefix="/api/v1")
 app.include_router(views.router, prefix="/api/v1")
 app.include_router(deployment.router, prefix="/api/v1")
+app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(processes.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")

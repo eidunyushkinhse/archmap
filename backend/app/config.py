@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # страницы отклоняется, как требует спецификация MCP против DNS rebinding).
     mcp_requests_per_minute: int = 300
     mcp_allowed_origins: str = ""
+    # Загрузка файла с машины агента по одноразовой ссылке (app/uploads.py,
+    # docs/plan-mcp-upload.md): предел одного файла в МБ. Файл живёт 10 минут в БД.
+    upload_max_mb: int = 2
 
     model_config = SettingsConfigDict(env_file=".env")
 
