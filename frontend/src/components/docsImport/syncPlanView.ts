@@ -45,9 +45,28 @@ function nodeNote(a: SyncNodeAction): string {
   return parts.join(" · ");
 }
 
+/** Тип канала словами — значение, а не имя поля: «тип ← асинхронный» читается, «is_synchronous» нет. */
+const syncWord = (v: boolean | null | undefined): string => (v === false ? "асинхронный" : "синхронный");
+
+/** Пояснение к связи: у новой — какой канал она получит, у обновляемой — чем
+ *  заполнятся пустые поля (значение, а не только имя поля: «канал ← topic.a»). */
+function edgeNote(e: SyncEdgeAction): string {
+  if (e.action === "update") {
+    return (e.fields ?? [])
+      .map((f) => {
+        if (f === "channel") return `канал ← ${e.channel ?? ""}`;
+        if (f === "is_synchronous") return `тип ← ${syncWord(e.is_synchronous)}`;
+        return f;
+      })
+      .join(", ");
+  }
+  if (e.action === "create" && e.channel) return `канал ${e.channel}`;
+  return "";
+}
+
 const edgeRow = (e: SyncEdgeAction): PlanRow => ({
   path: `${e.source_path} → ${e.target_path}`,
-  note: "",
+  note: edgeNote(e),
 });
 
 /** Разделы превью: только непустые, в порядке «рост схемы → внимание». */
@@ -71,6 +90,13 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
       key: "edges_create",
       title: "Новые связи",
       rows: edges("create").map(edgeRow),
+    },
+    {
+      // Заполнение пустого канала или типа у живой связи (с 2026-10-28): так
+      // повторный синк лечит проект, заполненный синком, когда он терял каналы.
+      key: "edges_update",
+      title: "Изменённые связи",
+      rows: edges("update").map(edgeRow),
     },
     {
       // Вернувшиеся показываем ВСЕГДА, даже когда статус не трогаем: иначе
@@ -114,6 +140,7 @@ export function planSummary(p: SyncPreviewOut): string {
   add(s.nodes_returned, "вернувшихся");
   add(s.nodes_missing, "пропавших");
   add(s.edges_create, "новых связей");
+  add(s.edges_update, "изменённых связей");
   add(s.edges_missing, "пропавших связей");
   const unchanged = (s.nodes_unchanged ?? 0) + (s.edges_unchanged ?? 0);
   const tail = unchanged ? ` · без изменений ${unchanged}` : "";
@@ -131,6 +158,7 @@ export function applySummary(r: SyncApplyOut): string {
   add(r.updated_nodes, "обновлено");
   add(r.deprecated_nodes, "помечено устаревшими");
   add(r.created_edges, "новых связей");
+  add(r.updated_edges, "связей дополнено");
   const head = bits.length ? `Схема обновлена: ${bits.join(", ")}` : "Схема уже актуальна";
   return r.skipped?.length ? `${head}. Пропущено: ${r.skipped.length}` : head;
 }

@@ -391,6 +391,11 @@ def sync_preview(
                 source_path=e.source_path,
                 target_path=e.target_path,
                 action=e.action,
+                fields=e.fields,
+                channel=merged.edges[e.imp_idx].channel if e.imp_idx is not None else None,
+                is_synchronous=(
+                    merged.edges[e.imp_idx].is_synchronous if e.imp_idx is not None else None
+                ),
             )
             for e in plan.edges
         ],
@@ -453,6 +458,7 @@ def sync_apply(
         updated_nodes=report.updated_nodes,
         deprecated_nodes=report.deprecated_nodes,
         created_edges=report.created_edges,
+        updated_edges=report.updated_edges,
         skipped=report.skipped,
         graph_rev=project.graph_rev,
     )

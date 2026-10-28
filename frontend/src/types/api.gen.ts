@@ -7103,6 +7103,11 @@ export interface components {
              */
             created_edges: string[];
             /**
+             * Updated Edges
+             * @default []
+             */
+            updated_edges: string[];
+            /**
              * Skipped
              * @default []
              */
@@ -7123,7 +7128,16 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "create" | "unchanged" | "missing";
+            action: "create" | "update" | "unchanged" | "missing";
+            /**
+             * Fields
+             * @default []
+             */
+            fields: string[];
+            /** Channel */
+            channel?: string | null;
+            /** Is Synchronous */
+            is_synchronous?: boolean | null;
         };
         /** SyncNodeActionOut */
         SyncNodeActionOut: {

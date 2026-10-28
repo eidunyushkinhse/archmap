@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.identity import basis_of_key, compare_identity
-from app.import_yaml import ParsedImport, _ImpNode
+from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.text import identity_name
@@ -90,9 +90,13 @@ class SyncNodeAction:
 class SyncEdgeAction:
     source_path: str
     target_path: str
-    action: str  # create | unchanged | missing
+    action: str  # create | update | unchanged | missing
     edge_id: uuid.UUID | None = None
-    imp_idx: int | None = None  # индекс ребра в прогоне (label/technology для create)
+    imp_idx: int | None = None  # индекс ребра в прогоне (поля для create и update)
+    # Какие поля живой связи заполнит update: channel, is_synchronous. Только ПУСТЫЕ —
+    # заполненное руками или прошлым прогоном синк не перезаписывает (как role и
+    # technology у узла: «богатое побеждает», а не «прогон побеждает»).
+    fields: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -357,15 +361,26 @@ class _Matcher:
     # ── рёбра ─────────────────────────────────────────────────────────────
 
     def walk_edges(self, parsed: ParsedImport) -> None:
-        """Ребро прогона существует, если между теми же живыми концами уже есть
-        связь. Концы вне зоны синка (пропущенные компоненты) ребро выбрасывают —
-        синк не выдумывает связи к тому, чего не рассматривал."""
-        live_pairs: dict[tuple[uuid.UUID, uuid.UUID], Edge] = {}
+        """Ребро прогона опознаётся среди живых связей той же пары концов; внутри
+        пары связи различает КАНАЛ (конвенция промпта: одна пара ходит по нескольким
+        топикам — по ребру на канал), а не подпись. Подпись — проза, она дрейфует от
+        прогона к прогону, и ключ по ней плодил бы дубли при каждой переформулировке.
+        Живая связь без канала (заведена руками или синком до 2026-10-28, когда канал
+        терялся) подбирается к ребру прогона по паре и получает канал действием
+        update — так повторный синк тех же файлов лечит проект. Концы вне зоны синка
+        (пропущенные компоненты) ребро выбрасывают — синк не выдумывает связи к тому,
+        чего не рассматривал."""
+        live_pairs: dict[tuple[uuid.UUID, uuid.UUID], list[Edge]] = {}
         for live_edge in self.edges:
-            live_pairs.setdefault((live_edge.source_id, live_edge.target_id), live_edge)
-        seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
+            live_pairs.setdefault((live_edge.source_id, live_edge.target_id), []).append(live_edge)
+        taken_edges: set[uuid.UUID] = set()
+        decided: dict[int, SyncEdgeAction] = {}
 
-        for ei, ie in enumerate(parsed.edges):
+        # Рёбра с каналом разбираются ПЕРВЫМИ: иначе ребро без канала, идущее в прогоне
+        # раньше, забрало бы живую связь с каналом, а её настоящее ребро создало бы дубль.
+        order = sorted(range(len(parsed.edges)), key=lambda i: not _channel_of(parsed.edges[i]))
+        for ei in order:
+            ie = parsed.edges[ei]
             if ie.source_idx in self.skipped or ie.target_idx in self.skipped:
                 continue
             src_live = self.imp_to_live.get(ie.source_idx)
@@ -373,32 +388,86 @@ class _Matcher:
             sp, tp = self.imp_paths[ie.source_idx], self.imp_paths[ie.target_idx]
             if src_live is None or dst_live is None:
                 # Хотя бы один конец — новый узел: связь тоже новая.
-                self.plan.edges.append(SyncEdgeAction(sp, tp, "create", imp_idx=ei))
+                decided[ei] = SyncEdgeAction(sp, tp, "create", imp_idx=ei)
                 continue
-            hit = live_pairs.get((src_live.id, dst_live.id))
+            free = [
+                e for e in live_pairs.get((src_live.id, dst_live.id), []) if e.id not in taken_edges
+            ]
+            hit = _pick_live_edge(free, ie)
             if hit is None:
-                self.plan.edges.append(SyncEdgeAction(sp, tp, "create", imp_idx=ei))
-            else:
-                seen.add((src_live.id, dst_live.id))
-                self.plan.edges.append(
-                    SyncEdgeAction(sp, tp, "unchanged", edge_id=hit.id, imp_idx=ei)
-                )
+                decided[ei] = SyncEdgeAction(sp, tp, "create", imp_idx=ei)
+                continue
+            taken_edges.add(hit.id)
+            fields = _edge_fill_fields(hit, ie)
+            decided[ei] = SyncEdgeAction(
+                sp, tp, "update" if fields else "unchanged", edge_id=hit.id, imp_idx=ei, fields=fields
+            )
+        # В плане — в порядке прогона, как и узлы.
+        self.plan.edges.extend(decided[ei] for ei in sorted(decided))
 
-        # Пропавшие: живые связи МЕЖДУ СМЭТЧЕННЫМИ узлами, которых прогон не дал.
+        # Пропавшие: живые связи МЕЖДУ СМЭТЧЕННЫМИ узлами, которых прогон не дал, —
+        # каждая связь пары, а не пара целиком (второй канал пары пропадает сам по себе).
         # Связь, чей конец сам помечен missing, сюда НЕ попадает намеренно: узел
         # не удаляется (в худшем случае помечается deprecated), значит связь в него
         # остаётся валидной, и звать её пропавшей — вводить в заблуждение.
-        for (src, dst), live_edge in live_pairs.items():
-            if (src, dst) in seen or src not in self.taken or dst not in self.taken:
+        for (src, dst), live_edges in live_pairs.items():
+            if src not in self.taken or dst not in self.taken:
                 continue
-            self.plan.edges.append(
-                SyncEdgeAction(
-                    self.live_paths.get(src, self.by_id[src].name),
-                    self.live_paths.get(dst, self.by_id[dst].name),
-                    "missing",
-                    edge_id=live_edge.id,
+            for live_edge in live_edges:
+                if live_edge.id in taken_edges:
+                    continue
+                self.plan.edges.append(
+                    SyncEdgeAction(
+                        self.live_paths.get(src, self.by_id[src].name),
+                        self.live_paths.get(dst, self.by_id[dst].name),
+                        "missing",
+                        edge_id=live_edge.id,
+                    )
                 )
-            )
+
+
+def _channel_of(e: Edge | _ImpEdge) -> str:
+    return (e.channel or "").strip()
+
+
+def _pick_live_edge(free: list[Edge], ie: _ImpEdge) -> Edge | None:
+    """Какая из свободных живых связей пары — это ребро прогона.
+
+    Ребро с каналом: связь с тем же каналом; иначе связь БЕЗ канала (его заполнит
+    update); связи с другими каналами — чужие, и ребро создаётся новым (второй топик
+    между той же парой). Ребро без канала: тоже связь без канала, а на худой конец
+    любая связь пары — агент мог не найти канал в этот раз, и дубль без канала рядом с
+    настоящей связью хуже, чем «без изменений». При нескольких кандидатах решает
+    подпись, при её расхождении — первая по порядку."""
+    ch = _channel_of(ie)
+    if ch:
+        same = [e for e in free if _channel_of(e) == ch]
+        if same:
+            return same[0]
+        return _by_label([e for e in free if not _channel_of(e)], ie)
+    blank = [e for e in free if not _channel_of(e)]
+    return _by_label(blank, ie) or _by_label(free, ie)
+
+
+def _by_label(cands: list[Edge], ie: _ImpEdge) -> Edge | None:
+    label = (ie.label or "").strip()
+    for e in cands:
+        if (e.label or "").strip() == label:
+            return e
+    return cands[0] if cands else None
+
+
+def _edge_fill_fields(live: Edge, ie: _ImpEdge) -> list[str]:
+    """Что update заполнит у живой связи: пустой канал — каналом прогона; тип канала —
+    только когда прогон явно говорит «асинхронный», а у связи типа нет (None — это
+    дефолт «синхронный», и явное sync: true его не меняет: строка «тип» в плане была бы
+    шумом без последствий). Заполненное не перезаписывается."""
+    fields: list[str] = []
+    if _channel_of(ie) and not _channel_of(live):
+        fields.append("channel")
+    if ie.is_synchronous is False and live.is_synchronous is None:
+        fields.append("is_synchronous")
+    return fields
 
 
 def build_sync_plan(

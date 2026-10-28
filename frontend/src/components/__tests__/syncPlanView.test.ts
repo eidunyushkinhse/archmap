@@ -31,8 +31,8 @@ describe("planSections", () => {
         { returned: false, path: "С / упавший", action: "missing", fields: [] },
       ],
       edges: [
-        { source_path: "С / a", target_path: "С / b", action: "create" },
-        { source_path: "С / c", target_path: "С / d", action: "unchanged" },
+        { source_path: "С / a", target_path: "С / b", action: "create", fields: [] },
+        { source_path: "С / c", target_path: "С / d", action: "unchanged", fields: [] },
       ],
     });
 
@@ -90,6 +90,34 @@ describe("planSections", () => {
       "источник: имя зависимости postgres",
       "источника нет — будет опознаваться по имени",
     ]);
+  });
+});
+
+describe("связи", () => {
+  it("у новой связи назван канал, у обновляемой — чем заполнится пустое", () => {
+    const p = preview({
+      edges: [
+        { source_path: "С / producer", target_path: "С / bus", action: "create", fields: [], channel: "topic.c", is_synchronous: null },
+        { source_path: "С / producer", target_path: "С / bus", action: "update", fields: ["channel"], channel: "topic.a", is_synchronous: null },
+        { source_path: "С / bus", target_path: "С / consumer", action: "update", fields: ["channel", "is_synchronous"], channel: "topic.a", is_synchronous: false },
+        { source_path: "С / a", target_path: "С / b", action: "create", fields: [], channel: null, is_synchronous: null },
+      ],
+    });
+    const sections = planSections(p);
+    expect(sections.map((s) => s.key)).toEqual(["edges_create", "edges_update"]);
+    expect(sections[0].rows.map((r) => r.note)).toEqual(["канал topic.c", ""]);
+    expect(sections[1].rows.map((r) => r.note)).toEqual(["канал ← topic.a", "канал ← topic.a, тип ← асинхронный"]);
+  });
+
+  it("сводка и итог считают дополненные связи", () => {
+    expect(planSummary(preview({ summary: { edges_update: 2, edges_unchanged: 1 } }))).toBe(
+      "2 изменённых связей · без изменений 1",
+    );
+    const r: SyncApplyOut = {
+      created_nodes: [], updated_nodes: [], deprecated_nodes: [], created_edges: [],
+      updated_edges: ["С / producer → С / bus"], skipped: [], graph_rev: 3,
+    };
+    expect(applySummary(r)).toBe("Схема обновлена: 1 связей дополнено");
   });
 });
 
