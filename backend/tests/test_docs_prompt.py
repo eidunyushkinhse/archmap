@@ -469,6 +469,8 @@ def test_prompt_markers_and_slice():
         "%% archmap-name",
         "НЕ перепечатывай",
         "archmap-origin",
+        # JSON без комментариев: происхождение — ключом (полевой репорт 2026-10-28).
+        "x-archmap-origin",
         "graph TD",
         "Схему НЕ меняй",
         "чью реализацию видишь в ЭТОМ репозитории",

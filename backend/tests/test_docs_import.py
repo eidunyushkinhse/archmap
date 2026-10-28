@@ -803,6 +803,10 @@ def test_папку_целиком_можно_бросить_в_окно_спе�
 # ── окно спеки без манифеста (docs/plan-docs-mmd.md, Фаза 4, бэковая часть) ────
 
 SPEC_WITH_ORIGIN = "# archmap-origin: generated\n" + SPEC
+SPEC_JSON = (
+    '{"openapi": "3.0.0", "info": {"title": "Orders", "version": "1.0.0", '
+    '"x-archmap-origin": "generated"}, "paths": {"/orders": {"post": {}}}}'
+)
 
 
 def _spec_payload(*files, node=None, overwrite=True):
@@ -839,6 +843,46 @@ def test_происхождение_читается_комментарием_в
     )
 
     assert report.specs[0].origin == "generated"
+
+
+def test_происхождение_json_спеки_читается_ключом(db):
+    """Комментариев в JSON нет (полевой репорт 2026-10-28: агент переводил сгенерированный
+    JSON в YAML ради одной строки) — происхождение едет ключом x-archmap-origin в info."""
+    _, orders, *_ = _tree(db)
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.json", SPEC_JSON), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin == "generated"
+    assert report.specs[0].looks_openapi
+    assert not any("происхождение" in w for w in report.warnings)
+
+
+def test_json_без_ключа_предупреждает_как_и_yaml(db):
+    _, orders, *_ = _tree(db)
+    без_ключа = SPEC_JSON.replace(', "x-archmap-origin": "generated"', "")
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.json", без_ключа), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin is None
+    assert any("происхождение" in w for w in report.warnings)
+
+
+def test_ключ_происхождения_работает_и_в_yaml(db):
+    _, orders, *_ = _tree(db)
+    спека = SPEC.replace("  version: 1.0.0\n", "  version: 1.0.0\n  x-archmap-origin: found\n")
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.yaml", спека), node=orders),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.specs[0].origin == "found"
 
 
 def test_две_спеки_в_пакете_это_вопрос_а_не_догадка(db):

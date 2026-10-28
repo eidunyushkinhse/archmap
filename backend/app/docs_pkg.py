@@ -64,6 +64,33 @@ def _name_from_file(fname: str) -> str:
 
 
 _ORIGIN_COMMENT_RE = re.compile(r"^[#/ ]*archmap-origin:[ \t]*(\w+)[ \t]*$", re.MULTILINE)
+# Ключ происхождения внутри самой спеки — расширение OpenAPI («x-…»), годится обоим
+# форматам; для JSON это единственный путь: комментариев в нём нет.
+_ORIGIN_KEY = "x-archmap-origin"
+
+
+def spec_origin(content: str) -> str | None:
+    """Происхождение спеки из её текста: комментарий «# archmap-origin: …» в первых
+    строках (YAML) либо ключ x-archmap-origin в info или на верхнем уровне (любой формат).
+
+    Полевой репорт 2026-10-28: промпт обещал, что JSON обойдётся без происхождения, а
+    превью предупреждало о его отсутствии — агент переводил сгенерированный JSON в YAML
+    ради одной строки комментария. Генератору достаточно добавить ключ (команда в
+    промпте так и делает). Второй разбор текста дёшев: загрузчик C-шный (yaml_io)."""
+    match = _ORIGIN_COMMENT_RE.search(content[:2000])
+    if match and match.group(1) in _ORIGINS:
+        return match.group(1)
+    try:
+        doc = yaml_io.safe_load(content)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    info = doc.get("info")
+    raw = info.get(_ORIGIN_KEY) if isinstance(info, dict) else None
+    if raw is None:
+        raw = doc.get(_ORIGIN_KEY)
+    return raw if isinstance(raw, str) and raw in _ORIGINS else None
 
 
 def pkg_from_spec(fname: str, content: str) -> ParsedPkg:
@@ -71,9 +98,9 @@ def pkg_from_spec(fname: str, content: str) -> ParsedPkg:
 
     Окно спеки открыто ДЛЯ узла, спека у него одна — конверт-манифест здесь не
     нёс ничего, кроме происхождения; его агент пишет комментарием в первых
-    строках самой спеки («# archmap-origin: generated»)."""
-    match = _ORIGIN_COMMENT_RE.search(content[:2000])
-    origin = match.group(1) if match and match.group(1) in _ORIGINS else None
+    строках самой спеки («# archmap-origin: generated») или ключом x-archmap-origin
+    в info (spec_origin)."""
+    origin = spec_origin(content)
     return ParsedPkg(
         entries=[
             PkgEntry(
