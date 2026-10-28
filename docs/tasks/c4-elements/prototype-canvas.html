@@ -1,0 +1,315 @@
+<title>Контейнер на холсте</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Раскладка: шапка, раздел терминов (три кандидата в ряд), четыре сцены холста по две в ряд, итоговый список отличий; на телефоне всё в одну колонку */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --fg:#1b2330; --muted:#5f6a7a; --line:#d6dce5; --line-strong:#b8c1cc;
+  --accent:#1f6f8b; --accent-soft:#e2eff4; --accent-ink:#135166;
+  --ok:#2a7a4b; --ok-soft:#e0f1e6; --warn:#9a6210; --warn-soft:#fbf0d9;
+  --canvas:#fafbfd; --grid:#e8ecf2; --plaque-bg:#ffffff; --plaque-fg:#64748b; --plaque-line:#e5e7eb;
+  --sys-line:#9ca3af; --cont-line:#0d5196; --cont-fill:rgba(17,104,189,0.07); --comp-fill:#ffffff; --comp-line:#5ab0cf; --comp-fg:#1a365d;
+  --edge:#64748b; --site-fill:rgba(100,116,139,0.07); --site-line:#94a3b8;
+  --font:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171e; --surface:#1a212b; --fg:#e4e9f0; --muted:#9aa5b4; --line:#2b3542; --line-strong:#3c4858;
+  --accent:#62b4d0; --accent-soft:#1c3340; --accent-ink:#a9dced; --ok:#6fcf97; --ok-soft:#1b3326; --warn:#e2b35c; --warn-soft:#3a2d14;
+  --canvas:#161c25; --grid:#1f2731; --plaque-bg:#1a212b; --plaque-fg:#aab4c2; --plaque-line:#2b3542;
+  --sys-line:#6b7686; --cont-line:#5ab0cf; --cont-fill:rgba(90,176,207,0.10); --comp-fill:#1f2935; --comp-line:#5ab0cf; --comp-fg:#dbe7f1;
+  --edge:#9aa5b4; --site-fill:rgba(148,163,184,0.10); --site-line:#6b7686; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#12171e; --surface:#1a212b; --fg:#e4e9f0; --muted:#9aa5b4; --line:#2b3542; --line-strong:#3c4858;
+  --accent:#62b4d0; --accent-soft:#1c3340; --accent-ink:#a9dced; --ok:#6fcf97; --ok-soft:#1b3326; --warn:#e2b35c; --warn-soft:#3a2d14;
+  --canvas:#161c25; --grid:#1f2731; --plaque-bg:#1a212b; --plaque-fg:#aab4c2; --plaque-line:#2b3542;
+  --sys-line:#6b7686; --cont-line:#5ab0cf; --cont-fill:rgba(90,176,207,0.10); --comp-fill:#1f2935; --comp-line:#5ab0cf; --comp-fg:#dbe7f1;
+  --edge:#9aa5b4; --site-fill:rgba(148,163,184,0.10); --site-line:#6b7686; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1{font-size:26px;line-height:1.15;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:600}
+h3{font-size:15px;margin:0;font-weight:700}
+p{margin:0}
+header{padding-block:22px 0;display:flex;flex-direction:column;gap:8px}
+.lead{max-width:70ch;color:var(--muted)}
+.lead b{color:var(--fg);font-weight:600}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+
+.terms{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:900px){.terms{grid-template-columns:1fr}}
+.term{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.term.pick{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.term .roles{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-size:11px;font-weight:600;letter-spacing:.02em;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.sys{border-style:dashed;border-color:var(--line-strong)}
+.chip.cont{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip.comp{background:var(--bg)}
+.term ul{margin:0;padding-left:18px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+.term .verdict{font-weight:600}
+.pick .verdict{color:var(--accent-ink)}
+.rejected{color:var(--muted);margin-top:10px;max-width:80ch}
+
+.control{display:grid;grid-template-columns:minmax(0,320px) 1fr;gap:16px;align-items:start}
+@media (max-width:760px){.control{grid-template-columns:1fr}}
+.insp{border:1px solid var(--line);border-radius:10px;padding:12px 14px;background:var(--bg)}
+.insp .t{font-weight:700;margin-bottom:8px}
+.insp .r{display:flex;gap:8px;align-items:flex-start;padding:6px 0}
+.insp .r input{margin-top:3px}
+.insp .r .l{font-weight:600}
+.insp .r .h{color:var(--muted);font-size:12px}
+.control p{max-width:60ch;color:var(--muted)}
+
+.scenes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:1000px){.scenes{grid-template-columns:1fr}}
+.scene{display:flex;flex-direction:column;gap:8px;min-width:0}
+.scene .cap{color:var(--muted);max-width:70ch}
+.scene .cap b{color:var(--fg);font-weight:600}
+.canvas{border:1px solid var(--line);border-radius:10px;overflow-x:auto;background:var(--canvas);
+  background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+.canvas svg{display:block;width:100%;height:auto;min-width:520px;font-family:var(--font)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;align-items:center;color:var(--muted);font-size:12px}
+.legend span.sw{display:inline-block;width:26px;height:14px;border-radius:4px;vertical-align:middle;margin-right:4px}
+.sw.sys{border:1px dashed var(--sys-line)} .sw.cont{border:1.5px solid var(--cont-line);background:var(--cont-fill)} .sw.node{background:#1168bd;border:1px solid #0d5196} .sw.comp{background:var(--comp-fill);border:1px solid var(--comp-line)}
+
+.diff ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.diff li{max-width:76ch}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>Контейнер, компонент, система на холсте</h1>
+  <p class="lead">Продолжение прототипа признака: как три роли узла выглядят на схеме и как их назвать. Графика та же, что сейчас у ArchMap: узлы 190×100, палитра C4 по глубине, рамки с плашкой. Нового ровно два штриха: <b>сплошная рамка с шапкой</b> у раскрытого контейнера и <b>лёгкая плитка</b> у компонента.</p>
+</header>
+
+<section class="panel">
+  <h2>Термин вместо «коробки»</h2>
+  <div class="terms">
+    <div class="term pick">
+      <h3>Словарь C4: система · контейнер · компонент</h3>
+      <div class="roles"><span class="chip sys">система</span><span class="chip cont">контейнер</span><span class="chip comp">компонент</span></div>
+      <ul>
+        <li>У C4 контейнер и есть «запускается отдельно»: приложение, процесс, база, брокер. Компонент это часть контейнера, система это граница из контейнеров.</li>
+        <li>Интерфейс уже говорит «компоненты» («Войти к компонентам», «уточните до компонента») и «контейнер».</li>
+        <li>Цена: сегодня ArchMap зовёт контейнером любой узел с детьми. Группировки придётся переименовать в «систему», это тексты и спека, не данные.</li>
+      </ul>
+      <p class="verdict">Рекомендую: стандартные слова, пользователь ArchMap приходит из C4.</p>
+    </div>
+    <div class="term">
+      <h3>«Запускается отдельно»</h3>
+      <div class="roles"><span class="chip sys">группа</span><span class="chip cont">самостоятельный</span><span class="chip comp">часть</span></div>
+      <ul>
+        <li>Признак читается как факт, а не как ярлык: «этот объект запускается отдельно».</li>
+        <li>Не спорит с сегодняшним «контейнер = узел с детьми», ничего переименовывать не нужно.</li>
+        <li>Роли «самостоятельный» и «часть» в чипах и алертах выглядят бедно, и у них нет опоры в литературе.</li>
+      </ul>
+      <p class="verdict">Годится как подпись контрола при любом словаре.</p>
+    </div>
+    <div class="term">
+      <h3>«Единица развёртывания»</h3>
+      <div class="roles"><span class="chip sys">группа</span><span class="chip cont">единица развёртывания</span><span class="chip comp">модуль</span></div>
+      <ul>
+        <li>Точный перевод deployable unit, понятен DevOps-читателю.</li>
+        <li>Три слова не помещаются в чип и в заголовок алерта.</li>
+        <li>Под с сайдкарами разворачивается целиком, а переменные окружения у каждого контейнера свои: единица развёртывания и граница конфигурации не всегда совпадают.</li>
+      </ul>
+      <p class="verdict">Оставить для документации как пояснение, не как имя роли.</p>
+    </div>
+  </div>
+  <p class="rejected">Отклонено: «процесс» занят бизнес-процессами, «приложение» не подходит базе и брокеру, «экземпляр» уже означает размещение на площадке, «сервис» это форма узла, «узел развёртывания» путается с площадкой.</p>
+</section>
+
+<section class="panel">
+  <h2>Контрол в инспекторе</h2>
+  <div class="control">
+    <div class="insp">
+      <div class="t">orders · свойства</div>
+      <label class="r"><input type="radio" name="kind" id="kind-cont" checked><span><span class="l">Контейнер</span><br><span class="h">запускается отдельно: процесс, образ, под. Дети это его компоненты</span></span></label>
+      <label class="r"><input type="radio" name="kind" id="kind-sys"><span><span class="l">Система</span><br><span class="h">граница из контейнеров, своих фактов не имеет</span></span></label>
+    </div>
+    <div>
+      <p>Не галочка, а выбор из двух: у узла с детьми роль либо та, либо другая, третьего нет. У листа строки нет вовсе: лист это контейнер, если он не внутри контейнера, и компонент, если внутри. Для существующих проектов все узлы с детьми по умолчанию «система», как сегодня. Превью ввоза подсказывает «контейнер», когда у детей источники с путями внутри репозитория родителя.</p>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>Холст</h2>
+  <div class="legend">
+    <span><span class="sw sys"></span>система: пунктирная рамка, как сегодня у всех рамок</span>
+    <span><span class="sw node"></span>контейнер свёрнут: обычный узел, как сегодня</span>
+    <span><span class="sw cont"></span>контейнер раскрыт: сплошная рамка с шапкой</span>
+    <span><span class="sw comp"></span>компонент: лёгкая плитка без статуса и технологии</span>
+  </div>
+  <div class="scenes" id="scenes"></div>
+</section>
+
+<section class="panel diff">
+  <h2>Что отличается от сегодняшнего холста</h2>
+  <ol>
+    <li>Рамка раскрытого узла бывает двух видов. Пунктирная значит «система», сумма детей. Сплошная с шапкой значит «контейнер», одна работающая вещь, внутри её компоненты. Сегодня все рамки пунктирные и означают одно и то же.</li>
+    <li>Компонент рисуется плиткой: имя, число схем, без статуса, технологии и формы. Форму и технологию он наследует от контейнера. Это и визуальная подсказка «факты кода здесь, факты контейнера выше».</li>
+    <li>Стрелка в раскрытый контейнер упирается в его рамку и считается законной: вызывают процесс. Сегодня такая стрелка это замечание «уточните до компонента». Стрелка в систему остаётся замечанием.</li>
+    <li>Свёрнутый контейнер выглядит как сегодняшний узел. Единственное дополнение: счётчик компонентов рядом с лупой, чтобы было видно, что внутри есть устройство.</li>
+    <li>Гость из другой ветки остаётся пунктирным узлом. Подпись на свёрнутом госте «контейнер» меняется на «система», когда это группировка.</li>
+    <li>Холст «Развёртывание» показывает только контейнеры: одна карточка на площадку, компоненты туда не попадают. Сегодня туда попадают листья, то есть компоненты процесса расставляются по площадкам по отдельности.</li>
+  </ol>
+</section>
+</div>
+
+<script>
+(function(){
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const C4 = [
+    {bg:'#1168bd', border:'#0d5196', text:'#ffffff'},
+    {bg:'#2389cc', border:'#1a70ae', text:'#ffffff'},
+    {bg:'#4da8da', border:'#2d8bbf', text:'#ffffff'},
+  ];
+  const GUEST = {bg:'#888888', border:'#666666', text:'#ffffff'};
+
+  // Узел-контейнер (свёрнутый): как сегодняшний узел ArchMap
+  function node(o){
+    const w = o.w||190, h = o.h||100, c = o.guest ? GUEST : C4[o.depth||0];
+    const dash = o.guest ? ' stroke-dasharray="5 3"' : '';
+    let shape;
+    if (o.db) {
+      shape = `<path d="M${o.x+1} ${o.y+12} v${h-24} a${(w-2)/2} 11 0 0 0 ${w-2} 0 v-${h-24}" fill="${c.bg}" stroke="${c.border}" stroke-width="1.5"${dash}/>
+        <ellipse cx="${o.x+w/2}" cy="${o.y+12}" rx="${(w-2)/2}" ry="11" fill="${c.bg}" stroke="${c.border}" stroke-width="1.5"${dash}/>`;
+    } else {
+      shape = `<rect x="${o.x+1}" y="${o.y+1}" width="${w-2}" height="${h-2}" rx="8" fill="${c.bg}" stroke="${c.border}" stroke-width="1.5"${dash}/>`;
+    }
+    const nameY = o.y + (o.db ? 40 : 30) + (o.small ? -4 : 0);
+    const fs = o.small ? 12 : 13, tfs = o.small ? 9.5 : 10.5;
+    const parts = [shape,
+      `<text x="${o.x+14}" y="${nameY}" fill="${c.text}" font-size="${fs}" font-weight="700">${esc(o.name)}</text>`];
+    if (o.tech) parts.push(`<text x="${o.x+14}" y="${nameY+16}" fill="${c.text}" fill-opacity=".85" font-size="${tfs}">${esc(o.tech)}</text>`);
+    if (o.guest) parts.push(`<text x="${o.x+14}" y="${o.y+h-12}" fill="${c.text}" fill-opacity=".85" font-size="9.5">гость · ${esc(o.from)}</text>`);
+    if (o.count) {
+      parts.push(`<rect x="${o.x+12}" y="${o.y+h-26}" width="${o.small?74:92}" height="16" rx="8" fill="rgba(255,255,255,.22)" stroke="rgba(255,255,255,.35)"/>
+        <text x="${o.x+20}" y="${o.y+h-14.5}" fill="${c.text}" font-size="9.5" font-weight="600">${o.count}</text>`);
+      // лупа «раскрыть», как сегодня
+      parts.push(`<circle cx="${o.x+w-18}" cy="${o.y+h-18}" r="8" fill="rgba(255,255,255,.22)" stroke="rgba(255,255,255,.4)"/><circle cx="${o.x+w-19}" cy="${o.y+h-19}" r="3" fill="none" stroke="${c.text}" stroke-width="1.3"/><path d="M${o.x+w-16.7} ${o.y+h-16.7} l2.6 2.6" stroke="${c.text}" stroke-width="1.3" stroke-linecap="round"/>`);
+    }
+    return `<g>${parts.join('')}</g>`;
+  }
+  // Компонент: лёгкая плитка внутри контейнера
+  function comp(o){
+    const w = o.w||150, h = o.h||64;
+    return `<g><rect x="${o.x}" y="${o.y}" width="${w}" height="${h}" rx="6" style="fill:var(--comp-fill);stroke:var(--comp-line)" stroke-width="1"/>
+      <text x="${o.x+12}" y="${o.y+(o.small?19:26)}" style="fill:var(--comp-fg)" font-size="${o.small?11:12.5}" font-weight="700">${esc(o.name)}</text>
+      <text x="${o.x+12}" y="${o.y+(o.small?34:44)}" style="fill:var(--comp-fg)" fill-opacity=".7" font-size="${o.small?9:10}">${esc(o.sub||'')}</text></g>`;
+  }
+  // Рамка: система (пунктир, как сегодня) или контейнер (сплошная с шапкой)
+  function frame(o){
+    if (o.kind === 'system') {
+      return `<g><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" rx="12" fill="none" style="stroke:var(--sys-line)" stroke-width="1" stroke-dasharray="6 4"/>
+        ${plaque(o.x+14, o.y-9, `${o.title} · система`)}</g>`;
+    }
+    const hh = o.small ? 24 : 30;
+    return `<g><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" rx="12" style="fill:var(--cont-fill);stroke:var(--cont-line)" stroke-width="1.5"/>
+      <path d="M${o.x+12} ${o.y} h${o.w-24} a12 12 0 0 1 12 12 v${hh-12} h-${o.w} v-${hh-12} a12 12 0 0 1 12 -12 z" style="fill:var(--cont-line)" fill-opacity=".92"/>
+      <text x="${o.x+14}" y="${o.y+hh*0.66}" fill="#fff" font-size="${o.small?11:12.5}" font-weight="700">${esc(o.title)}</text>
+      <text x="${o.x+14+(o.small?o.title.length*7.2:o.title.length*8.4)+8}" y="${o.y+hh*0.66}" fill="#fff" fill-opacity=".8" font-size="${o.small?9.5:10.5}">${esc(o.tech||'')} · контейнер</text></g>`;
+  }
+  function plaque(x, y, text){
+    const w = text.length*6.9+16;
+    return `<rect x="${x}" y="${y}" width="${w}" height="18" rx="5" style="fill:var(--plaque-bg);stroke:var(--plaque-line)"/><text x="${x+8}" y="${y+12.5}" style="fill:var(--plaque-fg)" font-size="11.5" font-weight="600">${esc(text)}</text>`;
+  }
+  function site(o){
+    return `<g><rect x="${o.x}" y="${o.y}" width="${o.w}" height="${o.h}" rx="12" style="fill:var(--site-fill);stroke:var(--site-line)" stroke-width="1"/>${plaque(o.x+14, o.y-9, `${o.title} · площадка`)}</g>`;
+  }
+  function card(o){
+    const c = C4[o.depth||0];
+    return `<g><rect x="${o.x}" y="${o.y}" width="150" height="56" rx="8" fill="${c.bg}" stroke="${c.border}" stroke-width="1.5"/>
+      <text x="${o.x+12}" y="${o.y+24}" fill="${c.text}" font-size="12.5" font-weight="700">${esc(o.name)}</text>
+      <text x="${o.x+12}" y="${o.y+41}" fill="${c.text}" fill-opacity=".85" font-size="10">${esc(o.sub)}</text></g>`;
+  }
+  // Стрелка: ломаная по точкам, подпись у середины первого сегмента
+  function edge(pts, label, opts){
+    const d = pts.map((p,i)=> (i?'L':'M')+p[0]+' '+p[1]).join(' ');
+    let lab = '';
+    if (label) {
+      const i = (opts&&opts.seg)||0, a = pts[i], b = pts[i+1];
+      const mx = (a[0]+b[0])/2, my = (a[1]+b[1])/2;
+      const w = label.length*6.2+12;
+      lab = `<rect x="${mx-w/2}" y="${my-9}" width="${w}" height="17" rx="4" style="fill:var(--plaque-bg);stroke:var(--plaque-line)"/><text x="${mx}" y="${my+3.5}" text-anchor="middle" style="fill:var(--plaque-fg)" font-size="10.5">${esc(label)}</text>`;
+    }
+    return `<g><path d="${d}" fill="none" style="stroke:var(--edge)" stroke-width="1.6" marker-end="url(#arr)"/>${lab}</g>`;
+  }
+  const defs = `<defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" style="fill:var(--edge)"/></marker></defs>`;
+  const svg = (w, h, body) => `<svg viewBox="0 0 ${w} ${h}" role="img">${defs}${body}</svg>`;
+
+  // ── Сцена A: уровень «Торговля», orders свёрнут ───────────────────────────
+  const A = svg(760, 400, [
+    frame({kind:'system', x:20, y:40, w:720, h:340, title:'Торговля'}),
+    node({x:60, y:90, name:'catalog', tech:'Go', depth:0}),
+    node({x:300, y:90, name:'orders', tech:'Python · FastAPI', depth:0, count:'3 компонента'}),
+    node({x:300, y:250, name:'orders-db', tech:'PostgreSQL', depth:0, db:true}),
+    node({x:540, y:90, name:'billing', tech:'Java', guest:true, from:'Платежи'}),
+    edge([[540,140],[490,140]], 'оплата заказа · HTTP'),
+    edge([[395,190],[395,250]], 'заказы · SQL', {seg:0}),
+    edge([[155,190],[155,300],[300,300]], 'товары заказа · SQL', {seg:1}),
+  ].join(''));
+
+  // ── Сцена B: orders раскрыт на месте ──────────────────────────────────────
+  const B = svg(760, 400, [
+    frame({kind:'system', x:20, y:40, w:720, h:340, title:'Торговля'}),
+    node({x:40, y:100, name:'billing', tech:'Java', guest:true, from:'Платежи'}),
+    frame({kind:'container', x:280, y:60, w:440, h:210, title:'orders', tech:'Python · FastAPI'}),
+    comp({x:300, y:110, name:'api', sub:'HTTP-слой · 1 схема'}),
+    comp({x:550, y:110, name:'checkout', sub:'расчёт корзины · 1 схема'}),
+    comp({x:425, y:195, name:'scheduler', sub:'воркер · 1 схема'}),
+    node({x:450, y:290, name:'orders-db', tech:'PostgreSQL', depth:0, db:true, h:80}),
+    node({x:60, y:270, name:'catalog', tech:'Go', depth:0, h:80}),
+    edge([[230,150],[280,150]], 'оплата заказа · HTTP', {seg:0}),
+    edge([[450,142],[550,142]], 'расчёт'),
+    edge([[625,174],[625,320],[640,320]], '', {}),
+    edge([[500,259],[500,290]], '', {}),
+    edge([[250,310],[450,310]], 'товары заказа · SQL'),
+  ].join('')).replace('</svg>', `<text x="330" y="92" style="fill:var(--muted)" font-size="10.5">стрелка упирается в рамку контейнера, это законно</text></svg>`);
+
+  // ── Сцена C: контур целиком ───────────────────────────────────────────────
+  const C = svg(760, 430, [
+    frame({kind:'system', x:14, y:24, w:732, h:392, title:'Маркетплейс «Ярмарка»'}),
+    frame({kind:'system', x:34, y:66, w:448, h:330, title:'Торговля'}),
+    frame({kind:'system', x:506, y:66, w:220, h:150, title:'Платежи'}),
+    frame({kind:'container', x:52, y:106, w:286, h:200, title:'orders', tech:'Python', small:true}),
+    comp({x:66, y:146, name:'api', sub:'1 схема', w:110, h:46, small:true}),
+    comp({x:214, y:146, name:'checkout', sub:'1 схема', w:110, h:46, small:true}),
+    comp({x:140, y:230, name:'scheduler', sub:'воркер', w:110, h:46, small:true}),
+    node({x:356, y:110, name:'catalog', tech:'Go', depth:1, w:110, h:62, small:true}),
+    node({x:356, y:250, name:'orders-db', tech:'PostgreSQL', depth:1, w:110, h:70, small:true, db:true}),
+    node({x:540, y:110, name:'billing', tech:'Java', depth:1, w:140, h:62, small:true}),
+    edge([[540,141],[338,141]], 'оплата заказа', {seg:0}),
+    edge([[176,169],[214,169]], ''),
+    edge([[250,253],[356,285]], 'SQL', {seg:0}),
+    edge([[411,172],[411,250]], '', {}),
+    edge([[338,206],[356,270]], '', {}),
+  ].join(''));
+
+  // ── Сцена D: холст «Развёртывание» ────────────────────────────────────────
+  const D = svg(760, 400, [
+    site({x:24, y:44, w:340, h:330, title:'prod-eu'}),
+    site({x:396, y:44, w:340, h:330, title:'prod-ru'}),
+    card({x:50, y:90, name:'orders', sub:'контейнер · 1/2', depth:0}),
+    card({x:220, y:90, name:'catalog', sub:'контейнер', depth:0}),
+    card({x:50, y:170, name:'orders-db', sub:'контейнер', depth:0}),
+    card({x:422, y:90, name:'orders', sub:'контейнер · 2/2', depth:0}),
+    card({x:592, y:90, name:'billing', sub:'контейнер', depth:0}),
+    edge([[592,118],[572,118]], 'оплата заказа', {seg:0}),
+    edge([[125,146],[125,170]], ''),
+    edge([[300,146],[300,200],[200,200]], 'SQL', {seg:1}),
+    `<text x="50" y="330" style="fill:var(--muted)" font-size="11">Компоненты api, checkout и scheduler на этот холст не попадают: размещён процесс orders, одна карточка на площадку.</text>`,
+  ].join(''));
+
+  const scenes = [
+    {t:'Уровень подсистемы, контейнер свёрнут', cap:'<b>orders</b> выглядит как сегодняшний узел, добавлен только счётчик компонентов у лупы. Гость billing пришёл из другой подсистемы. Стрелки внутренних компонентов спроецированы на orders, как сегодня.', svg:A},
+    {t:'Контейнер раскрыт на месте', cap:'Сплошная рамка с шапкой: имя, технология, роль. Внутри компоненты плитками. Вызов billing упирается в рамку: стрелка в контейнер законна. Стрелки компонентов к <b>orders-db</b> выходят из рамки, как сегодня выходят из пунктирной.', svg:B},
+    {t:'Контур целиком: два вида рамок рядом', cap:'Пунктир у «Ярмарки» и подсистем: системы, сумма детей. Сплошная рамка у <b>orders</b>: один процесс и его части. Вложенность систем любой глубины остаётся, как сегодня.', svg:C},
+    {t:'Холст «Развёртывание»', cap:'Площадки те же, что сегодня. Карточки только у контейнеров, у orders по одной на площадку с пометкой «1/2». Компоненты процесса по площадкам не расставляются.', svg:D},
+  ];
+  document.getElementById('scenes').innerHTML = scenes.map(s => `<div class="scene"><h3>${s.t}</h3><div class="canvas">${s.svg}</div><p class="cap">${s.cap}</p></div>`).join('');
+})();
+</script>

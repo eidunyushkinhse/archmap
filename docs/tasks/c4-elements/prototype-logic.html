@@ -1,0 +1,453 @@
+<title>Признак «коробка»</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Раскладка: шапка с режимами, затем рабочее поле в две колонки (дерево + инспектор | правила + замечания), на телефоне колонки складываются */
+:root{
+  --bg:#f2f4f7; --surface:#ffffff; --fg:#1b2330; --muted:#5f6a7a; --line:#d6dce5; --line-strong:#b8c1cc;
+  --accent:#1f6f8b; --accent-soft:#e2eff4; --accent-ink:#135166;
+  --ok:#2a7a4b; --ok-soft:#e0f1e6; --warn:#9a6210; --warn-soft:#fbf0d9; --bad:#b4372a; --bad-soft:#fae2de;
+  --font:"Manrope",system-ui,-apple-system,"Segoe UI",sans-serif; --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#12171e; --surface:#1a212b; --fg:#e4e9f0; --muted:#9aa5b4; --line:#2b3542; --line-strong:#3c4858;
+  --accent:#62b4d0; --accent-soft:#1c3340; --accent-ink:#a9dced;
+  --ok:#6fcf97; --ok-soft:#1b3326; --warn:#e2b35c; --warn-soft:#3a2d14; --bad:#f08a7d; --bad-soft:#42211d; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#12171e; --surface:#1a212b; --fg:#e4e9f0; --muted:#9aa5b4; --line:#2b3542; --line-strong:#3c4858;
+  --accent:#62b4d0; --accent-soft:#1c3340; --accent-ink:#a9dced;
+  --ok:#6fcf97; --ok-soft:#1b3326; --warn:#e2b35c; --warn-soft:#3a2d14; --bad:#f08a7d; --bad-soft:#42211d; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+.wrap{max-width:1240px;margin:0 auto}
+h1{font-size:26px;line-height:1.15;margin:0;font-weight:700;letter-spacing:-.01em;text-wrap:balance}
+h2{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 10px;font-weight:600}
+h3{font-size:15px;margin:0;font-weight:700}
+p{margin:0}
+.lead{max-width:68ch;color:var(--muted);margin-top:6px}
+.lead b{color:var(--fg);font-weight:600}
+header{padding-block:22px 14px;display:flex;flex-direction:column;gap:14px}
+.rule{display:inline-flex;align-items:center;gap:8px;background:var(--accent-soft);color:var(--accent-ink);border-radius:999px;padding:5px 12px;font-weight:600;font-size:13px;width:fit-content;max-width:100%}
+.rule span{font-family:var(--mono);font-weight:500;font-size:12px}
+.modes{display:flex;gap:6px;flex-wrap:wrap;border:1px solid var(--line);background:var(--surface);padding:4px;border-radius:10px;width:fit-content;max-width:100%}
+.modes button{appearance:none;border:0;background:transparent;color:var(--muted);font:inherit;font-weight:600;padding:7px 12px;border-radius:7px;cursor:pointer}
+.modes button[aria-pressed="true"]{background:var(--accent);color:#fff}
+.modes button:focus-visible,.row:focus-visible,.switch input:focus-visible+span{outline:2px solid var(--accent);outline-offset:2px}
+.modenote{color:var(--muted);max-width:76ch}
+
+.work{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.work{grid-template-columns:1fr}}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;min-width:0}
+
+/* Дерево */
+.tree{display:flex;flex-direction:column;gap:2px}
+.row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;border:1px solid transparent;cursor:pointer;background:transparent;color:inherit;font:inherit;text-align:left;width:100%;min-width:0}
+.row:hover{background:var(--bg)}
+.row[aria-current="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.glyph{width:22px;height:18px;flex:0 0 22px;display:inline-flex;align-items:center;justify-content:center}
+.glyph svg{width:20px;height:16px;display:block}
+.glyph .st{fill:none;stroke:currentColor;stroke-width:1.5}
+.name{font-weight:600;white-space:nowrap}
+.desc{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1 1 auto}
+.chips{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;flex:0 1 auto}
+.chip{font-size:11px;font-weight:600;letter-spacing:.02em;padding:2px 7px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.chip.role-box{background:var(--accent);border-color:var(--accent);color:#fff}
+.chip.role-group{border-style:dashed;border-color:var(--line-strong)}
+.chip.role-mod{background:var(--bg)}
+.chip.fact{font-family:var(--mono);font-weight:500;letter-spacing:0}
+.switch{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;font-size:11px;font-weight:600;color:var(--muted)}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch span.track{width:30px;height:17px;border-radius:999px;background:var(--line-strong);position:relative;transition:background .15s;display:inline-block}
+.switch span.track::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:#fff;transition:transform .15s}
+.switch input:checked+span.track{background:var(--accent)}
+.switch input:checked+span.track::after{transform:translateX(13px)}
+.switch input:disabled+span.track{opacity:.4}
+@media (prefers-reduced-motion:reduce){.switch span.track,.switch span.track::after{transition:none}}
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:12px;align-items:center}
+
+/* Инспектор */
+.props{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:baseline;margin-top:8px}
+.props dt{color:var(--muted);font-size:12px;letter-spacing:.03em;text-transform:uppercase;font-weight:600}
+.props dd{margin:0;min-width:0}
+.props .toggle-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.hint{color:var(--muted);font-size:12px}
+.facts{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.fact-line{display:flex;gap:8px;align-items:flex-start;padding:8px 10px;border-radius:8px;background:var(--bg);min-width:0}
+.fact-line .k{flex:0 0 96px;font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em;padding-top:2px}
+.fact-line .v{min-width:0;flex:1}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+.mark{display:inline-block;padding:1px 6px;border-radius:5px;background:var(--surface);border:1px solid var(--line)}
+.doc{margin-top:6px;padding:8px 10px;border-left:3px solid var(--line-strong);background:var(--surface);border-radius:0 6px 6px 0}
+.doc .t{font-weight:600}
+.res{display:flex;gap:6px;align-items:flex-start;margin-top:4px;min-width:0}
+.res .ic{flex:0 0 16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:2px}
+.ok .ic{background:var(--ok-soft);color:var(--ok)} .warn .ic{background:var(--warn-soft);color:var(--warn)} .bad .ic{background:var(--bad-soft);color:var(--bad)}
+.res .tx{min-width:0}
+
+/* Карточки правил */
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:1100px){.cards{grid-template-columns:1fr}}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.card .ruletext{color:var(--muted)}
+.card ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.card li{display:flex;gap:6px;align-items:flex-start;min-width:0}
+.card li .ic{flex:0 0 16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;margin-top:2px}
+.card li.ok .ic{background:var(--ok-soft);color:var(--ok)} .card li.warn .ic{background:var(--warn-soft);color:var(--warn)} .card li.bad .ic{background:var(--bad-soft);color:var(--bad)}
+.card li .tx{min-width:0}
+
+/* Замечания */
+.alerts-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.count{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums}
+.count.zero{color:var(--ok)} .count.some{color:var(--bad)}
+.aclass{margin-top:10px}
+.aclass .t{font-weight:700;display:flex;gap:8px;align-items:baseline}
+.aclass .t .n{color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.aclass ul{margin:4px 0 0;padding-left:18px;color:var(--fg)}
+.aclass li{margin:2px 0}
+.empty{color:var(--ok);font-weight:600}
+
+.notes{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+@media (max-width:860px){.notes{grid-template-columns:1fr}}
+.notes ol,.notes ul{margin:8px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.notes li{max-width:70ch}
+</style>
+
+<div class="wrap">
+<header>
+  <div>
+    <h1>Признак «коробка» на контейнере</h1>
+    <p class="lead">Сцена в духе демо-проекта «Ярмарка»: процесс <b>orders</b> разобран на модули, его переменные окружения, спека и площадки описаны один раз. Переключайте режим и признак на контейнерах, замечания и владельцы фактов пересчитываются по сцене.</p>
+  </div>
+  <div class="rule">Формула <span>факт коробки → ближайшая коробка · факт кода → лист</span></div>
+  <div class="modes" role="group" aria-label="Режим модели" id="modes">
+    <button type="button" data-mode="leaves" id="mode-leaves">Сегодня, по правилам</button>
+    <button type="button" data-mode="pilot" id="mode-pilot">Сегодня, как сделал агент</button>
+    <button type="button" data-mode="proposal" id="mode-proposal">С признаком «коробка»</button>
+  </div>
+  <p class="modenote" id="modenote"></p>
+</header>
+
+<div class="work">
+  <div class="col">
+    <section class="panel" aria-labelledby="tree-h">
+      <h2 id="tree-h">Дерево проекта</h2>
+      <div class="tree" id="tree"></div>
+      <div class="legend">
+        <span class="chip role-box">коробка</span><span>запускается отдельно, у неё конфигурация, спека, площадки</span>
+        <span class="chip role-group">группировка</span><span>сумма детей</span>
+        <span class="chip role-mod">модуль</span><span>часть коробки, у него схемы логики</span>
+      </div>
+    </section>
+    <section class="panel" aria-labelledby="insp-h">
+      <h2 id="insp-h">Инспектор объекта</h2>
+      <div id="inspector"></div>
+    </section>
+  </div>
+  <div class="col">
+    <section class="panel" aria-labelledby="rules-h">
+      <h2 id="rules-h">Четыре семьи фактов</h2>
+      <div class="cards" id="cards"></div>
+    </section>
+    <section class="panel" aria-labelledby="alerts-h">
+      <div class="alerts-head"><h2 id="alerts-h" style="margin:0">Замечания схемы</h2><div class="count" id="acount">0</div></div>
+      <div id="alerts"></div>
+    </section>
+  </div>
+</div>
+
+<div class="notes">
+  <section class="panel">
+    <h3>Что меняется в коде, если признак принять</h3>
+    <ol>
+      <li>Узел: поле «коробка» у контейнеров. У листа подразумевается, если лист не внутри коробки. Функция «коробка узла»: ближайший предок с признаком, иначе сам лист, иначе ничего.</li>
+      <li>Резолв «зависит от:» и каталог параметров в промпте доков: по коробке владельца схемы, не по владельцу. Обратный индекс параметра собирает схемы всего поддерева коробки.</li>
+      <li>Размещение: экземпляры у коробки. Модель уже один раз переезжала с контейнера на листья, теперь поедет на коробку, а листья внутри коробки размещения не имеют.</li>
+      <li>AL24 переворачивается: спека и конфигурация у коробки это норма, у группировки по-прежнему замечание. Схемы логики остаются фактом кода.</li>
+      <li>Связи: конец в коробке разрешён, уточнение до модуля не обязательно. Замечание ввоза «уточните до компонента» остаётся только для группировок.</li>
+      <li>Промпты: одна фраза в слое компонентов промпта ввоза и в промптах фактов. Превью ввоза предупреждает, когда факт коробки описан у модуля или у группировки.</li>
+    </ol>
+  </section>
+  <section class="panel">
+    <h3>Открытые вопросы</h3>
+    <ul>
+      <li>Дефолт для существующих проектов: все контейнеры сейчас группировки. Подсказка в превью по источникам детей: пути внутри репозитория родителя обычно модули, разные репозитории обычно группировка. Монорепозиторий ломает эвристику.</li>
+      <li>Коробка внутри коробки: сайдкары и встроенные процессы. Правило «ближайшая побеждает» их покрывает, но нужно решить, показывать ли это на холсте.</li>
+      <li>Схемы логики у самой коробки, когда модули тоже есть: разрешать или вести на модули. Сейчас это AL24, и его можно оставить.</li>
+      <li>Единица развёртывания и процесс не одно и то же: под с сайдкарами разворачивается целиком, переменные окружения у каждого контейнера свои. Для сцен ArchMap площадка грубее пода, так что разницы пока не видно.</li>
+      <li>Имя бита в интерфейсе: «коробка», «процесс», «запускается отдельно». Здесь выбрано «коробка».</li>
+    </ul>
+  </section>
+</div>
+</div>
+
+<script>
+(function(){
+  // ── Сцена ────────────────────────────────────────────────────────────────
+  const NODES = [
+    {id:'yarmarka', name:'Маркетплейс «Ярмарка»', shape:'service', parent:null, desc:'контур'},
+    {id:'trade',    name:'Торговля',  shape:'service', parent:'yarmarka', desc:'подсистема'},
+    {id:'orders',   name:'orders',    shape:'service', parent:'trade', desc:'Python · FastAPI, один процесс'},
+    {id:'api',      name:'api',       shape:'service', parent:'orders', desc:'HTTP-слой'},
+    {id:'checkout', name:'checkout',  shape:'service', parent:'orders', desc:'расчёт корзины'},
+    {id:'scheduler',name:'scheduler', shape:'service', parent:'orders', desc:'пересчёт по расписанию'},
+    {id:'catalog',  name:'catalog',   shape:'service', parent:'trade', desc:'Go, один процесс'},
+    {id:'ordersdb', name:'orders-db', shape:'database', parent:'trade', desc:'PostgreSQL'},
+    {id:'pay',      name:'Платежи',   shape:'service', parent:'yarmarka', desc:'подсистема'},
+    {id:'billing',  name:'billing',   shape:'service', parent:'pay', desc:'Java, один процесс'},
+  ];
+  const byId = Object.fromEntries(NODES.map(n => [n.id, n]));
+  const children = id => NODES.filter(n => n.parent === id);
+  const isLeaf = id => children(id).length === 0;
+  const pathOf = id => { const p=[]; for(let n=id; n; n=byId[n].parent) p.unshift(byId[n].name); return p.join(' / '); };
+
+  // Схемы логики: факт кода, живут на модулях (листьях) во всех режимах
+  const DOCS = [
+    {node:'api',       name:'POST /orders',    kind:'операция', q:'Новая корзина?',    marks:['FEATURE_NEW_CHECKOUT']},
+    {node:'checkout',  name:'Расчёт корзины',  kind:'операция', q:'Сумма в допуске?',  marks:['FEATURE_NEW_CHECKOUT','TOLERANCE_PERCENT']},
+    {node:'scheduler', name:'Пересчёт',        kind:'воркер',   q:'Повторить позже?',  marks:['RETRY_TIMEOUT']},
+    {node:'billing',   name:'POST /payments',  kind:'операция', q:'',                  marks:[]},
+  ];
+  const EDGES = [
+    {from:'billing',  to:'orders',   label:'оплата заказа', tech:'HTTP'},
+    {from:'api',      to:'checkout', label:'расчёт',        tech:'вызов'},
+    {from:'checkout', to:'ordersdb', label:'заказы',        tech:'SQL'},
+    {from:'scheduler',to:'ordersdb', label:'пересчёт',      tech:'SQL'},
+    {from:'catalog',  to:'ordersdb', label:'товары заказа', tech:'SQL'},
+  ];
+  const SITES = {eu:'prod-eu', ru:'prod-ru'};
+
+  // Факты коробки по режимам: где агент их ОПИСАЛ
+  const FACTS = {
+    leaves: {
+      config: {api:['FEATURE_NEW_CHECKOUT'], checkout:['FEATURE_NEW_CHECKOUT','TOLERANCE_PERCENT'], scheduler:['RETRY_TIMEOUT'], catalog:['CATALOG_CACHE_TTL'], billing:['BANK_URL']},
+      spec: {api:true, catalog:true, billing:true},
+      placement: {api:['eu','ru'], checkout:['eu','ru'], scheduler:['eu','ru'], catalog:['eu'], ordersdb:['eu'], billing:['ru']},
+    },
+    pilot: {
+      config: {orders:['FEATURE_NEW_CHECKOUT','TOLERANCE_PERCENT','RETRY_TIMEOUT'], catalog:['CATALOG_CACHE_TTL'], billing:['BANK_URL']},
+      spec: {orders:true, catalog:true, billing:true},
+      placement: {api:['eu','ru'], checkout:['eu','ru'], scheduler:['eu','ru'], catalog:['eu'], ordersdb:['eu'], billing:['ru']},
+    },
+    proposal: {
+      config: {orders:['FEATURE_NEW_CHECKOUT','TOLERANCE_PERCENT','RETRY_TIMEOUT'], catalog:['CATALOG_CACHE_TTL'], billing:['BANK_URL']},
+      spec: {orders:true, catalog:true, billing:true},
+      placement: {orders:['eu','ru'], catalog:['eu'], ordersdb:['eu'], billing:['ru']},
+    },
+  };
+  const MODENOTE = {
+    leaves: 'Агент выполнил сегодняшнее правило «факты на листьях»: конфигурацию процесса расписал по модулям (с дублями), спеку процесса повесил на HTTP-модуль, площадки у каждого модуля. Замечаний нет, цена в инспекторе orders и в карточках.',
+    pilot: 'Агент описал процесс как процесс: конфигурация и спека у orders, схемы у модулей. Так сделал агент пилота 2026-10-28. Продукт считает orders группировкой и не находит у модулей ничего.',
+    proposal: 'У orders стоит признак «коробка». Факты коробки описаны у неё один раз, пометки модулей ищут ручку у ближайшей коробки, площадки у коробки, вызов в коробку законен. Снимите признак или поставьте его на «Торговлю», чтобы увидеть, что изменится.',
+  };
+
+  // ── Состояние ───────────────────────────────────────────────────────────
+  const state = { mode:'proposal', flags:{orders:true}, selected:'orders' };
+  try { const s = JSON.parse(localStorage.getItem('box-flag-state')||'null'); if (s && FACTS[s.mode]) Object.assign(state, s); } catch(e){}
+  const save = () => { try { localStorage.setItem('box-flag-state', JSON.stringify(state)); } catch(e){} };
+
+  // ── Правила ─────────────────────────────────────────────────────────────
+  // Коробка узла: сегодня — лист; в предложении — ближайший предок с признаком, иначе сам лист, иначе ничего (группировка)
+  function boxOf(id){
+    if (state.mode === 'proposal') { for (let n=id; n; n=byId[n].parent) if (state.flags[n]) return n; }
+    return isLeaf(id) ? id : null;
+  }
+  function role(id){
+    const b = boxOf(id);
+    if (!isLeaf(id)) return b === id ? 'коробка' : 'группировка';
+    return b === id ? 'коробка' : 'модуль';
+  }
+  const facts = () => FACTS[state.mode];
+  // Владелец, у которого пометка ищет параметр: сегодня — владелец схемы, в предложении — его коробка
+  const configOwner = id => state.mode === 'proposal' ? boxOf(id) : id;
+
+  function resolveMarks(){
+    const out = [];
+    for (const d of DOCS) for (const m of d.marks) {
+      const owner = configOwner(d.node);
+      const found = !!(owner && (facts().config[owner]||[]).includes(m));
+      out.push({doc:d, mark:m, owner, found});
+    }
+    return out;
+  }
+  function edgeVerdict(e){
+    const t = e.to;
+    if (isLeaf(t)) return {ok:true, text:'лист'};
+    const r = role(t);
+    if (r === 'коробка') return {ok:true, text:'конец в коробке, уточнять до модуля не обязательно'};
+    return {ok:false, text:`конец в группировке «${byId[t].name}», уточните до компонента (${children(t).map(c=>byId[c.id].name).join(', ')})`};
+  }
+  // Размещение узла для показа: у кого стоят экземпляры и что из них выводится
+  function placementOf(id){
+    const pl = facts().placement;
+    if (pl[id]) return {own:true, sites:pl[id]};
+    if (isLeaf(id)) {
+      if (state.mode === 'proposal' && boxOf(id) !== id) return {own:false, part:boxOf(id)};
+      return {own:true, sites:[]};
+    }
+    // контейнер: выводится из листьев поддерева (сегодняшнее правило цельного контейнера)
+    const leaves = subtreeLeaves(id).filter(l => pl[l]);
+    const sets = leaves.map(l => pl[l].slice().sort().join('+'));
+    const whole = sets.length>0 && sets.every(s => s === sets[0]);
+    return {own:false, derived:true, leaves, whole, sites: whole ? pl[leaves[0]] : []};
+  }
+  function subtreeLeaves(id){ const out=[]; (function walk(n){ const ch=children(n); if(!ch.length){out.push(n);return;} ch.forEach(c=>walk(c.id)); })(id); return out; }
+
+  function alerts(){
+    const f = facts(); const al = {al24:[], al33:[], edges:[], guard:[]};
+    for (const n of NODES) {
+      const hasDocs = DOCS.some(d => d.node === n.id);
+      const hasSpec = !!f.spec[n.id], hasCfg = !!(f.config[n.id]||[]).length;
+      if (!isLeaf(n.id)) {
+        const r = role(n.id);
+        const bad = [];
+        if (hasDocs) bad.push('схемы логики');
+        if (r === 'группировка') { if (hasSpec) bad.push('спека'); if (hasCfg) bad.push('конфигурация'); }
+        if (bad.length) al.al24.push(`${n.name}: ${bad.join(', ')}`);
+      } else if (state.mode === 'proposal' && role(n.id) === 'модуль') {
+        if (hasCfg) al.guard.push(`${n.name}: конфигурация у модуля, переменные окружения у коробки «${byId[boxOf(n.id)].name}»`);
+        if (hasSpec) al.guard.push(`${n.name}: спека у модуля, API отдаёт коробка «${byId[boxOf(n.id)].name}»`);
+      }
+    }
+    for (const r of resolveMarks()) if (!r.found) al.al33.push(`${byId[r.doc.node].name} · ${r.doc.name}: „${r.mark}“ — параметра нет у ${r.owner ? `объекта «${byId[r.owner].name}»` : 'группировки'}`);
+    for (const e of EDGES) { const v = edgeVerdict(e); if (!v.ok) al.edges.push(`${byId[e.from].name} → ${byId[e.to].name}: ${v.text}`); }
+    return al;
+  }
+
+  // ── Отрисовка ───────────────────────────────────────────────────────────
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const GLYPH = {
+    service: '<svg viewBox="0 0 20 16"><rect class="st" x="1.5" y="2" width="17" height="12" rx="2"/></svg>',
+    database: '<svg viewBox="0 0 20 16"><ellipse class="st" cx="10" cy="4" rx="7" ry="2.5"/><path class="st" d="M3 4v8c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V4"/></svg>',
+    group: '<svg viewBox="0 0 20 16"><rect class="st" x="1.5" y="2" width="17" height="12" rx="2" stroke-dasharray="3 2"/></svg>',
+  };
+  function glyph(id){ const n=byId[id]; if (n.shape==='database') return GLYPH.database; return role(id)==='группировка' ? GLYPH.group : GLYPH.service; }
+  const roleChip = id => { const r = role(id); const cls = r==='коробка'?'role-box':r==='группировка'?'role-group':'role-mod'; return `<span class="chip ${cls}">${r}</span>`; };
+
+  function renderTree(){
+    const f = facts(); const el = document.getElementById('tree'); const rows = [];
+    (function walk(parent, depth){
+      for (const n of children(parent)) {
+        const chips = [];
+        const cfg = (f.config[n.id]||[]).length; if (cfg) chips.push(`<span class="chip fact" title="параметров конфигурации">конф ${cfg}</span>`);
+        if (f.spec[n.id]) chips.push('<span class="chip fact">спека</span>');
+        const docs = DOCS.filter(d=>d.node===n.id).length; if (docs) chips.push(`<span class="chip fact">схем ${docs}</span>`);
+        const pl = placementOf(n.id); if (pl.own && pl.sites.length) chips.push(`<span class="chip fact">площадок ${pl.sites.length}</span>`);
+        chips.push(roleChip(n.id));
+        let sw = '';
+        if (!isLeaf(n.id)) {
+          const dis = state.mode !== 'proposal';
+          sw = `<label class="switch" title="${dis ? 'В сегодняшней модели контейнер всегда группировка' : 'Коробка: запускается отдельно'}"><input type="checkbox" id="flag-${n.id}" data-flag="${n.id}" ${state.flags[n.id]?'checked':''} ${dis?'disabled':''}><span class="track"></span></label>`;
+        }
+        rows.push(`<div class="row" role="button" tabindex="0" data-select="${n.id}" aria-current="${state.selected===n.id}" style="padding-left:${8+depth*18}px">
+          <span class="glyph">${glyph(n.id)}</span><span class="name">${esc(n.name)}</span><span class="desc">${esc(n.desc)}</span><span class="chips">${chips.join('')}</span>${sw}</div>`);
+        walk(n.id, depth+1);
+      }
+    })(null, 0);
+    el.innerHTML = rows.join('');
+  }
+
+  function renderInspector(){
+    const id = state.selected, n = byId[id], f = facts(), r = role(id), b = boxOf(id);
+    const el = document.getElementById('inspector');
+    const boxLine = r==='коробка' ? 'сам объект' : r==='модуль' ? `«${byId[b].name}», ближайшая коробка` : 'нет: группировка, сумма детей';
+    let toggle = '';
+    if (!isLeaf(id)) {
+      const dis = state.mode !== 'proposal';
+      toggle = `<dt>Коробка</dt><dd class="toggle-row"><label class="switch"><input type="checkbox" id="insp-flag" data-flag="${id}" ${state.flags[id]?'checked':''} ${dis?'disabled':''}><span class="track"></span></label><span>запускается отдельно: процесс, образ, под</span>${dis?'<span class="hint">недоступно в сегодняшней модели</span>':''}</dd>`;
+    }
+    const parts = [];
+    parts.push(`<h3>${esc(pathOf(id))}</h3>
+      <dl class="props"><dt>Форма</dt><dd>${n.shape==='database'?'база данных':'сервис'}${isLeaf(id)?'':' · контейнер, детей: '+children(id).length}</dd>
+      <dt>Роль</dt><dd>${roleChip(id)}</dd>
+      <dt>Коробка объекта</dt><dd>${boxLine}</dd>${toggle}</dl>`);
+
+    const lines = [];
+    // конфигурация
+    const cfg = f.config[id]||[];
+    const cfgVerdict = cfg.length ? (r==='группировка' ? '<div class="res warn"><span class="ic">!</span><span class="tx">у группировки: попадёт в AL24, пометки модулей её не найдут</span></div>' : r==='модуль' ? '<div class="res warn"><span class="ic">!</span><span class="tx">у модуля: переменные окружения задаются коробке</span></div>' : '<div class="res ok"><span class="ic">✓</span><span class="tx">у коробки</span></div>') : '';
+    const usage = cfg.length ? resolveMarks().filter(x => x.found && x.owner===id) : [];
+    lines.push(`<div class="fact-line"><span class="k">Конфигурация</span><div class="v">${cfg.length ? cfg.map(c=>`<code class="mark">${c}</code>`).join(' ') : '<span class="hint">не описана</span>'}${cfgVerdict}
+      ${usage.length ? `<div class="hint" style="margin-top:6px">Зависит: ${usage.map(u=>`${u.mark} ← ${esc(byId[u.doc.node].name)} · ${esc(u.doc.name)}`).join('; ')}</div>` : ''}</div></div>`);
+    // спека
+    const spec = !!f.spec[id];
+    const specVerdict = spec ? (r==='группировка' ? '<div class="res warn"><span class="ic">!</span><span class="tx">у группировки: AL24</span></div>' : r==='модуль' ? '<div class="res warn"><span class="ic">!</span><span class="tx">у модуля: API отдаёт коробка</span></div>' : '<div class="res ok"><span class="ic">✓</span><span class="tx">у коробки, одна на процесс</span></div>') : '';
+    lines.push(`<div class="fact-line"><span class="k">OpenAPI</span><div class="v">${spec?'спека есть':'<span class="hint">нет</span>'}${specVerdict}</div></div>`);
+    // размещение
+    const pl = placementOf(id);
+    let plText;
+    if (pl.own) plText = pl.sites.length ? pl.sites.map(s=>`<code class="mark">${SITES[s]}</code>`).join(' ') + (isLeaf(id) && r==='модуль' ? '' : ' <span class="hint">экземпляры у этого объекта</span>') : '<span class="hint">не указано</span>';
+    else if (pl.part) plText = `<span class="hint">размещения нет: часть коробки «${esc(byId[pl.part].name)}»</span>`;
+    else plText = pl.leaves.length ? (pl.whole ? pl.sites.map(s=>`<code class="mark">${SITES[s]}</code>`).join(' ') + ` <span class="hint">выводится из ${pl.leaves.length} объектов, цельный контейнер: ${pl.leaves.length} × ${pl.sites.length} экземпляров ради одного процесса</span>` : '<span class="hint">рассыпается до детей</span>') : '<span class="hint">не указано</span>';
+    lines.push(`<div class="fact-line"><span class="k">Размещение</span><div class="v">${plText}</div></div>`);
+    // схемы логики и пометки
+    const docs = DOCS.filter(d=>d.node===id);
+    let docsHtml = docs.length ? docs.map(d => {
+      const res = resolveMarks().filter(x=>x.doc===d);
+      return `<div class="doc"><div class="t">${esc(d.name)} <span class="hint">· ${d.kind}</span></div>
+        ${d.marks.length ? `<div class="mono" style="margin-top:4px">D{"${esc(d.q)}&lt;br&gt;зависит от: ${d.marks.join(', ')}"}</div>` : '<div class="hint">пометок нет</div>'}
+        ${res.map(x => `<div class="res ${x.found?'ok':'bad'}"><span class="ic">${x.found?'✓':'✗'}</span><span class="tx">${x.mark} → ${x.owner?`ищется у «${esc(byId[x.owner].name)}»`:'искать негде'}: ${x.found?'найден':'параметра нет (AL33)'}</span></div>`).join('')}</div>`;
+    }).join('') : (isLeaf(id) ? '<span class="hint">схем нет</span>' : '<span class="hint">нет; схемы логики это факт кода, живут на модулях</span>');
+    lines.push(`<div class="fact-line"><span class="k">Схемы логики</span><div class="v">${docsHtml}</div></div>`);
+    // связи
+    const inc = EDGES.filter(e=>e.to===id), outg = EDGES.filter(e=>e.from===id);
+    const edgeHtml = [...inc.map(e => { const v = edgeVerdict(e); return `<div class="res ${v.ok?'ok':'bad'}"><span class="ic">${v.ok?'✓':'✗'}</span><span class="tx">${esc(byId[e.from].name)} → <b>${esc(n.name)}</b> · ${esc(e.label)}: ${v.text}</span></div>`; }),
+      ...outg.map(e => `<div class="res ok"><span class="ic">✓</span><span class="tx"><b>${esc(n.name)}</b> → ${esc(byId[e.to].name)} · ${esc(e.label)}</span></div>`)].join('');
+    lines.push(`<div class="fact-line"><span class="k">Связи</span><div class="v">${edgeHtml || '<span class="hint">нет прямых связей</span>'}</div></div>`);
+    parts.push(`<div class="facts">${lines.join('')}</div>`);
+    el.innerHTML = parts.join('');
+  }
+
+  function renderCards(){
+    const f = facts(), el = document.getElementById('cards'), m = state.mode;
+    const li = (cls, tx) => `<li class="${cls}"><span class="ic">${cls==='ok'?'✓':cls==='warn'?'!':'✗'}</span><span class="tx">${tx}</span></li>`;
+    // Конфигурация
+    const marks = resolveMarks();
+    const records = Object.values(f.config).reduce((a,b)=>a+b.length,0);
+    const distinct = new Set(Object.values(f.config).flat()).size;
+    const cfgRule = m==='proposal' ? 'Параметр описывается у коробки. Пометка «зависит от:» ищет ручку у ближайшей коробки владельца схемы. Каталог в промпте доков строится по коробке.' : 'Параметр описывается у владельца схемы. Пометка ищет ручку только у него. Каталог в промпте доков показывает параметры всех узлов среза.';
+    const cfgLines = marks.map(x => li(x.found?'ok':'bad', `${esc(byId[x.doc.node].name)} · ${esc(x.doc.name)}: <code>${x.mark}</code> → ${x.owner?`«${esc(byId[x.owner].name)}»`:'негде'} ${x.found?'':'· AL33'}`));
+    cfgLines.push(li(records>distinct?'warn':'ok', `записей конфигурации: ${records} на ${distinct} переменных${records>distinct?', дубли по модулям одного процесса':''}`));
+    // Спека
+    const specOwners = Object.keys(f.spec);
+    const specRule = m==='proposal' ? 'Одна спека на коробку: её отдаёт процесс.' : 'Одна спека на сервис, но у контейнера её держать нельзя (AL24): уезжает на лист.';
+    const specLines = specOwners.map(o => { const r = role(o); return li(r==='коробка'?'ok':'warn', `${esc(byId[o].name)}: ${r==='коробка'?'у коробки':r==='группировка'?'у группировки, AL24':'у модуля, хотя API отдаёт процесс'}`); });
+    // Размещение
+    const plRule = m==='proposal' ? 'Экземпляры у коробки. Модули внутри коробки площадок не имеют.' : 'Экземпляры только у листьев. Контейнер «цельный», если у всех листьев одинаковый набор площадок, кнопка «разместить целиком» расставляет все листья.';
+    const plLines = [];
+    for (const id of ['orders','catalog','ordersdb','billing']) {
+      const pl = placementOf(id);
+      if (pl.own) plLines.push(li('ok', `${esc(byId[id].name)}: ${pl.sites.map(s=>SITES[s]).join(', ')||'не указано'}`));
+      else if (pl.derived) plLines.push(li(pl.whole?'warn':'bad', `${esc(byId[id].name)}: ${pl.whole?`${pl.sites.map(s=>SITES[s]).join(', ')} · выводится из ${pl.leaves.length} листьев, ${pl.leaves.length*pl.sites.length} экземпляров ради одного процесса`:'рассыпается до детей'}`));
+    }
+    // Связи
+    const edRule = m==='proposal' ? 'Конец в коробке законен: вызывают процесс. Уточнение до модуля это дополнительное знание стороны вызываемого.' : 'Конец связи только в листе. Конец в контейнере даёт замечание и просьбу уточнить до компонента.';
+    const edLines = EDGES.map(e => { const v = edgeVerdict(e); return li(v.ok?'ok':'bad', `${esc(byId[e.from].name)} → ${esc(byId[e.to].name)} · ${esc(e.label)}: ${v.text}`); });
+    const card = (t, rule, lines) => `<div class="card"><h3>${t}</h3><p class="ruletext">${rule}</p><ul>${lines.join('')}</ul></div>`;
+    el.innerHTML = card('Конфигурация', cfgRule, cfgLines) + card('Спека OpenAPI', specRule, specLines) + card('Размещение', plRule, plLines) + card('Связи', edRule, edLines);
+  }
+
+  function renderAlerts(){
+    const a = alerts(), el = document.getElementById('alerts');
+    const total = a.al24.length + a.al33.length + a.edges.length + a.guard.length;
+    const c = document.getElementById('acount'); c.textContent = total; c.className = 'count ' + (total ? 'some' : 'zero');
+    const block = (t, items) => items.length ? `<div class="aclass"><div class="t">${t}<span class="n">${items.length}</span></div><ul>${items.map(i=>`<li>${i}</li>`).join('')}</ul></div>` : '';
+    el.innerHTML = total ? block('Контейнеры со своей документацией', a.al24) + block('Обращения к неописанным параметрам', a.al33) + block('Связь упирается в контейнер', a.edges) + block('Факт коробки описан у модуля', a.guard)
+      : '<p class="empty" style="margin-top:8px">Замечаний нет</p>';
+  }
+
+  function render(){
+    document.querySelectorAll('#modes button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));
+    document.getElementById('modenote').textContent = MODENOTE[state.mode];
+    renderTree(); renderInspector(); renderCards(); renderAlerts();
+  }
+
+  document.getElementById('modes').addEventListener('click', e => { const b = e.target.closest('button[data-mode]'); if (!b) return; state.mode = b.dataset.mode; save(); render(); });
+  document.addEventListener('change', e => { const t = e.target; if (t.matches('input[data-flag]')) { state.flags[t.dataset.flag] = t.checked; save(); render(); } });
+  document.addEventListener('click', e => { if (e.target.closest('label.switch')) return; const r = e.target.closest('[data-select]'); if (!r) return; state.selected = r.dataset.select; save(); render(); });
+  document.addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const r = e.target.closest('[data-select]'); if (!r) return; e.preventDefault(); state.selected = r.dataset.select; save(); render(); });
+  render();
+})();
+</script>
