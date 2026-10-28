@@ -41,6 +41,7 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.project_member import ProjectMember
+from app.models.upload import Upload
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
@@ -251,6 +252,8 @@ NOT_COPIED: dict[type[Base], str] = {
     "автор у копии свои)",
     User: "пользователи глобальны и проекту не принадлежат",
     PersonalToken: "личные токены доступа принадлежат пользователю, а не проекту",
+    Upload: "загрузки файлов с машины агента принадлежат пользователю и живут 10 минут — "
+    "к проекту не привязаны",
     ProjectMember: "участники у копии свои: владелец — тот, кто копировал, остальных "
     "он добавит сам (доступ к источнику не означает доступа к копии)",
     ViewState: "fence конкурентных записей раскладки: счётчик версий вида у копии "

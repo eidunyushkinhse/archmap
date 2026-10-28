@@ -44,12 +44,14 @@ class Endpoint:
 
 
 @asynccontextmanager
-async def connect(api: FakeApi, who: remote.Caller) -> AsyncIterator[ClientSession]:
+async def connect(
+    api: FakeApi, who: remote.Caller, headers: dict[str, str] | None = None
+) -> AsyncIterator[ClientSession]:
     archmap = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
     host = remote.RemoteHost(archmap, "http://archmap.internal", max_body_bytes=1024 * 1024)
     app = Starlette(routes=[Route("/mcp", endpoint=Endpoint(host, who))])
     async with host.run():
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app)) as http:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), headers=headers or {}) as http:
             async with streamable_http_client("http://mcp.test/mcp", http_client=http) as (read, write, _):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
@@ -62,14 +64,14 @@ def text(result: types.CallToolResult) -> str:
     return block.text
 
 
-async def test_список_33_а_только_чтение_17(api: FakeApi) -> None:
+async def test_список_34_а_только_чтение_17(api: FakeApi) -> None:
     async with connect(api, caller()) as s:
         full = (await s.list_tools()).tools
     async with connect(api, caller(read_only=True)) as s:
         reader = (await s.list_tools()).tools
     assert [t.name for t in full] == [t["name"] for t in tools.remote_catalog(False)]
     assert [t.name for t in reader] == [t["name"] for t in tools.remote_catalog(True)]
-    assert (len(full), len(reader)) == (33, 17)
+    assert (len(full), len(reader)) == (34, 17)
 
 
 async def test_вызов_идёт_с_токеном_вызывающего_и_без_логина(
@@ -174,3 +176,24 @@ async def test_whoami_отказ_несёт_текст_ArchMap(api: FakeApi) -> 
     with pytest.raises(remote.TokenRejected) as exc:
         await remote.whoami(http, "http://archmap.internal", SECRET, "198.51.100.1")
     assert (exc.value.status, exc.value.detail) == (401, "Токен недействителен")
+
+
+def _slot() -> dict[str, object]:
+    return {"id": "u1", "name": "r.yaml", "path": "/api/v1/uploads/u1/КЛЮЧ",
+            "expires_at": "2026-10-28T12:10:00Z", "max_bytes": 2 * 1024 * 1024}
+
+
+async def test_ссылка_на_загрузку_по_адресу_агента_а_не_внутреннему(api: FakeApi) -> None:
+    """Удалённо запросы в API идут по внутреннему адресу, а ссылку агент откроет сам —
+    она собирается из адреса, по которому он пришёл: Host без прокси, X-Forwarded-* за ним."""
+    api.post("/uploads", _slot())
+    async with connect(api, caller()) as s:
+        out = text(await s.call_tool("archmap_upload_url", {"project": "Ярмарка", "name": "r.yaml"}))
+    assert "http://mcp.test/api/v1/uploads/u1/КЛЮЧ" in out
+    assert "archmap.internal" not in out
+
+    forwarded = {"x-forwarded-proto": "https", "x-forwarded-host": "archmap.example.com"}
+    async with connect(api, caller(), headers=forwarded) as s:
+        out = text(await s.call_tool("archmap_upload_url", {"project": "Ярмарка", "name": "r.yaml"}))
+    assert "https://archmap.example.com/api/v1/uploads/u1/КЛЮЧ" in out
+    assert "curl -sS -T" in out and "upload_id: u1" in out

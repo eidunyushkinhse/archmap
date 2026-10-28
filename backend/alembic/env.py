@@ -20,6 +20,7 @@ import app.models.process_message
 import app.models.process_participant
 import app.models.project
 import app.models.project_member
+import app.models.upload
 
 # импортируем модели, чтобы Alembic видел их метаданные
 import app.models.user

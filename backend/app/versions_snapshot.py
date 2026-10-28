@@ -45,6 +45,7 @@ from app.models.process_message import ProcessMessage
 from app.models.process_participant import ProcessParticipant
 from app.models.project import Project
 from app.models.project_member import ProjectMember
+from app.models.upload import Upload
 from app.models.user import User
 from app.models.view_layout import ViewLayoutItem
 from app.models.view_state import ViewState
@@ -108,6 +109,7 @@ NOT_IN_VERSION: dict[type[Base], str] = {
     User: "пользователи глобальны; автор версии — created_by_id строки версии",
     ProjectMember: "участники проекта — доступ, а не документация объекта",
     PersonalToken: "личные токены принадлежат пользователю, а не документации",
+    Upload: "загрузки файлов с машины агента — временный буфер пользователя, не документация",
     NodeVersion: "сама история версий: снимок версий внутри версии был бы рекурсией",
     BusinessProcess: _PROCESS,
     ProcessParticipant: _PROCESS,

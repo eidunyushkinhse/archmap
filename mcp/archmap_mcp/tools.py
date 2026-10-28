@@ -46,6 +46,7 @@ uuid). «Текущего проекта» в сервере нет намере
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json as jsonlib
 import os
@@ -53,6 +54,7 @@ import tempfile
 import uuid as uuidlib
 import zipfile
 from contextlib import suppress
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -597,6 +599,27 @@ def _resolutions(args: dict[str, Any]) -> str | None:
     if not isinstance(chosen, dict):
         raise ArchMapError('resolutions — объект «id спора» → «cand:<N>» либо «all».')
     return jsonlib.dumps(chosen, ensure_ascii=False)
+
+
+async def t_upload_url(client: ArchMapClient, args: dict[str, Any]) -> str:
+    """Одноразовая ссылка на загрузку файла с машины агента (docs/plan-mcp-upload.md):
+    модель не перепечатывает содержимое, а кладёт файл curl без токена в команде."""
+    name = str(args.get("name") or "input.yaml").strip() or "input.yaml"
+    data = await client.request("POST", "/uploads", json={"name": name})
+    url = f"{client.public_base_url}{data.get('path', '')}"
+    upload_id = str(data.get("id", ""))
+    mb = int(data.get("max_bytes", 0)) // (1024 * 1024)
+    expires = str(data.get("expires_at", ""))[:19].replace("T", " ")
+    return (
+        f"Ссылка на загрузку «{name}» — одноразовая, до {expires} UTC, файл не больше {mb} МБ:\n"
+        f"{url}\n\n"
+        "Положите файл командой в терминале машины агента (токен не нужен — право даёт сама ссылка):\n"
+        f"  curl -sS -T путь/к/{name} \"{url}\"\n"
+        "Ответ — JSON с upload_id, size и sha256: сверьте sha256 с `sha256sum` файла у себя. Затем "
+        f"передайте в files нужного инструмента {{\"name\": \"{name}\", \"upload_id\": \"{upload_id}\"}} — "
+        "и в превью, и в применение один и тот же upload_id (загрузка живёт до срока, не до первого чтения).\n"
+        f"upload_id: {upload_id}"
+    )
 
 
 async def t_import_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1293,17 +1316,49 @@ SYNC_POLICY_ARGS = {
     "restore_returned": {"type": "boolean", "description": "Снимать deprecated с объектов, которые снова появились в прогоне (пометку мог поставить человек)."},
 }
 
+# ⚠️ content модель НАБИРАЕТ ЗАНОВО — это не вложение: на десятках килобайт текст
+# приезжает с потерями, которых не видит ни агент, ни сервер (полевая находка 2026-10-28:
+# пропавшая связь, искажённые подписи). Поэтому у файла есть второй путь — upload_id из
+# archmap_upload_url (байты как есть), а локально ещё и paths. Эхо size+sha256 в ответе
+# каждого инструмента с файлами даёт агенту сверить полученное со своим sha256sum.
+_FILE_ITEM = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "Имя файла — им файл называют замечания превью."},
+        "content": {
+            "type": "string",
+            "description": "Текст файла целиком. Модель набирает его заново — для файлов больше ~20 КБ "
+            "передавайте upload_id вместо content.",
+        },
+        "upload_id": {
+            "type": "string",
+            "description": "id загрузки из archmap_upload_url (файл положен по ссылке curl, байты как есть) — "
+            "вместо content.",
+        },
+    },
+    "required": ["name"],
+}
 FILES_ARG = {
     "type": "array",
-    "description": "Файлы прогона агента: [{name, content}].",
-    "items": {
-        "type": "object",
-        "properties": {
-            "name": {"type": "string", "description": "Имя файла — им файл называют замечания превью."},
-            "content": {"type": "string", "description": "Текст файла целиком."},
-        },
-        "required": ["name", "content"],
-    },
+    "description": "Файлы прогона агента: [{name, content}] либо [{name, upload_id}] (файл, положенный по "
+    "ссылке archmap_upload_url). Файл с диска машины агента удобнее передать в paths — без перепечатки.",
+    "items": _FILE_ITEM,
+}
+# Удалённый набор: про диск агента ни слова — его там нет, есть загрузка по ссылке.
+FILES_ARG_REMOTE = {
+    "type": "array",
+    "description": "Файлы прогона агента: [{name, content}] либо [{name, upload_id}] — файл, положенный по "
+    "ссылке archmap_upload_url (байты как есть, без перепечатки моделью; для файлов больше ~20 КБ — "
+    "только так).",
+    "items": _FILE_ITEM,
+}
+# Текстовые файлы с диска у синка, доков, разведки и фактов (локальный режим): читаются
+# как есть и встают в files под именем файла.
+TEXT_PATHS_ARG = {
+    "type": "array",
+    "description": "Файлы С ДИСКА машины агента (текст в UTF-8: .yaml, .md, .mmd…) — вместо перепечатки в "
+    "files; имя входа — имя файла. Идут ПОСЛЕ files в нумерации входов.",
+    "items": {"type": "string"},
 }
 
 PATHS_ARG = {
@@ -1593,6 +1648,23 @@ TOOLS: list[dict[str, Any]] = [
         "handler": t_docs_prompt,
     },
     {
+        "name": "archmap_upload_url",
+        "writes": True,
+        "description": "Ссылка для загрузки файла с машины агента БЕЗ перепечатки его текста моделью: "
+        "одноразовая, живёт 10 минут, файл до предела сервера (обычно 2 МБ). Ответ — адрес и готовая "
+        "команда curl; сервер отвечает на загрузку size и sha256 (сверьте с sha256sum). Потом файл передают "
+        "в files любого инструмента как {name, upload_id} — для YAML и пакетов больше ~20 КБ только так; "
+        "один upload_id годится и для превью, и для применения.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Имя файла, как его назовут замечания превью: «repo-a.yaml»."},
+            },
+            "required": ["name"],
+        },
+        "handler": t_upload_url,
+    },
+    {
         "name": "archmap_import_preview",
         "writes": True,
         "description": "Проверить входы будущего проекта БЕЗ записи: N входов вперемешку — YAML архитектуры (files, текстом) и zip-архивы знания (paths, файлы с диска). Показывает разбор и слияние C4, что приедет по семьям фактов, СПОРЫ содержимого (один факт описан по-разному) и откуда возьмётся имя проекта. Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»): сначала files, потом paths.",
@@ -1655,9 +1727,10 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 **SYNC_POLICY_ARGS,
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_sync_preview,
     },
@@ -1670,13 +1743,14 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 **SYNC_POLICY_ARGS,
                 "base_graph_rev": {
                     "type": "integer",
                     "description": "Курсор схемы из превью: если схему успели изменить, применение отклонится.",
                 },
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_sync_apply,
     },
@@ -1689,11 +1763,12 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "overwrite": DOCS_OVERWRITE_ARG,
                 "only": DOCS_ONLY_ARG,
                 "node_id": DOCS_SCOPE_ARG,
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_docs_preview,
     },
@@ -1706,11 +1781,12 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "overwrite": DOCS_OVERWRITE_ARG,
                 "only": DOCS_ONLY_ARG,
                 "node_id": DOCS_SCOPE_ARG,
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_docs_apply,
     },
@@ -1757,9 +1833,10 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "node_id": RECON_NODE_ARG,
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_recon_preview,
     },
@@ -1777,9 +1854,10 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "project": PROJECT_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "node_id": RECON_NODE_ARG,
             },
-            "required": ["project", "files"],
+            "required": ["project"],
         },
         "handler": t_recon_apply,
     },
@@ -1823,10 +1901,11 @@ TOOLS: list[dict[str, Any]] = [
                 "project": PROJECT_ARG,
                 "family": FAMILY_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "overwrite": OVERWRITE_ARG,
                 "node_id": FACTS_NODE_ARG,
             },
-            "required": ["project", "family", "files"],
+            "required": ["project", "family"],
         },
         "handler": t_facts_preview,
     },
@@ -1843,10 +1922,11 @@ TOOLS: list[dict[str, Any]] = [
                 "project": PROJECT_ARG,
                 "family": FAMILY_ARG,
                 "files": FILES_ARG,
+                "paths": TEXT_PATHS_ARG,
                 "overwrite": OVERWRITE_ARG,
                 "node_id": FACTS_NODE_ARG,
             },
-            "required": ["project", "family", "files"],
+            "required": ["project", "family"],
         },
         "handler": t_facts_apply,
     },
@@ -1956,12 +2036,106 @@ TOOLS: list[dict[str, Any]] = [
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 
+# Инструменты, у которых paths — ТЕКСТОВЫЕ файлы, встающие в files (у импорта paths — свой
+# разбор в _inputs: там и zip-архивы).
+TEXT_PATH_TOOLS = frozenset({
+    "archmap_sync_preview", "archmap_sync_apply",
+    "archmap_docs_preview", "archmap_docs_apply",
+    "archmap_recon_preview", "archmap_recon_apply",
+    "archmap_facts_preview", "archmap_facts_apply",
+})
+RECEIVED_VIA = {"text": "текстом вызова", "upload": "загрузкой по ссылке", "disk": "с диска"}
+
+
+@dataclass
+class Received:
+    """Что инструмент получил на вход — для эха агенту (сверка с его sha256sum)."""
+
+    name: str
+    size: int
+    sha256: str
+    via: str  # text | upload | disk
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+async def _resolve_files(client: ArchMapClient, name: str, args: dict[str, Any]) -> tuple[dict[str, Any], list[Received]]:
+    """files к виду [{name, content}]: upload_id — содержимое загрузки (GET /uploads/{id},
+    владелец и срок проверяются бэкендом), paths у текстовых инструментов — файлы с диска.
+    Попутно — размер и sha256 каждого входа: это эхо агент сверяет у себя."""
+    out: list[dict[str, str]] = []
+    received: list[Received] = []
+    for i, f in enumerate(args.get("files") or [], 1):
+        if not isinstance(f, dict):
+            raise ArchMapError(f"Вход {i} в files — не объект {{name, content}} или {{name, upload_id}}.")
+        fname = str(f.get("name") or f"вход-{i}.yaml")
+        upload_id = f.get("upload_id")
+        has_content = f.get("content") is not None
+        if upload_id and has_content:
+            raise ArchMapError(f"Файл «{fname}»: укажите либо content, либо upload_id, не оба.")
+        if upload_id:
+            try:
+                data = await client.request("GET", f"/uploads/{upload_id}")
+            except ArchMapError as exc:
+                raise ArchMapError(f"Файл «{fname}» (upload_id {upload_id}): {exc}") from exc
+            content, via = str(data.get("content", "")), "upload"
+        elif has_content:
+            content, via = str(f["content"]), "text"
+        else:
+            raise ArchMapError(
+                f"Файл «{fname}»: нет ни content, ни upload_id. Большой файл кладут по ссылке "
+                "archmap_upload_url и передают его upload_id."
+            )
+        raw = content.encode("utf-8")
+        out.append({"name": fname, "content": content})
+        received.append(Received(fname, len(raw), _sha256(raw), via))
+    new_args = {**args, "files": out}
+    if name in TEXT_PATH_TOOLS:
+        used = sum(r.size for r in received)
+        for raw_path in args.get("paths") or []:
+            path = Path(str(raw_path)).expanduser()
+            if not path.is_file():
+                raise ArchMapError(f"Файл не найден: {path}")
+            data = _read_input(path, used)
+            used += len(data)
+            try:
+                text = data.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ArchMapError(f"Файл {path} не текстовый (не UTF-8).") from exc
+            out.append({"name": path.name, "content": text})
+            received.append(Received(path.name, len(data), _sha256(data), "disk"))
+        new_args.pop("paths", None)
+        if not out:
+            raise ArchMapError("Не передан ни один вход: files — текстом или upload_id, paths — файлы с диска.")
+    return new_args, received
+
+
+def received_block(received: list[Received]) -> str:
+    if not received:
+        return ""
+    rows = [f"  • {r.name} — {r.size} байт, sha256 {r.sha256} ({RECEIVED_VIA[r.via]})" for r in received]
+    return (
+        f"\n\nПолучено входов: {len(received)}. Сверьте sha256 с sha256sum файлов у себя: расхождение значит, "
+        "что текст изменился при передаче (набран в content с ошибками; хвостовой перевод строки тоже меняет хеш).\n"
+        + "\n".join(rows)
+    )
+
+
+async def _run(tool: dict[str, Any], args: dict[str, Any], client: ArchMapClient) -> str:
+    """Запуск обработчика; у инструментов с files — сперва подстановка входов, в конце эхо."""
+    if "files" in tool["schema"].get("properties", {}):
+        args, received = await _resolve_files(client, tool["name"], args)
+        return str(await tool["handler"](client, args)) + received_block(received)
+    return str(await tool["handler"](client, args))
+
+
 async def call(name: str, args: dict[str, Any], client: ArchMapClient) -> str:
     tool = BY_NAME.get(name)
     if tool is None:
         raise ArchMapError(f"Неизвестный инструмент: {name}")
-    handler = tool["handler"]
-    return str(await handler(client, args))
+    return await _run(tool, args, client)
 
 
 # ── Удалённый набор (/mcp в процессе бэкенда; docs/plan-remote-mcp.md, Р5, Р6) ────
@@ -2004,8 +2178,26 @@ REMOTE_OVERRIDES: dict[str, dict[str, Any]] = {
     },
 }
 
+
+
+def _remote_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """Схема удалённого набора: аргументов-путей нет, files — вариант без слов о диске и
+    обязателен там, где локально его заменяли paths."""
+    props = {
+        k: (FILES_ARG_REMOTE if k == "files" else v)
+        for k, v in schema.get("properties", {}).items()
+        if k not in DISK_ARGS
+    }
+    required = [r for r in schema.get("required", []) if r not in DISK_ARGS]
+    if "files" in props and "files" not in required:
+        required.append("files")
+    return {**schema, "properties": props, "required": required}
+
+
 REMOTE_TOOLS: list[dict[str, Any]] = [
-    {**t, **REMOTE_OVERRIDES.get(t["name"], {})} for t in TOOLS if t["name"] not in LOCAL_ONLY
+    {**merged, "schema": _remote_schema(merged["schema"])}
+    for merged in ({**t, **REMOTE_OVERRIDES.get(t["name"], {})} for t in TOOLS)
+    if merged["name"] not in LOCAL_ONLY
 ]
 REMOTE_BY_NAME = {t["name"]: t for t in REMOTE_TOOLS}
 
@@ -2031,13 +2223,13 @@ async def call_remote(name: str, args: dict[str, Any], client: ArchMapClient, re
     disk = sorted(DISK_ARGS & args.keys())
     if disk:
         raise ArchMapError(
-            f"Аргумент {', '.join(disk)} в подключении по адресу не принимается: файлы с машины "
-            "агента сюда не передаются. YAML передают текстом в files, архив проекта ввозят в "
-            "интерфейсе ArchMap."
+            f"Аргумент {', '.join(disk)} в подключении по адресу не принимается: диска агента у "
+            "сервера нет. Файл с машины агента кладут по ссылке archmap_upload_url и передают в files "
+            "как {name, upload_id}; архив проекта ввозят в интерфейсе ArchMap."
         )
     if read_only and tool["writes"]:
         raise ArchMapError(
             f"Токен только для чтения: {name} меняет данные. Для правок выпустите токен без "
             "«только чтение» в меню профиля → «Токены для MCP»."
         )
-    return str(await tool["handler"](client, args))
+    return await _run(tool, args, client)

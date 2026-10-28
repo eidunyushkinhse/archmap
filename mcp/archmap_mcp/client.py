@@ -113,9 +113,14 @@ class ArchMapClient:
         config: Config | None = None,
         http: httpx.AsyncClient | None = None,
         bearer: str | None = None,
+        public_base_url: str | None = None,
     ) -> None:
         self.config = config or Config()
         self._bearer = bearer or self.config.token or None
+        # Адрес ArchMap, каким его видит АГЕНТ, — для ссылок, которые он откроет сам
+        # (загрузка файла curl). Локально это ARCHMAP_URL; удалённо запросы в API идут по
+        # внутреннему адресу, а агент пришёл по внешнему — его передаёт вызывающий.
+        self.public_base_url = (public_base_url or self.config.base_url).rstrip("/")
         # follow_redirects НЕ включаем намеренно (2026-09-05). Раньше это была
         # страховка от промаха в хвостовом слэше: коллекции на бэке были объявлены
         # неоднородно, и на «не тот» вариант FastAPI отвечал 307 с пустым телом —

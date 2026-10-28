@@ -12,6 +12,7 @@ httpx-клиентом (в бэкенде — ASGITransport того же при
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import time
 from contextlib import AbstractAsyncContextManager
@@ -23,6 +24,7 @@ import mcp.types as types
 from mcp.server import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.datastructures import Headers
 from starlette.types import Receive, Scope, Send
 
 from archmap_mcp import tools
@@ -53,6 +55,9 @@ class Caller:
     token: str
     read_only: bool
     address: str
+    # Адрес ArchMap, по которому пришёл агент («https://archmap.example.com») — для
+    # ссылок, которые агент откроет сам (archmap_upload_url). Ставит handle по запросу.
+    public_base: str = ""
 
 
 class TokenRejected(Exception):
@@ -85,6 +90,16 @@ async def whoami(http: httpx.AsyncClient, base_url: str, bearer: str, address: s
         read_only=bool(body["read_only"]),
         address=address,
     )
+
+
+def public_base_of(scope: Scope) -> str:
+    """Адрес ArchMap глазами агента по заголовкам запроса: за прокси (nginx поставки,
+    Ingress) — X-Forwarded-Proto и X-Forwarded-Host, без него — схема соединения и Host.
+    Подделка заголовков клиентом меняет лишь адрес в ответе ему же, поэтому им верим."""
+    headers = Headers(scope=scope)
+    proto = (headers.get("x-forwarded-proto") or str(scope.get("scheme") or "https")).split(",")[0].strip()
+    host = (headers.get("x-forwarded-host") or headers.get("host") or "").split(",")[0].strip()
+    return f"{proto}://{host}" if host else ""
 
 
 def clean(value: object, limit: int = 80) -> str:
@@ -123,7 +138,8 @@ class RemoteHost:
         return self.manager.run()
 
     async def handle(self, scope: Scope, receive: Receive, send: Send, caller: Caller) -> None:
-        scope.setdefault("state", {})[STATE_KEY] = caller
+        who = dataclasses.replace(caller, public_base=public_base_of(scope))
+        scope.setdefault("state", {})[STATE_KEY] = who
         await self.manager.handle_request(scope, receive, send)
 
     def _caller(self) -> Caller:
@@ -140,7 +156,9 @@ class RemoteHost:
     async def _call_tool(self, name: str, arguments: dict[str, Any] | None) -> types.CallToolResult:
         caller = self._caller()
         args = arguments or {}
-        client = ArchMapClient(self.config, http=self.http, bearer=caller.bearer)
+        client = ArchMapClient(
+            self.config, http=self.http, bearer=caller.bearer, public_base_url=caller.public_base or None
+        )
         started = time.monotonic()
         reply = await settle(
             name, tools.call_remote(name, args, client, caller.read_only), journal="журнале сервера ArchMap"
