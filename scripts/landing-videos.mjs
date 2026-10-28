@@ -559,8 +559,11 @@ const VIDEOS = {
     await page.getByRole("button", { name: "Отмена" }).click().catch(() => {});
   } },
 
-  // Статусы: корень карты, вид «Переход» → «Как есть» (новый «Сервис рекомендаций»
-  // уходит) → «Как будет» (выводимый «SMS-рассыльщик» уходит) → снова «Переход».
+  // Статусы: корень карты, вид «Переход». Бесшовная петля (без белого края): курсор с
+  // первого кадра стоит на «Переходе», уходит на «Как будет» (выводимый «SMS-рассыльщик»
+  // уходит), затем на «Как есть» (новый «Сервис рекомендаций» уходит) и возвращается на
+  // «Переход» — последний кадр совпадает с первым (та же точка курсора, тот же вид, рябь
+  // клика погасла), и ролик крутится по кругу без шва.
   status: { size: [2100, 900], async setup(page, s) {
     await go(page, `/p/${s.pid}/map`);
     await page.getByRole("button", { name: "Свернуть панель" }).last().click();
@@ -571,18 +574,24 @@ const VIDEOS = {
     await settle(page);
     await frameNodes(page, [s.ids.recs, s.ids.orders, s.ids.sms, s.ids.notifWorker, s.ids.notifDb], 0.8);
     await park(page);
+    // Стартовая точка петли — центр «Перехода»: ховер настоящий и одинаковый на обоих краях
+    const c = await center(page.getByRole("radio", { name: "Переход", exact: true }));
+    await page.mouse.move(c.x, c.y);
+    pos.x = c.x; pos.y = c.y;
+    await page.waitForTimeout(400);
   }, async scene(page) {
     const radio = (name) => page.getByRole("radio", { name, exact: true });
-    await hold(page, 600);
-    await clickOn(page, radio("Как есть"), 600);
-    mark("как есть");
-    await hold(page, 1400);
-    await clickOn(page, radio("Как будет"), 450);
+    await hold(page, 500);
+    await clickOn(page, radio("Как будет"), 600);
     mark("как будет");
+    await hold(page, 1400);
+    await clickOn(page, radio("Как есть"), 500);
+    mark("как есть");
     await hold(page, 1400);
     await clickOn(page, radio("Переход"), 400);
     mark("переход");
-    await hold(page, 1400);
+    // Хвост длиннее ряби клика (0,35 с) и анимации смены вида: кадр на стыке петли чистый
+    await hold(page, 1300);
     mark("конец");
   } },
 };

@@ -775,23 +775,17 @@ const SHOTS = {
     await shoot(page, "shot-anchor.png");
   } },
 
-  // Процесс «Оформление заказа» в конструкторе (режим правки — локальная настройка
-  // вида, не запись); вторым кадром — карточка шага с привязанной схемой логики.
-  process: { size: [1600, 900], async run(page, s) {
+  // Процесс «Оформление заказа» открыт на чтение, список процессов свёрнут в рейл —
+  // статичная картинка раздела «Процессы» лендинга (кадр 16:10 под его рамку; с
+  // 2026-10-28 вместо ролика vid-process и кадра шага shot-process-step).
+  process: { size: [1600, 1000], async run(page, s) {
     await go(page, `/p/${s.pid}`);
     await page.locator('button[title="Бизнес-процессы"]').click();
     await page.getByText(PROCESS, { exact: true }).first().click();
     await settle(page);
     await page.locator('button[title="Свернуть в рейл"]').click();
-    await page.getByRole("button", { name: "Редактировать" }).first().click();
-    await page.getByRole("button", { name: "Готово" }).waitFor();
     await settle(page);
     await shoot(page, "shot-process.png");
-    await page.getByText(s.stepCaption, { exact: true }).first().click();
-    await page.getByText("Схема логики", { exact: true }).waitFor();
-    await settle(page);
-    await shoot(page, "shot-process-step.png");
-    await page.getByRole("button", { name: "Отмена" }).click(); // закрыть карточку без записи
   } },
 
   // Статусы: корень редактора-карты с сохранённым раскрытием «Маркетплейса» и
