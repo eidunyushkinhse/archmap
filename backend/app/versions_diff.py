@@ -20,8 +20,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from app.domain_types import (
+    ELEMENT_UNSET_LABEL,
     NODE_APPROVAL_LABELS,
     NODE_DOC_KIND_LABELS,
+    NODE_ELEMENT_LABELS,
     NODE_SHAPE_LABELS,
     NODE_STATUS_LABELS,
     VERSION_CATEGORIES,
@@ -135,9 +137,10 @@ def restorable(snapshot: VersionSnapshot) -> dict[str, Any]:
     """Проекция того, что возвращает откат к версии (app/versions_restore), — semantic
     без процессов и без статуса страницы у объектов. Оба в снимок входят, но не
     откатываются (ТЗ §5): процессы общие с другими объектами, статусом страницы
-    управляет человек. По этой проекции сторож отката сравнивает итог со снимком
-    версии; сравнение пересчётом, а не колонкой content_hash, переживает уточнение
-    самой проекции."""
+    управляет человек. Элемент архитектуры откатывается, как форма: это решение о
+    строении объекта, а не отметка о проверке. По этой проекции сторож отката сравнивает
+    итог со снимком версии; сравнение пересчётом, а не колонкой content_hash, переживает
+    уточнение самой проекции."""
     data = semantic(snapshot)
     del data["processes"]
     for node in data["nodes"]:
@@ -411,13 +414,17 @@ def _text_summary(old: str | None, new: str | None, delta: _TextDelta) -> str:
 # ── Свойства объекта и статус страницы ─────────────────────────────────────────
 
 # Поле снимка узла → подпись в элементе «Свойства». openapi_spec и approval — свои
-# элементы («OpenAPI», «Статус страницы»).
+# элементы («OpenAPI», «Статус страницы»). Поле снимка, которого здесь нет, меняет хэш,
+# но в перечень не попадает, и «есть изменения» ответит пустым списком (камень 3 эпика
+# «Элемент архитектуры»): новое поле узла — сюда же.
 _PROP_LABELS: dict[str, str] = {
     "name": "имя",
     "description": "описание",
     "role": "роль",
     "technology": "технология",
     "shape": "форма",
+    # Хранимый элемент архитектуры, а не действующий: версия помнит, что сказал человек.
+    "element": "элемент архитектуры",
     "status": "статус",
     "is_external": "внешний",
     "parent_id": "родитель",
@@ -442,6 +449,8 @@ def _prop_value(pair: _Pair, side: _Side, node: NodeSnapshot, field: str) -> str
         return NODE_SHAPE_LABELS[node.shape]
     if field == "status":
         return NODE_STATUS_LABELS[node.status]
+    if field == "element":
+        return NODE_ELEMENT_LABELS[node.element] if node.element else ELEMENT_UNSET_LABEL
     if field == "parent_id":
         return _parent_label(side, pair.outside, node.parent_id)
     return _val(getattr(node, field))
