@@ -2435,10 +2435,10 @@ def test_спор_элемента_применяется_ответом(db):
     assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
 
 
-def test_выбранный_контейнер_снимается_если_внутри_база(db):
+def test_выбранный_контейнер_выносит_базу_уровнем_выше(db):
     """Ответ «Контейнер» там, где в слитом дереве лежит база (её принёс файл, где узел
-    — система), недопустим: применение снимает значение той же санитизацией, что у
-    разбора, и говорит об этом пунктом отчёта."""
+    — система): применение выносит базу к родителю контейнера той же санитизацией, что
+    у разбора, и говорит об этом пунктом отчёта; контейнер остаётся."""
     с_базой = _ЭЛЕМЕНТ_1 + "          - name: orders-db\n            shape: database\n"
     план = _план_элемента(с_базой, _ЭЛЕМЕНТ_2)
     [спор] = preview_from_plan(план).remainder.field_conflicts
@@ -2448,10 +2448,35 @@ def test_выбранный_контейнер_снимается_если_вн�
         db, план, {}, "Ответ мимо правила", None, ensure_architect(db).id,
         decisions=parse_decisions(json.dumps({"fields": {спор.id: 1}})),
     )
-    assert _элемент_в_проекте(db, проект.id, "orders") is None
+    db.commit()
+    assert _элемент_в_проекте(db, проект.id, "orders") == "container"
+    пути, _ = _состав(db, проект)
+    assert "Ярмарка / orders-db" in пути and "Ярмарка / orders / orders-db" not in пути
     строка = (
         "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
-        "состав контейнера — объект оставлен системой"
+        "состав контейнера — вынесена на уровень выше, в «Ярмарка»"
     )
     assert строка in отчёт.warnings
     assert строка in [u.text for u in отчёт.unfixable]
+
+
+def test_вынесенная_база_получает_таблицы_по_адресу_своего_архива(db):
+    """Файл семьи архива адресует базу так, как её записал C4 этого архива — внутри
+    контейнера. Разбор вынес базу, а таблицы всё равно доезжают до неё."""
+    c4 = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+        "          - name: orders-db\n            shape: database\n"
+    )
+    архив = _архив(c4=c4, db=(("db/orders-db.yaml", _таблица("Ярмарка / orders / orders-db")),))
+    план = build_unified_plan([("a.zip", архив)])
+    assert план.ok, план.errors
+
+    проект, отчёт = apply_unified_plan(db, план, {}, "Вынос", None, ensure_architect(db).id)
+    db.commit()
+
+    база = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders-db").one()
+    корень = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Ярмарка").one()
+    assert база.parent_id == корень.id
+    assert [t.name for t in db.query(DbTable).filter(DbTable.node_id == база.id)] == ["orders"]
+    assert not any("не найден" in w for w in отчёт.warnings)

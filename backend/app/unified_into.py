@@ -217,7 +217,9 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
         return failed(None, not_archives)
 
     self_bytes, node_order = build_archive_ordered(db, project)
-    plan = build_unified_plan([(SELF_LABEL, self_bytes), *inputs], limit_unpacked=False)
+    plan = build_unified_plan(
+        [(SELF_LABEL, self_bytes), *inputs], limit_unpacked=False, live_origin=SELF_ORIGIN
+    )
     if not plan.ok or plan.merged is None:
         return failed(plan, _addressed_errors(plan))
 
@@ -704,10 +706,16 @@ def apply_into_plan(
     # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
     решения = resolve_decisions(plan, decisions, SELF_ORIGIN)
     forced = _forced_fields(merged, решения)
-    # Ответ на спор элемента архитектуры мог сделать значение недопустимым (выбран
-    # «Контейнер», а внутри база) — та же санитизация, что у создания; без ответов
-    # слитое дерево уже чистое, и она ничего не меняет.
-    пересмотр = sanitize_elements(merged.nodes, plan.node_paths)
+    # Ответ на спор элемента архитектуры мог сделать дерево недопустимым (выбран
+    # «Контейнер», а внутри база) — та же санитизация, что у создания: новая база
+    # выносится на уровень выше, живая не трогается (контейнер тогда остаётся системой).
+    # Без ответов слитое дерево уже чистое, и она ничего не меняет.
+    пересмотр = sanitize_elements(
+        merged.nodes, plan.node_paths,
+        pinned=lambda m: m in into.live_of,
+        live_element=lambda m: m in into.live_of and into.live_of[m].element is not None
+        and into.live_of[m].element == merged.nodes[m].element,
+    )
     склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
     # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
     # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель

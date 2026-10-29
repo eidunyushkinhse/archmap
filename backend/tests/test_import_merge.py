@@ -2963,29 +2963,53 @@ def test_замечание_об_объединении_детей_кап_пер
     )
 
 
-def test_база_второго_файла_в_контейнере_первого_оставляет_систему():
+def test_база_второго_файла_в_контейнере_первого_вынесена():
     """Каждый файл по отдельности чист, слитое дерево — нет: база из файла 2 легла в
-    контейнер файла 1. Контейнер снят текстом владельца; замечания об объединении
-    детей нет — узел больше не контейнер."""
+    контейнер файла 1. Она выносится уровнем выше (Р6), контейнер остаётся; пути
+    слитого дерева — уже по новому месту, и замечания об объединении детей о ней нет
+    (внутри контейнера её больше нет)."""
     б = _parse(
         "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
         "          - name: orders-db\n            shape: database\n"
     )
     merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
 
-    assert _элемент(merged, "shop / orders") is None
+    assert _элемент(merged, "shop / orders") == "container"
+    assert "shop / orders-db" in _path_list(merged)
+    assert "shop / orders / orders-db" not in _path_list(merged)
     строка = (
         "shop / orders: внутри лежит база данных «orders-db», она не может входить в "
-        "состав контейнера — объект оставлен системой"
+        "состав контейнера — вынесена на уровень выше, в «shop»"
     )
     assert строка in report.warnings
     assert report.warning_files[report.warnings.index(строка)] is None
     assert not any("не зная, что это контейнер" in w for w in report.warnings)
 
 
-def test_спор_элемента_снимается_когда_ответило_правило():
-    """Равные вклады спорят «контейнер / система», но в слитом дереве в узле лежит
-    база: контейнером он быть не может, и вопрос был бы о решённом — его нет."""
+def test_после_выноса_строки_слияния_называют_новый_путь():
+    """Вынос меняет пути поддерева базы: следующие замечания слияния и строки склеек
+    называют объект там, где он окажется, а не где его записал файл."""
+    def база(ребёнок: str) -> ParsedImport:
+        return _parse(
+            "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+            "          - name: orders-db\n            shape: database\n            children:\n"
+            f"              - name: {ребёнок}\n"
+        )
+
+    merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), база("payments"), база("payment")])
+
+    assert "shop / orders-db / payments" in _path_list(merged)
+    assert "shop / orders-db" in report.merged_paths
+    assert "shop / orders / orders-db" not in report.merged_paths
+    assert any(
+        "«payments» и «payment» (внутри «shop / orders-db») похожи" in w for w in report.warnings
+    )
+
+
+def test_спор_элемента_остаётся_когда_база_вынесена():
+    """Равные вклады спорят «контейнер / система», а в узле — база из файла-«системы».
+    Вынос базы элемент не меняет — вопрос остаётся, и с ответом по умолчанию база уже
+    уровнем выше."""
     б = _parse(
         "nodes:\n  - name: shop\n    children:\n      - name: orders\n        element: system\n"
         "        children:\n          - name: api\n          - name: orders-db\n"
@@ -2993,11 +3017,38 @@ def test_спор_элемента_снимается_когда_ответил�
     )
     merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
 
+    assert _элемент(merged, "shop / orders") == "container"
+    assert _спор(report, merged, "shop / orders", "element") is not None
+    assert any("вынесена на уровень выше, в «shop»" in w for w in report.warnings)
+
+
+def test_спор_элемента_снимается_когда_ответило_правило():
+    """Равные вклады спорят «контейнер / система», но третий файл делает родителя
+    контейнером: узел — его компонент, элемента у него нет, и вопрос был бы о
+    решённом — его нет."""
+    а = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+    )
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n          - name: api\n"
+    )
+    в = _parse(
+        "nodes:\n  - name: shop\n    element: container\n    children:\n"
+        "      - name: orders\n"
+    )
+    merged, report = merge_imports([а, б, в])
+
+    assert _элемент(merged, "shop") == "container"
     assert _элемент(merged, "shop / orders") is None
     assert _спор(report, merged, "shop / orders", "element") is None
     # Строка конфликта остаётся «для чтения», а замечание объясняет, чем кончилось.
     assert any("element: оставлено «container»" in c for c in report.conflicts)
-    assert any("объект оставлен системой" in w for w in report.warnings)
+    assert (
+        "shop / orders: объект лежит внутри контейнера «shop» и считается его компонентом "
+        "— элемент архитектуры пропущен"
+    ) in report.warnings
 
 
 def test_файлы_без_элемента_отчёт_прежний():

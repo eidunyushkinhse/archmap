@@ -132,6 +132,11 @@ class ParsedImport:
     # Площадки развёртывания: родители раньше детей (order_sites). Пусто — документ
     # без раздела deployment и без sites у узлов, то есть прежний формат.
     sites: list[_ImpSite] = field(default_factory=list)
+    # Родители узлов, КАК ИХ ЗАПИСАЛ ДОКУМЕНТ, — если разбор их поменял (база или брокер
+    # вынесены из контейнера, app/import_element). Пусто — совпадают с parent_idx.
+    # Нужны адресам «своего» входа: семьи фактов архива, привязки процессов и карта
+    # догрузки написаны путями документа, а не путями поправленного дерева.
+    doc_parents: list[int | None] = field(default_factory=list)
 
 
 def _yaml_error(e: yaml.YAMLError) -> str:
@@ -439,10 +444,14 @@ def _closest_node(
 _MAX_AMBIGUOUS_PATHS = 6
 
 
-def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
+def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | None, list[str]]:
     """Разбор + валидация YAML импорта. Возвращает (результат, ошибки): при любой
     ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
     Неизвестные ключи игнорируются молча (форвард-совместимость формата).
+
+    live=True — документ это снимок ЖИВОГО проекта (вход №0 догрузки): его объекты
+    санитизация элемента не переносит, а живой контейнер с живой базой внутри не
+    трогает (догрузка живое дерево не перестраивает и живое не судит).
 
     Толерантность к выводу ИИ-агентов (пользователь вставляет финальное сообщение
     агента целиком): если сырой текст не разбирается в словарь с nodes, пробуем
@@ -774,10 +783,19 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
     if errors:
         return None, errors
-    # Элемент архитектуры — по всему дереву: у не-сервиса, у контейнера с базой или
-    # брокером внутри и у компонентов значение снимается с замечанием (пути — те же
-    # «Корень / … / Имя», что у замечаний слияния о том же узле).
-    warnings.extend(sanitize_elements(nodes, fulls))
+    # Элемент архитектуры — по всему дереву: у не-сервиса и у компонентов значение
+    # снимается, база и брокер выносятся из контейнера на уровень выше — с замечанием
+    # (пути — те же «Корень / … / Имя», что у замечаний слияния о том же узле). Связи
+    # уже разрешены по путям документа (fulls, by_path, RefIndex), перенос их не задевает.
+    doc_parents = [n.parent_idx for n in nodes]
+    warnings.extend(
+        sanitize_elements(
+            nodes, fulls,
+            pinned=(lambda _i: True) if live else None,
+            live_element=(lambda _i: True) if live else None,
+        )
+    )
+    moved = any(n.parent_idx != p for n, p in zip(nodes, doc_parents, strict=True))
     roots = [n.name for n in nodes if n.parent_idx is None]
     return ParsedImport(
         nodes=nodes,
@@ -785,6 +803,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         roots=roots,
         warnings=warnings,
         sites=order_sites(site_draft.sites, site_parents),
+        doc_parents=doc_parents if moved else [],
     ), []
 
 

@@ -40,7 +40,7 @@ from app.identity import (
     merge_key_sets,
     strongest_common_type,
 )
-from app.import_element import sanitize_elements
+from app.import_element import sanitize_elements, tree_paths
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -280,8 +280,16 @@ def _warn_shared_repo(nodes: list[_ImpNode], report: MergeReport) -> None:
 class _Merger:
     """Состояние одного прогона слияния (класс вместо замыканий — читаемость)."""
 
-    def __init__(self, files: int, force: dict[tuple[int, int], int] | None = None):
+    def __init__(
+        self,
+        files: int,
+        force: dict[tuple[int, int], int] | None = None,
+        pinned_file: int | None = None,
+    ):
         self.report = MergeReport(files=files)
+        # Вход, чьи объекты санитизация элемента не переносит: снимок живого проекта у
+        # догрузки (вход №0). None — переносить можно всё (создание проекта).
+        self.pinned_file = pinned_file
         self.nodes: list[_ImpNode] = []  # копии узлов, порядок «родители раньше детей»
         self.paths: list[str] = []  # полный путь merged-узла (для отчёта)
         self.sources: list[set[int]] = []  # какие файлы внесли вклад в узел
@@ -837,13 +845,38 @@ class _Merger:
         несколько, — тот же принцип, что у _warn_absorbed и warn_roots.
 
         Спор элемента у узла, которому санитизация сменила значение, снимается: правило
-        уже ответило, и вопрос был бы о решённом (выбранный «Контейнер» снялся бы снова)."""
+        уже ответило, и вопрос был бы о решённом (выбранный «Контейнер» снялся бы снова).
+
+        База или брокер, вынесенные из контейнера, меняют пути своего поддерева: пути
+        слитого дерева и строки склеек пересчитываются, чтобы следующие замечания и
+        превью называли объект там, где он окажется. Строки, записанные раньше (conflicts
+        и замечания о тёзках при склейке), остаются с путями документа. Объекты живого
+        проекта (pinned_file) не переносятся: контейнер с живой базой внутри остаётся
+        системой, а если и сам контейнер живой — место не трогается вовсе."""
         before = [n.element for n in self.nodes]
-        for text in sanitize_elements(self.nodes, self.paths):
+        parents = [n.parent_idx for n in self.nodes]
+        pinned = self.pinned_file
+
+        def is_pinned(idx: int) -> bool:
+            return pinned is not None and pinned in self.sources[idx]
+
+        def live_element(idx: int) -> bool:
+            # Слитое значение совпадает с тем, что сказал живой проект.
+            return pinned is not None and any(
+                fi == pinned and parts[fi].nodes[ni].element == self.nodes[idx].element
+                for fi, ni, _keys in self.contribs[idx]
+            )
+
+        for text in sanitize_elements(
+            self.nodes, self.paths, pinned=is_pinned, live_element=live_element
+        ):
             self.report.warn(text)
         for idx, was in enumerate(before):
             if self.nodes[idx].element != was:
                 self._drop_dispute(idx, "element")
+        if any(n.parent_idx != p for n, p in zip(self.nodes, parents, strict=True)):
+            self.paths = tree_paths(self.nodes)
+            self.report.merged_paths = [self.paths[i] for i in self.merged_idxs]
         self._warn_adopted_children(parts)
 
     def _warn_adopted_children(self, parts: list[ParsedImport]) -> None:
@@ -913,10 +946,13 @@ class _Merger:
         return merged, self.report
 
 
-def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
+def merge_imports(
+    parts: list[ParsedImport], *, pinned_file: int | None = None
+) -> tuple[ParsedImport, MergeReport]:
     """Слить N разобранных импортов в один. Всегда возвращает (результат, отчёт);
     непустой report.errors означает «результат непригоден» (суммарные лимиты).
-    Один файл — passthrough без отчётных записей."""
+    Один файл — passthrough без отчётных записей. pinned_file — вход живого проекта
+    (догрузка): его объекты санитизация элемента не переносит."""
     if len(parts) == 1:
         # Атрибуция вырожденная (всё из файла 0), но заполняем: warn_content не
         # должен знать, сколько было файлов.
@@ -937,18 +973,22 @@ def merge_imports(parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]
     # (_regroup) смотрит на ГОТОВЫЙ результат, где каждый вклад виден по отдельности,
     # и повторяет проход с найденными склейками — пока новых не находится. Так исход
     # перестаёт зависеть от порядка панели (тот же инвариант, что у П2).
-    m = _run_merge(parts, {})
+    m = _run_merge(parts, {}, pinned_file)
     for _ in range(_MAX_STABILIZE_PASSES):
         force = _regroup(m)
         if force is None:
             break
-        m = _run_merge(parts, force)
+        m = _run_merge(parts, force, pinned_file)
     return m.finish(parts)
 
 
-def _run_merge(parts: list[ParsedImport], force: dict[tuple[int, int], int]) -> _Merger:
+def _run_merge(
+    parts: list[ParsedImport],
+    force: dict[tuple[int, int], int],
+    pinned_file: int | None = None,
+) -> _Merger:
     """Один проход слияния: файлы по порядку, узлы «родители раньше детей»."""
-    m = _Merger(files=len(parts), force=force)
+    m = _Merger(files=len(parts), force=force, pinned_file=pinned_file)
     for fi, part in enumerate(parts):
         m.add_sites(part, fi)
         # Кто раскрыт компонентами В ЭТОМ файле — половина признака содержательности

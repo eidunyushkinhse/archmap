@@ -2426,3 +2426,59 @@ def test_склейка_доливает_элемент_пустому_выжи�
                    element="system")
     assert absorb_knowledge(занятый, уходит) is False
     assert занятый.element == "system"
+
+
+def test_элемент_база_архива_в_живом_контейнере_создаётся_уровнем_выше(db):
+    """Починка Р6 для догрузки: живой контейнер, а архив (где узел — система) кладёт
+    внутрь базу с таблицами. База создаётся под родителем контейнера, таблицы доезжают
+    до неё по адресу своего архива, контейнер остаётся; замечание слияния — с путём."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "container"
+    _узел(db, проект, "api", узлы["orders"])
+    db.commit()
+    донор, донорские = _донор_ярмарки(db)
+    _узел(db, донор, "api", донорские["orders"])
+    база = _узел(db, донор, "orders-db", донорские["orders"], shape="database")
+    _таблица(db, база, "payments", [("id", "uuid")])
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    создана = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders-db").one()
+    assert создана.parent_id == узлы["корень"].id
+    assert [t.name for t in db.query(DbTable).filter(DbTable.node_id == создана.id)] == [
+        "payments"
+    ]
+    assert _элемент(db, узлы["orders"]) == "container"
+    строка = (
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — вынесена на уровень выше, в «Ярмарка»"
+    )
+    assert строка in превью.warnings
+    assert строка in [u.text for u in превью.remainder.unfixable]
+    assert "Ярмарка / orders-db" in [n.path for n in превью.new_nodes]
+    assert отчёт.nodes_created == 1
+
+
+def test_живая_база_в_живом_контейнере_догрузке_не_мешает(db):
+    """Живые данные вне правила (база в контейнере, записанная в обход API): живое
+    дерево ввоз не перестраивает и живое не судит — снимок проекта адресуется как
+    есть, догрузка не падает на сверке порядка входа №0, и строки о выносе или о
+    «системе» нет (живой контейнер так контейнером и остаётся)."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "container"
+    _узел(db, проект, "orders-db", узлы["orders"], shape="database")
+    db.commit()
+    донор, _ = _донор_ярмарки(db, role="сервис заказов")
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert превью.ok, превью.errors
+    assert not any("не может входить в состав контейнера" in w for w in превью.warnings)
+    assert not any("не может входить в состав контейнера" in w for w in отчёт.warnings)
+    живая = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders-db").one()
+    assert живая.parent_id == узлы["orders"].id
+    assert _элемент(db, узлы["orders"]) == "container"  # fill-only: живое не стирается
+    assert db.get(Node, узлы["orders"].id).role == "сервис заказов"
+    assert отчёт.nodes_created == 0
