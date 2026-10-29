@@ -11,6 +11,8 @@
 // адрес для ореола контейнера, открытого в панели (useLevelSelection, lg-linked-plaque).
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { EdgeLabelRenderer } from "@xyflow/react";
+import { SiteKindIcon } from "../../ui/icons";
+import type { FrameDecor } from "./types";
 
 const INSET_X = 10;      // отступ от левой грани рамки
 const INSET_BOTTOM = 8;  // отступ от нижней грани рамки
@@ -34,6 +36,19 @@ interface Props {
   title?: string;
   onClick?: () => void;
   children: ReactNode;
+}
+
+// Текст плашки рамки по декору: без декора — «🔍 имя» (рамка раскрытия), площадка —
+// иконка вида и имя, группа — только имя. Один на рамку (FrameNode) и оверлей драга
+// (useFrameFollowOverlay), который на время жеста подменяет рамку (frameStyle.ts).
+export function FrameLabel({ decor, name }: { decor?: FrameDecor; name: string }) {
+  if (!decor) return <span>🔍 {name}</span>;
+  return (
+    <>
+      {decor.kind === "site" && <SiteKindIcon kind={decor.icon ?? "other"} size={14} />}
+      <span>{name}</span>
+    </>
+  );
 }
 
 export default function FramePlaque({ frameId, x, bottom, interactive, title, onClick, children }: Props) {

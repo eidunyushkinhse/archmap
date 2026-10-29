@@ -17,6 +17,9 @@ import type { Node as RFNode } from "@xyflow/react";
 import { NODE_W, NODE_H } from "../constants";
 import { absPositionOf } from "../absPos";
 import { mustGet } from "../../../lib/mustGet";
+import { frameStyle } from "../frameStyle";
+import { FrameLabel } from "../FramePlaque";
+import type { FrameData, FrameDecor } from "../types";
 
 interface Params {
   rfNodes: RFNode[];
@@ -25,7 +28,7 @@ interface Params {
 }
 
 type Pad = { l: number; t: number; r: number; b: number };
-type OverlayFrame = { id: string; name: string; x: number; y: number; w: number; h: number };
+type OverlayFrame = { id: string; name: string; decor?: FrameDecor; x: number; y: number; w: number; h: number };
 
 const rfSize = (n: RFNode): { w: number; h: number } => ({
   w: n.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W),
@@ -77,7 +80,8 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
       const f = mustGet(byId, id);
       const abs = absPositionOf(f, byId);
       const { w, h } = rfSize(f);
-      return { id, name: (f.data as { name?: string }).name ?? "", x: abs.x, y: abs.y, w, h };
+      const data = f.data as Partial<FrameData>;
+      return { id, name: data.name ?? "", decor: data.decor, x: abs.x, y: abs.y, w, h };
     }));
     setRfNodes((prev) => prev.map((n) =>
       affected.has(n.id) ? { ...n, style: { ...n.style, opacity: 0 } } : n,
@@ -229,8 +233,9 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
           }}
           style={{
             position: "absolute", left: f.x, top: f.y, width: f.w, height: f.h,
-            border: "1px dashed #9ca3af", borderRadius: 12, background: "transparent",
-            boxSizing: "border-box", pointerEvents: "none",
+            // вид подменяемой рамки по её декору (frameStyle.ts): площадка — зона, а не пунктир
+            ...frameStyle(f.decor),
+            pointerEvents: "none",
           }}
         >
           <div
@@ -238,9 +243,10 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
               position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
               color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
               border: "1px solid #e5e7eb", whiteSpace: "nowrap", pointerEvents: "none",
+              display: "inline-flex", alignItems: "center", gap: 6,
             }}
           >
-            🔍 {f.name}
+            <FrameLabel decor={f.decor} name={f.name} />
           </div>
         </div>
       ))}

@@ -6,6 +6,7 @@ import { Fragment } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN } from "./layout/frames";
 import FramePlaque from "./FramePlaque";
+import { frameStyle } from "./frameStyle";
 import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
@@ -78,10 +79,9 @@ export function LevelBoundary({
               data-frame-id={f.id}
               style={{
                 position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
-                // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме,
-                // растёт при отдалении — на экране рамка всегда ~1px и не исчезает
-                border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
-                boxSizing: "border-box", pointerEvents: "none",
+                // вид — общий с compound-рамкой и оверлеем драга (frameStyle.ts)
+                ...frameStyle(),
+                pointerEvents: "none",
               }}
             />
             <FramePlaque frameId={f.id} x={r.x} bottom={r.y + r.h} interactive={false}>

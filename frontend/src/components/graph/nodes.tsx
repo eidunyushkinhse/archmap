@@ -15,7 +15,8 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
-import FramePlaque from "./FramePlaque";
+import FramePlaque, { FrameLabel } from "./FramePlaque";
+import { frameStyle } from "./frameStyle";
 import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
@@ -586,13 +587,9 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
       onClickCapture={pickCapture(id, data.onPick)}
       style={{
         width: "100%", height: "100%",
-        // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
-        // при отдалении — на экране рамка всегда ~1px и не исчезает
-        border: site
-          ? "var(--lg-frame-bw, 1px) solid #cbd5e1"
-          : "var(--lg-frame-bw, 1px) dashed #9ca3af",
-        borderRadius: 12, background: site ? "rgba(100,116,139,0.07)" : "transparent",
-        boxSizing: "border-box", pointerEvents: picking ? "auto" : "none",
+        // вид по декору — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
+        ...frameStyle(decor),
+        pointerEvents: picking ? "auto" : "none",
       }}
     >
       <FrameHandles nodeId={id} />
@@ -609,14 +606,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         onClick={data.onCollapse}
         title={data.onCollapse ? collapseTitle : undefined}
       >
-        {decor ? (
-          <>
-            {site && <SiteKindIcon kind={decor.icon ?? "other"} size={14} />}
-            <span>{data.name}</span>
-          </>
-        ) : (
-          <span>🔍 {data.name}</span>
-        )}
+        <FrameLabel decor={decor} name={data.name} />
         {data.onCollapse && (
           <button
             className="nodrag"
