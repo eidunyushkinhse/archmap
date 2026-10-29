@@ -534,10 +534,16 @@ def own_docs_line(record: dict[str, Any]) -> str:
 
 
 def component_facts_line(record: dict[str, Any]) -> str:
-    """Строка AL36: компонент, что у него осталось и контейнер, куда это перенести."""
+    """Строка AL36: компонент, что у него осталось и контейнер, куда это перенести.
+    Порядок слов — как на панели: конфигурация, спецификация, площадки; сервер без
+    флага площадок его не шлёт — слова нет."""
     facts = ", ".join(
         word
-        for flag, word in (("has_config", "конфигурация"), ("has_spec", "спецификация"))
+        for flag, word in (
+            ("has_config", "конфигурация"),
+            ("has_spec", "спецификация"),
+            ("has_sites", "площадки"),
+        )
         if record.get(flag)
     )
     hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")

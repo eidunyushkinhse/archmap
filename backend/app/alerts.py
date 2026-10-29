@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, aliased
 from app.connectivity import connected_components
 from app.data_refs import ProjectCatalog, RefStatus, catalog_for_project, doc_ref_hits
 from app.models.business_process import BusinessProcess
+from app.models.deployment_instance import DeploymentInstance
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -332,22 +333,31 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
 def _component_facts(ctx: AlertContext) -> list[ComponentFactsAlert]:
     """15) Конфигурация и спецификации у компонентов (AL36, Р10 docs/plan-c4-elements.md):
     компонент — часть кода контейнера, отдельно не запускается — со своей спецификацией
-    OpenAPI или своими параметрами конфигурации. Это факты процесса: API отдаёт и
-    конфигурацию читает контейнер целиком, поэтому место им у ближайшего контейнера
-    (Elements.container_of), а свои параметры компонента пометка «зависит от:» не видит
-    (ProjectCatalog.params_for). Данные остаются от прежнего правила «факты на листьях»
-    и от ввоза с адресом компонента. Одна запись на компонент с флагами; площадки
-    добавит фаза размещения (Ф4). Порядок — по имени, затем по id: панель и MCP
-    показывают одно и то же в одном порядке."""
+    OpenAPI, своими параметрами конфигурации или своими площадками. Это факты процесса:
+    API отдаёт, конфигурацию читает и на площадках стоит контейнер целиком, поэтому
+    место им у ближайшего контейнера (Elements.container_of). Свои параметры компонента
+    пометка «зависит от:» не видит (ProjectCatalog.params_for), его экземпляры размещение
+    не считает (app/deployment.placement_map, Р16) — «спящие». Данные остаются от
+    прежнего правила «факты на листьях», от ввоза с адресом компонента и от переноса
+    размещённого объекта внутрь контейнера. Одна запись на компонент с флагами; узлы с
+    экземплярами — одной выборкой по проекту, без запроса на узел. Порядок — по имени,
+    затем по id: панель и MCP показывают одно и то же в одном порядке."""
     elements = ctx.catalog.elements
     params = ctx.catalog.params_by_node
+    placed = {
+        node_id
+        for (node_id,) in ctx.db.query(DeploymentInstance.node_id)
+        .filter(DeploymentInstance.project_id == ctx.project_id)
+        .distinct()
+    }
     out: list[ComponentFactsAlert] = []
     for n in sorted(ctx.nodes, key=lambda n: (n.name, str(n.id))):
         if elements.effective(n.id) != "component":
             continue
         has_spec = bool(n.openapi_spec)
         has_config = n.id in params
-        if not (has_spec or has_config):
+        has_sites = n.id in placed
+        if not (has_spec or has_config or has_sites):
             continue
         container = elements.container_of(n.id)
         # Компонент без контейнера бывает только в цикле данных — нести факты некуда.
@@ -361,6 +371,7 @@ def _component_facts(ctx: AlertContext) -> list[ComponentFactsAlert]:
                 container_name=ctx.name(container),
                 has_spec=has_spec,
                 has_config=has_config,
+                has_sites=has_sites,
             )
         )
     return out

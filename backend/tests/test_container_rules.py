@@ -19,6 +19,8 @@ from fastapi import HTTPException
 
 from app.alerts import compute_alerts
 from app.models.config_param import ConfigParam
+from app.models.deployment_instance import DeploymentInstance
+from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.routers.node_docs import distribute_docs
@@ -155,7 +157,7 @@ def test_component_with_config_names_its_container(db):
     assert [c.model_dump() for c in rep.component_facts] == [{
         "node_id": api.id, "node_name": "orders/api",
         "container_id": orders.id, "container_name": "orders",
-        "has_spec": False, "has_config": True,
+        "has_spec": False, "has_config": True, "has_sites": False,
     }]
     assert rep.container_own_docs == []
 
@@ -172,6 +174,28 @@ def test_component_with_spec_and_order_by_name(db):
     assert [(c.node_id, c.has_spec, c.has_config) for c in rep.component_facts] == [
         (api.id, True, True), (worker.id, True, False),
     ]
+
+
+def test_component_with_sleeping_instance_has_sites(db):
+    # Экземпляр у компонента (прежние данные, перенос) размещение не считает — «спящий»;
+    # класс его видит. Экземпляр у контейнера и у листа вне контейнера — норма.
+    project = ensure_project(db)
+    orders = _node(db, "orders", element="container")
+    api = _node(db, "orders/api", parent=orders)
+    billing = _node(db, "billing")
+    site = DeploymentSite(id=uuid.uuid4(), project_id=project.id, name="Облако")
+    db.add(site)
+    db.flush()
+    for n in (orders, api, billing):
+        db.add(DeploymentInstance(id=uuid.uuid4(), project_id=project.id, node_id=n.id, site_id=site.id))
+    db.commit()
+
+    rep = compute_alerts(db, project.id)
+    assert [c.model_dump() for c in rep.component_facts] == [{
+        "node_id": api.id, "node_name": "orders/api",
+        "container_id": orders.id, "container_name": "orders",
+        "has_spec": False, "has_config": False, "has_sites": True,
+    }]
 
 
 def test_leaf_outside_container_with_config_is_silent(db):

@@ -726,7 +726,7 @@ const OWN_DOCS = {
 };
 const COMPONENT_FACTS = {
   node_id: "a1", node_name: "orders/api", container_id: "o1", container_name: "orders",
-  has_spec: true, has_config: true,
+  has_spec: true, has_config: true, has_sites: false,
 };
 
 describe("SchemaAlerts: документация не на своём месте", () => {
@@ -761,7 +761,11 @@ describe("SchemaAlerts: документация не на своём месте
         alerts={{
           ...EMPTY,
           container_own_docs: [OWN_DOCS],
-          component_facts: [COMPONENT_FACTS, { ...COMPONENT_FACTS, node_id: "w1", node_name: "worker", has_config: false }],
+          component_facts: [
+            COMPONENT_FACTS,
+            { ...COMPONENT_FACTS, node_id: "w1", node_name: "worker", has_config: false },
+            { ...COMPONENT_FACTS, node_id: "h1", node_name: "handlers", has_spec: false, has_sites: true },
+          ],
         }}
       />,
     );
@@ -771,7 +775,9 @@ describe("SchemaAlerts: документация не на своём месте
     expect(titles).toEqual(["Системы и контейнеры со своей документацией", "Конфигурация и спецификации у компонентов"]);
     expect(screen.getByText("orders/api · конфигурация, спецификация")).toBeTruthy();
     expect(screen.getByText("worker · спецификация")).toBeTruthy();
-    expect(screen.getAllByText("место — у контейнера «orders»")).toHaveLength(2);
+    // порядок слов: конфигурация, спецификация, площадки
+    expect(screen.getByText("handlers · конфигурация, площадки")).toBeTruthy();
+    expect(screen.getAllByText("место — у контейнера «orders»")).toHaveLength(3);
   });
 
   it("факты компонента зажигают точку и ведут к компоненту", async () => {

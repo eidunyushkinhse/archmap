@@ -53,6 +53,8 @@ from app.models.channel_field import ChannelField  # noqa: E402
 from app.models.config_param import ConfigParam  # noqa: E402
 from app.models.db_column import DbColumn  # noqa: E402
 from app.models.db_table import DbTable  # noqa: E402
+from app.models.deployment_instance import DeploymentInstance  # noqa: E402
+from app.models.deployment_site import DeploymentSite  # noqa: E402
 from app.models.edge import Edge  # noqa: E402
 from app.models.node import Node  # noqa: E402
 from app.models.node_doc import NodeDoc  # noqa: E402
@@ -193,12 +195,20 @@ def main() -> None:
         )
         # «Заказы» — КОНТЕЙНЕР с компонентом «Заказы-API». У контейнера осталась своя схема
         # логики (AL24 container), его спецификация и конфигурация — норма. У компонента —
-        # параметр и спецификация: факты процесса не у контейнера (AL36, оба флага). Базы
-        # и брокера внутри контейнера нет: они в него не входят (Р6).
+        # параметр, спецификация и площадка: факты процесса не у контейнера (AL36, все
+        # флаги). Базы и брокера внутри контейнера нет: они в него не входят (Р6).
         orders = node(
             "Заказы", parent=platform.id, role="сервис", technology="Python", element="container"
         )
         orders_api = node("Заказы-API", parent=orders.id, role="API", spec=SPEC)
+        # У компонента — и «спящий» экземпляр на площадке (AL36, флаг площадок): прежние
+        # данные или перенос размещённого объекта внутрь контейнера. Прямой записью, в
+        # обход ручки — она отказала бы 422 «Площадки задаются контейнеру»; размещение
+        # такой экземпляр не считает (app/deployment.placement_map).
+        cloud = DeploymentSite(project_id=pid, name="Облако", kind="cloud")
+        db.add(cloud)
+        db.flush()
+        db.add(DeploymentInstance(project_id=pid, node_id=orders_api.id, site_id=cloud.id))
         db.add(
             ConfigParam(
                 node_id=orders_api.id,

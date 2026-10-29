@@ -65,7 +65,7 @@ describe("resolveAlertLocate", () => {
       ...EMPTY_ALERTS,
       component_facts: [{
         node_id: "A1", node_name: "A1", container_id: "A", container_name: "A",
-        has_spec: false, has_config: true,
+        has_spec: false, has_config: true, has_sites: false,
       }],
     };
     const { level, request } = resolveAlertLocate(ALL, { kind: "node", id: "A1" }, alerts, 8);

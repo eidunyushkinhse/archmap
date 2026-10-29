@@ -68,7 +68,7 @@ def full_payload() -> dict[str, Any]:
             {
                 "node_id": u(17), "node_name": "orders/api",
                 "container_id": u(18), "container_name": "orders",
-                "has_spec": True, "has_config": True,
+                "has_spec": True, "has_config": True, "has_sites": True,
             }
         ],
         "persons_inside": [
@@ -250,17 +250,25 @@ def test_совет_AL24_по_элементу_архитектуры() -> None:
 def test_факты_компонента_называют_контейнер() -> None:
     out = render.alerts(validated_payload())
     assert (
-        "  • orders/api · конфигурация, спецификация (место — у контейнера «orders»)"
+        "  • orders/api · конфигурация, спецификация, площадки (место — у контейнера «orders»)"
         in out.splitlines()
     )
     one = {
         "node_id": u(17), "node_name": "orders/api", "container_id": u(18),
-        "container_name": "orders", "has_spec": True, "has_config": False,
+        "container_name": "orders", "has_spec": True, "has_config": False, "has_sites": False,
     }
     backend("schemas.alerts").ComponentFactsAlert.model_validate(one)
     out = render.alerts({"component_facts": [one]})
     assert out.startswith("Замечаний: 1\n")
     assert "Конфигурация и спецификации у компонентов (1):" in out
+    assert "  • orders/api · спецификация (место — у контейнера «orders»)" in out.splitlines()
+    # только площадки — одно слово; сервер без флага площадок — слова нет
+    sites_only = {**one, "has_spec": False, "has_sites": True}
+    backend("schemas.alerts").ComponentFactsAlert.model_validate(sites_only)
+    out = render.alerts({"component_facts": [sites_only]})
+    assert "  • orders/api · площадки (место — у контейнера «orders»)" in out.splitlines()
+    old = {k: v for k, v in one.items() if k != "has_sites"}
+    out = render.alerts({"component_facts": [old]})
     assert "  • orders/api · спецификация (место — у контейнера «orders»)" in out.splitlines()
 
 
