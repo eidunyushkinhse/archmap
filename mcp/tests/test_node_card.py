@@ -558,6 +558,23 @@ async def test_карточка_компонента_называет_его_к�
     assert lines[i + 1].startswith("Источник:")
 
 
+async def test_карточка_компонента_без_строки_размещения(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # У компонента размещения нет (Р16): строки нет вовсе — ни «не указано», ни «как у
+    # контейнера» (такая строка читалась бы наследованием, ошибка 2026-10).
+    target = node(NODE, "api", u(2), element=None, element_effective="component", sites=[])
+    element_routes(api, target, [
+        node(u(2), "orders", element="container", element_effective="container",
+             has_children=True, sites=check("node", "NodeSiteOut", [site_ref(u(70), "Облако")])),
+    ])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры: компонент контейнера «orders»" in out.splitlines()
+    assert "Размещение" not in out
+
+
 async def test_карточка_контейнера(client: ArchMapClient, api: FakeApi) -> None:
     target = node(NODE, "orders", element="container", element_effective="container",
                   has_children=True)

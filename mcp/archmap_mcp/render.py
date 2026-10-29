@@ -211,8 +211,8 @@ PLACEMENT_CAP = 20  # объектов на площадку и в «Без ра
 
 
 def _site_name(s: dict[str, Any]) -> str:
-    """Площадка строкой карточки: «Кластер prod (в Облако)»; у контейнера площадка, где
-    стоит часть его объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
+    """Площадка строкой карточки: «Кластер prod (в Облако)»; у системы площадка, где
+    стоит часть её объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
     notes = [f"в {s['parent_name']}"] if s.get("parent_name") else []
     if s.get("partial"):
         notes.append("часть объектов")
@@ -222,8 +222,9 @@ def _site_name(s: dict[str, Any]) -> str:
 
 def placement_line(node: dict[str, Any]) -> str | None:
     """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
-    (NodeResponse.sites); у контейнера — площадки его объектов, частичные помечены.
-    Пусто — строки нет."""
+    (NodeResponse.sites); у системы — площадки её контейнеров, частичные помечены.
+    Пусто — строки нет: у компонента размещения не бывает, и строки «как у контейнера»
+    нарочно нет — она читалась бы наследованием (ошибка 2026-10)."""
     sites = list(node.get("sites") or [])
     if not sites:
         return None
@@ -259,48 +260,70 @@ def _objects(n: int) -> str:
     return f"{n} {_plural(n, ('объект', 'объекта', 'объектов'))}"
 
 
-def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str, Any], int]]]:
-    """Состав площадок: площадка → [(узел, объектов в нём)]. Контейнер, все объекты
-    которого стоят на одном наборе площадок (sites без partial), — одной строкой со
-    счётчиком объектов, внутрь не спускаемся; иначе — его объекты по отдельности."""
+def _placement_role(n: dict[str, Any]) -> str | None:
+    """Чем узел считается в размещении (Р16 эпика элементов архитектуры): "unit" —
+    единица, контейнер (лист или с компонентами), площадки хранит сам; "system" —
+    складывает площадки своих единиц; None — размещения нет (компонент,
+    «Пользователь»). Элемент — от сервера (element_effective), MCP его не вычисляет;
+    старый сервер поля не шлёт — тогда, как раньше: узел с детьми — система, лист —
+    единица."""
+    if n.get("shape") == "person":
+        return None
+    if "element_effective" in n:
+        return {"container": "unit", "system": "system"}.get(str(n.get("element_effective")))
+    return "system" if n.get("has_children") else "unit"
+
+
+def _site_members(
+    nodes: list[dict[str, Any]],
+) -> dict[str, list[tuple[dict[str, Any], int, bool]]]:
+    """Состав площадок: площадка → [(узел, единиц в нём, целиком ли)]. Единица —
+    контейнер, лист или с компонентами, — одной строкой на каждой своей площадке:
+    внутрь не спускаемся, компоненты не размещаются. Система, все единицы которой стоят
+    на одном наборе площадок (sites без partial), — одной строкой «целиком» со счётчиком
+    единиц; иначе — её единицы по отдельности."""
     kids_of: dict[str | None, list[dict[str, Any]]] = {}
     for n in nodes:
         parent = str(n["parent_id"]) if n.get("parent_id") else None
         kids_of.setdefault(parent, []).append(n)
-    members: dict[str, list[tuple[dict[str, Any], int]]] = {}
+    members: dict[str, list[tuple[dict[str, Any], int, bool]]] = {}
 
-    def leaves(n: dict[str, Any], seen: set[str]) -> int:
-        """Объектов в поддереве n; его узлы ложатся в seen — контейнер, взятый целиком,
-        второй раз (по списку всех узлов) не обходится."""
-        children = kids_of.get(str(n["id"]), [])
-        if not children:
-            return 0 if n.get("shape") == "person" else 1
+    def units(n: dict[str, Any], seen: set[str]) -> int:
+        """Единиц в поддереве системы n (сквозь вложенные системы); её узлы ложатся в
+        seen — система, взятая целиком, второй раз (по списку всех узлов) не
+        обходится."""
         total = 0
-        for k in children:
+        for k in kids_of.get(str(n["id"]), []):
             kid = str(k["id"])
             if kid in seen:
                 continue
             seen.add(kid)
-            total += leaves(k, seen)
+            role = _placement_role(k)
+            if role == "unit":
+                total += 1
+            elif role == "system":
+                total += units(k, seen)
         return total
 
     def walk(n: dict[str, Any], seen: set[str]) -> None:
         nid = str(n["id"])
-        if nid in seen or n.get("shape") == "person":
+        if nid in seen:
             return
         seen.add(nid)
+        role = _placement_role(n)
         placed = list(n.get("sites") or [])
-        children = kids_of.get(nid, [])
-        if not children:
+        if role == "unit":
             for s in placed:
-                members.setdefault(str(s["id"]), []).append((n, 1))
+                members.setdefault(str(s["id"]), []).append((n, 1, False))
+            return
+        if role != "system":
             return
         if placed and not any(s.get("partial") for s in placed):
-            count = leaves(n, seen)
+            count = units(n, seen)
             for s in placed:
-                members.setdefault(str(s["id"]), []).append((n, count))
+                members.setdefault(str(s["id"]), []).append((n, count, True))
             return
-        for k in children:
+        for k in kids_of.get(nid, []):
             walk(k, seen)
 
     seen: set[str] = set()
@@ -314,10 +337,12 @@ def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str,
 def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) -> list[str]:
     """Площадки деревом с составом (archmap_deployment без объекта).
 
-    Под площадкой — что на ней стоит: контейнер целиком одной строкой («целиком, N
-    объектов») или объекты по отдельности (_site_members). Затем «Без размещения» —
-    объекты без площадок, кроме «Пользователей» (они живут вне системы). nodes —
-    /nodes/all: sites объекта — его площадки, контейнера — площадки его объектов."""
+    Под площадкой — что на ней стоит: единица (контейнер, и с компонентами) одной
+    строкой без хвоста, цельная система — одной строкой «целиком, N объектов» по числу
+    её единиц, иначе единицы по отдельности (_site_members). Затем «Без размещения» —
+    единицы без площадок: компонентов и «Пользователей» там нет, размещения у них не
+    бывает. nodes — /nodes/all: sites единицы — её площадки, системы — площадки её
+    единиц."""
     by_id = {str(n["id"]): n for n in nodes}
     own = _site_members(nodes)
     ids = {str(s["id"]) for s in sites}
@@ -336,10 +361,10 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
         seen.add(sid)
         pad = "  " * depth
         members = sorted(own.get(sid, []), key=lambda m: path_of(str(m[0]["id"]), by_id))
-        total = sum(c for _n, c in members)
+        total = sum(c for _n, c, _whole in members)
         out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
-        for n, c in members[:PLACEMENT_CAP]:
-            tail = f" (целиком, {_objects(c)})" if n.get("has_children") else ""
+        for n, c, whole in members[:PLACEMENT_CAP]:
+            tail = f" (целиком, {_objects(c)})" if whole else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
         if len(members) > PLACEMENT_CAP:
             out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
@@ -354,7 +379,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
     unplaced = sorted(
         path_of(str(n["id"]), by_id) + f"  id={n['id']}"
         for n in nodes
-        if not n.get("has_children") and n.get("shape") != "person" and not n.get("sites")
+        if _placement_role(n) == "unit" and not n.get("sites")
     )
     if not unplaced:
         out.append("Без размещения: нет — все объекты стоят на площадках")
@@ -370,11 +395,20 @@ def node_placement(
     node: dict[str, Any], by_id: dict[str, dict[str, Any]], sites: list[dict[str, Any]]
 ) -> list[str]:
     """Размещение одного объекта (archmap_deployment с node_id): путь объекта, затем
-    площадки путями с видом; у контейнера это площадки его объектов, и где стоит часть
-    — пометка «часть объектов»."""
+    площадки путями с видом; у системы это площадки её единиц, и где стоит часть —
+    пометка «часть объектов». У компонента размещения нет: строка называет контейнер,
+    которому задаются площадки, — тем же словом, что отказ сервера."""
     out = [f"Путь: {path_of(str(node['id']), by_id)}  id={node['id']}"]
     if node.get("shape") == "person":
         out.append("Размещения нет: пользователь живёт вне системы")
+        return out
+    if node.get("element_effective") == "component":
+        holder = container_name(node, by_id)
+        out.append(
+            f"Размещения нет: это компонент — площадки задаются контейнеру «{holder}»"
+            if holder
+            else "Размещения нет: это компонент — площадки задаются его контейнеру"
+        )
         return out
     placed = list(node.get("sites") or [])
     if not placed:

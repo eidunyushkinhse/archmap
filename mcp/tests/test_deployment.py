@@ -3,6 +3,10 @@
 
 Фикстуры площадок и строк размещения сверяются схемами САМОГО БЭКЕНДА: подменённый
 транспорт форму не валидирует, и без сверки тест зелён на выдуманных полях.
+
+Единица размещения — контейнер (Р16 эпика docs/plan-c4-elements.md): узлы с
+element_effective — сервер с элементами; узлы без поля — старый сервер, и вывод обязан
+остаться прежним (узел с детьми — система, лист — единица).
 """
 
 from __future__ import annotations
@@ -185,6 +189,74 @@ async def test_проект_без_площадок_одной_фразой(clie
     )
     # Без площадок дерево объектов не нужно — лишнего запроса нет.
     assert [c.url.path for c in api.calls][-1].endswith("/deployment/sites")
+
+
+# Система «Ярмарка»: контейнер orders с компонентами api и worker — на «Облаке» сам;
+# лист billing — без размещения. У системы «Облако» частичное.
+ORDERS, API_C, WORKER, BILLING = u(20), u(21), u(22), u(23)
+
+
+def c4_nodes() -> list[dict[str, Any]]:
+    cloud = [ref(CLOUD, "Облако", "cloud")]
+    return [
+        node(ROOT, "Ярмарка", has_children=True, element_effective="system",
+             sites=[ref(CLOUD, "Облако", "cloud", partial=True)]),
+        node(ORDERS, "orders", ROOT, has_children=True, element="container",
+             element_effective="container", sites=cloud),
+        node(API_C, "api", ORDERS, element_effective="component", sites=[]),
+        node(WORKER, "worker", ORDERS, element_effective="component", sites=[]),
+        node(BILLING, "billing", ROOT, element_effective="container", sites=[]),
+        node(BUYER, "Покупатель", shape="person", element_effective=None, sites=[]),
+    ]
+
+
+async def test_контейнер_с_компонентами_одной_строкой_без_целиком(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Контейнер — единица: одна строка без хвоста «целиком», хоть у него и есть дети;
+    компоненты не размещаются и в «Без размещения» не попадают."""
+    routes(api, [SITES[1]], c4_nodes())
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines()[1:] == [
+        "Облако [облако, Yandex Cloud] — 1 объект",
+        f"  • Ярмарка / orders  id={ORDERS}",
+        "Без размещения: 1 объект",
+        f"  • Ярмарка / billing  id={BILLING}",
+    ]
+
+
+async def test_система_целиком_считает_единицы(client: ArchMapClient, api: FakeApi) -> None:
+    """Система, все единицы которой на одном наборе, — «целиком, N объектов» по числу
+    единиц (контейнер с компонентами — одна), а не листьев."""
+    cloud = [ref(CLOUD, "Облако", "cloud")]
+    nodes = c4_nodes()
+    nodes[0] = {**nodes[0], "sites": cloud}
+    nodes[4] = {**nodes[4], "sites": cloud}
+    routes(api, [SITES[1]], nodes)
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines()[1:] == [
+        "Облако [облако, Yandex Cloud] — 2 объекта",
+        f"  • Ярмарка (целиком, 2 объекта)  id={ROOT}",
+        "Без размещения: нет — все объекты стоят на площадках",
+    ]
+
+
+async def test_размещение_компонента_называет_контейнер(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    routes(api, [SITES[1]], c4_nodes())
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": API_C}, client)
+    own = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": ORDERS}, client)
+
+    assert out.splitlines()[2:] == [
+        "Размещения нет: это компонент — площадки задаются контейнеру «orders»",
+    ]
+    assert own.splitlines()[2:] == ["Размещение (1 площадка):", "  • Облако [облако, Yandex Cloud]"]
 
 
 async def test_инструмент_есть_в_удалённом_наборе_и_только_чтения() -> None:
