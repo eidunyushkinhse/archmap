@@ -104,6 +104,7 @@ def full_payload() -> dict[str, Any]:
             {
                 "node_id": u(6), "node_name": "Сервис заказов", "doc_id": u(14),
                 "doc_name": "POST /orders", "ref": "TIMEOUT",
+                "container_id": u(6), "container_name": "Сервис заказов",
             }
         ],
         "broker_edge_channels": [
@@ -181,6 +182,33 @@ def test_тексты_причин_те_же_что_в_панели() -> None:
         assert mine == panel_reasons(const)
     panel = " ".join(PANEL.read_text(encoding="utf-8").split())
     assert render.CONFIG_REASON in panel
+    assert render.CONFIG_REASON_SYSTEM in panel
+    head, tail = render.CONFIG_REASON_CONTAINER.split("{name}")
+    assert head in panel and tail in panel
+
+
+def test_причина_AL33_называет_место_поиска() -> None:
+    """Три текста по месту поиска параметра (Р11): сам владелец схемы, его контейнер
+    или нигде — владелец система. Сервер до эпика поля контейнера не шлёт: текст
+    прежний."""
+    base = {
+        "node_id": u(7), "node_name": "api", "doc_id": u(14), "doc_name": "POST /orders",
+        "ref": "TIMEOUT",
+    }
+    own = {**base, "container_id": u(7), "container_name": "api"}
+    component = {**base, "container_id": u(6), "container_name": "orders"}
+    system = {**base, "container_id": None, "container_name": None}
+    for record in (own, component, system):
+        backend("schemas.alerts").UnresolvedConfigRefAlert.model_validate(record)
+
+    assert render.config_reason(own) == render.CONFIG_REASON
+    assert render.config_reason(base) == render.CONFIG_REASON
+    assert render.config_reason(system) == render.CONFIG_REASON_SYSTEM
+    line = render.alerts({"unresolved_config_refs": [component]})
+    assert (
+        "api · POST /orders: „TIMEOUT“ — параметра нет в конфигурации контейнера "
+        "«orders»: опишите его там или, если это обычная фраза, уберите двоеточие"
+    ) in line
 
 
 def test_строки_называют_имена_и_детали() -> None:

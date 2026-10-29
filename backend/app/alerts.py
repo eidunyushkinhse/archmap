@@ -491,10 +491,18 @@ def _unresolved_refs(
         }
         # 12) Пометка «зависит от:» не нашла параметра (AL33). Класс отдельный по той
         #     же причине, что и канальный: своя починка — «опишите ручку в разделе
-        #     „Конфигурация“ этого объекта». Причину не передаём: она здесь ровно одна
-        #     (см. UnresolvedConfigRefAlert).
+        #     „Конфигурация“ контейнера». Причину не передаём: она здесь ровно одна
+        #     (см. UnresolvedConfigRefAlert). Контейнер — тот же, у которого искал
+        #     резолв (ProjectCatalog.params_for): запись называет место починки.
         if ref.mode == "config":
-            config.append(UnresolvedConfigRefAlert(**where))
+            container = ctx.catalog.elements.container_of(hit.node_id)
+            config.append(
+                UnresolvedConfigRefAlert(
+                    **where,
+                    container_id=container,
+                    container_name=ctx.name(container) if container is not None else None,
+                )
+            )
             continue
         # 10) То же самое для каналов (AL30): пометка «публикует:/потребляет:» не нашла
         #     канал в структуре брокеров. Класс ОТДЕЛЬНЫЙ — причины и слова починки

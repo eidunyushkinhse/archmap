@@ -637,6 +637,8 @@ const BROKEN_PARAM = {
   doc_id: "d1",
   doc_name: "POST /orders",
   ref: "FEATURE_Y",
+  container_id: "n1",
+  container_name: "Заказы",
 };
 
 describe("SchemaAlerts: обращения к неописанным параметрам", () => {
@@ -653,6 +655,31 @@ describe("SchemaAlerts: обращения к неописанным парам�
     // второй выход, иначе такая строка читается как шум продукта.
     expect(screen.getByText(/параметра нет в конфигурации объекта/)).toBeTruthy();
     expect(screen.getByText(/уберите двоеточие/)).toBeTruthy();
+  });
+
+  it("схема компонента называет контейнер, где искали параметр", async () => {
+    const component = { ...BROKEN_PARAM, node_id: "n2", node_name: "api", container_name: "orders" };
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [component] }} />);
+    await openPanel();
+
+    expect(
+      screen.getByText(
+        /параметра нет в конфигурации контейнера «orders»: опишите его там или, если это обычная фраза, уберите двоеточие/,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/конфигурации объекта/)).toBeNull();
+  });
+
+  it("схема у системы зовёт перенести её контейнеру или компоненту", async () => {
+    const system = { ...BROKEN_PARAM, container_id: null, container_name: null };
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [system] }} />);
+    await openPanel();
+
+    expect(
+      screen.getByText(
+        /схема у системы, а параметры живут у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие/,
+      ),
+    ).toBeTruthy();
   });
 
   it("три семьи пометок живут отдельными секциями", async () => {

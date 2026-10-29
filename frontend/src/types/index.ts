@@ -245,6 +245,8 @@ export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// И для конфигурации: «зависит от:» без параметра у ближайшего контейнера (AL33).
+export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];

@@ -461,12 +461,33 @@ CHANNEL_REASON = {
     "ambiguous": "имя неоднозначно, укажите „Брокер / канал“",
     "unknown_field": "поля нет в канале",
 }
-# Пометка «зависит от:» причины не несёт — она единственная (AL33), поэтому текст
-# постоянный и, как в панели, называет ОБА выхода: описать ручку или переписать фразу.
+# Пометка «зависит от:» причины не несёт — она единственная (AL33): параметра нет у
+# ближайшего контейнера владельца схемы. Текст зависит только от того, ГДЕ искали, и,
+# как в панели (SchemaAlerts.configReason), называет ОБА выхода: описать ручку или
+# переписать фразу.
 CONFIG_REASON = (
     "параметра нет в конфигурации объекта: опишите его или, "
     "если это обычная фраза, уберите двоеточие"
 )
+CONFIG_REASON_SYSTEM = (
+    "схема у системы, а параметры живут у контейнера: перенесите схему "
+    "контейнеру или компоненту либо уберите двоеточие"
+)
+CONFIG_REASON_CONTAINER = (
+    "параметра нет в конфигурации контейнера «{name}»: опишите его там или, "
+    "если это обычная фраза, уберите двоеточие"
+)
+
+
+def config_reason(record: dict[str, Any]) -> str:
+    """Причина записи AL33 по месту поиска: сам владелец схемы, его контейнер или
+    нигде (владелец — система). Сервер без поля container_id (до эпика «Элемент
+    архитектуры») искал только у владельца — тогда текст прежний."""
+    if "container_id" not in record or record["container_id"] == record.get("node_id"):
+        return CONFIG_REASON
+    if record["container_id"] is None:
+        return CONFIG_REASON_SYSTEM
+    return CONFIG_REASON_CONTAINER.format(name=record.get("container_name") or "")
 
 
 def _caption(item: dict[str, Any]) -> str:
@@ -591,7 +612,10 @@ def alerts(data: dict[str, Any]) -> str:
     )
     add(
         "Обращения к неописанным параметрам",
-        [f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {CONFIG_REASON}" for r in config_refs],
+        [
+            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {config_reason(r)}"
+            for r in config_refs
+        ],
     )
     add(
         "Связи с брокером без канала",
