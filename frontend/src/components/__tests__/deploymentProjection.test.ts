@@ -202,6 +202,31 @@ describe("projectDeployment", () => {
     expect(p.siteOf.has(instanceKey("c", "s1"))).toBe(false);
   });
 
+  it("каждый лист развёртываем на любой глубине; узел с детьми своих экземпляров не имеет", () => {
+    // Характеризация Ф0 эпика «Элемент архитектуры» (docs/plan-c4-elements.md): пока
+    // элементов нет, развёртываемая единица — лист. Узел с детьми карточку получает
+    // только представителем цельного набора листьев; его собственные instances (данные
+    // прежней модели) проекция не читает.
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("r", null, ["t"], 2), // свои экземпляры у рассыпанного корня — не в счёт
+      tnode("a", "r", ["s1"]),
+      tnode("m", "r", ["s1"], 2), // свои экземпляры s1, но листья рассыпаны
+      tnode("b", "m", ["t"]),
+      tnode("c", "m", ["s1", "t"]),
+      tnode("w", null, ["s1"], 1), // цельный: набор листа, а не свой «t»
+      tnode("d", "w", ["t"]),
+      tnode("e", null, []),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("a", "s1"), instanceKey("c", "s1")]);
+    expect(ids(p.children[siteKey("t")])).toEqual([
+      instanceKey("b", "t"), instanceKey("c", "t"), instanceKey("w", "t"),
+    ]);
+    expect(ids(p.children[siteKey(UNPLACED)])).toEqual([instanceKey("e", UNPLACED)]);
+    // у рассыпанных r и m карточек нет ни на своих, ни на чужих площадках
+    for (const key of p.siteOf.keys()) expect(["r", "m"]).not.toContain(p.siteOf.get(key)?.nodeId);
+    expect(p.marks).toEqual({ [instanceKey("c", "s1")]: "1/2", [instanceKey("c", "t")]: "2/2" });
+  });
+
   it("контейнер без листьев в ответе (внутри одни «Пользователи») не рисуется", () => {
     const p = projectDeployment(graph([site("s1")], [tnode("c", null, ["s1"], 1), tnode("x", null, ["s1"])]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);

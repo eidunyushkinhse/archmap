@@ -155,6 +155,40 @@ describe("planCollapse", () => {
   });
 });
 
+describe("участники анимации по типу узла (isMovable)", () => {
+  // Характеризация Ф0 эпика «Элемент архитектуры» (docs/plan-c4-elements.md): в анимации
+  // раскрытия и сворачивания ездят блок, гость, свёрнутый гостевой контейнер и карточка
+  // площадки; рамка, распорка и якорь рамки уровня — нет. Новый вид плитки обязан
+  // остаться одним из движимых типов, иначе раскрытие перестанет анимироваться.
+  const frameScene = [
+    node("X", "frame", 60, 60, { w: 400, h: 300 }),
+    node("c1", "block", 40, 40, { parentId: "X" }),
+    node("sp", "spacer", 100, 100, { parentId: "X" }),
+  ];
+  const collapsedAs = (type: string) => [node("X", type, 200, 200)];
+
+  it("сворачивается и раскрывается в блок, гость, контейнер и карточку площадки", () => {
+    for (const type of ["block", "ghost", "container", "site"]) {
+      expect(planCollapse(frameScene, [], collapsedAs(type), "X"), type).not.toBeNull();
+      expect(planExpand(collapsedAs(type), [], frameScene, [], "X"), type).not.toBeNull();
+    }
+  });
+
+  it("распорка, якорь рамки уровня и рамка — не свёрнутый узел: плана нет", () => {
+    for (const type of ["spacer", "framedock", "frame"]) {
+      expect(planCollapse(frameScene, [], collapsedAs(type), "X"), type).toBeNull();
+      expect(planExpand(collapsedAs(type), [], frameScene, [], "X"), type).toBeNull();
+    }
+  });
+
+  it("распорка внутри рамки в стопку спавна не едет — стоит на своём месте", () => {
+    const plan = planExpand(collapsedAs("block"), [], frameScene, [], "X")!;
+    expect(posOf(plan.initialNodes, "sp")).toEqual({ x: 100, y: 100 });
+    expect(plan.finalPositions.has("sp")).toBe(false);
+    expect(plan.finalPositions.has("c1")).toBe(true);
+  });
+});
+
 describe("drawIn (анимированная отрисовка стрелок)", () => {
   it("markDrawIn: помеченные показываются (hidden УДАЛЁН) с drawIn, прочие не тронуты", () => {
     const edges = [
