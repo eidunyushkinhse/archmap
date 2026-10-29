@@ -213,12 +213,11 @@ class _DataRefCheck:
         if db is not None and project_id is not None:
             # Каталог собирается ОДИН раз на план (внутри — весь проект:
             # неоднозначность имени есть свойство проекта, а не одного узла).
-            (
-                self.tables,
-                self.channels,
-                self.params_by_node,
-                self.node_paths,
-            ) = catalog_for_project(db, project_id)
+            catalog = catalog_for_project(db, project_id)
+            self.tables = catalog.tables
+            self.channels = catalog.channels
+            self.params_by_node = catalog.params_by_node
+            self.node_paths = catalog.node_paths
 
     def _hint(self, r: ResolvedRef, owner_params: dict[str, uuid.UUID]) -> str | None:
         """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
@@ -693,23 +692,24 @@ def prompt_name_catalogs(
     пометка адресует любую базу и любой брокер проекта, и урезанный перечень отправил
     бы агента чинить верные имена (находка №1 docs/qa-zulip-brokers.md).
     """
-    tables, channels, params, node_paths = catalog_for_project(db, project_id)
+    catalog = catalog_for_project(db, project_id)
+    node_paths = catalog.node_paths
     table_catalog: dict[str, list[str]] = {}
-    for t in tables:
+    for t in catalog.tables:
         path = node_paths.get(t.node_id)
         if path is not None:
             table_catalog.setdefault(path, []).append(
                 f"{t.schema_name}.{t.name}" if t.schema_name else t.name
             )
     channel_catalog: dict[str, list[str]] = {}
-    for c in channels:
+    for c in catalog.channels:
         path = node_paths.get(c.node_id)
         if path is not None:
             channel_catalog.setdefault(path, []).append(
                 f"{c.group_name}.{c.name}" if c.group_name else c.name
             )
     param_catalog: dict[str, list[str]] = {}
-    for node_id, names in params.items():
+    for node_id, names in catalog.params_by_node.items():
         if slice_ids is not None and node_id not in slice_ids:
             continue
         path = node_paths.get(node_id)

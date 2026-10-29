@@ -54,20 +54,21 @@ def preview_data_refs(
     Порядок ответа = порядок появления пометок в тексте (его задаёт parse_data_refs):
     плашка читается сверху вниз вместе с диаграммой.
     """
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    by_id: dict[uuid.UUID, CatalogTable] = {t.id: t for t in tables}
-    ch_by_id: dict[uuid.UUID, CatalogChannel] = {c.id: c for c in channels}
+    catalog = catalog_for_project(db, project.id)
+    node_paths = catalog.node_paths
+    by_id: dict[uuid.UUID, CatalogTable] = {t.id: t for t in catalog.tables}
+    ch_by_id: dict[uuid.UUID, CatalogChannel] = {c.id: c for c in catalog.channels}
     # Конфигурация ВЛАДЕЛЬЦА дока. Владельца может не быть (старый клиент не шлёт
     # node_id) — тогда конфигурационные пометки из ответа выпадают: см. ниже.
     owner_params = (
-        params_by_node.get(payload.node_id, {}) if payload.node_id is not None else {}
+        catalog.params_by_node.get(payload.node_id, {}) if payload.node_id is not None else {}
     )
 
     out: list[DataRefPreviewItem] = []
     for ref in resolve_data_refs(
         parse_data_refs(payload.content),
-        tables,
-        channels,
+        catalog.tables,
+        catalog.channels,
         node_paths,
         owner_params=owner_params,
     ):

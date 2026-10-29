@@ -27,7 +27,6 @@ import re
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
@@ -402,9 +401,11 @@ def _resolve_channel(
 # любой инвалидации (переименование таблицы/раздела/узла, удаление колонки).
 
 
-class ProjectCatalog(NamedTuple):
-    """Каталог проекта для резолва пометок (catalog_for_project). NamedTuple:
-    распаковка в четыре имени работает, как у прежнего кортежа."""
+@dataclass(frozen=True)
+class ProjectCatalog:
+    """Каталог проекта для резолва пометок (catalog_for_project). Читается только по
+    атрибутам: распаковка в кортеж молча ломалась бы на каждом новом поле (камень 10
+    docs/plan-c4-elements.md), а датакласс её не допускает вовсе."""
 
     tables: list[CatalogTable]
     channels: list[CatalogChannel]
@@ -474,7 +475,12 @@ def catalog_for_project(db: Session, project_id: uuid.UUID) -> ProjectCatalog:
     for p in params:
         params_by_node.setdefault(p.node_id, {})[p.name] = p.id
 
-    return ProjectCatalog(table_catalog, channel_catalog, params_by_node, node_paths)
+    return ProjectCatalog(
+        tables=table_catalog,
+        channels=channel_catalog,
+        params_by_node=params_by_node,
+        node_paths=node_paths,
+    )
 
 
 @dataclass(frozen=True)
@@ -501,7 +507,6 @@ def doc_ref_hits(
     Конфигурация владельца каждой схемы — настоящая, хотя табличному и канальному
     разворотам она не нужна: подсунуть пустую значило бы сказать резолверу неправду
     и получить ложные статусы, если фильтр вызывающего когда-нибудь ослабнет."""
-    tables, channels, params_by_node, node_paths = catalog
     q = (
         db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
         .select_from(NodeDoc)
@@ -515,9 +520,9 @@ def doc_ref_hits(
             continue
         for ref in resolve_data_refs(
             parse_data_refs(content),
-            tables,
-            channels,
-            node_paths,
-            owner_params=params_by_node.get(owner_id, {}),
+            catalog.tables,
+            catalog.channels,
+            catalog.node_paths,
+            owner_params=catalog.params_by_node.get(owner_id, {}),
         ):
             yield DocRefHit(doc_id, doc_name, owner_id, owner_name, ref)
