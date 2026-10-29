@@ -7,7 +7,13 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Te
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
-from app.domain_types import NodeApproval, NodeShape, NodeStatus
+from app.domain_types import (
+    NodeApproval,
+    NodeElement,
+    NodeElementEffective,
+    NodeShape,
+    NodeStatus,
+)
 from app.identity import source_ref_dict
 
 if TYPE_CHECKING:
@@ -61,6 +67,14 @@ class Node(Base):
     approval: Mapped[NodeApproval] = mapped_column(
         String(16), default="in_progress", server_default="in_progress"
     )
+    # Элемент архитектуры (docs/plan-c4-elements.md, Р1–Р7): system | container | NULL.
+    # NULL — «не сказано», читается как сегодня (узел с детьми — система), поэтому без
+    # server_default: мердж, синк и догрузка отличают молчание от явной «системы».
+    # Задаётся только у формы service, у листа хранится как намерение (Р3) и срабатывает
+    # с первым ребёнком; внутри контейнера не задаётся — там всё компоненты (Р5).
+    # Действующий элемент хранимым не является — его считает app/element.py
+    # (element_effective ниже).
+    element: Mapped[NodeElement | None] = mapped_column(String(16), nullable=True)
     # Канонический ключ источника — ЯКОРЬ узла (app/identity): чем узел опознаётся
     # между прогонами ИИ-агента. Видов два: код («git:github.com/org/payments#src/api»)
     # и имя зависимости («host:postgres»). Пишется импортом и синком И РУКАМИ —
@@ -162,6 +176,16 @@ class Node(Base):
     # Статус страницы С УЧЁТОМ детей (app/approval.effective_approvals): у листа —
     # своё approval, у контейнера — approved, только если согласованы все дети.
     approval_effective: NodeApproval = "in_progress"
+    # Действующий элемент архитектуры (app/element_marks): system | container | component,
+    # у «Пользователя» None. Дефолт None, а не правдоподобное значение: выдача, забывшая
+    # его проставить, отдаст пустоту, и сторож tests/test_element_api.py это поймает
+    # (камень 2 плана) — молча неверный «контейнер» не поймал бы никто. Аннотация — только
+    # для типизации: аннотированный атрибут со значением None декларатив SQLAlchemy принимает
+    # за колонку без Mapped[] и роняет импорт модели, а без аннотации он его не трогает.
+    if TYPE_CHECKING:
+        element_effective: NodeElementEffective | None
+    else:
+        element_effective = None
     # Действующее размещение на площадках (app/deployment.mark_sites). Дефолт — пустой
     # КОРТЕЖ, а не список: атрибут класса общий для всех экземпляров, и изменяемый
     # дефолт был бы одним списком на все узлы. mark_sites всегда присваивает свой

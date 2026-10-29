@@ -24,11 +24,12 @@ NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 NodeApproval = Literal["in_progress", "approved"]
 NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 
-# Элемент архитектуры узла с детьми (docs/plan-c4-elements.md, раздел 0а): хранимое значение —
-# system | container | None, где None («не сказано») читается как система, как у всех узлов с
-# детьми до эпика. Действующий элемент (app/element.py) добавляет component — всё, что лежит
-# внутри контейнера. Колонки и полей контракта пока нет (фаза Ф1 эпика).
+# Элемент архитектуры узла с детьми (docs/plan-c4-elements.md, раздел 0а): хранимое значение
+# (nodes.element) — system | container | None, где None («не сказано») читается как система,
+# как у всех узлов с детьми до эпика. Действующий элемент (app/element.py) добавляет
+# component — всё, что лежит внутри контейнера.
 NodeElement = Literal["system", "container"]
+NODE_ELEMENTS: tuple[NodeElement, ...] = get_args(NodeElement)
 NodeElementEffective = Literal["system", "container", "component"]
 
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
@@ -98,6 +99,19 @@ NODE_APPROVAL_LABELS: dict[NodeApproval, str] = {
 NODE_DOC_KIND_LABELS: dict[NodeDocKind, str] = {
     "operation": "Операция",
     "worker": "Воркер",
+}
+# Элемент архитектуры: хранимый (дельта версий показывает, что поставил человек) и
+# действующий (то, чем узел считается сейчас). Хранимого может не быть — подпись
+# ELEMENT_UNSET_LABEL: «не сказано» не равно «система», хотя читается так же.
+NODE_ELEMENT_LABELS: dict[NodeElement, str] = {
+    "system": "Система",
+    "container": "Контейнер",
+}
+ELEMENT_UNSET_LABEL = "Не задан"
+NODE_ELEMENT_EFFECTIVE_LABELS: dict[NodeElementEffective, str] = {
+    "system": "Система",
+    "container": "Контейнер",
+    "component": "Компонент",
 }
 
 # Роль в проекте (app/access.py): права ВНУТРИ проекта определяет только она. Тот же

@@ -6252,6 +6252,8 @@ export interface components {
              * @enum {string}
              */
             approval: "in_progress" | "approved";
+            /** Element */
+            element?: ("system" | "container") | null;
             /** Source Ref */
             source_ref?: string | null;
         };

@@ -103,6 +103,7 @@ COPY_PLAN: dict[type[Base], TablePlan] = {
             "shape",
             "status",
             "approval",
+            "element",
             "source_ref",
         ),
     ),
