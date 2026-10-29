@@ -20,6 +20,7 @@ from app.deps import (
     scoped_node,
     touch_project,
 )
+from app.element_marks import mark_element
 from app.graph_queries import build_graph, external_edges, project_has_status_info
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
@@ -85,13 +86,15 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
 
 def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
     """Все вычисляемые атрибуты NodeResponse разом: число детей и их наличие, статус
-    страницы с учётом детей (app/approval), действующее размещение (app/deployment).
-    Одна точка — новый производный атрибут не забудется ни в одной из выдач роутера."""
+    страницы с учётом детей (app/approval), действующее размещение (app/deployment),
+    действующий элемент архитектуры (app/element_marks). Одна точка — новый производный
+    атрибут не забудется ни в одной из выдач роутера."""
     if not nodes:
         return
     _mark_has_children(db, nodes)
     mark_approval(db, project.id, nodes)
     mark_sites(db, project.id, nodes)
+    mark_element(db, project.id, nodes)
 
 
 @router.get("", response_model=list[NodeResponse])

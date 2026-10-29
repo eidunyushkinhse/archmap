@@ -9,7 +9,7 @@ import type { LayoutResult } from "../graph/layout/pipeline";
 import type { BlockData, ContainerData } from "../graph/types";
 import type { Node as AppNode, AncestorRef } from "../../types";
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 
 function appNode(id: string, kids: boolean): AppNode {
   return {
@@ -18,6 +18,7 @@ function appNode(id: string, kids: boolean): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids, child_count: kids ? 2 : 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: kids ? "system" : "container",
   } as AppNode;
 }
 

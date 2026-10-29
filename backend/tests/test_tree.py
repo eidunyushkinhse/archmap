@@ -36,11 +36,11 @@ def _build_tree(db):
 def test_ancestors_root_first(db):
     root, mid, leaf, _other = _build_tree(db)
     all_nodes = {n.id: n for n in db.query(Node).all()}
-    chain = tree.ancestors(all_nodes, leaf.id)
+    chain = tree.ancestors(all_nodes, leaf.id, elements=None)
     # Порядок «корень → непосредственный родитель» — на нём держится breadcrumb.
     assert [a.id for a in chain] == [root.id, mid.id]
     # У корня предков нет.
-    assert tree.ancestors(all_nodes, root.id) == []
+    assert tree.ancestors(all_nodes, root.id, elements=None) == []
 
 
 def test_node_depth(db):

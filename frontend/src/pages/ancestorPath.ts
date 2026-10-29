@@ -23,4 +23,6 @@ export function chainTo(all: readonly Node[], id: string | null): Node[] {
 }
 
 // Звено крошек: только то, что нужно подписи и переходу.
-export const ancestorRef = (n: Node): AncestorRef => ({ id: n.id, name: n.name, is_external: n.is_external });
+export const ancestorRef = (n: Node): AncestorRef => ({
+  id: n.id, name: n.name, is_external: n.is_external, element_effective: n.element_effective,
+});

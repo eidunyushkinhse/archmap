@@ -287,7 +287,7 @@ export function assembleRfGraph(params: {
             // Путь гостя = его предки + он сам (другая ветка дерева).
             // «Войти к компонентам» — только в редакторе (drillNav).
             onEnter: drillNav
-              ? () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external }])
+              ? () => getCb().onEnterNode?.([...(ent.ghost.ancestors ?? []), { id: ent.ghost.id, name: ent.ghost.name, is_external: ent.ghost.is_external, element_effective: ent.ghost.element_effective }])
               : undefined,
           } satisfies GhostData,
         };
@@ -309,9 +309,11 @@ export function assembleRfGraph(params: {
           onExpand: atInlineLimit(pf) ? undefined : (id) => getCb().expandContainer(id),
           expandLimited: atInlineLimit(pf),
           // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
-          // «Войти к компонентам» — только в редакторе (drillNav).
+          // «Войти к компонентам» — только в редакторе (drillNav). Элемента архитектуры
+          // у звена нет: DisplayContainer его пока не несёт (холст — фаза Ф7 эпика
+          // «Элемент архитектуры»), а путь «Войти» элемент не читает.
           onEnter: drillNav
-            ? () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external }])
+            ? () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external, element_effective: null }])
             : undefined,
           connectable: isArchitect && !isReadOnly,
           quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,

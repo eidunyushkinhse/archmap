@@ -4,7 +4,14 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain_types import NodeApproval, NodeShape, NodeStatus, SiteKind
+from app.domain_types import (
+    NodeApproval,
+    NodeElement,
+    NodeElementEffective,
+    NodeShape,
+    NodeStatus,
+    SiteKind,
+)
 from app.schemas.node_doc import NodeDocMeta
 from app.schemas.view import ViewLayoutPayload
 
@@ -146,6 +153,15 @@ class NodeResponse(BaseModel):
     # если согласованы все дети. Показывать надо approval_effective.
     approval: NodeApproval = "in_progress"
     approval_effective: NodeApproval = "in_progress"
+    # Элемент архитектуры (docs/plan-c4-elements.md): element — хранимое значение
+    # (system | container | null, null — «не сказано»), element_effective — действующее
+    # (app/element.py): system | container | component, у «Пользователя» null. Показывать
+    # и рассуждать надо по element_effective: лист вне контейнера — контейнер при любом
+    # хранимом, всё внутри контейнера — компоненты. Оба поля без дефолта: сервер отдаёт
+    # их всегда, и в генерате фронта они обязательные (не «?:»), а выдача, забывшая
+    # проставить действующий элемент, видна сторожу как null (tests/test_element_api.py).
+    element: NodeElement | None
+    element_effective: NodeElementEffective | None
     # Якорь узла: канонический ключ хранения (source_ref) и он же разобранный
     # по видам (source). Ставится прогоном агента ИЛИ рукой архитектора —
     # PATCH принимает source (см. NodeUpdate). Разобранный вид — для карточки
@@ -170,6 +186,9 @@ class AncestorRef(BaseModel):
     name: str
     # внешний ли узел-предок — нужно для цвета свёрнутого гостя-контейнера на схеме
     is_external: bool = False
+    # Действующий элемент архитектуры предка (как NodeResponse.element_effective): фронт
+    # строит по цепочке предков вложенные рамки гостей и не вычисляет элемент сам.
+    element_effective: NodeElementEffective | None
 
 
 class GhostNodeResponse(BaseModel):
@@ -186,6 +205,8 @@ class GhostNodeResponse(BaseModel):
     has_children: bool = False
     # число прямых детей — для бейджа «есть дети (N)» на узле-госте схемы уровня.
     child_count: int = 0
+    # Действующий элемент архитектуры гостя (как NodeResponse.element_effective).
+    element_effective: NodeElementEffective | None
     # цепочка предков (корень → непосредственный родитель) — по ней фронт
     # проецирует конец на видимого представителя и строит вложенные рамки
     ancestors: list[AncestorRef] = []

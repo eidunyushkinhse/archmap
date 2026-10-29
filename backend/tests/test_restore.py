@@ -590,5 +590,5 @@ def test_tree_helpers_survive_parent_cycle(db):
     db.flush()
     a.parent_id = b.id  # цикл A→B→A прямо в карте (в БД такого не создать через API)
     all_nodes = {a.id: a, b.id: b}
-    assert [x.id for x in tree.ancestors(all_nodes, a.id)] == [b.id]
+    assert [x.id for x in tree.ancestors(all_nodes, a.id, elements=None)] == [b.id]
     assert tree.node_depth(all_nodes, a.id) == 1

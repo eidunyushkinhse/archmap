@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import tree
 from app.approval import effective_approvals
+from app.element_marks import elements_from_nodes
 from app.graph_queries import ghost_registry, project_has_status_info, read_view_layout
 from app.models.edge import Edge
 from app.models.node import Node
@@ -96,17 +97,20 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
     # Статус страницы с учётом детей — по той же карте узлов, без нового SQL.
     effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    # Действующий элемент архитектуры — тоже по карте, один раз: локалам, гостям, предкам.
+    elements = elements_from_nodes(all_nodes)
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = effective.get(n.id, n.approval)
+        n.element_effective = elements.effective(n.id)
     # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
-    # has_children/approval_effective проставлены выше) — на границе сериализации типизируем как
-    # list[NodeResponse].
+    # has_children/approval_effective/element_effective проставлены выше) — на границе
+    # сериализации типизируем как list[NodeResponse].
     return GraphResponse(
         nodes=local_nodes,
         edges=result_edges,
-        endpoints=ghost_registry(all_nodes, endpoint_ids, child_counts),
+        endpoints=ghost_registry(all_nodes, endpoint_ids, child_counts, elements),
         layout=read_view_layout(db, project.id, focus.id),
         version=current_version(db, project.id, focus.id),
         graph_rev=project.graph_rev,

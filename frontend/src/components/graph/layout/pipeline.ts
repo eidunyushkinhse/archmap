@@ -393,8 +393,9 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
   // дублем (см. фильтр сущностей после projectGhosts).
   const absorbed = new Set<string>();
   // предки уровня как AncestorRef-лайт: для расчёта lca в computeFrames важны
-  // только id (имена рамок уровня рисует ancestorNames — не отсюда)
-  const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false }));
+  // только id (имена рамок уровня рисует ancestorNames — не отсюда; элемент
+  // архитектуры раскладке не нужен)
+  const bcRefs: AncestorRef[] = ancestorIds.map((id) => ({ id, name: id, is_external: false, element_effective: null }));
   // НЕПОЛНЫЙ СОСТАВ СЦЕНЫ (Ф2 эпика router-opt, полевая находка приёмки): корень
   // догружается ПОРЦИЯМИ (0 → 17 → 26 → 34 узла), и промежуточные прогоны имеют
   // unmeasured = 0 (свои узлы замерены) — P10 их не ловит. Такой прогон гонял полный
@@ -414,7 +415,7 @@ export async function computeViewLayout(input: PipelineInput): Promise<PipelineO
     // глубже лимита (глубже — только «Войти»).
     if (kids && kids.length > 0 && path.length < inlineDepth) {
       absorbed.add(n.id);
-      const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external }];
+      const deeper = [...path, { id: n.id, name: n.name, is_external: n.is_external, element_effective: n.element_effective }];
       for (const k of kids) expandLocal(k, deeper);
       return;
     }

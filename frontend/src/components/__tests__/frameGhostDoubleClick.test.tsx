@@ -49,7 +49,8 @@ describe("плашка раскрытой рамки", () => {
 describe("панель гостя: «Документация → Открыть»", () => {
   const ghost = (over: Partial<GhostNode> = {}): GhostNode => ({
     id: "g1", name: "Банк", role: null, technology: null, is_external: true, shape: "service",
-    status: "existing", node_depth: 0, has_children: false, child_count: 0, ancestors: [], is_ghost: true,
+    status: "existing", node_depth: 0, has_children: false, child_count: 0, element_effective: "container",
+    ancestors: [], is_ghost: true,
     ...over,
   });
 

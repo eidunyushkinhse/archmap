@@ -5,11 +5,11 @@ import type { GhostNode, AncestorRef } from "../../types";
 
 // Крайние слои ELK для гостей (Ф4б, шаг 1): сторона гостя по связям со стороной уровня.
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 function ghost(id: string, ancestors: AncestorRef[], shape: GhostNode["shape"] = "service"): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,
-    shape, status: "existing", node_depth: ancestors.length, has_children: false, child_count: 0, ancestors, is_ghost: true,
+    shape, status: "existing", node_depth: ancestors.length, has_children: false, child_count: 0, element_effective: "container", ancestors, is_ghost: true,
   };
 }
 // по умолчанию гость — корневой лист (без предков): своя группа; общий предок F делает членов одной группой

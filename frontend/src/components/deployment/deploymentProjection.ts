@@ -115,6 +115,9 @@ function siteNode(site: SiteOut, parentKey: string | null, childCount: number): 
     has_children: childCount > 0,
     approval: "in_progress",
     approval_effective: "in_progress",
+    // Площадка — не объект архитектуры: элемента у её карточки нет.
+    element: null,
+    element_effective: null,
     sites: [],
     version: site.version,
     created_at: "",
@@ -272,10 +275,12 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
   const children: Record<string, AppNode[]> = {};
   const chainOf = new Map<string, AncestorRef[]>();
   const countOf = new Map<string, number>();
+  // Звено цепочки — площадка, а не объект: элемента архитектуры у неё нет.
   const siteRef = (site: SiteOut): AncestorRef => ({
     id: siteKey(site.id),
     name: site.technology ? `${site.name} · ${site.technology}` : site.name,
     is_external: false,
+    element_effective: null,
   });
   const build = (site: SiteOut, parentKey: string | null, chain: AncestorRef[], seen: Set<string>): AppNode => {
     const nested = (childSites.get(site.id) ?? []).filter((c) => !seen.has(c.id));
@@ -305,7 +310,7 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
       role: null,
     });
     children[unplacedKey] = unplaced;
-    chainOf.set(UNPLACED, [{ id: unplacedKey, name: UNPLACED_NAME, is_external: false }]);
+    chainOf.set(UNPLACED, [{ id: unplacedKey, name: UNPLACED_NAME, is_external: false, element_effective: null }]);
   }
 
   // Реестр концов: каждая карточка — с цепочкой площадок над ней. Свёрнута площадка в
@@ -327,6 +332,7 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
         node_depth: ancestors.length,
         has_children: rep.container,
         child_count: rep.container ? rep.leaves : 0,
+        element_effective: n.element_effective,
         ancestors,
         is_ghost: true,
       });

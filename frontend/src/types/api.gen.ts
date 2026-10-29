@@ -3123,6 +3123,8 @@ export interface components {
              * @default false
              */
             is_external: boolean;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
         };
         /**
          * AnchorPreviewOut
@@ -4514,6 +4516,10 @@ export interface components {
              * @enum {string}
              */
             approval_effective: "in_progress" | "approved";
+            /** Element */
+            element: ("system" | "container") | null;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
@@ -5185,6 +5191,8 @@ export interface components {
              * @default 0
              */
             child_count: number;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
             /**
              * Ancestors
              * @default []
@@ -6153,6 +6161,10 @@ export interface components {
              * @enum {string}
              */
             approval_effective: "in_progress" | "approved";
+            /** Element */
+            element: ("system" | "container") | null;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;

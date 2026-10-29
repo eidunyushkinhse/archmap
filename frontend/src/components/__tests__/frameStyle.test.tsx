@@ -43,6 +43,7 @@ const appNode = (id: string): AppNode => ({
   shape: "service", is_external: false, status: "existing", openapi_spec: null,
   version: 1, docs: [], has_children: false, child_count: 0, created_at: "", updated_at: "",
   approval: "in_progress", approval_effective: "in_progress", sites: [],
+  element: null, element_effective: "container",
 }) as AppNode;
 
 // Оверлей драга над рамкой f1 с одним ребёнком: старт жеста, затем его разметка.

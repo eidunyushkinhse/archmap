@@ -21,6 +21,7 @@ function ghost(id: string, ancestors: AncestorRef[], over: Partial<GhostNode> = 
     node_depth: ancestors.length,
     has_children: false,
     child_count: 0,
+    element_effective: "container",
     ancestors,
     status: "existing",
     is_ghost: true,
@@ -145,9 +146,9 @@ describe("layoutLevel", () => {
 describe("projectGhosts", () => {
   // гость глубоко вложен: root → A → B → (гость)
   const anc: AncestorRef[] = [
-    { id: "root", name: "Root", is_external: false },
-    { id: "A", name: "A", is_external: false },
-    { id: "B", name: "B", is_external: false },
+    { id: "root", name: "Root", is_external: false, element_effective: "system" },
+    { id: "A", name: "A", is_external: false, element_effective: "system" },
+    { id: "B", name: "B", is_external: false, element_effective: "system" },
   ];
 
   it("по умолчанию гость сворачивается к верхнему контейнеру ниже общего предка", () => {
@@ -174,7 +175,7 @@ describe("projectGhosts", () => {
     // Уровень T; S — контейнер чужой ветки: связь прямо в S (S — лист реестра с детьми)
     // и связь в его ребёнка c1 (сворачивается в контейнер S). Побеждает контейнер: у него
     // лупа, раскрытие покажет c1, а связь в S упрётся в гостевую рамку (C19 v2).
-    const child = ghost("c1", [{ id: "S", name: "S", is_external: false }]);
+    const child = ghost("c1", [{ id: "S", name: "S", is_external: false, element_effective: "system" }]);
     const self = { ...ghost("S", []), has_children: true, child_count: 1 };
     for (const order of [[self, child], [child, self]]) {
       const r = projectGhosts(order, ["T"], new Set());
@@ -188,13 +189,13 @@ describe("projectGhosts", () => {
   it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {
     // напр. лист «БД» под корнем «Объекты мониторинга» (корень-сосед текущей ветки):
     // общего breadcrumb-предка нет, но гость всё равно представлен верхним контейнером.
-    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false }])], ["root"], new Set());
+    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false, element_effective: "system" }])], ["root"], new Set());
     expect(r.ghostToEffective.get("g1")).toBe("X");
     expect(r.entities[0]).toMatchObject({ kind: "container", id: "X" });
   });
 
   it("раскрытие верхнего контейнера без общего предка обнажает лист и фиксирует emergedFrom", () => {
-    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false }])], ["root"], new Set(["X"]));
+    const r = projectGhosts([ghost("g1", [{ id: "X", name: "X", is_external: false, element_effective: "system" }])], ["root"], new Set(["X"]));
     expect(r.ghostToEffective.get("g1")).toBe("g1");
     expect(r.entities[0]).toMatchObject({ kind: "leaf", id: "g1" });
     expect(r.emergedFrom.get("g1")).toBe("X");

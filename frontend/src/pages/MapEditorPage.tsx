@@ -403,7 +403,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       ghost: {
         id: node.id, name: node.name, role: node.role, technology: node.technology, is_external: node.is_external,
         shape: node.shape, status: node.status, node_depth: chain.length, has_children: node.has_children,
-        child_count: node.child_count, ancestors: chain.map(ancestorRef),
+        child_count: node.child_count, element_effective: node.element_effective, ancestors: chain.map(ancestorRef),
         is_ghost: true,
       },
     });
@@ -411,7 +411,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   // Клик по контейнеру → дрилл на его слой (путь собран деревом).
   function drillFromTree(path: Node[]) {
-    drillToPath(path.map((n) => ({ id: n.id, name: n.name, is_external: n.is_external })));
+    drillToPath(path.map(ancestorRef));
   }
 
   // Клик по листу → прыжок на его слой (слой родителя), выделение и пульс.

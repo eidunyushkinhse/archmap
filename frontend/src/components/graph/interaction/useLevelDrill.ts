@@ -398,9 +398,13 @@ export function useLevelDrill({
         chain.unshift(p);
         pid = p.parent_id;
       }
-      const ref = (x: AppNode): AncestorRef => ({ id: x.id, name: x.name, is_external: x.is_external });
+      const ref = (x: AppNode): AncestorRef => ({
+        id: x.id, name: x.name, is_external: x.is_external, element_effective: x.element_effective,
+      });
+      // Звенья уровня известны только по id и имени: элемента у них нет (проп элементов
+      // крошек — фаза Ф7 эпика «Элемент архитектуры»), путь «Войти» его не читает.
       const levelRefs: AncestorRef[] = ancestorIds.map((id, i) => ({
-        id, name: ancestorNames[i] ?? id, is_external: false,
+        id, name: ancestorNames[i] ?? id, is_external: false, element_effective: null,
       }));
       onEnterNode([...levelRefs, ...chain.map(ref), ref(n)]);
     },

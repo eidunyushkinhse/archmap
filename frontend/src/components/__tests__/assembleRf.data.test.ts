@@ -8,7 +8,7 @@ import type { LayoutResult } from "../graph/layout/pipeline";
 import type { BlockData, ContainerData, FrameData, GhostData } from "../graph/types";
 import type { Node as AppNode, AncestorRef, GhostNode } from "../../types";
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 
 function appNode(id: string, over: Partial<AppNode> = {}): AppNode {
   return {
@@ -17,6 +17,7 @@ function appNode(id: string, over: Partial<AppNode> = {}): AppNode {
     openapi_spec: null, docs: [], version: 1, created_at: "", updated_at: "",
     has_children: false, child_count: 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: "container",
     ...over,
   } as AppNode;
 }
@@ -128,7 +129,8 @@ describe("assembleRfGraph — данные узлов", () => {
     data.onExpand?.("c");
     expect(cb.expandContainer).toHaveBeenCalledWith("c");
     data.onEnter?.();
-    expect(cb.onEnterNode).toHaveBeenCalledWith([a("R"), { id: "c", name: "Витрина", is_external: false }]);
+    // Элемента у звена свёрнутого гостевого контейнера нет: DisplayContainer его не несёт.
+    expect(cb.onEnterNode).toHaveBeenCalledWith([a("R"), { id: "c", name: "Витрина", is_external: false, element_effective: null }]);
     expect(assemble({ drillNav: false }).byId.get("c")?.data).toMatchObject({ onEnter: undefined });
   });
 

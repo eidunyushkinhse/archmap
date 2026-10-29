@@ -34,6 +34,7 @@ function obj(id: string, own: string[]): DeploymentNode {
     id, name: id.toUpperCase(), description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "container",
     version: 1, created_at: "", updated_at: "",
     sites: own.map((s) => ref(s)), instances: own,
   };

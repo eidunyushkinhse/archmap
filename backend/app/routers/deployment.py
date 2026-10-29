@@ -43,6 +43,7 @@ from app.deps import (
     owned_or_404,
     require_project_editor,
 )
+from app.element_marks import elements_from_nodes
 from app.graph_queries import read_view_layout
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
@@ -257,6 +258,7 @@ def get_deployment_graph(
         {site.id: i for i, site in enumerate(sites)},
     )
     approvals = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    elements = elements_from_nodes(all_nodes)
 
     nodes_out: list[DeploymentNodeOut] = []
     for n in shown:
@@ -266,6 +268,7 @@ def get_deployment_graph(
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = approvals.get(n.id, n.approval)
+        n.element_effective = elements.effective(n.id)
         n.sites = site_refs(n, places.get(n.id, []), sites_by_id)
         nodes_out.append(
             DeploymentNodeOut(

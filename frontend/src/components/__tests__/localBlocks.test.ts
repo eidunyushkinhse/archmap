@@ -13,6 +13,7 @@ function appNode(id: string, parent_id = "P"): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: "container",
   } as AppNode;
 }
 function edge(id: string, source_id: string, target_id: string): LayoutEdge {
