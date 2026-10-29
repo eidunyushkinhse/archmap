@@ -15,6 +15,7 @@ const FIELD_LABEL: Record<string, string> = {
   technology: "технология",
   shape: "форма",
   status: "статус",
+  element: "элемент архитектуры",
   // Источник зовётся источником везде — в карточке объекта, в ⓘ и здесь (Ф2 якорей).
   source_ref: "источник",
 };
