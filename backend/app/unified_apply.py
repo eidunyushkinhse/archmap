@@ -44,7 +44,7 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
-from app.import_element import sanitize_elements
+from app.import_element import sanitize_elements, tree_paths
 from app.import_merge import union_sites
 from app.import_yaml import ParsedImport, _ImpEdge, seed_import
 from app.models.edge import Edge
@@ -519,16 +519,27 @@ def apply_unified_plan(
     # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
     # посева: узлы уже созданы, а семьи адресованы индексами плана.
     apply_tree_decisions(merged, решения)
-    # Ответ на спор элемента архитектуры мог сделать дерево недопустимым (выбран
-    # «Контейнер», а внутри база) — та же санитизация, что у разбора и слияния: база
-    # выносится на уровень выше. Без ответов дерево уже чистое, и она ничего не меняет.
-    пересмотр = sanitize_elements(merged.nodes, plan.node_paths)
-    # Размещение склеиваемых — выжившему ДО посева (объединением, как у мерджа):
-    # поглощённый уйдёт из проекта вместе со своими экземплярами.
-    for survivor, absorbed, _имя in merge_chain(решения.merges):
-        merged.nodes[survivor].sites = union_sites(
-            merged.nodes[survivor].sites, merged.nodes[absorbed].sites
-        )
+    # Склейки готовим в дереве ДО посева — то, что правилу элемента нужно видеть:
+    # размещение выжившему объединением, как у мерджа (поглощённый уйдёт из проекта
+    # вместе со своими экземплярами); имя и дети поглощённого — выжившему
+    # (_apply_merges после посева сделал бы то же); элемент поглощённого — выжившему,
+    # только в пустое. Выживший всегда раньше поглощённого (merge_chain), так что
+    # «родители раньше детей» сохраняется.
+    for survivor, absorbed, имя in merge_chain(решения.merges):
+        живёт, уходит = merged.nodes[survivor], merged.nodes[absorbed]
+        живёт.name = имя
+        живёт.sites = union_sites(живёт.sites, уходит.sites)
+        for n in merged.nodes:
+            if n.parent_idx == absorbed:
+                n.parent_idx = survivor
+        if живёт.element is None:
+            живёт.element = уходит.element
+        уходит.element = None
+    # Ответ на спор элемента архитектуры или склейка могли сделать дерево недопустимым
+    # (выбран «Контейнер», а внутри база) — та же санитизация, что у разбора и слияния:
+    # база выносится на уровень выше. Без ответов дерево уже чистое, и она ничего не
+    # меняет; пути — по дереву после склеек (у тех же узлов прежние, пока склеек нет).
+    пересмотр = sanitize_elements(merged.nodes, tree_paths(merged.nodes))
 
     # ── Имя и описание: поля пользователя либо манифест единственного архива (П3).
     project_name = (name or "").strip()
@@ -746,19 +757,14 @@ def absorb_knowledge(живёт: Node, уходит: Node) -> bool:
     него нет (множественные якоря за рамками MVP), и выбор между двумя решает
     порядок файлов, как и везде.
 
-    Элемент архитектуры — тем же fill-only: пустой у выжившего доливается значением
-    поглощённого. Правило элемента по дереву здесь не проверяется (склейка идёт по
-    ответу человека уже после посева) — известное ограничение, разбор переносов — Ф5
-    эпика «Элемент архитектуры»."""
+    Элемент архитектуры сюда не входит: он переходит выжившему ещё в дереве, до
+    посева (apply_unified_plan), чтобы правило элемента увидело дерево после склейки."""
     changed = False
     for fld in ABSORB_FIELDS:
         новое, своё = getattr(уходит, fld), getattr(живёт, fld)
         if (новое or "").strip() and not (своё or "").strip():
             setattr(живёт, fld, новое)
             changed = True
-    if живёт.element is None and уходит.element is not None:
-        живёт.element = уходит.element
-        changed = True
     if not живёт.source_ref and уходит.source_ref:
         живёт.source_ref = уходит.source_ref
         changed = True

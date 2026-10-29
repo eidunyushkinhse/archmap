@@ -2414,18 +2414,15 @@ def test_элемент_новому_узлу_из_архива_как_есть(
     assert новый.element == "container"
 
 
-def test_склейка_доливает_элемент_пустому_выжившему():
+def test_склейка_после_посева_элемент_не_трогает():
+    """Элемент поглощённого переходит выжившему в дереве, до посева, через правило
+    (apply_unified_plan): доливка склейки в БД его уже не касается."""
     pid = uuid.uuid4()
     живёт = Node(id=uuid.uuid4(), project_id=pid, name="orders", shape="service")
     уходит = Node(id=uuid.uuid4(), project_id=pid, name="order", shape="service",
                   element="container")
-    assert absorb_knowledge(живёт, уходит) is True
-    assert живёт.element == "container"
-
-    занятый = Node(id=uuid.uuid4(), project_id=pid, name="orders", shape="service",
-                   element="system")
-    assert absorb_knowledge(занятый, уходит) is False
-    assert занятый.element == "system"
+    assert absorb_knowledge(живёт, уходит) is False
+    assert живёт.element is None
 
 
 def test_элемент_база_архива_в_живом_контейнере_создаётся_уровнем_выше(db):
@@ -2482,3 +2479,78 @@ def test_живая_база_в_живом_контейнере_догрузке
     assert _элемент(db, узлы["orders"]) == "container"  # fill-only: живое не стирается
     assert db.get(Node, узлы["orders"].id).role == "сервис заказов"
     assert отчёт.nodes_created == 0
+
+
+def _живой_плагин(db, *, с_базой: bool):
+    проект = _проект(db, "Живой")
+    _узел(db, проект, "Grafana")
+    плагин = _узел(db, проект, "Плагин Zabbix")
+    _узел(db, проект, "backend", плагин)
+    if с_базой:
+        _узел(db, проект, "plugin-db", плагин, shape="database")
+    донор = _проект(db, "Донор")
+    _узел(db, донор, "Grafana")
+    _узел(db, донор, "frontend", _узел(db, донор, "Плагин", element="container"))
+    db.commit()
+    план = build_into_plan(db, проект, [("a.zip", build_archive(db, донор))])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    assert пара.id == "pair|Плагин Zabbix|Плагин"
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин Zabbix"}}})),
+    )
+    db.commit()
+    return проект, плагин, отчёт
+
+
+def test_склейка_догрузки_выносит_новую_базу_поглощённого_из_живого_контейнера(db):
+    """Дети поглощённого переходят выжившему ещё в дереве: правило видит, что новая
+    база поглощённого окажется в живом контейнере, и выносит её уровнем выше."""
+    проект = _проект(db, "Живой")
+    _узел(db, проект, "Grafana")
+    плагин = _узел(db, проект, "Плагин Zabbix", element="container")
+    _узел(db, проект, "backend", плагин)
+    донор = _проект(db, "Донор")
+    _узел(db, донор, "Grafana")
+    _узел(db, донор, "plugin-cache", _узел(db, донор, "Плагин"), shape="database")
+    db.commit()
+    план = build_into_plan(db, проект, [("a.zip", build_archive(db, донор))])
+    [пара] = into_preview(план).remainder.fuzzy_pairs
+    отчёт = apply_into_plan(
+        db, проект, план, {},
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин Zabbix"}}})),
+    )
+    db.commit()
+
+    кэш = db.query(Node).filter(Node.project_id == проект.id, Node.name == "plugin-cache").one()
+    assert кэш.parent_id is None
+    assert _элемент(db, плагин) == "container"
+    assert (
+        "Плагин Zabbix: внутри лежит база данных «plugin-cache», она не может входить в "
+        "состав контейнера — вынесена на верхний уровень"
+    ) in отчёт.warnings
+
+
+def test_склейка_догрузки_доливает_элемент_живому_через_правило(db):
+    проект, плагин, отчёт = _живой_плагин(db, с_базой=False)
+
+    assert _элемент(db, плагин) == "container"
+    frontend = db.query(Node).filter(Node.project_id == проект.id, Node.name == "frontend").one()
+    assert frontend.parent_id == плагин.id
+    assert (
+        "узел «Плагин Zabbix»: поле «элемент архитектуры» пустовало — залито из "
+        "склеенного объекта"
+    ) in отчёт.warnings
+
+
+def test_склейка_догрузки_не_делает_контейнером_живой_узел_с_базой(db):
+    """Поглощённый — контейнер, а под живым выжившим живая база: живое дерево ввоз не
+    перестраивает, значит контейнер не ложится, замечание — текстом владельца."""
+    _проект_, плагин, отчёт = _живой_плагин(db, с_базой=True)
+
+    assert _элемент(db, плагин) is None
+    assert (
+        "Плагин Zabbix: внутри лежит база данных «plugin-db», она не может входить в "
+        "состав контейнера — объект оставлен системой"
+    ) in отчёт.warnings
+    assert not any("элемент архитектуры» пустовало" in w for w in отчёт.warnings)

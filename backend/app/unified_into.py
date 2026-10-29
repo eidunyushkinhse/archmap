@@ -52,7 +52,7 @@ from app.domain_types import NodeElement
 from app.element_marks import ElementRow, project_element_rows
 from app.element_rules import element_change_refusal
 from app.identity import known_key, source_ref_dict
-from app.import_element import as_clause, sanitize_elements
+from app.import_element import as_clause, sanitize_elements, tree_paths
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -553,17 +553,20 @@ def _element_refused(
     rows: dict[uuid.UUID, ElementRow],
     path: str,
     warnings: list[str],
+    от_склейки: bool = False,
 ) -> bool:
     """Правило элемента (Р3, Р5, Р6) по ЖИВОМУ дереву: архив чист сам по себе, а в
     проекте под узлом может лежать база или над ним — контейнер. Отказ — строкой
-    отчёта, живое не трогается."""
+    отчёта, живое не трогается. от_склейки — значение пришло от поглощённого склейкой
+    объекта, а не от самого узла в архиве: строка называет источник."""
     refusal = element_change_refusal(
         list(rows.values()), node_id=live.id, name=live.name, parent_id=live.parent_id,
         shape=live.shape, value=value,
     )
     if refusal is None:
         return False
-    warnings.append(f"узел «{path}»: элемент архитектуры из архива не применён — {as_clause(refusal)}")
+    чей = "склеенного объекта" if от_склейки else "из архива"
+    warnings.append(f"узел «{path}»: элемент архитектуры {чей} не применён — {as_clause(refusal)}")
     return True
 
 
@@ -574,6 +577,7 @@ def _fill_element(
     warnings: list[str],
     rows: dict[uuid.UUID, ElementRow],
     forced: Collection[str] = (),
+    от_склейки: bool = False,
 ) -> bool:
     """Элемент архитектуры живому узлу (Р30): fill-only, как поля _FILLABLE, но через
     правило элемента по живому дереву (_element_refused). «Не сказано» в архиве — не
@@ -583,7 +587,9 @@ def _fill_element(
     пишем и в занятое, но через то же правило.
 
     rows — элементы живого проекта (одна выборка на применение); долитое значение
-    записывается и туда: следующая проверка обязана видеть уже долитый контейнер."""
+    записывается и туда: следующая проверка обязана видеть уже долитый контейнер.
+    от_склейки — значение передал выжившему поглощённый склейкой объект
+    (apply_into_plan): строки называют его, а не архив."""
     new, cur = imp.element, live.element
     if new is None or new == cur:
         return False
@@ -593,12 +599,13 @@ def _fill_element(
             f"узел «{path}»: поле «{label}» в архиве другое («{new}») — оставлено живое («{cur}»)"
         )
         return False
-    if _element_refused(live, new, rows, path, warnings):
+    if _element_refused(live, new, rows, path, warnings, от_склейки):
         return False
     live.element = new
     rows[live.id] = rows[live.id]._replace(element=new)
     if cur is None:
-        warnings.append(f"узел «{path}»: поле «{label}» пустовало — залито из архива")
+        откуда = "из склеенного объекта" if от_склейки else "из архива"
+        warnings.append(f"узел «{path}»: поле «{label}» пустовало — залито {откуда}")
     else:
         warnings.append(
             f"узел «{path}»: поле «{label}» заменено по вашему решению («{cur}» → «{new}»)"
@@ -613,10 +620,11 @@ def _absorb_into_live(
     имя: str,
     path: str,
     warnings: list[str],
-    rows: dict[uuid.UUID, ElementRow],
 ) -> bool:
     """Знание поглощённого склейкой узла — живому выжившему: пустое долить,
-    заполненное не трогать, имя — выбранное человеком.
+    заполненное не трогать, имя — выбранное человеком. Элемент архитектуры сюда не
+    входит: он переходит выжившему ещё в дереве (apply_into_plan) и доливается
+    _fill_element через правило по живому дереву.
 
     Якорь по тому же правилу и по той же причине, что при создании: без якоря
     второго источника следующий синк ТОГО репозитория не узнает склеенный объект и
@@ -635,18 +643,6 @@ def _absorb_into_live(
         if ключ:
             live.source_ref = ключ
             changed = True
-    # Элемент архитектуры — тем же fill-only и через правило по живому дереву.
-    if (
-        донор.element is not None
-        and live.element is None
-        and not _element_refused(live, донор.element, rows, path, warnings)
-    ):
-        live.element = донор.element
-        rows[live.id] = rows[live.id]._replace(element=донор.element)
-        warnings.append(
-            f"узел «{path}»: поле «{_FIELD_RU['element']}» пустовало — залито из склеенного объекта"
-        )
-        changed = True
     if live.name != имя:
         live.name = имя
         changed = True
@@ -706,16 +702,6 @@ def apply_into_plan(
     # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
     решения = resolve_decisions(plan, decisions, SELF_ORIGIN)
     forced = _forced_fields(merged, решения)
-    # Ответ на спор элемента архитектуры мог сделать дерево недопустимым (выбран
-    # «Контейнер», а внутри база) — та же санитизация, что у создания: новая база
-    # выносится на уровень выше, живая не трогается (контейнер тогда остаётся системой).
-    # Без ответов слитое дерево уже чистое, и она ничего не меняет.
-    пересмотр = sanitize_elements(
-        merged.nodes, plan.node_paths,
-        pinned=lambda m: m in into.live_of,
-        live_element=lambda m: m in into.live_of and into.live_of[m].element is not None
-        and into.live_of[m].element == merged.nodes[m].element,
-    )
     склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
     # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
     # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель
@@ -723,6 +709,21 @@ def apply_into_plan(
     # ничего не удаляет, просто не создаёт второй объект.
     поглощены = {absorbed: surv for surv, absorbed, _имя in склейки}
     выжившие = {surv: (absorbed, имя) for surv, absorbed, имя in склейки}
+    элемент_от_склейки: set[int] = set()
+    for surv, absorbed, _имя in склейки:
+        # Дети поглощённого — выжившему уже в дереве (создание ниже и так адресует их
+        # выжившему): правило элемента должно видеть дерево таким, каким оно ляжет.
+        # Выживший всегда раньше поглощённого (живой — из входа №0, из двух новых —
+        # первый), поэтому «родители раньше детей» сохраняется.
+        for n in merged.nodes:
+            if n.parent_idx == absorbed:
+                n.parent_idx = surv
+        # Элемент поглощённого — выжившему, только в пустое; живому он дольётся ниже
+        # через правило по живому дереву (_fill_element).
+        if merged.nodes[surv].element is None and merged.nodes[absorbed].element is not None:
+            merged.nodes[surv].element = merged.nodes[absorbed].element
+            элемент_от_склейки.add(surv)
+        merged.nodes[absorbed].element = None
     for surv, (absorbed, имя) in выжившие.items():
         if surv not in into.live_of:
             # Выживший ещё не создан — правим прямо в дереве: имя и знание
@@ -732,11 +733,18 @@ def apply_into_plan(
             for fld in ABSORB_FIELDS:
                 if (getattr(донор, fld) or "").strip() and not (getattr(узел, fld) or "").strip():
                     setattr(узел, fld, getattr(донор, fld))
-            # Элемент архитектуры — тем же fill-only, как absorb_knowledge при создании.
-            if узел.element is None and донор.element is not None:
-                узел.element = донор.element
             if not узел.source_keys and донор.source_keys:
                 узел.source_keys = list(донор.source_keys)
+    # Ответ на спор элемента архитектуры или склейка могли сделать дерево недопустимым
+    # (выбран «Контейнер», а внутри база) — та же санитизация, что у создания: новая база
+    # выносится на уровень выше, живая не трогается (контейнер тогда остаётся системой).
+    # Без ответов слитое дерево уже чистое, и она ничего не меняет.
+    пересмотр = sanitize_elements(
+        merged.nodes, tree_paths(merged.nodes),
+        pinned=lambda m: m in into.live_of,
+        live_element=lambda m: m in into.live_of and into.live_of[m].element is not None
+        and into.live_of[m].element == merged.nodes[m].element,
+    )
     тронутые = _apply_edge_decisions(merged, into, решения, поглощены)
     warnings: list[str] = [*into.warnings, *пересмотр]
 
@@ -759,7 +767,8 @@ def apply_into_plan(
             изменён = (
                 m not in into.ambiguous
                 and _fill_element(
-                    live, imp, plan.node_paths[m], warnings, элементы, forced.get(m, set())
+                    live, imp, plan.node_paths[m], warnings, элементы, forced.get(m, set()),
+                    от_склейки=m in элемент_от_склейки,
                 )
             ) or изменён
             пара = выжившие.get(m)
@@ -768,7 +777,6 @@ def apply_into_plan(
                 # fill-only. Поглощённый не создаётся, и потерять его нельзя.
                 изменён = _absorb_into_live(
                     live, merged.nodes[пара[0]], пара[1], plan.node_paths[m], warnings,
-                    элементы,
                 ) or изменён
             if изменён:
                 nodes_filled += 1

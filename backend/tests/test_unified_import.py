@@ -2480,3 +2480,80 @@ def test_вынесенная_база_получает_таблицы_по_ад
     assert база.parent_id == корень.id
     assert [t.name for t in db.query(DbTable).filter(DbTable.node_id == база.id)] == ["orders"]
     assert not any("не найден" in w for w in отчёт.warnings)
+
+
+_СКЛЕЙКА_ЭЛЕМЕНТА_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    children:
+      - name: backend
+      - name: plugin-db
+        shape: database
+"""
+
+_СКЛЕЙКА_ЭЛЕМЕНТА_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    element: container
+    children:
+      - name: frontend
+"""
+
+
+def test_склейка_выносит_базу_поглощённого_из_контейнера_выжившего(db):
+    """Дети поглощённого переходят выжившему ещё в дереве, до посева: база поглощённого
+    не оказывается внутри контейнера-выжившего, а выносится уровнем выше."""
+    а = _СКЛЕЙКА_ЭЛЕМЕНТА_A.replace(
+        "  - name: Плагин Zabbix\n", "  - name: Плагин Zabbix\n    element: container\n"
+    ).replace("      - name: plugin-db\n        shape: database\n", "")
+    б = _СКЛЕЙКА_ЭЛЕМЕНТА_B.replace("    element: container\n", "").replace(
+        "      - name: frontend\n", "      - name: frontend\n      - name: plugin-cache\n"
+        "        shape: database\n",
+    )
+    план = build_unified_plan([("a.yaml", а.encode()), ("b.yaml", б.encode())])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Склейка", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}})),
+    )
+    db.commit()
+
+    пути, _ = _состав(db, проект)
+    assert {"Плагин / backend", "Плагин / frontend", "plugin-cache"} <= пути
+    assert _элемент_в_проекте(db, проект.id, "Плагин") == "container"
+    assert (
+        "Плагин: внутри лежит база данных «plugin-cache», она не может входить в состав "
+        "контейнера — вынесена на верхний уровень"
+    ) in отчёт.warnings
+
+
+def test_склейка_переносит_элемент_через_правило_дерева(db):
+    """Элемент поглощённого достаётся пустому выжившему ещё в дереве, до посева, —
+    правило элемента видит дерево после склейки: база выжившего выносится, а не
+    оказывается внутри контейнера."""
+    план = build_unified_plan([
+        ("a.yaml", _СКЛЕЙКА_ЭЛЕМЕНТА_A.encode()), ("b.yaml", _СКЛЕЙКА_ЭЛЕМЕНТА_B.encode()),
+    ])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    assert пара.id == "pair|Плагин Zabbix|Плагин"
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Склейка", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}})),
+    )
+    db.commit()
+
+    пути, _ = _состав(db, проект)
+    assert {"Плагин / backend", "Плагин / frontend", "plugin-db"} <= пути
+    assert _элемент_в_проекте(db, проект.id, "Плагин") == "container"
+    assert (
+        "Плагин: внутри лежит база данных «plugin-db», она не может входить в состав "
+        "контейнера — вынесена на верхний уровень"
+    ) in отчёт.warnings
