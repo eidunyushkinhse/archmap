@@ -24,6 +24,13 @@ NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 NodeApproval = Literal["in_progress", "approved"]
 NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 
+# Элемент архитектуры узла с детьми (docs/plan-c4-elements.md, раздел 0а): хранимое значение —
+# system | container | None, где None («не сказано») читается как система, как у всех узлов с
+# детьми до эпика. Действующий элемент (app/element.py) добавляет component — всё, что лежит
+# внутри контейнера. Колонки и полей контракта пока нет (фаза Ф1 эпика).
+NodeElement = Literal["system", "container"]
+NodeElementEffective = Literal["system", "container", "component"]
+
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
 # фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом
 # к vN», чтобы откат не терял незафиксированное; restore — автоматическая «Откат к vN»,
