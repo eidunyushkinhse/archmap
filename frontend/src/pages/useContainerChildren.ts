@@ -45,6 +45,10 @@ export interface ContainerChildrenState {
   // Непосредственные дети (подмножество потомков): null — ещё не загружены (или
   // узел не контейнер), [] — загружены и детей нет. Для модалки распределения.
   children: Node[] | null;
+  // Единицы статуса страницы — потомки, которые не системы (контейнеры, компоненты,
+  // «Пользователи»), в порядке потомков: из них складывается статус системы
+  // (пилюля у имени). null — ещё не загружены (или узел не контейнер).
+  units: Node[] | null;
   // true, пока потомки грузятся (только для контейнера)
   loading: boolean;
   // Схемы логики потомков, сгруппированные по непосредственным детям
@@ -167,6 +171,11 @@ export function useContainerChildren(nodeId: string, isContainer: boolean): Cont
     () => (descendants === null ? null : descendants.filter((d) => d.parent_id === nodeId)),
     [descendants, nodeId],
   );
+  // Элемент каждого потомка сервер отдаёт готовым (element_effective): здесь только отбор.
+  const units = useMemo<Node[] | null>(
+    () => (descendants === null ? null : descendants.filter((d) => d.element_effective !== "system")),
+    [descendants],
+  );
   const groups = useMemo(
     () => (descendants ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
     [descendants, nodeId],
@@ -175,6 +184,7 @@ export function useContainerChildren(nodeId: string, isContainer: boolean): Cont
 
   return {
     children,
+    units,
     loading: isContainer && descendants === null,
     docGroups: groups.docGroups,
     specGroups: groups.specGroups,

@@ -95,10 +95,13 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
                 endpoint_ids.add(nid)
 
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
-    # Статус страницы с учётом детей — по той же карте узлов, без нового SQL.
-    effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
-    # Действующий элемент архитектуры — тоже по карте, один раз: локалам, гостям, предкам.
+    # Действующий элемент архитектуры — по карте узлов, один раз: локалам, гостям, предкам
+    # и статусу страницы ниже.
     elements = elements_from_nodes(all_nodes)
+    # Статус страницы (у системы — из единиц) — по той же карте, без нового SQL.
+    effective = effective_approvals(
+        ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
+    )
     for n in local_nodes:
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0

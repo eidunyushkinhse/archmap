@@ -377,11 +377,64 @@ async def test_статус_страницы_листа(client: ArchMapClient, a
     assert lines.index("Статус страницы: согласовано") == lines.index(render.anchor_line(node(NODE, "Узел"))) + 1
 
 
-async def test_статус_страницы_контейнера_складывается_из_детей(
+async def test_статус_страницы_системы_складывается_из_вложенных_объектов(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    # Хранимое «согласовано» у контейнера не показывается: статус — вычисленный
-    # сервером по детям, счётчик — по прямым детям (внук не считается).
+    # Хранимое «согласовано» у системы не показывается: статус — вычисленный сервером,
+    # счётчик — по единицам любой глубины: контейнер и его компонент считаются оба,
+    # вложенная система — нет (её объекты — да).
+    target = base_routes(
+        api, "service", has_children=True, approval="approved", approval_effective="in_progress",
+        element=None, element_effective="system",
+    )
+    api.get("/nodes/all", [
+        target,
+        node(u(1), "orders", NODE, element="container", element_effective="container",
+             has_children=True, approval="approved", approval_effective="approved"),
+        node(u(2), "orders/api", u(1), element=None, element_effective="component",
+             approval="in_progress", approval_effective="in_progress"),
+        node(u(3), "Склад", NODE, element=None, element_effective="system", has_children=True,
+             approval="approved", approval_effective="approved"),
+        node(u(4), "Остатки", u(3), element=None, element_effective="container",
+             approval="approved", approval_effective="approved"),
+        node(u(5), "Покупатель", NODE, shape="person", element=None, element_effective=None,
+             approval="in_progress", approval_effective="in_progress"),
+    ])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert (
+        "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 4"
+        in out.splitlines()
+    )
+
+
+async def test_статус_страницы_контейнера_с_компонентами_свой(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Р14: у контейнера с компонентами статус свой, как у листа, — без счётчика.
+    target = base_routes(
+        api, "service", has_children=True, approval="approved", approval_effective="approved",
+        element="container", element_effective="container",
+    )
+    api.get("/nodes/all", [
+        target,
+        node(u(1), "orders/api", NODE, element=None, element_effective="component",
+             approval="in_progress", approval_effective="in_progress"),
+    ])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Статус страницы: согласовано" in out.splitlines()
+
+
+async def test_старый_сервер_статус_по_прямым_детям(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Сервер без элементов архитектуры (нет element_effective): как до эпика —
+    # складывается из детей, счётчик по прямым детям (внук не считается).
     target = base_routes(
         api, "service", has_children=True, approval="approved", approval_effective="in_progress"
     )

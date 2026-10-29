@@ -63,6 +63,8 @@ class Elements[K: Hashable]:
                     kids[parent_id] = own
         self._children = kids
         self._memo: dict[K, NodeElementEffective | None] = {}
+        # «Есть предок с хранимым container» — по узлам цепочек без цикла (_inside_container).
+        self._inside: dict[K, bool] = {}
 
     def _ancestors(self, node_id: K) -> list[K]:
         """Предки от родителя к корню, без самого узла; цикл обрывается на повторе."""
@@ -75,6 +77,34 @@ class Elements[K: Hashable]:
             cur = self._parent_of.get(cur)
         return out
 
+    def _inside_container(self, node_id: K) -> bool:
+        """Есть ли у узла предок (не он сам) с хранимым container.
+
+        Один подъём отвечает за всю пройденную цепочку: ответ каждого узла на ней — хранимый
+        container у его родителя или ответ родителя. Так проход по всем узлам проекта
+        (статус страницы систем считает элемент каждого узла) линеен, а не квадратичен по
+        глубине. Мемо пишется только для цепочек без цикла: у узла цикла предки считаются
+        без него самого, и ответ по родителю был бы неверен, — там честный подъём от узла."""
+        if node_id in self._inside:
+            return self._inside[node_id]
+        path: list[K] = [node_id]
+        seen = {node_id}
+        above = False  # ответ для узла, на котором подъём остановился (над путём)
+        cur = self._parent_of.get(node_id)
+        while cur is not None:
+            if cur in seen:
+                return any(self._stored.get(a) == CONTAINER for a in self._ancestors(node_id))
+            if cur in self._inside:
+                above = self._inside[cur] or self._stored.get(cur) == CONTAINER
+                break
+            path.append(cur)
+            seen.add(cur)
+            cur = self._parent_of.get(cur)
+        for step in reversed(path):
+            self._inside[step] = above
+            above = above or self._stored.get(step) == CONTAINER
+        return self._inside[node_id]
+
     def effective(self, node_id: K) -> NodeElementEffective | None:
         """Действующий элемент узла (правила — в шапке модуля)."""
         if node_id in self._memo:
@@ -82,7 +112,7 @@ class Elements[K: Hashable]:
         result: NodeElementEffective | None
         if self._shape_of.get(node_id) == "person":
             result = None
-        elif any(self._stored.get(a) == CONTAINER for a in self._ancestors(node_id)):
+        elif self._inside_container(node_id):
             result = "component"
         elif self._children.get(node_id):
             result = "container" if self._stored.get(node_id) == CONTAINER else "system"

@@ -683,6 +683,24 @@ async def test_правка_объекта_шлёт_статус_страниц�
     assert "Статус страницы: согласовано" in out
 
 
+async def test_статус_страницы_ставится_у_контейнера_с_компонентами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Р14: контейнер с компонентами ставит свой статус — подтверждение без счётчика.
+    api.patch("/nodes/n2", node("n2", "orders", has_children=True, element="container",
+                                element_effective="container",
+                                approval="approved", approval_effective="approved"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "approval": "approved"}, client
+    )
+
+    assert out.splitlines()[-1] == "Статус страницы: согласовано"
+    desc = tools.BY_NAME["archmap_update_node"]["description"]
+    assert "только у контейнера или компонента" in desc
+    assert "у системы он складывается из вложенных объектов" in desc
+
+
 async def test_статус_страницы_в_каталоге_тот_же_что_у_бэкенда() -> None:
     # Лишнее значение в enum = 422 на живом сервере; описание предупреждает агента,
     # что согласование ставит человек.

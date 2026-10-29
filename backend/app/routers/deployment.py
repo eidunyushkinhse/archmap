@@ -257,8 +257,10 @@ def get_deployment_graph(
         own_by_node(pairs),
         {site.id: i for i, site in enumerate(sites)},
     )
-    approvals = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
     elements = elements_from_nodes(all_nodes)
+    approvals = effective_approvals(
+        ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
+    )
 
     nodes_out: list[DeploymentNodeOut] = []
     for n in shown:

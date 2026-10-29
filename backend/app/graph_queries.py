@@ -175,10 +175,12 @@ def build_graph(
     endpoints = ghost_registry(all_nodes, endpoint_ids, child_counts, elements)
     # child_count/has_children локальных узлов — из того же Counter
     # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
-    # Статус страницы с учётом детей — по той же карте (app/approval): холст его пока
-    # не показывает, но выдачу читают MCP и страница, и дефолт «в работе» у
-    # согласованного узла был бы ложью.
-    effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    # Статус страницы (у системы — из единиц) — по той же карте и тем же элементам
+    # (app/approval): холст его пока не показывает, но выдачу читают MCP и страница, и
+    # дефолт «в работе» у согласованного узла был бы ложью.
+    effective = effective_approvals(
+        ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
+    )
     # Размещение (NodeResponse.sites) здесь НЕ заполняется и остаётся []: холст
     # объектов его не показывает, а выборка экземпляров и площадок на каждый уровень
     # была бы лишней. Его отдают выдачи роутера узлов (mark_sites) и граф развёртывания.

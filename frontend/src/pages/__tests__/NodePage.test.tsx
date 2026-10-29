@@ -1131,28 +1131,31 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     expect(pill).toHaveTextContent("В работе");
   });
 
-  it("контейнер: счётчик по детям, клик по строке открывает страницу ребёнка", async () => {
+  it("система: счётчик по вложенным объектам, клик по строке открывает его страницу", async () => {
     const kids = [
       node("k1", { name: "Шлюз", parent_id: "c1", approval: "approved", approval_effective: "approved" }),
       node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
     ];
-    setupPage(node("c1", { name: "Ядро", has_children: true, child_count: 2 }), kids, false);
+    setupPage(
+      node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" }),
+      kids, false,
+    );
     const pill = await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
     await userEvent.click(pill);
     await userEvent.click(screen.getByRole("button", { name: "База платежей" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k2");
   });
 
-  it("контейнер: чужое согласование ребёнка перечитывает детей — счётчик не застывает", async () => {
+  it("система: чужое согласование ребёнка перечитывает детей — счётчик не застывает", async () => {
     const kids = [
       node("k1", { name: "Шлюз", parent_id: "c1" }),
       node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
     ];
-    const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2 });
+    const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" });
     setupPage(cont, kids);
     await screen.findByRole("button", { name: /В работе · 0 из 2/ }, ждать);
 
-    // Другая сессия согласовала одного ребёнка: статус контейнера тот же («в работе»),
+    // Другая сессия согласовала одного ребёнка: статус системы тот же («в работе»),
     // его сигнатура не меняется — освежить счётчик обязано перечитывание детей.
     vi.mocked(nodesApi.getDescendants).mockResolvedValue([
       { ...kids[0], approval: "approved", approval_effective: "approved" }, kids[1],
@@ -1162,6 +1165,44 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
     await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+  });
+
+  it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
+    // Торговля → Заказы (контейнер) → Заказы-API (компонент); Торговля → Склад (система) →
+    // Остатки. Вложенная система не позиция счётчика, её объекты — позиции.
+    const kids = [
+      node("o", { name: "Заказы", parent_id: "s", has_children: true, child_count: 1, element: "container",
+        approval: "approved", approval_effective: "approved" }),
+      node("a", { name: "Заказы-API", parent_id: "o", element_effective: "component" }),
+      node("w", { name: "Склад", parent_id: "s", has_children: true, child_count: 1, element_effective: "system",
+        approval: "approved", approval_effective: "in_progress" }),
+      node("r", { name: "Остатки", parent_id: "w" }),
+    ];
+    setupPage(
+      node("s", { name: "Торговля", has_children: true, child_count: 2, element_effective: "system" }),
+      kids, false,
+    );
+    const pill = await screen.findByRole("button", { name: /В работе · 1 из 3/ }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовано 1 из 3")).toBeInTheDocument();
+    for (const name of ["Заказы", "Заказы-API", "Остатки"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Склад" })).toBeNull();
+  });
+
+  it("контейнер с компонентами: редактор ставит свой статус PATCH-ом", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      node("o", { name: "Заказы", has_children: true, child_count: 1, element: "container",
+        approval: "approved", approval_effective: "approved", version: 2 }),
+    );
+    const kids = [node("a", { name: "Заказы-API", parent_id: "o", element_effective: "component" })];
+    setupPage(node("o", { name: "Заказы", has_children: true, child_count: 1, element: "container" }), kids);
+    const pill = await screen.findByRole("button", { name: "В работе" }, ждать);
+    await userEvent.click(pill);
+    await userEvent.click(screen.getByRole("button", { name: /^Согласовано проверено редактором/ }));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ approval: "approved", base_version: 1 });
   });
 });
 

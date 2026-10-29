@@ -376,11 +376,11 @@ function NodePageInner({
               <span className="np-name">{node.name}</span>
             )}
 
-            {/* Статус страницы: у листа — выбор редактора, у контейнера — из детей */}
+            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор редактора */}
             <ApprovalPill
               node={node}
               isArchitect={isArchitect}
-              children={container.children}
+              units={container.units}
               onNavigateNode={onNavigateNode}
               onPick={patch.pickApproval}
             />

@@ -139,21 +139,55 @@ def anchor_line(node: dict[str, Any]) -> str:
 APPROVAL_WORD = {"in_progress": "в работе", "approved": "согласовано"}
 
 
-def approval_line(node: dict[str, Any], children: list[dict[str, Any]]) -> str | None:
-    """Строка карточки «Статус страницы: …». У листа — его статус; у контейнера —
-    статус, вычисленный сервером по детям (approval_effective), и счётчик согласованных
-    прямых детей. Сервер, который статуса страниц не знает, поля не отдаёт — тогда
-    строки нет: выдуманное «в работе» было бы неправдой."""
+def approval_units(node: dict[str, Any], all_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Позиции счётчика статуса страницы. Сервер с элементами архитектуры: у системы
+    статус складывается из вложенных объектов любой глубины, кроме вложенных систем
+    (контейнеры, компоненты, «Пользователи»), — обход потомков с seen (данные бывают
+    циклическими). Старый сервер (поля element_effective нет): прямые дети, как раньше."""
+    if "element_effective" not in node:
+        return [n for n in all_nodes if str(n.get("parent_id")) == str(node["id"])]
+    kids: dict[str, list[dict[str, Any]]] = {}
+    for n in all_nodes:
+        if n.get("parent_id"):
+            kids.setdefault(str(n["parent_id"]), []).append(n)
+    out: list[dict[str, Any]] = []
+    seen = {str(node["id"])}
+    stack = list(reversed(kids.get(str(node["id"]), [])))
+    while stack:
+        cur = stack.pop()
+        if str(cur["id"]) in seen:
+            continue
+        seen.add(str(cur["id"]))
+        if cur.get("element_effective") != "system":
+            out.append(cur)
+        stack.extend(reversed(kids.get(str(cur["id"]), [])))
+    return out
+
+
+def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | None:
+    """Строка карточки «Статус страницы: …». У контейнера (в том числе с компонентами),
+    компонента и «Пользователя» — свой статус; у системы — статус, вычисленный сервером
+    (approval_effective), и счётчик согласованных единиц (approval_units). Старый сервер
+    без элементов архитектуры — по наличию детей, со счётчиком прямых детей. Сервер,
+    который статуса страниц не знает, поля не отдаёт — тогда строки нет: выдуманное
+    «в работе» было бы неправдой."""
     value = node.get("approval_effective")
     if value is None:
         return None
     word = APPROVAL_WORD.get(str(value), str(value))
-    if not node.get("has_children"):
+    done = sum(1 for c in units if c.get("approval_effective") == "approved")
+    if "element_effective" not in node:
+        if not node.get("has_children"):
+            return f"Статус страницы: {word}"
+        return (
+            f"Статус страницы: {word} — складывается из детей, "
+            f"согласовано {done} из {len(units)}"
+        )
+    if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
-    done = sum(1 for c in children if c.get("approval_effective") == "approved")
     return (
-        f"Статус страницы: {word} — складывается из детей, "
-        f"согласовано {done} из {len(children)}"
+        f"Статус страницы: {word} — складывается из вложенных объектов, "
+        f"согласовано {done} из {len(units)}"
     )
 
 

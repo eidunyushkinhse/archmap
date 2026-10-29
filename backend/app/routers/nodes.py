@@ -88,7 +88,7 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
 
 def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
     """Все вычисляемые атрибуты NodeResponse разом: число детей и их наличие, статус
-    страницы с учётом детей (app/approval), действующее размещение (app/deployment),
+    страницы (у системы — из вложенных объектов, app/approval), действующее размещение (app/deployment),
     действующий элемент архитектуры (app/element_marks). Одна точка — новый производный
     атрибут не забудется ни в одной из выдач роутера."""
     if not nodes:
@@ -477,12 +477,19 @@ def update_node(
     # null равен «не прислано». Применяется после правки полей — правило «у
     # пользователя размещения нет» смотрит на уже итоговую форму узла.
     site_ids = data.pop("site_ids", None)
-    # Статус страницы у контейнера не хранится, а складывается из детей
-    # (app/approval): правка руками отказывается 422, даже если значение совпадает
-    # с хранимым. Курсор — мета (approval не в structural ниже): его ставит общее
-    # правило «по фактическому изменению».
+    # Статус страницы у системы не хранится, а складывается из вложенных объектов
+    # (app/approval, Р14 эпика элементов): правка руками отказывается 422, даже если
+    # значение совпадает с хранимым. Контейнер (и с компонентами), компонент и
+    # «Пользователь» ставят свой. Элемент — по дереву после правки: родитель, форма и
+    # элемент из того же запроса. Курсор — мета (approval не в structural ниже): его
+    # ставит общее правило «по фактическому изменению».
     if "approval" in data:
-        reason = manual_approval_refusal(db, node)
+        reason = manual_approval_refusal(
+            db, project.id, node,
+            parent_id=data.get("parent_id", node.parent_id),
+            shape=data.get("shape") or node.shape,
+            element=data.get("element", node.element),
+        )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
     if data:
