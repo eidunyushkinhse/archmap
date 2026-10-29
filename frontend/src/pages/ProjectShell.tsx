@@ -29,6 +29,8 @@ import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
 import { storedMode, storeMode, type WorkMode } from "./workMode";
+import { useMessageToast } from "./useToast";
+import { useFirstChild } from "../components/element/useFirstChild";
 
 interface Props {
   projectId: string;
@@ -109,6 +111,10 @@ export default function ProjectShell({
   const [syncToken, setSyncToken] = useState(0);
   // Модалка создания дочернего объекта («+» в дереве)
   const [createFor, setCreateFor] = useState<string | null>(null);
+  // Первый вложенный объект у листа (Р4 эпика элементов): окно выбора элемента — ДО окна
+  // «Новый объект»; отказ записи — тостом, объект тогда не создаётся.
+  const [createError, showCreateError] = useMessageToast();
+  const firstChild = useFirstChild(showCreateError);
 
   // Алерты схемы — в интерфейсе «Рекомендации»: кнопка в шапке (глобальная
   // видимость, архитектор). In-context рейл с locate живёт в редакторе-карте (MapEditorPage).
@@ -246,7 +252,11 @@ export default function ProjectShell({
               reloadToken={treeReload}
               currentNodeId={nodeId}
               onNodePage={(node: Node) => onNavigateNode(node.id)}
-              onCreateChild={(parentId) => setCreateFor(parentId)}
+              onCreateChild={(parentId) => {
+                void firstChild.ensure(parentId, "service").then((go) => {
+                  if (go) setCreateFor(parentId);
+                });
+              }}
             />
             {nodeId ? (
               <NodePage
@@ -284,6 +294,8 @@ export default function ProjectShell({
         )}
       </div>
 
+      {firstChild.dialog}
+      {createError && <div role="alert" style={errorToast}>{createError}</div>}
       {createFor && (
         <NodeModal
           parentId={createFor}
@@ -388,3 +400,10 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
 const topBar: CSSProperties = { ...workTopBar, position: "relative", zIndex: 50 };
 // Стиль иконочных кнопок шапки и тост синка переехали в SchemaActions вместе с
 // самими кнопками — здесь их больше нет намеренно.
+// Тост отказа создания (запись элемента родителю не прошла) — как тост редактора-карты.
+const errorToast: CSSProperties = {
+  position: "fixed", top: 74, right: 24, zIndex: 60,
+  background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b",
+  borderRadius: 10, padding: "7px 12px", fontSize: 13,
+  boxShadow: "0 4px 12px rgba(30,41,59,.10)",
+};

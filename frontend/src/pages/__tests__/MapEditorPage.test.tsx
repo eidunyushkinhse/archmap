@@ -23,6 +23,7 @@ function render(ui: ReactElement) {
 }
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
+    get: vi.fn(),
     getGraph: vi.fn(),
     getAll: vi.fn(),
     deletionSnapshot: vi.fn(),
@@ -343,6 +344,10 @@ describe("MapEditorPage: перенос объекта", () => {
     vi.clearAllMocks();
     vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
     vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    // Цель переноса — узел с детьми: окна первого вложенного объекта нет.
+    vi.mocked(nodesApi.get).mockResolvedValue(
+      node("new", { has_children: true, child_count: 1, element_effective: "system" }) as never,
+    );
   });
 
   const снимок = { nodes: [], edges: [], layout_items: [{ view_id: null, item_id: "kid", payload: { x: 1, y: 2 } }] };
@@ -381,6 +386,21 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось перенести объект: Нет связи с сервером");
     expect(historyMock.push).not.toHaveBeenCalled();
     expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
+  });
+
+  // Р4 эпика элементов: цель — лист-сервис без элемента. Сначала окно первого вложенного
+  // объекта; «Отмена» — объект остаётся на месте, ни снимка, ни правки.
+  it("перенос в лист: сначала окно первого вложенного объекта, «Отмена» ничего не делает", async () => {
+    vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: null, element_effective: "container", sites: [] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    expect(await screen.findByText("Внутри «NEW» появился первый объект")).toBeInTheDocument();
+    await act(async () => { screen.getByText("Отмена").click(); });
+    expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    expect(historyMock.push).not.toHaveBeenCalled();
   });
 
   it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {

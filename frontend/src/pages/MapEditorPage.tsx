@@ -50,6 +50,7 @@ import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../compon
 import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
+import { useFirstChild } from "../components/element/useFirstChild";
 
 interface Props {
   projectId: string;
@@ -131,6 +132,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
   // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
   const [errorToast, showErrorToast] = useMessageToast();
+  // Первый вложенный объект у листа (Р4 эпика элементов): «+» дерева, бросок шаблона на
+  // уровень листа и перенос в лист спрашивают элемент родителя ДО создания или переноса.
+  const firstChild = useFirstChild(showErrorToast);
+  // Стабильная ссылка (useCallback в хуке) — для бандла броска холста ниже.
+  const ensureFirstChild = firstChild.ensure;
 
   const history = useHistory();
   // Право правки — роль в проекте (owner/editor), не глобальная роль.
@@ -484,6 +490,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
+    // Цель — лист без элемента: сначала окно первого вложенного объекта. «Отмена» —
+    // объект остаётся на месте.
+    if (!(await firstChild.ensure(newParentId, node.shape))) return;
     let snapshot: Awaited<ReturnType<typeof nodesApi.moveSnapshot>>;
     try {
       snapshot = await nodesApi.moveSnapshot(node.id);
@@ -748,11 +757,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const drop = useMemo<LevelDropProps>(() => ({
     onDropNode: (shape, pos, dropParentId) => {
+      // В раскрытую рамку — у её узла дети уже есть, выбора нет. На уровень — родитель
+      // уровня мог быть листом: сначала окно первого вложенного объекта.
       if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
-      else setNodeModal({ open: true, node: null, shape, pos });
+      else {
+        void ensureFirstChild(currentParentId, shape).then((go) => {
+          if (go) setNodeModal({ open: true, node: null, shape, pos });
+        });
+      }
     },
     dragShape,
-  }), [currentParentId, dragShape]);
+  }), [currentParentId, dragShape, ensureFirstChild]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -858,7 +873,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+          onCreateChild={(parentId) => {
+            void firstChild.ensure(parentId, "service").then((go) => {
+              if (go) setNodeModal({ open: true, node: null, parentId, pos: null });
+            });
+          }}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
           onTemplateDrag={setDragShape}
         />
@@ -944,6 +963,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       </div>
 
       {/* Модалки */}
+      {firstChild.dialog}
       {nodeModal.open && (
         <NodeModal
           parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}
