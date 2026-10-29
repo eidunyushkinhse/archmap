@@ -1253,6 +1253,60 @@ def test_посев_создаёт_площадки_и_экземпляры(db):
     assert экземпляры == {("Корзина", "Облако"), ("API", "Кластер prod"), ("API", "ВМ-2")}
 
 
+РАЗМЕЩЕНИЕ_C4 = """
+nodes:
+  - name: shop
+    sites: [ВМ]
+    children:
+      - name: orders
+        element: container
+        sites: [Облако]
+        children:
+          - name: api
+            sites: [ВМ]
+          - name: worker
+      - name: billing
+      - name: mail
+        element: container
+        children:
+          - name: sender
+deployment:
+  sites:
+    - name: Облако
+    - name: ВМ
+"""
+
+
+def _экземпляры(db, project_id, ids, parsed) -> set[tuple[str, str]]:
+    имя_узла = dict(zip(ids, (n.name for n in parsed.nodes), strict=True))
+    площадки = {s.id: s.name for s in db.query(DeploymentSite).filter(DeploymentSite.project_id == project_id)}
+    return {
+        (имя_узла[i.node_id], площадки[i.site_id])
+        for i in db.query(DeploymentInstance).filter(DeploymentInstance.project_id == project_id)
+    }
+
+
+def test_посев_размещения_по_единицам(db):
+    """Единица — контейнер (Р16): своё объявление orders — ему самому; объявление
+    системы shop — её единицам без своего (billing и mail целиком, не sender);
+    объявление компонента api — замечание, площадки пропущены, экземпляров нет."""
+    parsed, ошибки = parse_import(РАЗМЕЩЕНИЕ_C4)
+    assert ошибки == [] and parsed is not None
+    assert parsed.warnings == [
+        "shop / orders / api: размещение задаётся контейнеру «orders» — площадки у компонента "
+        "пропущены",
+    ]
+    assert {n.name: n.sites for n in parsed.nodes}["api"] == []
+    p = _project(db)
+
+    ids = seed_import(db, p.id, parsed)
+    db.commit()
+
+    assert _экземпляры(db, p.id, ids, parsed) == {
+        ("orders", "Облако"), ("billing", "ВМ"), ("mail", "ВМ"),
+    }
+
+
 def test_roundtrip_площадок_байт_в_байт(db):
     """Экспорт → импорт → экспорт: раздел deployment и sites узлов возвращаются теми
     же байтами (у нового проекта другие id, а документ — тот же)."""

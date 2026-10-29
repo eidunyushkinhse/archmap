@@ -19,10 +19,13 @@
    (Elements над теми же записями ElementRow). Поддерево выносимого едет с ним. Своего
    размещения у выносимого нет — он берёт объявление ближайшего узла на пути от прежнего
    родителя до контейнера включительно: иначе потерял бы площадки, которые получал по
-   объявлению контейнера (app/deployment.leaf_placements);
+   объявлению предка (app/deployment.unit_placements);
 3. у потомков действующего контейнера заданный элемент снимается — они его компоненты.
    Так разрешается и «контейнер внутри контейнера»: внутренний становится составным
-   компонентом, наружный остаётся контейнером.
+   компонентом, наружный остаётся контейнером;
+4. площадки у компонента (по итоговым элементам) снимаются с замечанием: размещение
+   задаётся контейнеру, у компонента его не бывает (Р16). В контейнер они тихо не
+   переносятся — это было бы наследованием с другой стороны (ошибка 2026-10).
 У листа-сервиса значение — намерение (Р3) и не замечание.
 
 Закреплённые узлы (pinned) не переносятся никогда: это живые объекты проекта при догрузке
@@ -43,7 +46,7 @@ from collections.abc import Callable, Sequence
 from typing import Protocol
 
 from app.domain_types import NodeElement
-from app.element import CONTAINER
+from app.element import CONTAINER, Elements
 from app.element_marks import ElementRow, build_elements
 
 ONLY_SERVICE_NOTE = "{path}: элемент архитектуры задаётся только у сервиса — значение пропущено"
@@ -73,6 +76,9 @@ STORE_KEPT_NOTE = {
 COMPONENT_NOTE = (
     "{path}: объект лежит внутри контейнера «{container}» и считается его компонентом — "
     "элемент архитектуры пропущен"
+)
+COMPONENT_SITES_NOTE = (
+    "{path}: размещение задаётся контейнеру «{container}» — площадки у компонента пропущены"
 )
 
 
@@ -197,16 +203,28 @@ def sanitize_elements(
         # Дерево изменилось — действующие элементы потомков считаются заново.
         elements = build_elements(_rows(nodes))
 
-    # Снятие элемента у компонента действующих элементов не меняет (компонентом его
-    # делает предок-контейнер, а не своё значение), поэтому один проход по одной сборке.
+    return notes + _strip_components(nodes, paths, elements)
+
+
+def _strip_components(
+    nodes: Sequence[ElementNode], paths: Sequence[str], elements: Elements[uuid.UUID]
+) -> list[str]:
+    """Правила 3 и 4: у компонента снимаются элемент и площадки, с замечанием на каждое.
+    Снятие элемента у компонента действующих элементов не меняет (компонентом его делает
+    предок-контейнер, а не своё значение), поэтому оба правила — один проход по одной
+    сборке."""
+    notes: list[str] = []
     for i, n in enumerate(nodes):
-        if n.element is None or elements.effective(_key(i)) != "component":
+        if elements.effective(_key(i)) != "component" or (n.element is None and not n.sites):
             continue
         container = elements.container_of(_key(i))
-        n.element = None
-        notes.append(COMPONENT_NOTE.format(
-            path=paths[i], container=nodes[container.int].name if container is not None else "",
-        ))
+        name = nodes[container.int].name if container is not None else ""
+        if n.element is not None:
+            n.element = None
+            notes.append(COMPONENT_NOTE.format(path=paths[i], container=name))
+        if n.sites:
+            n.sites = []
+            notes.append(COMPONENT_SITES_NOTE.format(path=paths[i], container=name))
     return notes
 
 

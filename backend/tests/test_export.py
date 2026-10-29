@@ -489,6 +489,68 @@ def test_поддерево_без_размещения_раздела_не_пи
     assert doc == {"nodes": [{"name": "Одиночка", "shape": "service"}], "edges": []}
 
 
+def _c4_площадки(db) -> dict:
+    """Система shop: контейнер orders с компонентами api и worker, лист billing рядом;
+    площадки «Облако» и «ВМ»."""
+    облако = _site(db, "Облако", kind="cloud")
+    вм = _site(db, "ВМ", kind="vm")
+    shop = _node(db, "shop")
+    orders = _node(db, "orders", shop, element="container")
+    api = _node(db, "api", orders)
+    _node(db, "worker", orders)
+    billing = _node(db, "billing", shop)
+    return {"облако": облако, "вм": вм, "shop": shop, "orders": orders, "api": api, "billing": billing}
+
+
+def test_контейнер_с_компонентами_пишет_sites_сам_а_компонент_никогда(db):
+    """Единица размещения — контейнер (Р16): свои sites у orders, у его компонентов
+    ключа нет, даже со «спящим» экземпляром (прежние данные); система, чьи единицы
+    стоят по-разному, sites не пишет."""
+    у = _c4_площадки(db)
+    _place(db, у["orders"], у["облако"])
+    _place(db, у["api"], у["вм"])  # спящий: размещение его не считает
+    _place(db, у["billing"], у["вм"])
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    [shop] = doc["nodes"]
+    assert "sites" not in shop
+    billing, orders = shop["children"]
+    assert (orders["name"], orders["sites"]) == ("orders", ["Облако"])
+    assert list(orders) == ["name", "shape", "element", "sites", "children"]
+    assert all("sites" not in k for k in orders["children"])
+    assert billing["sites"] == ["ВМ"]
+
+
+def test_система_с_единицами_на_одном_наборе_пишет_sites_сама(db):
+    """Все единицы системы — контейнер с компонентами и лист — на одном наборе: sites у
+    системы, у поддерева нет (импорт раздаст объявление системы её единицам)."""
+    у = _c4_площадки(db)
+    _place(db, у["orders"], у["облако"])
+    _place(db, у["billing"], у["облако"])
+    db.commit()
+
+    doc = yaml.safe_load(export_all(db=db, project=ensure_project(db)).content)
+    [shop] = doc["nodes"]
+    assert shop["sites"] == ["Облако"]
+    assert all("sites" not in k for k in shop["children"])
+    assert all("sites" not in k for k in shop["children"][1]["children"])
+
+
+def test_поддерево_компонента_площадок_не_пишет(db):
+    """Элемент поддерева решают предки вне набора: api — компонент контейнера orders, и
+    его спящий экземпляр не пишется и в экспорте поддерева от api."""
+    у = _c4_площадки(db)
+    _place(db, у["api"], у["вм"])
+    db.commit()
+
+    doc = yaml.safe_load(
+        export_subtree(node_id=у["api"].id, db=db, project=ensure_project(db)).content
+    )
+
+    assert doc == {"nodes": [{"name": "api", "shape": "service"}], "edges": []}
+
+
 def test_без_площадок_документ_байт_в_байт_прежний(db):
     корень = _node(db, "Ярмарка", technology="Python")
     orders = _node(db, "orders", корень)
