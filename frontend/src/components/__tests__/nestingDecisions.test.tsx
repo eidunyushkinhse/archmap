@@ -43,10 +43,14 @@ function node(id: string, over: Partial<Node> = {}): Node {
   } as Node;
 }
 
-// Три случая на каждую точку: сервис с детьми, сервис-лист, база с детьми.
-const group = () => node("Ядро", { has_children: true, child_count: 2 });
-const leaf = () => node("Платежи");
-const dbWithKids = () => node("Склад", { shape: "database", has_children: true, child_count: 1 });
+// Три случая на каждую точку: сервис с детьми, сервис-лист, база с детьми. Элемент —
+// как его ответил бы сервер (app/element.py): у узла с детьми без хранимого элемента —
+// система при любой форме, у листа — контейнер.
+const group = () => node("Ядро", { has_children: true, child_count: 2, element_effective: "system" });
+const leaf = () => node("Платежи", { element_effective: "container" });
+const dbWithKids = () => node("Склад", {
+  shape: "database", has_children: true, child_count: 1, element_effective: "system",
+});
 
 // Глиф строки (nodeTree.shared.ShapeGlyph): «коробка с крышкой» у узла с детьми,
 // цилиндр у базы, прямоугольник у сервиса-листа.
@@ -69,12 +73,15 @@ describe("nodeNesting — общая точка решения", () => {
 });
 
 describe("подсказка строки дерева (treeRowTitle)", () => {
-  it("слой и уровень — только у сервиса с детьми", () => {
+  it("слой — только у сервиса с детьми; уровень развёртывания — у системы", () => {
     expect(treeRowTitle("editor", group())).toBe("Открыть слой: Ядро");
     expect(treeRowTitle("deploy", group())).toBe("Открыть уровень: Ядро");
     expect(treeRowTitle("editor", leaf())).toBe("Показать на схеме: Платежи");
+    expect(treeRowTitle("deploy", leaf())).toBe("Показать на схеме: Платежи");
     expect(treeRowTitle("editor", dbWithKids())).toBe("Показать на схеме: Склад");
-    expect(treeRowTitle("deploy", dbWithKids())).toBe("Показать на схеме: Склад");
+    // «Развёртывание» с Ф4 эпика следует элементу от сервера (D33): база с детьми для
+    // него система — размещается её единицами, уровень открывается, как у сервера.
+    expect(treeRowTitle("deploy", dbWithKids())).toBe("Открыть уровень: Склад");
     expect(treeRowTitle("pages", group())).toBe("Страница: Ядро");
   });
 });

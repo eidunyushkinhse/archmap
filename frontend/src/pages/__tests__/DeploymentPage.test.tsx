@@ -104,14 +104,20 @@ const treeProps = (): TreeProps => {
   if (!tree.current) throw new Error("дерево не отрисовано");
   return tree.current;
 };
-// Узел проекта (ответ /nodes/all и строки дерева): sites — площадки объекта; у контейнера
-// — площадки его объектов (partial — стоит часть).
+// Узел проекта (ответ /nodes/all и строки дерева): sites — площадки объекта; у системы
+// — площадки её единиц (partial — стоит часть). Элемент — как его считает сервер: узел с
+// детьми — система, лист — контейнер; контейнер с компонентами и компонент — явно.
 function pnode(
   id: string, name: string, parent_id: string | null,
-  over: { has_children?: boolean; shape?: AppNode["shape"]; own?: string[]; partial?: string[] } = {},
+  over: {
+    has_children?: boolean; shape?: AppNode["shape"]; own?: string[]; partial?: string[];
+    element?: AppNode["element_effective"];
+  } = {},
 ): AppNode {
   return {
     id, name, parent_id, has_children: over.has_children ?? false, shape: over.shape ?? "service",
+    element_effective: over.element !== undefined ? over.element
+      : over.shape === "person" ? null : over.has_children ? "system" : "container",
     sites: [
       ...(over.own ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, partial: false })),
       ...(over.partial ?? []).map((sid) => ({ id: sid, name: sid.toUpperCase(), kind: "vm" as const, partial: true })),
@@ -199,7 +205,7 @@ describe("DeploymentPage", () => {
     expect(props().linkedHighlight).toBeNull();
   });
 
-  it("дерево слева в режиме deploy: уровень подсвечен, клик по контейнеру — навигация на его уровень", async () => {
+  it("дерево слева в режиме deploy: уровень подсвечен, клик по системе — навигация на её уровень", async () => {
     const { onNavigateLevel, goTo } = await setup();
     expect(treeProps().mode).toBe("deploy");
     expect(treeProps().currentNodeId).toBeNull();
@@ -235,8 +241,8 @@ describe("DeploymentPage", () => {
   });
 
   it("объект из дерева с другого уровня: уровень родителя и выделение после загрузки его графа", async () => {
-    // На корне «c» — цельный контейнер: «l1» внутри него не рисуется.
-    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2 };
+    // На корне «c» — цельная система: «l1» внутри неё не рисуется.
+    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2, element_effective: "system" };
     const root = graph({
       nodes: [box, { ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }], edges: [],
     });
@@ -273,6 +279,15 @@ describe("DeploymentPage", () => {
     await waitFor(() => expect(deploymentApi.graph).toHaveBeenLastCalledWith(null));
     await waitFor(() => expect(props().containerId).toBeNull());
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("уровень контейнера по адресу — ошибка загрузки текстом сервера (D24)", async () => {
+    const text = "Внутри контейнера «orders» отдельного размещения нет: компоненты развёртываются вместе с ним";
+    vi.mocked(deploymentApi.graph).mockRejectedValue(new ApiError(422, text));
+    render(<DeploymentPage isArchitect level="o" onNavigateLevel={vi.fn()} onOpenNode={vi.fn()} />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Не удалось загрузить схему развёртывания");
+    expect(alert).toHaveTextContent(text);
   });
 
   it("панель выделения считает объекты без повторов; «Снять выделение» — токеном холсту", async () => {
@@ -347,8 +362,8 @@ describe("DeploymentPage", () => {
     expect(onOpenNode).toHaveBeenCalledTimes(1);
   });
 
-  it("цельный контейнер: карточка выделяется как объект, двойной клик — вход в его уровень навигацией", async () => {
-    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2 };
+  it("цельная система: карточка выделяется как объект, двойной клик — вход в её уровень навигацией", async () => {
+    const box: DeploymentNode = { ...obj("c", ["s1"]), has_children: true, child_count: 2, element_effective: "system" };
     const g = graph({
       nodes: [box, { ...obj("l1", ["s1"]), parent_id: "c" }, { ...obj("l2", ["s1"]), parent_id: "c" }],
       edges: [],
@@ -362,6 +377,33 @@ describe("DeploymentPage", () => {
     act(() => { props().drill.onEditNode(card); });
     expect(onNavigateLevel).toHaveBeenCalledWith("c");
     expect(onOpenNode).not.toHaveBeenCalled();
+  });
+
+  it("контейнер с компонентами: одна сплошная карточка, двойной клик — страница объекта, а не уровень", async () => {
+    const orders: DeploymentNode = { ...obj("o", ["s1"]), has_children: true, child_count: 1 };
+    const g = graph({ nodes: [orders, { ...obj("api", []), parent_id: "o", element_effective: "component" }], edges: [] });
+    const { onOpenNode, onNavigateLevel } = await setup(true, g);
+    const card = props().projection?.children?.["deploy:site:s1"]?.[0] as AppNode;
+    expect(card.id).toBe("deploy:o@s1");
+    expect(card.has_children).toBe(false);
+    act(() => { props().drill.onEditNode(card); });
+    expect(onOpenNode).toHaveBeenCalledWith("o");
+    expect(onNavigateLevel).not.toHaveBeenCalled();
+  });
+
+  it("компонент из дерева — карточки его контейнера", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pnode("o", "orders", null, { has_children: true, element: "container", own: ["s1"] }),
+      pnode("api", "api", "o", { element: "component" }),
+    ]);
+    const orders: DeploymentNode = { ...obj("o", ["s1", "t"]), has_children: true, child_count: 1 };
+    const g = graph({ nodes: [orders, { ...obj("api", []), parent_id: "o", element_effective: "component" }], edges: [] });
+    const { onNavigateLevel } = await setup(true, g);
+    await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
+    await act(async () => {});
+    act(() => { treeProps().onPickObject(pnode("api", "api", "o", { element: "component" })); });
+    expect(props().projection?.selectRequest).toEqual({ ids: ["deploy:o@s1", "deploy:o@t"], token: 1 });
+    expect(onNavigateLevel).not.toHaveBeenCalled();
   });
 
   it("читатель: ни панели выделения, ни «Переразложить», расстановки нет", async () => {
@@ -450,7 +492,7 @@ describe("DeploymentPage", () => {
     expect(await screen.findByText("„Лист“ размещён на „s1“")).toBeInTheDocument();
   });
 
-  it("контейнер, чьи объекты нигде не стоят или стоят там же, — запись сразу (набор объектам раздаёт сервер)", async () => {
+  it("система, чьи единицы нигде не стоят или стоят там же, — запись сразу (набор единицам раздаёт сервер)", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true, partial: ["t"] }),
       pnode("l1", "Лист", "c1"),
@@ -463,7 +505,7 @@ describe("DeploymentPage", () => {
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], ["t"]));
   });
 
-  it("контейнер с объектами на других площадках: окно со списком; «Отмена» — без записи, «Разместить» — пишет", async () => {
+  it("система с единицами на других площадках: окно со списком; «Отмена» — без записи, «Разместить» — пишет", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true }),
       pnode("l1", "Order API", "c1", { own: ["s1"] }),
@@ -477,7 +519,9 @@ describe("DeploymentPage", () => {
     };
     place();
     expect(await screen.findByText("Разместить «Витрина» на «t»?")).toBeInTheDocument();
-    expect(screen.getByText(/Все его компоненты будут размещены там же/)).toBeInTheDocument();
+    expect(screen.getByText(
+      "Все вложенные объекты будут размещены там же, включая те, что сейчас стоят на других площадках:",
+    )).toBeInTheDocument();
     const items = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(items).toEqual(["БД заказов: S1, DC", "Order API: S1"]);
     // «Отмена» окна (у баннера своя): окно закрыто, записи нет, режим жив
@@ -492,7 +536,7 @@ describe("DeploymentPage", () => {
     await waitFor(() => expect(banner()).toBeNull());
   });
 
-  it("«Снять размещение» у контейнера: подтверждение со списком его объектов; «Снять» шлёт пустой набор", async () => {
+  it("«Снять размещение» у системы: подтверждение со списком её единиц; «Снять» шлёт пустой набор", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
       pnode("c1", "Витрина", null, { has_children: true, partial: ["s1"] }),
       pnode("l1", "Order API", "c1", { own: ["s1"] }),
@@ -502,11 +546,32 @@ describe("DeploymentPage", () => {
     act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
     await userEvent.click(await screen.findByRole("button", { name: "Снять размещение" }));
     expect(await screen.findByText("Снять размещение «Витрина»?")).toBeInTheDocument();
-    expect(screen.getByText(/Размещение всех его компонентов будет снято/)).toBeInTheDocument();
+    expect(screen.getByText("Размещение всех вложенных объектов будет снято:")).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Order API: S1"]);
     await userEvent.click(screen.getByRole("button", { name: "Снять" }));
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], []));
     await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it("контейнер с компонентами в режиме размещения — запись сразу, без подтверждения", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pnode("o", "Orders", null, { has_children: true, element: "container", own: ["s1"] }),
+      pnode("api", "API", "o", { element: "component" }),
+    ]);
+    await setup();
+    await waitFor(() => expect(nodesApi.getAll).toHaveBeenCalled());
+    await act(async () => {});
+    let getAllAtWrite = -1;
+    vi.mocked(deploymentApi.setPlacements).mockImplementation(async () => {
+      getAllAtWrite = vi.mocked(nodesApi.getAll).mock.calls.length;
+    });
+    const before = vi.mocked(nodesApi.getAll).mock.calls.length;
+    act(() => { treeProps().onPlace?.(pnode("o", "Orders", null, { has_children: true, element: "container" })); });
+    act(() => { props().projection?.pickFrame?.("deploy:site:t"); });
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["o"], ["t"]));
+    // состав проекта для конфликтов не запрашивался: контейнер пишется сразу, как лист
+    expect(getAllAtWrite).toBe(before);
+    expect(screen.queryByText(/Разместить «Orders»/)).toBeNull();
   });
 
   it("«Снять размещение» — только при размещении, шлёт пустой набор", async () => {

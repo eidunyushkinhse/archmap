@@ -21,7 +21,7 @@ import { useNodeSearch } from "./useNodeSearch";
  * F-7; раньше угадывался по тому, какие колбэки переданы): в дереве страниц клик по
  * строке ведёт на страницу объекта, в редакторе-карте — навигирует внутри него
  * (контейнер → onDrillTo, лист → onPickLeaf), в «Развёртывании» — по холсту площадок
- * (контейнер → onOpenLevel, лист → onPickObject; иконка строки → onPlace). Выбор узла с
+ * (система → onOpenLevel, прочие → onPickObject; иконка строки → onPlace). Выбор узла с
  * детьми попутно раскрывает его ветку. Персоны стоят в общей иерархии наравне с прочими.
  * Только в редакторе — перенос строк и секция-палитра «Добавить объект».
  */
@@ -49,9 +49,11 @@ type ModeProps =
       // «Развёртывание» (docs/specs/deployment.md): объекты здесь не создаются и не
       // переносятся — без палитры, «+» и ручки; поиск и сворачивание — как везде.
       mode: "deploy";
-      // клик по контейнеру (узел с детьми) → его уровень развёртывания
+      // клик по системе → её уровень развёртывания (уровня контейнера нет: компоненты
+      // развёртываются вместе с ним, D24)
       onOpenLevel: (node: Node) => void;
-      // клик по листу → выделить его карточки на холсте (при нужде — сменив уровень)
+      // клик по прочим (контейнер, компонент) → выделить карточки на холсте (при
+      // нужде — сменив уровень; у компонента — карточки его контейнера)
       onPickObject: (node: Node) => void;
       // иконка «Указать размещение» на строке → режим размещения; только архитектору
       onPlace?: (node: Node) => void;
@@ -108,12 +110,13 @@ export default function NodeTreePanel(props: Props) {
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
   const navigateFlat = (node: Node) => {
     if (props.mode === "pages") { props.onNodePage(node); return; }
-    const container = nodeNesting(node) === "group";
     if (props.mode === "deploy") {
-      if (container) props.onOpenLevel(node);
+      // Элемент считает сервер: уровень на холсте развёртывания есть только у системы.
+      if (node.element_effective === "system") props.onOpenLevel(node);
       else props.onPickObject(node);
       return;
     }
+    const container = nodeNesting(node) === "group";
     if (container) props.onDrillTo(pathTo(node));
     else props.onPickLeaf(node);
   };

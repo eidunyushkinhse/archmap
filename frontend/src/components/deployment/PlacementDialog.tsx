@@ -1,14 +1,14 @@
 // Окно «Размещение» (docs/tasks/deployment-view.md §6): где крутятся выбранные объекты.
 // Площадки деревом с галочками — НАБОР площадок каждого объекта целиком. Галочка
-// стоит, если на площадке стоят все выбранные; частичная — часть (у контейнера —
-// часть его объектов). Частичную галочку, которую не трогали, применение сохраняет как
-// есть у каждого объекта. Дерево площадок — общее с окном «Площадки» (SiteTree):
-// свёрнуто, кроме предков площадок, где стоят выбранные; новая площадка заводится «+»
-// в дереве (родитель — где нажали) и сразу отмечена. Размещение хранится у объектов
-// (deployment.md D30): контейнер — это его объекты, им и пишется набор (состав проекта
-// грузится при открытии); «Убрать размещение» у контейнера снимает его у всех объектов
-// внутри — второй шаг в том же окне со списком «объект: площадки» (вложенный <dialog>
-// нельзя), «Снять» / «Назад».
+// стоит, если на площадке стоят все выбранные; частичная — часть (у системы — часть её
+// единиц). Частичную галочку, которую не трогали, применение сохраняет как есть у
+// каждого объекта. Дерево площадок — общее с окном «Площадки» (SiteTree): свёрнуто,
+// кроме предков площадок, где стоят выбранные; новая площадка заводится «+» в дереве
+// (родитель — где нажали) и сразу отмечена. Размещение хранится у единиц — контейнеров
+// (deployment.md D30, D33): контейнер, в том числе с компонентами, пишется сам; система
+// — это её единицы, им и пишется набор (состав проекта грузится при открытии);
+// «Убрать размещение» у системы снимает его у всех её единиц — второй шаг в том же окне
+// со списком «объект: площадки» (вложенный <dialog> нельзя), «Снять» / «Назад».
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
@@ -27,7 +27,7 @@ import SiteTree, { SiteRowTitle } from "./SiteTree";
 import { useSiteExpansion } from "./useSiteExpansion";
 import { siteAncestorIds } from "./siteTree";
 import PlacementConflictList from "./PlacementConflictList";
-import { leavesOf, UNPLACE_LEAD, unplaceQuestion, type PlacementConflict } from "./placementConflicts";
+import { unitsOf, UNPLACE_LEAD, unplaceQuestion, type PlacementConflict } from "./placementConflicts";
 import "./deployment.css";
 
 type Mark = "on" | "off" | "mixed";
@@ -43,14 +43,14 @@ interface Props {
   onSitesChanged: () => void;
 }
 
-// Кому пишется набор: объект — он сам, контейнер — его объекты.
-type Target = Pick<Node, "id" | "name" | "parent_id" | "sites">;
+// Кому пишется набор: единица — она сама, система — её единицы.
+type Target = Pick<Node, "id" | "name" | "parent_id" | "sites" | "element_effective">;
 // Запрос записи: объектам — ровно этот набор.
 interface WriteGroup { nodeIds: string[]; siteIds: string[] }
 
 const NO_NODES: Node[] = [];
 
-// Состояние галочки площадки: стоят все выбранные (у контейнера — все его объекты:
+// Состояние галочки площадки: стоят все выбранные (у системы — все её единицы:
 // instances), никто (площадки нет и в sites), иначе — часть.
 function initialMarks(objects: DeploymentNode[], sites: SiteOut[]): Record<string, Mark> {
   const out: Record<string, Mark> = {};
@@ -62,7 +62,7 @@ function initialMarks(objects: DeploymentNode[], sites: SiteOut[]): Record<strin
   return out;
 }
 
-// Площадки, где стоят выбранные (у контейнера — хоть кто-то внутри), видны сразу:
+// Площадки, где стоят выбранные (у системы — хоть одна единица внутри), видны сразу:
 // их предки раскрыты, остальное дерево свёрнуто.
 function initialExpanded(objects: DeploymentNode[], sites: SiteOut[]): Set<string> {
   const out = new Set<string>();
@@ -72,14 +72,14 @@ function initialExpanded(objects: DeploymentNode[], sites: SiteOut[]): Set<strin
   return out;
 }
 
-// Объекты, которым пишется набор: лист — сам, контейнер — его объекты по составу
-// проекта (без «Пользователей»: их не размещают). Контейнер без объектов едет сам —
-// сервер ответит, что размещать в нём нечего.
+// Единицы, которым пишется набор: единица (контейнер, в том числе с компонентами) —
+// сама, система — её единицы по составу проекта. Система без единиц едет сама — сервер
+// ответит, что размещать в ней нечего.
 function targetsOf(objects: DeploymentNode[], all: Node[]): Target[] {
   const out = new Map<string, Target>();
   for (const o of objects) {
-    const leaves = o.has_children ? leavesOf(all, o).filter((n) => n.shape !== "person") : [];
-    for (const t of leaves.length > 0 ? leaves : [o]) out.set(t.id, t);
+    const units = o.element_effective === "system" ? unitsOf<Target>(all, o) : [];
+    for (const t of units.length > 0 ? units : [o]) out.set(t.id, t);
   }
   return [...out.values()];
 }
@@ -90,11 +90,11 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const { expanded, toggle } = useSiteExpansion(() => initialExpanded(objects, initialSites));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReactNode>(null);
-  // Среди объектов есть контейнер — набор пишется его объектам, нужен состав проекта
+  // Среди объектов есть система — набор пишется её единицам, нужен состав проекта
   // (один запрос при открытии; галочки им не блокируются, ждут только записи).
-  const needAll = objects.some((o) => o.has_children);
+  const needAll = objects.some((o) => o.element_effective === "system");
   const all = useAsyncLoad(needAll ? "placement-nodes" : "placement-none", () => (needAll ? nodesApi.getAll() : Promise.resolve(NO_NODES)));
-  // Второй шаг: подтверждение снятия размещения у объектов контейнера.
+  // Второй шаг: подтверждение снятия размещения у единиц системы.
   const [clearing, setClearing] = useState<PlacementConflict[] | null>(null);
 
   const toggleMark = (siteId: string) => {
@@ -140,8 +140,8 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     for (const g of plan()) await deploymentApi.setPlacements(g.nodeIds, g.siteIds);
   });
 
-  // Убрать размещение: у объектов — сразу; есть контейнер — сначала список, у кого
-  // внутри оно снимется.
+  // Убрать размещение: у единиц — сразу; есть система — сначала список, у кого внутри
+  // оно снимется.
   const clearAll = () => run(() => deploymentApi.setPlacements(targets().map((t) => t.id), []));
   const removeAll = () => {
     if (!needAll) {
@@ -234,7 +234,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
       {error && <p style={errText} role="alert">{error}</p>}
       {needAll && all.error !== null && (
         <p style={errText} role="alert">
-          Не удалось загрузить объекты контейнера. {loadErrorText(all.error)}{" "}
+          Не удалось загрузить вложенные объекты. {loadErrorText(all.error)}{" "}
           <button type="button" className="site-row-link" onClick={all.reload}>Повторить</button>
         </p>
       )}

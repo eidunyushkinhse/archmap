@@ -249,17 +249,18 @@ describe("NodeTreePanel: цели переноса", () => {
 });
 
 // ── Режим «Развёртывание» (Ф6, docs/specs/deployment.md D26) ─────────────────
-// Дерево слева от холста площадок: контейнер — уровень, лист — выделить его карточки,
-// иконка строки «Указать размещение» (архитектор, не у «Пользователя») — режим
-// размещения. Объекты здесь не создаются и не переносятся: ни палитры, ни «+», ни ручки.
+// Дерево слева от холста площадок: система — уровень, прочие — выделить карточки (у
+// компонента — его контейнера), иконка строки «Указать размещение» (архитектор, не у
+// «Пользователя» и не у компонента) — режим размещения. Элемент — из ответа сервера.
+// Объекты здесь не создаются и не переносятся: ни палитры, ни «+», ни ручки.
 describe("NodeTreePanel: режим «Развёртывание»", () => {
   beforeEach(() => vi.clearAllMocks());
 
   const rows = () => [
-    node("box", { name: "Витрина", has_children: true, child_count: 1 }),
-    node("db", { name: "БД заказов", shape: "database" }),
-    node("svc", { name: "Платежи" }),
-    node("man", { name: "Покупатель", shape: "person" }),
+    node("box", { name: "Витрина", has_children: true, child_count: 1, element_effective: "system" }),
+    node("db", { name: "БД заказов", shape: "database", element_effective: "container" }),
+    node("svc", { name: "Платежи", element_effective: "container" }),
+    node("man", { name: "Покупатель", shape: "person", element_effective: null }),
   ];
 
   async function scene(over: { isArchitect?: boolean; onPlace?: (n: Node) => void } = {}) {
@@ -267,7 +268,9 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     const onPickObject = vi.fn();
     const onPlace = "onPlace" in over ? over.onPlace : vi.fn();
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
-    vi.mocked(nodesApi.getChildren).mockResolvedValue([node("kid", { name: "Каталог", parent_id: "box" })]);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([
+      node("kid", { name: "Каталог", parent_id: "box", element_effective: "container" }),
+    ]);
     const utils = render(
       <NodeTreePanel
         mode="deploy"
@@ -293,7 +296,7 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     expect(screen.queryByTitle("Добавить объект")).toBeNull();
   });
 
-  it("иконка размещения — у сервиса, БД и контейнера архитектора, не у «Пользователя»", async () => {
+  it("иконка размещения — у сервиса, БД и системы архитектора, не у «Пользователя»", async () => {
     await scene();
     expect(screen.getByLabelText("Указать размещение: «Платежи»")).toBeInTheDocument();
     expect(screen.getByLabelText("Указать размещение: «БД заказов»")).toBeInTheDocument();
@@ -316,7 +319,7 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     expect(onPickObject).not.toHaveBeenCalled();
   });
 
-  it("клик по контейнеру — onOpenLevel и раскрытие ветки, по листу — onPickObject; подсказки строк", async () => {
+  it("клик по системе — onOpenLevel и раскрытие ветки, по листу — onPickObject; подсказки строк", async () => {
     const { onOpenLevel, onPickObject } = await scene();
     const row = (name: string) => screen.getByText(name).closest(".nt-row") as HTMLElement;
     expect(row("Витрина")).toHaveAttribute("title", "Открыть уровень: Витрина");
@@ -327,6 +330,32 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     await userEvent.click(screen.getByText("Платежи"));
     expect(onPickObject).toHaveBeenCalledWith(expect.objectContaining({ id: "svc" }));
     expect(onOpenLevel).toHaveBeenCalledTimes(1);
+  });
+
+  it("контейнер с компонентами: щелчок — показать на схеме, не уровень; у компонента булавки нет", async () => {
+    const onOpenLevel = vi.fn();
+    const onPickObject = vi.fn();
+    vi.mocked(nodesApi.list).mockResolvedValue([
+      node("orders", { name: "orders", has_children: true, child_count: 1, element_effective: "container" }),
+    ]);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([
+      node("api", { name: "api", parent_id: "orders", element_effective: "component" }),
+    ]);
+    render(<NodeTreePanel mode="deploy" isArchitect onOpenLevel={onOpenLevel} onPickObject={onPickObject} onPlace={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
+    const row = (name: string) => screen.getByText(name).closest(".nt-row") as HTMLElement;
+    expect(row("orders")).toHaveAttribute("title", "Показать на схеме: orders");
+    expect(screen.getByLabelText("Указать размещение: «orders»")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("orders"));
+    expect(onPickObject).toHaveBeenCalledWith(expect.objectContaining({ id: "orders" }));
+    expect(onOpenLevel).not.toHaveBeenCalled();
+    // ветка раскрылась: компонент — без булавки, щелчок показывает его на схеме
+    await waitFor(() => expect(screen.getByText("api")).toBeInTheDocument());
+    expect(row("api")).toHaveAttribute("title", "Показать на схеме: api");
+    expect(screen.queryByLabelText("Указать размещение: «api»")).toBeNull();
+    await userEvent.click(screen.getByText("api"));
+    expect(onPickObject).toHaveBeenLastCalledWith(expect.objectContaining({ id: "api" }));
+    expect(onOpenLevel).not.toHaveBeenCalled();
   });
 
   it("строка размещаемого объекта подсвечена", async () => {

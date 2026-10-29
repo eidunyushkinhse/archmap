@@ -137,13 +137,16 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(screen.queryByRole("button", { name: "Применить" })).toBeNull();
   });
 
-  it("контейнер в окне: площадка части объектов — частичная галочка, набор пишется его объектам", async () => {
+  it("система в окне: площадка части объектов — частичная галочка, набор пишется её контейнерам", async () => {
+    // Элемент — как ответил бы сервер: узел с детьми без хранимого элемента — система,
+    // её листья — контейнеры (единицы размещения, D33).
+    const SYSTEM: Partial<Node> = { sites: [PART_K8S], has_children: true, child_count: 2, element_effective: "system" };
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      node({ sites: [PART_K8S], has_children: true, child_count: 2 }),
+      node(SYSTEM),
       node({ id: "x", name: "API", parent_id: "n1", sites: [OWN_K8S] }),
       node({ id: "y", name: "Корзина", parent_id: "n1", sites: [] }),
     ]);
-    const onPlacementChanged = setup({ sites: [PART_K8S], has_children: true, child_count: 2 }, { isContainer: true });
+    const onPlacementChanged = setup(SYSTEM, { isContainer: true });
     await userEvent.click(editButton()!);
     const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ }) as HTMLInputElement;
     expect(k8s.checked).toBe(false);

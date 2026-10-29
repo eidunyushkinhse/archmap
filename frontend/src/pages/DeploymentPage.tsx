@@ -1,10 +1,11 @@
 // Режим «Развёртывание» (docs/tasks/deployment-view.md, спека docs/specs/deployment.md):
 // где крутятся объекты уровня. Слева — дерево объектов (NodeTreePanel mode="deploy"):
-// контейнер — его уровень, объект — выделить его карточки, иконка строки — режим
-// размещения щелчком по площадке. Холст — тот же LevelGraph с проекцией хозяина: площадки
-// — зоны (вложенность без предела, сворачиваются в карточку), представитель — карточка в
-// каждой площадке, где он стоит: объект или цельный контейнер одной карточкой; без
-// размещения — в пунктирной группе. Уровень (объём холста) — из адреса
+// система — её уровень, объект — выделить его карточки (у компонента — карточки его
+// контейнера), иконка строки — режим размещения щелчком по площадке. Холст — тот же
+// LevelGraph с проекцией хозяина: площадки — зоны (вложенность без предела,
+// сворачиваются в карточку), представитель — карточка в каждой площадке, где он стоит:
+// единица (контейнер, лист или с компонентами) или цельная система одной карточкой;
+// без размещения — в пунктирной группе. Уровень (объём холста) — из адреса
 // #/p/<pid>/deploy/<уровень?>, в тулбаре — путь текстом и справа квадратные иконки
 // «Площадки», «Переразложить» (архитектор) и тумблер «Подписи связей» (CV32: холст в
 // управляемом режиме, свой тумблер в углу не рисует). Архитектору — расстановка (драг,
@@ -46,10 +47,10 @@ import "./DeploymentPage.css";
 
 interface Props {
   isArchitect: boolean;
-  // Уровень — из адреса (#/p/<pid>/deploy/<уровень?>): контейнер, чьё поддерево на холсте,
-  // null — весь проект.
+  // Уровень — из адреса (#/p/<pid>/deploy/<уровень?>): система, чьё поддерево на холсте,
+  // null — весь проект. Уровня контейнера нет (D24): сервер отвечает 422 текстом.
   level: string | null;
-  // Сменить уровень — навигацией (дерево, двойной клик по контейнеру, «Весь проект» в
+  // Сменить уровень — навигацией (дерево, двойной клик по системе, «Весь проект» в
   // тулбаре): адрес меняется, и «назад» браузера возвращает прежний уровень.
   onNavigateLevel: (level: string | null) => void;
   // Двойной клик по карточке объекта → страница объекта (оболочка переключает режим).
@@ -59,7 +60,7 @@ interface Props {
 // Стабильный пустой вход холста: у развёртывания нет breadcrumb-рамок (уровень — объём).
 const NO_ANCESTORS: string[] = [];
 
-/** Цепочка контейнера уровня от корня проекта (он сам — последним); пусто у всего проекта
+/** Цепочка системы уровня от корня проекта (она сама — последней); пусто у всего проекта
  *  и пока объекты не загружены. Обход с seen: данные могут оказаться циклом. */
 function levelChain(all: readonly AppNode[], level: string | null): AppNode[] {
   if (level === null) return [];
@@ -71,6 +72,20 @@ function levelChain(all: readonly AppNode[], level: string | null): AppNode[] {
     chain.unshift(cur);
   }
   return chain;
+}
+
+/** Контейнер компонента — ближайший предок с элементом «контейнер» (элемент считает
+ *  сервер) по составу проекта; подъём с seen. Не нашёлся (состав не загружен, цикл в
+ *  данных) — null. */
+function containerOf(all: readonly AppNode[], node: AppNode): AppNode | null {
+  const byId = new Map(all.map((n) => [n.id, n] as const));
+  const seen = new Set<string>([node.id]);
+  for (let cur = node.parent_id ? byId.get(node.parent_id) : undefined; cur && !seen.has(cur.id);
+    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined) {
+    if (cur.element_effective === "container") return cur;
+    seen.add(cur.id);
+  }
+  return null;
 }
 
 export default function DeploymentPage({ isArchitect, level, onNavigateLevel, onOpenNode }: Props) {
@@ -91,8 +106,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     onMetaChange: () => { void dep.reload(); },
   });
 
-  // Путь уровня в тулбаре и глубина цвета карточек: корни объёма — дети контейнера
-  // уровня, их архитектурная глубина — длина его цепочки (0 у всего проекта).
+  // Путь уровня в тулбаре и глубина цвета карточек: корни объёма — дети системы
+  // уровня, их архитектурная глубина — длина её цепочки (0 у всего проекта).
   const chain = useMemo(() => levelChain(allNodes, level), [allNodes, level]);
   const path = chain.map((n) => n.name).join(" › ");
   const proj = useMemo(() => (dep.graph ? projectDeployment(dep.graph, chain.length) : null), [dep.graph, chain.length]);
@@ -214,7 +229,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
 
   // Ошибка действия тулбара («Переразложить»); смена уровня её снимает.
   const [actionError, setActionError] = useState<string | null>(null);
-  // Уровень сменился (дерево, двойной клик по контейнеру, «назад» браузера): выделение,
+  // Уровень сменился (дерево, двойной клик по системе, «назад» браузера): выделение,
   // показ объекта, ошибка и отложенная переигровка 409 прежнего уровня снимаются прямо в
   // рендере (приём React «adjust state when props change»: setState в эффекте — каскад
   // рендеров). Переигровку — обязательно: у нового холста счётчик токенов с нуля.
@@ -240,8 +255,11 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
 
   // Щелчок по объекту в дереве (D28): представитель на этом уровне — выделить его
   // карточки и навести камеру; иначе — уровень его родителя и показ после загрузки.
-  const pickObject = (node: AppNode) => {
-    if (node.shape === "person") return; // «Пользователей» на этом холсте нет (D1)
+  // Компонента на этом холсте нет (D33) — показываются карточки его контейнера.
+  const pickObject = (picked: AppNode) => {
+    if (picked.shape === "person") return; // «Пользователей» на этом холсте нет (D1)
+    const node = picked.element_effective === "component" ? containerOf(allNodes, picked) : picked;
+    if (!node) return;
     const ids = proj && !dep.loading && dep.graphLevel === level ? cardsOf(proj, node.id) : [];
     if (ids.length > 0) {
       showCards(ids, true);
@@ -251,13 +269,14 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     if (node.parent_id !== level) onNavigateLevel(node.parent_id);
   };
 
-  // Двойной клик по карточке: цельный контейнер — вход в его уровень (контейнеры здесь
-  // не раскрываются), объект — его страница. Площадка объектом не является (её
-  // карточку раскрывает сам холст).
+  // Двойной клик по карточке: цельная система — вход в её уровень (системы здесь не
+  // раскрываются), единица — страница объекта: внутри контейнера на этом холсте пусто,
+  // его уровень закрыт (D13, D24). Площадка объектом не является (её карточку
+  // раскрывает сам холст).
   const openCard = useCallback((n: AppNode) => {
     const inst = proj?.siteOf.get(n.id);
     if (!inst) return;
-    if (n.has_children) onNavigateLevel(inst.nodeId);
+    if (n.element_effective === "system") onNavigateLevel(inst.nodeId);
     else onOpenNode(inst.nodeId);
   }, [proj, onNavigateLevel, onOpenNode]);
   const drill = useMemo<LevelDrillCallbacks>(() => ({
@@ -308,7 +327,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
     }
   }, [dep, level]);
 
-  // Объекты есть — есть хоть один представитель (контейнер без листьев не рисуется).
+  // Объекты есть — есть хоть один представитель (система без единиц не рисуется).
   const hasObjects = (proj?.siteOf.size ?? 0) > 0;
   const selectedNodes = useMemo(() => {
     const ids = new Set(selectedObjects);
