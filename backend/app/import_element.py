@@ -11,6 +11,14 @@
 (_Merger.finish — по слитому дереву, где база и контейнер могли прийти из разных файлов) и
 применение ответов на вопросы (выбранный «Контейнер» мог стать недопустимым). Правила
 идут по порядку, обход — «родители раньше детей» (так строит дерево и разбор, и слияние):
+0. у базы данных, брокера и «Пользователя» вложенных объектов не бывает (API отвечает на
+   это отказом, N4): их дети поднимаются на уровень выше — к родителю такого объекта (у
+   корневого — на верхний уровень) — с поддеревьями. Правило идёт первым и не зависит от
+   элементов: поднятый объект дальше проверяется по своему новому месту (база, поднятая
+   из базы внутри контейнера, следующим правилом выносится и из контейнера). Своих
+   площадок у поднятого нет — он берёт объявление прежнего родителя: тот был для него
+   системой и отдавал ему своё размещение (app/deployment.unit_placements); внутри
+   контейнера размещения не было ни у кого из них, и ничего не берётся;
 1. элемент у не-сервиса снимается — значение пропущено;
 2. база или брокер внутри контейнера ВЫНОСИТСЯ на уровень выше — к родителю контейнера (у
    корневого контейнера — на верхний уровень), контейнер остаётся контейнером (решение
@@ -50,6 +58,21 @@ from app.element import CONTAINER, Elements
 from app.element_marks import ElementRow, build_elements
 
 ONLY_SERVICE_NOTE = "{path}: элемент архитектуры задаётся только у сервиса — значение пропущено"
+# Правило 0: у формы без детей вложенный объект поднимается выше. {where} — как у выноса
+# из контейнера (_where): «на уровень выше, в «Путь»» либо «на верхний уровень».
+CHILDLESS_LIFTED_NOTE = {
+    "database": (
+        "{path}: у базы данных «{name}» вложенных объектов не бывает — «{child}» поднят "
+        "{where}"
+    ),
+    "broker": (
+        "{path}: у брокера «{name}» вложенных объектов не бывает — «{child}» поднят {where}"
+    ),
+    "person": (
+        "{path}: у пользователя «{name}» вложенных объектов не бывает — «{child}» поднят "
+        "{where}"
+    ),
+}
 # Тексты владельца (раздел 0а плана) с родом формы — как у отказа API (STORE_INSIDE).
 # {where} — «на уровень выше, в «Путь»» либо «на верхний уровень» (_where).
 STORE_LIFTED_NOTE = {
@@ -149,6 +172,46 @@ def _where(nodes: Sequence[ElementNode], paths: Sequence[str], container: int) -
     return "на верхний уровень" if parent is None else f"на уровень выше, в «{paths[parent]}»"
 
 
+def _in_container(nodes: Sequence[ElementNode], idx: int) -> bool:
+    """Есть ли над узлом сервис с элементом «контейнер» (тогда узел — компонент, и
+    размещения ни у него, ни у его детей нет). Шагов не больше числа узлов."""
+    cur = nodes[idx].parent_idx
+    for _ in range(len(nodes)):
+        if cur is None:
+            return False
+        if nodes[cur].shape == "service" and nodes[cur].element == CONTAINER:
+            return True
+        cur = nodes[cur].parent_idx
+    return False
+
+
+def _lift_from_childless(
+    nodes: Sequence[ElementNode],
+    paths: Sequence[str],
+    pinned: Callable[[int], bool] | None,
+) -> list[str]:
+    """Правило 0: дети базы, брокера и «Пользователя» — к родителю такого объекта, с
+    поддеревьями. Цепочка «база в базе» распутывается за один проход: родители раньше
+    детей, и поднятый (индекс больше) будет осмотрен позже уже на новом месте.
+    Закреплённый ребёнок (живой при догрузке) не переносится — живое против живого
+    ввоз не судит."""
+    notes: list[str] = []
+    for i, holder in enumerate(nodes):
+        if holder.shape not in CHILDLESS_LIFTED_NOTE:
+            continue
+        for c, child in enumerate(nodes):
+            if child.parent_idx != i or (pinned is not None and pinned(c)):
+                continue
+            if not child.sites and not _in_container(nodes, i):
+                child.sites = list(holder.sites)
+            child.parent_idx = holder.parent_idx
+            notes.append(CHILDLESS_LIFTED_NOTE[holder.shape].format(
+                path=paths[i], name=holder.name, child=child.name,
+                where=_where(nodes, paths, i),
+            ))
+    return notes
+
+
 def sanitize_elements(
     nodes: Sequence[ElementNode],
     paths: Sequence[str],
@@ -161,9 +224,9 @@ def sanitize_elements(
     остаётся: новый родитель (родитель контейнера) раньше контейнера, а тот раньше
     выносимого. pinned — узлы, которые переносить нельзя (живые при догрузке);
     live_element — узлы, чей элемент взят из живого проекта, а не из ввоза."""
+    notes = _lift_from_childless(nodes, paths, pinned)
     if all(n.element is None for n in nodes):
-        return []
-    notes: list[str] = []
+        return notes
     for i, n in enumerate(nodes):
         if n.element is not None and n.shape != "service":
             n.element = None

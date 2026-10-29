@@ -2987,8 +2987,9 @@ def test_база_второго_файла_в_контейнере_первог
 
 
 def test_после_выноса_строки_слияния_называют_новый_путь():
-    """Вынос меняет пути поддерева базы: следующие замечания слияния и строки склеек
-    называют объект там, где он окажется, а не где его записал файл."""
+    """Вынос меняет путь базы: строки склеек называют её там, где она окажется, а не где
+    её записал файл. Вложенных объектов у базы не бывает — её дети подняты к её родителю
+    ещё разбором файла, и замечания слияния называют их уже там."""
     def база(ребёнок: str) -> ParsedImport:
         return _parse(
             "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
@@ -2998,11 +2999,11 @@ def test_после_выноса_строки_слияния_называют_н
 
     merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), база("payments"), база("payment")])
 
-    assert "shop / orders-db / payments" in _path_list(merged)
+    assert "shop / orders / payments" in _path_list(merged)
     assert "shop / orders-db" in report.merged_paths
     assert "shop / orders / orders-db" not in report.merged_paths
     assert any(
-        "«payments» и «payment» (внутри «shop / orders-db») похожи" in w for w in report.warnings
+        "«payments» и «payment» (внутри «shop / orders») похожи" in w for w in report.warnings
     )
 
 

@@ -18,6 +18,7 @@ from app.element_marks import project_element_rows
 from app.element_rules import element_change_refusal
 from app.export import build_export
 from app.import_element import (
+    CHILDLESS_LIFTED_NOTE,
     COMPONENT_NOTE,
     ONLY_SERVICE_NOTE,
     STORE_KEPT_NOTE,
@@ -1457,9 +1458,11 @@ def test_база_корневого_контейнера_вынесена_на_
     ]
 
 
-def test_база_глубже_в_составном_компоненте_тоже_вынесена_с_поддеревом():
+def test_база_глубже_в_составном_компоненте_тоже_вынесена_а_её_ребёнок_поднят_раньше():
     """База внутри составного компонента контейнера — тоже в его составе: выносится к
-    родителю контейнера, её собственные дети едут с ней."""
+    родителю контейнера. Вложенный в базу объект поднимается раньше (у базы вложенных
+    объектов не бывает) — к её родителю «api» — и дальше судится по новому месту: он
+    компонент «orders» и остаётся в контейнере."""
     parsed, errors = parse_import(_yaml([{
         "name": "Ярмарка", "children": [
             {"name": "orders", "element": "container", "children": [
@@ -1475,12 +1478,132 @@ def test_база_глубже_в_составном_компоненте_тож
     assert errors == [] and parsed is not None
     assert _родители(parsed) == {
         "Ярмарка": None, "orders": "Ярмарка", "api": "orders", "handlers": "api",
-        "orders-db": "Ярмарка", "orders-schema": "orders-db",
+        "orders-db": "Ярмарка", "orders-schema": "api",
     }
     assert parsed.nodes[1].element == "container"
     assert parsed.warnings == [
+        "Ярмарка / orders / api / orders-db: у базы данных «orders-db» вложенных объектов "
+        "не бывает — «orders-schema» поднят на уровень выше, в «Ярмарка / orders / api»",
         STORE_LIFTED_NOTE["database"].format(
             path="Ярмарка / orders", name="orders-db", where="на уровень выше, в «Ярмарка»",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(("shape", "holder", "word"), [
+    ("database", "orders-db", "у базы данных"), ("broker", "Kafka", "у брокера"),
+    ("person", "Покупатель", "у пользователя"),
+])
+def test_у_базы_брокера_и_пользователя_вложенный_объект_поднят_с_поддеревом(shape, holder, word):
+    """Вложенных объектов у базы, брокера и «Пользователя» не бывает (API отказывает, N4):
+    ввоз файла не отвергается — ребёнок с поддеревом поднимается к родителю такого
+    объекта и становится его соседом, с замечанием."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": holder, "shape": shape, "children": [
+                {"name": "orders-schema", "children": [{"name": "tables"}]},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {
+        "Ярмарка": None, holder: "Ярмарка", "orders-schema": "Ярмарка",
+        "tables": "orders-schema",
+    }
+    assert parsed.doc_parents == [None, 0, 1, 2]
+    assert parsed.warnings == [
+        f"Ярмарка / {holder}: {word} «{holder}» вложенных объектов не бывает — "
+        "«orders-schema» поднят на уровень выше, в «Ярмарка»",
+    ]
+
+
+def test_корневой_брокер_отдаёт_вложенный_объект_на_верхний_уровень():
+    parsed, errors = parse_import(_yaml([
+        {"name": "Kafka", "shape": "broker", "children": [{"name": "events"}, {"name": "audit"}]},
+    ]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {"Kafka": None, "events": None, "audit": None}
+    assert parsed.roots == ["Kafka", "events", "audit"]
+    assert parsed.warnings == [
+        CHILDLESS_LIFTED_NOTE["broker"].format(
+            path="Kafka", name="Kafka", child=c, where="на верхний уровень",
+        )
+        for c in ("events", "audit")
+    ]
+
+
+def test_поднятая_из_базы_база_дальше_выносится_из_контейнера():
+    """Подъём идёт первым, поднятый судится по новому месту: база из базы оказывается в
+    контейнере — и правило контейнера выносит её на уровень выше вместе с первой."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "orders", "element": "container", "children": [
+            {"name": "api"},
+            {"name": "orders-db", "shape": "database", "children": [
+                {"name": "orders-replica", "shape": "database"},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {
+        "orders": None, "api": "orders", "orders-db": None, "orders-replica": None,
+    }
+    assert parsed.nodes[0].element == "container"
+    assert parsed.warnings == [
+        CHILDLESS_LIFTED_NOTE["database"].format(
+            path="orders / orders-db", name="orders-db", child="orders-replica",
+            where="на уровень выше, в «orders»",
+        ),
+        STORE_LIFTED_NOTE["database"].format(path="orders", name="orders-db", where="на верхний уровень"),
+        STORE_LIFTED_NOTE["database"].format(
+            path="orders", name="orders-replica", where="на верхний уровень",
+        ),
+    ]
+
+
+def test_поднятый_из_базы_берёт_её_размещение_но_не_внутри_контейнера():
+    """База с вложенным объектом читалась системой и отдавала ему своё объявление площадок
+    (unit_placements): поднятый без своих площадок берёт объявление базы, своё не трогается.
+    Внутри контейнера размещения не было ни у базы, ни у её детей — брать нечего."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders-db", "shape": "database", "sites": ["prod"], "children": [
+                {"name": "migrator"}, {"name": "backup", "sites": ["dr"]},
+            ]},
+            {"name": "billing", "element": "container", "children": [
+                {"name": "api"},
+                {"name": "ledger", "shape": "service", "children": [
+                    {"name": "ledger-db", "shape": "database", "sites": ["prod"], "children": [
+                        {"name": "ledger-migrator"},
+                    ]},
+                ]},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    sites = {n.name: n.sites for n in parsed.nodes}
+    assert sites["migrator"] == ["prod"] and sites["backup"] == ["dr"]
+    assert sites["ledger-migrator"] == []
+    assert _родители(parsed)["ledger-migrator"] == "ledger"
+
+
+def test_закреплённый_ребёнок_базы_не_поднимается():
+    """Живое против живого ввоз не судит: закреплённый (живой при догрузке) объект под
+    базой остаётся на месте без замечания; новый под живой базой — поднимается."""
+    parsed, _ = parse_import(_yaml([{"name": "Ярмарка"}, {"name": "orders-db", "shape": "database"},
+                                    {"name": "orders-schema"}, {"name": "migrator"}]))
+    assert parsed is not None
+    parsed.nodes[2].parent_idx = 1
+    parsed.nodes[3].parent_idx = 1
+    заметки = sanitize_elements(
+        parsed.nodes, ["Ярмарка", "orders-db", "orders-db / orders-schema", "orders-db / migrator"],
+        pinned=lambda i: i in (1, 2), live_element=lambda _i: False,
+    )
+    assert _родители(parsed) == {
+        "Ярмарка": None, "orders-db": None, "orders-schema": "orders-db", "migrator": None,
+    }
+    assert заметки == [
+        CHILDLESS_LIFTED_NOTE["database"].format(
+            path="orders-db", name="orders-db", child="migrator", where="на верхний уровень",
         ),
     ]
 
@@ -1641,6 +1764,13 @@ def test_замечания_элемента_не_попадают_в_чужой
         STORE_KEPT_NOTE["database"].format(path="Ярмарка / orders", name="orders-db"),
         STORE_KEPT_NOTE["broker"].format(path="Ярмарка / events", name="Kafka"),
         COMPONENT_NOTE.format(path="orders / api", container="orders"),
+        *(
+            CHILDLESS_LIFTED_NOTE[shape].format(
+                path="Ярмарка / orders-db", name="orders-db", child="orders-schema",
+                where="на уровень выше, в «Ярмарка»",
+            )
+            for shape in ("database", "broker", "person")
+        ),
     ]
     for текст in тексты:
         assert _remark_class(текст) == ("", False)
@@ -1655,6 +1785,18 @@ def test_замечания_элемента_не_попадают_в_чужой
     assert plan.ok
     пункты = [(u.text, u.file) for u in remainder_from_plan(plan).unfixable]
     assert (тексты[0], 0) in пункты
+
+    # Подъём из базы — тем же разбором единого ввоза (архив идёт им же): дерево плана
+    # уже поднятое, замечание — пунктом свёртки дословно.
+    plan = build_unified_plan([("shop.yaml", _yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders-db", "shape": "database", "children": [{"name": "orders-schema"}]},
+        ],
+    }]).encode())])
+    assert plan.ok and plan.merged is not None
+    assert _родители(plan.merged)["orders-schema"] == "Ярмарка"
+    пункты = [(u.text, u.file) for u in remainder_from_plan(plan).unfixable]
+    assert (тексты[-3], 0) in пункты
 
 
 def test_круг_экспорта_с_элементами_байт_в_байт(db):
