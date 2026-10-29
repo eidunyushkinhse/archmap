@@ -2,9 +2,11 @@
 (docs/tasks/deployment-view.md).
 
 Площадки — плоский CRUD с CAS и проверкой вложенности; размещение — НАБОР площадок
-объекта целиком (PUT /placements, а со страницы объекта — PATCH /nodes/{id} site_ids);
-граф — всё поддерево уровня (контейнеры и листья) с их размещением. Правила
-предметной области живут в app/deployment, здесь — HTTP: 404/409/422 и курсоры поллинга.
+единицы целиком (PUT /placements, а со страницы объекта — PATCH /nodes/{id} site_ids):
+единица — контейнер (в том числе лист), система размещается целиком, у компонента
+размещения нет (Р16 эпика docs/plan-c4-elements.md); граф — всё поддерево уровня с
+размещением. Правила предметной области живут в app/deployment, здесь — HTTP:
+404/409/422 и курсоры поллинга.
 
 Курсоры: площадки и размещение видны на холсте развёртывания — graph_rev; строка
 «Размещение» на странице объекта меняется от размещения, удаления площадки и правки
@@ -27,6 +29,7 @@ from app.deployment import (
     SITE_NOT_FOUND,
     PlacementError,
     check_site_parent,
+    level_refusal,
     ordered_instances,
     own_by_node,
     placement_map,
@@ -207,10 +210,11 @@ def put_placements(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> None:
-    """Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять);
-    контейнер размещается целиком — набор получает каждый объект внутри. Объект или
-    площадка не из проекта — 404, «Пользователь» среди объектов или контейнер без
-    объектов — 422; при отказе не записывается ничего: проверки идут до записи."""
+    """Каждой единице из node_ids — ровно набор площадок site_ids (пустой — снять):
+    контейнер (в том числе лист) пишется сам, система размещается целиком — набор
+    получает каждый контейнер внутри неё. Объект или площадка не из проекта — 404;
+    «Пользователь» или компонент среди объектов (площадки задаются контейнеру), система
+    без единиц — 422; при отказе не записывается ничего: проверки идут до записи."""
     nodes = [node_or_404(db, nid, project) for nid in dict.fromkeys(payload.node_ids)]
     try:
         changed = set_placements(db, project, nodes, set(payload.site_ids))
@@ -228,20 +232,29 @@ def get_deployment_graph(
 ) -> DeploymentGraph:
     """Граф вида «Развёртывание» уровня level (пусто — весь проект).
 
-    Объекты — ВСЁ ПОДДЕРЕВО уровня: контейнеры и листья любой глубины (сам контейнер
-    уровня не входит — уровень это объём, а не объект), кроме «Пользователей»: они
-    живут вне системы. Кого рисовать — цельный контейнер одной карточкой или его
-    объекты по отдельности — решает фронт по размещению листьев, поэтому у каждого
-    узла есть instances (у контейнера — площадки, где стоят все его объекты) и число
-    прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
-    «к ближайшему экземпляру» и подъём к представителю применяет фронт). Площадки —
-    все площадки проекта: на любом уровне они одни и те же.
+    Узлы — ВСЁ ПОДДЕРЕВО уровня любой глубины (сам узел уровня не входит — уровень это
+    объём, а не объект), кроме «Пользователей»: они живут вне системы. Компоненты в
+    ответе остаются — это поддерево уровня, а концы их связей фронт поднимает к
+    контейнеру; представителями проекция их не делает: контейнер — единица, вниз не
+    спускается. Кого рисовать — цельную систему одной карточкой или её единицы по
+    отдельности — решает фронт по размещению единиц, поэтому у каждого узла есть
+    instances (у единицы — её площадки, у системы — где стоят все её единицы, у
+    компонента — пусто) и число прямых детей. Связи — сырые, у которых оба конца в этом
+    поддереве (правило «к ближайшему экземпляру» и подъём к представителю применяет
+    фронт). Площадки — все площадки проекта: на любом уровне они одни и те же.
+
+    Уровень контейнера с компонентами — 422 (CONTAINER_LEVEL): контейнер стоит на
+    площадках сам, рисовать внутри него нечего.
     """
-    if level is not None:
-        node_or_404(db, level, project)
+    level_node = node_or_404(db, level, project) if level is not None else None
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id)}
-    scope = tree.subtree_ids(all_nodes, level) - {level} if level is not None else set(all_nodes)
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
+    elements = elements_from_nodes(all_nodes)
+    if level_node is not None:
+        reason = level_refusal(elements, level_node, child_counts.get(level_node.id, 0) > 0)
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
+    scope = tree.subtree_ids(all_nodes, level) - {level} if level is not None else set(all_nodes)
     shown = sorted(
         (all_nodes[nid] for nid in scope if all_nodes[nid].shape != "person"),
         key=lambda n: (n.name, str(n.id)),
@@ -253,11 +266,10 @@ def get_deployment_graph(
     pairs = ordered_instances(db, project.id, sites)
     places = placement_map(
         {n.id: n.parent_id for n in all_nodes.values()},
-        {n.id: n.shape for n in all_nodes.values()},
         own_by_node(pairs),
         {site.id: i for i, site in enumerate(sites)},
+        elements,
     )
-    elements = elements_from_nodes(all_nodes)
     approvals = effective_approvals(
         ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
     )
@@ -265,8 +277,8 @@ def get_deployment_graph(
     nodes_out: list[DeploymentNodeOut] = []
     for n in shown:
         # Вычисляемые поля NodeResponse по уже загруженным картам, без запросов на узел.
-        # Дети — все прямые (как у графа уровня): контейнер, чьи дети — одни
-        # «Пользователи», остаётся контейнером, а не превращается в лист.
+        # Дети — все прямые (как у графа уровня): узел, чьи дети — одни
+        # «Пользователи», остаётся узлом с детьми, а не превращается в лист.
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = approvals.get(n.id, n.approval)
@@ -275,7 +287,8 @@ def get_deployment_graph(
         nodes_out.append(
             DeploymentNodeOut(
                 **NodeResponse.model_validate(n).model_dump(),
-                # Объект — его площадки; контейнер — где стоят все его объекты.
+                # Единица — её площадки; система — где стоят все её единицы;
+                # компонент — пусто (размещения у него нет).
                 instances=[p.site_id for p in places.get(n.id, []) if not p.partial],
             )
         )

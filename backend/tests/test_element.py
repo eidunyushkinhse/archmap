@@ -114,7 +114,7 @@ def test_пустое_хранимое_совпадает_с_сегодняшн�
         assert el.effective(node) == expected, node
         assert el.members_of(node) == []
         assert el.container_of(node) == (node if expected == "container" else None)
-    # единицы = листья без «Пользователей», как placeable_leaves в app/deployment
+    # при элементе null единицы = листья без «Пользователей» (app/deployment.placeable_units)
     assert el.units_under("r") == ["a", "b", "d", "e"]
 
 

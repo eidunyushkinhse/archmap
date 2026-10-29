@@ -47,7 +47,7 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
-from app.deployment import leaf_placements, project_sites, project_tree
+from app.deployment import project_sites, project_tree, unit_placements
 from app.domain_types import NodeElement
 from app.element_marks import ElementRow, project_element_rows
 from app.element_rules import element_change_refusal
@@ -940,10 +940,11 @@ def _apply_placements(
     Площадка — по имени: есть в проекте — берётся как есть (вид, технологию и описание
     живой площадки догрузка не трогает, расхождение вида уже назвал мердж), нет —
     создаётся с родителем по имени из проекта или плана (merged.sites идут «родители
-    раньше детей»). Размещение достаётся объектам (листьям живого дерева): своё
-    объявление — себе, объявление контейнера — его объектам без своего
-    (app/deployment.leaf_placements); объекту добавляются недостающие экземпляры,
-    снимать нечего и нельзя — догрузка не удаляет. skip — merged-узлы, слитые из
+    раньше детей»). Размещение достаётся единицам живого дерева — контейнерам (в том
+    числе листьям): своё объявление — себе, объявление системы — её контейнерам без
+    своего (app/deployment.unit_placements; элементы — живого проекта, узлы и их
+    элементы к этому моменту уже записаны); единице добавляются недостающие
+    экземпляры, снимать нечего и нельзя — догрузка не удаляет. skip — merged-узлы, слитые из
     нескольких живых тёзок: их набор площадок смешан из разных записей, как и поля
     (_fill_node их тоже не доливает)."""
     if not merged.sites:
@@ -984,9 +985,9 @@ def _apply_placements(
         site_ids = [by_name[name] for name in imp.sites if name in by_name]
         if site_ids:
             declared[node.id] = site_ids
-    parent_of, shapes = project_tree(db, project.id)
+    parent_of, elements = project_tree(db, project.id)
     added = 0
-    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+    for node_id, placed in unit_placements(parent_of, declared, elements).items():
         for site_id in placed:
             if (node_id, site_id) in have:
                 continue
