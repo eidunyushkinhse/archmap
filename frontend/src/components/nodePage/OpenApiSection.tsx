@@ -10,7 +10,7 @@ import type { DocTarget } from "./docTarget";
 
 export default function OpenApiSection({
   spec, isContainer, isArchitect, allowed, legacy, groups, loading,
-  onOpen, onOpenChildSpec, onDistribute, onNavigateNode,
+  onOpen, onOpenChildSpec, onTransfer, onCollect, onNavigateNode,
 }: {
   // Спека самого объекта (null — нет).
   spec: string | null;
@@ -26,7 +26,11 @@ export default function OpenApiSection({
   onOpen: (target: DocTarget) => void;
   // Спека ребёнка открывается в его CAS-контексте (страница держит базу правки).
   onOpenChildSpec: (child: Node) => void;
-  onDistribute: () => void;
+  // «Перенести документацию» (Р19) — только у системы: у неё своей спецификации нет;
+  // у контейнера спецификация на месте, и кнопки нет (undefined).
+  onTransfer?: () => void;
+  // «Собрать с компонентов» — у контейнера, у компонентов которого есть спецификация.
+  onCollect?: () => void;
   onNavigateNode: (id: string) => void;
 }) {
   if (!(allowed || legacy || groups.length > 0)) return null;
@@ -59,9 +63,9 @@ export default function OpenApiSection({
               <button className="np-doc-row" onClick={() => onOpen({ mode: "openapi" })}>
                 <DocRowLabel name="Спецификация" />
               </button>
-              {isArchitect && (
-                <button type="button" className="np-addbtn" onClick={onDistribute}>
-                  Распределить по детям
+              {isArchitect && onTransfer && (
+                <button type="button" className="np-addbtn" onClick={onTransfer}>
+                  Перенести документацию
                 </button>
               )}
             </>
@@ -84,6 +88,13 @@ export default function OpenApiSection({
                 )}
               />
             </>
+          )}
+          {/* Спецификацию отдаёт запускаемое целиком: у компонентов она не на месте —
+              контейнер собирает её к себе (Р19). */}
+          {isArchitect && onCollect && (
+            <button type="button" className="np-addbtn" onClick={onCollect}>
+              Собрать с компонентов
+            </button>
           )}
           {loading && <p className="np-empty">Загрузка данных детей…</p>}
           {!loading && !spec && groups.length === 0 && (

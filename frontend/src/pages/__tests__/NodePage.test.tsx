@@ -7,11 +7,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
-import { nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
+import { configParamsApi, nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
 import { deploymentApi } from "../../api/deployment";
 import { ApiError } from "../../api/client";
 import { ProjectRoleContext } from "../projectRole";
-import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
+import type { ConfigParam, Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
@@ -26,6 +26,10 @@ vi.mock("../../api/nodes", () => ({
     // Живая нормализация источника (поле «Источник» в «Свойствах»): форма зовёт её при
     // вводе. Мок модуля ЦЕЛИКОМ — забыть метод значит уронить форму на «не функция».
     anchorPreview: vi.fn(),
+    // Превью «Собрать с компонентов» (Р19): страница контейнера с компонентами тянет его
+    // при маунте, чтобы решить, показывать ли кнопку сбора.
+    collectPreview: vi.fn(() => Promise.resolve({ components: [], param_clashes: [], specs: [] })),
+    collectFacts: vi.fn(),
   },
   // usage — обратный индекс «используется в процессах» (Ф8): страница тянет его
   // эффектом при маунте, без мока эффект падает на «не функция».
@@ -276,10 +280,12 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
-    // getDescendants — для хука агрегации контейнера; getChildren — для модалки
-    // «Распределить по детям» (она сама фетчит непосредственных детей).
+    // getDescendants — для хука агрегации контейнера и окна «Перенести документацию»
+    // (оно само фетчит узел и потомков).
     vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
     vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
+    // Перенос документации — своя запись: страница сверяет курсоры (syncCursors).
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
 
@@ -359,10 +365,10 @@ describe("NodePage: правила контейнеров", () => {
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
-  it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {
+  it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
     await screen.findByText(/остались собственные логические диаграммы/);
-    expect(screen.getByRole("button", { name: "Распределить по детям" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
@@ -392,15 +398,15 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.queryByText("Python")).not.toBeInTheDocument();
   });
 
-  it("модалка распределения: переносит схему выбранному ребёнку", async () => {
+  it("окно «Перенести документацию»: переносит схему выбранному получателю", async () => {
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false, moved_params: 0 });
     setupContainer({
       own: { docs: [docMeta()] },
       children: [node("k1", { name: "Шлюз" })],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "Распределить по детям" }));
-    await screen.findByText("Схемы логики"); // форма модалки загрузилась
-    await userEvent.click(screen.getByRole("button", { name: "Распределить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести документацию" }));
+    await screen.findByText("Схемы логики"); // форма окна загрузилась
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
     await waitFor(() =>
       expect(nodeDocsApi.distribute).toHaveBeenCalledWith("c1", {
         doc_assignments: [{ doc_id: "d1", child_id: "k1" }],
@@ -408,6 +414,58 @@ describe("NodePage: правила контейнеров", () => {
     );
     // Модалка закрылась после успеха
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
+  });
+
+  it("система с параметрами: «Перенести документацию» в конфигурации — параметры одному контейнеру", async () => {
+    const params = [{ id: "p1" }, { id: "p2" }] as ConfigParam[];
+    vi.mocked(configParamsApi.list).mockImplementation((id) => Promise.resolve(id === "c1" ? params : []));
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 0, spec_moved: false, moved_params: 2 });
+    setupContainer({
+      own: { element_effective: "system" },
+      children: [node("k1", { name: "Шлюз" })],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести документацию" }));
+    expect(await screen.findByText("2 параметра")).toBeInTheDocument();
+    expect(screen.getByLabelText("Куда перенести конфигурацию")).toHaveValue("k1");
+    const listed = vi.mocked(configParamsApi.list).mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(nodeDocsApi.distribute).toHaveBeenCalledWith("c1", {
+      doc_assignments: [], params_target_id: "k1",
+    }));
+    // После записи секции перемонтируются: конфигурация перечитана.
+    await waitFor(() => expect(vi.mocked(configParamsApi.list).mock.calls.length).toBeGreaterThan(listed));
+    // У системы сбора нет — и превью не запрашивается.
+    expect(nodesApi.collectPreview).not.toHaveBeenCalled();
+    vi.mocked(configParamsApi.list).mockImplementation(() => Promise.resolve([]));
+  });
+
+  it("контейнер с компонентами: «Собрать с компонентов» по превью, своя спецификация без переноса", async () => {
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({
+      components: [{ node_id: "k1", name: "api", params: 2, has_spec: true }],
+      param_clashes: [],
+      specs: [{ node_id: "k1", name: "api" }],
+    });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue({ moved_params: 2, spec_moved: true });
+    setupContainer({
+      own: { element: "container", element_effective: "container", openapi_spec: "openapi: 3.0.0" },
+      children: [node("k1", { name: "api", element_effective: "component", container_name: "Ядро" })],
+    });
+    // Кнопка — в конфигурации и в «OpenAPI».
+    const buttons = await screen.findAllByRole("button", { name: "Собрать с компонентов" });
+    expect(buttons).toHaveLength(2);
+    expect(nodesApi.collectPreview).toHaveBeenCalledWith("c1");
+    // Своя спецификация контейнера на месте — переносить её некуда и незачем.
+    expect(screen.queryByRole("button", { name: "Перенести документацию" })).not.toBeInTheDocument();
+
+    await userEvent.click(buttons[0]);
+    expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", {
+      param_choices: [], spec_from: "k1",
+    }));
+    // Превью перечитано по новой эпохе страницы.
+    await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({ components: [], param_clashes: [], specs: [] });
   });
 });
 

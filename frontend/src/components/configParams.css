@@ -126,4 +126,8 @@
 
 .cfg-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  /* Рядом с «+ Параметр» — «Перенести документацию» или «Собрать с компонентов» (Р19). */
+  gap: 8px;
 }

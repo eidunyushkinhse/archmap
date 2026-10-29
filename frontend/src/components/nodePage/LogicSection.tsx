@@ -14,7 +14,7 @@ import type { DocTarget } from "./docTarget";
 
 export default function LogicSection({
   node, isContainer, isArchitect, allowed, legacy, groups, loading,
-  onOpen, onDistribute, onDocsAgent, onReconAgent, onNavigateNode, onNavigateProcesses,
+  onOpen, onTransfer, onDocsAgent, onReconAgent, onNavigateNode, onNavigateProcesses,
 }: {
   node: Node;
   isContainer: boolean;
@@ -27,7 +27,8 @@ export default function LogicSection({
   groups: ContainerDocGroup[];
   loading: boolean;
   onOpen: (target: DocTarget) => void;
-  onDistribute: () => void;
+  // «Перенести документацию» (Р19): собственные схемы узла с вложенными — потомкам.
+  onTransfer: () => void;
   onDocsAgent: () => void;
   onReconAgent: () => void;
   onNavigateNode: (id: string) => void;
@@ -85,9 +86,9 @@ export default function LogicSection({
       <h3 className="np-card-title">Логика</h3>
       {isContainer ? (
         <>
-          {/* Собственные (grandfather) схемы контейнера: по правилам у
-              контейнера нет своей логики — предупреждение и перенос на
-              детей модалкой «Распределить по детям». */}
+          {/* Собственные схемы узла с вложенными: схемы логики описывают код, их
+              место у компонентов и сервисов без вложенных — предупреждение и окно
+              «Перенести документацию» (Р19 эпика «Элемент архитектуры»). */}
           {node.docs.length > 0 && (
             <>
               <p className="np-warn">
@@ -105,8 +106,8 @@ export default function LogicSection({
                 ))}
               </div>
               {isArchitect && (
-                <button type="button" className="np-addbtn" onClick={onDistribute}>
-                  Распределить по детям
+                <button type="button" className="np-addbtn" onClick={onTransfer}>
+                  Перенести документацию
                 </button>
               )}
             </>

@@ -17,8 +17,8 @@ import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
 import ConfigParamsSection from "../components/ConfigParamsSection";
+import { useFactsTransfer } from "../components/element/useFactsTransfer";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
-import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
@@ -199,9 +199,6 @@ function NodePageInner({
   // Токен мутации (правка связи со страницы): секция «Схема» перерисовывает
   // изменившиеся стрелки анимированно (окно мутаций, AN28а).
   const [mutationToken, setMutationToken] = useState(0);
-  // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
-  const [distributeOpen, setDistributeOpen] = useState(false);
-  const openDistribute = useCallback(() => setDistributeOpen(true), []);
   const openDocsAgent = useCallback(() => setDocsAgent(true), []);
   const openReconAgent = useCallback(() => setReconAgent(true), []);
   // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
@@ -262,6 +259,19 @@ function NodePageInner({
     onEdgesReload();
     setPageEpoch((e) => e + 1);
   }, [refreshNode, isContainer, reloadChildren, onEdgesReload]);
+
+  // «Перенести документацию» и «Собрать с компонентов» (Р19 эпика «Элемент архитектуры»):
+  // запись меняет мету узла, его потомков и параметры — свежий узел, потомки, курсоры
+  // (своя запись) и новая эпоха секций (секция конфигурации грузит себя при маунте).
+  const handleFactsMoved = useCallback(() => {
+    refreshNode();
+    if (isContainer) reloadChildren();
+    syncCursors();
+    setPageEpoch((e) => e + 1);
+  }, [refreshNode, isContainer, reloadChildren, syncCursors]);
+  const facts = useFactsTransfer(node, isArchitect, pageEpoch, handleFactsMoved);
+  // Перенос вниз не на месте только у системы: у контейнера спецификация и конфигурация свои.
+  const isSystem = node.element_effective === "system";
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
@@ -518,6 +528,8 @@ function NodePageInner({
             nodeId={node.id}
             isArchitect={isArchitect}
             allowed={allow.config}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectParams}
           />
 
           {/* ── Логика (node_docs) ────────────────────────────────── */}
@@ -530,7 +542,7 @@ function NodePageInner({
             groups={container.docGroups}
             loading={container.loading}
             onOpen={setDoc}
-            onDistribute={openDistribute}
+            onTransfer={facts.openTransfer}
             onDocsAgent={openDocsAgent}
             onReconAgent={openReconAgent}
             onNavigateNode={onNavigateNode}
@@ -548,7 +560,8 @@ function NodePageInner({
             loading={container.loading}
             onOpen={setDoc}
             onOpenChildSpec={openChildSpec}
-            onDistribute={openDistribute}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectSpec}
             onNavigateNode={onNavigateNode}
           />
         </div>
@@ -651,21 +664,8 @@ function NodePageInner({
         />
       )}
 
-      {/* «Распределить по детям» (правила контейнеров): перенос собственных
-          (grandfather) схем логики и спеки контейнера на детей. */}
-      {distributeOpen && isContainer && (
-        <DistributeDocsModal
-          nodeId={node.id}
-          onClose={() => setDistributeOpen(false)}
-          onApplied={() => {
-            // Перенос изменил мету узла (доки/спека ушли детям) и мету детей:
-            // свежий узел (обновляет CAS-базу и значения полей — секции «Логика»/
-            // «OpenAPI» пересчитаются) и перезагрузка детей для объединения.
-            refreshNode();
-            container.reload();
-          }}
-        />
-      )}
+      {/* «Перенести документацию» и «Собрать с компонентов» (Р19). */}
+      {facts.dialogs}
     </div>
   );
 }

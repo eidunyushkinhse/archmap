@@ -31,6 +31,11 @@ interface Props {
   // есть — показываем их с предупреждением: спрятать применённое хуже, чем показать
   // (тот же приём, что у легаси-схем логики).
   allowed: boolean;
+  // «Перенести документацию» (Р19) — у системы: своей конфигурации у неё нет, параметры
+  // уходят потомку-контейнеру. undefined — кнопки нет.
+  onTransfer?: () => void;
+  // «Собрать с компонентов» — у контейнера, у компонентов которого есть параметры.
+  onCollect?: () => void;
 }
 
 const TYPE_TITLE =
@@ -41,7 +46,7 @@ const DEFAULT_TITLE =
   "хранятся — ArchMap не хранилище секретов";
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
-export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Props) {
+export default function ConfigParamsSection({ nodeId, isArchitect, allowed, onTransfer, onCollect }: Props) {
   const { rows: params, usage, error, limit, apply, reload } =
     useFactRows(nodeId, configParamsApi, "Не удалось загрузить конфигурацию");
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
@@ -137,6 +142,18 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
               [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
             ]}
           />
+          {/* Конфигурацию читает запускаемое целиком (Р19): у системы она не на месте,
+              у компонентов — тоже, контейнер собирает её к себе. */}
+          {onTransfer && !empty && (
+            <button type="button" className="np-addbtn" onClick={onTransfer}>
+              Перенести документацию
+            </button>
+          )}
+          {onCollect && (
+            <button type="button" className="np-addbtn" onClick={onCollect}>
+              Собрать с компонентов
+            </button>
+          )}
         </div>
       )}
       {agentOpen && (
