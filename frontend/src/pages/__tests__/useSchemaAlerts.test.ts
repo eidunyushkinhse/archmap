@@ -16,7 +16,7 @@ function node(id: string, parent_id: string | null): Node {
 }
 const ALL: Node[] = [node("A", null), node("A1", "A"), node("B", null)];
 
-const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [] };
+const EMPTY_ALERTS: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [], component_facts: [] };
 
 describe("resolveAlertLocate", () => {
   it("узел: уровень = родитель, запрос node", () => {
@@ -58,6 +58,21 @@ describe("resolveAlertLocate", () => {
     expect(request).toEqual({ kind: "edge", ids: ["e2"], endIds: ["A", "A1"], token: 4 });
   });
 
+  it("компонент со своими фактами: уровень = его контейнер, запрос node", () => {
+    // Класс «Конфигурация и спецификации у компонентов» ведёт к самому компоненту — он
+    // рисуется на уровне своего контейнера.
+    const alerts: Alerts = {
+      ...EMPTY_ALERTS,
+      component_facts: [{
+        node_id: "A1", node_name: "A1", container_id: "A", container_name: "A",
+        has_spec: false, has_config: true,
+      }],
+    };
+    const { level, request } = resolveAlertLocate(ALL, { kind: "node", id: "A1" }, alerts, 8);
+    expect(level).toBe("A");
+    expect(request).toEqual({ kind: "node", ids: ["A1"], token: 8 });
+  });
+
   it("связь не найдена в алертах: фолбэк без endIds", () => {
     const { level, request } = resolveAlertLocate(ALL, { kind: "edge", id: "missing" }, EMPTY_ALERTS, 2);
     expect(level).toBeNull();
@@ -89,6 +104,7 @@ describe("useSchemaAlerts", () => {
       descendant_edges: [],
       unlinked_messages: [],
       undescribed_docs: [],
+      component_facts: [],
       container_own_docs: [], persons_inside: [], dangling_messages: [],
     } as Alerts;
     vi.mocked(nodesApi.getAlerts).mockResolvedValue(alerts);

@@ -3110,6 +3110,11 @@ export interface components {
              * @default []
              */
             undescribed_docs: components["schemas"]["UndescribedDocsAlert"][];
+            /**
+             * Component Facts
+             * @default []
+             */
+            component_facts: components["schemas"]["ComponentFactsAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -3715,6 +3720,35 @@ export interface components {
             prompt: string;
         };
         /**
+         * ComponentFactsAlert
+         * @description Компонент со своей спецификацией OpenAPI или своими параметрами конфигурации
+         *     (AL36, Р10 docs/plan-c4-elements.md). API отдаёт и конфигурацию читает контейнер
+         *     целиком, поэтому место этих фактов — у ближайшего контейнера компонента
+         *     (app/element.py, container_of); свои параметры компонента пометка «зависит от:» не
+         *     видит (ProjectCatalog.params_for). Данные остаются от прежнего правила «факты на
+         *     листьях» и от ввоза с адресом компонента.
+         */
+        ComponentFactsAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Container Id
+             * Format: uuid
+             */
+            container_id: string;
+            /** Container Name */
+            container_name: string;
+            /** Has Spec */
+            has_spec: boolean;
+            /** Has Config */
+            has_config: boolean;
+        };
+        /**
          * ComponentOut
          * @description Компонент контейнера — возможная цель конца связи.
          */
@@ -3953,11 +3987,14 @@ export interface components {
         };
         /**
          * ContainerOwnDocsAlert
-         * @description Контейнер с СОБСТВЕННЫМИ доками/спецификацией/конфигурацией (grandfather): узел стал
-         *     контейнером (появились дети), но логика/спецификация/параметры остались на нём самом.
-         *     Правила контейнеров: логика, спецификации и конфигурация живут на атомарных детях —
-         *     доки распределяют по детям (модалка «Распределить по детям»), параметры
-         *     описывают заново у компонентов, чей код их читает (2026-10-28).
+         * @description Система или контейнер со своей документацией (AL24); совет — по элементу
+         *     архитектуры (docs/plan-c4-elements.md, раздел 0а):
+         *     - система (группа, сама не запускается) с собственными схемами логики,
+         *       спецификацией или параметрами конфигурации: всё это описывает её контейнеры, и
+         *       переносят это вложенным объектам — как до эпика у любого узла с детьми;
+         *     - контейнер с компонентами с собственными схемами логики: схемы описывают код, а
+         *       код — у компонентов (Р9). Спецификация и конфигурация у контейнера — норма: флаги
+         *       has_spec/has_config в записи остаются, но в класс их одних не хватает.
          */
         ContainerOwnDocsAlert: {
             /**
@@ -3967,6 +4004,11 @@ export interface components {
             node_id: string;
             /** Node Name */
             node_name: string;
+            /**
+             * Element Effective
+             * @enum {string}
+             */
+            element_effective: "system" | "container";
             /** Has Docs */
             has_docs: boolean;
             /** Has Spec */

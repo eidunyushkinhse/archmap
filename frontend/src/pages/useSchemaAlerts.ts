@@ -13,7 +13,7 @@ import type { LocateTarget } from "../components/SchemaAlerts";
 import type { LocateRequest } from "../components/graph/types";
 import { nodesApi } from "../api/nodes";
 
-const EMPTY: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [] };
+const EMPTY: Alerts = { disconnected_nodes: [], intermediate_edges: [], isolated_groups: [], container_own_docs: [], persons_inside: [], dangling_messages: [], unbound_participants: [], orphan_legs: [], unresolved_data_refs: [], unresolved_channel_refs: [], unresolved_config_refs: [], broker_edge_channels: [], descendant_edges: [], unlinked_messages: [], undescribed_docs: [], component_facts: [] };
 
 // Ключ sessionStorage для передачи цели алерта из шапки в редактор-карту.
 export const PENDING_ALERT_LOCATE_KEY = "archmap.pendingAlertLocate";
@@ -80,8 +80,8 @@ export function resolveAlertLocate(
     return { level: commonLevel([target.id]), request: { kind: "node", ids: [target.id], token } };
   }
   if (target.kind === "edge") {
-    // Концы связи ищем во ВСЕХ классах, которые их несут: «связи в контейнер» и
-    // «связи в собственный компонент» (AL32) — по ним считается уровень, на
+    // Концы связи ищем во ВСЕХ классах, которые их несут: «связи в систему или
+    // контейнер» и «связи с собственной частью» (AL32) — по ним считается уровень, на
     // котором связь видна. Класс, концов не несущий, уходит в фолбэк ниже.
     const al =
       alerts.intermediate_edges.find((e) => e.edge_id === target.id) ??

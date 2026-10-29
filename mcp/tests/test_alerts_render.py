@@ -35,7 +35,7 @@ def u(n: int) -> str:
 
 
 def full_payload() -> dict[str, Any]:
-    """По одной записи каждого из 15 классов."""
+    """По одной записи каждого из 16 классов."""
     return {
         "disconnected_nodes": [{"node_id": u(1), "node_name": "Сирота"}],
         "intermediate_edges": [
@@ -60,8 +60,15 @@ def full_payload() -> dict[str, Any]:
         ],
         "container_own_docs": [
             {
-                "node_id": u(4), "node_name": "Маркетплейс",
+                "node_id": u(4), "node_name": "Маркетплейс", "element_effective": "system",
                 "has_docs": True, "has_spec": False, "has_config": False,
+            }
+        ],
+        "component_facts": [
+            {
+                "node_id": u(17), "node_name": "orders/api",
+                "container_id": u(18), "container_name": "orders",
+                "has_spec": True, "has_config": True,
             }
         ],
         "persons_inside": [
@@ -135,12 +142,12 @@ def validated_payload() -> dict[str, Any]:
 def test_фикстура_покрывает_все_классы_контракта() -> None:
     fields = set(backend("schemas.alerts").AlertsResponse.model_fields)
     assert set(full_payload()) == fields
-    assert len(fields) == 15
+    assert len(fields) == 16
 
 
 def test_порядок_и_заголовки_повторяют_панель() -> None:
     titles = panel_titles()
-    assert len(titles) == 15, titles
+    assert len(titles) == 16, titles
 
     out = render.alerts(validated_payload())
     positions = []
@@ -182,6 +189,15 @@ def test_тексты_причин_те_же_что_в_панели() -> None:
         assert mine == panel_reasons(const)
     panel = " ".join(PANEL.read_text(encoding="utf-8").split())
     assert render.CONFIG_REASON in panel
+    # Советы AL24 по элементу — словарь панели целиком, ключи — из контракта.
+    own = re.search(r"const OWN_DOCS_HINT[^=]*= \{(.*?)\};", panel, re.S)
+    assert own, "в панели нет OWN_DOCS_HINT"
+    assert dict(re.findall(r'(\w+): "([^"]+)"', own.group(1))) == render.OWN_DOCS_HINT
+    assert set(render.OWN_DOCS_HINT) == set(
+        get_args(schemas.ContainerOwnDocsAlert.model_fields["element_effective"].annotation)
+    )
+    head, tail = render.COMPONENT_FACTS_HINT.split("{name}")
+    assert f"{head}{{c.container_name}}{tail}" in panel
     assert render.CONFIG_REASON_SYSTEM in panel
     head, tail = render.CONFIG_REASON_CONTAINER.split("{name}")
     assert head in panel and tail in panel
@@ -211,6 +227,43 @@ def test_причина_AL33_называет_место_поиска() -> None:
     ) in line
 
 
+def test_совет_AL24_по_элементу_архитектуры() -> None:
+    """Система — всё не на месте, контейнер с компонентами — только схемы логики.
+    Сервер до эпика элемента не шлёт: строка — одно имя, как раньше."""
+    base = {"node_id": u(4), "node_name": "orders", "has_docs": True, "has_spec": False,
+            "has_config": False}
+    container = {**base, "element_effective": "container"}
+    backend("schemas.alerts").ContainerOwnDocsAlert.model_validate(container)
+    out = render.alerts({"container_own_docs": [container]})
+    assert (
+        "  • orders (схемы логики описывают код компонентов — перенесите их компонентам)"
+        in out.splitlines()
+    )
+    out = render.alerts(validated_payload())
+    assert (
+        "  • Маркетплейс (спецификация, конфигурация и схемы логики описывают её контейнеры — "
+        "перенесите их вложенным объектам)"
+    ) in out.splitlines()
+    assert "  • orders" in render.alerts({"container_own_docs": [base]}).splitlines()
+
+
+def test_факты_компонента_называют_контейнер() -> None:
+    out = render.alerts(validated_payload())
+    assert (
+        "  • orders/api · конфигурация, спецификация (место — у контейнера «orders»)"
+        in out.splitlines()
+    )
+    one = {
+        "node_id": u(17), "node_name": "orders/api", "container_id": u(18),
+        "container_name": "orders", "has_spec": True, "has_config": False,
+    }
+    backend("schemas.alerts").ComponentFactsAlert.model_validate(one)
+    out = render.alerts({"component_facts": [one]})
+    assert out.startswith("Замечаний: 1\n")
+    assert "Конфигурация и спецификации у компонентов (1):" in out
+    assert "  • orders/api · спецификация (место — у контейнера «orders»)" in out.splitlines()
+
+
 def test_строки_называют_имена_и_детали() -> None:
     out = render.alerts(validated_payload())
     assert "Покупатель → «Маркетплейс»" in out  # проблемный конец выделен
@@ -224,8 +277,8 @@ def test_строки_называют_имена_и_детали() -> None:
 
 
 def test_счётчик_считает_группы_как_недостающие_связи() -> None:
-    # 14 классов по записи + 2 изолированные группы, дающие 1 недостающую связь.
-    assert render.alerts(validated_payload()).startswith("Замечаний: 15\n")
+    # 15 классов по записи + 2 изолированные группы, дающие 1 недостающую связь.
+    assert render.alerts(validated_payload()).startswith("Замечаний: 16\n")
 
 
 def test_пустой_ответ_говорит_что_схема_завершена() -> None:
@@ -251,8 +304,8 @@ def test_незнакомый_класс_нового_сервера_печат�
     assert "Объект 5" not in out and "… и ещё 2" in out
     # рядом с известными классами — свой блок после них, счётчик общий
     out = render.alerts({**validated_payload(), "future_class": records[:1]})
-    assert out.startswith("Замечаний: 16\n")
-    assert out.index("«future_class» (1)") > out.index("Пользователи внутри контейнера (")
+    assert out.startswith("Замечаний: 17\n")
+    assert out.index("«future_class» (1)") > out.index("Пользователи внутри системы (")
     # пустой незнакомый список и не-список — не замечания
     assert render.alerts({"future_class": [], "total": 3}) == "Замечаний нет — схема завершена."
 
@@ -271,4 +324,11 @@ async def test_инструмент_алертов_отдаёт_полную_с�
 
 def test_описание_инструмента_обещает_все_классы() -> None:
     tool = next(t for t in tools.TOOLS if t["name"] == "archmap_alerts")
-    assert "15" in tool["description"]
+    assert "16" in tool["description"]
+    # Каждый заголовок панели назван в описании (строчными, как в перечне).
+    desc = tool["description"].lower()
+    for title in panel_titles():
+        words = title.lower()
+        if words.startswith("обращения к неописанным"):
+            words = "обращения к неописанным"  # три семьи — одной фразой
+        assert words in desc, title

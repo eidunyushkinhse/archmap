@@ -513,6 +513,37 @@ CONFIG_REASON_CONTAINER = (
 )
 
 
+# Совет «Систем и контейнеров со своей документацией» по элементу архитектуры записи и
+# место фактов компонента — дословно из панели (OWN_DOCS_HINT и раздел «Конфигурация и
+# спецификации у компонентов» в SchemaAlerts.tsx).
+OWN_DOCS_HINT = {
+    "system": (
+        "спецификация, конфигурация и схемы логики описывают её контейнеры — "
+        "перенесите их вложенным объектам"
+    ),
+    "container": "схемы логики описывают код компонентов — перенесите их компонентам",
+}
+COMPONENT_FACTS_HINT = "место — у контейнера «{name}»"
+
+
+def own_docs_line(record: dict[str, Any]) -> str:
+    """Строка AL24: имя и совет по элементу. Сервер без элементов архитектуры поля не
+    шлёт — тогда, как раньше, одно имя."""
+    hint = OWN_DOCS_HINT.get(str(record.get("element_effective")))
+    return f"{record['node_name']} ({hint})" if hint else str(record["node_name"])
+
+
+def component_facts_line(record: dict[str, Any]) -> str:
+    """Строка AL36: компонент, что у него осталось и контейнер, куда это перенести."""
+    facts = ", ".join(
+        word
+        for flag, word in (("has_config", "конфигурация"), ("has_spec", "спецификация"))
+        if record.get(flag)
+    )
+    hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")
+    return f"{record['node_name']} · {facts} ({hint})"
+
+
 def config_reason(record: dict[str, Any]) -> str:
     """Причина записи AL33 по месту поиска: сам владелец схемы, его контейнер или
     нигде (владелец — система). Сервер без поля container_id (до эпика «Элемент
@@ -555,7 +586,7 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
 
 
 def alerts(data: dict[str, Any]) -> str:
-    """Незавершённость схемы — 15 классов в порядке, заголовках и словах панели
+    """Незавершённость схемы — 16 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
 
     Читается это агентом, а показывается человеку панелью — значит и называться
@@ -580,6 +611,7 @@ def alerts(data: dict[str, Any]) -> str:
     descendant = lst("descendant_edges")
     isolated = lst("isolated_groups")
     container_own = lst("container_own_docs")
+    component_facts = lst("component_facts")
     data_refs = lst("unresolved_data_refs")
     channel_refs = lst("unresolved_channel_refs")
     config_refs = lst("unresolved_config_refs")
@@ -603,7 +635,7 @@ def alerts(data: dict[str, Any]) -> str:
 
     add("Объекты без связей", [str(d["node_name"]) for d in disconnected])
     add(
-        "Связи в контейнер",
+        "Связи в систему или контейнер",
         [
             f"{end(str(e['source_name']), bool(e.get('source_is_intermediate')))} → "
             f"{end(str(e['target_name']), bool(e.get('target_is_intermediate')))}"
@@ -611,7 +643,7 @@ def alerts(data: dict[str, Any]) -> str:
         ],
     )
     add(
-        "Связи в собственный компонент",
+        "Связи с собственной частью",
         [
             f"{e['source_name']} → {e['target_name']}: "
             f"«{e['source_name'] if e.get('source_is_part') else e['target_name']}» — часть "
@@ -627,7 +659,11 @@ def alerts(data: dict[str, Any]) -> str:
             for i, g in enumerate(isolated)
         ],
     )
-    add("Контейнеры со своей документацией", [str(c["node_name"]) for c in container_own])
+    add("Системы и контейнеры со своей документацией", [own_docs_line(c) for c in container_own])
+    add(
+        "Конфигурация и спецификации у компонентов",
+        [component_facts_line(c) for c in component_facts],
+    )
     add(
         "Обращения к неописанным данным",
         [
@@ -692,7 +728,7 @@ def alerts(data: dict[str, Any]) -> str:
         ],
     )
     add(
-        "Пользователи внутри контейнера",
+        "Пользователи внутри системы",
         [f"{p['node_name']} внутри {p['parent_name']}" for p in persons_inside],
     )
     unknown = _unknown_alert_blocks(data, known)
@@ -705,7 +741,7 @@ def alerts(data: dict[str, Any]) -> str:
     # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
     total = (
         len(disconnected) + len(intermediate) + len(descendant) + max(0, len(isolated) - 1)
-        + len(container_own) + len(data_refs) + len(channel_refs) + len(config_refs)
+        + len(container_own) + len(component_facts) + len(data_refs) + len(channel_refs) + len(config_refs)
         + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
         + len(unlinked) + len(undescribed) + len(persons_inside)
         + sum(count for _, count in unknown)
