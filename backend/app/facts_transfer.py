@@ -9,8 +9,8 @@
 - Перенести документацию (вниз): собственные схемы логики узла — компоненту (в том числе
   составному) или объекту без вложенных вне контейнера; спецификация — потомку с элементом
   «контейнер»; все собственные параметры конфигурации — одному потомку-контейнеру.
-  Получатели — в поддереве узла на любой глубине, система и контейнер с компонентами
-  схемы логики не принимают.
+  Получатели — сервисы в поддереве узла на любой глубине; система и контейнер с
+  компонентами схемы логики не принимают, база, брокер и «Пользователь» — ничего.
 - Собрать с компонентов (вверх): параметры и спецификация компонентов переезжают их
   контейнеру. Одноимённые параметры — один и тот же параметр контейнера: остаётся
   выбранный, остальные удаляются. Спецификация переезжает только выбранная; прочие
@@ -26,7 +26,6 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.element import Elements
 from app.element_marks import ElementRow, build_elements, project_element_rows
 from app.models.config_param import ConfigParam
 from app.models.node import Node
@@ -76,8 +75,28 @@ class FactsTransferError(ValueError):
         self.status = status
 
 
-def _what(elements: Elements[uuid.UUID], node_id: uuid.UUID) -> str:
+class _Tree:
+    """Записи и элементы проекта — одна выборка на запрос."""
+
+    def __init__(self, db: Session, project_id: uuid.UUID) -> None:
+        rows: list[ElementRow] = project_element_rows(db, project_id)
+        self.names = {r.id: r.name for r in rows}
+        self.shapes = {r.id: r.shape for r in rows}
+        self.elements = build_elements(rows)
+
+
+# Формы, у которых документации процесса и кода не бывает: лист базы или брокера по
+# элементу — контейнер (единица размещения), но схем, спецификации и конфигурации у него
+# нет (страница их и не предлагает — shapeDocs).
+_SHAPE_WORD = {"database": "база данных", "broker": "брокер"}
+
+
+def _what(tree: _Tree, node_id: uuid.UUID) -> str:
     """Чем получатель является словами продукта (для отказа «а «X» — …»)."""
+    word = _SHAPE_WORD.get(tree.shapes[node_id])
+    if word is not None:
+        return word
+    elements = tree.elements
     element = elements.effective(node_id)
     if element is None:
         return "пользователь"
@@ -88,23 +107,23 @@ def _what(elements: Elements[uuid.UUID], node_id: uuid.UUID) -> str:
     return "контейнер с компонентами" if elements.descendants(node_id) else "контейнер"
 
 
-def _docs_place(elements: Elements[uuid.UUID], node_id: uuid.UUID) -> bool:
-    """Схемы логики на месте: компонент (в том числе составной) или лист-единица."""
-    element = elements.effective(node_id)
-    return element == "component" or (element == "container" and not elements.descendants(node_id))
+def _docs_place(tree: _Tree, node_id: uuid.UUID) -> bool:
+    """Схемы логики на месте: сервис-компонент (в том числе составной) или сервис-лист."""
+    if tree.shapes[node_id] != "service":
+        return False
+    element = tree.elements.effective(node_id)
+    return element == "component" or (
+        element == "container" and not tree.elements.descendants(node_id)
+    )
+
+
+def _process_place(tree: _Tree, node_id: uuid.UUID) -> bool:
+    """Спецификация и конфигурация на месте: сервис с элементом «контейнер»."""
+    return tree.shapes[node_id] == "service" and tree.elements.effective(node_id) == "container"
 
 
 def _has_spec(node: Node) -> bool:
     return bool((node.openapi_spec or "").strip())
-
-
-class _Tree:
-    """Записи и элементы проекта — одна выборка на запрос."""
-
-    def __init__(self, db: Session, project_id: uuid.UUID) -> None:
-        rows: list[ElementRow] = project_element_rows(db, project_id)
-        self.names = {r.id: r.name for r in rows}
-        self.elements = build_elements(rows)
 
 
 class _Transfer:
@@ -114,7 +133,7 @@ class _Transfer:
     def __init__(self, db: Session, project: Project, node: Node) -> None:
         self.db = db
         self.node = node
-        tree = _Tree(db, project.id)
+        self.tree = tree = _Tree(db, project.id)
         self.elements, self.names = tree.elements, tree.names
         self.inside = set(self.elements.descendants(node.id))
         if not self.inside:
@@ -126,7 +145,7 @@ class _Transfer:
             raise FactsTransferError(OUTSIDE, 409)
         if not ok:
             raise FactsTransferError(
-                template.format(name=self.names[target], what=_what(self.elements, target)), 422
+                template.format(name=self.names[target], what=_what(self.tree, target)), 422
             )
 
     def docs(self, payload: DistributeDocsIn) -> list[tuple[NodeDoc, uuid.UUID]]:
@@ -135,7 +154,7 @@ class _Transfer:
             doc = self.db.get(NodeDoc, a.doc_id)
             if doc is None or doc.node_id != self.node.id:
                 raise FactsTransferError(DOC_NOT_OWN, 404)
-            self._recipient(a.child_id, DOCS_TARGET, _docs_place(self.elements, a.child_id))
+            self._recipient(a.child_id, DOCS_TARGET, _docs_place(self.tree, a.child_id))
             taken = self.db.query(NodeDoc.id).filter(
                 NodeDoc.node_id == a.child_id, NodeDoc.name == doc.name
             ).first()
@@ -151,7 +170,7 @@ class _Transfer:
             return None
         if not _has_spec(self.node):
             raise FactsTransferError(NO_SPEC.format(name=self.node.name), 409)
-        self._recipient(target, SPEC_TARGET, self.elements.effective(target) == "container")
+        self._recipient(target, SPEC_TARGET, _process_place(self.tree, target))
         holder = self.db.get(Node, target)
         if holder is not None and _has_spec(holder):
             raise FactsTransferError(SPEC_TAKEN.format(name=holder.name), 409)
@@ -160,7 +179,7 @@ class _Transfer:
     def params(self, target: uuid.UUID | None) -> list[ConfigParam]:
         if target is None:
             return []
-        self._recipient(target, PARAMS_TARGET, self.elements.effective(target) == "container")
+        self._recipient(target, PARAMS_TARGET, _process_place(self.tree, target))
         params = (
             self.db.query(ConfigParam).filter(ConfigParam.node_id == self.node.id)
             .order_by(ConfigParam.name).all()

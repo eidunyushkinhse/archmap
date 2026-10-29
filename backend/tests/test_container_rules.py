@@ -428,6 +428,30 @@ def test_спецификация_только_контейнеру(db):
     assert (code, text) == (409, "У «shop» нет спецификации")
 
 
+def test_база_брокер_и_пользователь_не_получатели(db):
+    """Лист базы или брокера по элементу — контейнер (единица размещения), но схем логики,
+    спецификации и конфигурации у него не бывает: отказ называет форму, а не элемент."""
+    n = _shop(db)
+    db_ = _node(db, "orders-db", parent=n["shop"], shape="database")
+    kafka = _node(db, "Kafka", parent=n["shop"], shape="broker")
+    buyer = _node(db, "Покупатель", parent=n["shop"], shape="person")
+    d = _doc(db, n["shop"], name="Старт заказа")
+    _param(db, n["shop"])
+    db.commit()
+    for target, what in ((db_, "база данных"), (kafka, "брокер"), (buyer, "пользователь")):
+        assert _refusal(lambda t=target: _distribute(db, n["shop"], doc_assignments=[
+            DistributeDocAssignment(doc_id=d.id, child_id=t.id),
+        ])) == (422, (
+            f"Схемы логики переносятся компонентам и объектам без вложенных, а «{target.name}» — {what}."
+        ))
+        assert _refusal(lambda t=target: _distribute(db, n["shop"], spec_child_id=t.id)) == (
+            422, f"Спецификация переносится только контейнеру, а «{target.name}» — {what}.",
+        )
+        assert _refusal(lambda t=target: _distribute(db, n["shop"], params_target_id=t.id)) == (
+            422, f"Конфигурация переносится только контейнеру, а «{target.name}» — {what}.",
+        )
+
+
 def test_параметры_переезжают_одному_контейнеру(db):
     n = _shop(db)
     _param(db, n["shop"], "LOG_LEVEL")
