@@ -133,6 +133,8 @@ function node(id: string, over: Partial<Node> = {}): Node {
     docs: [],
     has_children: false,
     child_count: 0,
+    element: null,
+    element_effective: "container",
     created_at: "",
     updated_at: "",
     ...over,
@@ -448,7 +450,25 @@ describe("MapEditorPage: правка объекта в истории", () => {
       // Якорь у узла без якоря — явный null: не прислать поле значит «не трогать»,
       // и откат правки якоря не вернул бы прежний.
       source: null,
+      // Элемент архитектуры — тем же правилом (камень 16 эпика «Элемент архитектуры»).
+      element: null,
     });
+  });
+
+  it("Undo смены элемента архитектуры возвращает прежний, Redo — новый", async () => {
+    // Не присланный элемент сервер не трогает: без него в снимке компенсации Undo
+    // смены «не задан → контейнер» тихо оставил бы контейнер.
+    const before = node("n1", { element: null, version: 1 });
+    const saved = node("n1", { element: "container", has_children: true, version: 2 });
+    const cmd = await поправить(before, saved);
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ element: null }));
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.redo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ element: "container" }));
   });
 
   it("Undo правки якоря возвращает прежний якорь, Redo — новый", async () => {

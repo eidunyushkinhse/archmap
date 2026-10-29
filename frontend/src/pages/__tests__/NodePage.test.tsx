@@ -136,6 +136,8 @@ function node(id: string, over: Partial<Node> = {}): Node {
     child_count: 0,
     approval: "in_progress",
     approval_effective: "in_progress",
+    element: null,
+    element_effective: "container",
     sites: [],
     created_at: "",
     updated_at: "",
@@ -551,6 +553,19 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
     expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
+  });
+
+  it("чужая смена элемента у предка (graph_rev) освежает страницу без правки самого узла", async () => {
+    // Предок стал контейнером: строка узла не менялась (version прежняя), а действующий
+    // элемент стал «компонент». Сигнатура без элемента промолчала бы.
+    setupPoll();
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { element_effective: "component" }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument(), ждать);
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {

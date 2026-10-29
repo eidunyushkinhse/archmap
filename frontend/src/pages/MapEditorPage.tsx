@@ -468,9 +468,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // отсутствии: поле source, не присланное в PATCH, якорь НЕ трогает, и Undo
   // правки якоря не вернул бы прежний (а Redo — новый). Для узла без якоря
   // null — та же пустота, что и была: очистка пустого ничего не меняет и
-  // курсоров не двигает (проверено приёмкой Ф0).
+  // курсоров не двигает (проверено приёмкой Ф0). Элемент архитектуры — тем же
+  // правилом: не присланный элемент сервер не трогает, и Undo его смены молча ничего бы
+  // не вернул (камень 16 docs/plan-c4-elements.md). Прежнее значение повторно не
+  // проверяется сервером (проверка — только на смену), так что Undo чужой правки не
+  // упрётся в отказ элемента.
   function nodeFields(n: Node): NodeUpdate {
-    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status, source: n.source ?? null };
+    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status, source: n.source ?? null, element: n.element };
   }
 
   // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки
