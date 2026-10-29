@@ -131,9 +131,9 @@ async def test_поиск_спека_и_объект(client: ArchMapClient, api:
     out = await tools.call("archmap_search", {"project": "Ярмарка", "query": "alerts retries"}, client)
 
     assert "Найдено 2 (искали по: alerts, retries)" in out
-    assert "  • OpenAPI-спека объекта (archmap_node с include_spec)" in out
+    assert "  • OpenAPI-спецификация объекта (archmap_node с include_spec)" in out
     assert "      стр. 12: retries: {type: integer}" in out
-    assert "      … ещё 1 строка в спеке" in out
+    assert "      … ещё 1 строка в спецификации" in out
     assert "  • объект: Alerter · retries alerts" in out
 
 

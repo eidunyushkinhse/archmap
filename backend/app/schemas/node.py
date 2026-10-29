@@ -260,10 +260,10 @@ class DistributeDocAssignment(BaseModel):
 
 
 class DistributeDocsIn(BaseModel):
-    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спеки.
+    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спецификации.
 
     openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
-    (spec_child_id). Если детей несколько и спека есть — пользователь в
+    (spec_child_id). Если детей несколько и спецификация есть — пользователь в
     модалке выбирает, кому она отойдёт."""
     doc_assignments: list[DistributeDocAssignment] = []
     spec_child_id: uuid.UUID | None = None

@@ -188,7 +188,7 @@ export default function OpenApiPane({
         onVersion={setOasVersion}
       />
     );
-    foot = "Невалидная спека сохраняется как черновик, рендер не обновляется до исправления";
+    foot = "Невалидная спецификация сохраняется как черновик, рендер не обновляется до исправления";
   } else if (stage === "agent" && isArchitect) {
     body = (
       <div className="doc-agent">
@@ -200,7 +200,7 @@ export default function OpenApiPane({
         </div>
       </div>
     );
-    foot = "Спека не изменится, пока вы не нажмёте «Применить»";
+    foot = "Спецификация не изменится, пока вы не нажмёте «Применить»";
   } else {
     body = (
       <OpenApiDoc

@@ -38,5 +38,5 @@ export function stripExternalRefs(spec: object): { spec: object; dropped: string
 // Второй слой: спека отдаётся swagger-ui объектом, своих запросов ему делать незачем —
 // любой запрос (внешняя ссылка, которую не поймал разбор выше) отклоняется.
 export function refuseSwaggerRequest(): never {
-  throw new Error("ArchMap не загружает внешние ссылки спеки");
+  throw new Error("ArchMap не загружает внешние ссылки спецификации");
 }

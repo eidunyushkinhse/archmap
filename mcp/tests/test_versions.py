@@ -389,7 +389,7 @@ async def test_спека_и_процесс_на_версии_корня(client:
     spec = await tools.call("archmap_version_doc", {"project": "Ярмарка", "version": 4, "spec_node_id": NODE}, client)
     proc = await tools.call("archmap_version_doc", {"project": "Ярмарка", "version": 4, "process_id": PROCESS}, client)
 
-    assert spec == "OpenAPI-спека «Сервис заказов» (v4)\n```yaml\nopenapi: 3.0.0\n```"
+    assert spec == "OpenAPI-спецификация «Сервис заказов» (v4)\n```yaml\nopenapi: 3.0.0\n```"
     assert proc.startswith("Процесс «Оформление заказа» (v4)\n```mermaid\nsequenceDiagram")
 
 

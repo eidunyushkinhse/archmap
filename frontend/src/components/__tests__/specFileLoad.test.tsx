@@ -56,7 +56,7 @@ describe("OpenAPI: загрузка спеки из файла", () => {
   it("подсказка говорит про спеку и её форматы", () => {
     renderDoc();
     const hint = loadBtn()?.getAttribute("title") ?? "";
-    expect(hint).toContain("спеку");
+    expect(hint).toContain("спецификацию");
     expect(hint).toContain(".yaml");
     expect(hint).not.toContain(".mmd"); // колонка общая — чужой текст сюда не подставляется
   });
@@ -193,7 +193,7 @@ describe("Логика: загрузка mermaid-схемы из файла", ()
     const hint = loadBtn()?.getAttribute("title") ?? "";
     expect(hint).toContain("схему");
     expect(hint).toContain(".mmd");
-    expect(hint).not.toContain("спеку");
+    expect(hint).not.toContain("спецификацию");
     expect(hint).not.toContain(".yaml");
   });
 

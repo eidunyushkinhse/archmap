@@ -500,7 +500,7 @@ function ImportReport({ result }: { result: ArchiveImportResult }) {
         «{result.project_name}» создан
       </div>
       <div>Объектов: {result.nodes} · связей: {result.edges}</div>
-      <div>Схем логики: {result.docs_created} · спек: {result.specs_applied}</div>
+      <div>Схем логики: {result.docs_created} · спецификаций: {result.specs_applied}</div>
       <FactLines result={result} />
       {result.config && <div>Параметров конфигурации: {result.config.params_written}</div>}
       <ReportTail result={result} />

@@ -408,7 +408,7 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
         # Спека вместо перечня — самая вероятная подмена (оба YAML, оба «про API»), и
         # молчаливое «перечня нет» отправило бы человека гадать.
         tail = (
-            f'; «{", ".join(sorted(specs))}» — OpenAPI-спека, а не перечень' if specs else ""
+            f'; «{", ".join(sorted(specs))}» — OpenAPI-спецификация, а не перечень' if specs else ""
         )
         plan.report.errors.append(
             f"среди файлов нет перечня разведки: нужен YAML с разделом operations "

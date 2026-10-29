@@ -123,7 +123,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
               Всего исчезнет {preview.delete_total} {plural(preview.delete_total, ["объект", "объекта", "объектов"])}
               {preview.delete_edges > 0 && `, ${preview.delete_edges} ${plural(preview.delete_edges, ["связь", "связи", "связей"])}`}
               {preview.delete_docs > 0 && `, ${preview.delete_docs} ${plural(preview.delete_docs, ["схема логики", "схемы логики", "схем логики"])}`}
-              {preview.delete_specs > 0 && `, ${preview.delete_specs} ${plural(preview.delete_specs, ["спека", "спеки", "спек"])}`}.
+              {preview.delete_specs > 0 && `, ${preview.delete_specs} ${plural(preview.delete_specs, ["спецификация", "спецификации", "спецификаций"])}`}.
             </p>
           )}
         </>

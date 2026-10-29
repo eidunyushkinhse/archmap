@@ -59,8 +59,8 @@ describe("OpenApiPane · просмотр", () => {
   });
 
   it("конфликт от страницы — плашкой в шапке", () => {
-    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect notice="Спека изменена в другой сессии" onCommitOpenapi={vi.fn()} />);
-    expect(screen.getByText("Спека изменена в другой сессии")).toBeInTheDocument();
+    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect notice="Спецификация изменена в другой сессии" onCommitOpenapi={vi.fn()} />);
+    expect(screen.getByText("Спецификация изменена в другой сессии")).toBeInTheDocument();
   });
 });
 
@@ -82,11 +82,11 @@ describe("OpenApiPane · «Вручную»", () => {
     const onCommitOpenapi = vi.fn(() => Promise.resolve(true));
     render(<OpenApiPane {...props} openapi={spec("Старая")} isArchitect onCommitOpenapi={onCommitOpenapi} />);
     await открытьВручную();
-    expect(screen.getByText(/Невалидная спека сохраняется как черновик/)).toBeInTheDocument();
+    expect(screen.getByText(/Невалидная спецификация сохраняется как черновик/)).toBeInTheDocument();
     fireEvent.change(field()!, { target: { value: "openapi: [\n  broken" } });
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(onCommitOpenapi).toHaveBeenCalledWith("openapi: [\n  broken");
-    expect(await screen.findByText("Спека не распарсилась — превью недоступно")).toBeInTheDocument();
+    expect(await screen.findByText("Спецификация не распарсилась — превью недоступно")).toBeInTheDocument();
   });
 
   it("«Отмена» отбрасывает черновик", async () => {

@@ -103,7 +103,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
   if (broken) {
     banner = lastGood
       ? "Показана последняя корректная версия" + (lastGood.time ? ` · ${lastGood.time}` : "")
-      : "Спека не распарсилась — превью недоступно";
+      : "Спецификация не распарсилась — превью недоступно";
   }
 
   return (
@@ -121,7 +121,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
           // Спеку обычно не пишут руками, а берут готовым файлом. JSON тоже
           // принимаем: js-yaml разбирает его тем же парсером (JSON — подмножество YAML).
           fileAccept=".yaml,.yml,.json,text/yaml,application/json"
-          fileTitle="Взять спеку из файла (.yaml / .yml / .json)."
+          fileTitle="Взять спецификацию из файла (.yaml / .yml / .json)."
           onFileError={setFileError}
         />
       )}
@@ -137,7 +137,7 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
         )}
         <div className="doc-pvscroll">
           {status.kind === "empty" && !lastGood ? (
-            <div className="doc-pvcenter"><span className="doc-pvempty">Нет спеки</span></div>
+            <div className="doc-pvcenter"><span className="doc-pvempty">Нет спецификации</span></div>
           ) : lastGood ? (
             <div className={"doc-oascard" + (broken ? " doc-dim" : "")}>
               <OpenApiViewer spec={lastGood.spec} />

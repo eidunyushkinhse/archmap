@@ -143,7 +143,7 @@ export default function SchemaActions({
               style={menuItem}
               role="menuitem"
               disabled={archiveBusy}
-              title="Полный архив знания проекта: C4, схемы логики, спеки, структуры, конфигурация, процессы"
+              title="Полный архив знания проекта: C4, схемы логики, спецификации, структуры, конфигурация, процессы"
               onClick={() => { setMenuOpen(false); void downloadArchive(); }}
             >
               {archiveBusy ? "Собираем архив…" : "Экспорт проекта (zip)"}

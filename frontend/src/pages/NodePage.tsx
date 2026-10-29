@@ -315,7 +315,7 @@ function NodePageInner({
       nodesApi.get(base.id)
         .then(applyChild)
         .catch(() => { /* ребёнка могли удалить */ });
-      setChildSpecConflict("Спека изменена в другой сессии — данные обновлены, повторите правку");
+      setChildSpecConflict("Спецификация изменена в другой сессии — данные обновлены, повторите правку");
       return false;
     }
   }, [container, syncCursors]);

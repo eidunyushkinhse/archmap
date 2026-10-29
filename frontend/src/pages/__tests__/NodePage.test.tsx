@@ -342,7 +342,7 @@ describe("NodePage: правила контейнеров", () => {
     await screen.findByText("Спецификация");
     expect(screen.getByText("от Шлюз →")).toBeInTheDocument();
     expect(screen.getAllByText("Спецификация")).toHaveLength(1);
-    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 спека/ });
+    const toggle = screen.getByRole("button", { name: /Шлюз\s*1 спецификация/ });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");

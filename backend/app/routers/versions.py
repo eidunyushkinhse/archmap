@@ -304,9 +304,9 @@ def _register(router: APIRouter, scope: Callable[..., Node | None]) -> None:
         project: Project = Depends(get_current_project),
         _: User = Depends(get_current_user),
     ) -> VersionText:
-        """Спека OpenAPI объекта spec_node_id на версии; нет объекта или спеки — 404."""
+        """Спецификация OpenAPI объекта spec_node_id на версии; нет объекта или спецификации — 404."""
         snap = _snapshot(db, project, node, number)
-        return _text_or_404(versions.spec_text(snap, spec_node_id), "Спеки в этой версии нет")
+        return _text_or_404(versions.spec_text(snap, spec_node_id), "Спецификации в этой версии нет")
 
     @router.get("/{number}/process/{process_id}", response_model=VersionText)
     def version_process(

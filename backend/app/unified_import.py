@@ -576,7 +576,7 @@ def _same_body(a: _Raw, b: _Raw) -> bool:
 
 _DUP_WORD: dict[Family, str] = {
     "doc": "схема",
-    "spec": "спека OpenAPI",
+    "spec": "спецификация OpenAPI",
     "table": "таблица",
     "channel": "канал",
     "config": "параметр",
@@ -588,7 +588,7 @@ def _dup_remark(raw: _Raw) -> str:
     замечание входу, а не конфликт эпика."""
     what = _DUP_WORD[raw.family]
     if raw.family == "spec":
-        return f"{raw.fname}: спека узла уже задана другим файлом этого входа — файл пропущен"
+        return f"{raw.fname}: спецификация узла уже задана другим файлом этого входа — файл пропущен"
     return f"{raw.fname}: {what} «{raw.key_str}» у узла уже описана этим входом — запись пропущена"
 
 

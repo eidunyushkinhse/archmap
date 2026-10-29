@@ -52,7 +52,7 @@ vi.mock("../inspector/OpenApiPane", () => ({
       <span data-testid="oas-spec">{p.openapi}</span>
       <span data-testid="oas-stage">{p.initialStage ?? "none"}</span>
       <span data-testid="oas-notice">{p.notice ?? ""}</span>
-      <button onClick={() => void p.onCommitOpenapi("новая спека").then((ok) => { if (!ok) p.onClose(); })}>oas-save</button>
+      <button onClick={() => void p.onCommitOpenapi("новая спецификация").then((ok) => { if (!ok) p.onClose(); })}>oas-save</button>
       {p.onApplied && <button onClick={p.onApplied}>oas-applied</button>}
     </div>
   ),
@@ -112,7 +112,7 @@ describe("DocOverlay", () => {
     const onCommitOpenapi = vi.fn(() => Promise.resolve(true));
     render(<DocOverlay {...base} mode="openapi" isArchitect onCommitOpenapi={onCommitOpenapi} />);
     await userEvent.click(screen.getByText("oas-save"));
-    expect(onCommitOpenapi).toHaveBeenCalledWith("новая спека");
+    expect(onCommitOpenapi).toHaveBeenCalledWith("новая спецификация");
     expect(base.onClose).not.toHaveBeenCalled();
   });
 

@@ -46,7 +46,7 @@ interface FamilyForms {
 const FAMILY: Record<FamilyConflictOut["family"], FamilyForms> = {
   doc: { subj: "объекта", plural: "схемы с одинаковым названием", all: "схемы",
     one: "какую", adj: "правильной", diff: "Схемы разные" },
-  spec: { subj: "объекта", plural: "спеки с одинаковым названием", all: "спеки",
+  spec: { subj: "объекта", plural: "спецификации с одинаковым названием", all: "спецификации",
     one: "какую", adj: "правильной", diff: "Содержимое разное" },
   table: { subj: "объекта", plural: "таблицы с одинаковым названием", all: "таблицы",
     one: "какую", adj: "правильной", diff: "Содержимое разное" },

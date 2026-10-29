@@ -74,7 +74,7 @@ function failedPreview(msg: string): IntoPreviewOut {
 function familyLine(f: IntoPreviewOut["families"]): string | null {
   const parts = [
     f.docs && `${f.docs} ${plural(f.docs, ["схема логики", "схемы логики", "схем логики"])}`,
-    f.specs && `${f.specs} ${plural(f.specs, ["спека", "спеки", "спек"])}`,
+    f.specs && `${f.specs} ${plural(f.specs, ["спецификация", "спецификации", "спецификаций"])}`,
     f.tables && `${f.tables} ${plural(f.tables, ["таблица", "таблицы", "таблиц"])}`,
     f.channels && `${f.channels} ${plural(f.channels, ["канал", "канала", "каналов"])}`,
     f.params && `${f.params} ${plural(f.params, ["параметр", "параметра", "параметров"])}`,
@@ -90,7 +90,7 @@ function applySummary(r: IntoApplyOut): string {
     r.nodes_created && `${r.nodes_created} ${plural(r.nodes_created, ["объект", "объекта", "объектов"])}`,
     r.edges_created && `${r.edges_created} ${plural(r.edges_created, ["связь", "связи", "связей"])}`,
     r.docs_created && `${r.docs_created} ${plural(r.docs_created, ["схема логики", "схемы логики", "схем логики"])}`,
-    r.specs_applied && `${r.specs_applied} ${plural(r.specs_applied, ["спека", "спеки", "спек"])}`,
+    r.specs_applied && `${r.specs_applied} ${plural(r.specs_applied, ["спецификация", "спецификации", "спецификаций"])}`,
     r.db?.tables_written && `${r.db.tables_written} ${plural(r.db.tables_written, ["таблица", "таблицы", "таблиц"])}`,
     r.channels?.channels_written && `${r.channels.channels_written} ${plural(r.channels.channels_written, ["канал", "канала", "каналов"])}`,
     r.channel_stubs && `${r.channel_stubs} ${plural(r.channel_stubs, ["канал по связи", "канала по связям", "каналов по связям"])}`,
@@ -403,7 +403,7 @@ function ApplyReport({ result }: { result: IntoApplyOut }) {
       <div>
         Схем логики: {result.docs_created}
         {result.docs_replaced > 0 && ` · заменено: ${result.docs_replaced}`}
-        {" · спек: "}{result.specs_applied}
+        {" · спецификаций: "}{result.specs_applied}
       </div>
       <FactLines result={result} />
       {result.config && (

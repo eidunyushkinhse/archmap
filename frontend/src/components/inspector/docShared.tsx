@@ -75,7 +75,7 @@ export function DocEditorColumn({
       return;
     }
     if (file.size > FILE_LIMIT) {
-      onFileError?.(`Файл больше ${FILE_LIMIT / 1024 / 1024} МБ — это не похоже на спеку`);
+      onFileError?.(`Файл больше ${FILE_LIMIT / 1024 / 1024} МБ — это не похоже на спецификацию`);
       return;
     }
     let text: string;

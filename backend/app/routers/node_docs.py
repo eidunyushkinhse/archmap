@@ -263,12 +263,12 @@ def distribute_docs(
     spec_moved = False
     if payload.spec_child_id is not None:
         if not node.openapi_spec:
-            raise HTTPException(status_code=409, detail="У узла нет OpenAPI-спеки для переноса")
+            raise HTTPException(status_code=409, detail="У узла нет OpenAPI-спецификации для переноса")
         if payload.spec_child_id not in child_ids:
-            raise HTTPException(status_code=409, detail="Цель для спеки не является непосредственным ребёнком узла")
+            raise HTTPException(status_code=409, detail="Цель для спецификации не является непосредственным ребёнком узла")
         child = next(c for c in children if c.id == payload.spec_child_id)
         if child.openapi_spec:
-            raise HTTPException(status_code=409, detail="У выбранного ребёнка уже есть OpenAPI-спека")
+            raise HTTPException(status_code=409, detail="У выбранного ребёнка уже есть OpenAPI-спецификация")
         child.openapi_spec = node.openapi_spec
         node.openapi_spec = None
         child.version += 1

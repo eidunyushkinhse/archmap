@@ -116,8 +116,8 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
       <AgentPackageInput
         pkg={pkg}
         onRemove={pkg.removeFile}
-        dropText="Перетащите сюда файл спеки, который подготовил агент, или нажмите, чтобы выбрать его на диске. Спеку можно и вставить текстом."
-        pasteTitle="Добавить спеку вставкой текста"
+        dropText="Перетащите сюда файл спецификации, который подготовил агент, или нажмите, чтобы выбрать его на диске. Спецификацию можно и вставить текстом."
+        pasteTitle="Добавить спецификацию вставкой текста"
       />
 
       {/* Отчёт превью / применения */}
@@ -128,12 +128,12 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
         {repeatedInput && <UnchangedInputNote />}
         {!checking && report !== null && report.applied && (
           <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-            Применено: спек записано {report.specs_written}.
+            Применено: спецификаций записано {report.specs_written}.
           </div>
         )}
         {!checking && report !== null && !report.applied && report.errors.length === 0 && (
           <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-            Спек: {report.specs.length} (новых {countAction(report.specs, "create")},
+            Спецификаций: {report.specs.length} (новых {countAction(report.specs, "create")},
             перезапись {countAction(report.specs, "overwrite")}, пропуск {countAction(report.specs, "skip")},
             без изменений {countAction(report.specs, "unchanged")})
           </div>
@@ -148,7 +148,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
 
         {!checking && report !== null && report.specs.length > 0 && (
           <ItemList
-            title="OpenAPI-спеки:"
+            title="OpenAPI-спецификации:"
             rows={report.specs.map((s) => ({
               key: `${s.node_path}#spec`,
               text: `«${s.node_path}» · ${s.source}${s.oas_version ? ` · OAS ${s.oas_version}` : ""}`,

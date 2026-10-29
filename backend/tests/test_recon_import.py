@@ -496,7 +496,7 @@ def test_спека_вместо_перечня_объясняется(db):
     _node(db, "backend")
     nodes = db.query(Node).all()
     plan = build_recon_plan(db, nodes, [("openapi.yaml", СПЕКА)], None)
-    assert plan.report.errors and "OpenAPI-спека" in plan.report.errors[0]
+    assert plan.report.errors and "OpenAPI-спецификация" in plan.report.errors[0]
 
 
 def test_перечень_среди_папки_находится(db):

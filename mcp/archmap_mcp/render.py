@@ -1125,7 +1125,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
             f"Применено: схем создано {data.get('created_docs', 0)}, "
             f"заполнено заглушек {data.get('filled_docs', 0)}, "
             f"перезаписано {data.get('updated_docs', 0)}, "
-            f"спек {data.get('specs_written', 0)}"
+            f"спецификаций {data.get('specs_written', 0)}"
         )
 
     if logic:
@@ -1169,7 +1169,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
                 f"  {ACTION_WORD.get(action, action)}: «{it.get('node_path', '?')}» · "
                 + " · ".join(bits)
             )
-        out.extend(_capped(lines, FACT_REPORT_CAP, ("спека", "спеки", "спек")))
+        out.extend(_capped(lines, FACT_REPORT_CAP, ("спецификация", "спецификации", "спецификаций")))
 
     conflicts = data.get("conflicts") or []
     if conflicts:
@@ -1180,7 +1180,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
     out.extend(problems(data))
     if not logic and not specs and not data.get("errors"):
         out.append("")
-        out.append("Пакет ничего не принёс: ни схем логики, ни спек не распознано.")
+        out.append("Пакет ничего не принёс: ни схем логики, ни спецификаций не распознано.")
     if not applied:
         out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
     return "\n".join(out).lstrip("\n")
@@ -1194,7 +1194,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
 ARCHIVE_CATEGORIES: list[tuple[str, str]] = [
     ("c4", "схема C4"),
     ("docs", "схемы логики"),
-    ("specs", "спеки OpenAPI"),
+    ("specs", "спецификации OpenAPI"),
     ("db", "структура БД"),
     ("channels", "каналы брокеров"),
     ("config", "конфигурация"),
@@ -1257,7 +1257,7 @@ CONFLICT_CAP = 30  # споры содержимого: больше тридц�
 
 FAMILY_WORD = {
     "doc": "схема логики",
-    "spec": "спека OpenAPI",
+    "spec": "спецификация OpenAPI",
     "table": "таблица",
     "channel": "канал",
     "config": "параметр",
@@ -1268,7 +1268,7 @@ FAMILY_WORD = {
 # приезжающее одинаково.
 FAMILY_COUNTS: list[tuple[str, str]] = [
     ("docs", "схем логики"),
-    ("specs", "спек"),
+    ("specs", "спецификаций"),
     ("tables", "таблиц"),
     ("channels", "каналов"),
     ("params", "параметров"),
@@ -1419,7 +1419,7 @@ def unified_result(data: dict[str, Any]) -> str:
         f"связей {data.get('edges', 0)}. id={data.get('project_id')}"
     ]
     out.append(
-        f"Схем логики: {data.get('docs_created', 0)}; спек OpenAPI: {data.get('specs_applied', 0)}."
+        f"Схем логики: {data.get('docs_created', 0)}; спецификаций OpenAPI: {data.get('specs_applied', 0)}."
     )
     out.extend(_channel_stubs_line(data))
     out.extend(_family_reports(data))
@@ -1501,7 +1501,7 @@ def into_result(data: dict[str, Any]) -> str:
     ]
     out.append(
         f"Схем логики создано {data.get('docs_created', 0)}, "
-        f"заменено {data.get('docs_replaced', 0)}; спек применено "
+        f"заменено {data.get('docs_replaced', 0)}; спецификаций применено "
         f"{data.get('specs_applied', 0)}; параметров заменено {data.get('params_replaced', 0)}."
     )
     out.extend(_channel_stubs_line(data))
@@ -1564,7 +1564,7 @@ def _processes_report(items: list[dict[str, Any]]) -> list[str]:
 SEARCH_KIND_WORD = {
     "node": "объект",
     "doc": "схема",
-    "spec": "спека",
+    "spec": "спецификация",
     "table": "таблица",
     "column": "колонка",
     "channel": "канал",
@@ -1644,14 +1644,14 @@ def search_results(data: dict[str, Any]) -> str:
                 out.append(f"  • схема «{first.get('title', '?')}»  doc_id={first.get('doc_id')}")
                 out.extend(_hit_line(h) for h in items)
             elif sub == "spec":
-                out.append("  • OpenAPI-спека объекта (archmap_node с include_spec)")
+                out.append("  • OpenAPI-спецификация объекта (archmap_node с include_spec)")
                 out.extend(_hit_line(h) for h in items)
             else:
                 out.append(_single_hit(first))
                 continue
             more = int(first.get("more_in_group", 0) or 0)
             if more:
-                where = "в спеке" if sub == "spec" else "в этой схеме"
+                where = "в спецификации" if sub == "spec" else "в этой схеме"
                 lines = _plural(more, ("строка", "строки", "строк"))
                 out.append(f"      … ещё {more} {lines} {where}")
     out.append("")
@@ -1747,7 +1747,7 @@ LINE_MARK = {"add": "+", "del": "-", "": " "}
 
 DIFF_NEXT = (
     "Дельта одного элемента — archmap_version_diff с item (те же version и base); "
-    "текст схемы, спеки или процесса на версии — archmap_version_doc."
+    "текст схемы, спецификации или процесса на версии — archmap_version_doc."
 )
 
 

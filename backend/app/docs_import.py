@@ -569,11 +569,11 @@ def build_docs_plan(
                 continue
             owner = spec_owner.get(node.id)
             if owner == fname:
-                plan.errors.append(f"{fname}: дубль OpenAPI-спеки у узла «{path}» в одном файле")
+                plan.errors.append(f"{fname}: дубль OpenAPI-спецификации у узла «{path}» в одном файле")
                 continue
             if owner is not None:
                 plan.conflicts.append(
-                    f"OpenAPI-спека узла «{path}» уже задана файлом {owner} — "
+                    f"OpenAPI-спецификация узла «{path}» уже задана файлом {owner} — "
                     f"вход из {fname} пропущен"
                 )
                 continue
@@ -581,21 +581,21 @@ def build_docs_plan(
             content = assets.get(entry.openapi.file)
             if content is None:
                 plan.errors.append(
-                    f'{fname}: файл спеки "{entry.openapi.file}" не найден среди загруженных'
+                    f'{fname}: файл спецификации "{entry.openapi.file}" не найден среди загруженных'
                 )
                 continue
             used_assets.add(entry.openapi.file)
             source = entry.openapi.file
             if entry.openapi.origin is None:
                 plan.warnings.append(
-                    f"{fname}: у спеки узла «{path}» не указано происхождение (origin)"
+                    f"{fname}: у спецификации узла «{path}» не указано происхождение (origin)"
                 )
             valid_yaml, looks, ver = spec_check(content)
             if not valid_yaml:
-                plan.warnings.append(f"спека узла «{path}» ({source}) не разбирается как YAML")
+                plan.warnings.append(f"спецификация узла «{path}» ({source}) не разбирается как YAML")
             elif not looks:
                 plan.warnings.append(
-                    f"спека узла «{path}» ({source}) не похожа на OpenAPI: нет openapi/paths"
+                    f"спецификация узла «{path}» ({source}) не похожа на OpenAPI: нет openapi/paths"
                 )
             cur_spec = node.openapi_spec or ""
             if not cur_spec.strip():
@@ -619,7 +619,7 @@ def build_docs_plan(
             )
 
     for name in sorted(set(assets) - used_assets):
-        plan.warnings.append(f'файл "{name}" не пригодился — ни схема, ни спека')
+        plan.warnings.append(f'файл "{name}" не пригодился — ни схема, ни спецификация')
     data_refs.flush(plan)
     return plan
 
@@ -788,9 +788,9 @@ def plan_from_upload(
         if len(picked) == 1:
             entries.append((picked[0], pkg_from_spec(picked[0], assets[picked[0]])))
         elif len(picked) > 1:
-            errors.append("в пакете несколько файлов спеки: " + ", ".join(sorted(picked)))
+            errors.append("в пакете несколько файлов спецификации: " + ", ".join(sorted(picked)))
     if not entries and not errors:
-        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни файла спеки")
+        errors.append("среди загруженных файлов нет ни схемы (.mmd), ни файла спецификации")
     if errors:
         plan = DocsPlan()
         plan.errors = errors

@@ -71,10 +71,10 @@ export default function OpenApiSection({
               спеки глубоких потомков — в раскрываемой группе под ребёнком. */}
           {groups.length > 0 && (
             <>
-              {spec && <div className="np-sublabel">Спеки потомков</div>}
+              {spec && <div className="np-sublabel">Спецификации потомков</div>}
               <DescendantGroups
                 groups={groups}
-                words={["спека", "спеки", "спек"]}
+                words={["спецификация", "спецификации", "спецификаций"]}
                 own={(group) => group.own && (
                   <SpecSplitRow child={group.child} onOpen={onOpenChildSpec} onNavigateNode={onNavigateNode} />
                 )}

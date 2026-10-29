@@ -59,7 +59,7 @@ def test_пакет_ввозится_и_даёт_полную_витрину(db,
     assert len(nodes) >= 30, "демо обмелело: объектов меньше, чем в снимке"
     assert edges >= 30
     assert docs >= 20, "схемы логики не доехали"
-    assert specs >= 5, "спеки OpenAPI не доехали"
+    assert specs >= 5, "спецификации OpenAPI не доехали"
     assert tables >= 10, "структура БД не доехала"
     assert channels >= 1, "каналы брокера не доехали"
     assert params >= 40, "конфигурация не доехала"

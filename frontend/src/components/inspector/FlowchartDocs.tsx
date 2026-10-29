@@ -314,7 +314,7 @@ export default function FlowchartDocs({
             </select>
           </label>
           {form.kind === "operation" && (
-            <label className="doc-field doc-field--grow" title="Эндпоинт OpenAPI-спеки узла, который обрабатывает эта схема">
+            <label className="doc-field doc-field--grow" title="Эндпоинт OpenAPI-спецификации узла, который обрабатывает эта схема">
               Эндпоинт
               <input {...noAutofill("flowchart-docs-2")} value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
             </label>

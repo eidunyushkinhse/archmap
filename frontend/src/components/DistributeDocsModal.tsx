@@ -123,7 +123,7 @@ function DistributeForm({ data, onClose, onApplied }: {
   if (children.length === 0) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 540 }}>
-        <DialogTitle lead="У контейнера нет детей — схемы и спеку некуда перенести.">Распределить по детям</DialogTitle>
+        <DialogTitle lead="У контейнера нет детей — схемы и спецификацию некуда перенести.">Распределить по детям</DialogTitle>
         <div style={footRow}>
           <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
         </div>
@@ -134,8 +134,8 @@ function DistributeForm({ data, onClose, onApplied }: {
   return (
     <Modal onClose={onClose} boxStyle={{ width: 540 }}>
       <DialogTitle lead={<>
-        Собственные схемы логики и OpenAPI-спека контейнера будут перенесены выбранным
-        детям. У контейнера не останется своей логики и спеки.
+        Собственные схемы логики и OpenAPI-спецификация контейнера будут перенесены выбранным
+        детям. У контейнера не останется своей логики и спецификации.
       </>}>
         Распределить по детям
       </DialogTitle>
@@ -172,19 +172,19 @@ function DistributeForm({ data, onClose, onApplied }: {
       {/* OpenAPI-спека: переносится целиком одному ребёнку */}
       {hasSpec && (
         <>
-          <div style={groupLabel}>OpenAPI-спека</div>
+          <div style={groupLabel}>OpenAPI-спецификация</div>
           <div style={docRow}>
             <span style={docName}>Спецификация</span>
             <select
               style={childSel}
               value={specChildId}
               onChange={(e) => setSpecChildId(e.target.value)}
-              aria-label="Получатель OpenAPI-спеки"
+              aria-label="Получатель OpenAPI-спецификации"
             >
               <option value="">Не переносить</option>
               {children.map((c) => (
                 <option key={c.id} value={c.id}>
-                  {c.name}{c.openapi_spec ? " (уже есть спека)" : ""}
+                  {c.name}{c.openapi_spec ? " (уже есть спецификация)" : ""}
                 </option>
               ))}
             </select>

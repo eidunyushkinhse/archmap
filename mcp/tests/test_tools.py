@@ -152,7 +152,7 @@ async def test_карточка_объекта_собирает_связи_и_д
     assert "Путь: Маркетплейс / Сервис заказов" in out
     assert "← Покупатель [заказ]" in out
     assert "• POST /orders (операция)" in out
-    assert "OpenAPI-спека: есть" in out
+    assert "OpenAPI-спецификация: есть" in out
     assert "openapi: 3.0.0" not in out  # текст спеки — только по явному запросу
 
 
