@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app import yaml_io
 from app.data_import import NODE_HEADER
+from app.element_marks import build_elements, element_rows_of
 from app.facts_import import as_bool, as_str, resolve_owner, warn_duplicates
 from app.models.config_param import ConfigParam
 from app.models.node import Node
@@ -143,20 +144,21 @@ class _Merged:
 
 
 def owner_service_paths(index: NodeIndex) -> list[str]:
-    """Допустимые адреса владельца конфигурации — ЛИСТОВЫЕ сервисы.
+    """Допустимые адреса владельца конфигурации — КОНТЕЙНЕРЫ формы service.
 
-    Контейнер (сервис с детьми) в ArchMap — абстракция, и все семьи это держат:
-    связи переносятся на детей, доки и спека на контейнере дают AL24, заглушки
-    разведки — предупреждение превью (Р15). Конфигурация была единственным
-    исключением (полевой репорт 2026-10-28, docs/plan-config-docs.md §11): параметры
-    читает код КОМПОНЕНТОВ, а пометки «зависит от:» в их схемах ищут ручку у владельца
-    схемы (data_refs._resolve_config) — контейнер в перечне адресов звал агента на
-    абстракцию, и каждая пометка потом горела AL33."""
-    parents = {n.parent_id for n in index.flat if n.parent_id is not None}
+    Конфигурация — факт процесса, а запускается контейнер (формула эпика «Элемент
+    архитектуры», docs/plan-c4-elements.md): параметры описывают у ближайшего
+    контейнера, и пометки «зависит от:» в схемах самого контейнера и его компонентов
+    ищут ручку там же (data_refs.ProjectCatalog.params_for). Контейнер — узел с
+    действующим элементом «контейнер» (app/element): лист вне контейнера и контейнер
+    с компонентами. Компоненты и системы в перечень не входят: у компонента пометка
+    ручку не найдёт, у системы искать негде, и каждая такая пометка потом горела бы
+    AL33 (полевой репорт 2026-10-28)."""
+    elements = build_elements(element_rows_of(index.flat))
     return [
         index.paths[i]
         for i, n in enumerate(index.flat)
-        if n.shape == "service" and n.id not in parents
+        if n.shape == "service" and elements.effective(n.id) == "container"
     ]
 
 
@@ -173,7 +175,7 @@ def build_config_plan(
     plan.path_of = path_of
     owner_paths = owner_service_paths(index)
     hint = ", ".join(owner_paths) if owner_paths else "в проекте их нет"
-    parents = {n.parent_id for n in nodes if n.parent_id is not None}
+    elements = build_elements(element_rows_of(nodes))
 
     parsed: list[tuple[str, ParsedConfig]] = []
     for fname, content in files:
@@ -207,7 +209,7 @@ def build_config_plan(
             continue
         owner = resolve_owner(
             pc.node_ref, fname, index, window, plan.report.errors,
-            f"узлы-сервисы проекта: {hint}",
+            f"контейнеры проекта: {hint}",
         )
         if owner is None:
             continue
@@ -215,23 +217,30 @@ def build_config_plan(
         # применённое стало бы невидимым (секция рендерится только у shape=broker), и
         # молчать было нельзя. Здесь секция конфигурации показывает записи у ЛЮБОЙ
         # формы (с предупреждением, как легаси-схемы логики), поэтому данные не
-        # пропадают — а значит, повода отклонять пакет целиком нет.
+        # пропадают — а значит, повода отклонять пакет целиком нет. То же — у системы
+        # и компонента (Р12 docs/plan-c4-elements.md): записи применяются как есть и
+        # видны в секции, а место параметров называет предупреждение.
+        path = path_of.get(owner.id, owner.name)
+        element = elements.effective(owner.id)
         if owner.shape != "service":
             plan.report.warnings.append(
-                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — не сервис; "
+                f"{fname}: объект «{path}» — не сервис; "
                 "конфигурацию описывают у сервиса, чей код её читает. "
-                f"Узлы-сервисы проекта: {hint}"
+                f"Контейнеры проекта: {hint}"
             )
-        elif owner.id in parents:
-            # Контейнер — абстракция и для конфигурации (owner_service_paths).
-            # Предупреждение, а не ошибка, как у заглушек разведки (Р15): записи у
-            # контейнера видны в его секции и переносятся руками.
+        elif element == "system":
             plan.report.warnings.append(
-                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — контейнер; "
-                "параметры читает код его компонентов, опишите их у листового объекта: "
-                "у контейнера они попадут в алерт «Контейнеры со своей документацией», "
-                "а пометки «зависит от:» в схемах компонентов их не найдут. "
-                f"Узлы-сервисы проекта: {hint}"
+                f"{fname}: объект «{path}» — система; своей конфигурации у системы "
+                "нет, опишите параметры у контейнера, который их читает. "
+                f"Контейнеры проекта: {hint}"
+            )
+        elif element == "component":
+            container = elements.container_of(owner.id)
+            where = path_of.get(container, "?") if container is not None else "?"
+            plan.report.warnings.append(
+                f"{fname}: объект «{path}» — компонент контейнера «{where}»; "
+                f"конфигурацию читает контейнер целиком, опишите параметры у «{where}». "
+                f"Пометки «зависит от:» в схемах «{owner.name}» ищут параметры там же"
             )
         for p in pc.params:
             key = (owner.id, p.name)
