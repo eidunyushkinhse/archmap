@@ -5,7 +5,7 @@
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
+import type { DeletionSnapshot, Node, NodeElement, NodeShape, NodeStatus } from "../../types";
 import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
@@ -17,7 +17,8 @@ import { aggregateTech, useDescendants } from "../../pages/useContainerChildren"
 import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
-import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
+import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
+import { elementView, useElementPick, type ElementView } from "../element/useElementPick";
 
 interface Props {
   node: Node;
@@ -47,6 +48,10 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   const { name, description, role, technology, isExternal, status, conflict, error } = patch;
   const [statusOpen, setStatusOpen] = useState(false);
   const [shapeOpen, setShapeOpen] = useState(false);
+  const [elementOpen, setElementOpen] = useState(false);
+  // Элемент архитектуры (Ф5): выбор у узла с детьми, у листа и компонента — текст,
+  // у «Пользователя» строки нет. Смена — с окном последствий, если они есть.
+  const element = useElementPick(patch);
   const [confirming, setConfirming] = useState(false);
   // Тип показываем из самого узла (пропа): он обновится тем же путём, что имя
   // (onNodeSaved → данные узла в редакторе → холст), а при отказе 400 показанный тип
@@ -154,6 +159,13 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
             <span className="insp-value">{SHAPE_LABEL[shape]}</span>
           )}
         </MetaRow>
+
+        <ElementRow
+          view={elementView(node, isArchitect)}
+          open={elementOpen}
+          setOpen={setElementOpen}
+          onPick={element.pick}
+        />
 
         <MetaRow icon={META_ICON.membership} label="Принадлежность">
           {isArchitect ? (
@@ -292,6 +304,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         </button>
       )}
 
+      {element.dialog}
+
       {confirming && (
         <NodeDeleteConfirm
           node={node}
@@ -300,6 +314,60 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
         />
       )}
     </div>
+  );
+}
+
+// Строка «Элемент архитектуры» сразу под «Типом»: выпадашка того же вида, что «Статус»,
+// пункты в две строки (подпись и пояснение), или текст только для чтения.
+function ElementRow({ view, open, setOpen, onPick }: {
+  view: ElementView;
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  onPick: (value: NodeElement) => void;
+}) {
+  if (view.kind === "none") return null;
+  return (
+    <MetaRow icon={META_ICON.type} label="Элемент архитектуры">
+      {view.kind === "text" ? (
+        <span className="insp-value">{view.text}</span>
+      ) : (
+        <span className="insp-value">
+          <span className="insp-selwrap">
+            <button
+              type="button"
+              className="insp-field insp-select"
+              onClick={() => setOpen(!open)}
+              aria-haspopup="listbox"
+              aria-expanded={open}
+            >
+              <span className="insp-select-label">{ELEMENT_LABEL[view.value]}</span>
+              <span className="insp-chev"><ChevronDown /></span>
+            </button>
+            {open && (
+              <>
+                <div className="insp-backdrop" onClick={() => setOpen(false)} />
+                <ul className="insp-menu" role="listbox">
+                  {ELEMENT_ORDER.map((el) => (
+                    <li
+                      key={el}
+                      role="option"
+                      aria-selected={el === view.value}
+                      onClick={() => { setOpen(false); onPick(el); }}
+                    >
+                      <span className="insp-menu-two">
+                        {ELEMENT_LABEL[el]}
+                        <small>{ELEMENT_HINT[el]}</small>
+                      </span>
+                      {el === view.value && <span className="insp-menu-check"><CheckMark /></span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </span>
+        </span>
+      )}
+    </MetaRow>
   );
 }
 

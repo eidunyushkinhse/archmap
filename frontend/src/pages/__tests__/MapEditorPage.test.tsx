@@ -28,6 +28,7 @@ vi.mock("../../api/nodes", () => ({
     getAll: vi.fn(),
     deletionSnapshot: vi.fn(),
     moveSnapshot: vi.fn(),
+    movePreview: vi.fn(),
     delete: vi.fn(),
     restore: vi.fn(),
     update: vi.fn(),
@@ -348,6 +349,10 @@ describe("MapEditorPage: перенос объекта", () => {
     vi.mocked(nodesApi.get).mockResolvedValue(
       node("new", { has_children: true, child_count: 1, element_effective: "system" }) as never,
     );
+    // Последствий для площадок нет — окна последствий тоже (Р18).
+    vi.mocked(nodesApi.movePreview).mockResolvedValue(
+      { kind: "none", before: [], after: [], docs_names: [], container_name: null } as never,
+    );
   });
 
   const снимок = { nodes: [], edges: [], layout_items: [{ view_id: null, item_id: "kid", payload: { x: 1, y: 2 } }] };
@@ -401,6 +406,44 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
     expect(nodesApi.update).not.toHaveBeenCalled();
     expect(historyMock.push).not.toHaveBeenCalled();
+  });
+
+  // Р18: перенос в контейнер переносит площадки — сначала окно последствий; такой перенос
+  // в историю не ложится (обратное действие — тот же перенос назад).
+  it("перенос с последствиями: окно, правка после подтверждения и без истории", async () => {
+    vi.mocked(nodesApi.movePreview).mockResolvedValue({
+      kind: "join_container",
+      before: [{ node_id: "new", name: "NEW", sites: ["prod-eu"] }, { node_id: "kid", name: "KID", sites: ["prod-ru"] }],
+      after: [{ node_id: "new", name: "NEW", sites: ["prod-eu", "prod-ru"] }],
+      docs_names: [], container_name: "NEW",
+    } as never);
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("kid") as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    expect(await screen.findByText("Сделать «KID» частью «NEW»?")).toBeInTheDocument();
+    expect(nodesApi.movePreview).toHaveBeenCalledWith("kid", "new");
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    await act(async () => { screen.getByText("Перенести").click(); });
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "new" }));
+    expect(historyMock.push).not.toHaveBeenCalled();
+  });
+
+  it("«Отмена» в окне последствий — объект остаётся на месте", async () => {
+    vi.mocked(nodesApi.movePreview).mockResolvedValue({
+      kind: "leave_container", before: [{ node_id: "old", name: "OLD", sites: ["prod-eu"] }],
+      after: [{ node_id: "old", name: "OLD", sites: ["prod-eu"] }, { node_id: "kid", name: "KID", sites: ["prod-eu"] }],
+      docs_names: [], container_name: "OLD",
+    } as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    await act(async () => { (await screen.findByText("Отмена")).click(); });
+    expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
   it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {

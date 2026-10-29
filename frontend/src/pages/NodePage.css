@@ -545,6 +545,16 @@ button.np-approval {
 .np-menu li:hover {
   background: #f1f5f9;
 }
+/* Пункт в две строки: подпись и серое пояснение (элемент архитектуры) */
+.np-menu-two {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.np-menu-two small {
+  font-size: 11.5px;
+  color: #64748b;
+}
 
 .np-backdrop {
   position: fixed;

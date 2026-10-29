@@ -123,6 +123,7 @@ function siteNode(site: SiteOut, parentKey: string | null, childCount: number): 
     // Площадка — не объект архитектуры: элемента у её карточки нет.
     element: null,
     element_effective: null,
+    container_name: null,
     sites: [],
     version: site.version,
     created_at: "",

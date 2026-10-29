@@ -25,6 +25,13 @@ export interface TreeReparent {
   onRootDrop: (e: DragEvent) => void;
 }
 
+// Окажется ли ребёнок цели частью контейнера: элемент считает сервер, здесь только
+// чтение его ответа (element_effective) и намерения листа (element).
+function joinsContainer(target: Node): boolean {
+  if (target.element_effective === "component") return true;
+  return target.element_effective === "container" && (target.has_children || target.element === "container");
+}
+
 // Перенос узла на другой уровень перетаскиванием строки дерева (аудит F-7): драг
 // начинается с ручки-шести-точек, дроп — на строке-цели или полосе «в корень проекта».
 export function useTreeReparent(
@@ -63,6 +70,11 @@ export function useTreeReparent(
     if (targetId === node.id || targetId === node.parent_id) return false;
     const target = allById.get(targetId);
     if (!target || !canHaveChildren(target.shape)) return false;
+    // База и брокер не входят в состав контейнера (Р6 эпика элементов): цель —
+    // контейнер с компонентами, лист с намерением «контейнер» или компонент. Лист без
+    // элемента — можно: окно первого вложенного объекта сделает его системой. Поддерево
+    // с базой внутри здесь не обходим — его отказывает сервер, текст приходит тостом.
+    if ((node.shape === "database" || node.shape === "broker") && joinsContainer(target)) return false;
     // Собственный потомок (цикл): путь до цели строится по ЗАГРУЖЕННЫМ предкам, и
     // этого достаточно — чтобы строка была видна, все её предки раскрыты.
     return !pathTo(target).some((n) => n.id === node.id);

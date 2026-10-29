@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { AnchorPreviewOut, NodeSource, TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { AnchorPreviewOut, CollectFactsIn, CollectFactsOut, CollectFactsPreview, ElementChangePreview, NodeElement, NodeSource, TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -68,6 +68,21 @@ export const nodesApi = {
   // undefined (не void): void как type-parameter нарушает no-invalid-void-type
   restore: (snapshot: DeletionSnapshot): Promise<void> =>
     api.post<undefined>(`/nodes/restore`, snapshot),
+  // Последствия смены элемента архитектуры (Р18): какие площадки переедут и чья
+  // документация останется на месте — БЕЗ записи. Отказ — тот же 422, что у PATCH.
+  elementPreview: (id: string, element: NodeElement): Promise<ElementChangePreview> =>
+    api.get<ElementChangePreview>(`/nodes/${id}/element-preview?element=${element}`),
+  // То же для переноса под parentId (null — в корень). Отказ — тот же 400, что у PATCH.
+  movePreview: (id: string, parentId: string | null): Promise<ElementChangePreview> =>
+    api.get<ElementChangePreview>(
+      `/nodes/${id}/move-preview${parentId ? `?parent_id=${parentId}` : ""}`,
+    ),
+  // «Собрать с компонентов» (Р19): превью (компоненты с фактами, одноимённые параметры,
+  // спецификации) и применение на странице контейнера.
+  collectPreview: (id: string): Promise<CollectFactsPreview> =>
+    api.get<CollectFactsPreview>(`/nodes/${id}/facts/collect-preview`),
+  collectFacts: (id: string, data: CollectFactsIn): Promise<CollectFactsOut> =>
+    api.post<CollectFactsOut>(`/nodes/${id}/facts/collect`, data),
   // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
   // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.
@@ -86,8 +101,8 @@ export const nodeDocsApi = {
     api.patch<NodeDoc>(`/nodes/${nodeId}/docs/${docId}`, data),
   delete: (nodeId: string, docId: string): Promise<void> =>
     api.delete(`/nodes/${nodeId}/docs/${docId}`),
-  // «Распределить по детям» (правила контейнеров): перенос grandfather-доков/спеки
-  // контейнера на его непосредственных детей.
+  // «Перенести документацию» (Р19): собственные схемы логики, спецификация и параметры
+  // узла — потомкам по семьям фактов (путь прежний, с «Распределить по детям»).
   distribute: (nodeId: string, data: DistributeDocsIn): Promise<DistributeDocsOut> =>
     api.post<DistributeDocsOut>(`/nodes/${nodeId}/docs/distribute`, data),
   // Обратный индекс «используется в процессах»: разворот привязок шагов на чтении.

@@ -304,7 +304,7 @@ def anchored(api: FakeApi, source: dict[str, Any] | None, source_ref: str | None
     target = node(NODE, "Оркестратор заказа", shape="service")
     target |= {
         "docs": [], "child_count": 0, "has_children": False,
-        "element": None, "element_effective": "container",
+        "element": None, "element_effective": "container", "container_name": None,
         "source_ref": source_ref, "source": source, "version": 3,
         "created_at": "2026-09-04T10:00:00", "updated_at": "2026-09-04T10:00:00",
     }

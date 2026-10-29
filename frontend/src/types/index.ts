@@ -172,6 +172,15 @@ export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
 export type DistributeDocsIn = Schemas["DistributeDocsIn"];
 export type DistributeDocsOut = Schemas["DistributeDocsOut"];
+// «Собрать с компонентов» (Р19 эпика элементов): превью, вход и отчёт.
+export type CollectFactsPreview = Schemas["CollectFactsPreview"];
+export type CollectFactsIn = Schemas["CollectFactsIn"];
+export type CollectFactsOut = Schemas["CollectFactsOut"];
+
+// Последствия смены элемента архитектуры или переноса узла (Р18): что переедет на
+// площадках и чья документация останется на месте.
+export type ElementChangePreview = Schemas["ElementChangePreview"];
+export type PlacementRowOut = Schemas["PlacementRowOut"];
 
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];

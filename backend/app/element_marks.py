@@ -82,11 +82,24 @@ def elements_from_nodes(all_nodes: Mapping[uuid.UUID, Node]) -> Elements[uuid.UU
     return build_elements(element_rows_of(all_nodes.values()))
 
 
+def stamp_element(
+    node: Node, elements: Elements[uuid.UUID], name_of: Mapping[uuid.UUID, str]
+) -> None:
+    """Вычисляемые element_effective и container_name одного узла перед отдачей
+    NodeResponse — одна точка для всех четырёх мест сборки (роутер узлов, граф уровня,
+    контекст-схема, граф развёртывания). name_of — имена узлов проекта."""
+    node.element_effective = elements.effective(node.id)
+    holder = elements.container_of(node.id) if node.element_effective == "component" else None
+    node.container_name = name_of.get(holder) if holder is not None else None
+
+
 def mark_element(db: Session, project_id: uuid.UUID, nodes: list[Node]) -> None:
-    """Проставляет вычисляемый element_effective на экземплярах перед отдачей
-    NodeResponse. Выборка по всему проекту: элемент узла зависит от его предков."""
+    """Проставляет вычисляемые element_effective и container_name на экземплярах перед
+    отдачей NodeResponse. Выборка по всему проекту: элемент узла зависит от его предков."""
     if not nodes:
         return
-    elements = elements_for_project(db, project_id)
+    rows = project_element_rows(db, project_id)
+    elements = build_elements(rows)
+    names = {r.id: r.name for r in rows}
     for n in nodes:
-        n.element_effective = elements.effective(n.id)
+        stamp_element(n, elements, names)

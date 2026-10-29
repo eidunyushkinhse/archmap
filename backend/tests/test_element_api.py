@@ -91,6 +91,8 @@ class _Seen:
     def __init__(self, expected: dict[str, str | None]) -> None:
         self.expected = expected
         self.names: set[str] = set()
+        # Где сверено имя контейнера (у NodeResponse — всегда; у гостей и предков поля нет).
+        self.container_names: set[str] = set()
 
     def check(self, items: Iterable[dict[str, Any]], where: str) -> None:
         for item in items:
@@ -98,6 +100,12 @@ class _Seen:
             assert "element_effective" in item, f"{where}: {name} без element_effective"
             assert item["element_effective"] == self.expected[name], (where, name)
             self.names.add(name)
+            # Имя контейнера — у компонента (все компоненты дерева лежат в orders), у
+            # остальных null; проставляется тем же проходом, что действующий элемент.
+            if "container_name" in item:
+                want = "orders" if self.expected[name] == "component" else None
+                assert item["container_name"] == want, (where, name, "container_name")
+                self.container_names.add(name)
 
     def graph(self, data: dict[str, Any], where: str) -> None:
         self.check(data["nodes"], f"{where}: локалы")
@@ -179,6 +187,7 @@ def test_действующий_элемент_во_всех_выдачах(clie
     )
 
     assert seen.names == set(expected)
+    assert seen.container_names == set(expected)
     # Хранимое значение отдаётся как есть: null — «не сказано».
     stored = {item["name"]: item["element"] for item in every}
     assert stored == {name: (orders_element if name == "orders" else None) for name in expected}

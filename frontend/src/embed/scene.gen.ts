@@ -36,6 +36,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [],
@@ -61,6 +62,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [],
@@ -86,6 +88,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [],
@@ -111,6 +114,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [],
@@ -393,6 +397,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -435,6 +440,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -486,6 +492,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/storefront-web",
         "source": {
           "repo": "github.com/yarmarka/storefront-web",
@@ -524,6 +531,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/mobile-app",
         "source": {
           "repo": "github.com/yarmarka/mobile-app",
@@ -553,6 +561,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -603,6 +612,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -637,6 +647,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -679,6 +690,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -721,6 +733,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -771,6 +784,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [],
@@ -796,6 +810,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "system",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -849,6 +864,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "approved",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/orders#services/order-saga",
         "source": {
           "repo": "github.com/yarmarka/orders",
@@ -887,6 +903,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -946,6 +963,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "approved",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/orders#services/order-api",
         "source": {
           "repo": "github.com/yarmarka/orders",
@@ -1019,6 +1037,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/payments#services/payment-api",
         "source": {
           "repo": "github.com/yarmarka/payments",
@@ -1057,6 +1076,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1100,6 +1120,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/payments#services/antifraud",
         "source": {
           "repo": "github.com/yarmarka/payments",
@@ -1140,6 +1161,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1183,6 +1205,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/search#services/search-api",
         "source": {
           "repo": "github.com/yarmarka/search",
@@ -1256,6 +1279,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/users#services/auth-api",
         "source": {
           "repo": "github.com/yarmarka/users",
@@ -1294,6 +1318,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1345,6 +1370,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/users#services/profile-api",
         "source": {
           "repo": "github.com/yarmarka/users",
@@ -1402,6 +1428,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/notifications#services/notification-worker",
         "source": {
           "repo": "github.com/yarmarka/notifications",
@@ -1440,6 +1467,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1483,6 +1511,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/notifications#services/sms-sender",
         "source": {
           "repo": "github.com/yarmarka/notifications",
@@ -1523,6 +1552,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1566,6 +1596,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/catalog#services/product-indexer",
         "source": {
           "repo": "github.com/yarmarka/catalog",
@@ -1604,6 +1635,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": null,
         "source": null,
         "sites": [
@@ -1663,6 +1695,7 @@ export const SCENE: LandingScene = {
         "approval_effective": "in_progress",
         "element": null,
         "element_effective": "container",
+        "container_name": null,
         "source_ref": "git:github.com/yarmarka/catalog#services/catalog-api",
         "source": {
           "repo": "github.com/yarmarka/catalog",

@@ -4781,6 +4781,8 @@ export interface components {
             element: ("system" | "container") | null;
             /** Element Effective */
             element_effective: ("system" | "container" | "component") | null;
+            /** Container Name */
+            container_name: string | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
@@ -6463,6 +6465,8 @@ export interface components {
             element: ("system" | "container") | null;
             /** Element Effective */
             element_effective: ("system" | "container" | "component") | null;
+            /** Container Name */
+            container_name: string | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;

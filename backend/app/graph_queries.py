@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app import tree
 from app.approval import effective_approvals
 from app.element import Elements
-from app.element_marks import elements_from_nodes
+from app.element_marks import elements_from_nodes, stamp_element
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import DEPLOY_KEY_PREFIX, ViewLayoutItem
@@ -171,6 +171,7 @@ def build_graph(
     # Действующий элемент архитектуры — по той же карте, один раз на запрос: он нужен
     # локалам, гостям и каждому предку в их цепочках.
     elements = elements_from_nodes(all_nodes)
+    names = {nid: n.name for nid, n in all_nodes.items()}
     # Реестр не-локальных концов рёбер (единый строитель ghost_registry).
     endpoints = ghost_registry(all_nodes, endpoint_ids, child_counts, elements)
     # child_count/has_children локальных узлов — из того же Counter
@@ -188,7 +189,7 @@ def build_graph(
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = effective.get(n.id, n.approval)
-        n.element_effective = elements.effective(n.id)
+        stamp_element(n, elements, names)
     # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
     # has_children/approval_effective/element_effective проставлены выше) — на границе
     # сериализации типизируем как list[NodeResponse].

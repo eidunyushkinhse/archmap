@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app import tree
 from app.approval import effective_approvals
-from app.element_marks import elements_from_nodes
+from app.element_marks import elements_from_nodes, stamp_element
 from app.graph_queries import ghost_registry, project_has_status_info, read_view_layout
 from app.models.edge import Edge
 from app.models.node import Node
@@ -98,6 +98,7 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
     # Действующий элемент архитектуры — по карте узлов, один раз: локалам, гостям, предкам
     # и статусу страницы ниже.
     elements = elements_from_nodes(all_nodes)
+    names = {nid: n.name for nid, n in all_nodes.items()}
     # Статус страницы (у системы — из единиц) — по той же карте, без нового SQL.
     effective = effective_approvals(
         ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
@@ -106,7 +107,7 @@ def build_context_graph(db: Session, project: Project, focus: Node) -> GraphResp
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = effective.get(n.id, n.approval)
-        n.element_effective = elements.effective(n.id)
+        stamp_element(n, elements, names)
     # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
     # has_children/approval_effective/element_effective проставлены выше) — на границе
     # сериализации типизируем как list[NodeResponse].

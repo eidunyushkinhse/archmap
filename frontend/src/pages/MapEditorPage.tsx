@@ -51,6 +51,8 @@ import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
 import { useFirstChild } from "../components/element/useFirstChild";
+import { useConsequences } from "../components/element/useConsequences";
+import { hasConsequences } from "../components/element/elementChange";
 
 interface Props {
   projectId: string;
@@ -137,6 +139,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const firstChild = useFirstChild(showErrorToast);
   // Стабильная ссылка (useCallback в хуке) — для бандла броска холста ниже.
   const ensureFirstChild = firstChild.ensure;
+  // Перенос в контейнер и из него переносит площадки (Р18): сначала окно последствий.
+  const consequences = useConsequences();
 
   const history = useHistory();
   // Право правки — роль в проекте (owner/editor), не глобальная роль.
@@ -493,6 +497,19 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     // Цель — лист без элемента: сначала окно первого вложенного объекта. «Отмена» —
     // объект остаётся на месте.
     if (!(await firstChild.ensure(newParentId, node.shape))) return;
+    // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
+    // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
+    // перенос назад, с теми же последствиями).
+    let withHistory: boolean;
+    try {
+      const preview = await nodesApi.movePreview(node.id, newParentId);
+      withHistory = !hasConsequences(preview);
+      if (!(await consequences.ask(preview, node.name))) return;
+    } catch (e) {
+      setTreeReload((t) => t + 1);
+      if (!showLimit(e, "save")) showErrorToast(`Не удалось перенести объект: ${loadErrorText(e)}`);
+      return;
+    }
     let snapshot: Awaited<ReturnType<typeof nodesApi.moveSnapshot>>;
     try {
       snapshot = await nodesApi.moveSnapshot(node.id);
@@ -507,6 +524,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     setTreeReload((t) => t + 1);
     load(levelAtMove);
     noteMutation();
+    if (!withHistory) return;
     history.push({
       label: "Перенос объекта", level: levelAtMove,
       // Порядок важен: сначала возвращаем родителя (эта же правка снимет позиции,
@@ -964,6 +982,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
       {/* Модалки */}
       {firstChild.dialog}
+      {consequences.dialog}
       {nodeModal.open && (
         <NodeModal
           parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}

@@ -10,8 +10,9 @@ import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
 import AnchorField from "../anchor/AnchorField";
 import PlacementRow from "./PlacementRow";
-import { SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
+import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
+import { elementView, useElementPick } from "../element/useElementPick";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
 
@@ -86,6 +87,10 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
 }) {
   const node = patch.node;
   const shape = node.shape;
+  // Элемент архитектуры (Ф5): выбор у узла с детьми, у листа и компонента — текст, у
+  // «Пользователя» строки нет. Смена — с окном последствий, если они есть.
+  const element = useElementPick(patch);
+  const view = elementView(node, isArchitect);
   return (
     <div className="np-card">
       <h3 className="np-card-title">Свойства</h3>
@@ -107,6 +112,30 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
             SHAPE_LABEL[shape]
           )}
         </span>
+
+        {/* Элемент архитектуры — сразу под типом. */}
+        {view.kind !== "none" && (
+          <>
+            <span className="np-term">Элемент архитектуры</span>
+            <span className="np-value">
+              {view.kind === "pick" ? (
+                <PropDropdown
+                  current={ELEMENT_LABEL[view.value]}
+                  options={ELEMENT_ORDER}
+                  renderOption={(el) => (
+                    <span className="np-menu-two">
+                      {ELEMENT_LABEL[el]}
+                      <small>{ELEMENT_HINT[el]}</small>
+                    </span>
+                  )}
+                  onPick={element.pick}
+                />
+              ) : (
+                view.text
+              )}
+            </span>
+          </>
+        )}
 
         {/* Принадлежность (до Ф3 развёртывания — «Размещение»: слово ушло площадкам).
             Внешность — относительно контура ОРГАНИЗАЦИИ (спека N2а): чужой
@@ -237,6 +266,7 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
           )}
         </span>
       </div>
+      {element.dialog}
     </div>
   );
 }

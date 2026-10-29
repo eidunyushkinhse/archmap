@@ -19,6 +19,8 @@ vi.mock("../../api/nodes", () => ({
     delete: vi.fn(),
     // Живая нормализация источника: форма поля «Источник» зовёт её при вводе.
     anchorPreview: vi.fn(),
+    // Превью последствий смены элемента: строка «Элемент архитектуры» зовёт его до записи.
+    elementPreview: vi.fn(),
   },
 }));
 
@@ -224,5 +226,102 @@ describe("NodeInspector: правка текстовых полей", () => {
     expect(await screen.findByText(/изменён в другой сессии/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("чужая роль")).toBeInTheDocument();
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
+  });
+});
+
+// ── Элемент архитектуры (Ф5 эпика docs/plan-c4-elements.md) ─────────────────
+// Строка под «Типом»: выбор у узла с детьми (редактор), текст у листа и компонента, у
+// «Пользователя» строки нет. Смена — превью последствий: без них PATCH сразу и в историю,
+// с ними — окно, PATCH после подтверждения и без истории.
+describe("NodeInspector: элемент архитектуры", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const system = (over: Partial<Node> = {}) => makeNode({
+    name: "orders", shape: "service", has_children: true, child_count: 2,
+    element: null, element_effective: "system", container_name: null, ...over,
+  });
+  const quiet = { kind: "system_to_container" as const, before: [], after: [], docs_names: [], container_name: null };
+
+  async function pickContainer() {
+    await userEvent.click(screen.getByRole("button", { name: /^Система/ }));
+    await userEvent.click(screen.getByRole("option", { name: /^Контейнер/ }));
+  }
+
+  it("у узла с детьми — выпадашка; без последствий PATCH сразу и в историю", async () => {
+    vi.mocked(nodesApi.elementPreview).mockResolvedValue(quiet);
+    const saved = system({ element: "container", element_effective: "container", version: 4 });
+    vi.mocked(nodesApi.update).mockResolvedValue(saved);
+    const before = system();
+    setup(before);
+    expect(screen.getByText("Элемент архитектуры")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Система/ }));
+    // Пункты в две строки: подпись и пояснение.
+    expect(screen.getByText("группа контейнеров, сама не запускается")).toBeInTheDocument();
+    expect(screen.getByText("запускается отдельно, внутри его компоненты")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: /^Контейнер/ }));
+
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(nodesApi.elementPreview).toHaveBeenCalledWith("n1", "container");
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].element).toBe("container");
+    await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(saved, false, before));
+    expect(screen.queryByText("Сделать «orders» контейнером?")).not.toBeInTheDocument();
+  });
+
+  it("с последствиями — окно с таблицей, PATCH после подтверждения и без истории", async () => {
+    vi.mocked(nodesApi.elementPreview).mockResolvedValue({
+      ...quiet,
+      before: [{ node_id: "a", name: "api", sites: ["prod-eu"] }],
+      after: [{ node_id: "n1", name: "orders", sites: ["prod-eu"] }],
+    });
+    const saved = system({ element: "container", element_effective: "container", version: 4 });
+    vi.mocked(nodesApi.update).mockResolvedValue(saved);
+    setup(system());
+
+    await pickContainer();
+    expect(await screen.findByText("Сделать «orders» контейнером?")).toBeInTheDocument();
+    expect(screen.getByText("api")).toBeInTheDocument();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+
+    await userEvent.click(screen.getByText("Сделать контейнером"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(saved, false, undefined));
+  });
+
+  it("«Отмена» в окне последствий — без записи", async () => {
+    vi.mocked(nodesApi.elementPreview).mockResolvedValue({ ...quiet, docs_names: ["api"] });
+    setup(system());
+    await pickContainer();
+    await userEvent.click(await screen.findByText("Отмена"));
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("отказ превью — плашка с причиной, записи нет", async () => {
+    vi.mocked(nodesApi.elementPreview).mockRejectedValue(new ApiError(
+      422, "Внутри лежит база данных «orders-db», она не может входить в состав контейнера. Вынесите её на уровень выше и повторите.",
+    ));
+    setup(system());
+    await pickContainer();
+    expect(await screen.findByText(/Внутри лежит база данных «orders-db»/)).toBeInTheDocument();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("лист — «Контейнер», компонент — «Компонент контейнера «orders»», без выпадашки", () => {
+    const { unmount } = setup(makeNode({ shape: "service", element_effective: "container", container_name: null }));
+    expect(screen.getByText("Контейнер")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Контейнер/ })).not.toBeInTheDocument();
+    unmount();
+    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }));
+    expect(screen.getByText("Компонент контейнера «orders»")).toBeInTheDocument();
+  });
+
+  it("у «Пользователя» строки нет; читателю узел с детьми — текстом", () => {
+    const { unmount } = setup(makeNode({ shape: "person", element_effective: null, container_name: null }));
+    expect(screen.queryByText("Элемент архитектуры")).not.toBeInTheDocument();
+    unmount();
+    setup(system({ element: "container", element_effective: "container" }), false);
+    expect(screen.getByText("Элемент архитектуры")).toBeInTheDocument();
+    expect(screen.getByText("Контейнер")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Контейнер/ })).not.toBeInTheDocument();
   });
 });

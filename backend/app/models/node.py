@@ -188,6 +188,13 @@ class Node(Base):
         element_effective: NodeElementEffective | None
     else:
         element_effective = None
+    # Имя контейнера, частью которого узел является (только у компонента; app/element_marks
+    # — тем же проходом, что element_effective): строка «Компонент контейнера «orders»» в
+    # свойствах объекта. Аннотация — по той же причине, что выше.
+    if TYPE_CHECKING:
+        container_name: str | None
+    else:
+        container_name = None
     # Действующее размещение на площадках (app/deployment.mark_sites). Дефолт — пустой
     # КОРТЕЖ, а не список: атрибут класса общий для всех экземпляров, и изменяемый
     # дефолт был бы одним списком на все узлы. mark_sites всегда присваивает свой

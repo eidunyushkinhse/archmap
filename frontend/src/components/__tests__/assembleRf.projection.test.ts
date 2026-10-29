@@ -17,7 +17,7 @@ function appNode(id: string, kids = false): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids, child_count: kids ? 1 : 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
-    element: null, element_effective: kids ? "system" : "container",
+    element: null, element_effective: kids ? "system" : "container", container_name: null,
   } as AppNode;
 }
 

@@ -177,6 +177,11 @@ class NodeResponse(BaseModel):
     # проставить действующий элемент, видна сторожу как null (tests/test_element_api.py).
     element: NodeElement | None
     element_effective: NodeElementEffective | None
+    # Контейнер, частью которого узел является: имя ближайшего контейнера у компонента,
+    # у остальных null (Ф5 эпика элементов; строка «Компонент контейнера «orders»» в
+    # свойствах). Проставляется там же, где element_effective (app/element_marks.stamp_element).
+    # Без дефолта, как element_effective: в генерате фронта поле обязательное.
+    container_name: str | None
     # Якорь узла: канонический ключ хранения (source_ref) и он же разобранный
     # по видам (source). Ставится прогоном агента ИЛИ рукой архитектора —
     # PATCH принимает source (см. NodeUpdate). Разобранный вид — для карточки

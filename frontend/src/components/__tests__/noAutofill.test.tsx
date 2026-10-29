@@ -49,7 +49,7 @@ const NODE = {
   parent_id: null, shape: "service", is_external: false, status: "existing",
   openapi_spec: null, version: 1, docs: [], has_children: false, child_count: 0,
   approval: "in_progress", approval_effective: "in_progress", sites: [],
-  element: null, element_effective: "container",
+  element: null, element_effective: "container", container_name: null,
   created_at: "", updated_at: "",
 } as Node;
 

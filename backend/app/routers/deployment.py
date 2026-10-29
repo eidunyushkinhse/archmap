@@ -46,7 +46,7 @@ from app.deps import (
     owned_or_404,
     require_project_editor,
 )
-from app.element_marks import elements_from_nodes
+from app.element_marks import elements_from_nodes, stamp_element
 from app.graph_queries import read_view_layout
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
@@ -250,6 +250,7 @@ def get_deployment_graph(
     all_nodes = {n.id: n for n in db.query(Node).filter(Node.project_id == project.id)}
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
     elements = elements_from_nodes(all_nodes)
+    names = {nid: n.name for nid, n in all_nodes.items()}
     if level_node is not None:
         reason = level_refusal(elements, level_node, child_counts.get(level_node.id, 0) > 0)
         if reason:
@@ -282,7 +283,7 @@ def get_deployment_graph(
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = approvals.get(n.id, n.approval)
-        n.element_effective = elements.effective(n.id)
+        stamp_element(n, elements, names)
         n.sites = site_refs(n, places.get(n.id, []), sites_by_id)
         nodes_out.append(
             DeploymentNodeOut(
