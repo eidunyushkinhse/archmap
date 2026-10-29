@@ -42,6 +42,8 @@ from app.docs_pkg import (
     spec_check,
 )
 from app.domain_types import NodeDocKind
+from app.element import Elements
+from app.element_marks import build_elements, element_rows_of
 from app.mmd_header import looks_like_mermaid
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -121,9 +123,15 @@ def _resolve_entry(
     window_node_id: uuid.UUID | None,
     scope_ids: set[uuid.UUID] | None,
     plan: DocsPlan,
+    window_container: uuid.UUID | None = None,
 ) -> int | None:
     """Какому узлу принадлежит запись. Без адреса — объект окна; с адресом из
-    .mmd — он же, но не дальше своего поддерева."""
+    .mmd — он же, но не дальше своего поддерева.
+
+    Исключение — window_container, контейнер окна компонента (Р12
+    docs/plan-c4-elements.md): спецификация — факт контейнера, поэтому запись ТОЛЬКО
+    со спецификацией вправе назвать его адресом, хотя он и вне поддерева окна.
+    Записи со схемами логики правило окна держит прежним."""
     if entry.node_ref is None:
         if window_node_id is None or window_node_id not in by_node_id:
             # ⚠️ Замечание обязано содержать ОТВЕТ, а не только диагноз — правило Н8,
@@ -143,11 +151,65 @@ def _resolve_entry(
     if idx is None:
         return None
     if scope_ids is not None and flat[idx].id not in scope_ids:
-        plan.errors.append(
-            f'{fname}: объект «{entry.node_ref}» не относится к тому, для которого открыто окно'
-        )
-        return None
+        spec_only = entry.openapi is not None and not entry.logic
+        if not (spec_only and flat[idx].id == window_container):
+            plan.errors.append(
+                f'{fname}: объект «{entry.node_ref}» не относится к тому, для которого открыто окно'
+            )
+            return None
     return idx
+
+
+def _logic_note(fname: str, path: str, element: str | None) -> str:
+    """Предупреждение о схемах логики у узла с вложенными объектами — по элементу
+    архитектуры (Р9: у любого такого узла они попадут в «Рекомендации», как сегодня)."""
+    if element == "system":
+        return (
+            f"{fname}: «{path}» — система; схемы логики описывают код и живут у "
+            "контейнеров и компонентов, у системы они попадут в «Рекомендации»"
+        )
+    if element == "container":
+        return (
+            f"{fname}: «{path}» — контейнер с компонентами; схемы логики описывают код "
+            "компонентов — лучше адресовать их компонентам, у контейнера они попадут "
+            "в «Рекомендации»"
+        )
+    return (
+        f"{fname}: «{path}» — компонент с вложенными компонентами; схемы логики лучше "
+        "адресовать вложенным компонентам, у объекта с вложенными они попадут в "
+        "«Рекомендации»"
+    )
+
+
+def _spec_target(
+    fname: str,
+    idx: int,
+    flat: list[Node],
+    fulls: list[str],
+    by_node_id: dict[uuid.UUID, int],
+    elements: Elements[uuid.UUID],
+    plan: DocsPlan,
+) -> int:
+    """Узел, которому достаётся спецификация записи (Р12 docs/plan-c4-elements.md):
+    API отдаёт контейнер, поэтому спецификация компонента уезжает его ближайшему
+    контейнеру — со строкой в превью. У системы контейнера нет: спецификация остаётся
+    у неё с предупреждением (её поймает замечание, как схемы у системы)."""
+    node, path = flat[idx], fulls[idx]
+    if elements.effective(node.id) == "system":
+        plan.warnings.append(
+            f"{fname}: «{path}» — система; API отдают её контейнеры, опишите "
+            "спецификацию у одного из них"
+        )
+        return idx
+    container = elements.container_of(node.id)
+    if container is None or container == node.id or container not in by_node_id:
+        return idx
+    target = by_node_id[container]
+    plan.warnings.append(
+        f"{fname}: спецификация узла «{path}» описана у контейнера «{fulls[target]}»: "
+        f"API отдаёт контейнер, операции «{node.name}» привязываются к ней в схемах логики"
+    )
+    return target
 
 
 def _is_stub(doc: NodeDoc) -> bool:
@@ -450,10 +512,17 @@ def build_docs_plan(
     data_refs = _DataRefCheck(db, project_id)
     flat, fulls, by_bare, by_path = NodeIndex.of(nodes)
     by_node_id = {n.id: i for i, n in enumerate(flat)}
-    # Кто из узлов — контейнер (есть дети). Собственные доки у контейнера законны, но
-    # продукт считает их запахом: их ловит алерт AL24 и лечит «распределение» по детям.
-    # Блокировать пакет из-за этого жестоко — предупреждаем (полевой QA Zabbix 7).
+    # Кто из узлов с вложенными объектами (есть дети). Собственные схемы логики у
+    # такого узла законны, но продукт считает их запахом: их ловит замечание AL24 и
+    # лечит перенос по детям. Блокировать пакет из-за этого жестоко — предупреждаем
+    # (полевой QA Zabbix 7), словами элемента архитектуры (_logic_note).
     with_children = {n.parent_id for n in nodes if n.parent_id is not None}
+    # Элементы архитектуры — одни на план: спецификация едет ближайшему контейнеру
+    # (_spec_target), а окно компонента допускает адрес своего контейнера.
+    elements = build_elements(element_rows_of(nodes))
+    window_container = (
+        elements.container_of(window_node_id) if window_node_id is not None else None
+    )
 
     def resolve(ref: str, where: str) -> int | None:
         hits = by_path.get(ref)
@@ -508,7 +577,8 @@ def build_docs_plan(
     for fname, pkg in entries:
         for entry in pkg.entries:
             idx = _resolve_entry(
-                entry, fname, resolve, flat, by_node_id, window_node_id, scope_ids, plan
+                entry, fname, resolve, flat, by_node_id, window_node_id, scope_ids, plan,
+                window_container,
             )
             if idx is None:
                 continue
@@ -516,11 +586,7 @@ def build_docs_plan(
             existing = {d.name: d for d in node.docs}
 
             if entry.logic and node.id in with_children:
-                plan.warnings.append(
-                    f"{fname}: «{path}» — контейнер; собственные доки контейнеров попадают "
-                    "в алерт «Контейнеры со своей документацией» — лучше адресовать "
-                    "листовым узлам"
-                )
+                plan.warnings.append(_logic_note(fname, path, elements.effective(node.id)))
 
             for logic in entry.logic:
                 slot = (node.id, logic.name)
@@ -614,6 +680,9 @@ def build_docs_plan(
 
             if entry.openapi is None:
                 continue
+            # Схемы логики записи остались у её узла, спецификация — у контейнера.
+            spec_idx = _spec_target(fname, idx, flat, fulls, by_node_id, elements, plan)
+            node, path = flat[spec_idx], fulls[spec_idx]
             owner = spec_owner.get(node.id)
             if owner == fname:
                 plan.errors.append(f"{fname}: дубль OpenAPI-спецификации у узла «{path}» в одном файле")

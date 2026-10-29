@@ -88,6 +88,10 @@ def test_у_контейнера_структуры_не_бывает(db):
     with pytest.raises(HTTPException) as e:
         _table(db, родитель, "orders")
     assert e.value.status_code == 400
+    assert e.value.detail == (
+        "У системы или контейнера не бывает собственной структуры данных — она живёт у "
+        "баз данных внутри"
+    )
 
 
 def test_колонка_уникальна_в_таблице_и_уходит_с_таблицей(db):

@@ -517,12 +517,29 @@ def test_перечень_среди_папки_находится(db):
 
 
 def test_контейнер_адресат_предупреждает(db):
-    """Р15: заглушки у контейнера дадут штатный алерт AL24 — узнать об этом надо здесь."""
+    """Р15: заглушки у узла с вложенными дадут штатное замечание AL24 — узнать об этом
+    надо здесь, словами элемента архитектуры. Поведение прежнее: заглушки ложатся на
+    адресата (Р9)."""
     корень = _node(db, "Zulip")
-    _node(db, "backend", корень)
+    backend = _node(db, "backend", корень)
+    _node(db, "api", backend)
+
     report = _план(db, "node: Zulip\noperations:\n  - GET /a\n").report
     assert not report.errors
-    assert any("контейнер" in w for w in report.warnings)
+    assert "«Zulip» — система; перечень операций адресуйте контейнеру или компоненту" in (
+        report.warnings
+    )
+
+    backend.element = "container"
+    db.flush()
+    plan = _план(db, "node: Zulip / backend\noperations:\n  - GET /a\n")
+    assert not plan.report.errors
+    assert (
+        "«Zulip / backend» — контейнер с компонентами; собственные схемы контейнера "
+        "попадут в «Рекомендации» — перечень лучше адресовать компонентам"
+    ) in plan.report.warnings
+    assert [s.name for s in plan.creates] == ["GET /a"]
+    assert plan.node is backend
 
 
 # ── Ловушки: заглушка — это документация, которой нет ─────────────────────────
