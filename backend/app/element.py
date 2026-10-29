@@ -135,7 +135,7 @@ class Elements[K: Hashable]:
                 return ancestor
         return None
 
-    def _descendants(self, node_id: K) -> list[K]:
+    def descendants(self, node_id: K) -> list[K]:
         """Все потомки узла в обходе в глубину (порядок детей сохраняется), без него."""
         out: list[K] = []
         seen = {node_id}
@@ -154,7 +154,7 @@ class Elements[K: Hashable]:
         «Пользователи» внутри) в обходе в глубину. У не-контейнера — пусто."""
         if self.effective(container_id) != "container":
             return []
-        return self._descendants(container_id)
+        return self.descendants(container_id)
 
     def units_under(self, node_id: K) -> list[K]:
         """Развёртываемые единицы узла: контейнер — он сам; система — единицы её детей в

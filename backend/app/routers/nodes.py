@@ -22,7 +22,7 @@ from app.deps import (
 )
 from app.domain_types import NodeElement
 from app.element_marks import mark_element, project_element_rows
-from app.element_rules import element_change_refusal
+from app.element_rules import STORE_CREATE, element_change_refusal, store_refusal
 from app.graph_queries import build_graph, external_edges, project_has_status_info
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
@@ -151,6 +151,18 @@ def create_node(
         parent = scoped_node(db, payload.parent_id, project)
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
+        # Те же запреты вложения, что у переноса (app/reparent): внутрь формы без детей
+        # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
+        if parent.shape not in reparent.CONTAINER_SHAPES:
+            raise HTTPException(status_code=422, detail=reparent.NO_CHILDREN)
+        # Узлы проекта выбираются только для базы и брокера: прочим формам Р6 не грозит.
+        if payload.shape in STORE_CREATE:
+            reason = store_refusal(
+                project_element_rows(db, project.id), node_id=None, name=payload.name,
+                parent_id=payload.parent_id, shape=payload.shape, action="create",
+            )
+            if reason:
+                raise HTTPException(status_code=422, detail=reason)
     # Элемент архитектуры — с запретами (app/element_rules): форма и «внутри контейнера»
     # по цепочке предков будущего родителя.
     if payload.element is not None:
@@ -502,14 +514,18 @@ def update_node(
         # узел ещё в исходном состоянии, поддерево считается по нему.
         moved = "parent_id" in data and data["parent_id"] != old_parent
         if moved:
-            reason = reparent.validate_reparent(db, project, node, data["parent_id"])
+            reason = reparent.validate_reparent(
+                db, project, node, data["parent_id"], shape=data.get("shape") or node.shape
+            )
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
         # Смена ФОРМЫ — вторая правка с запретами: форма решает, может ли узел иметь
         # детей и чем он владеет. Проверяем ДО присваивания (узел ещё в исходном
         # состоянии — старая форма нужна самой проверке).
         if "shape" in data and data["shape"] != node.shape:
-            reason = reparent.validate_shape_change(db, node, data["shape"])
+            reason = reparent.validate_shape_change(
+                db, node, data["shape"], parent_id=data.get("parent_id", node.parent_id)
+            )
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
         # Элемент архитектуры — третья правка с запретами (app/element_rules): форма,

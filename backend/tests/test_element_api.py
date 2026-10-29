@@ -428,3 +428,81 @@ def test_cas_общим_путём(client, db):
     assert r.status_code == 409
     db.expunge_all()
     assert db.get(Node, ids["orders"]).element == "container"
+
+
+# ── Р6 со стороны вложения: создание, смена формы (Ф5) ───────────────────────
+
+
+def test_создание_внутри_формы_без_детей_отказ(client, db):
+    """Баг tasks.md: create_node не проверял форму родителя — ребёнок базы появлялся."""
+    owner = ensure_architect(db)
+    p, ids = _tree(db, [("orders-db", None, {"shape": "database"}), ("Покупатель", None, {"shape": "person"})])
+    h = _h(owner, p)
+    text = {"detail": "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"}
+    for parent in ("orders-db", "Покупатель"):
+        db.expunge_all()
+        r = client.post(URL, headers=h, json={"name": "api", "parent_id": str(ids[parent])})
+        assert (r.status_code, r.json()) == (422, text), parent
+    db.expunge_all()
+    assert db.query(Node).filter(Node.name == "api").count() == 0
+
+
+def test_база_и_брокер_не_создаются_в_контейнере(client, db):
+    owner = ensure_architect(db)
+    p, ids = _tree(db, [
+        ("shop", None, {}),
+        ("orders", "shop", {"element": "container"}),
+        ("api", "orders", {}),
+        ("billing", "shop", {"element": "container"}),
+    ])
+    h = _h(owner, p)
+
+    def post(name: str, parent: str, shape: str):
+        db.expunge_all()
+        return client.post(URL, headers=h, json={"name": name, "parent_id": str(ids[parent]), "shape": shape})
+
+    r = post("orders-db", "orders", "database")
+    assert (r.status_code, r.json()["detail"]) == (422, (
+        "База данных «orders-db» не может входить в состав контейнера «orders». "
+        "Создайте её на уровне выше."
+    ))
+    # Внутри компонента — ближайший контейнер назван по имени.
+    r = post("events", "api", "broker")
+    assert (r.status_code, r.json()["detail"]) == (422, (
+        "Брокер «events» не может входить в состав контейнера «orders». "
+        "Создайте его на уровне выше."
+    ))
+    # Лист с намерением «контейнер» им станет с первым ребёнком — тот же отказ.
+    assert post("billing-db", "billing", "database").status_code == 422
+    # В систему — можно, сервис в контейнер — тоже.
+    assert post("orders-db", "shop", "database").status_code == 201
+    assert post("worker", "orders", "service").status_code == 201
+
+
+def test_смена_формы_внутри_контейнера_на_базу_отказ(client, db):
+    owner = ensure_architect(db)
+    p, ids = _tree(db, [
+        ("shop", None, {}),
+        ("orders", "shop", {"element": "container"}),
+        ("cache", "orders", {}),
+        ("billing", "shop", {}),
+    ])
+    h = _h(owner, p)
+    r = _patch(client, db, h, ids["cache"], {"shape": "database"})
+    assert (r.status_code, r.json()["detail"]) == (400, (
+        "Объект «cache» лежит внутри контейнера «orders», а база данных не может входить "
+        "в состав контейнера. Вынесите его на уровень выше и повторите."
+    ))
+    r = _patch(client, db, h, ids["cache"], {"shape": "broker"})
+    assert (r.status_code, r.json()["detail"]) == (400, (
+        "Объект «cache» лежит внутри контейнера «orders», а брокер не может входить "
+        "в состав контейнера. Вынесите его на уровень выше и повторите."
+    ))
+    # Вне контейнера — можно; вынос в том же запросе — тоже (дерево после правки).
+    assert _patch(client, db, h, ids["billing"], {"shape": "database"}).status_code == 200
+    r = _patch(client, db, h, ids["cache"], {"shape": "database", "parent_id": str(ids["shop"])})
+    assert r.status_code == 200, r.text
+    # А перенос в контейнер со сменой на базу в том же запросе — отказ переноса.
+    r = _patch(client, db, h, ids["billing"], {"shape": "database", "parent_id": str(ids["orders"])})
+    assert r.status_code == 400
+    assert r.json()["detail"].startswith("База данных «billing» не может входить в состав контейнера «orders»")
