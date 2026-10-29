@@ -271,6 +271,11 @@ Node (узел)
 - docs        — коллекция NodeDoc (именованные схемы логики, lazy="selectin")
 - created_at, updated_at
 - has_children — вычисляемое поле в API
+- element     — элемент архитектуры: system | container | NULL (NULL — «не сказано»: узел с детьми
+  читается системой, как до эпика docs/plan-c4-elements.md); задаётся только у сервиса и не внутри
+  контейнера, без базы, брокера и другого контейнера внутри (app/element_rules.py, 422)
+- element_effective — вычисляемое в API: system | container | component, у person — null; считает
+  ТОЛЬКО app/element.py (адаптер к БД — app/element_marks.py), фронт и MCP его не вычисляют
 
 NodeDoc (схема логики узла; прежнее единственное поле Node.flowchart перенесено сюда)
 - id, node_id → Node, name (уникально в пределах узла)
