@@ -12,6 +12,7 @@ Uuid остаются там, где агент обязан ими оперир
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -428,6 +429,32 @@ def _caption(item: dict[str, Any]) -> str:
     return f"«{item['caption']}»" if item.get("caption") else "без подписи"
 
 
+UNKNOWN_ALERTS_SHOWN = 5  # записей незнакомого класса в блоке: дальше — счётчиком
+
+
+def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[str, int]]:
+    """Классы замечаний, которых этот MCP-сервер не знает: (блок, число записей).
+
+    Слов панели для них у клиента нет, поэтому заголовок — ключ ответа, а записи —
+    как пришли (JSON строкой): сырое честнее, чем ничего."""
+    out: list[tuple[str, int]] = []
+    for key, value in data.items():
+        if key in known or not isinstance(value, list) or not value:
+            continue
+        lines = [
+            json.dumps(item, ensure_ascii=False) if isinstance(item, dict | list) else str(item)
+            for item in value[:UNKNOWN_ALERTS_SHOWN]
+        ]
+        if len(value) > UNKNOWN_ALERTS_SHOWN:
+            lines.append(f"… и ещё {len(value) - UNKNOWN_ALERTS_SHOWN}")
+        head = (
+            f"«{key}» ({len(value)}). Этот класс замечаний MCP-серверу незнаком — сервер "
+            "ArchMap новее, обновите MCP-сервер. Записи как есть:"
+        )
+        out.append((head + "\n" + "\n".join("  • " + line for line in lines), len(value)))
+    return out
+
+
 def alerts(data: dict[str, Any]) -> str:
     """Незавершённость схемы — 15 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
@@ -436,9 +463,16 @@ def alerts(data: dict[str, Any]) -> str:
     должно одинаково: расхождение слов дороже любой экономии контекста.
 
     Все списки берутся через .get(..., []): сервер старше клиента новых классов не
-    отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError.
+    отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError. Обратный
+    случай — сервер НОВЕЕ клиента: незнакомый непустой список печатается общим
+    блоком (ключ, число записей, первые записи как есть), а не глотается — иначе
+    агент прочёл бы «Замечаний нет», пока панель горит (камень 24
+    docs/plan-c4-elements.md).
     """
+    known: set[str] = set()
+
     def lst(key: str) -> list[dict[str, Any]]:
+        known.add(key)
         value = data.get(key) or []
         return list(value) if isinstance(value, list) else []
 
@@ -559,6 +593,8 @@ def alerts(data: dict[str, Any]) -> str:
         "Пользователи внутри контейнера",
         [f"{p['node_name']} внутри {p['parent_name']}" for p in persons_inside],
     )
+    unknown = _unknown_alert_blocks(data, known)
+    blocks.extend(block for block, _ in unknown)
 
     if not blocks:
         return "Замечаний нет — схема завершена."
@@ -570,6 +606,7 @@ def alerts(data: dict[str, Any]) -> str:
         + len(container_own) + len(data_refs) + len(channel_refs) + len(config_refs)
         + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
         + len(unlinked) + len(undescribed) + len(persons_inside)
+        + sum(count for _, count in unknown)
     )
     head = f"Замечаний: {total}"
     return head + "\n\n" + "\n\n".join(blocks)
@@ -1408,7 +1445,7 @@ def _channel_stubs_line(data: dict[str, Any]) -> list[str]:
     return [
         f"Каналов брокеров заведено по связям схемы: {n} "
         f"{_plural(n, ('заглушка', 'заглушки', 'заглушек'))} без описания — дозалейте "
-        "пакет каналов (archmap_facts_prompt family=channel)."
+        "пакет каналов (archmap_facts_prompt family=channels)."
     ]
 
 

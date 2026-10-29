@@ -212,6 +212,23 @@ def test_ответ_старого_сервера_без_новых_списко
     assert render.alerts({}) == "Замечаний нет — схема завершена."
 
 
+def test_незнакомый_класс_нового_сервера_печатается_а_не_глотается() -> None:
+    # Сервер новее клиента: класс, которого рендер не знает, обязан дойти до агента —
+    # иначе «Замечаний нет», пока панель горит (камень 24 docs/plan-c4-elements.md).
+    records = [{"node_id": u(i), "node_name": f"Объект {i}"} for i in range(7)]
+    out = render.alerts({"future_class": records})
+    assert out.startswith("Замечаний: 7\n")
+    assert "«future_class» (7)" in out and "обновите MCP-сервер" in out
+    assert '"node_name": "Объект 0"' in out and '"node_name": "Объект 4"' in out
+    assert "Объект 5" not in out and "… и ещё 2" in out
+    # рядом с известными классами — свой блок после них, счётчик общий
+    out = render.alerts({**validated_payload(), "future_class": records[:1]})
+    assert out.startswith("Замечаний: 16\n")
+    assert out.index("«future_class» (1)") > out.index("Пользователи внутри контейнера (")
+    # пустой незнакомый список и не-список — не замечания
+    assert render.alerts({"future_class": [], "total": 3}) == "Замечаний нет — схема завершена."
+
+
 async def test_инструмент_алертов_отдаёт_полную_сводку(
     client: ArchMapClient, api: FakeApi
 ) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -306,7 +307,9 @@ async def test_заглушки_каналов_по_связям_названы_
     )
 
     assert "заведено по связям схемы: 3 заглушки без описания" in out
-    assert "family=channel" in out
+    # подсказка называет семью значением из enum инструмента, иначе вызов по ней — отказ
+    family = re.search(r"archmap_facts_prompt family=(\w+)", out)
+    assert family and family.group(1) in tools.FAMILY_ARG["enum"]
 
     api.post(APPLY_PATH, result())
     out = await tools.call(

@@ -572,8 +572,21 @@ async def test_каждый_инструмент_описан_и_вызывае�
 # ── Источник в правках объекта ──────────────────────────────────────────────────
 
 def check_node_contract(schema: str, body: dict[str, object]) -> None:
-    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate)."""
-    getattr(backend("schemas.node"), schema).model_validate(body)
+    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate).
+
+    Схемы бэкенда лишних полей не запрещают (extra="forbid" нет), поэтому одной
+    model_validate мало: поле, которого сервер не знает, прошло бы проверку, сервер
+    молча выбросил бы его, а инструмент ответил бы «обновлён» (камень 24
+    docs/plan-c4-elements.md). Ключи тела сверяются с полями схемы."""
+    model = getattr(backend("schemas.node"), schema)
+    unknown = set(body) - set(model.model_fields)
+    assert not unknown, f"{schema} не знает полей тела: {sorted(unknown)}"
+    model.model_validate(body)
+
+
+def test_сторож_контракта_ловит_лишнее_поле_тела() -> None:
+    with pytest.raises(AssertionError, match="no_such_field"):
+        check_node_contract("NodeUpdate", {"name": "X", "no_such_field": 1})
 
 
 async def test_создание_объекта_шлёт_источник(client: ArchMapClient, api: FakeApi) -> None:

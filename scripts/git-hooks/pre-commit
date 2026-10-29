@@ -3,7 +3,8 @@
 # КАЖДЫМ коммитом гоняет проверки той части, которую правят (по staged-файлам).
 #   frontend/* → tsc -b + eslint + vitest
 #   backend/*  → ruff + mypy + pytest
-#   mcp/*      → ruff + mypy + pytest пакета; mcp/archmap_mcp/* — ещё тесты эндпоинта /mcp бэкенда
+#   mcp/*      → ruff + mypy + pytest пакета; mcp/archmap_mcp/* — ещё тесты эндпоинта /mcp бэкенда;
+#              MCP-гейт гоняет и правка модулей фронта и бэкенда, которые читают тесты MCP
 #   скрипты поставки и разработки (deploy/*.sh|*.py, scripts/*.sh, хук, dev.sh, stop.sh)
 #              → bash -n + ruff (аудит P-33: раньше их не видел никто)
 #   CLAUDE.md, QWEN.md, scripts/agent-docs.py → QWEN.md собран из CLAUDE.md (аудит P-7)
@@ -41,6 +42,12 @@ if grep -q '^mcp/'       <<<"$staged"; then touch_mcp=true;   fi
 # их правка гоняет и MCP-гейт, иначе CI падал молча (фаза 7 аудита, ALERT_SECTIONS).
 # Список берётся из самих тестов — новый сентинел подхватится без правки хука.
 mcp_watch="$(grep -rhoE 'frontend/src/[A-Za-z0-9_./-]+' mcp/tests 2>/dev/null | sort -u || true)"
+# Они же судят тела запросов схемами бэкенда: backend("schemas.alerts") в тесте —
+# это backend/app/schemas/alerts.py. Без этих путей бэкенд-коммит с новым полем или
+# классом проходил локально и ронял MCP-гейт в CI (камень 23 docs/plan-c4-elements.md).
+mcp_backend="$(grep -rhoE 'backend\("[A-Za-z0-9_.]+"\)' mcp/tests 2>/dev/null \
+  | sed -E 's/^backend\("([^"]+)"\)$/\1/; s#\.#/#g; s#^#backend/app/#; s#$#.py#' | sort -u || true)"
+mcp_watch="$(printf '%s\n%s\n' "$mcp_watch" "$mcp_backend" | grep -v '^$' || true)"
 if [ -n "$mcp_watch" ] && grep -qxFf <(printf '%s\n' "$mcp_watch") <<<"$staged"; then touch_mcp=true; fi
 # Скрипты: shell — bash -n, python поставки — ruff бэкенда
 scripts_sh="$(grep -E '^(deploy/.*\.sh|scripts/.*\.sh|scripts/git-hooks/[^/]+|dev\.sh|stop\.sh)$' <<<"$staged" || true)"
