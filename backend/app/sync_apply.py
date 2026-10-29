@@ -51,7 +51,9 @@ class SyncReport:
 # Поля узла, которые синк переносит из прогона как есть: имя поля плана совпадает с
 # колонкой узла и полем разобранного прогона. Якорь — отдельно: в плане он уже
 # разобранный ключ, а не поле прогона.
-_FLAT_FIELDS = frozenset({"name", "description", "role", "technology", "shape", "status"})
+_FLAT_FIELDS = frozenset(
+    {"name", "description", "role", "technology", "shape", "status", "element"}
+)
 
 
 def apply_sync_plan(
@@ -193,6 +195,9 @@ def _create_node(
         shape=imp.shape,
         status=imp.status,
         is_external=imp.is_external,
+        # Как есть: разбор прогона уже санитизирован. Контейнер без компонентов (их
+        # слой синк по умолчанию отрезает) — норма: у листа значение — намерение (Р3).
+        element=imp.element,
         source_ref=known_key(act.source_ref),
         parent_id=parent.id if parent else None,
     )

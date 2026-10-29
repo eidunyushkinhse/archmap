@@ -48,7 +48,11 @@ from app.channels_import import (
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.deployment import leaf_placements, project_sites, project_tree
+from app.domain_types import NodeElement
+from app.element_marks import ElementRow, project_element_rows
+from app.element_rules import element_change_refusal
 from app.identity import known_key, source_ref_dict
+from app.import_element import as_clause, sanitize_elements
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -141,6 +145,7 @@ _FIELD_RU: dict[str, str] = {
     "technology": "технология",
     "shape": "форма",
     "status": "статус",
+    "element": "элемент архитектуры",
 }
 # Поля, которые ДОЛИВАЮТСЯ в пустое живое место. Остальные (форма, статус) только
 # сверяются: у них нет «пусто», а тихая смена формы переставила бы секции на
@@ -540,8 +545,73 @@ def _fill_node(
     return changed
 
 
+def _element_refused(
+    live: Node,
+    value: NodeElement,
+    rows: dict[uuid.UUID, ElementRow],
+    path: str,
+    warnings: list[str],
+) -> bool:
+    """Правило элемента (Р3, Р5, Р6) по ЖИВОМУ дереву: архив чист сам по себе, а в
+    проекте под узлом может лежать база или над ним — контейнер. Отказ — строкой
+    отчёта, живое не трогается."""
+    refusal = element_change_refusal(
+        list(rows.values()), node_id=live.id, name=live.name, parent_id=live.parent_id,
+        shape=live.shape, value=value,
+    )
+    if refusal is None:
+        return False
+    warnings.append(f"узел «{path}»: элемент архитектуры из архива не применён — {as_clause(refusal)}")
+    return True
+
+
+def _fill_element(
+    live: Node,
+    imp: _ImpNode,
+    path: str,
+    warnings: list[str],
+    rows: dict[uuid.UUID, ElementRow],
+    forced: Collection[str] = (),
+) -> bool:
+    """Элемент архитектуры живому узлу (Р30): fill-only, как поля _FILLABLE, но через
+    правило элемента по живому дереву (_element_refused). «Не сказано» в архиве — не
+    утверждение: живое значение не трогается и строки нет. Занятое живое и другое
+    архивное — строка «в архиве другое», как у формы и статуса (коды контракта, словами
+    их называет свёртка). forced — человек выбрал архивного кандидата спора (Ф-E):
+    пишем и в занятое, но через то же правило.
+
+    rows — элементы живого проекта (одна выборка на применение); долитое значение
+    записывается и туда: следующая проверка обязана видеть уже долитый контейнер."""
+    new, cur = imp.element, live.element
+    if new is None or new == cur:
+        return False
+    label = _FIELD_RU["element"]
+    if cur is not None and "element" not in forced:
+        warnings.append(
+            f"узел «{path}»: поле «{label}» в архиве другое («{new}») — оставлено живое («{cur}»)"
+        )
+        return False
+    if _element_refused(live, new, rows, path, warnings):
+        return False
+    live.element = new
+    rows[live.id] = rows[live.id]._replace(element=new)
+    if cur is None:
+        warnings.append(f"узел «{path}»: поле «{label}» пустовало — залито из архива")
+    else:
+        warnings.append(
+            f"узел «{path}»: поле «{label}» заменено по вашему решению («{cur}» → «{new}»)"
+        )
+    live.version += 1
+    return True
+
+
 def _absorb_into_live(
-    live: Node, донор: _ImpNode, имя: str, path: str, warnings: list[str]
+    live: Node,
+    донор: _ImpNode,
+    имя: str,
+    path: str,
+    warnings: list[str],
+    rows: dict[uuid.UUID, ElementRow],
 ) -> bool:
     """Знание поглощённого склейкой узла — живому выжившему: пустое долить,
     заполненное не трогать, имя — выбранное человеком.
@@ -563,6 +633,18 @@ def _absorb_into_live(
         if ключ:
             live.source_ref = ключ
             changed = True
+    # Элемент архитектуры — тем же fill-only и через правило по живому дереву.
+    if (
+        донор.element is not None
+        and live.element is None
+        and not _element_refused(live, донор.element, rows, path, warnings)
+    ):
+        live.element = донор.element
+        rows[live.id] = rows[live.id]._replace(element=донор.element)
+        warnings.append(
+            f"узел «{path}»: поле «{_FIELD_RU['element']}» пустовало — залито из склеенного объекта"
+        )
+        changed = True
     if live.name != имя:
         live.name = имя
         changed = True
@@ -622,6 +704,10 @@ def apply_into_plan(
     # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
     решения = resolve_decisions(plan, decisions, SELF_ORIGIN)
     forced = _forced_fields(merged, решения)
+    # Ответ на спор элемента архитектуры мог сделать значение недопустимым (выбран
+    # «Контейнер», а внутри база) — та же санитизация, что у создания; без ответов
+    # слитое дерево уже чистое, и она ничего не меняет.
+    пересмотр = sanitize_elements(merged.nodes, plan.node_paths)
     склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
     # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
     # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель
@@ -638,12 +724,18 @@ def apply_into_plan(
             for fld in ABSORB_FIELDS:
                 if (getattr(донор, fld) or "").strip() and not (getattr(узел, fld) or "").strip():
                     setattr(узел, fld, getattr(донор, fld))
+            # Элемент архитектуры — тем же fill-only, как absorb_knowledge при создании.
+            if узел.element is None and донор.element is not None:
+                узел.element = донор.element
             if not узел.source_keys and донор.source_keys:
                 узел.source_keys = list(донор.source_keys)
     тронутые = _apply_edge_decisions(merged, into, решения, поглощены)
-    warnings: list[str] = list(into.warnings)
+    warnings: list[str] = [*into.warnings, *пересмотр]
 
     # ── C4: живому узлу — пустые поля, новому — рождение. Ничего не удаляем.
+    # Элементы живого проекта — одна выборка: доливка элемента проверяется правилом
+    # по живому дереву (_fill_element).
+    элементы = {r.id: r for r in project_element_rows(db, project.id)}
     node_of: list[Node] = []
     nodes_filled = nodes_created = 0
     for m, imp in enumerate(merged.nodes):
@@ -656,12 +748,19 @@ def apply_into_plan(
             изменён = m not in into.ambiguous and _fill_node(
                 live, imp, plan.node_paths[m], warnings, forced.get(m, set())
             )
+            изменён = (
+                m not in into.ambiguous
+                and _fill_element(
+                    live, imp, plan.node_paths[m], warnings, элементы, forced.get(m, set())
+                )
+            ) or изменён
             пара = выжившие.get(m)
             if пара is not None:
                 # Живой выживший склейки: имя по выбору, знание поглощённого —
                 # fill-only. Поглощённый не создаётся, и потерять его нельзя.
                 изменён = _absorb_into_live(
-                    live, merged.nodes[пара[0]], пара[1], plan.node_paths[m], warnings
+                    live, merged.nodes[пара[0]], пара[1], plan.node_paths[m], warnings,
+                    элементы,
                 ) or изменён
             if изменён:
                 nodes_filled += 1
@@ -686,6 +785,9 @@ def apply_into_plan(
             shape=imp.shape,
             status=imp.status,
             is_external=imp.is_external,
+            # Как есть: слитое дерево уже санитизировано. Под живым контейнером значение
+            # спит — действующий элемент компонента его не читает (переносы — Ф5).
+            element=imp.element,
             source_ref=known_key(imp.source_keys[0]) if imp.source_keys else None,
             parent_id=parent.id if parent else None,
         )

@@ -27,7 +27,11 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.domain_types import NODE_ELEMENT_LABELS
+from app.element_marks import element_rows_of
+from app.element_rules import element_change_refusal
 from app.identity import basis_of_key, compare_identity
+from app.import_element import as_clause
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
@@ -196,6 +200,10 @@ class _Matcher:
         self.imp_to_live: dict[int, Node] = {}
         self.imp_paths: list[str] = []
         self.skipped: set[int] = set()  # компоненты вне синка (вместе с поддеревом)
+        # Элементы архитектуры живой схемы — для правила элемента при доливке (Р5, Р6).
+        # Долитое планом записывается и сюда: следующий узел прогона проверяется уже
+        # против дерева с ним.
+        self.element_rows = {r.id: r for r in element_rows_of(nodes)}
 
     def _index_paths(self, node: Node, prefix: str) -> None:
         full = f"{prefix} / {node.name}" if prefix else node.name
@@ -254,11 +262,40 @@ class _Matcher:
             fields.append("shape")
         if (imp.status != "existing" and live.status != imp.status) or (self.policies.restore_returned and _is_return(live, imp)):
             fields.append("status")
+        self._diff_element(live, imp, fields)
         # Якорь — не пользовательские данные: проставляем и обновляем всегда.
         new_ref = imp.source_keys[0] if imp.source_keys else None
         if new_ref and new_ref != live.source_ref:
             fields.append("source_ref")
         return fields
+
+    def _diff_element(self, live: Node, imp: _ImpNode, fields: list[str]) -> None:
+        """Элемент архитектуры (Р30) — fill-only: «не сказано» в YAML ничего не меняет,
+        пустое живое значение доливается, если правило элемента по живому дереву не
+        против (под узлом база, над ним контейнер), расхождение и отказ — строкой
+        conflicts. Решение человека синк не переписывает никогда."""
+        new, cur = imp.element, live.element
+        if new is None or new == cur:
+            return
+        if cur is not None:
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML элемент архитектуры другой "
+                f"(«{NODE_ELEMENT_LABELS[new].lower()}») — в схеме оставляем как есть"
+            )
+            return
+        # Форма — та, что будет после update: смену формы синк применяет раньше.
+        shape = imp.shape if "shape" in fields else live.shape
+        refusal = element_change_refusal(
+            list(self.element_rows.values()), node_id=live.id, name=live.name,
+            parent_id=live.parent_id, shape=shape, value=new,
+        )
+        if refusal is not None:
+            self.plan.conflicts.append(
+                f"«{live.name}»: элемент архитектуры из YAML не применён — {as_clause(refusal)}"
+            )
+            return
+        fields.append("element")
+        self.element_rows[live.id] = self.element_rows[live.id]._replace(element=new, shape=shape)
 
     def walk_import(self, parsed: ParsedImport) -> None:
         max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH

@@ -39,6 +39,7 @@ def _seed(parsed: ParsedImport) -> tuple[list[Node], list[Edge]]:
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                element=n.element,
                 source_ref=n.source_keys[0] if n.source_keys else None,
                 parent_id=nodes[n.parent_idx].id if n.parent_idx is not None else None,
             )
@@ -574,3 +575,74 @@ class TestMatchBasis:
         предупреждение = next(w for w in plan.warnings if "orders-db" in w)
         assert "относится к другому имени зависимости orders-db" in предупреждение
         assert "сетевому имени" not in предупреждение
+
+
+# ── Элемент архитектуры: синк — fill-only через правило (Ф2, Р30) ────────────
+
+RUN_ЭЛЕМЕНТ = RUN.replace(
+    "      - name: orders\n",
+    "      - name: orders\n        element: container\n",
+)
+
+
+def _узел_плана(plan, path: str):
+    return next(a for a in plan.nodes if a.path == path)
+
+
+def test_элемент_пустой_живой_доливается():
+    nodes, edges = _seed(_parse(RUN))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+
+    orders = _узел_плана(plan, "Система / orders")
+    assert (orders.action, orders.fields) == ("update", ["element"])
+    assert plan.conflicts == []
+
+
+def test_элемент_фикспойнт_план_пуст():
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    assert build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ)).is_noop
+
+
+def test_элемент_занятый_живой_не_трогается_строкой():
+    """Решение человека синк не переписывает: другое значение в YAML — строка
+    conflicts словами продукта, «не сказано» в YAML — ничего."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(
+        nodes, edges, _parse(RUN_ЭЛЕМЕНТ.replace("element: container", "element: system"))
+    )
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: в YAML элемент архитектуры другой («система») — в схеме оставляем как есть"
+    ]
+    assert plan.is_noop
+
+    молчит = build_sync_plan(nodes, edges, _parse(RUN))
+    assert молчит.is_noop and молчит.conflicts == []
+
+
+def test_элемент_отказ_правила_по_живому_дереву_строкой():
+    """YAML чист сам по себе, а живое дерево против: узел лежит в живом контейнере
+    (Р5) или под ним живая база, которой нет в прогоне (Р6), — значение не ложится,
+    причина — текстом отказа API."""
+    nodes, edges = _seed(_parse(RUN))
+    by_name = {n.name: n for n in nodes}
+    by_name["Система"].element = "container"
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: элемент архитектуры из YAML не применён — объект «orders» лежит внутри "
+        "контейнера «Система» и считается его компонентом. Элемент архитектуры задаётся у "
+        "самого контейнера."
+    ]
+
+    nodes, edges = _seed(_parse(RUN))
+    orders = next(n for n in nodes if n.name == "orders")
+    nodes.append(Node(id=uuid.uuid4(), project_id=orders.project_id, name="orders-cache",
+                      shape="database", parent_id=orders.id))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: элемент архитектуры из YAML не применён — внутри лежит база данных "
+        "«orders-cache», она не может входить в состав контейнера. Вынесите её на уровень "
+        "выше и повторите."
+    ]

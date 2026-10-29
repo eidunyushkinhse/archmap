@@ -30,8 +30,9 @@ from app.archive_import import unpacked_size
 from app.auth import get_current_user
 from app.config_import import ParamIn
 from app.database import get_db
+from app.element_marks import ElementRow
 from app.export import build_export
-from app.import_yaml import parse_import
+from app.import_yaml import _ImpNode, parse_import
 from app.main import app
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -52,15 +53,25 @@ from app.models.view_layout import ViewLayoutItem
 from app.process_import import apply_import as apply_process_import
 from app.process_import import build_preview as build_process_preview
 from app.processes import node_path
-from app.unified_apply import _Winner, apply_unified_plan, parse_decisions
+from app.unified_apply import (
+    _Winner,
+    absorb_knowledge,
+    apply_unified_plan,
+    parse_decisions,
+)
 from app.unified_import import UnifiedImportError, build_unified_plan
 from app.unified_into import (
+    _fill_element,
     _replace_params,
     apply_into_plan,
     build_into_plan,
     into_preview,
 )
-from app.unified_remarks import apply_unfixable, remainder_from_plan
+from app.unified_remarks import (
+    apply_unfixable,
+    friendly_apply_note,
+    remainder_from_plan,
+)
 
 ПРЕВЬЮ = "/api/v1/projects/{}/import-archive/preview"
 ПРИМЕНЕНИЕ = "/api/v1/projects/{}/import-archive/apply"
@@ -2207,3 +2218,211 @@ def test_свой_архив_с_площадками_ничего_не_меня�
     assert отчёт.warnings == []
     assert _размещение(db, проект.id) == было
     assert {s.id: s.version for s in db.query(DeploymentSite)} == версии
+
+
+# ── Элемент архитектуры: догрузка — fill-only через правило (Ф2, Р30) ────────
+
+
+def _элемент(db, узел: Node) -> str | None:
+    живой = db.get(Node, узел.id)
+    assert живой is not None
+    return живой.element
+
+
+def test_элемент_пустой_живой_доливается_из_архива(db):
+    проект, узлы = _ярмарка(db)
+    донор, _ = _донор_ярмарки(db, element="container")
+    db.commit()
+
+    _, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert _элемент(db, узлы["orders"]) == "container"
+    orders = db.get(Node, узлы["orders"].id)
+    assert orders is not None and orders.version == 2  # запись изменилась ровно раз
+    assert (
+        "узел «Ярмарка / orders»: поле «элемент архитектуры» пустовало — залито из архива"
+        in отчёт.warnings
+    )
+    assert отчёт.nodes_filled == 1
+    # Долитое — информация, в свёртку отчёта не едет.
+    assert not any("элемент архитектуры" in u.text for u in отчёт.unfixable)
+
+
+def test_элемент_занятый_живой_не_трогается_строкой_отчёта(db):
+    """Архив разобрал узел изнутри (репозиторий и компоненты) и по П2 победил в
+    слиянии, но догрузка не спорит с человеком: живое остаётся, расхождение — строкой
+    в формате формы и статуса, в свёртке — словами."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "system"
+    db.commit()
+    донор, донорские = _донор_ярмарки(db, element="container", source_ref="git:github.com/org/orders")
+    _узел(db, донор, "api", донорские["orders"])
+    db.commit()
+
+    _, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert _элемент(db, узлы["orders"]) == "system"
+    строка = (
+        "узел «Ярмарка / orders»: поле «элемент архитектуры» в архиве другое («container») — "
+        "оставлено живое («system»)"
+    )
+    assert строка in отчёт.warnings
+    assert friendly_apply_note(строка) == (
+        "У объекта «Ярмарка / orders» в архиве другое значение поля «элемент архитектуры» "
+        "(«Контейнер»), а в проекте осталось прежнее («Система»). Если верно значение из "
+        "архива, поле нужно будет поправить в карточке объекта вручную."
+    )
+    assert friendly_apply_note(строка) in [u.text for u in отчёт.unfixable]
+
+
+def test_элемент_спор_с_живым_ответом_переписывает(db):
+    """Равные вклады спорят «система / контейнер»: дефолт — «моё», выбор архивного
+    кандидата переписывает живое значение через то же правило."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "system"
+    db.commit()
+    донор, _ = _донор_ярмарки(db, element="container")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    превью, _ = _догрузить(db, проект, архив)
+    [спор] = превью.remainder.field_conflicts
+    assert спор.id == "field|Ярмарка / orders|element"
+    assert [(c.value, c.current) for c in спор.candidates] == [
+        ("system", True), ("container", False)
+    ]
+    assert _элемент(db, узлы["orders"]) == "system"  # без ответа — моё
+
+    _, отчёт = _догрузить(
+        db, проект, архив, решения=parse_decisions(json.dumps({"fields": {спор.id: 1}}))
+    )
+    assert _элемент(db, узлы["orders"]) == "container"
+    assert any(
+        "«элемент архитектуры» заменено по вашему решению («system» → «container»)" in w
+        for w in отчёт.warnings
+    )
+
+
+def test_элемент_выбранный_контейнер_с_живой_базой_внутри_не_ложится(db):
+    """Ответ «Контейнер» узлу, под которым живая база: применение снимает значение
+    санитизацией слитого дерева, живое остаётся системой, пункт — в свёртке."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "system"
+    _узел(db, проект, "orders-db", узлы["orders"], shape="database")
+    _узел(db, проект, "api", узлы["orders"])
+    db.commit()
+    донор, донорские = _донор_ярмарки(db, element="container")
+    _узел(db, донор, "api", донорские["orders"])
+    db.commit()
+    архив = build_archive(db, донор)
+
+    превью, _ = _догрузить(db, проект, архив)
+    [спор] = превью.remainder.field_conflicts
+    assert спор.field == "element"
+
+    _, отчёт = _догрузить(
+        db, проект, архив, решения=parse_decisions(json.dumps({"fields": {спор.id: 1}}))
+    )
+    assert _элемент(db, узлы["orders"]) == "system"
+    строка = (
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — объект оставлен системой"
+    )
+    assert строка in отчёт.warnings
+    assert строка in [u.text for u in отчёт.unfixable]
+
+
+def test_элемент_архив_делает_контейнером_узел_с_живой_базой(db):
+    """Р6 по живому дереву: архив называет узел контейнером, а под ним в проекте база.
+    Слитое дерево это видит (живой проект — вход №0): контейнер не ложится, замечание
+    слияния — текстом владельца."""
+    проект, узлы = _ярмарка(db)
+    _узел(db, проект, "orders-db", узлы["orders"], shape="database")
+    db.commit()
+    донор, донорские = _донор_ярмарки(db, element="container")
+    _узел(db, донор, "api", донорские["orders"])
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert _элемент(db, узлы["orders"]) is None
+    строка = (
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — объект оставлен системой"
+    )
+    assert строка in превью.warnings
+    assert строка in [u.text for u in превью.remainder.unfixable]
+    assert not any("элемент архитектуры» пустовало" in w for w in отчёт.warnings)
+
+
+def test_элемент_архив_задаёт_его_узлу_внутри_живого_контейнера(db):
+    """Р5 по живому дереву: архив задаёт элемент объекту, который в проекте лежит
+    внутри контейнера, — он компонент, значение не ложится, замечание называет
+    контейнер."""
+    проект, узлы = _ярмарка(db)
+    узлы["orders"].element = "container"
+    api = _узел(db, проект, "api", узлы["orders"])
+    db.commit()
+    донор, донорские = _донор_ярмарки(db)
+    _узел(db, донор, "api", донорские["orders"], element="container")
+    db.commit()
+
+    превью, _ = _догрузить(db, проект, build_archive(db, донор))
+
+    assert _элемент(db, api) is None
+    assert _элемент(db, узлы["orders"]) == "container"
+    assert (
+        "Ярмарка / orders / api: объект лежит внутри контейнера «orders» и считается его "
+        "компонентом — элемент архитектуры пропущен"
+    ) in превью.warnings
+
+
+def test_элемент_доливка_проверяется_правилом_по_живому_дереву():
+    """Сторож самой доливки: даже если слитое дерево пропустило значение, живое
+    дерево проверяется правилом API — отказ строкой отчёта, живое не тронуто."""
+    pid = uuid.uuid4()
+    контейнер = Node(id=uuid.uuid4(), project_id=pid, name="orders", shape="service",
+                     element="container", version=1)
+    api = Node(id=uuid.uuid4(), project_id=pid, name="api", shape="service",
+               parent_id=контейнер.id, version=1)
+    строки = {n.id: ElementRow(n.id, n.parent_id, n.shape, n.element, n.name)
+              for n in (контейнер, api)}
+    imp = _ImpNode(name="api", shape="service", status="existing", role=None, technology=None,
+                   is_external=False, description=None, parent_idx=0, element="system")
+    заметки: list[str] = []
+
+    assert _fill_element(api, imp, "orders / api", заметки, строки) is False
+    assert api.element is None and api.version == 1
+    assert заметки == [
+        "узел «orders / api»: элемент архитектуры из архива не применён — объект «api» "
+        "лежит внутри контейнера «orders» и считается его компонентом. Элемент архитектуры "
+        "задаётся у самого контейнера."
+    ]
+
+
+def test_элемент_новому_узлу_из_архива_как_есть(db):
+    проект, _ = _ярмарка(db)
+    донор = _проект(db, "Донор")
+    склад = _узел(db, донор, "Склад", element="container")
+    _узел(db, донор, "receiving", склад)
+    db.commit()
+
+    _, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert отчёт.nodes_created == 2
+    новый = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Склад").one()
+    assert новый.element == "container"
+
+
+def test_склейка_доливает_элемент_пустому_выжившему():
+    pid = uuid.uuid4()
+    живёт = Node(id=uuid.uuid4(), project_id=pid, name="orders", shape="service")
+    уходит = Node(id=uuid.uuid4(), project_id=pid, name="order", shape="service",
+                  element="container")
+    assert absorb_knowledge(живёт, уходит) is True
+    assert живёт.element == "container"
+
+    занятый = Node(id=uuid.uuid4(), project_id=pid, name="orders", shape="service",
+                   element="system")
+    assert absorb_knowledge(занятый, уходит) is False
+    assert занятый.element == "system"

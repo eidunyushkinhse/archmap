@@ -362,3 +362,27 @@ def test_модули_синка_размещение_не_читают():
 
     for module in (sync_plan, sync_apply):
         assert ".sites" not in inspect.getsource(module)
+
+
+# ── Элемент архитектуры: синк доливает пустое и создаёт с элементом (Ф2, Р30) ─
+
+RUN_ЭЛЕМЕНТ = NEXT_RUN.replace(
+    "      - name: orders\n", "      - name: orders\n        element: container\n"
+).replace("      - name: cache\n", "      - name: cache\n        element: container\n")
+
+
+def test_apply_доливает_элемент_и_создаёт_с_элементом_фикспойнт(db):
+    """Пустой элемент живого узла доливается, новый узел создаётся с элементом (лист-
+    контейнер без компонентов — норма, Р3), и повторный план на том же входе пуст."""
+    p, user = _project(db)
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
+
+    assert "Система / orders" in out.updated_nodes
+    assert out.created_nodes == ["Система / cache"]
+    assert _node(db, p.id, "orders").element == "container"
+    assert _node(db, p.id, "cache").element == "container"
+    assert _node(db, p.id, "payments").element is None
+
+    again = sync_preview(p.id, SyncPreviewIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
+    assert again.is_noop, again.summary
