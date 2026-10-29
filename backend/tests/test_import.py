@@ -14,7 +14,10 @@ import yaml
 from conftest import seed_project_from_yaml
 
 from app.deployment import ordered_instances, project_sites
+from app.element_marks import project_element_rows
+from app.element_rules import element_change_refusal
 from app.export import build_export
+from app.import_element import COMPONENT_NOTE, ONLY_SERVICE_NOTE, STORE_INSIDE_NOTE
 from app.import_merge import parse_and_merge
 from app.import_yaml import MAX_DEPTH, parse_import, seed_import
 from app.models.deployment_instance import DeploymentInstance
@@ -25,6 +28,7 @@ from app.models.project import Project
 from app.schemas.project import ImportPreviewOut
 from app.unified_import import MAX_INPUTS, UnifiedImportError, build_unified_plan
 from app.unified_preview import preview_from_plan
+from app.unified_remarks import _remark_class, friendly_remark, remainder_from_plan
 
 
 def _preview(*texts: str) -> ImportPreviewOut:
@@ -69,8 +73,8 @@ def _semantic_signature(db, project_id) -> tuple[set, set]:
         return " / ".join(reversed(parts))
 
     node_sig = {
-        (path_of(n), n.shape, n.status, n.role, n.technology, n.is_external, n.description,
-         n.source_ref)
+        (path_of(n), n.shape, n.element, n.status, n.role, n.technology, n.is_external,
+         n.description, n.source_ref)
         for n in nodes
     }
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
@@ -92,9 +96,10 @@ def test_roundtrip_export_import_same_semantics(db):
     """Экспорт схемы с вложенностью, дублями имён, статусами и external импортируется
     в новый проект бит-в-бит по семантике."""
     src = _project(db, "Источник")
+    # Элемент архитектуры (Ф2 эпика) едет как есть.
     platform = _node(
         db, src.id, "Платформа", role="система", technology="K8s",
-        description="Первая строка\nвторая строка",
+        description="Первая строка\nвторая строка", element="system",
     )
     pdb = _node(db, src.id, "БД", platform, shape="database", technology="PostgreSQL")
     svc = _node(db, src.id, "Сервис A", platform, status="planned", role="сервис")
@@ -1266,4 +1271,213 @@ def test_roundtrip_площадок_байт_в_байт(db):
     db.commit()
 
     assert "deployment:" in первый and "sites:" in первый
+    assert экспорт(dst.id) == первый
+
+
+# --- Элемент архитектуры (эпик «Элемент архитектуры», Ф2: Р29, Р3, Р5, Р6) ---
+
+
+def _yaml(nodes: list) -> str:
+    return yaml.safe_dump({"nodes": nodes}, allow_unicode=True, sort_keys=False)
+
+
+def test_элемент_разбирается_и_сеется(db):
+    """element берётся как есть: у узла с детьми и у листа-сервиса (намерение, Р3) —
+    без замечаний; без ключа — «не сказано» (None)."""
+    текст = _yaml([{
+        "name": "Ярмарка", "element": "system", "children": [
+            {"name": "orders", "element": "container", "children": [{"name": "api"}]},
+            {"name": "billing", "element": "container"},
+            {"name": "orders-db", "shape": "database"},
+        ],
+    }])
+    parsed, errors = parse_import(текст)
+    assert errors == [] and parsed is not None
+    assert parsed.warnings == []
+    assert [(n.name, n.element) for n in parsed.nodes] == [
+        ("Ярмарка", "system"), ("orders", "container"), ("api", None),
+        ("billing", "container"), ("orders-db", None),
+    ]
+    p = _project(db)
+    ids = seed_import(db, p.id, parsed)
+    db.commit()
+    by_id = {n.id: n for n in db.query(Node).filter(Node.project_id == p.id)}
+    assert [by_id[i].element for i in ids] == ["system", "container", None, "container", None]
+
+
+def test_чужой_элемент_ошибка_как_у_формы():
+    parsed, errors = parse_import(_yaml([
+        {"name": "Ярмарка", "element": "component"},
+        {"name": "Склад", "element": 5},
+    ]))
+    assert parsed is None
+    assert errors == [
+        "nodes[0]: element 'component' не поддерживается (system | container)",
+        "nodes[1]: element 5 не поддерживается (system | container)",
+    ]
+
+
+def test_элемент_у_не_сервиса_снят_с_замечанием():
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders-db", "shape": "database", "element": "container"},
+            {"name": "Покупатель", "shape": "person", "element": "system"},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert [n.element for n in parsed.nodes] == [None, None, None]
+    assert parsed.warnings == [
+        "Ярмарка / orders-db: элемент архитектуры задаётся только у сервиса — значение пропущено",
+        "Ярмарка / Покупатель: элемент архитектуры задаётся только у сервиса — значение пропущено",
+    ]
+
+
+def test_контейнер_с_базой_внутри_оставлен_системой_текстом_владельца():
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders", "element": "container", "children": [
+                {"name": "api"}, {"name": "orders-db", "shape": "database"},
+            ]},
+            {"name": "events", "element": "container", "children": [
+                {"name": "relay"}, {"name": "Kafka", "shape": "broker"},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert {n.name: n.element for n in parsed.nodes}["orders"] is None
+    assert {n.name: n.element for n in parsed.nodes}["events"] is None
+    assert parsed.warnings == [
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — объект оставлен системой",
+        "Ярмарка / events: внутри лежит брокер «Kafka», он не может входить в состав "
+        "контейнера — объект оставлен системой",
+    ]
+
+
+def test_виновник_замечания_тот_же_что_у_отказа_api(db):
+    """Первый виновник — в обходе в глубину с детьми по имени, как у отказа правки
+    узла (element_rules): разбор и API называют одну и ту же базу."""
+    дерево = {"name": "orders", "children": [
+        {"name": "z-db", "shape": "database"},
+        {"name": "api", "children": [{"name": "a-broker", "shape": "broker"}]},
+    ]}
+    parsed, _ = parse_import(_yaml([{**дерево, "element": "container"}]))
+    assert parsed is not None
+    assert parsed.warnings == [STORE_INSIDE_NOTE["broker"].format(path="orders", name="a-broker")]
+
+    # Тот же проект живым: отказ API называет того же виновника.
+    p = _project(db)
+    живой, _ = parse_import(_yaml([дерево]))
+    assert живой is not None
+    ids = seed_import(db, p.id, живой)
+    db.flush()
+    orders = db.get(Node, ids[0])
+    assert orders is not None
+    отказ = element_change_refusal(
+        project_element_rows(db, p.id), node_id=orders.id, name=orders.name,
+        parent_id=None, shape="service", value="container",
+    )
+    assert отказ is not None and "брокер «a-broker»" in отказ
+
+
+def test_элемент_внутри_контейнера_снят_компонент():
+    """Внутри контейнера всё — компоненты: заданный элемент у потомка (и составного,
+    и контейнер внутри контейнера) снимается, наружный контейнер остаётся."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "orders", "element": "container", "children": [
+            {"name": "api", "element": "system", "children": [
+                {"name": "inner", "element": "container", "children": [{"name": "x"}]},
+            ]},
+            {"name": "worker", "element": "container"},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert [(n.name, n.element) for n in parsed.nodes] == [
+        ("orders", "container"), ("api", None), ("inner", None), ("x", None), ("worker", None),
+    ]
+    assert parsed.warnings == [
+        COMPONENT_NOTE.format(path=p, container="orders")
+        for p in ("orders / api", "orders / api / inner", "orders / worker")
+    ]
+    assert parsed.warnings[0] == (
+        "orders / api: объект лежит внутри контейнера «orders» и считается его "
+        "компонентом — элемент архитектуры пропущен"
+    )
+
+
+def test_база_во_внутреннем_контейнере_снимает_оба():
+    """Контейнер в контейнере, а внутри внутреннего — база: оба оставлены системами
+    (наружный — из-за базы, внутренний — тоже из-за неё, когда наружного не стало)."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "orders", "element": "container", "children": [
+            {"name": "api", "element": "container", "children": [
+                {"name": "orders-db", "shape": "database"},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert [n.element for n in parsed.nodes] == [None, None, None]
+    assert parsed.warnings == [
+        STORE_INSIDE_NOTE["database"].format(path="orders", name="orders-db"),
+        STORE_INSIDE_NOTE["database"].format(path="orders / api", name="orders-db"),
+    ]
+
+
+def test_файл_без_элемента_разбирается_как_прежде():
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders", "children": [{"name": "api"}]},
+            {"name": "orders-db", "shape": "database"},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert parsed.warnings == []
+    assert all(n.element is None for n in parsed.nodes)
+
+
+def test_замечания_элемента_не_попадают_в_чужой_класс_остатка():
+    """Класс замечания остаток узнаёт подстрокой (камень 5): новые тексты не несут
+    ни одного маркера и едут в свёртку «Придется подправить вручную» как есть."""
+    тексты = [
+        ONLY_SERVICE_NOTE.format(path="Ярмарка / orders-db"),
+        STORE_INSIDE_NOTE["database"].format(path="Ярмарка / orders", name="orders-db"),
+        STORE_INSIDE_NOTE["broker"].format(path="Ярмарка / events", name="Kafka"),
+        COMPONENT_NOTE.format(path="orders / api", container="orders"),
+    ]
+    for текст in тексты:
+        assert _remark_class(текст) == ("", False)
+        assert friendly_remark(текст) == текст
+
+    # И сквозь превью: строка разбора — пунктом свёртки своего файла, дословно.
+    plan = build_unified_plan([("shop.yaml", _yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders-db", "shape": "database", "element": "container"},
+        ],
+    }]).encode())])
+    assert plan.ok
+    пункты = [(u.text, u.file) for u in remainder_from_plan(plan).unfixable]
+    assert (тексты[0], 0) in пункты
+
+
+def test_круг_экспорта_с_элементами_байт_в_байт(db):
+    """Экспорт → импорт → экспорт: элемент архитектуры возвращается теми же байтами."""
+    src = _project(db, "Источник")
+    корень = _node(db, src.id, "Ярмарка", element="system")
+    orders = _node(db, src.id, "orders", корень, element="container")
+    _node(db, src.id, "api", orders)
+    _node(db, src.id, "billing", корень, element="container")
+    db.commit()
+
+    def экспорт(project_id) -> str:
+        nodes = db.query(Node).filter(Node.project_id == project_id).all()
+        edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+        return build_export(nodes, edges)
+
+    первый = экспорт(src.id)
+    parsed, errors = parse_import(первый)
+    assert errors == [] and parsed is not None and parsed.warnings == []
+    dst = _project(db, "Приёмник")
+    seed_import(db, dst.id, parsed)
+    db.commit()
+    assert первый.count("element:") == 3
     assert экспорт(dst.id) == первый

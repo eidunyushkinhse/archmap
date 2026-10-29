@@ -2,13 +2,16 @@
 
 Принимает ровно тот документ, что строит build_export: {nodes: <дерево через
 children>, edges: <список по именам>}. Гарантия roundtrip: любой вывод
-build_export импортируется без ошибок с той же семантикой (имя, форма, статус,
-роль, технология, external, описание, якорь source, вложенность, связи с
-каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
+build_export импортируется без ошибок с той же семантикой (имя, форма, элемент
+архитектуры, статус, роль, технология, external, описание, якорь source, вложенность,
+связи с каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
 уточнителем — якорным «путь @ ключ» или порядковым «путь @ #N», — резолвер связей
 его понимает (app/node_ref.py). Размещение (docs/tasks/deployment-view.md): раздел
 deployment.sites — площадки с вложенностью по имени родителя, у узла sites — имена
-площадок, где он стоит сам. Раскладки в формате
+площадок, где он стоит сам. Элемент архитектуры (element: system | container,
+docs/plan-c4-elements.md) — необязательный: нет ключа — «не сказано»; недопустимое
+значение (у не-сервиса, у контейнера с базой внутри, у компонента) снимается с
+замечанием, а не валит документ (app/import_element). Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -33,15 +36,18 @@ from sqlalchemy.orm import Session
 from app import yaml_io
 from app.deployment import leaf_placements
 from app.domain_types import (
+    NODE_ELEMENTS,
     NODE_SHAPES,
     NODE_STATUSES,
     SITE_KINDS,
+    NodeElement,
     NodeShape,
     NodeStatus,
     SiteKind,
     pick,
 )
 from app.identity import SourceRef, source_keys
+from app.import_element import sanitize_elements
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
@@ -77,6 +83,9 @@ class _ImpNode:
     # Имена площадок, где узел стоит САМ (ключ sites), без повторов. Унаследованное
     # от контейнера сюда не входит: оно производное и восстанавливается само.
     sites: list[str] = field(default_factory=list)
+    # Элемент архитектуры (ключ element). None — «не сказано»: у узла с детьми это
+    # система, и слияние уступает такое значение любому заданному (Р30).
+    element: NodeElement | None = None
 
 
 @dataclass
@@ -543,6 +552,18 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         if shape is None:
             errors.append(f"{path}: shape {raw_shape!r} не поддерживается ({' | '.join(_SHAPES)})")
             shape = "service"
+        # Элемент архитектуры: нет ключа (или null) — «не сказано»; чужое значение —
+        # ошибка, как у shape. Допустимость по месту в дереве проверяется в конце
+        # разбора (sanitize_elements): для неё нужно всё дерево.
+        raw_element = raw.get("element")
+        element: NodeElement | None = None
+        if raw_element is not None:
+            element = pick(raw_element, NODE_ELEMENTS)
+            if element is None:
+                errors.append(
+                    f"{path}: element {raw_element!r} не поддерживается "
+                    f"({' | '.join(NODE_ELEMENTS)})"
+                )
         raw_status = raw.get("status", "existing")
         status = pick(raw_status, _STATUSES)
         if status is None:
@@ -572,6 +593,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 parent_idx=parent_idx,
                 source_keys=parse_source(raw, path),
                 sites=node_sites,
+                element=element,
             )
         )
         full = f"{prefix} / {name}" if prefix else name
@@ -752,6 +774,10 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
     if errors:
         return None, errors
+    # Элемент архитектуры — по всему дереву: у не-сервиса, у контейнера с базой или
+    # брокером внутри и у компонентов значение снимается с замечанием (пути — те же
+    # «Корень / … / Имя», что у замечаний слияния о том же узле).
+    warnings.extend(sanitize_elements(nodes, fulls))
     roots = [n.name for n in nodes if n.parent_idx is None]
     return ParsedImport(
         nodes=nodes,
@@ -789,6 +815,7 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> lis
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                element=n.element,
                 # Сильнейший якорь прогона: по нему будущий синк узнает узел, даже
                 # если сервис переименуют (docs/plan-arch-sync.md).
                 source_ref=n.source_keys[0] if n.source_keys else None,
