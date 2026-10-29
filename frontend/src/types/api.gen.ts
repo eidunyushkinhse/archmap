@@ -5859,6 +5859,8 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            /** Element */
+            element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;
@@ -6312,6 +6314,8 @@ export interface components {
             status?: ("existing" | "planned" | "deprecated") | null;
             /** Approval */
             approval?: ("in_progress" | "approved") | null;
+            /** Element */
+            element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Site Ids */
             site_ids?: string[] | null;

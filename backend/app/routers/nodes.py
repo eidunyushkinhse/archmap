@@ -20,7 +20,9 @@ from app.deps import (
     scoped_node,
     touch_project,
 )
-from app.element_marks import mark_element
+from app.domain_types import NodeElement
+from app.element_marks import mark_element, project_element_rows
+from app.element_rules import element_change_refusal
 from app.graph_queries import build_graph, external_edges, project_has_status_info
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
@@ -97,6 +99,31 @@ def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
     mark_element(db, project.id, nodes)
 
 
+def _refuse_element(
+    db: Session,
+    project: Project,
+    *,
+    node_id: uuid.UUID | None,
+    name: str,
+    parent_id: uuid.UUID | None,
+    shape: str,
+    value: NodeElement,
+) -> None:
+    """Элемент архитектуры из POST/PATCH: отказ правила (app/element_rules) — 422 в общем
+    формате {"detail": "…"}. Узлы проекта выбираются только здесь: правка без элемента
+    лишнего запроса не платит."""
+    reason = element_change_refusal(
+        project_element_rows(db, project.id),
+        node_id=node_id,
+        name=name,
+        parent_id=parent_id,
+        shape=shape,
+        value=value,
+    )
+    if reason:
+        raise HTTPException(status_code=422, detail=reason)
+
+
 @router.get("", response_model=list[NodeResponse])
 def list_nodes(
     parent_id: uuid.UUID | None = None,
@@ -124,6 +151,13 @@ def create_node(
         parent = scoped_node(db, payload.parent_id, project)
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
+    # Элемент архитектуры — с запретами (app/element_rules): форма и «внутри контейнера»
+    # по цепочке предков будущего родителя.
+    if payload.element is not None:
+        _refuse_element(
+            db, project, node_id=None, name=payload.name, parent_id=payload.parent_id,
+            shape=payload.shape, value=payload.element,
+        )
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
     # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
@@ -468,6 +502,17 @@ def update_node(
             reason = reparent.validate_shape_change(db, node, data["shape"])
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
+        # Элемент архитектуры — третья правка с запретами (app/element_rules): форма,
+        # «внутри контейнера», состав контейнера. Дерево — уже после правки: форма и
+        # родитель из того же запроса. Проверяется только СМЕНА значения, как форма выше:
+        # полный набор полей (Undo/Redo правки) повторяет прежний элемент и не должен
+        # падать от состояния, к этой правке не относящегося. Очистка (null) — всегда.
+        if data.get("element") is not None and data["element"] != node.element:
+            _refuse_element(
+                db, project, node_id=node.id, name=data.get("name") or node.name,
+                parent_id=data.get("parent_id", node.parent_id),
+                shape=data.get("shape") or node.shape, value=data["element"],
+            )
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
@@ -476,7 +521,9 @@ def update_node(
         # узнаёт объект при обновлениях (см. NodeSource). Отдельной ветки ему не
         # нужно — общее правило «курсор по фактическому изменению» уже накрывает
         # source_ref, раз он лежит в data обычным полем узла.
-        structural = {"parent_id", "name", "shape"}
+        # Элемент архитектуры — тоже схема: его смена меняет вид всего поддерева (рамки,
+        # компоненты), и соседние сессии обязаны перерисоваться (камень 1 плана эпика).
+        structural = {"parent_id", "name", "shape", "element"}
         struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
         meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)
         for field, value in data.items():
@@ -486,7 +533,7 @@ def update_node(
             # Позиции переехавшего поддерева во ВНЕШНИХ видах больше ничего не значат:
             # снимаем их и двигаем версии затронутых видов (в т.ч. обоих родителей).
             reparent.strip_layout(db, project, node, old_parent)
-        # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
+        # Структурные поля двигают СХЕМУ (имя/форма/иерархия/элемент видны на холсте);
         # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
         # поллинг страницы отличает «данные обновлены» от «схема обновлена».
         if struct_changed:
