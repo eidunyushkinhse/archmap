@@ -13,10 +13,12 @@
 по построению, и «пишет: orders» с «публикует: orders» ведут в разные места.
 
 Третья семья — конфигурация (docs/plan-config-docs.md §5): «зависит от:» адресует
-ПАРАМЕТР самого сервиса, потому что развилка зависит не только от данных («если
+ПАРАМЕТР конфигурации, потому что развилка зависит не только от данных («если
 статус paid»), но и от ручек («если FEATURE_X включён»). Каталог тоже свой, но
-область поиска у него уже: не проект, а один узел — владелец схемы. Отсюда и
-отсутствие квалификатора, и невозможность неоднозначности.
+область поиска у него уже: не проект, а один узел — ближайший контейнер владельца
+схемы (эпик «Элемент архитектуры», Р11: конфигурацию читает процесс, а запускается
+контейнер; у листа вне контейнера это он сам). Отсюда и отсутствие квалификатора, и
+невозможность неоднозначности.
 
 Обе функции ЧИСТЫЕ. Резолв зовётся на чтении (usage, превью, алерты), а не на
 записи: он — функция от (пометки, каталоги, пути узлов), и это убирает все точки
@@ -25,12 +27,14 @@
 
 import re
 import uuid
-from collections.abc import Iterator
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
 from app.domain_types import DataRefMode, DataRefStatus
+from app.element import Elements
+from app.element_marks import elements_from_nodes
 from app.models.broker_channel import BrokerChannel
 from app.models.config_param import ConfigParam
 from app.models.db_table import DbTable
@@ -47,7 +51,8 @@ RefStatus = DataRefStatus
 # двусмысленность, которой раздельные маркеры как раз и избегают.
 CHANNEL_MODES: frozenset[Mode] = frozenset({"publish", "consume"})
 # Режим КОНФИГУРАЦИИ — третий каталог, у которого своя область поиска: не проект, а
-# один узел (docs/plan-config-docs.md §5).
+# один узел — ближайший контейнер владельца схемы (docs/plan-config-docs.md §5,
+# ProjectCatalog.params_for).
 CONFIG_MODES: frozenset[Mode] = frozenset({"config"})
 
 # Маркер пометки: слово + двоеточие. Русский и английский — проекты бывают и с
@@ -409,9 +414,40 @@ class ProjectCatalog:
 
     tables: list[CatalogTable]
     channels: list[CatalogChannel]
-    # Параметры конфигурации по владельцу: «узел → имя → id».
+    # Параметры конфигурации по владельцу записей: «узел → имя → id». Это СВОИ
+    # параметры узла (секция «Конфигурация» его страницы); где ищет пометка
+    # «зависит от:» — решает params_for.
     params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]]
     node_paths: dict[uuid.UUID, str]
+    # Действующие элементы узлов проекта (app/element): кто чей контейнер.
+    elements: Elements[uuid.UUID]
+
+    def params_for(self, node_id: uuid.UUID) -> dict[str, uuid.UUID]:
+        """Параметры, среди которых ищет «зависит от:» схема узла node_id, —
+        конфигурация его БЛИЖАЙШЕГО КОНТЕЙНЕРА (Р11 docs/plan-c4-elements.md): у
+        контейнера и у листа вне контейнера — свои, у компонента — контейнера-предка.
+        Свои параметры компонента (данные прежнего правила «факты на листьях») для
+        пометки невидимы: объединять «свои + контейнера» нельзя — появилась бы
+        неоднозначность, а AL33 держит «одна причина по построению». У системы и у
+        «Пользователя» контейнера нет — пусто; неизвестный id читается листом без
+        параметров — тоже пусто."""
+        container = self.elements.container_of(node_id)
+        return self.params_by_node.get(container, {}) if container is not None else {}
+
+    def config_readers(self, node_id: uuid.UUID) -> list[uuid.UUID]:
+        """Узлы, чьи схемы ищут параметры у node_id (обратный индекс «зависит:»):
+        сам контейнер и его компоненты в обходе в глубину. У не-контейнера — пусто:
+        его собственные параметры не найдёт ни одна пометка."""
+        if self.elements.container_of(node_id) != node_id:
+            return []
+        return [
+            node_id,
+            *(
+                m
+                for m in self.elements.members_of(node_id)
+                if self.elements.container_of(m) == node_id
+            ),
+        ]
 
 
 def catalog_for_project(db: Session, project_id: uuid.UUID) -> ProjectCatalog:
@@ -424,9 +460,10 @@ def catalog_for_project(db: Session, project_id: uuid.UUID) -> ProjectCatalog:
     агента.
 
     Конфигурация же приходит РАЗЛОЖЕННОЙ ПО УЗЛАМ («узел → имя параметра → id»), и
-    иначе быть не может: её резолв смотрит только на владельца схемы, так что общий
-    плоский список был бы для него не просто лишним, а вредным — он позволил бы
-    сослаться на чужую ручку.
+    иначе быть не может: её резолв смотрит только на ближайший контейнер владельца
+    схемы (params_for), так что общий плоский список был бы для него не просто
+    лишним, а вредным — он позволил бы сослаться на чужую ручку. Элементы считаются
+    по уже загруженным узлам, без нового запроса.
     """
     nodes: list[Node] = db.query(Node).filter(Node.project_id == project_id).all()
     node_paths = NodeIndex.of(nodes).path_by_id()
@@ -480,6 +517,7 @@ def catalog_for_project(db: Session, project_id: uuid.UUID) -> ProjectCatalog:
         channels=channel_catalog,
         params_by_node=params_by_node,
         node_paths=node_paths,
+        elements=elements_from_nodes({n.id: n for n in nodes}),
     )
 
 
@@ -496,25 +534,32 @@ class DocRefHit:
 
 
 def doc_ref_hits(
-    db: Session, project_id: uuid.UUID, catalog: ProjectCatalog, node_id: uuid.UUID | None = None
+    db: Session,
+    project_id: uuid.UUID,
+    catalog: ProjectCatalog,
+    node_ids: Collection[uuid.UUID] | None = None,
 ) -> Iterator[DocRefHit]:
-    """Пометки всех схем логики проекта (node_id — только схем этого объекта),
-    разобранные и резолвленные по каталогу ВСЕГО проекта: иначе одноимённые таблицы и
-    каналы в соседних базах и брокерах перестали бы делать ссылку неоднозначной.
-    Общий обход разворотов «кто обращается» у базы, брокера и сервиса (аудит Q-8:
-    было три копии); что отобрать и как назвать — решает вызывающий.
+    """Пометки всех схем логики проекта (node_ids — только схем этих объектов; None —
+    все схемы проекта), разобранные и резолвленные по каталогу ВСЕГО проекта: иначе
+    одноимённые таблицы и каналы в соседних базах и брокерах перестали бы делать
+    ссылку неоднозначной. Общий обход разворотов «кто обращается» у базы, брокера и
+    сервиса (аудит Q-8: было три копии); что отобрать и как назвать — решает
+    вызывающий.
 
-    Конфигурация владельца каждой схемы — настоящая, хотя табличному и канальному
-    разворотам она не нужна: подсунуть пустую значило бы сказать резолверу неправду
-    и получить ложные статусы, если фильтр вызывающего когда-нибудь ослабнет."""
+    Конфигурация для каждой схемы — настоящая (ближайшего контейнера владельца,
+    params_for), хотя табличному и канальному разворотам она не нужна: подсунуть
+    пустую значило бы сказать резолверу неправду и получить ложные статусы, если
+    фильтр вызывающего когда-нибудь ослабнет."""
+    if node_ids is not None and not node_ids:
+        return
     q = (
         db.query(NodeDoc.id, NodeDoc.name, NodeDoc.content, Node.id, Node.name)
         .select_from(NodeDoc)
         .join(Node, Node.id == NodeDoc.node_id)
         .filter(Node.project_id == project_id)
     )
-    if node_id is not None:
-        q = q.filter(NodeDoc.node_id == node_id)
+    if node_ids is not None:
+        q = q.filter(NodeDoc.node_id.in_(list(node_ids)))
     for doc_id, doc_name, content, owner_id, owner_name in q.all():
         if not content:
             continue
@@ -523,6 +568,6 @@ def doc_ref_hits(
             catalog.tables,
             catalog.channels,
             catalog.node_paths,
-            owner_params=catalog.params_by_node.get(owner_id, {}),
+            owner_params=catalog.params_for(owner_id),
         ):
             yield DocRefHit(doc_id, doc_name, owner_id, owner_name, ref)

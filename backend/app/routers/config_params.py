@@ -104,7 +104,7 @@ def list_usage(
     rows: list[ConfigParamUsage] = []
     seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
     # Только СВОИ схемы: «зависит от:» резолвится среди параметров владельца схемы.
-    for hit in doc_ref_hits(db, project.id, catalog, node_id=node.id):
+    for hit in doc_ref_hits(db, project.id, catalog, node_ids=[node.id]):
         ref = hit.ref
         # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
         # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
