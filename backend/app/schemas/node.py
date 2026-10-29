@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.domain_types import (
+    ElementChangeKind,
     NodeApproval,
     NodeElement,
     NodeElementEffective,
@@ -284,6 +285,32 @@ class NodeEdgeInfo(BaseModel):
     direction: Literal["outgoing", "incoming"]
     other_node_id: uuid.UUID
     other_node_name: str
+
+
+class PlacementRowOut(BaseModel):
+    """Строка таблицы площадок в окне последствий: объект и имена его площадок в порядке
+    площадок проекта (порядок имени, как в списке площадок)."""
+    node_id: uuid.UUID
+    name: str
+    sites: list[str]
+
+
+class ElementChangePreview(BaseModel):
+    """Последствия смены элемента или переноса узла — БЕЗ записи (app/element_change, Р18).
+
+    kind — что переезжает: система → контейнер (узел займёт площадки своих частей),
+    контейнер → система (площадки контейнера получит каждый объект внутри), вход в
+    контейнер (контейнер займёт и площадки переносимого) и выход из него (переносимое
+    получит площадки контейнера); none — площадки на месте. before и after — строки с
+    непустыми площадками до и после. docs_names — объекты, чья документация останется на
+    месте и будет отмечена рекомендацией. container_name — контейнер-участник переноса
+    (цель или прежний), у смены элемента — null. Последствий нет, когда before == after и
+    docs_names пуст: окно тогда не нужно."""
+    kind: ElementChangeKind
+    before: list[PlacementRowOut]
+    after: list[PlacementRowOut]
+    docs_names: list[str]
+    container_name: str | None
 
 
 # --- Алерты незавершённости схемы (глобальные, только для архитектора) ---

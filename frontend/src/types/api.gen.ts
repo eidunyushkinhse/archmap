@@ -843,6 +843,50 @@ export interface paths {
         patch: operations["update_node_api_v1_nodes__node_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/element-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Element Preview
+         * @description Что сделает смена элемента узла (Р18), БЕЗ записи: какие площадки переедут и чья
+         *     документация останется на месте. Отказ — тот же 422 и тот же текст, что у PATCH
+         *     (проверяется только смена значения, как там).
+         */
+        get: operations["element_preview_api_v1_nodes__node_id__element_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/move-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Move Preview
+         * @description Что сделает перенос узла под parent_id (без него — в корень), БЕЗ записи: вход в
+         *     контейнер или выход из него переносит площадки (Р18). Отказ — тот же 400 и текст,
+         *     что у PATCH parent_id.
+         */
+        get: operations["move_preview_api_v1_nodes__node_id__move_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/move-snapshot": {
         parameters: {
             query?: never;
@@ -2107,7 +2151,9 @@ export interface paths {
         /**
          * Export Subtree
          * @description Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
-         *     Площадки — только те, на которых стоят узлы поддерева, с их предками.
+         *     Площадки — только те, на которых стоят узлы поддерева, с их предками. Элементы —
+         *     по всему проекту: контейнер над корнем поддерева делает его узлы компонентами, и
+         *     их экземпляры не пишутся.
          */
         get: operations["export_subtree_api_v1_export__node_id__get"];
         put?: never;
@@ -5018,6 +5064,34 @@ export interface components {
             base_version?: number | null;
         };
         /**
+         * ElementChangePreview
+         * @description Последствия смены элемента или переноса узла — БЕЗ записи (app/element_change, Р18).
+         *
+         *     kind — что переезжает: система → контейнер (узел займёт площадки своих частей),
+         *     контейнер → система (площадки контейнера получит каждый объект внутри), вход в
+         *     контейнер (контейнер займёт и площадки переносимого) и выход из него (переносимое
+         *     получит площадки контейнера); none — площадки на месте. before и after — строки с
+         *     непустыми площадками до и после. docs_names — объекты, чья документация останется на
+         *     месте и будет отмечена рекомендацией. container_name — контейнер-участник переноса
+         *     (цель или прежний), у смены элемента — null. Последствий нет, когда before == after и
+         *     docs_names пуст: окно тогда не нужно.
+         */
+        ElementChangePreview: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "none" | "system_to_container" | "container_to_system" | "join_container" | "leave_container";
+            /** Before */
+            before: components["schemas"]["PlacementRowOut"][];
+            /** After */
+            after: components["schemas"]["PlacementRowOut"][];
+            /** Docs Names */
+            docs_names: string[];
+            /** Container Name */
+            container_name: string | null;
+        };
+        /**
          * ExportResponse
          * @description Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
          *     другие сериализации без слома контракта; content — сам документ. mermaid —
@@ -6579,6 +6653,22 @@ export interface components {
             last_used_at: string | null;
             /** Expires At */
             expires_at: string | null;
+        };
+        /**
+         * PlacementRowOut
+         * @description Строка таблицы площадок в окне последствий: объект и имена его площадок в порядке
+         *     площадок проекта (порядок имени, как в списке площадок).
+         */
+        PlacementRowOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Sites */
+            sites: string[];
         };
         /**
          * PlacementsIn
@@ -9628,6 +9718,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    element_preview_api_v1_nodes__node_id__element_preview_get: {
+        parameters: {
+            query: {
+                element: "system" | "container";
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementChangePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_preview_api_v1_nodes__node_id__move_preview_get: {
+        parameters: {
+            query?: {
+                parent_id?: string | null;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementChangePreview"];
                 };
             };
             /** @description Validation Error */

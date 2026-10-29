@@ -31,6 +31,12 @@ NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 NodeElement = Literal["system", "container"]
 NODE_ELEMENTS: tuple[NodeElement, ...] = get_args(NodeElement)
 NodeElementEffective = Literal["system", "container", "component"]
+# Последствия смены элемента или переноса узла для размещения (app/element_change, Р18):
+# система ↔ контейнер у узла с детьми, вход в контейнер (переносимое становится его
+# частью) и выход из него; none — площадки никуда не переезжают.
+ElementChangeKind = Literal[
+    "none", "system_to_container", "container_to_system", "join_container", "leave_container"
+]
 
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная
 # фиксация редактором с его комментарием; pre_restore — автоматическая «Перед откатом

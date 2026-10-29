@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import identity, reparent, restore, tree
+from app import element_change, identity, reparent, restore, tree
 from app.alerts import compute_alerts
 from app.approval import manual_approval_refusal, mark_approval
 from app.auth import get_current_user, require_session_user
@@ -36,6 +36,7 @@ from app.processes import process_list_items
 from app.schemas.alerts import AlertsResponse
 from app.schemas.node import (
     AnchorPreviewOut,
+    ElementChangePreview,
     GraphResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -509,6 +510,9 @@ def update_node(
             raise HTTPException(status_code=422, detail=reason)
     if data:
         old_parent = node.parent_id
+        # Прежние родитель, форма, имя и элемент — для переноса размещения (Р18): дерево
+        # до правки восстанавливается по ним после присваивания.
+        old_shape, old_name, old_element = node.shape, node.name, node.element
         # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
         # поддерево от корня) и с последствиями для раскладки. Проверяем ДО присваивания:
         # узел ещё в исходном состоянии, поддерево считается по нему.
@@ -559,6 +563,18 @@ def update_node(
             # Позиции переехавшего поддерева во ВНЕШНИХ видах больше ничего не значат:
             # снимаем их и двигаем версии затронутых видов (в т.ч. обоих родителей).
             reparent.strip_layout(db, project, node, old_parent)
+        # Смена элемента у узла с детьми и перенос в контейнер или из него меняют, кто
+        # держит размещение: площадки переезжают в той же транзакции (app/element_change,
+        # Р18). Явно присланные site_ids ниже ложатся поверх. Схема уже двигается
+        # структурным полем; мета — если экземпляры изменились (строка «Размещение»).
+        relocated = element_change.apply(
+            db, project, node,
+            old_parent=old_parent, old_shape=old_shape, old_name=old_name,
+            old_element=old_element, moved=moved,
+            element_changed="element" in data and data["element"] != old_element,
+        )
+        if relocated:
+            meta_changed = True
         # Структурные поля двигают СХЕМУ (имя/форма/иерархия/элемент видны на холсте);
         # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
         # поллинг страницы отличает «данные обновлены» от «схема обновлена».
@@ -571,6 +587,45 @@ def update_node(
     db.refresh(node)
     _mark_derived(db, project, [node])
     return node
+
+
+@router.get("/{node_id}/element-preview", response_model=ElementChangePreview)
+def element_preview(
+    node_id: uuid.UUID,
+    element: NodeElement,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_project_editor),
+) -> ElementChangePreview:
+    """Что сделает смена элемента узла (Р18), БЕЗ записи: какие площадки переедут и чья
+    документация останется на месте. Отказ — тот же 422 и тот же текст, что у PATCH
+    (проверяется только смена значения, как там)."""
+    node = node_or_404(db, node_id, project)
+    if element != node.element:
+        _refuse_element(
+            db, project, node_id=node.id, name=node.name, parent_id=node.parent_id,
+            shape=node.shape, value=element,
+        )
+    return element_change.preview(db, project, node, element=element, moved=False)
+
+
+@router.get("/{node_id}/move-preview", response_model=ElementChangePreview)
+def move_preview(
+    node_id: uuid.UUID,
+    parent_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_project_editor),
+) -> ElementChangePreview:
+    """Что сделает перенос узла под parent_id (без него — в корень), БЕЗ записи: вход в
+    контейнер или выход из него переносит площадки (Р18). Отказ — тот же 400 и текст,
+    что у PATCH parent_id."""
+    node = node_or_404(db, node_id, project)
+    if parent_id != node.parent_id:
+        reason = reparent.validate_reparent(db, project, node, parent_id)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
+    return element_change.preview(db, project, node, parent_id=parent_id, moved=True)
 
 
 @router.get("/{node_id}/move-snapshot", response_model=DeletionSnapshot)
