@@ -11,7 +11,7 @@
 // ТИП компонента).
 import type { CSSProperties, DragEvent } from "react";
 import type { Node } from "../types";
-import { canHaveChildren } from "../types";
+import { nodeNesting } from "../types";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import { PlaceIcon, PlusIcon } from "../ui/icons";
 import { placeable, treeRowTitle, type TreeMode } from "./nodeTree.mode";
@@ -87,17 +87,15 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
   const isExpanded = ctx.expanded.has(id);
   const isLoading = ctx.loadingId.has(id);
   const kids = ctx.childrenById[id] ?? [];
-  // Контейнером (drill внутрь) может быть только сервис: у БД/брокера детей нет,
-  // в дереве они — листья (без шеврона, клик → контекст), хотя сами видны.
-  const drillable = canHaveChildren(node.shape);
-  // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
-  const hasChildren = drillable && node.has_children && !ctx.leaves.has(id);
   // pages_pivot: клик по любому узлу → его страница (единообразно).
   // редактор: контейнер → дрилл на слой, лист → показать на холсте.
   // «Развёртывание»: контейнер → его уровень, лист → выделить карточки на холсте.
   // Во всех режимах выбор узла с детьми РАСКРЫВАЕТ его ветку (дети видны
-  // сразу, без отдельного клика по шеврону).
-  const isIntermediate = drillable && node.has_children;
+  // сразу, без отдельного клика по шеврону). Контейнером (drill внутрь) может быть
+  // только сервис: у БД/брокера детей нет, в дереве они — листья (types/nodeNesting).
+  const isIntermediate = nodeNesting(node) === "group";
+  // шеврон скрываем, если все дети узла оказались персонами (узел стал листом)
+  const hasChildren = isIntermediate && !ctx.leaves.has(id);
   const title = treeRowTitle(ctx.mode, node);
   // Текущая открытая страница — подсветка строки.
   const isCurrent = node.id === ctx.currentNodeId;

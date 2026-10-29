@@ -5,7 +5,7 @@
 // «Документация → Открыть» — на страницу узла, как у своего узла (двойной клик по узлу
 // сам на страницу не уводит).
 import type { GhostNode } from "../../types";
-import { canHaveChildren } from "../../types";
+import { nodeNesting } from "../../types";
 import { STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
 import "./inspector.css";
@@ -19,7 +19,7 @@ interface Props {
 }
 
 export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: Props) {
-  const container = canHaveChildren(ghost.shape) && ghost.has_children;
+  const container = nodeNesting(ghost) === "group";
   const path = ghost.ancestors.map((a) => a.name).join(" / ");
 
   return (

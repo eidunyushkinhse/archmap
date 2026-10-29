@@ -377,6 +377,19 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.queryByDisplayValue("Python")).not.toBeInTheDocument();
   });
 
+  it("база с детьми — не контейнер: своя технология полем, потомков не запрашивает", async () => {
+    // Характеризация Ф0 эпика «Элемент архитектуры»: контейнером страница считает только
+    // сервис с детьми (canHaveChildren); база с детьми — данные до проверки формы
+    // родителя на сервере — остаётся листом.
+    setupContainer({
+      own: { shape: "database", technology: "PostgreSQL" },
+      children: [node("k1", { name: "Реплика", technology: "Python" })],
+    });
+    expect(await screen.findByDisplayValue("PostgreSQL")).toBeInTheDocument();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+    expect(screen.queryByText("Python")).not.toBeInTheDocument();
+  });
+
   it("модалка распределения: переносит схему выбранному ребёнку", async () => {
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false });
     setupContainer({

@@ -4,7 +4,7 @@
 import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
-import { canHaveChildren, shapeDocs } from "../types";
+import { nodeNesting, shapeDocs } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors } from "../components/graph/colors";
@@ -163,7 +163,7 @@ function NodePageInner({
   const patch = useNodePatch(initialNode, syncCursors);
   const node = patch.node;
   const shape = node.shape;
-  const isContainer = canHaveChildren(shape) && node.has_children;
+  const isContainer = nodeNesting(node) === "group";
   // Какая документация уместна этой форме (types/shapeDocs). У базы данных не бывает
   // ни схем логики, ни OpenAPI — до 2026-08-12 страница предлагала ей и то, и другое.
   const allow = shapeDocs(shape);

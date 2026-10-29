@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { DeletionSnapshot, Node, NodeShape, NodeStatus } from "../../types";
-import { canHaveChildren } from "../../types";
+import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
@@ -53,7 +53,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // остаётся прежним, потому что прошлое значение никто не перетирал.
   const shape = node.shape;
   const isPerson = shape === "person";
-  const isContainer = canHaveChildren(shape) && node.has_children;
+  const isContainer = nodeNesting(node) === "group";
   // Агрегированная технология потомков для контейнера: по правилам у контейнера
   // нет своей технологии — показываем сумму технологий потомков, read-only
   // (как на странице узла). Для не-контейнеров хук ничего не фетчит.

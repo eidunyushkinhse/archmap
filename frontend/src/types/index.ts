@@ -24,6 +24,18 @@ export type NodeApproval = Schemas["NodeResponse"]["approval"];
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
 
+// Вид узла по вложенности — ОДНА точка решения «узел с детьми или лист» для фронта
+// (эпик «Элемент архитектуры», docs/plan-c4-elements.md, Ф0). group — сервис с детьми:
+// в сегодняшнем интерфейсе «контейнер» (вход на слой, глиф с крышкой, сводная
+// технология и документация детей); leaf — всё остальное. База или брокер с детьми
+// (данные до проверки формы родителя на сервере) — лист: детей у них быть не должно.
+// После эпика элемент узла (система, контейнер, компонент) приходит с сервера готовым;
+// точки решения, которые зависят от элемента, а не только от вложенности, переходят на
+// него отсюда — поэтому сами has_children они не спрашивают.
+export type NodeNesting = "group" | "leaf";
+export const nodeNesting = (node: Pick<Node, "shape" | "has_children">): NodeNesting =>
+  canHaveChildren(node.shape) && node.has_children ? "group" : "leaf";
+
 // Какая документация уместна форме узла (docs/plan-db-docs.md §1). Логика (mermaid)
 // и OpenAPI — артефакты СЕРВИСА: они описывают его код и его API. У базы данных ни
 // того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт
@@ -124,7 +136,8 @@ export type Node = Schemas["NodeResponse"];
 // узла), при равенстве — по алфавиту. child_count считает бэкенд
 // (_mark_has_children). Наследуется на всех уровнях дерева.
 const siblingRank = (n: Node): number =>
-  n.shape === "service" ? (n.child_count > 0 ? 0 : 1)
+  nodeNesting(n) === "group" ? 0
+  : n.shape === "service" ? 1
   : n.shape === "database" ? 2
   : n.shape === "broker" ? 3
   : 4; // person

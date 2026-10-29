@@ -3,7 +3,7 @@
 // «Указать размещение». Отдельным модулем: файлы компонентов экспортируют только
 // компоненты (react-refresh).
 import type { Node } from "../types";
-import { canHaveChildren } from "../types";
+import { nodeNesting } from "../types";
 
 // Страницы объектов, редактор-карта или «Развёртывание».
 export type TreeMode = "pages" | "editor" | "deploy";
@@ -12,7 +12,7 @@ export type TreeMode = "pages" | "editor" | "deploy";
 // «Развёртывании» — его уровень; лист — показать на схеме.
 export function treeRowTitle(mode: TreeMode, node: Node): string {
   if (mode === "pages") return `Страница: ${node.name}`;
-  if (canHaveChildren(node.shape) && node.has_children) {
+  if (nodeNesting(node) === "group") {
     return mode === "deploy" ? `Открыть уровень: ${node.name}` : `Открыть слой: ${node.name}`;
   }
   return `Показать на схеме: ${node.name}`;

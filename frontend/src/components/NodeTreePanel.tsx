@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeShape } from "../types";
-import { canHaveChildren } from "../types";
+import { nodeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { placeable, treeRowTitle } from "./nodeTree.mode";
@@ -108,7 +108,7 @@ export default function NodeTreePanel(props: Props) {
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
   const navigateFlat = (node: Node) => {
     if (props.mode === "pages") { props.onNodePage(node); return; }
-    const container = canHaveChildren(node.shape) && node.has_children;
+    const container = nodeNesting(node) === "group";
     if (props.mode === "deploy") {
       if (container) props.onOpenLevel(node);
       else props.onPickObject(node);
@@ -128,7 +128,7 @@ export default function NodeTreePanel(props: Props) {
     onCreateChild: deploy ? undefined : onCreateChild,
     onPlace: deploy?.onPlace,
     placingId: deploy?.placingId,
-    onSelect: (node) => { navigateFlat(node); if (canHaveChildren(node.shape) && node.has_children) void expandBranch(node); },
+    onSelect: (node) => { navigateFlat(node); if (nodeNesting(node) === "group") void expandBranch(node); },
     onToggle: (node) => { void toggle(node); },
     drag: editor?.onReparent && isArchitect ? { onStart: reparent.onRowDragStart, onEnd: reparent.onRowDragEnd } : undefined,
     movingId: reparent.moving?.id ?? null,
@@ -211,7 +211,7 @@ export default function NodeTreePanel(props: Props) {
                       title={treeRowTitle(props.mode, n)}
                     >
                       <span className="nt-chevspacer" />
-                      <ShapeGlyph container={canHaveChildren(n.shape) && n.has_children} shape={n.shape} />
+                      <ShapeGlyph container={nodeNesting(n) === "group"} shape={n.shape} />
                       <span className="nt-name">{n.name}</span>
                       {placeable(n, isArchitect, deploy?.onPlace) && <PlaceButton node={n} onPlace={deploy.onPlace} />}
                     </div>
