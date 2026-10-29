@@ -26,6 +26,8 @@ from app.data_refs import (
     CONFIG_MODES,
     CatalogChannel,
     CatalogTable,
+    DataRefIn,
+    ProjectCatalog,
     ResolvedRef,
     catalog_for_project,
     parse_data_refs,
@@ -166,8 +168,9 @@ _DATA_REF_PROBLEM: dict[str, str] = {
     # топик в структуре базы значит гарантированно получить неверную правку.
     "unknown_channel": "канал не найден у брокеров проекта",
     "unknown_field": "поля нет в канале",
-    # Конфигурационная семья («зависит от:»). Искать негде, кроме самого объекта, —
-    # это и говорим, чтобы агент не пошёл сверять имя по чужим узлам.
+    # Конфигурационная семья («зависит от:»). Искать негде, кроме ближайшего
+    # контейнера, — это и говорим, чтобы агент не пошёл сверять имя по чужим узлам.
+    # У схемы компонента текст называет контейнер (_DataRefCheck.check).
     "unknown_param": "параметра нет в конфигурации этого объекта",
 }
 # «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
@@ -194,10 +197,15 @@ class _DataRefCheck:
     """
 
     def __init__(self, db: Session | None, project_id: uuid.UUID | None) -> None:
-        self.tables: list[CatalogTable] = []
-        self.channels: list[CatalogChannel] = []
-        self.node_paths: dict[uuid.UUID, str] = {}
-        self.enabled = db is not None and project_id is not None
+        # Каталог собирается ОДИН раз на план (внутри — весь проект: неоднозначность
+        # имени есть свойство проекта, а не одного узла). Читается по атрибутам —
+        # распаковка в отдельные имена молча отставала бы от новых полей (камень 10
+        # docs/plan-c4-elements.md).
+        self.catalog: ProjectCatalog | None = (
+            catalog_for_project(db, project_id)
+            if db is not None and project_id is not None
+            else None
+        )
         self.seen: set[tuple[str, str, str]] = set()  # (файл, ссылка, статус)
         self.warnings: list[str] = []
         self.over = 0  # сколько ссылок не поместилось в кап
@@ -209,15 +217,19 @@ class _DataRefCheck:
         # объявлены как число пометок данных и каналов, и подмешать в них третью
         # семью значило бы испортить сравнение попыток агента, ради которого числа и
         # заведены. Проверяются они при этом полноценно — промах даёт замечание.
-        self.params_by_node: dict[uuid.UUID, dict[str, uuid.UUID]] = {}
-        if db is not None and project_id is not None:
-            # Каталог собирается ОДИН раз на план (внутри — весь проект:
-            # неоднозначность имени есть свойство проекта, а не одного узла).
-            catalog = catalog_for_project(db, project_id)
-            self.tables = catalog.tables
-            self.channels = catalog.channels
-            self.params_by_node = catalog.params_by_node
-            self.node_paths = catalog.node_paths
+
+    @property
+    def enabled(self) -> bool:
+        """Резолв возможен: без db каталогов нет, и пометки только считаются."""
+        return self.catalog is not None
+
+    @property
+    def tables(self) -> list[CatalogTable]:
+        return self.catalog.tables if self.catalog is not None else []
+
+    @property
+    def channels(self) -> list[CatalogChannel]:
+        return self.catalog.channels if self.catalog is not None else []
 
     def _hint(self, r: ResolvedRef, owner_params: dict[str, uuid.UUID]) -> str | None:
         """Подсказка «похоже на …» к битой ссылке: имя из каталога, если оно есть.
@@ -257,8 +269,9 @@ class _DataRefCheck:
             names = [f for c in self.channels if c.id == r.channel_id for f in c.fields]
             tails = [parts[-1]]
         elif r.status == "unknown_param":
-            # Кандидаты — ручки ЭТОГО объекта, других мест у ссылки нет. Хвост берём
-            # целиком: точка в имени параметра («feature.new_checkout») его не делит.
+            # Кандидаты — ручки ближайшего контейнера владельца (тот же каталог, по
+            # которому резолвили), других мест у ссылки нет. Хвост берём целиком:
+            # точка в имени параметра («feature.new_checkout») его не делит.
             names = list(owner_params)
             tails = [bare]
         for tail in dict.fromkeys(t for t in tails if t):
@@ -272,14 +285,14 @@ class _DataRefCheck:
         же ссылка в режимах «читает» и «пишет» — один промах, а не два.
 
         owner_id — узел, которому принадлежит схема: конфигурация ищется только у
-        него, и без владельца третья семья не проверяема в принципе.
+        его ближайшего контейнера (у компонента — контейнера-предка), и без
+        владельца третья семья не проверяема в принципе.
         """
         if not content:
             return
         refs = parse_data_refs(content)
         if not refs:
             return
-        owner_params = self.params_by_node.get(owner_id, {})
         for parsed in refs:
             if parsed.mode in CHANNEL_MODES:
                 self.saw_channel_refs = True
@@ -288,24 +301,24 @@ class _DataRefCheck:
                 self.saw_table_refs = True
                 self.data_total += 1
         # Считать — считаем всегда, а резолвить нечем: без db каталогов нет.
-        if not self.enabled:
+        catalog = self.catalog
+        if catalog is None:
             return
+        owner_params = catalog.params_for(owner_id)
+        container = catalog.elements.container_of(owner_id)
 
         config_refs = [r for r in refs if r.mode in CONFIG_MODES]
         if config_refs and not owner_params:
-            # Каталог конфигурации у каждого узла СВОЙ, и пустой у владельца — не
-            # «структуры ещё нет» (заметки flush — про проект целиком), а промах
-            # адресата: после применения каждая такая пометка загорится AL33, а превью
-            # молчало (полевой репорт 2026-10-28, п. 2). Одна строка на файл, не на
-            # пометку, и без упрёка: логику часто описывают раньше конфигурации.
+            # Каталог конфигурации у каждого контейнера СВОЙ, и пустой у контейнера
+            # владельца — не «структуры ещё нет» (заметки flush — про проект целиком),
+            # а промах адресата: после применения каждая такая пометка загорится AL33,
+            # а превью молчало (полевой репорт 2026-10-28, п. 2). Одна строка на файл,
+            # не на пометку, и без упрёка: логику часто описывают раньше конфигурации.
             key = (fname, "", "no_owner_params")
             if key not in self.seen:
                 self.seen.add(key)
-                names = ", ".join(dict.fromkeys(r.ref for r in config_refs))
-                where = self.node_paths.get(owner_id, "объект окна")
                 self.warnings.append(
-                    f"{fname}: у объекта «{where}» конфигурация не описана — пометки "
-                    f"«зависит от:» ({names}) останутся ненайденными, пока её не опишут"
+                    self._no_params_note(fname, catalog, owner_id, container, config_refs)
                 )
 
         def каталог(mode: str) -> object:
@@ -316,17 +329,17 @@ class _DataRefCheck:
 
         # Резолвим только те пометки, чей каталог непуст: «структуры ещё нет» — это
         # не промах агента, и гонять по нему нечего (заметку добавит flush). У
-        # конфигурации каталог СВОЙ У КАЖДОГО УЗЛА, поэтому пустота проверяется не
-        # по проекту, а по владельцу схемы: сервис без описанных ручек молчит, а его
-        # сосед с описанными — проверяется.
+        # конфигурации каталог СВОЙ У КАЖДОГО КОНТЕЙНЕРА, поэтому пустота
+        # проверяется не по проекту, а по контейнеру владельца схемы: сервис без
+        # описанных ручек молчит, а его сосед с описанными — проверяется.
         usable = [r for r in refs if каталог(r.mode)]
         if not usable:
             return
         for r in resolve_data_refs(
             usable,
-            self.tables,
-            self.channels,
-            self.node_paths,
+            catalog.tables,
+            catalog.channels,
+            catalog.node_paths,
             owner_params=owner_params,
         ):
             if r.status == "ok":
@@ -343,11 +356,45 @@ class _DataRefCheck:
                 if r.status == "ambiguous" and r.mode in CHANNEL_MODES
                 else _DATA_REF_PROBLEM[r.status]
             )
+            if r.status == "unknown_param" and container is not None and container != owner_id:
+                # Схема компонента: параметр искали у контейнера — его и назвать,
+                # иначе агент пойдёт описывать ручку у самого компонента.
+                where = catalog.node_paths.get(container, "?")
+                problem = f"параметра нет в конфигурации контейнера «{where}»"
             # «ambiguous» подсказки не получает: имя там как раз НАШЛОСЬ, и лечится
             # оно квалификатором — предлагать «похожее» значило бы звать не туда.
             hint = self._hint(r, owner_params)
             tail = f" — похоже на «{hint}»" if hint else ""
             self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}{tail}")
+
+    @staticmethod
+    def _no_params_note(
+        fname: str,
+        catalog: ProjectCatalog,
+        owner_id: uuid.UUID,
+        container: uuid.UUID | None,
+        config_refs: list[DataRefIn],
+    ) -> str:
+        """Заметка «искать параметры негде» — называет КОНТЕЙНЕР, у которого их ищут
+        (Р11): у компонента это его контейнер-предок, у системы контейнера нет вовсе."""
+        names = ", ".join(dict.fromkeys(r.ref for r in config_refs))
+        where = catalog.node_paths.get(owner_id, "объект окна")
+        if container is None and catalog.elements.effective(owner_id) == "system":
+            return (
+                f"{fname}: «{where}» — система; пометки «зависит от:» ({names}) ищут "
+                "параметры у контейнера, а у системы их нет — адресуйте схему "
+                "контейнеру или компоненту"
+            )
+        if container is not None and container != owner_id:
+            return (
+                f"{fname}: у контейнера «{catalog.node_paths.get(container, '?')}» "
+                f"конфигурация не описана — пометки «зависит от:» в схемах «{where}» "
+                f"({names}) останутся ненайденными, пока её не опишут"
+            )
+        return (
+            f"{fname}: у объекта «{where}» конфигурация не описана — пометки "
+            f"«зависит от:» ({names}) останутся ненайденными, пока её не опишут"
+        )
 
     def flush(self, plan: DocsPlan) -> None:
         # Счётчики — часть отчёта, а не резолва: без каталога они тоже осмысленны
@@ -372,8 +419,9 @@ class _DataRefCheck:
                 "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
                 "они появятся"
             )
-        # У конфигурации общей заметки нет: её каталог у каждого узла свой, и пустой у
-        # владельца схемы check называет поимённо (объект и пометки).
+        # У конфигурации общей заметки нет: её каталог у каждого контейнера свой, и
+        # пустой у контейнера владельца схемы check называет поимённо (контейнер и
+        # пометки).
 
 
 def build_docs_plan(
@@ -684,8 +732,11 @@ def prompt_name_catalogs(
     db: Session, project_id: uuid.UUID, slice_ids: set[uuid.UUID] | None = None
 ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, list[str]]]:
     """Каталоги имён для промпта: «путь узла → таблицы», «путь узла → каналы» и «путь
-    узла → параметры конфигурации» (последний — ТОЛЬКО по узлам среза slice_ids: резолв
-    «зависит от:» смотрит на владельца схемы, чужие ручки в перечне были бы ловушкой).
+    контейнера → параметры конфигурации». Последний — ТОЛЬКО по контейнерам узлов среза
+    slice_ids, включая контейнер-предок вне среза (промпт со страницы компонента режет
+    срез до его поддерева, а ручки живут у контейнера, Р11): резолв «зависит от:»
+    смотрит на ближайший контейнер владельца схемы, чужие ручки в перечне были бы
+    ловушкой. Без среза — все контейнеры с параметрами.
 
     Имя пишется так, как его видит РЕЗОЛВЕР пометок: у таблицы с разделом и у канала
     с группой — «группа.имя». Каталог по всему проекту (а не по срезу node_id):
@@ -708,9 +759,18 @@ def prompt_name_catalogs(
             channel_catalog.setdefault(path, []).append(
                 f"{c.group_name}.{c.name}" if c.group_name else c.name
             )
+    containers = (
+        {catalog.elements.container_of(n) for n in slice_ids}
+        if slice_ids is not None
+        else None
+    )
     param_catalog: dict[str, list[str]] = {}
     for node_id, names in catalog.params_by_node.items():
-        if slice_ids is not None and node_id not in slice_ids:
+        # Свои параметры компонента или системы (данные прежнего правила) пометка не
+        # найдёт — в перечень их не несём.
+        if catalog.elements.container_of(node_id) != node_id:
+            continue
+        if containers is not None and node_id not in containers:
             continue
         path = node_paths.get(node_id)
         if path is not None and names:

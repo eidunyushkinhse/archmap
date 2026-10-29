@@ -1488,3 +1488,82 @@ def test_pkg_from_mmd_чинит_ромб_и_говорит_об_этом():
 
     assert 'B{"Оплачено?"}' in pkg.entries[0].logic[0].mermaid
     assert notes == ["a.mmd: исправлено фигур с непарной скобкой («{…]» или «[…}»): 1"]
+
+
+# ── Конфигурация по ближайшему контейнеру (эпик «Элемент архитектуры», Р11) ──────
+
+
+def _контейнер(db):
+    """shop (система) → orders (контейнер) → api (компонент)."""
+    shop = _node(db, "shop")
+    orders = _node(db, "orders", parent=shop)
+    orders.element = "container"
+    api = _node(db, "api", parent=orders)
+    db.commit()
+    return shop, orders, api
+
+
+def _параметр(db, узел, name):
+    db.add(ConfigParam(
+        id=uuid.uuid4(), node_id=узел.id, name=name,
+        value_type="string", required=False, default_value="",
+    ))
+    db.commit()
+
+
+def test_пометка_компонента_ищет_параметр_у_контейнера(db):
+    _shop, orders, api = _контейнер(db)
+    _параметр(db, orders, "TOLERANCE")
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: TOLERANCE, TOLERANSE"))], window=api)
+
+    промахи = [w for w in plan.warnings if "пометка «" in w]
+    # Найденный параметр контейнера молчит, промах называет контейнер и подсказывает
+    # имя из ЕГО конфигурации.
+    assert промахи == [
+        "a.mmd: пометка «TOLERANSE» — параметра нет в конфигурации контейнера "
+        "«shop / orders» — похоже на «TOLERANCE»"
+    ]
+    assert not any("конфигурация не описана" in w for w in plan.warnings)
+
+
+def test_пустая_конфигурация_контейнера_называет_контейнер(db):
+    _shop, _orders, api = _контейнер(db)
+    _параметр(db, api, "OWN_FLAG")  # свой параметр компонента пометка не видит
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: OWN_FLAG"))], window=api)
+
+    assert [w for w in plan.warnings if "конфигурация не описана" in w] == [
+        "a.mmd: у контейнера «shop / orders» конфигурация не описана — пометки "
+        "«зависит от:» в схемах «shop / orders / api» (OWN_FLAG) останутся "
+        "ненайденными, пока её не опишут"
+    ]
+
+
+def test_пометка_у_системы_зовёт_адресовать_схему_контейнеру(db):
+    shop, _orders, _api = _контейнер(db)
+    _параметр(db, shop, "FLAG")  # конфигурация у системы — данные прежнего правила
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: FLAG"))], window=shop)
+
+    assert (
+        "a.mmd: «shop» — система; пометки «зависит от:» (FLAG) ищут параметры у "
+        "контейнера, а у системы их нет — адресуйте схему контейнеру или компоненту"
+    ) in plan.warnings
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+
+def test_промпт_со_страницы_компонента_перечисляет_параметры_контейнера(db):
+    """Срез промпта — поддерево компонента, а ручки живут у контейнера-предка вне
+    среза: без него каталог был бы пуст, и агент выдумывал бы имена (камень 11)."""
+    _shop, orders, api = _контейнер(db)
+    _параметр(db, orders, "TOLERANCE")
+    _параметр(db, api, "OWN_FLAG")  # свой параметр компонента пометка не найдёт
+
+    prompt = docs_prompt(
+        node_id=api.id, lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    ).prompt
+
+    assert "  - shop / orders: TOLERANCE" in prompt
+    assert "OWN_FLAG" not in prompt

@@ -458,3 +458,43 @@ def test_params_for_по_элементу(db):
     assert catalog.config_readers(api.id) == []
     assert catalog.config_readers(shop.id) == []
     assert catalog.config_readers(billing.id) == [billing.id]
+
+
+def test_индекс_контейнера_видит_схемы_компонентов(db):
+    """Р11: обратный индекс параметра — схемы контейнера и всех его компонентов, с
+    владельцем схемы в строке."""
+    shop, orders, api, billing, _клиент = _магазин(db)
+    worker = _узел(db, "worker", orders)
+    флаг = _param(db, orders, "TOLERANCE")
+    _param(db, billing, "TOLERANCE")  # тёзка у соседнего контейнера
+    _док(db, orders, "GET /health", 'A["зависит от: TOLERANCE"]')
+    _док(db, api, "POST /orders", 'A["зависит от: TOLERANCE"]')
+    _док(db, worker, "Сверка", 'A["зависит от: TOLERANCE"]')
+    _док(db, billing, "POST /pay", 'A["зависит от: TOLERANCE"]')
+    db.commit()
+
+    строки = _usage(db, orders)
+    assert [(u.node_name, u.doc_name) for u in строки] == [
+        ("api", "POST /orders"),
+        ("orders", "GET /health"),
+        ("worker", "Сверка"),
+    ]
+    assert {u.param_id for u in строки} == {флаг.id}
+    assert {u.node_id for u in строки} == {orders.id, api.id, worker.id}
+    # Соседний контейнер видит только свою схему.
+    assert [(u.node_name, u.doc_name) for u in _usage(db, billing)] == [("billing", "POST /pay")]
+    # Индекс системы пуст — читателей у её конфигурации нет.
+    assert _usage(db, shop) == []
+
+
+def test_индекс_компонента_пуст(db):
+    """Компонент своих параметров не читает: даже данные прежнего правила у него
+    пометкой не находятся, и индекс пуст."""
+    _shop, orders, api, _billing, _клиент = _магазин(db)
+    _param(db, orders, "TOLERANCE")
+    _param(db, api, "OWN_FLAG")
+    _док(db, api, "POST /orders", 'A["зависит от: TOLERANCE, OWN_FLAG"]')
+    db.commit()
+
+    assert _usage(db, api) == []
+    assert [u.param_name for u in _usage(db, orders)] == ["TOLERANCE"]

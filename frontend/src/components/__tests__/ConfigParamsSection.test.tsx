@@ -2,8 +2,8 @@
 //
 // Проверяется то, чем третья семья отличается от двух соседних:
 //   • перечень плоский — ни групп, ни раскрывашек, строка исчерпывает параметр;
-//   • «где используется» приходит РАЗВОРОТОМ пометок, своей формы ввода не имеет,
-//     и в строке нет колонки «кто» (сослаться может только схема этого же объекта);
+//   • «где используется» приходит РАЗВОРОТОМ пометок, своей формы ввода не имеет;
+//     своя схема называется одним именем, схема компонента — с именем компонента;
 //   • секция монтируется всегда, но у неподходящей формы молчит — кроме случая,
 //     когда записи уже есть: тогда показывает их с предупреждением.
 import { render, screen, waitFor } from "@testing-library/react";
@@ -38,6 +38,8 @@ const param = (over: Partial<ConfigParam> = {}): ConfigParam => ({
 const usage = (over: Partial<ConfigParamUsage> = {}): ConfigParamUsage => ({
   param_id: "p1",
   param_name: "FEATURE_NEW_CHECKOUT",
+  node_id: "n1",
+  node_name: "orders",
   doc_id: "d1",
   doc_name: "POST /orders",
   ...over,
@@ -81,6 +83,19 @@ describe("ConfigParamsSection", () => {
         + " объекта. Своей формы ввода у зависимости нет.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("схема компонента называет компонент, своя — только имя схемы", async () => {
+    renderSection({
+      use: [
+        usage(),
+        usage({ node_id: "n2", node_name: "api", doc_id: "d2", doc_name: "GET /cart" }),
+      ],
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText("POST /orders, GET /cart · api")).toBeInTheDocument(),
+    );
   });
 
   it("без ссылок строка зависимости не рисуется вовсе", async () => {

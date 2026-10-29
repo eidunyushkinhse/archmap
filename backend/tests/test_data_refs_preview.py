@@ -313,3 +313,29 @@ def test_без_владельца_конфигурационные_пометк
     ответ = _preview(db, 'A["пишет: orders.status<br>зависит от: FEATURE_X"]')
 
     assert [(i.mode, i.status) for i in ответ] == [("write", "ok")]
+
+
+def test_компонент_видит_параметр_контейнера_и_подпись_называет_контейнер(db):
+    """Р11: схема компонента ищет ручку у ближайшего контейнера, и подпись называет
+    его — иначе человек пойдёт искать параметр на странице самого компонента."""
+    shop = _node(db, "shop", shape="service")
+    orders = _node(db, "orders", shape="service", parent=shop)
+    orders.element = "container"
+    api = _node(db, "api", shape="service", parent=orders)
+    соседний = _node(db, "billing", shape="service", parent=shop)
+    _param(db, orders, "TOLERANCE")
+    db.flush()
+
+    found, missing = _preview(
+        db, 'A["зависит от: TOLERANCE"] --> B["зависит от: MISSING"]', node=api
+    )
+    assert (found.status, found.target) == ("ok", "Конфигурация «orders» · TOLERANCE")
+    assert (missing.status, missing.target) == ("unknown_param", None)
+
+    # У самого контейнера подпись прежняя — без имени.
+    [у_себя] = _preview(db, 'A["зависит от: TOLERANCE"]', node=orders)
+    assert у_себя.target == "Конфигурация · TOLERANCE"
+
+    # Соседний контейнер ручку чужого контейнера по-прежнему не видит.
+    [у_соседа] = _preview(db, 'A["зависит от: TOLERANCE"]', node=соседний)
+    assert у_соседа.status == "unknown_param"
