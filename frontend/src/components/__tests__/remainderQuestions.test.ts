@@ -170,6 +170,19 @@ describe("тексты спора полей (§4.2)", () => {
     expect(q.ifLeft).toContain("в проект попадёт значение «Сервис»");
   });
 
+  it("элемент архитектуры — тот же вопрос, значения словами", () => {
+    expect(humanValue("element", "system")).toBe("Система");
+    expect(humanValue("element", "container")).toBe("Контейнер");
+    const q = текст({
+      id: "field|Ярмарка/orders|element", node_path: "Ярмарка / orders", field: "element",
+      candidates: [кандидат({ value: "system" }), кандидат({ origin: 1, value: "container" })],
+    });
+    expect(q.title).toBe(
+      "У объекта «orders» элемент архитектуры указан по-разному в двух файлах. "
+      + "Какой считаем правильным?");
+    expect(q.ifLeft).toContain("в проект попадёт значение «Система»");
+  });
+
   it("число источников — прописью до трёх", () => {
     expect(sourcesPhrase(2)).toBe("в двух файлах");
     expect(sourcesPhrase(3)).toBe("в трёх файлах");

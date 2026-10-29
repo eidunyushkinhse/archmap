@@ -19,6 +19,10 @@ export type NodeStatus = Schemas["NodeResponse"]["status"];
 // У листа хранится (approval), у контейнера вычисляется по детям (approval_effective).
 export type NodeApproval = Schemas["NodeResponse"]["approval"];
 
+// Элемент архитектуры (эпик «Элемент архитектуры», docs/plan-c4-elements.md): хранимое
+// значение узла — система или контейнер; «не задан» (null) в алиас не входит.
+export type NodeElement = NonNullable<Schemas["NodeResponse"]["element"]>;
+
 // Узел-контейнер (можно «провалиться» внутрь и заводить детей) — ТОЛЬКО сервис.
 // БД, брокер и пользователь — атомарные: drill-down/контекст внутрь не ведёт,
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.

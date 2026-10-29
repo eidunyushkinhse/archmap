@@ -5,11 +5,11 @@
 // правятся вместе с ТЗ, а не по вкусу.
 import type {
   ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
-  IsolatedGroupOut, NodeShape, NodeStatus,
+  IsolatedGroupOut, NodeElement, NodeShape, NodeStatus,
 } from "../../../types";
 import { plural } from "../../../ui/plural";
 import { STATUS_META } from "../../graph/colors";
-import { SHAPE_LABEL } from "../../nodeTerms";
+import { ELEMENT_LABEL, SHAPE_LABEL } from "../../nodeTerms";
 
 /** Последний сегмент пути: «Grafana / Сервер Grafana» → «Сервер Grafana». */
 export const lastSegment = (path: string): string => path.split(" / ").pop() ?? path;
@@ -29,13 +29,14 @@ export function sourcesPhrase(n: number): string {
 
 
 /**
- * Значение поля человеческими словами (Р5 задания): форма и статус приезжают
- * кодами контракта («service», «planned») — в вопросе они читались бы как
- * внутренности. Прочие поля показываются как есть.
+ * Значение поля человеческими словами (Р5 задания): форма, статус и элемент
+ * архитектуры приезжают кодами контракта («service», «planned», «container») — в
+ * вопросе они читались бы как внутренности. Прочие поля показываются как есть.
  */
 export function humanValue(field: string, value: string): string {
   if (field === "shape" && value in SHAPE_LABEL) return SHAPE_LABEL[value as NodeShape];
   if (field === "status" && value in STATUS_META) return STATUS_META[value as NodeStatus].label;
+  if (field === "element" && value in ELEMENT_LABEL) return ELEMENT_LABEL[value as NodeElement];
   return value;
 }
 
@@ -127,6 +128,7 @@ const FIELD: Record<string, FieldForms> = {
   role: { what: "роль указана", q: "Какую", adj: "правильной" },
   shape: { what: "форма указана", q: "Какую", adj: "правильной" },
   status: { what: "статус указан", q: "Какой", adj: "правильным" },
+  element: { what: "элемент архитектуры указан", q: "Какой", adj: "правильным" },
 };
 
 export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; ifLeft: string } {
