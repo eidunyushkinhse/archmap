@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.domain_types import NODE_ELEMENT_LABELS
 from app.import_yaml import ParsedImport
 from app.schemas.unified_import import (
     ComponentOut,
@@ -227,12 +228,14 @@ _EXTRA_PARTS = re.compile(
     r"^(?P<kind>таблица|канал) «(?P<key>.+?)» узла «(?P<path>.+?)»: (?P<part>колонок|полей) "
     r"(?P<names>.+) в архиве нет — оставлены"
 )
-# Форма и статус едут в строку кодами контракта — человеку их называем словами.
-# Зеркало SHAPE_LABEL (questionText.ts) и STATUS_META (graph/colors.ts) фронта.
+# Форма, статус и элемент архитектуры едут в строку кодами контракта — человеку их
+# называем словами. Зеркало SHAPE_LABEL (questionText.ts), STATUS_META (graph/colors.ts)
+# и ELEMENT_LABEL (nodeTerms.ts) фронта.
 _CODE_RU: dict[str, dict[str, str]] = {
     "форма": {"service": "Сервис", "database": "База данных", "broker": "Брокер",
               "person": "Пользователь"},
     "статус": {"existing": "Существует", "planned": "Проектируется", "deprecated": "Выводится"},
+    "элемент архитектуры": {code: label for code, label in NODE_ELEMENT_LABELS.items()},
 }
 
 

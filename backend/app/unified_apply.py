@@ -44,6 +44,7 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
+from app.import_element import sanitize_elements
 from app.import_merge import union_sites
 from app.import_yaml import ParsedImport, _ImpEdge, seed_import
 from app.models.edge import Edge
@@ -518,6 +519,10 @@ def apply_unified_plan(
     # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
     # посева: узлы уже созданы, а семьи адресованы индексами плана.
     apply_tree_decisions(merged, решения)
+    # Ответ на спор элемента архитектуры мог сделать значение недопустимым (выбран
+    # «Контейнер», а внутри база или другой выбранный контейнер) — та же санитизация,
+    # что у разбора и слияния; без ответов дерево уже чистое, и она ничего не меняет.
+    пересмотр = sanitize_elements(merged.nodes, plan.node_paths)
     # Размещение склеиваемых — выжившему ДО посева (объединением, как у мерджа):
     # поглощённый уйдёт из проекта вместе со своими экземплярами.
     for survivor, absorbed, _имя in merge_chain(решения.merges):
@@ -566,6 +571,7 @@ def apply_unified_plan(
     # Отсюда начинаются строки самого применения — они и пойдут в свёртку отчёта
     # (плановые уже в ней: остаток и замечания входов — пунктами выше).
     плановые = len(warnings)
+    warnings.extend(пересмотр)
 
     # ── Склейки по ответу пользователя: поглощённый узел отдаёт выжившему связи,
     #    детей и знание (node_of[поглощённый] = выживший) и исчезает. Пути после

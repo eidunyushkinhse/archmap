@@ -94,7 +94,9 @@ class FieldDisputeOut(BaseModel):
 
     id: str  # «field|путь узла|поле»
     node_path: str
-    field: Literal["description", "technology", "role", "shape", "status"]
+    # element — элемент архитектуры: «Система» против «Контейнера» (Р31); имена прочих
+    # полей контракта остатка не меняются.
+    field: Literal["description", "technology", "role", "shape", "status", "element"]
     candidates: list[RemainderCandidateOut]  # в порядке входов
     default: int  # индекс кандидата, который применится без ответа
 

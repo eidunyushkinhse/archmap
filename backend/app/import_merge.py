@@ -16,6 +16,11 @@
 равной содержательности, и это видно в отчёте. Выход совместим с seed_import без
 изменений (порядок «родители раньше детей» сохраняется по построению).
 
+Элемент архитектуры (docs/plan-c4-elements.md, Р30) трёхзначен: «не сказано» (None)
+уступает любому значению, «система» против «контейнера» — спор поля по тому же правилу
+П2. Слитое дерево проверяется той же санитизацией, что и один файл (app/import_element):
+база из одного файла внутри контейнера другого снимает контейнер с замечанием.
+
 Площадки развёртывания склеиваются ПО ИМЕНИ (имя площадки уникально в проекте, на
 него и ссылаются узлы): первая объявившая задаёт вид, технологию и описание, родитель —
 первый непустой; у склеенного узла sites — объединение в порядке первого появления.
@@ -25,6 +30,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 from difflib import SequenceMatcher
 
+from app.domain_types import NodeElement
 from app.identity import (
     KEY_ORDER,
     basis_of_key,
@@ -34,6 +40,7 @@ from app.identity import (
     merge_key_sets,
     strongest_common_type,
 )
+from app.import_element import sanitize_elements
 from app.import_yaml import (
     MAX_EDGES,
     MAX_NODES,
@@ -63,7 +70,9 @@ _MAX_SHARED_SOURCE_GROUPS = 10
 # Поля узла, которые СЛИВАЮТСЯ вкладами разных файлов (и, значит, могут спорить).
 # Имени и родителя здесь нет намеренно: их решает создатель узла — перевешивать
 # поддерево поздним файлом опаснее, чем оставить расхождение видимым в отчёте.
-_MERGED_FIELDS = ("role", "technology", "description", "shape", "status", "is_external")
+_MERGED_FIELDS = (
+    "role", "technology", "description", "shape", "status", "is_external", "element"
+)
 # Сколько раз повторяем проход ради стабилизации склейки (_regroup). Каждый повтор
 # строго уменьшает число узлов, так что цикл сходится сам; кап — защита от
 # патологического входа, а не рабочий предел (на практике хватает одного повтора).
@@ -210,6 +219,14 @@ def _names_phrase(names: Iterable[str]) -> str:
     if len(shown) == 1:
         return shown[0]
     return f"{', '.join(shown[:-1])} и {shown[-1]}"
+
+
+def _files_phrase(files: list[int], one: str, many: str) -> str:
+    """Номера файлов словами: «файлу 2», «файлам 1 и 3» (нумерация с 1, как в UI)."""
+    nums = [str(fi + 1) for fi in files]
+    if len(nums) == 1:
+        return f"{one} {nums[0]}"
+    return f"{many} {', '.join(nums[:-1])} и {nums[-1]}"
 
 
 def _warn_shared_repo(nodes: list[_ImpNode], report: MergeReport) -> None:
@@ -399,6 +416,21 @@ class _Merger:
             return
         self._decide(idx, fld, cur, new, fi, sub)
 
+    def _merge_element(self, idx: int, new: NodeElement | None, fi: int, sub: bool) -> None:
+        """Элемент архитектуры — трёхзначное поле (Р2, Р30): None («не сказано») уступает
+        любому значению в обе стороны, равные значения не спорят, «система» против
+        «контейнера» — спор П2 (_decide). _merge_enum здесь не годится: у него явный
+        дефолт неотличим от отсутствия, а у элемента «не сказано» — отдельное значение,
+        и «система», сказанная файлом, — такое же утверждение, как «контейнер»."""
+        cur = self.nodes[idx].element
+        if new is None or new == cur:
+            return
+        if cur is None:
+            self.nodes[idx].element = new
+            self.value_src[idx]["element"] = (fi, sub)
+            return
+        self._decide(idx, "element", cur, new, fi, sub)
+
     def _match_by_source(self, node: _ImpNode, fi: int) -> tuple[int | None, str | None]:
         """Матч по якорю — ГЛОБАЛЬНО, поверх имени и иерархии: ловит сервис, которого
         разные прогоны назвали по-разному или положили под разных родителей.
@@ -587,6 +619,7 @@ class _Merger:
         self._merge_str(hit, "description", node.description, fi, sub)
         self._merge_enum(hit, "shape", node.shape, "service", fi, sub)
         self._merge_enum(hit, "status", node.status, "existing", fi, sub)
+        self._merge_element(hit, node.element, fi, sub)
         if node.is_external != self.nodes[hit].is_external:
             keep_fi, keep_sub = self.value_src[hit]["is_external"]
             if sub != keep_sub:
@@ -794,6 +827,53 @@ class _Merger:
             f"задайте всем файлам одно имя корня и повторите"
         )
 
+    def settle_elements(self, parts: list[ParsedImport]) -> None:
+        """Элемент архитектуры слитого дерева (Р5, Р6, камень 6) — ДО остальных
+        предупреждений: база и контейнер, допустимые в своих файлах, в слитом дереве
+        могли оказаться друг в друге. Санитизация та же, что у одного файла.
+
+        Замечания — схемные (без файла-адресата): каждый файл по отдельности чист (его
+        разбор уже санитизирован), и нарушение существует только потому, что файлов
+        несколько, — тот же принцип, что у _warn_absorbed и warn_roots.
+
+        Спор элемента у узла, которому санитизация сменила значение, снимается: правило
+        уже ответило, и вопрос был бы о решённом (выбранный «Контейнер» снялся бы снова)."""
+        before = [n.element for n in self.nodes]
+        for text in sanitize_elements(self.nodes, self.paths):
+            self.report.warn(text)
+        for idx, was in enumerate(before):
+            if self.nodes[idx].element != was:
+                self._drop_dispute(idx, "element")
+        self._warn_adopted_children(parts)
+
+    def _warn_adopted_children(self, parts: list[ParsedImport]) -> None:
+        """Камень 6: у контейнера из одного файла появились объекты из другого, который
+        не называл узел контейнером, — они молча стали компонентами (его базы и сервисы
+        тоже, если бы не санитизация). Одна строка на контейнер; ребёнок, которого
+        принёс и файл-«контейнер», замечанием не считается — тот положил его осознанно."""
+        children: dict[int, list[int]] = {}
+        for i, n in enumerate(self.nodes):
+            if n.parent_idx is not None:
+                children.setdefault(n.parent_idx, []).append(i)
+        for idx, node in enumerate(self.nodes):
+            if node.element != "container":
+                continue
+            said = {
+                fi for fi, ni, _keys in self.contribs[idx]
+                if parts[fi].nodes[ni].element == "container"
+            }
+            adopted = [c for c in children.get(idx, []) if not self.sources[c] & said]
+            if not adopted:
+                continue
+            others = sorted({fi for c in adopted for fi in self.sources[c]})
+            self.report.warn(
+                f"{self.paths[idx]}: контейнер по {_files_phrase(sorted(said), 'файлу', 'файлам')}, "
+                f"а {_files_phrase(others, 'файл', 'файлы')} "
+                f"{'положил' if len(others) == 1 else 'положили'} внутрь объекты "
+                f"({_names_phrase(self.nodes[c].name for c in adopted)}), не зная, что это "
+                f"контейнер — они стали его компонентами; проверьте, не система ли это"
+            )
+
     def finish(self, parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
         # Атрибуция — до предупреждений содержания: по ней warn_content решает,
         # чей файл виноват в замечании о конкретном узле/связи.
@@ -809,6 +889,7 @@ class _Merger:
             self.report.node_basis[i] or "name" for i in self.merged_idxs
         ]
         self.report.edge_files = self.edge_files
+        self.settle_elements(parts)
         self.warn_similar_edges()
         self.warn_fuzzy_siblings()
         self.warn_roots(parts)

@@ -2377,3 +2377,81 @@ def test_склейка_объединяет_размещение_поглощё
         (True, "prod"),
         (True, "stage"),
     ]
+
+
+# ── Элемент архитектуры: спор поля в превью и его применение (Ф2, Р30, Р31) ──
+
+_ЭЛЕМЕНТ_1 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        element: system
+        children:
+          - name: api
+"""
+_ЭЛЕМЕНТ_2 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        element: container
+        children:
+          - name: api
+"""
+
+
+def _план_элемента(первый: str = _ЭЛЕМЕНТ_1, второй: str = _ЭЛЕМЕНТ_2):
+    return build_unified_plan(
+        [("shop.yaml", первый.encode()), ("billing.yaml", второй.encode())]
+    )
+
+
+def _элемент_в_проекте(db, project_id, name: str) -> str | None:
+    узел = db.query(Node).filter(Node.project_id == project_id, Node.name == name).one()
+    return узел.element
+
+
+def test_спор_элемента_вопросом_в_превью():
+    """Равные вклады спорят «система / контейнер» — существующий вид вопроса «спор
+    поля» с полем element; значения — кодами контракта, словами их называет фронт."""
+    [спор] = preview_from_plan(_план_элемента()).remainder.field_conflicts
+    assert спор.id == "field|Ярмарка / orders|element"
+    assert (спор.node_path, спор.field, спор.default) == ("Ярмарка / orders", "element", 0)
+    assert [(c.origin, c.value) for c in спор.candidates] == [(0, "system"), (1, "container")]
+
+
+def test_спор_элемента_применяется_ответом(db):
+    без_ответа, _ = apply_unified_plan(
+        db, _план_элемента(), {}, "Без ответа", None, ensure_architect(db).id
+    )
+    assert _элемент_в_проекте(db, без_ответа.id, "orders") == "system"
+
+    с_ответом, отчёт = apply_unified_plan(
+        db, _план_элемента(), {}, "С ответом", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {"field|Ярмарка / orders|element": 1}})),
+    )
+    assert _элемент_в_проекте(db, с_ответом.id, "orders") == "container"
+    assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
+
+
+def test_выбранный_контейнер_снимается_если_внутри_база(db):
+    """Ответ «Контейнер» там, где в слитом дереве лежит база (её принёс файл, где узел
+    — система), недопустим: применение снимает значение той же санитизацией, что у
+    разбора, и говорит об этом пунктом отчёта."""
+    с_базой = _ЭЛЕМЕНТ_1 + "          - name: orders-db\n            shape: database\n"
+    план = _план_элемента(с_базой, _ЭЛЕМЕНТ_2)
+    [спор] = preview_from_plan(план).remainder.field_conflicts
+    assert спор.field == "element"
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ответ мимо правила", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: 1}})),
+    )
+    assert _элемент_в_проекте(db, проект.id, "orders") is None
+    строка = (
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — объект оставлен системой"
+    )
+    assert строка in отчёт.warnings
+    assert строка in [u.text for u in отчёт.unfixable]

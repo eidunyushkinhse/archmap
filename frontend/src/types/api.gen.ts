@@ -5041,7 +5041,7 @@ export interface components {
              * Field
              * @enum {string}
              */
-            field: "description" | "technology" | "role" | "shape" | "status";
+            field: "description" | "technology" | "role" | "shape" | "status" | "element";
             /** Candidates */
             candidates: components["schemas"]["RemainderCandidateOut"][];
             /** Default */

@@ -30,7 +30,7 @@ class FieldDispute:
     одном поле, дают ОДНУ запись с тремя кандидатами, а не два спора подряд."""
 
     node_idx: int
-    field: str  # role | technology | description | shape | status
+    field: str  # role | technology | description | shape | status | element
     contributions: list[tuple[int, str]]  # (индекс файла, значение)
 
 
