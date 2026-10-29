@@ -25,8 +25,10 @@ SHAPE_WORD = {
 STATUS_WORD = {"existing": "", "planned": "запланирован", "deprecated": "выводится"}
 
 
-def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
-    """Строка объекта: имя, форма, технология, статус, внешность, id."""
+def node_line(node: dict[str, Any], *, with_id: bool = True, marker: str | None = None) -> str:
+    """Строка объекта: имя, форма, технология, статус, внешность, id. marker — слово
+    в скобках сразу после имени, отдельно от свойств (дерево ставит так элемент
+    архитектуры)."""
     bits: list[str] = []
     shape = SHAPE_WORD.get(str(node.get("shape")), str(node.get("shape") or ""))
     if shape:
@@ -42,7 +44,45 @@ def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
         bits.append("внешний")
     tail = f" [{', '.join(bits)}]" if bits else ""
     ident = f"  id={node['id']}" if with_id and node.get("id") else ""
-    return f"{node.get('name', '?')}{tail}{ident}"
+    mark = f" ({marker})" if marker else ""
+    return f"{node.get('name', '?')}{mark}{tail}{ident}"
+
+
+# ── Элемент архитектуры (docs/plan-c4-elements.md) ────────────────────────────
+#
+# Система — группа контейнеров, сама не запускается; контейнер запускается отдельно, и
+# его вложенные объекты — компоненты. Действующий элемент (element_effective) сервер
+# отдаёт готовым: MCP его не вычисляет, только называет словом и ищет имя контейнера
+# среди предков, которые уже пришли в /nodes/all.
+ELEMENT_WORD = {"system": "система", "container": "контейнер", "component": "компонент"}
+
+
+def element_line(node: dict[str, Any], container: str | None = None) -> str | None:
+    """Строка «Элемент архитектуры: …» по действующему элементу; у компонента — с
+    именем его контейнера, если оно известно. Сервер, который элемента не знает, поля
+    не отдаёт — тогда строки нет; у «Пользователя» элемента нет — строки нет тоже."""
+    value = node.get("element_effective")
+    if value is None:
+        return None
+    word = ELEMENT_WORD.get(str(value), str(value))
+    if value == "component" and container:
+        word += f" контейнера «{container}»"
+    return f"Элемент архитектуры: {word}"
+
+
+def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
+    """Имя ближайшего предка с действующим элементом «контейнер» — по данным сервера,
+    обход с seen (данные бывают циклическими)."""
+    seen: set[str] = {str(node.get("id"))}
+    parent = node.get("parent_id")
+    cur = by_id.get(str(parent)) if parent else None
+    while cur is not None and str(cur["id"]) not in seen:
+        if cur.get("element_effective") == "container":
+            return str(cur.get("name", "?"))
+        seen.add(str(cur["id"]))
+        parent = cur.get("parent_id")
+        cur = by_id.get(str(parent)) if parent else None
+    return None
 
 
 # ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
@@ -350,7 +390,11 @@ def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
 
     def walk(parent: str | None, depth: int) -> None:
         for n in kids.get(parent, []):
-            lines.append("  " * depth + "• " + node_line(n, with_id=with_ids))
+            # Маркер — только у контейнера с компонентами: лист-контейнер и система —
+            # сегодняшняя картина, и дерево проекта без контейнеров не меняется.
+            container = n.get("element_effective") == "container" and n.get("has_children")
+            marker = ELEMENT_WORD["container"] if container else None
+            lines.append("  " * depth + "• " + node_line(n, with_id=with_ids, marker=marker))
             walk(str(n["id"]), depth + 1)
 
     walk(None, 0)

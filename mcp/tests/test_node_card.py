@@ -471,3 +471,57 @@ async def test_без_размещения_строки_нет(client: ArchMapCl
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "Размещение" not in out
+
+
+# ── Элемент архитектуры (docs/plan-c4-elements.md, Ф1) ─────────────────────────
+
+def element_routes(api: FakeApi, target: dict[str, Any], others: list[dict[str, Any]]) -> None:
+    api.get(f"/nodes/{NODE}", target)
+    api.get("/nodes/all", [*others, target])
+    api.get(f"/nodes/{NODE}/edges", [])
+    api.get(f"/nodes/{NODE}/docs", [])
+    api.get(f"/nodes/{NODE}/processes", [])
+    api.get(f"/nodes/{NODE}/config", [])
+
+
+async def test_карточка_компонента_называет_его_контейнер(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Составной компонент jobs между узлом и контейнером: имя берётся у ближайшего
+    # предка-контейнера, а не у родителя.
+    target = node(NODE, "nightly", u(3), element=None, element_effective="component")
+    element_routes(api, target, [
+        node(u(1), "shop", element=None, element_effective="system", has_children=True),
+        node(u(2), "orders", u(1), element="container", element_effective="container",
+             has_children=True),
+        node(u(3), "jobs", u(2), element=None, element_effective="component", has_children=True),
+    ])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    lines = out.splitlines()
+    i = lines.index("Элемент архитектуры: компонент контейнера «orders»")
+    assert lines[i - 1].startswith("Объект: nightly")
+    assert lines[i + 1].startswith("Источник:")
+
+
+async def test_карточка_контейнера(client: ArchMapClient, api: FakeApi) -> None:
+    target = node(NODE, "orders", element="container", element_effective="container",
+                  has_children=True)
+    element_routes(api, target, [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры: контейнер" in out.splitlines()
+
+
+async def test_карточка_без_элемента_от_старого_сервера(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Сервер, который элемента не знает, поле не отдаёт — строки нет, а не выдумка.
+    base_routes(api, "service")
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры" not in out
