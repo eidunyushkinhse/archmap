@@ -503,3 +503,93 @@ def test_без_площадок_документ_байт_в_байт_преж�
     # один и тот же текст — без раздела deployment и без ключа sites у узлов.
     assert текст == build_export(узлы, рёбра)
     assert "deployment" not in текст and "sites" not in текст
+
+
+# --- Элемент архитектуры (эпик «Элемент архитектуры», Ф2, Р29) ---
+
+
+def test_элемент_пишется_сразу_после_формы_и_только_заданный(db):
+    """element — после shape и до status: порядок ключей узла осознанный. Не заданный
+    (null, «не сказано») не пишется вовсе."""
+    корень = _node(db, "Ярмарка", shape="service", element="system")
+    orders = _node(db, "orders", корень, shape="service", element="container",
+                   status="planned", role="сервис")
+    _node(db, "api", orders, shape="service")
+    db.commit()
+
+    текст = export_all(db=db, project=ensure_project(db)).content
+    doc = yaml.safe_load(текст)
+
+    корень_d = doc["nodes"][0]
+    assert list(корень_d) == ["name", "shape", "element", "children"]
+    orders_d = корень_d["children"][0]
+    assert list(orders_d) == ["name", "shape", "element", "status", "role", "children"]
+    assert orders_d["element"] == "container"
+    assert "element" not in orders_d["children"][0]
+    assert "    shape: service\n    element: container\n    status: planned\n" in текст
+
+
+def test_без_элементов_документ_байт_в_байт_прежний(db):
+    """Проект, где элемент не задан ни у кого, экспортируется теми же байтами, что до
+    эпика: эталонный текст снят с прежнего сериализатора."""
+    корень = _node(db, "Ярмарка", shape="service", role="система")
+    orders = _node(db, "orders", корень, shape="service", technology="Python",
+                   status="planned")
+    db_ = _node(db, "orders-db", корень, shape="database")
+    _edge(db, orders, db_, label="пишет", technology="SQL")
+    db.commit()
+
+    текст = export_all(db=db, project=ensure_project(db)).content
+
+    assert текст == (
+        "nodes:\n"
+        "- name: Ярмарка\n"
+        "  shape: service\n"
+        "  role: система\n"
+        "  children:\n"
+        "  - name: orders\n"
+        "    shape: service\n"
+        "    status: planned\n"
+        "    technology: Python\n"
+        "  - name: orders-db\n"
+        "    shape: database\n"
+        "edges:\n"
+        "- from: orders\n"
+        "  to: orders-db\n"
+        "  label: пишет\n"
+        "  technology: SQL\n"
+    )
+
+
+def test_тёзки_различающиеся_элементом_идут_в_детерминированном_порядке(db):
+    """content_key знает элемент: тёзки, различающиеся только им, получают один и тот
+    же порядок документа при любой выдаче БД («не задан» раньше «контейнера»), и
+    порядковые уточнители ссылок указывают на тех же тёзок."""
+
+    def проект(обратный: bool) -> tuple[list[Node], list[Edge]]:
+        pid = ensure_project(db).id
+        корень = Node(id=uuid.uuid4(), name="Ярмарка", project_id=pid)
+        голый = Node(id=uuid.uuid4(), name="api", parent_id=корень.id, project_id=pid)
+        контейнер = Node(id=uuid.uuid4(), name="api", parent_id=корень.id,
+                         element="container", project_id=pid)
+        шлюз = Node(id=uuid.uuid4(), name="gateway", parent_id=корень.id, project_id=pid)
+        рёбра = [
+            Edge(id=uuid.uuid4(), source_id=шлюз.id, target_id=голый.id, label="к голому",
+                 project_id=pid),
+            Edge(id=uuid.uuid4(), source_id=шлюз.id, target_id=контейнер.id,
+                 label="к контейнеру", project_id=pid),
+        ]
+        тёзки = [голый, контейнер]
+        return [корень, шлюз, *(reversed(тёзки) if обратный else тёзки)], рёбра
+
+    прямой, обратный = проект(False), проект(True)
+    текст = build_export(*прямой)
+    assert текст == build_export(*обратный)
+    doc = yaml.safe_load(текст)
+    assert [c.get("element") for c in doc["nodes"][0]["children"] if c["name"] == "api"] == [
+        None, "container",
+    ]
+    assert [(e["to"], e["label"]) for e in doc["edges"]] == [
+        ("Ярмарка / api @ #1", "к голому"),
+        ("Ярмарка / api @ #2", "к контейнеру"),
+    ]

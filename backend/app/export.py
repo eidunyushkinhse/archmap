@@ -227,6 +227,10 @@ def build_export_ordered(
         # размещение уже записано у контейнера выше: у поддерева ключа sites нет.
         order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
+        # Элемент архитектуры (Р29) — рядом с формой и только заданный: null («не
+        # сказано») не пишем, и документ проекта без элементов остаётся прежним.
+        if node.element:
+            d["element"] = node.element
         if node.status != "existing":
             d["status"] = node.status
         if node.role:

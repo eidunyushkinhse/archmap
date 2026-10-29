@@ -290,13 +290,16 @@ class _Order:
     def content_key(self, n: Node) -> str:
         """Всё, что экспорт пишет об узле и его поддереве, — кроме координат и
         знания (схем, фактов), которых в C4 нет. Значения в той форме, в какой их
-        восстановит разбор: пустое описание и отсутствие описания — одно и то же."""
+        восстановит разбор: пустое описание и отсутствие описания — одно и то же.
+        Элемент архитектуры — сразу после формы, как в экспорте: у тёзок без элемента
+        на его месте одна и та же пустая строка, и их порядок прежний."""
         key = self.memo.get(n.id)
         if key is None:
             key = json.dumps(
                 [
-                    n.name, n.shape or "", n.status or "", n.role or "", n.technology or "",
-                    bool(n.is_external), n.description or "", anchor_key(n.source_ref) or "",
+                    n.name, n.shape or "", n.element or "", n.status or "", n.role or "",
+                    n.technology or "", bool(n.is_external), n.description or "",
+                    anchor_key(n.source_ref) or "",
                     [self.content_key(k) for k in self.sort(self.kids.get(n.id, []))],
                 ],
                 ensure_ascii=False,
