@@ -81,7 +81,7 @@ def apply_sync_plan(
             continue
         imp = parsed.nodes[act.imp_idx] if act.imp_idx is not None else None
         if act.action == "create":
-            _create_node(db, project, act, imp, by_path, report)
+            _create_node(db, project, act, imp, by_path, live_by_id, report)
             continue
         node = live_by_id.get(act.node_id) if act.node_id else None
         if node is None:
@@ -174,13 +174,22 @@ def _create_node(
     act: SyncNodeAction,
     imp: _ImpNode | None,
     by_path: dict[str, Node],
+    live_by_id: dict[uuid.UUID, Node],
     report: SyncReport,
 ) -> None:
     if imp is None:
         report.skipped.append(f"{act.path}: нечего создавать")
         return
-    parent = by_path.get(act.parent_path) if act.parent_path else None
-    if act.parent_path and parent is None:
+    # Живой родитель (parent_id) старше пути прогона: так план кладёт базу и брокер,
+    # вынесенные из живого контейнера к его родителю.
+    if act.parent_id is not None:
+        parent = live_by_id.get(act.parent_id)
+        if parent is None:
+            report.skipped.append(f"{act.path}: родитель не найден")
+            return
+    else:
+        parent = by_path.get(act.parent_path) if act.parent_path else None
+    if act.parent_id is None and act.parent_path and parent is None:
         # Родитель не создался (например, был пропущен как компонент) — ребёнка в
         # корень не выносим, это исказило бы иерархию.
         report.skipped.append(f"{act.path}: родитель не найден")

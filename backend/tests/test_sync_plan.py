@@ -646,3 +646,133 @@ def test_элемент_отказ_правила_по_живому_дереву
         "«orders-cache», она не может входить в состав контейнера. Вынесите её на уровень "
         "выше и повторите."
     ]
+
+
+# ── База и брокер в живом контейнере: действующий родитель — родитель контейнера (Р6) ──
+
+С_БАЗОЙ_В_КОНТЕЙНЕРЕ = RUN_ЭЛЕМЕНТ.replace(
+    "      - name: orders\n        element: container\n",
+    "      - name: orders\n        children:\n          - name: api\n"
+    "          - name: orders-cache\n            shape: database\n",
+)
+С_КОМПОНЕНТАМИ = SyncPolicies(sync_components=True)
+
+
+def _ids(nodes) -> dict[str, uuid.UUID]:
+    return {n.name: n.id for n in nodes}
+
+
+def test_база_в_живом_контейнере_создаётся_уровнем_выше():
+    """Прогон кладёт базу в живой контейнер: создание — у родителя контейнера (живой
+    parent_id старше пути), строка плана объясняет, почему не там, где в прогоне."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == (
+        "create", _ids(nodes)["Система"], None
+    )
+    api = _узел_плана(plan, "Система / orders / api")
+    assert (api.action, api.parent_id, api.parent_path) == ("create", None, "Система / orders")
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — будет "
+        "создана уровнем выше, в «Система»"
+    ]
+
+
+def test_брокер_корневого_контейнера_создаётся_на_верхнем_уровне():
+    живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
+    прогон = (
+        "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "      - name: Kafka\n        shape: broker\n"
+    )
+    nodes, edges = _seed(_parse(живой))
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+
+    kafka = _узел_плана(plan, "orders / Kafka")
+    assert (kafka.action, kafka.parent_id, kafka.parent_path) == ("create", None, None)
+    assert plan.conflicts == [
+        "«Kafka»: брокер не может входить в состав контейнера «orders» — будет создан на "
+        "верхнем уровне"
+    ]
+
+
+def test_база_под_новым_компонентом_живого_контейнера_тоже_выносится():
+    """Родитель базы в прогоне — новый компонент живого контейнера: он ляжет внутрь
+    контейнера, значит и база оказалась бы в его составе."""
+    прогон = RUN_ЭЛЕМЕНТ.replace(
+        "      - name: orders\n        element: container\n",
+        "      - name: orders\n        children:\n          - name: worker\n"
+        "            children:\n              - name: orders-cache\n"
+        "                shape: database\n",
+    )
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / worker / orders-cache")
+    assert (кэш.action, кэш.parent_id) == ("create", _ids(nodes)["Система"])
+    assert _узел_плана(plan, "Система / orders / worker").parent_path == "Система / orders"
+
+
+def test_база_под_живым_листом_без_элемента_не_выносится():
+    """Лист без заданного элемента читается контейнером, но база внутри делает его
+    системой — это законно, и синк кладёт её туда, куда прогон."""
+    прогон = RUN.replace(
+        "      - name: orders\n",
+        "      - name: orders\n        children:\n          - name: orders-cache\n"
+        "            shape: database\n",
+    )
+    nodes, edges = _seed(_parse(RUN))
+    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == ("create", None, "Система / orders")
+    assert plan.conflicts == []
+
+
+def test_вынесенная_база_находится_уровнем_выше_фикспойнт():
+    """Повторный прогон: база уже лежит у родителя контейнера — она и находится, план
+    пуст по действиям, строка объясняет расхождение с прогоном."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, parent in (("api", "orders"), ("orders-cache", "Система")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name,
+            shape="database" if name == "orders-cache" else "service",
+            status="existing", parent_id=ids[parent],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    assert plan.is_noop, plan.summary
+    assert _узел_плана(plan, "Система / orders / orders-cache").node_id == _ids(nodes)["orders-cache"]
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — в "
+        "схеме она лежит уровнем выше, в «Система»"
+    ]
+
+
+def test_база_уже_в_живом_контейнере_не_дублируется():
+    """Создать базу под контейнером API не запрещает: если она уже лежит там, куда её
+    кладёт прогон, — это она, без переноса и без второй копии уровнем выше."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, shape in (("api", "service"), ("orders-cache", "database")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name, shape=shape,
+            status="existing", parent_id=ids["orders"],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    assert plan.is_noop, plan.summary
+    assert plan.conflicts == []
+
+
+def test_зона_синка_по_глубине_прогона_прежняя():
+    """Глубина зоны считается по прогону, как и прежде: база на уровне компонентов без
+    галочки вне синка — ни действия, ни строки, хотя вынесенной она легла бы выше."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ))
+
+    assert not any("orders-cache" in a.path for a in plan.nodes)
+    assert plan.conflicts == []
+    assert plan.is_noop

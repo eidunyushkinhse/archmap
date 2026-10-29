@@ -15,6 +15,12 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 Порядок важен: путь строится от смэтченного родителя, иначе переименование
 контейнера оторвало бы от живых узлов всё его поддерево.
 
+База и брокер не входят в состав контейнера (решение владельца Р6): если прогон кладёт
+их в живой контейнер или глубже, в его компонент, действующий родитель — родитель
+контейнера (_lift_target). Матчинг и создание идут уже в нём: повторный прогон находит
+базу там, где её создал первый, и план пуст (фикспойнт). Путь действия остаётся путём
+прогона — по нему связи находят концы.
+
 Политики — защита от того, что прогон агента недетерминирован (см. анализ дыр):
 проза и имена дрейфуют, состав слоя компонентов нестабилен, а пропажа узла из
 одного прогона ещё не значит, что сервиса больше нет. Поэтому по умолчанию синк
@@ -28,7 +34,8 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from app.domain_types import NODE_ELEMENT_LABELS
-from app.element_marks import element_rows_of
+from app.element import CONTAINER, Elements
+from app.element_marks import build_elements, element_rows_of
 from app.element_rules import element_change_refusal
 from app.identity import basis_of_key, compare_identity
 from app.import_element import as_clause
@@ -84,6 +91,9 @@ class SyncNodeAction:
     # build_sync_plan, а apply остаётся исполнителем и матчинг не дублирует.
     imp_idx: int | None = None
     parent_path: str | None = None
+    # Живой узел, под которым создать (create): база или брокер, вынесенные из живого
+    # контейнера к его родителю. Старше parent_path; у выноса на верхний уровень оба None.
+    parent_id: uuid.UUID | None = None
     # Узел был помечен устаревшим, а в YAML он снова есть. Показываем ВСЕГДА,
     # даже когда статус не трогаем: иначе вернувшийся объект не упоминался бы в
     # плане ни строкой (он попадал в unchanged, а неизменные скрыты).
@@ -164,6 +174,9 @@ _SOURCE_KIND = {"git": "коду", "host": "имени зависимости"}
 # Основания, означающие «сошлось по ЯКОРЮ» (в отличие от имени).
 _ANCHOR_BASIS = frozenset({"code", "dependency"})
 
+# Формы, которые не входят в состав контейнера (Р6), — с родом для строк плана.
+_STORE_WORDS = {"database": ("база данных", "создана", "она"), "broker": ("брокер", "создан", "он")}
+
 
 def _human_source(ref: str | None) -> str:
     if not ref:
@@ -204,6 +217,7 @@ class _Matcher:
         # Долитое планом записывается и сюда: следующий узел прогона проверяется уже
         # против дерева с ним.
         self.element_rows = {r.id: r for r in element_rows_of(nodes)}
+        self._elements: Elements[uuid.UUID] | None = None  # сборка по element_rows
 
     def _index_paths(self, node: Node, prefix: str) -> None:
         full = f"{prefix} / {node.name}" if prefix else node.name
@@ -296,6 +310,50 @@ class _Matcher:
             return
         fields.append("element")
         self.element_rows[live.id] = self.element_rows[live.id]._replace(element=new, shape=shape)
+        self._elements = None
+
+    def _live_anchor(self, parsed: ParsedImport, idx: int) -> Node | None:
+        """Ближайший смэтченный живой предок узла прогона: под ним ляжет и сам узел, и
+        новые узлы между ними. None — цепочка дошла до верха без живых."""
+        cur = parsed.nodes[idx].parent_idx
+        for _ in range(len(parsed.nodes)):
+            if cur is None:
+                return None
+            live = self.imp_to_live.get(cur)
+            if live is not None:
+                return live
+            cur = parsed.nodes[cur].parent_idx
+        return None
+
+    def _lift_target(
+        self, parsed: ParsedImport, idx: int
+    ) -> tuple[Node, Node | None] | None:
+        """База или брокер прогона, которые легли бы в живой контейнер (сам контейнер или
+        его компонент): (контейнер, действующий родитель — родитель контейнера или None
+        для верхнего уровня). Контейнер — заданный элемент «контейнер»: лист без значения
+        тоже читается контейнером, но с базой внутри он станет системой, и это законно."""
+        if parsed.nodes[idx].shape not in _STORE_WORDS:
+            return None
+        anchor = self._live_anchor(parsed, idx)
+        if anchor is None:
+            return None
+        if self._elements is None:
+            self._elements = build_elements(self.element_rows.values())
+        cid = self._elements.container_of(anchor.id)
+        if cid is None or (cid == anchor.id and self.element_rows[cid].element != CONTAINER):
+            return None
+        container = self.by_id[cid]
+        parent = self.by_id.get(container.parent_id) if container.parent_id else None
+        return container, parent
+
+    def _lift_note(self, imp: _ImpNode, container: Node, parent: Node | None, found: bool) -> str:
+        what, done, pron = _STORE_WORDS[imp.shape]
+        where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
+        tail = f"в схеме {pron} лежит {where}" if found else f"будет {done} {where}"
+        return (
+            f"«{imp.name}»: {what} не может входить в состав контейнера «{container.name}» — "
+            f"{tail}"
+        )
 
     def walk_import(self, parsed: ParsedImport) -> None:
         max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH
@@ -311,6 +369,10 @@ class _Matcher:
                 self.skipped.add(i)
                 continue
             parent_live = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+            lift = self._lift_target(parsed, i)
+            if lift is not None:
+                self._walk_lifted(i, imp, parent_idx, lift)
+                continue
             if parent_idx is not None and parent_live is None:
                 # Родитель создаётся заново — ребёнок тоже новый, матчить не с чем.
                 self.plan.nodes.append(
@@ -337,40 +399,89 @@ class _Matcher:
                     )
                 )
                 continue
-            self.taken.add(live.id)
-            self.imp_to_live[i] = live
-            if how in _ANCHOR_BASIS and identity_name(live.name) != identity_name(imp.name):
-                verb = (
-                    "имя будет изменено"
-                    if self.policies.update_names
-                    else "имя в схеме оставляем как есть"
-                )
-                self.plan.conflicts.append(
-                    f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
-                    f"(узнали по {_human_source(live.source_ref)}) — {verb}"
-                )
-            live_parent = live.parent_id if live.parent_id in self.by_id else None
-            want_parent = parent_live.id if parent_live else None
-            if live_parent != want_parent:
-                self.plan.conflicts.append(
-                    f"«{live.name}»: в YAML этот объект показан в другом месте "
-                    f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
-                    f"останется прежней"
-                )
-            fields = self._diff_fields(live, imp)
+            self._take(i, imp, parent_idx, live, how, parent_live.id if parent_live else None)
+
+    def _walk_lifted(
+        self, i: int, imp: _ImpNode, parent_idx: int | None, lift: tuple[Node, Node | None]
+    ) -> None:
+        """База или брокер, которые прогон кладёт в живой контейнер: матчинг и создание —
+        у родителя контейнера. Строка conflicts объясняет, почему объект в схеме не там,
+        где его показал прогон."""
+        container, parent = lift
+        # Живой родитель из прогона — если база уже лежит в схеме там, куда её кладёт
+        # прогон, внутри контейнера (создать её там API не запрещает): синк её не
+        # переносит и не дублирует уровнем выше.
+        here = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+        live, how = self._match(imp, parent)
+        if live is None and here is not None:
+            live, how = self._match(imp, here)
+        if live is None:
+            self.plan.conflicts.append(self._lift_note(imp, container, parent, found=False))
             self.plan.nodes.append(
                 SyncNodeAction(
                     path=self.imp_paths[i],
-                    action="update" if fields else "unchanged",
-                    returned=_is_return(live, imp),
-                    node_id=live.id,
-                    source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
-                    fields=fields,
-                    matched_by=how,
+                    action="create",
+                    node_id=None,
+                    source_ref=imp.source_keys[0] if imp.source_keys else None,
                     imp_idx=i,
-                    parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
+                    parent_id=parent.id if parent else None,
                 )
             )
+            return
+        want_parent = parent.id if parent else None
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if here is not None and live_parent == here.id:
+            self._take(i, imp, parent_idx, live, how, here.id)
+            return
+        if live_parent == want_parent:
+            # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
+            # «показан в другом месте».
+            self.plan.conflicts.append(self._lift_note(imp, container, parent, found=True))
+        self._take(i, imp, parent_idx, live, how, want_parent)
+
+    def _take(
+        self,
+        i: int,
+        imp: _ImpNode,
+        parent_idx: int | None,
+        live: Node,
+        how: str | None,
+        want_parent: uuid.UUID | None,
+    ) -> None:
+        """Узел прогона сошёлся с живым: имя по источнику, место в дереве, поля."""
+        self.taken.add(live.id)
+        self.imp_to_live[i] = live
+        if how in _ANCHOR_BASIS and identity_name(live.name) != identity_name(imp.name):
+            verb = (
+                "имя будет изменено"
+                if self.policies.update_names
+                else "имя в схеме оставляем как есть"
+            )
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
+                f"(узнали по {_human_source(live.source_ref)}) — {verb}"
+            )
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if live_parent != want_parent:
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML этот объект показан в другом месте "
+                f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
+                f"останется прежней"
+            )
+        fields = self._diff_fields(live, imp)
+        self.plan.nodes.append(
+            SyncNodeAction(
+                path=self.imp_paths[i],
+                action="update" if fields else "unchanged",
+                returned=_is_return(live, imp),
+                node_id=live.id,
+                source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
+                fields=fields,
+                matched_by=how,
+                imp_idx=i,
+                parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
+            )
+        )
 
     def collect_missing(self) -> None:
         """Живые узлы зоны синка, которых прогон не показал. Зона — поддеревья
