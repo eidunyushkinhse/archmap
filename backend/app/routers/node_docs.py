@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session, undefer
 
+from app import facts_transfer
 from app.auth import get_current_user
 from app.database import get_db
 from app.deps import (
@@ -236,46 +237,15 @@ def distribute_docs(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> DistributeDocsOut:
-    """«Распределить по детям» (правила контейнеров, grandfather): переносит
-    СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
-    его openapi_spec — целиком одному ребёнку. Вызывается из модалки
-    распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev."""
+    """«Перенести документацию» (Р19 эпика элементов; до 2026-10-29 — «Распределить по
+    детям»): собственные схемы логики, спецификация и параметры конфигурации узла —
+    потомкам по семьям фактов (app/facts_transfer). Путь и имена полей прежние. Мета —
+    курсор двигает домен, если что-то переехало."""
     node = node_or_404(db, node_id, project)
-    children = db.query(Node).filter(Node.parent_id == node.id).all()
-    child_ids = {c.id for c in children}
-    if not child_ids:
-        raise HTTPException(status_code=409, detail="У контейнера нет детей для распределения")
-
-    moved_docs = 0
-    for a in payload.doc_assignments:
-        doc = db.get(NodeDoc, a.doc_id)
-        # Переносим только СВОИ доки контейнера (grandfather), не чужие/детские.
-        if doc is None or doc.node_id != node.id:
-            raise HTTPException(status_code=404, detail=f"Схема {a.doc_id} не найдена среди собственных доков узла")
-        if a.child_id not in child_ids:
-            raise HTTPException(status_code=409, detail=f"Цель {a.child_id} не является непосредственным ребёнком узла")
-        if _name_taken(db, a.child_id, doc.name, None):
-            raise HTTPException(status_code=409, detail=f"У ребёнка уже есть схема с именем «{doc.name}»")
-        doc.node_id = a.child_id
-        doc.version += 1
-        moved_docs += 1
-
-    spec_moved = False
-    if payload.spec_child_id is not None:
-        if not node.openapi_spec:
-            raise HTTPException(status_code=409, detail="У узла нет OpenAPI-спецификации для переноса")
-        if payload.spec_child_id not in child_ids:
-            raise HTTPException(status_code=409, detail="Цель для спецификации не является непосредственным ребёнком узла")
-        child = next(c for c in children if c.id == payload.spec_child_id)
-        if child.openapi_spec:
-            raise HTTPException(status_code=409, detail="У выбранного ребёнка уже есть OpenAPI-спецификация")
-        child.openapi_spec = node.openapi_spec
-        node.openapi_spec = None
-        child.version += 1
-        node.version += 1
-        spec_moved = True
-
-    if moved_docs or spec_moved:
-        bump_meta_rev(db, project)
+    try:
+        out = facts_transfer.transfer_docs(db, project, node, payload)
+    except facts_transfer.FactsTransferError as e:
+        # Домен проверяет всё до записи: откатывать нечего.
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
     commit_change(db, project, user.id)
-    return DistributeDocsOut(moved_docs=moved_docs, spec_moved=spec_moved)
+    return out

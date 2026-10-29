@@ -316,22 +316,86 @@ class ElementChangePreview(BaseModel):
 # --- Алерты незавершённости схемы (глобальные, только для архитектора) ---
 
 class DistributeDocAssignment(BaseModel):
-    """Назначение одного собственного дока контейнера конкретному ребёнку."""
+    """Назначение одной собственной схемы логики узла получателю. Имя поля child_id —
+    историческое: получатель — любой потомок, у которого схемы логики на месте."""
     doc_id: uuid.UUID
     child_id: uuid.UUID
 
 
 class DistributeDocsIn(BaseModel):
-    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спецификации.
+    """«Перенести документацию» (POST /nodes/{id}/docs/distribute, Р19 эпика элементов):
+    получатели — по семьям фактов, в поддереве узла (app/facts_transfer).
 
-    openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
-    (spec_child_id). Если детей несколько и спецификация есть — пользователь в
-    модалке выбирает, кому она отойдёт."""
+    Схемы логики — компоненту (в том числе составному) или объекту без вложенных вне
+    контейнера; спецификация (одна у узла, переезжает целиком) — потомку-контейнеру
+    (spec_child_id); все собственные параметры конфигурации — одному потомку-контейнеру
+    (params_target_id). null — эту часть не переносить."""
     doc_assignments: list[DistributeDocAssignment] = []
     spec_child_id: uuid.UUID | None = None
+    params_target_id: uuid.UUID | None = None
 
 
 class DistributeDocsOut(BaseModel):
     """Отчёт переноса."""
     moved_docs: int
+    spec_moved: bool
+    moved_params: int
+
+
+class CollectComponentOut(BaseModel):
+    """Компонент с фактами процесса: сколько у него параметров и есть ли спецификация."""
+    node_id: uuid.UUID
+    name: str
+    params: int
+    has_spec: bool
+
+
+class CollectCandidateOut(BaseModel):
+    """Кто держит одноимённый параметр (в том числе сам контейнер) и его описание."""
+    node_id: uuid.UUID
+    node_name: str
+    description: str | None
+
+
+class CollectClashOut(BaseModel):
+    """Одноимённый параметр у нескольких объектов: это один и тот же параметр
+    контейнера, остаётся одно описание — какое, выбирает пользователь."""
+    name: str
+    candidates: list[CollectCandidateOut]
+
+
+class CollectSpecOut(BaseModel):
+    """Объект со спецификацией (сам контейнер или его компонент)."""
+    node_id: uuid.UUID
+    name: str
+
+
+class CollectFactsPreview(BaseModel):
+    """«Собрать с компонентов» без записи (GET /nodes/{id}/facts/collect-preview):
+    компоненты с фактами процесса, одноимённые параметры и держатели спецификации.
+    Пустые components — собирать нечего."""
+    components: list[CollectComponentOut]
+    param_clashes: list[CollectClashOut]
+    specs: list[CollectSpecOut]
+
+
+class CollectParamChoice(BaseModel):
+    """Выбор при одноимённых параметрах: чьё описание остаётся."""
+    name: str
+    node_id: uuid.UUID
+
+
+class CollectFactsIn(BaseModel):
+    """«Собрать с компонентов»: все параметры компонентов переезжают контейнеру; для
+    одноимённых обязателен выбор (param_choices). spec_from — компонент, чья
+    спецификация переезжает контейнеру (заменяя его прежнюю); null — спецификации не
+    трогать."""
+    param_choices: list[CollectParamChoice] = []
+    spec_from: uuid.UUID | None = None
+
+
+class CollectFactsOut(BaseModel):
+    """Отчёт сбора: сколько параметров переехало контейнеру и переехала ли
+    спецификация."""
+    moved_params: int
     spec_moved: bool

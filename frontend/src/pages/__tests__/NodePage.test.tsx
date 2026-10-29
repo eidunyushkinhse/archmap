@@ -393,7 +393,7 @@ describe("NodePage: правила контейнеров", () => {
   });
 
   it("модалка распределения: переносит схему выбранному ребёнку", async () => {
-    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false });
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false, moved_params: 0 });
     setupContainer({
       own: { docs: [docMeta()] },
       children: [node("k1", { name: "Шлюз" })],

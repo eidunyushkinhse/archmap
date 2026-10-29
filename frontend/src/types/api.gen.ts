@@ -1205,12 +1205,54 @@ export interface paths {
         put?: never;
         /**
          * Distribute Docs
-         * @description «Распределить по детям» (правила контейнеров, grandfather): переносит
-         *     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
-         *     его openapi_spec — целиком одному ребёнку. Вызывается из модалки
-         *     распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev.
+         * @description «Перенести документацию» (Р19 эпика элементов; до 2026-10-29 — «Распределить по
+         *     детям»): собственные схемы логики, спецификация и параметры конфигурации узла —
+         *     потомкам по семьям фактов (app/facts_transfer). Путь и имена полей прежние. Мета —
+         *     курсор двигает домен, если что-то переехало.
          */
         post: operations["distribute_docs_api_v1_nodes__node_id__docs_distribute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/facts/collect-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Collect Preview
+         * @description Что соберёт «Собрать с компонентов», БЕЗ записи: компоненты с фактами процесса,
+         *     одноимённые параметры и держатели спецификации. 422 — не контейнер с компонентами.
+         */
+        get: operations["collect_preview_api_v1_nodes__node_id__facts_collect_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/facts/collect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Collect
+         * @description «Собрать с компонентов»: параметры (одноимённые — по выбору) и выбранная
+         *     спецификация — контейнеру. Всё проверяется до записи.
+         */
+        post: operations["collect_api_v1_nodes__node_id__facts_collect_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3772,6 +3814,116 @@ export interface components {
             prompt: string;
         };
         /**
+         * CollectCandidateOut
+         * @description Кто держит одноимённый параметр (в том числе сам контейнер) и его описание.
+         */
+        CollectCandidateOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Description */
+            description: string | null;
+        };
+        /**
+         * CollectClashOut
+         * @description Одноимённый параметр у нескольких объектов: это один и тот же параметр
+         *     контейнера, остаётся одно описание — какое, выбирает пользователь.
+         */
+        CollectClashOut: {
+            /** Name */
+            name: string;
+            /** Candidates */
+            candidates: components["schemas"]["CollectCandidateOut"][];
+        };
+        /**
+         * CollectComponentOut
+         * @description Компонент с фактами процесса: сколько у него параметров и есть ли спецификация.
+         */
+        CollectComponentOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Params */
+            params: number;
+            /** Has Spec */
+            has_spec: boolean;
+        };
+        /**
+         * CollectFactsIn
+         * @description «Собрать с компонентов»: все параметры компонентов переезжают контейнеру; для
+         *     одноимённых обязателен выбор (param_choices). spec_from — компонент, чья
+         *     спецификация переезжает контейнеру (заменяя его прежнюю); null — спецификации не
+         *     трогать.
+         */
+        CollectFactsIn: {
+            /**
+             * Param Choices
+             * @default []
+             */
+            param_choices: components["schemas"]["CollectParamChoice"][];
+            /** Spec From */
+            spec_from?: string | null;
+        };
+        /**
+         * CollectFactsOut
+         * @description Отчёт сбора: сколько параметров переехало контейнеру и переехала ли
+         *     спецификация.
+         */
+        CollectFactsOut: {
+            /** Moved Params */
+            moved_params: number;
+            /** Spec Moved */
+            spec_moved: boolean;
+        };
+        /**
+         * CollectFactsPreview
+         * @description «Собрать с компонентов» без записи (GET /nodes/{id}/facts/collect-preview):
+         *     компоненты с фактами процесса, одноимённые параметры и держатели спецификации.
+         *     Пустые components — собирать нечего.
+         */
+        CollectFactsPreview: {
+            /** Components */
+            components: components["schemas"]["CollectComponentOut"][];
+            /** Param Clashes */
+            param_clashes: components["schemas"]["CollectClashOut"][];
+            /** Specs */
+            specs: components["schemas"]["CollectSpecOut"][];
+        };
+        /**
+         * CollectParamChoice
+         * @description Выбор при одноимённых параметрах: чьё описание остаётся.
+         */
+        CollectParamChoice: {
+            /** Name */
+            name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+        };
+        /**
+         * CollectSpecOut
+         * @description Объект со спецификацией (сам контейнер или его компонент).
+         */
+        CollectSpecOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
          * ComponentFactsAlert
          * @description Компонент со своей спецификацией OpenAPI, своими параметрами конфигурации или
          *     своими площадками размещения (AL36, Р10 и Р16 docs/plan-c4-elements.md). API отдаёт,
@@ -4735,7 +4887,8 @@ export interface components {
         };
         /**
          * DistributeDocAssignment
-         * @description Назначение одного собственного дока контейнера конкретному ребёнку.
+         * @description Назначение одной собственной схемы логики узла получателю. Имя поля child_id —
+         *     историческое: получатель — любой потомок, у которого схемы логики на месте.
          */
         DistributeDocAssignment: {
             /**
@@ -4751,11 +4904,13 @@ export interface components {
         };
         /**
          * DistributeDocsIn
-         * @description Вход переноса: маппинг доков по детям + опциональный ребёнок для спецификации.
+         * @description «Перенести документацию» (POST /nodes/{id}/docs/distribute, Р19 эпика элементов):
+         *     получатели — по семьям фактов, в поддереве узла (app/facts_transfer).
          *
-         *     openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
-         *     (spec_child_id). Если детей несколько и спецификация есть — пользователь в
-         *     модалке выбирает, кому она отойдёт.
+         *     Схемы логики — компоненту (в том числе составному) или объекту без вложенных вне
+         *     контейнера; спецификация (одна у узла, переезжает целиком) — потомку-контейнеру
+         *     (spec_child_id); все собственные параметры конфигурации — одному потомку-контейнеру
+         *     (params_target_id). null — эту часть не переносить.
          */
         DistributeDocsIn: {
             /**
@@ -4765,6 +4920,8 @@ export interface components {
             doc_assignments: components["schemas"]["DistributeDocAssignment"][];
             /** Spec Child Id */
             spec_child_id?: string | null;
+            /** Params Target Id */
+            params_target_id?: string | null;
         };
         /**
          * DistributeDocsOut
@@ -4775,6 +4932,8 @@ export interface components {
             moved_docs: number;
             /** Spec Moved */
             spec_moved: boolean;
+            /** Moved Params */
+            moved_params: number;
         };
         /**
          * DocChoiceOut
@@ -10387,6 +10546,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    collect_preview_api_v1_nodes__node_id__facts_collect_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectFactsPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    collect_api_v1_nodes__node_id__facts_collect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectFactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectFactsOut"];
                 };
             };
             /** @description Validation Error */

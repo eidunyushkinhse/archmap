@@ -6,9 +6,13 @@
    компонентами — только собственные node_docs. Атомарные узлы с доками и узлы с
    детьми без своих доков не алертятся. Рядом — класс «Конфигурация и спецификации у
    компонентов» (AL36): спецификация или параметры у компонента.
-2) Эндпоинт distribute_docs («Распределить по детям»): перенос собственных доков
-   контейнера на непосредственных детей + перенос openapi_spec одному ребёнку.
-   Валидации: цель не ребёнок, имя занято у ребёнка, спецификации нет / у ребёнка уже есть.
+2) Эндпоинт distribute_docs («Перенести документацию», Р19 эпика элементов): перенос
+   собственных схем логики узла потомкам, у которых схемы на месте (компонент или
+   объект без вложенных), спецификации — потомку-контейнеру, всех параметров
+   конфигурации — одному потомку-контейнеру. Валидации: получатель вне поддерева, не
+   того элемента, имя занято, спецификации нет / у получателя уже есть.
+3) «Собрать с компонентов» (app/facts_transfer.collect_*): параметры и выбранная
+   спецификация компонентов — контейнеру, одноимённые — по выбору.
 """
 
 import uuid
@@ -23,8 +27,14 @@ from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
+from app.routers.facts import collect, collect_preview
 from app.routers.node_docs import distribute_docs
-from app.schemas.node import DistributeDocAssignment, DistributeDocsIn
+from app.schemas.node import (
+    CollectFactsIn,
+    CollectParamChoice,
+    DistributeDocAssignment,
+    DistributeDocsIn,
+)
 
 
 def _node(db, name, parent=None, shape="service", openapi_spec=None, element=None):
@@ -41,9 +51,9 @@ def _node(db, name, parent=None, shape="service", openapi_spec=None, element=Non
     return n
 
 
-def _param(db, node, name="LOG_LEVEL"):
+def _param(db, node, name="LOG_LEVEL", description=None):
     db.add(ConfigParam(
-        id=uuid.uuid4(), node_id=node.id, name=name,
+        id=uuid.uuid4(), node_id=node.id, name=name, description=description,
         value_type="string", required=False, default_value="info",
     ))
 
@@ -330,3 +340,296 @@ def test_distribute_spec_conflict_at_child(db):
             db=db, project=ensure_project(db), user=ensure_architect(db),
         )
     assert e.value.status_code == 409
+
+
+# ── «Перенести документацию» по семьям фактов (Р19) ─────────────────────────
+
+def _distribute(db, node, **kw):
+    return distribute_docs(
+        node.id, DistributeDocsIn(**kw),
+        db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+
+def _refusal(call) -> tuple[int, str]:
+    with pytest.raises(HTTPException) as e:
+        call()
+    return e.value.status_code, e.value.detail
+
+
+def _shop(db):
+    """Система shop: контейнер orders (компоненты api и составной jobs с внуком nightly),
+    лист billing, система inner с листом ledger. У shop — свои схема, спецификация и
+    параметры (то, что отмечает AL24)."""
+    shop = _node(db, "shop", openapi_spec="openapi: 3.0.0")
+    orders = _node(db, "orders", parent=shop, element="container")
+    api = _node(db, "api", parent=orders)
+    jobs = _node(db, "jobs", parent=orders)
+    nightly = _node(db, "nightly", parent=jobs)
+    billing = _node(db, "billing", parent=shop)
+    inner = _node(db, "inner", parent=shop)
+    ledger = _node(db, "ledger", parent=inner)
+    db.flush()
+    return {n.name: n for n in (shop, orders, api, jobs, nightly, billing, inner, ledger)}
+
+
+def test_схема_логики_переносится_внуку(db):
+    n = _shop(db)
+    d1 = _doc(db, n["shop"], name="Старт заказа")
+    d2 = _doc(db, n["shop"], name="Ночной пересчёт", kind="worker")
+    d3 = _doc(db, n["shop"], name="Проводка")
+    db.commit()
+    out = _distribute(db, n["shop"], doc_assignments=[
+        DistributeDocAssignment(doc_id=d1.id, child_id=n["api"].id),       # компонент
+        DistributeDocAssignment(doc_id=d2.id, child_id=n["nightly"].id),   # внук-компонент
+        DistributeDocAssignment(doc_id=d3.id, child_id=n["ledger"].id),    # лист вложенной системы
+    ])
+    assert (out.moved_docs, out.spec_moved, out.moved_params) == (3, False, 0)
+    db.expire_all()
+    assert [db.get(NodeDoc, d.id).node_id for d in (d1, d2, d3)] == [
+        n["api"].id, n["nightly"].id, n["ledger"].id,
+    ]
+
+
+def test_схемы_не_принимают_система_и_контейнер_с_компонентами(db):
+    n = _shop(db)
+    d = _doc(db, n["shop"], name="Старт заказа")
+    db.commit()
+    for target, what in (("orders", "контейнер с компонентами"), ("inner", "система")):
+        code, text = _refusal(lambda t=target: _distribute(db, n["shop"], doc_assignments=[
+            DistributeDocAssignment(doc_id=d.id, child_id=n[t].id),
+        ]))
+        assert (code, text) == (422, (
+            f"Схемы логики переносятся компонентам и объектам без вложенных, а «{target}» — {what}."
+        ))
+    # Составной компонент — получатель: его схемы описывают код.
+    out = _distribute(db, n["shop"], doc_assignments=[
+        DistributeDocAssignment(doc_id=d.id, child_id=n["jobs"].id),
+    ])
+    assert out.moved_docs == 1
+
+
+def test_спецификация_только_контейнеру(db):
+    n = _shop(db)
+    db.commit()
+    code, text = _refusal(lambda: _distribute(db, n["shop"], spec_child_id=n["api"].id))
+    assert (code, text) == (422, "Спецификация переносится только контейнеру, а «api» — компонент.")
+    code, text = _refusal(lambda: _distribute(db, n["shop"], spec_child_id=n["inner"].id))
+    assert (code, text) == (422, "Спецификация переносится только контейнеру, а «inner» — система.")
+    # Контейнер с компонентами и лист вне контейнера — получатели.
+    out = _distribute(db, n["shop"], spec_child_id=n["orders"].id)
+    assert out.spec_moved is True
+    db.expire_all()
+    assert (db.get(Node, n["orders"].id).openapi_spec, db.get(Node, n["shop"].id).openapi_spec) == (
+        "openapi: 3.0.0", None,
+    )
+    # Спецификации больше нет — повтор отказывается словами продукта.
+    code, text = _refusal(lambda: _distribute(db, n["shop"], spec_child_id=n["billing"].id))
+    assert (code, text) == (409, "У «shop» нет спецификации")
+
+
+def test_параметры_переезжают_одному_контейнеру(db):
+    n = _shop(db)
+    _param(db, n["shop"], "LOG_LEVEL")
+    _param(db, n["shop"], "FEATURE_X")
+    db.commit()
+    code, text = _refusal(lambda: _distribute(db, n["shop"], params_target_id=n["api"].id))
+    assert (code, text) == (422, "Конфигурация переносится только контейнеру, а «api» — компонент.")
+    out = _distribute(db, n["shop"], params_target_id=n["billing"].id)
+    assert (out.moved_docs, out.spec_moved, out.moved_params) == (0, False, 2)
+    db.expire_all()
+    assert sorted(
+        p.name for p in db.query(ConfigParam).filter(ConfigParam.node_id == n["billing"].id)
+    ) == ["FEATURE_X", "LOG_LEVEL"]
+    assert db.query(ConfigParam).filter(ConfigParam.node_id == n["shop"].id).count() == 0
+
+
+def test_параметры_с_занятым_именем_409_и_ничего_не_переезжает(db):
+    n = _shop(db)
+    _param(db, n["shop"], "FEATURE_X")
+    _param(db, n["shop"], "LOG_LEVEL")
+    _param(db, n["orders"], "FEATURE_X")
+    d = _doc(db, n["shop"], name="Старт заказа")
+    db.commit()
+    code, text = _refusal(lambda: _distribute(
+        db, n["shop"], params_target_id=n["orders"].id,
+        doc_assignments=[DistributeDocAssignment(doc_id=d.id, child_id=n["api"].id)],
+    ))
+    assert (code, text) == (409, "У «orders» уже есть параметр «FEATURE_X»")
+    # Проверки — до записи: схема тоже осталась на месте.
+    db.expire_all()
+    assert db.get(NodeDoc, d.id).node_id == n["shop"].id
+
+
+def test_отказы_словами_продукта(db):
+    n = _shop(db)
+    _doc(db, n["api"], name="Старт заказа")
+    own = _doc(db, n["shop"], name="Старт заказа")
+    stranger = _node(db, "stranger")
+    db.commit()
+    code, text = _refusal(lambda: _distribute(db, n["shop"], doc_assignments=[
+        DistributeDocAssignment(doc_id=own.id, child_id=n["api"].id),
+    ]))
+    assert (code, text) == (409, "У «api» уже есть схема «Старт заказа»")
+    code, text = _refusal(lambda: _distribute(db, n["shop"], doc_assignments=[
+        DistributeDocAssignment(doc_id=own.id, child_id=stranger.id),
+    ]))
+    assert (code, text) == (409, "Получатель не входит в состав объекта")
+    code, text = _refusal(lambda: _distribute(db, n["orders"], doc_assignments=[
+        DistributeDocAssignment(doc_id=own.id, child_id=n["api"].id),
+    ]))
+    assert (code, text) == (404, "Схема не найдена среди собственных схем объекта")
+    n2 = _node(db, "orders-v2", openapi_spec="openapi: 3.0.0", element="container")
+    child = _node(db, "api-v2", parent=n2)
+    db.commit()
+    code, _ = _refusal(lambda: _distribute(db, n2, spec_child_id=child.id))
+    assert code == 422  # компонент спецификацию не принимает
+
+
+# ── «Собрать с компонентов» (Р19) ──────────────────────────────────────────
+
+def _collect_preview(db, node):
+    return collect_preview(node.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+
+def _collect(db, node, **kw):
+    return collect(
+        node.id, CollectFactsIn(**kw), db=db, project=ensure_project(db), user=ensure_architect(db),
+    )
+
+
+def _orders(db):
+    orders = _node(db, "orders", element="container")
+    api = _node(db, "api", parent=orders, openapi_spec="openapi: api")
+    checkout = _node(db, "checkout", parent=orders, openapi_spec="openapi: checkout")
+    scheduler = _node(db, "scheduler", parent=orders)
+    _node(db, "clean", parent=orders)
+    db.flush()
+    _param(db, api, "FEATURE_NEW_CHECKOUT", "включает новый расчёт корзины")
+    _param(db, api, "API_PORT")
+    _param(db, checkout, "FEATURE_NEW_CHECKOUT", "новая корзина")
+    _param(db, scheduler, "CRON")
+    db.commit()
+    return orders, api, checkout, scheduler
+
+
+def test_превью_сбора(db):
+    orders, *_ = _orders(db)
+    p = _collect_preview(db, orders)
+    assert [(c.name, c.params, c.has_spec) for c in p.components] == [
+        ("api", 2, True), ("checkout", 1, True), ("scheduler", 1, False),
+    ]
+    assert [(c.name, [(x.node_name, x.description) for x in c.candidates]) for c in p.param_clashes] == [
+        ("FEATURE_NEW_CHECKOUT", [("api", "включает новый расчёт корзины"), ("checkout", "новая корзина")]),
+    ]
+    assert [s.name for s in p.specs] == ["api", "checkout"]
+
+
+def test_сбор_с_коллизией_и_выбором(db):
+    orders, api, checkout, scheduler = _orders(db)
+    code, text = _refusal(lambda: _collect(db, orders))
+    assert (code, text) == (422, (
+        "Параметр «FEATURE_NEW_CHECKOUT» есть у нескольких объектов. Выберите, какое описание оставить."
+    ))
+    code, _ = _refusal(lambda: _collect(db, orders, param_choices=[
+        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=scheduler.id),
+    ]))
+    assert code == 422
+    out = _collect(db, orders, param_choices=[
+        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=checkout.id),
+    ])
+    assert (out.moved_params, out.spec_moved) == (3, False)
+    db.expire_all()
+    params = db.query(ConfigParam).order_by(ConfigParam.name).all()
+    assert [(p.name, p.node_id, p.description) for p in params] == [
+        ("API_PORT", orders.id, None),
+        ("CRON", orders.id, None),
+        ("FEATURE_NEW_CHECKOUT", orders.id, "новая корзина"),
+    ]
+    # Спецификации не тронуты (spec_from не передан) — их отметит AL36.
+    assert db.get(Node, api.id).openapi_spec == "openapi: api"
+
+
+def test_сбор_коллизии_с_параметром_контейнера(db):
+    orders, api, _checkout, _scheduler = _orders(db)
+    _param(db, orders, "CRON", "свой")
+    db.commit()
+    p = _collect_preview(db, orders)
+    assert [c.name for c in p.param_clashes] == ["CRON", "FEATURE_NEW_CHECKOUT"]
+    assert [x.node_name for x in p.param_clashes[0].candidates] == ["orders", "scheduler"]
+    out = _collect(db, orders, param_choices=[
+        CollectParamChoice(name="CRON", node_id=orders.id),
+        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=api.id),
+    ])
+    assert out.moved_params == 2  # API_PORT и FEATURE_NEW_CHECKOUT; CRON остался свой
+    db.expire_all()
+    cron = db.query(ConfigParam).filter(ConfigParam.name == "CRON").one()
+    assert (cron.node_id, cron.description) == (orders.id, "свой")
+
+
+def test_сбор_спецификации_с_заменой(db):
+    orders, api, checkout, _scheduler = _orders(db)
+    db.get(Node, orders.id).openapi_spec = "openapi: own"
+    db.commit()
+    assert [s.name for s in _collect_preview(db, orders).specs] == ["orders", "api", "checkout"]
+    out = _collect(db, orders, spec_from=checkout.id, param_choices=[
+        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=api.id),
+    ])
+    assert out.spec_moved is True
+    db.expire_all()
+    assert [db.get(Node, x.id).openapi_spec for x in (orders, api, checkout)] == [
+        "openapi: checkout", "openapi: api", None,
+    ]
+    code, text = _refusal(lambda: _collect(db, orders, spec_from=checkout.id))
+    assert (code, text) == (422, "У «checkout» нет спецификации")
+
+
+def test_собирать_можно_только_контейнеру_с_компонентами(db):
+    shop = _node(db, "shop")
+    _node(db, "api", parent=shop)
+    leaf = _node(db, "billing")
+    db.commit()
+    for node in (shop, leaf):
+        code, text = _refusal(lambda node=node: _collect_preview(db, node))
+        assert (code, text) == (422, "Собирать можно только контейнеру с компонентами")
+        code, _ = _refusal(lambda node=node: _collect(db, node))
+        assert code == 422
+
+
+def test_ручки_сбора_и_переноса_по_http(db):
+    """Пути контракта: /nodes/{id}/facts/collect-preview, /facts/collect и
+    /docs/distribute с новым полем params_target_id."""
+    from conftest import make_project
+    from fastapi.testclient import TestClient
+
+    from app.auth import create_access_token
+    from app.database import get_db
+    from app.main import app
+
+    owner = ensure_architect(db)
+    project = make_project(db, "Ярмарка")
+    orders = Node(id=uuid.uuid4(), project_id=project.id, name="orders", element="container")
+    api = Node(id=uuid.uuid4(), project_id=project.id, name="api", parent_id=orders.id)
+    db.add_all([orders, api])
+    db.flush()
+    _param(db, api, "CRON")
+    db.commit()
+    orders_id, api_id = orders.id, api.id
+    token = create_access_token({"sub": owner.username, "role": owner.role})
+    h = {"Authorization": f"Bearer {token}", "X-Project-Id": str(project.id)}
+    app.dependency_overrides[get_db] = lambda: db
+    try:
+        client = TestClient(app)
+        r = client.get(f"/api/v1/nodes/{orders_id}/facts/collect-preview", headers=h)
+        assert r.status_code == 200, r.text
+        assert [c["name"] for c in r.json()["components"]] == ["api"]
+        r = client.post(f"/api/v1/nodes/{orders_id}/facts/collect", headers=h, json={})
+        assert r.json() == {"moved_params": 1, "spec_moved": False}
+        r = client.post(f"/api/v1/nodes/{api_id}/facts/collect", headers=h, json={})
+        assert (r.status_code, r.json()) == (422, {"detail": "Собирать можно только контейнеру с компонентами"})
+        r = client.post(f"/api/v1/nodes/{orders_id}/docs/distribute", headers=h,
+                        json={"params_target_id": str(api_id)})
+        assert r.status_code == 422
+        assert r.json()["detail"] == "Конфигурация переносится только контейнеру, а «api» — компонент."
+    finally:
+        app.dependency_overrides.clear()
