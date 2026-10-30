@@ -10,13 +10,17 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers } from "./types";
+import type {
+  BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers,
+  FrameElement,
+} from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
 import FramePlaque, { FrameLabel } from "./FramePlaque";
 import { frameStyle, frameClass } from "./frameStyle";
+import { frameElement } from "./layout/frames";
 import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
@@ -304,9 +308,24 @@ function NodeName({ name }: { name: string }) {
 
 // Текст неактивной лупы (C8). Кнопка на предельной глубине остаётся видимой, но не
 // раскрывает: исчезающая кнопка не объясняет себя, а подсказка называет и предел, и
-// выход из него.
+// выход из него. Словами продукта: лупа есть у системы и у контейнера, поэтому
+// «вложенное» и «объект», а не название элемента.
 const LENS_LIMIT_HINT =
-  "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже";
+  "Раскрывать вложенное можно только два раза подряд. Чтобы увидеть состав этого объекта, войдите в него";
+
+// Подпись свёрнутого объекта с вложенными (ContainerNode) — его элемент архитектуры
+// (Р21; до эпика — всегда «контейнер»).
+const ELEMENT_CAPTION: Record<FrameElement, string> = {
+  system: "система",
+  container: "контейнер",
+  component: "компонент",
+};
+
+// Кнопка входа на слой объекта с вложенными — по элементу (лексикон эпика §1.3): у
+// системы «Войти», у контейнера и составного компонента — «Войти к компонентам»
+// (вложенные у них — компоненты). У листа — «Войти».
+const enterTitle = (element: FrameElement): string =>
+  element === "system" ? "Войти" : "Войти к компонентам";
 
 // Лупа «Раскрыть содержимое» — общая для локального блока, гостевого контейнера и
 // карточки свёрнутой площадки (у неё своя подсказка, title).
@@ -424,7 +443,7 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
               data-tour="node-enter"
               onClick={(e) => { e.stopPropagation(); data.onDrillDown?.(data.appNode); }}
               style={btnStyle}
-              title="Войти"
+              title={data.appNode.has_children ? enterTitle(frameElement(data.appNode.element_effective)) : "Войти"}
             ><DrillInIcon /></button>
           )}
           <ExpandLens
@@ -472,7 +491,7 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); onEnter?.(); }}
             style={btnStyle}
-            title="Войти к компонентам"
+            title={enterTitle(frameElement(data.appNode.element_effective))}
           ><DrillInIcon /></button>
         </div>
       )}
@@ -514,7 +533,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
               className="nodrag"
               onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
               style={btnStyle}
-              title="Войти к компонентам"
+              title={enterTitle(data.element)}
             ><DrillInIcon /></button>
           )}
           {/* Лупа активна, пока контейнер не на пределе инлайн-глубины (C8): глубже
@@ -528,7 +547,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
       )}
       <IntoCue />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
-        <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>контейнер</div>
+        <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>{ELEMENT_CAPTION[data.element]}</div>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{data.name}</div>
       </div>
     </div>

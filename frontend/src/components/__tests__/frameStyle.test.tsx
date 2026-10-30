@@ -231,8 +231,9 @@ describe("блок и свёрнутый гостевой контейнер —
   ).container;
 
   it("сервис с детьми — зона входа, бейдж, «Войти» и лупа", () => {
+    // элемент задан явно: кнопка входа зависит от него (у фикстуры по умолчанию — контейнер)
     const el = renderBlock(blockData(
-      { has_children: true, child_count: 3 },
+      { has_children: true, child_count: 3, element_effective: "system" },
       { onExpand: vi.fn(), onDrillDown: vi.fn() },
     ));
     expect(el.querySelector("[data-into]")?.getAttribute("data-into")).toBe("1");
@@ -249,15 +250,44 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.textContent).toContain("3");
   });
 
-  it("лупа на пределе глубины — неактивна, подсказка про предел", () => {
+  it("лупа на пределе глубины — неактивна, подсказка про предел словами продукта", () => {
     const el = renderBlock(blockData({ has_children: true, child_count: 2 }, { expandLimited: true }));
-    const lens = el.querySelector('button[aria-disabled="true"]');
-    expect(lens?.getAttribute("title")).toBe(
-      "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже",
-    );
+    const lens = el.querySelector('button[aria-disabled="true"]') as HTMLElement;
+    const hint = "Раскрывать вложенное можно только два раза подряд. Чтобы увидеть состав этого объекта, войдите в него";
+    expect(lens.getAttribute("title")).toBe(hint);
+    // клик показывает ту же подсказку рядом с кнопкой
+    act(() => { lens.click(); });
+    expect(el.textContent).toContain(hint);
   });
 
-  it("гость с детьми — «Войти к компонентам» и бейдж детей с глифом-деревом", () => {
+  it("«Войти» у локала по элементу: система и лист — «Войти», контейнер — «Войти к компонентам»", () => {
+    const cases: [Partial<AppNode>, string][] = [
+      [{ has_children: true, child_count: 2, element_effective: "system" }, "Войти"],
+      [{ has_children: true, child_count: 2, element_effective: "container" }, "Войти к компонентам"],
+      [{ has_children: true, child_count: 2, element_effective: "component" }, "Войти к компонентам"],
+      [{ has_children: false, child_count: 0, element_effective: "container" }, "Войти"],
+    ];
+    for (const [over, title] of cases) {
+      const el = renderBlock(blockData(over, { onDrillDown: vi.fn() }));
+      const btn = el.querySelector('button[data-tour="node-enter"]');
+      expect(btn?.getAttribute("title")).toBe(title);
+    }
+  });
+
+  it("гость с детьми — кнопка по элементу: система — «Войти», контейнер — «Войти к компонентам»", () => {
+    const base = {
+      id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
+      status: "existing", node_depth: 1, has_children: true, child_count: 4, ancestors: [], is_ghost: true,
+    };
+    for (const [element, title] of [["system", "Войти"], ["container", "Войти к компонентам"]] as const) {
+      const data: GhostData = { appNode: { ...base, element_effective: element } as unknown as GhostNode, colors, onEnter: vi.fn() };
+      const el = render(<ReactFlowProvider><Ghost id="g" data={data} /></ReactFlowProvider>).container;
+      expect(el.querySelectorAll("button")).toHaveLength(1);
+      expect(el.querySelector("button")?.getAttribute("title")).toBe(title);
+    }
+  });
+
+  it("гость-система с детьми — бейдж детей с глифом-деревом; гость-лист — ни кнопки, ни бейджа", () => {
     const ghost = {
       id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
       status: "existing", node_depth: 1, has_children: true, child_count: 4, ancestors: [], is_ghost: true,
@@ -265,13 +295,13 @@ describe("блок и свёрнутый гостевой контейнер —
     } as unknown as GhostNode;
     const data: GhostData = { appNode: ghost, colors, onEnter: vi.fn() };
     const el = render(<ReactFlowProvider><Ghost id="g" data={data} /></ReactFlowProvider>).container;
-    expect(el.querySelector('button[title="Войти к компонентам"]')).not.toBeNull();
+    expect(el.querySelector('button[title="Войти"]')).not.toBeNull();
     expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
     expect(el.textContent).toContain("4");
     // гость-лист — ни кнопки, ни бейджа
     const leaf: GhostData = { appNode: { ...ghost, has_children: false, child_count: 0 }, colors, onEnter: vi.fn() };
     const el2 = render(<ReactFlowProvider><Ghost id="g2" data={leaf} /></ReactFlowProvider>).container;
-    expect(el2.querySelector('button[title="Войти к компонентам"]')).toBeNull();
+    expect(el2.querySelector("button")).toBeNull();
     expect(el2.querySelectorAll('circle[r="2.3"]')).toHaveLength(0);
   });
 
@@ -284,18 +314,25 @@ describe("блок и свёрнутый гостевой контейнер —
     }
   });
 
-  it("свёрнутый гостевой контейнер — всегда зона входа, подпись «контейнер», лупа и «Войти к компонентам»", () => {
-    const data = {
-      id: "c", name: "Витрина", depth: 1, ancestors: [], colors,
-      onExpand: vi.fn(), onEnter: vi.fn(), expandLimited: false, connectable: false,
-    } as unknown as ContainerData;
-    const el = render(<ReactFlowProvider><Container id="c" data={data} /></ReactFlowProvider>).container;
-    expect(el.querySelector("[data-into]")?.getAttribute("data-into")).toBe("1");
-    expect(el.querySelector(".lg-into-cue")).not.toBeNull();
-    expect(el.textContent).toContain("контейнер");
-    expect(el.textContent).toContain("Витрина");
-    expect(el.querySelector('button[title="Войти к компонентам"]')).not.toBeNull();
-    expect(el.querySelector('button[title="Раскрыть содержимое"]')).not.toBeNull();
-    expect(el.querySelector('rect[stroke-dasharray="5 3"]')).not.toBeNull();
+  it("свёрнутый гостевой контейнер — всегда зона входа, подпись и «Войти» по элементу, лупа", () => {
+    const cases: [ContainerData["element"], string, string][] = [
+      ["system", "система", "Войти"],
+      ["container", "контейнер", "Войти к компонентам"],
+      ["component", "компонент", "Войти к компонентам"],
+    ];
+    for (const [element, caption, title] of cases) {
+      const data = {
+        id: "c", name: "Витрина", depth: 1, ancestors: [], colors, element,
+        onExpand: vi.fn(), onEnter: vi.fn(), expandLimited: false, connectable: false,
+      } as unknown as ContainerData;
+      const el = render(<ReactFlowProvider><Container id="c" data={data} /></ReactFlowProvider>).container;
+      expect(el.querySelector("[data-into]")?.getAttribute("data-into")).toBe("1");
+      expect(el.querySelector(".lg-into-cue")).not.toBeNull();
+      // подпись элемента — над именем (у составного компонента — «компонент»)
+      expect(el.textContent).toContain(`${caption}Витрина`);
+      expect(el.querySelector(`button[title="${title}"]`)).not.toBeNull();
+      expect(el.querySelector('button[title="Раскрыть содержимое"]')).not.toBeNull();
+      expect(el.querySelector('rect[stroke-dasharray="5 3"]')).not.toBeNull();
+    }
   });
 });
