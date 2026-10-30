@@ -50,12 +50,18 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   );
 }
 
-// Бейдж «есть дети»: глиф-дерево (узел-родитель сверху, ветви к детям вниз) + число
-// прямых детей. Показывается у узлов с под-схемой — сигнал «сюда можно войти», читаемый
-// без вглядывания в кнопки. Цвет наследует text-цвет узла. child_count считает бэкенд.
-// На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2), total — все дети по БД:
-// при расхождении бейдж показывает «N из M» (сколько на схеме из скольких всего).
-function ChildrenBadge({ count, total, color }: { count: number; total?: number; color: string }) {
+// Бейдж «есть дети»: глиф + число прямых детей. Показывается у узлов с под-схемой —
+// сигнал «сюда можно войти», читаемый без вглядывания в кнопки. Глиф — по элементу
+// архитектуры (Р21): у системы дерево (узел-родитель сверху, ветви к детям вниз), у
+// контейнера и составного компонента — четыре квадратика «компоненты» (вложенные у них —
+// компоненты). Признак в DOM — data-glyph="tree" | "grid". Цвет наследует text-цвет узла.
+// child_count считает бэкенд. На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2),
+// total — все дети по БД: при расхождении бейдж показывает «N из M» (сколько на схеме из
+// скольких всего).
+function ChildrenBadge({ count, total, color, element }: {
+  count: number; total?: number; color: string; element: FrameElement;
+}) {
+  const grid = element !== "system";
   return (
     <span style={{
       position: "absolute", right: 12, bottom: 12, zIndex: 1,
@@ -65,12 +71,24 @@ function ChildrenBadge({ count, total, color }: { count: number; total?: number;
     }}>
       <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
         stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
-        style={{ display: "block" }} aria-hidden>
-        <circle cx="12" cy="6" r="2.3" />
-        <circle cx="6" cy="18" r="2.3" />
-        <circle cx="18" cy="18" r="2.3" />
-        <path d="M12 8.3 V13" />
-        <path d="M6 15.7 V13 H18 V15.7" />
+        style={{ display: "block" }} aria-hidden data-glyph={grid ? "grid" : "tree"}>
+        {grid ? (
+          // компоненты: сетка 2×2 квадратиков 7×7 с зазором 2, по центру поля 24×24
+          <>
+            <rect x="4" y="4" width="7" height="7" rx="1.5" />
+            <rect x="13" y="4" width="7" height="7" rx="1.5" />
+            <rect x="4" y="13" width="7" height="7" rx="1.5" />
+            <rect x="13" y="13" width="7" height="7" rx="1.5" />
+          </>
+        ) : (
+          <>
+            <circle cx="12" cy="6" r="2.3" />
+            <circle cx="6" cy="18" r="2.3" />
+            <circle cx="18" cy="18" r="2.3" />
+            <path d="M12 8.3 V13" />
+            <path d="M6 15.7 V13 H18 V15.7" />
+          </>
+        )}
       </svg>
       {total !== undefined && total > count ? `${count} из ${total}` : count}
     </span>
@@ -429,7 +447,12 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && <ChildrenBadge count={childCount} total={data.appNode.child_count} color={c.text} />}
+      {intoZone && (
+        <ChildrenBadge
+          count={childCount} total={data.appNode.child_count} color={c.text}
+          element={frameElement(data.appNode.element_effective)}
+        />
+      )}
       {/* Пометка хозяина проекции («1/2» на холсте развёртывания) — тот же угол. */}
       {data.mark && <MarkBadge text={data.mark} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
@@ -496,7 +519,9 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
         </div>
       )}
       {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter. */}
-      {hasChildren && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
+      {hasChildren && (
+        <ChildrenBadge count={data.appNode.child_count} color={c.text} element={frameElement(data.appNode.element_effective)} />
+      )}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren ? 34 : 0 }}>

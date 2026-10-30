@@ -243,11 +243,34 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.textContent).toContain("3");
   });
 
-  it("бейдж детей у сервиса с детьми — глиф-дерево и число прямых детей", () => {
-    const el = renderBlock(blockData({ has_children: true, child_count: 3 }, { onExpand: vi.fn() }));
-    // дерево: три кружка (родитель и два ребёнка) и ветви
-    expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
-    expect(el.textContent).toContain("3");
+  it("бейдж детей по элементу: система — дерево, контейнер и составной компонент — квадратики", () => {
+    const cases: [AppNode["element_effective"], "tree" | "grid"][] = [
+      ["system", "tree"], ["container", "grid"], ["component", "grid"], [null, "tree"],
+    ];
+    for (const [element, glyph] of cases) {
+      const el = renderBlock(blockData({ has_children: true, child_count: 3, element_effective: element }, { onExpand: vi.fn() }));
+      const svg = el.querySelector("svg[data-glyph]");
+      expect(svg?.getAttribute("data-glyph")).toBe(glyph);
+      // дерево — три кружка и ветви; компоненты — четыре квадратика 7×7
+      expect(svg?.querySelectorAll("circle")).toHaveLength(glyph === "tree" ? 3 : 0);
+      expect(svg?.querySelectorAll('rect[width="7"][height="7"]')).toHaveLength(glyph === "grid" ? 4 : 0);
+      // число — прямые дети, как прежде
+      expect(svg?.parentElement?.textContent).toBe("3");
+    }
+  });
+
+  it("бейдж детей гостя — по его элементу; число «N из M» на странице прежнее", () => {
+    const ghost = {
+      id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
+      status: "existing", node_depth: 1, has_children: true, child_count: 5, ancestors: [], is_ghost: true,
+      element_effective: "container",
+    } as unknown as GhostNode;
+    const el = render(<ReactFlowProvider><Ghost id="g" data={{ appNode: ghost, colors } satisfies GhostData} /></ReactFlowProvider>).container;
+    expect(el.querySelector("svg[data-glyph]")?.getAttribute("data-glyph")).toBe("grid");
+    expect(el.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("5");
+    // read-only страница: релевантные дети из всех
+    const page = renderBlock(blockData({ has_children: true, child_count: 4, element_effective: "container" }, { badgeCount: 2, onExpand: vi.fn() }));
+    expect(page.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("2 из 4");
   });
 
   it("лупа на пределе глубины — неактивна, подсказка про предел словами продукта", () => {
