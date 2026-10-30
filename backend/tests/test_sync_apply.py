@@ -434,9 +434,11 @@ def test_apply_брокер_корневого_контейнера_на_вер�
         "      - name: Kafka\n        shape: broker\n"
     )
     p, _user = _project(db, живой)
+    # Без галочки всё, что прогон кладёт внутрь живого контейнера, вне зоны синка.
+    assert _plan(db, p, прогон).nodes[1:] == []
 
-    report = _apply(db, p, прогон)
+    report = _apply(db, p, прогон, sync_components=True)
 
     assert report.created_nodes == ["orders / Kafka"]
     assert _node(db, p.id, "Kafka").parent_id is None
-    assert _plan(db, p, прогон).is_noop
+    assert _plan(db, p, прогон, sync_components=True).is_noop

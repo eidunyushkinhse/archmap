@@ -21,6 +21,16 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 базу там, где её создал первый, и план пуст (фикспойнт). Путь действия остаётся путём
 прогона — по нему связи находят концы.
 
+Зона синка (что синк рассматривает без галочки «компоненты») — по элементу архитектуры:
+компоненты — всё, что лежит ВНУТРИ контейнера, на любой глубине, — вне зоны; системы
+вкладываются друг в друга сколько угодно, и их объекты в зоне на любой глубине. Узел
+прогона вне зоны, если над ним контейнер: предок в прогоне с элементом «контейнер» или
+ближайший смэтченный живой предок — контейнер (заданный элемент) или его компонент.
+Живые «пропавшие» — только узлы не внутри живого контейнера. Запасной путь: элемент не
+задан нигде — ни в прогоне, ни в живом проекте (старые проекты и старые YAML), — тогда
+зона прежняя, по глубине прогона (_CONTAINER_DEPTH). Хоть один элемент с любой стороны —
+зона по элементу.
+
 Политики — защита от того, что прогон агента недетерминирован (см. анализ дыр):
 проза и имена дрейфуют, состав слоя компонентов нестабилен, а пропажа узла из
 одного прогона ещё не значит, что сервиса больше нет. Поэтому по умолчанию синк
@@ -44,9 +54,12 @@ from app.models.edge import Edge
 from app.models.node import Node
 from app.text import identity_name
 
-# Глубина дерева импорта: 1 — корень-система, 2 — контейнеры, 3+ — компоненты.
+# Запасной путь зоны синка, когда элемент архитектуры не задан нигде (старые проекты и
+# YAML): глубина дерева прогона, 1 — корень-система, 2 — контейнеры, 3+ — компоненты.
 # Слой компонентов вне синка по умолчанию (его состав меняется от прогона к прогону).
 _CONTAINER_DEPTH = 2
+# Предел глубины при галочке «компоненты» — с ней синк рассматривает всё.
+_ALL_DEPTH = 32
 
 
 @dataclass
@@ -60,8 +73,10 @@ class SyncPolicies:
     # такая же ручная правка, как описание (переименование ВИДНО в плане и без
     # применения, потому что якорь уже связал узлы).
     update_names: bool = False
-    # Синхронизировать слой компонентов (глубина 3+). Выключено: состав слоя
-    # нестабилен и утопил бы настоящий diff в шуме.
+    # Синхронизировать и компоненты контейнеров — всё, что лежит внутри контейнера, на
+    # любой глубине (без элементов в прогоне и проекте — глубина прогона 3+, запасной
+    # путь). Выключено: состав компонентов от прогона к прогону нестабилен и утопил бы
+    # настоящий diff в шуме.
     sync_components: bool = False
     # Пропавшим из прогона узлам ставить status=deprecated. Выключено: пропажа
     # может означать, что репозиторий просто не прогнали. УДАЛЕНИЯ НЕТ НИКОГДА.
@@ -213,6 +228,9 @@ class _Matcher:
         self.imp_to_live: dict[int, Node] = {}
         self.imp_paths: list[str] = []
         self.skipped: set[int] = set()  # компоненты вне синка (вместе с поддеревом)
+        # Зона синка по элементу архитектуры (иначе — запасной путь по глубине прогона);
+        # решается в walk_import, когда виден и прогон.
+        self.by_element = False
         # Элементы архитектуры живой схемы — для правила элемента при доливке (Р5, Р6).
         # Долитое планом записывается и сюда: следующий узел прогона проверяется уже
         # против дерева с ним.
@@ -337,9 +355,7 @@ class _Matcher:
         anchor = self._live_anchor(parsed, idx)
         if anchor is None:
             return None
-        if self._elements is None:
-            self._elements = build_elements(self.element_rows.values())
-        cid = self._elements.container_of(anchor.id)
+        cid = self._live_elements().container_of(anchor.id)
         if cid is None or (cid == anchor.id and self.element_rows[cid].element != CONTAINER):
             return None
         container = self.by_id[cid]
@@ -355,17 +371,55 @@ class _Matcher:
             f"{tail}"
         )
 
+    def _live_elements(self) -> Elements[uuid.UUID]:
+        """Элементы живого дерева с уже долитыми планом значениями (element_rows)."""
+        if self._elements is None:
+            self._elements = build_elements(self.element_rows.values())
+        return self._elements
+
+    def _under_container(self, parsed: ParsedImport, idx: int) -> bool:
+        """Узел прогона лежит внутри контейнера — компонент, вне зоны синка по умолчанию:
+        предок в прогоне с элементом «контейнер» или ближайший смэтченный живой предок —
+        контейнер (заданный элемент; у листа без него — нет: с детьми он станет
+        системой) или компонент живого контейнера."""
+        cur = parsed.nodes[idx].parent_idx
+        # Подъём с пределом шагов: дерево прогона без циклов, но обход на это не полагается.
+        for _ in range(len(parsed.nodes)):
+            if cur is None:
+                break
+            if parsed.nodes[cur].element == CONTAINER:
+                return True
+            cur = parsed.nodes[cur].parent_idx
+        anchor = self._live_anchor(parsed, idx)
+        if anchor is None:
+            return False
+        return (
+            self.element_rows[anchor.id].element == CONTAINER
+            or self._live_elements().effective(anchor.id) == "component"
+        )
+
+    def _out_of_zone(self, parsed: ParsedImport, idx: int) -> bool:
+        """Узел прогона вне зоны синка (правило — в шапке модуля)."""
+        if self.policies.sync_components:
+            return self._depth(parsed, idx) > _ALL_DEPTH
+        if self.by_element:
+            return self._under_container(parsed, idx)
+        return self._depth(parsed, idx) > _CONTAINER_DEPTH
+
     def walk_import(self, parsed: ParsedImport) -> None:
-        max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH
+        # Запасной путь по глубине — только когда элемента нет ни с одной стороны.
+        self.by_element = any(n.element is not None for n in parsed.nodes) or any(
+            r.element is not None for r in self.element_rows.values()
+        )
         for i, imp in enumerate(parsed.nodes):
             parent_idx = imp.parent_idx
             prefix = self.imp_paths[parent_idx] if parent_idx is not None else ""
             self.imp_paths.append(f"{prefix} / {imp.name}" if prefix else imp.name)
             # Компоненты вне синка — пропускаем вместе с поддеревом (их родитель
             # уже пропущен, иначе они искались бы среди корней).
-            if (parent_idx is not None and parent_idx in self.skipped) or self._depth(
+            if (parent_idx is not None and parent_idx in self.skipped) or self._out_of_zone(
                 parsed, i
-            ) > max_depth:
+            ):
                 self.skipped.add(i)
                 continue
             parent_live = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
@@ -485,15 +539,20 @@ class _Matcher:
 
     def collect_missing(self) -> None:
         """Живые узлы зоны синка, которых прогон не показал. Зона — поддеревья
-        смэтченных корней: узлы чужих корней и ручные ветки глубже порога синк не
-        касается. Действие информативно, пока не включён mark_missing_deprecated."""
+        смэтченных корней без компонентов живых контейнеров (запасной путь — без
+        ветвей глубже порога): узлы чужих корней и компоненты синк не касается.
+        Действие информативно, пока не включён mark_missing_deprecated."""
         matched_roots = [
             n for n in self.children.get(None, []) if n.id in self.taken
         ]
-        max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH
+        by_depth = self.policies.sync_components or not self.by_element
+        max_depth = _ALL_DEPTH if self.policies.sync_components else _CONTAINER_DEPTH
 
         def walk(node: Node, path: str, depth: int) -> None:
-            if depth > max_depth:
+            if by_depth and depth > max_depth:
+                return
+            # Компонент живого контейнера — вне зоны вместе с поддеревом.
+            if not by_depth and self._live_elements().effective(node.id) == "component":
                 return
             if node.id not in self.taken:
                 self.plan.nodes.append(
