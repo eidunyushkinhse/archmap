@@ -176,9 +176,12 @@ function NodePageInner({
   // унести их было бы нечем.
   const legacyLogic = !allow.logic && node.docs.length > 0;
   const legacySpec = !allow.spec && !!node.openapi_spec;
-  // Правила контейнеров: непосредственные дети и их объединённые данные
-  // (доки/спеки/технологии). Не контейнер — хук не фетчит.
-  const container = useContainerChildren(node.id, isContainer);
+  // Система (элемент с сервера): сама не запускается — сводная технология потомков (Р15),
+  // статус из вложенных объектов (Р14), перенос своей документации вниз (Р19).
+  const isSystem = isContainer && node.element_effective === "system";
+  // Потомки узла с детьми и их объединённые данные (доки/спеки/технология). Лист — хук
+  // не фетчит.
+  const container = useContainerChildren(node.id, isContainer, { docs: true, tech: isSystem });
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -270,8 +273,6 @@ function NodePageInner({
     setPageEpoch((e) => e + 1);
   }, [refreshNode, isContainer, reloadChildren, syncCursors]);
   const facts = useFactsTransfer(node, isArchitect, pageEpoch, handleFactsMoved);
-  // Перенос вниз не на месте только у системы: у контейнера спецификация и конфигурация свои.
-  const isSystem = node.element_effective === "system";
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
@@ -449,10 +450,12 @@ function NodePageInner({
         <Fragment key={pageEpoch}>
         <NodeProperties
           patch={patch}
+          ancestors={ancestors}
           isArchitect={isArchitect}
-          isContainer={isContainer}
+          isSystem={isSystem}
           techLoading={container.loading}
           aggTech={container.aggTech}
+          onNavigateNode={onNavigateNode}
           onPlacementChanged={handlePlacementChanged}
         />
 

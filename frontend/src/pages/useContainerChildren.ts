@@ -15,6 +15,10 @@
 // чистые функции над ними, useContainerChildren — их композиция для страницы объекта.
 // Инспектору редактора нужна только технология: он берёт useDescendants и aggregateTech,
 // не считая групп впустую.
+//
+// Элемент архитектуры (docs/plan-c4-elements.md) решает, что из этого нужно странице:
+// потомки грузятся у любого узла с детьми (единицы статуса системы), сводная технология —
+// только у системы (Р15), группы документации — по scope.docs.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Node, NodeDocMeta } from "../types";
 import { compareByRank } from "../types";
@@ -162,7 +166,15 @@ export function aggregateTech(descendants: Node[]): string {
   return [...seen].join(", ");
 }
 
-export function useContainerChildren(nodeId: string, isContainer: boolean): ContainerChildrenState {
+// Что считать над загруженными потомками: группы документации и сводную технологию.
+export interface ContainerChildrenScope {
+  docs: boolean;
+  tech: boolean;
+}
+
+export function useContainerChildren(
+  nodeId: string, isContainer: boolean, scope: ContainerChildrenScope,
+): ContainerChildrenState {
   const { descendants, reload } = useDescendants(nodeId, isContainer);
 
   // Непосредственные дети: потомки с parent_id === nodeId.
@@ -176,10 +188,13 @@ export function useContainerChildren(nodeId: string, isContainer: boolean): Cont
     [descendants],
   );
   const groups = useMemo(
-    () => (descendants ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
-    [descendants, nodeId],
+    () => (descendants && scope.docs ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
+    [descendants, nodeId, scope.docs],
   );
-  const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
+  const aggTech = useMemo(
+    () => (descendants && scope.tech ? aggregateTech(descendants) : ""),
+    [descendants, scope.tech],
+  );
 
   return {
     children,

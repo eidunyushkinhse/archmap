@@ -5,7 +5,7 @@
 // не управляется — единый раздел «Документация» ведёт на страницу узла.
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { DeletionSnapshot, Node, NodeElement, NodeShape, NodeStatus } from "../../types";
+import type { AncestorRef, DeletionSnapshot, Node, NodeElement, NodeShape, NodeStatus } from "../../types";
 import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
@@ -18,10 +18,15 @@ import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
-import { elementView, useElementPick, type ElementView } from "../element/useElementPick";
+import { useElementPick } from "../element/useElementPick";
+import { elementView, type ElementView } from "../element/elementView";
+import { ElementHelp, ElementValue } from "../element/ElementParts";
 
 interface Props {
   node: Node;
+  // Предки узла от корня (крошки уровня и раскрытые рамки над ним): по ним строка
+  // «Элемент архитектуры» находит контейнер компонента для ссылки.
+  ancestors: readonly AncestorRef[];
   isArchitect: boolean;
   // Тот же обработчик, что у модалки: кладёт правку в Undo/Redo. before — узел ДО правки.
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
@@ -37,7 +42,7 @@ const noticeStyle: CSSProperties = {
   borderRadius: 8, padding: "6px 10px", fontSize: 12.5, margin: "0 0 10px",
 };
 
-export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
+export default function NodeInspector({ node, ancestors, isArchitect, onNodeSaved, onNodeDeleted, onNavigateNode }: Props) {
   // Правка по blur (тексты) / сразу (тогл, статус, тип) с CAS и 409-ресинком — тот же
   // хук, что на странице объекта. Успешная правка ложится в Undo редактора: хук отдаёт
   // узел ДО правки вторым аргументом. Значения полей сбрасываются на смену выбора:
@@ -58,13 +63,17 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   // остаётся прежним, потому что прошлое значение никто не перетирал.
   const shape = node.shape;
   const isPerson = shape === "person";
-  const isContainer = nodeNesting(node) === "group";
-  // Агрегированная технология потомков для контейнера: по правилам у контейнера
-  // нет своей технологии — показываем сумму технологий потомков, read-only
-  // (как на странице узла). Для не-контейнеров хук ничего не фетчит.
-  const { descendants } = useDescendants(node.id, isContainer);
+  // Узел с детьми: форма у него всегда «Сервис» (сервер отказывает в смене), поэтому
+  // строки «Тип» нет — тип говорит строка «Элемент архитектуры» (Р24).
+  const isGroup = nodeNesting(node) === "group";
+  // Сводная технология потомков, только чтение — ТОЛЬКО у системы (Р15): она сама не
+  // запускается, её технология — сумма её контейнеров. У контейнера с компонентами и у
+  // составного компонента технология своя и правится, как у листа. Не система — хук
+  // ничего не фетчит.
+  const isSystem = isGroup && node.element_effective === "system";
+  const { descendants } = useDescendants(node.id, isSystem);
   const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
-  const techLoading = isContainer && descendants === null;
+  const techLoading = isSystem && descendants === null;
 
   // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
   // плодит пустых записей истории).
@@ -86,7 +95,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
       {error && <p style={noticeStyle}>{error}</p>}
       {/* Шапка-идентификатор: глиф формы + имя + строка типа */}
       <div className="insp-head">
-        <span className="insp-headglyph"><ShapeGlyph container={isContainer} shape={shape} /></span>
+        <span className="insp-headglyph"><ShapeGlyph container={isGroup} shape={shape} /></span>
         <div className="insp-headmain">
           {isArchitect ? (
             <input
@@ -121,50 +130,54 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
       {/* Список меты «терм → значение» (в узкой панели — терм над значением) */}
       <dl className="insp-meta insp-meta--stacked">
-        <MetaRow icon={META_ICON.type} label="Тип">
-          {isArchitect ? (
-            <span className="insp-value">
-              <span className="insp-selwrap">
-                <button
-                  type="button"
-                  className="insp-field insp-select"
-                  onClick={() => setShapeOpen((o) => !o)}
-                  aria-haspopup="listbox"
-                  aria-expanded={shapeOpen}
-                >
-                  <span className="insp-select-label">{SHAPE_LABEL[shape]}</span>
-                  <span className="insp-chev"><ChevronDown /></span>
-                </button>
-                {shapeOpen && (
-                  <>
-                    <div className="insp-backdrop" onClick={() => setShapeOpen(false)} />
-                    <ul className="insp-menu" role="listbox">
-                      {SHAPE_ORDER.map((sh) => (
-                        <li
-                          key={sh}
-                          role="option"
-                          aria-selected={sh === shape}
-                          onClick={() => pickShape(sh)}
-                        >
-                          {SHAPE_LABEL[sh]}
-                          {sh === shape && <span className="insp-menu-check"><CheckMark /></span>}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
+        {/* Тип — только у листа: у узла с детьми форма всегда «Сервис» (Р24). */}
+        {!isGroup && (
+          <MetaRow icon={META_ICON.type} label="Тип">
+            {isArchitect ? (
+              <span className="insp-value">
+                <span className="insp-selwrap">
+                  <button
+                    type="button"
+                    className="insp-field insp-select"
+                    onClick={() => setShapeOpen((o) => !o)}
+                    aria-haspopup="listbox"
+                    aria-expanded={shapeOpen}
+                  >
+                    <span className="insp-select-label">{SHAPE_LABEL[shape]}</span>
+                    <span className="insp-chev"><ChevronDown /></span>
+                  </button>
+                  {shapeOpen && (
+                    <>
+                      <div className="insp-backdrop" onClick={() => setShapeOpen(false)} />
+                      <ul className="insp-menu" role="listbox">
+                        {SHAPE_ORDER.map((sh) => (
+                          <li
+                            key={sh}
+                            role="option"
+                            aria-selected={sh === shape}
+                            onClick={() => pickShape(sh)}
+                          >
+                            {SHAPE_LABEL[sh]}
+                            {sh === shape && <span className="insp-menu-check"><CheckMark /></span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </span>
               </span>
-            </span>
-          ) : (
-            <span className="insp-value">{SHAPE_LABEL[shape]}</span>
-          )}
-        </MetaRow>
+            ) : (
+              <span className="insp-value">{SHAPE_LABEL[shape]}</span>
+            )}
+          </MetaRow>
+        )}
 
         <ElementRow
-          view={elementView(node, isArchitect)}
+          view={elementView(node, isArchitect, ancestors)}
           open={elementOpen}
           setOpen={setElementOpen}
           onPick={element.pick}
+          onNavigateNode={onNavigateNode}
         />
 
         <MetaRow icon={META_ICON.membership} label="Принадлежность">
@@ -239,7 +252,7 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
                 value={role}
                 onChange={(e) => patch.setRole(e.target.value)}
                 onBlur={patch.commitRole}
-                placeholder="сервис, БД, брокер…"
+                placeholder="API, воркер, шлюз…"
               />
             </span>
           ) : (
@@ -251,8 +264,8 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
 
         {!isPerson && (
           <MetaRow icon={META_ICON.tech} label="Технология">
-            {isContainer ? (
-              // Контейнер: агрегированная технология потомков, только чтение.
+            {isSystem ? (
+              // Система: сводная технология потомков, только чтение.
               <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
                 {techLoading ? "…" : aggTech || "не указана"}
               </span>
@@ -317,19 +330,21 @@ export default function NodeInspector({ node, isArchitect, onNodeSaved, onNodeDe
   );
 }
 
-// Строка «Элемент архитектуры» сразу под «Типом»: выпадашка того же вида, что «Статус»,
-// пункты в две строки (подпись и пояснение), или текст только для чтения.
-function ElementRow({ view, open, setOpen, onPick }: {
+// Строка «Элемент архитектуры» сразу под «Типом» (у узла с детьми — первая): выпадашка
+// того же вида, что «Статус», пункты в две строки (подпись и пояснение), или текст только
+// для чтения — у компонента с именем контейнера-ссылкой. Справка «?» — у термина.
+function ElementRow({ view, open, setOpen, onPick, onNavigateNode }: {
   view: ElementView;
   open: boolean;
   setOpen: (open: boolean) => void;
   onPick: (value: NodeElement) => void;
+  onNavigateNode: (id: string) => void;
 }) {
   if (view.kind === "none") return null;
   return (
-    <MetaRow icon={META_ICON.type} label="Элемент архитектуры">
-      {view.kind === "text" ? (
-        <span className="insp-value">{view.text}</span>
+    <MetaRow icon={META_ICON.type} label="Элемент архитектуры" help={<ElementHelp />}>
+      {view.kind !== "pick" ? (
+        <span className="insp-value"><ElementValue view={view} onNavigateNode={onNavigateNode} /></span>
       ) : (
         <span className="insp-value">
           <span className="insp-selwrap">

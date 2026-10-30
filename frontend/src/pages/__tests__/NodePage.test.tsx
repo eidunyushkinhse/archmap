@@ -372,8 +372,11 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
-  it("технология — агрегированная из детей, только чтение", async () => {
+  it("система: технология — агрегированная из детей, только чтение", async () => {
+    // Сводная технология — только у системы (Р15 эпика «Элемент архитектуры»): у
+    // контейнера с компонентами технология своя и правится.
     setupContainer({
+      own: { element_effective: "system" },
       children: [
         node("k1", { name: "А-сервис", technology: "Python" }),
         node("k2", { name: "Б-шлюз", technology: "Kafka" }),
@@ -381,8 +384,17 @@ describe("NodePage: правила контейнеров", () => {
       ],
     });
     expect(await screen.findByText("Python, Kafka")).toBeInTheDocument();
-    // Своего поля technology у контейнера нет — инпута с ним быть не должно
+    // Своего поля technology у системы нет — инпута с ним быть не должно
     expect(screen.queryByDisplayValue("Python")).not.toBeInTheDocument();
+  });
+
+  it("контейнер с компонентами: своя технология полем, сводной нет", async () => {
+    setupContainer({
+      own: { element: "container", element_effective: "container", technology: "Go" },
+      children: [node("k1", { name: "api", technology: "Python", element_effective: "component" })],
+    });
+    expect(await screen.findByDisplayValue("Go")).toBeInTheDocument();
+    expect(screen.queryByText("Python")).not.toBeInTheDocument();
   });
 
   it("база с детьми — не контейнер: своя технология полем, потомков не запрашивает", async () => {
@@ -504,12 +516,20 @@ describe("NodePage: смена типа", () => {
   });
 
   it("отказ сервера виден на странице, а не проглатывается", async () => {
-    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    // У узла с детьми строки «Тип» нет (Р24 эпика «Элемент архитектуры»): отказ — на базе
+    // с описанной структурой.
+    const причина = "У узла описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
-    setupType({ shape: "service", has_children: true, child_count: 1 });
-    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
-    await userEvent.click(screen.getByText("База данных"));
+    setupType({ shape: "database" });
+    await userEvent.click(await screen.findByRole("button", { name: "База данных" }));
+    await userEvent.click(screen.getByText("Брокер сообщений"));
     expect(await screen.findByText(причина)).toBeInTheDocument();
+  });
+
+  it("у узла с детьми строки «Тип» нет — тип говорит элемент архитектуры", async () => {
+    setupType({ shape: "service", has_children: true, child_count: 1, element_effective: "system" });
+    await screen.findByText("Элемент архитектуры");
+    expect(screen.queryByText("Тип")).not.toBeInTheDocument();
   });
 });
 

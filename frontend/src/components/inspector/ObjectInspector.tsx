@@ -4,7 +4,7 @@
 // двух местах значило путать, какой из переключателей главный (находка проверки
 // 2026-08-08). Одна область меты для наблюдателя и
 // архитектора: роли различает сам NodeInspector/EdgeInspector.
-import type { Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, LevelEdge } from "../../types";
+import type { AncestorRef, Edge, EdgeUpdate, DeletionSnapshot, GhostNode, Node, LevelEdge } from "../../types";
 import NodeInspector from "./NodeInspector";
 import EdgeInspector from "./EdgeInspector";
 import GhostInspector from "./GhostInspector";
@@ -20,6 +20,9 @@ export type Selected =
 
 interface Props {
   selected: Selected;
+  // Предки выбранного узла от корня (у гостя путь свой — ghost.ancestors): строка
+  // «Элемент архитектуры» берёт из них контейнер компонента.
+  nodeAncestors: readonly AncestorRef[];
   isArchitect: boolean;
   onNodeSaved: (saved: Node, isCreate: boolean, before?: Node) => void;
   onNodeDeleted: (id: string, snapshot: DeletionSnapshot) => void;
@@ -32,7 +35,7 @@ interface Props {
 }
 
 export default function ObjectInspector({
-  selected, isArchitect,
+  selected, nodeAncestors, isArchitect,
   onNodeSaved, onNodeDeleted, onEdgeSaved, onEdgeDeleted, onGhostGoToSource,
   onNavigateNode,
 }: Props) {
@@ -44,6 +47,7 @@ export default function ObjectInspector({
         <NodeInspector
           key={selected.node.id}
           node={selected.node}
+          ancestors={nodeAncestors}
           isArchitect={isArchitect}
           onNodeSaved={onNodeSaved}
           onNodeDeleted={onNodeDeleted}

@@ -107,7 +107,7 @@ describe("автозаполнение браузера в формах прод
 
   it("инспекторы объекта и связи", async () => {
     const node = render(
-      <NodeInspector node={NODE} isArchitect onNodeSaved={vi.fn()} onNodeDeleted={vi.fn()} onNavigateNode={vi.fn()} />,
+      <NodeInspector node={NODE} ancestors={[]} isArchitect onNodeSaved={vi.fn()} onNodeDeleted={vi.fn()} onNavigateNode={vi.fn()} />,
     );
     expectNoAutofill(node.container);
     node.unmount();

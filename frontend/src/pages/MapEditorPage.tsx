@@ -715,6 +715,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     return { kind: "node", id: selectedObject.node.id };
   }, [selectedObject]);
 
+  // Предки выбранного узла для панели свойств: крошки уровня и, если узел лежит в
+  // раскрытой рамке, её объект среди узлов уровня. Глубже (вторая раскрытая рамка)
+  // цепочка обрывается — строка «Элемент архитектуры» тогда назовёт контейнер текстом.
+  const selectedAncestors = useMemo((): AncestorRef[] => {
+    if (selectedObject?.kind !== "node") return breadcrumb;
+    return [...breadcrumb, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
+  }, [selectedObject, breadcrumb, nodes]);
+
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
     ? { key: currentParentId, title: "Экспорт поддерева", load: () => exportApi.subtree(currentParentId) }
@@ -962,7 +970,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           ) : (
             <div style={rightContent}>
               <ObjectInspector
-                selected={selectedObject} isArchitect={isArchitect}
+                selected={selectedObject} nodeAncestors={selectedAncestors} isArchitect={isArchitect}
                 onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
                 onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
                 onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}

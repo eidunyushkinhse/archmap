@@ -45,29 +45,31 @@ function site(id: string, name: string, kind: SiteOut["kind"], parent_id: string
 }
 const SITES = [site("aws", "AWS", "cloud"), site("k8s", "Кластер prod", "kubernetes", "aws"), site("vm1", "vm-1", "vm")];
 
-function Harness({ n, isArchitect, isContainer, onPlacementChanged }: {
-  n: Node; isArchitect: boolean; isContainer: boolean; onPlacementChanged: () => void;
+function Harness({ n, isArchitect, isSystem, onPlacementChanged }: {
+  n: Node; isArchitect: boolean; isSystem: boolean; onPlacementChanged: () => void;
 }) {
   const patch = useNodePatch(n);
   return (
     <NodeProperties
       patch={patch}
+      ancestors={[]}
       isArchitect={isArchitect}
-      isContainer={isContainer}
+      isSystem={isSystem}
       techLoading={false}
       aggTech=""
+      onNavigateNode={vi.fn()}
       onPlacementChanged={onPlacementChanged}
     />
   );
 }
 
-function setup(over: Partial<Node> = {}, opts: { isArchitect?: boolean; isContainer?: boolean } = {}) {
+function setup(over: Partial<Node> = {}, opts: { isArchitect?: boolean; isSystem?: boolean } = {}) {
   const onPlacementChanged = vi.fn();
   render(
     <Harness
       n={node(over)}
       isArchitect={opts.isArchitect ?? true}
-      isContainer={opts.isContainer ?? false}
+      isSystem={opts.isSystem ?? false}
       onPlacementChanged={onPlacementChanged}
     />,
   );
@@ -99,7 +101,7 @@ describe("NodeProperties: строка «Размещение»", () => {
   });
 
   it("у контейнера площадка, где стоит часть его объектов, помечена «часть объектов»", () => {
-    setup({ sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2 }, { isArchitect: false, isContainer: true });
+    setup({ sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2 }, { isArchitect: false, isSystem: true });
     expect(screen.getByText("Кластер prod")).toBeInTheDocument();
     expect(screen.getAllByText("часть объектов")).toHaveLength(1);
     expect(screen.getByText("vm-1")).toBeInTheDocument();
@@ -146,7 +148,7 @@ describe("NodeProperties: строка «Размещение»", () => {
       node({ id: "x", name: "API", parent_id: "n1", sites: [OWN_K8S] }),
       node({ id: "y", name: "Корзина", parent_id: "n1", sites: [] }),
     ]);
-    const onPlacementChanged = setup(SYSTEM, { isContainer: true });
+    const onPlacementChanged = setup(SYSTEM, { isSystem: true });
     await userEvent.click(editButton()!);
     const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ }) as HTMLInputElement;
     expect(k8s.checked).toBe(false);

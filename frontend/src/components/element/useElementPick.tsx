@@ -3,35 +3,12 @@
 // правка ложится в историю, как смена статуса; с последствиями истории нет (обратное
 // действие — та же смена роли). Отказ превью или записи — плашка правок (useNodePatch).
 import type { ReactNode } from "react";
-import type { Node, NodeElement } from "../../types";
+import type { NodeElement } from "../../types";
 import type { useNodePatch } from "../../pages/useNodePatch";
-import { ELEMENT_LABEL } from "../nodeTerms";
 import { hasConsequences } from "./elementChange";
 import { useConsequences } from "./useConsequences";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
-
-// Что показывает строка «Элемент архитектуры»: выбор (узел с детьми, редактор), текст
-// или ничего («Пользователь» — сам элемент C4 Person, строки нет).
-export type ElementView =
-  | { kind: "none" }
-  | { kind: "pick"; value: NodeElement }
-  | { kind: "text"; text: string };
-
-export function elementView(node: Node, canEdit: boolean): ElementView {
-  const effective = node.element_effective;
-  if (effective === null) return { kind: "none" };
-  if (effective === "component") {
-    return {
-      kind: "text",
-      text: node.container_name ? `Компонент контейнера «${node.container_name}»` : "Компонент",
-    };
-  }
-  // Лист — контейнер при любом хранимом значении (намерение у листа не показываем).
-  if (!node.has_children) return { kind: "text", text: ELEMENT_LABEL.container };
-  if (canEdit) return { kind: "pick", value: effective };
-  return { kind: "text", text: ELEMENT_LABEL[effective] };
-}
 
 export function useElementPick(patch: NodePatch): { pick: (value: NodeElement) => void; dialog: ReactNode } {
   const consequences = useConsequences();

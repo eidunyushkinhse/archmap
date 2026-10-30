@@ -14,9 +14,11 @@ const DD: Record<Layout, CSSProperties> = {
   column: { margin: 0, flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 4 },
 };
 
-export default function MetaRow({ icon, label, top = false, layout = "row", children }: {
+export default function MetaRow({ icon, label, help, top = false, layout = "row", children }: {
   icon: ReactNode;
   label: string;
+  // Справка «?» сразу за подписью терма (ui/InfoPopover) — у полей с неочевидным смыслом.
+  help?: ReactNode;
   // Терм по верхнему краю — у высоких значений (пикер с выпадашкой).
   top?: boolean;
   layout?: Layout;
@@ -27,6 +29,7 @@ export default function MetaRow({ icon, label, top = false, layout = "row", chil
       <dt className="insp-term">
         <span className="insp-term-ico">{icon}</span>
         {label}
+        {help}
       </dt>
       <dd style={DD[layout]}>{children}</dd>
     </div>

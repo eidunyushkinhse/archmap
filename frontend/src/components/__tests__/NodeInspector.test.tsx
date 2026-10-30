@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeInspector from "../inspector/NodeInspector";
 import { nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
-import type { Node } from "../../types";
+import type { AncestorRef, Node } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
@@ -47,6 +47,8 @@ function makeNode(over: Partial<Node> = {}): Node {
 }
 
 const cb = {
+  // Предки узла (крошки уровня): по ним строка «Элемент архитектуры» ищет контейнер.
+  ancestors: [],
   onNodeSaved: vi.fn(),
   onNodeDeleted: vi.fn(),
   onNavigateNode: vi.fn(),
@@ -200,7 +202,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
     expect(payload).toMatchObject({ name: "Hosts", base_version: 3, shape: "person", status: "existing" });
 
-    await userEvent.type(screen.getByPlaceholderText("сервис, БД, брокер…"), "агент");
+    await userEvent.type(screen.getByPlaceholderText("API, воркер, шлюз…"), "агент");
     await userEvent.tab();
     await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(second, false, first));
     expect(vi.mocked(nodesApi.update).mock.calls[1][1]).toMatchObject({ role: "агент", base_version: 4 });
@@ -220,7 +222,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     vi.mocked(nodesApi.get).mockResolvedValue(makeNode({ role: "чужая роль", version: 7 }));
     setup(makeNode());
 
-    await userEvent.type(screen.getByPlaceholderText("сервис, БД, брокер…"), "моя роль");
+    await userEvent.type(screen.getByPlaceholderText("API, воркер, шлюз…"), "моя роль");
     await userEvent.tab();
 
     expect(await screen.findByText(/изменён в другой сессии/)).toBeInTheDocument();
@@ -323,5 +325,77 @@ describe("NodeInspector: элемент архитектуры", () => {
     expect(screen.getByText("Элемент архитектуры")).toBeInTheDocument();
     expect(screen.getByText("Контейнер")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Контейнер/ })).not.toBeInTheDocument();
+  });
+});
+
+// ── Ф8: справка «?», скрытый «Тип», ссылка компонента, технология по элементу ─────
+// Р24: у узла с детьми строки «Тип» нет (форма всегда «Сервис»), «Элемент архитектуры» —
+// первая строка; у компонента имя контейнера — ссылка на его страницу (контейнер берётся
+// из цепочки предков). Р15: сводная технология только у системы.
+describe("NodeInspector: элемент архитектуры по Ф8", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const ancestor = (id: string, name: string, element_effective: AncestorRef["element_effective"]): AncestorRef =>
+    ({ id, name, is_external: false, element_effective });
+  const terms = () => [...document.querySelectorAll(".insp-term")].map((t) => t.textContent);
+
+  it("у узла с детьми строки «Тип» нет, «Элемент архитектуры» первая; у листа «Тип» на месте", () => {
+    const { unmount } = setup(makeNode({
+      shape: "service", has_children: true, child_count: 2, element: "container", element_effective: "container",
+    }));
+    expect(terms()[0]).toBe("Элемент архитектуры");
+    expect(terms()).not.toContain("Тип");
+    unmount();
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    expect(terms().slice(0, 2)).toEqual(["Тип", "Элемент архитектуры"]);
+  });
+
+  it("«?» у термина открывает справку о системе, контейнере и компоненте", async () => {
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    await userEvent.click(screen.getByRole("button", { name: "Что такое система, контейнер и компонент" }));
+    const help = screen.getByRole("dialog", { name: "Что такое система, контейнер и компонент" });
+    for (const head of ["Контейнер.", "Компонент.", "Система.", "Как выбрать."]) {
+      expect(help).toHaveTextContent(head);
+    }
+    expect(help.textContent).not.toMatch(/[Сс]пек/);
+  });
+
+  it("компонент: имя контейнера — ссылка на его страницу, контейнер — из предков", async () => {
+    render(<NodeInspector
+      {...cb}
+      ancestors={[ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")]}
+      node={makeNode({ shape: "service", element_effective: "component", container_name: "orders" })}
+      isArchitect
+    />);
+    const link = screen.getByRole("button", { name: "«orders»" });
+    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+    await userEvent.click(link);
+    expect(cb.onNavigateNode).toHaveBeenCalledWith("c");
+  });
+
+  it("компонент без контейнера в цепочке — имя текстом, без ссылки", () => {
+    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }));
+    expect(screen.getByText("Компонент контейнера «orders»")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "«orders»" })).not.toBeInTheDocument();
+  });
+
+  it("внешний лист — «Внешняя система»", () => {
+    setup(makeNode({ shape: "service", is_external: true, element_effective: "container" }));
+    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+  });
+
+  it("технология: у контейнера с компонентами — своя полем, у системы — сводная", async () => {
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue([
+      makeNode({ id: "k1", shape: "service", technology: "Go" }),
+      makeNode({ id: "k2", shape: "service", technology: "Python" }),
+    ]);
+    const group = { shape: "service" as const, has_children: true, child_count: 2, technology: "Java" };
+    const { unmount } = setup(makeNode({ ...group, element: "container", element_effective: "container" }));
+    expect(screen.getByDisplayValue("Java")).toBeInTheDocument();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+    unmount();
+    setup(makeNode({ ...group, element_effective: "system" }));
+    expect(await screen.findByText("Go, Python")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("Java")).not.toBeInTheDocument();
   });
 });

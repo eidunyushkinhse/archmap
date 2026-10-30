@@ -1,10 +1,11 @@
-// Карточка «Свойства» страницы объекта (аудит F-5): тип, принадлежность, статус, роль,
-// технология, якорь, размещение, описание — у архитектора правкой на месте (inline CAS
-// через useNodePatch; размещение — окном), у наблюдателя текстом. Выпадашки типа и
-// статуса — одна PropDropdown.
+// Карточка «Свойства» страницы объекта (аудит F-5): тип, элемент архитектуры,
+// принадлежность, статус, роль, технология, источник, размещение, описание — у архитектора
+// правкой на месте (inline CAS через useNodePatch; размещение — окном), у наблюдателя
+// текстом. Выпадашки типа, элемента и статуса — одна PropDropdown.
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { NodeStatus } from "../../types";
+import type { AncestorRef, NodeStatus } from "../../types";
+import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
@@ -12,7 +13,10 @@ import AnchorField from "../anchor/AnchorField";
 import PlacementRow from "./PlacementRow";
 import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
-import { elementView, useElementPick } from "../element/useElementPick";
+import { useElementPick } from "../element/useElementPick";
+import { elementView } from "../element/elementView";
+import { ElementHelp, ElementValue } from "../element/ElementParts";
+import "../element/element.css";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
 
@@ -75,13 +79,19 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
   );
 }
 
-export default function NodeProperties({ patch, isArchitect, isContainer, techLoading, aggTech, onPlacementChanged }: {
+export default function NodeProperties({
+  patch, ancestors, isArchitect, isSystem, techLoading, aggTech, onNavigateNode, onPlacementChanged,
+}: {
   patch: NodePatch;
+  // Предки объекта от корня (крошки страницы): контейнер компонента для ссылки.
+  ancestors: readonly AncestorRef[];
   isArchitect: boolean;
-  // Контейнер: своей технологии нет — показывается сводная технология потомков.
-  isContainer: boolean;
+  // Система: своей технологии нет — показывается сводная технология потомков (Р15).
+  isSystem: boolean;
   techLoading: boolean;
   aggTech: string;
+  // Переход на страницу другого объекта (имя контейнера у компонента).
+  onNavigateNode: (id: string) => void;
   // Размещение записано из окна строки «Размещение» — страница перечитывает узел.
   onPlacementChanged: () => void;
 }) {
@@ -90,7 +100,9 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
   // Элемент архитектуры (Ф5): выбор у узла с детьми, у листа и компонента — текст, у
   // «Пользователя» строки нет. Смена — с окном последствий, если они есть.
   const element = useElementPick(patch);
-  const view = elementView(node, isArchitect);
+  const view = elementView(node, isArchitect, ancestors);
+  // Узел с детьми: форма всегда «Сервис», строки «Тип» нет (Р24).
+  const isGroup = nodeNesting(node) === "group";
   return (
     <div className="np-card">
       <h3 className="np-card-title">Свойства</h3>
@@ -98,25 +110,30 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
         {/* Тип. Архитектор меняет форму прямо здесь (импорт мог ошибиться в
             типе — кейс «Monitored Hosts» с типом «Пользователь»). Запреты на
             стороне сервера: контейнером бывает только сервис, базу с описанной
-            структурой не увести (спека N4а); причина отказа — плашкой выше. */}
-        <span className="np-term">Тип</span>
-        <span className="np-value">
-          {isArchitect ? (
-            <PropDropdown
-              current={SHAPE_LABEL[patch.shape]}
-              options={SHAPE_ORDER}
-              renderOption={(sh) => SHAPE_LABEL[sh]}
-              onPick={patch.pickShape}
-            />
-          ) : (
-            SHAPE_LABEL[shape]
-          )}
-        </span>
+            структурой не увести (node.md N4а); причина отказа — плашкой выше. У узла с
+            детьми строки нет: его тип — элемент архитектуры (Р24). */}
+        {!isGroup && (
+          <>
+            <span className="np-term">Тип</span>
+            <span className="np-value">
+              {isArchitect ? (
+                <PropDropdown
+                  current={SHAPE_LABEL[patch.shape]}
+                  options={SHAPE_ORDER}
+                  renderOption={(sh) => SHAPE_LABEL[sh]}
+                  onPick={patch.pickShape}
+                />
+              ) : (
+                SHAPE_LABEL[shape]
+              )}
+            </span>
+          </>
+        )}
 
-        {/* Элемент архитектуры — сразу под типом. */}
+        {/* Элемент архитектуры — сразу под типом (у узла с детьми — первым), «?» у термина. */}
         {view.kind !== "none" && (
           <>
-            <span className="np-term">Элемент архитектуры</span>
+            <span className="np-term el-term">Элемент архитектуры<ElementHelp /></span>
             <span className="np-value">
               {view.kind === "pick" ? (
                 <PropDropdown
@@ -131,7 +148,7 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
                   onPick={element.pick}
                 />
               ) : (
-                view.text
+                <ElementValue view={view} onNavigateNode={onNavigateNode} />
               )}
             </span>
           </>
@@ -187,7 +204,7 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
               value={patch.role}
               onChange={(e) => patch.setRole(e.target.value)}
               onBlur={patch.commitRole}
-              placeholder="сервис, БД, брокер…"
+              placeholder="API, воркер, шлюз…"
             />
           ) : (
             node.role || <span className="np-value--empty">не указана</span>
@@ -199,9 +216,9 @@ export default function NodeProperties({ patch, isArchitect, isContainer, techLo
           <>
             <span className="np-term">Технология</span>
             <span className="np-value">
-              {isContainer ? (
-                // Правила контейнеров: своей технологии нет — агрегированный
-                // список уникальных технологий детей, только чтение.
+              {isSystem ? (
+                // Система сама не запускается: её технология — уникальные технологии
+                // потомков, только чтение (Р15; у контейнера технология своя).
                 techLoading ? (
                   <span className="np-value--empty">загрузка…</span>
                 ) : aggTech !== "" ? (

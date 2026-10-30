@@ -192,7 +192,7 @@ describe("инспектор гостя (GhostInspector)", () => {
 
 describe("инспектор узла (NodeInspector): технология", () => {
   beforeEach(() => vi.clearAllMocks());
-  const cb = { onNodeSaved: vi.fn(), onNodeDeleted: vi.fn(), onNavigateNode: vi.fn() };
+  const cb = { ancestors: [], onNodeSaved: vi.fn(), onNodeDeleted: vi.fn(), onNavigateNode: vi.fn() };
 
   it("сервис с детьми — сводная технология потомков без поля ввода", async () => {
     vi.mocked(nodesApi.getDescendants).mockResolvedValue([
