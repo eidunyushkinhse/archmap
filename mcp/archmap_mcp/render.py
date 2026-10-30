@@ -168,9 +168,9 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
     """Строка карточки «Статус страницы: …». У контейнера (в том числе с компонентами),
     компонента и «Пользователя» — свой статус; у системы — статус, вычисленный сервером
     (approval_effective), и счётчик согласованных единиц (approval_units). Старый сервер
-    без элементов архитектуры — по наличию детей, со счётчиком прямых детей. Сервер,
-    который статуса страниц не знает, поля не отдаёт — тогда строки нет: выдуманное
-    «в работе» было бы неправдой."""
+    без элементов архитектуры — по наличию детей, со счётчиком прямых детей, теми же
+    словами. Сервер, который статуса страниц не знает, поля не отдаёт — тогда строки
+    нет: выдуманное «в работе» было бы неправдой."""
     value = node.get("approval_effective")
     if value is None:
         return None
@@ -180,7 +180,7 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
         if not node.get("has_children"):
             return f"Статус страницы: {word}"
         return (
-            f"Статус страницы: {word} — складывается из детей, "
+            f"Статус страницы: {word} — складывается из вложенных объектов, "
             f"согласовано {done} из {len(units)}"
         )
     if node.get("element_effective") != "system":
@@ -212,10 +212,11 @@ PLACEMENT_CAP = 20  # объектов на площадку и в «Без ра
 
 def _site_name(s: dict[str, Any]) -> str:
     """Площадка строкой карточки: «Кластер prod (в Облако)»; у системы площадка, где
-    стоит часть её объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
+    стоит часть её контейнеров, — «(в Облако, часть контейнеров)» / «(часть
+    контейнеров)», те же слова, что строка «Размещение» страницы объекта."""
     notes = [f"в {s['parent_name']}"] if s.get("parent_name") else []
     if s.get("partial"):
-        notes.append("часть объектов")
+        notes.append("часть контейнеров")
     name = str(s.get("name", "?"))
     return f"{name} ({', '.join(notes)})" if notes else name
 
@@ -258,6 +259,10 @@ def site_paths(sites: list[dict[str, Any]]) -> dict[str, str]:
 
 def _objects(n: int) -> str:
     return f"{n} {_plural(n, ('объект', 'объекта', 'объектов'))}"
+
+
+def _containers(n: int) -> str:
+    return f"{n} {_plural(n, ('контейнер', 'контейнера', 'контейнеров'))}"
 
 
 def _placement_role(n: dict[str, Any]) -> str | None:
@@ -338,8 +343,8 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
     """Площадки деревом с составом (archmap_deployment без объекта).
 
     Под площадкой — что на ней стоит: единица (контейнер, и с компонентами) одной
-    строкой без хвоста, цельная система — одной строкой «целиком, N объектов» по числу
-    её единиц, иначе единицы по отдельности (_site_members). Затем «Без размещения» —
+    строкой без хвоста, цельная система — одной строкой «система целиком, N контейнеров»
+    по числу её единиц, иначе единицы по отдельности (_site_members). Затем «Без размещения» —
     единицы без площадок: компонентов и «Пользователей» там нет, размещения у них не
     бывает. nodes — /nodes/all: sites единицы — её площадки, системы — площадки её
     единиц."""
@@ -364,7 +369,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
         total = sum(c for _n, c, _whole in members)
         out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
         for n, c, whole in members[:PLACEMENT_CAP]:
-            tail = f" (целиком, {_objects(c)})" if whole else ""
+            tail = f" (система целиком, {_containers(c)})" if whole else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
         if len(members) > PLACEMENT_CAP:
             out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
@@ -396,7 +401,7 @@ def node_placement(
 ) -> list[str]:
     """Размещение одного объекта (archmap_deployment с node_id): путь объекта, затем
     площадки путями с видом; у системы это площадки её единиц, и где стоит часть —
-    пометка «часть объектов». У компонента размещения нет: строка называет контейнер,
+    пометка «часть контейнеров». У компонента размещения нет: строка называет контейнер,
     которому задаются площадки, — тем же словом, что отказ сервера."""
     out = [f"Путь: {path_of(str(node['id']), by_id)}  id={node['id']}"]
     if node.get("shape") == "person":
@@ -422,7 +427,7 @@ def node_placement(
         site = by_site.get(sid, e)
         label = site_label({**site, "name": paths.get(sid, e.get("name", "?"))})
         if e.get("partial"):
-            label += " — часть объектов"
+            label += " — часть контейнеров"
         out.append(f"  • {label}")
     return out
 

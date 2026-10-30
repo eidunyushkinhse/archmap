@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, get_args
 
 import httpx
@@ -567,6 +568,35 @@ async def test_каждый_инструмент_описан_и_вызывае�
         assert len(t["description"]) > 40, t["name"]
         assert t["schema"]["type"] == "object"
         assert callable(t["handler"])
+
+
+# Внутренний словарь в описания не попадает (правило владельца 2026-10-29): агент
+# пользователя говорит словами продукта — «спецификация», «схемы логики и
+# спецификации», «система», «контейнер», «компонент».
+_JARGON = re.compile(
+    r"(?<![а-яёА-ЯЁ])([Сс]пек(а|и|у|ой|е|ам|ах|ами)?|[Дд]оки|[Дд]оков|[Кк]оробк\w*|[Мм]одул\w*)"
+    r"(?![а-яёА-ЯЁ])"
+)
+
+
+def _descriptions(value: object) -> list[str]:
+    """Все тексты description в схеме инструмента, на любой глубине."""
+    if isinstance(value, dict):
+        own = [value["description"]] if isinstance(value.get("description"), str) else []
+        return own + [d for v in value.values() for d in _descriptions(v)]
+    if isinstance(value, list):
+        return [d for v in value for d in _descriptions(v)]
+    return []
+
+
+def test_в_описаниях_инструментов_нет_жаргона() -> None:
+    hits = [
+        f"{t['name']}: {m.group(0)}"
+        for t in [*tools.TOOLS, *tools.REMOTE_TOOLS]
+        for text in [t["description"], *_descriptions(t["schema"])]
+        for m in _JARGON.finditer(text)
+    ]
+    assert not hits
 
 
 # ── Источник в правках объекта ──────────────────────────────────────────────────

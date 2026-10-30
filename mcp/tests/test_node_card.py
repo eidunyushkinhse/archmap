@@ -434,7 +434,7 @@ async def test_старый_сервер_статус_по_прямым_детя
     client: ArchMapClient, api: FakeApi
 ) -> None:
     # Сервер без элементов архитектуры (нет element_effective): как до эпика —
-    # складывается из детей, счётчик по прямым детям (внук не считается).
+    # складывается из прямых детей (внук не считается), слова — как у системы.
     target = base_routes(
         api, "service", has_children=True, approval="approved", approval_effective="in_progress"
     )
@@ -451,7 +451,7 @@ async def test_старый_сервер_статус_по_прямым_детя
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Статус страницы: в работе — складывается из детей, согласовано 2 из 3" in out
+    assert "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 3" in out
 
 
 async def test_сервер_без_статуса_страниц_строки_не_выдумывает(
@@ -514,7 +514,7 @@ async def test_частичное_размещение_контейнера_по
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Размещение: Кластер prod (в Облако, часть объектов), ВМ-2 (часть объектов)" in out
+    assert "Размещение: Кластер prod (в Облако, часть контейнеров), ВМ-2 (часть контейнеров)" in out
 
 
 async def test_без_размещения_строки_нет(client: ArchMapClient, api: FakeApi) -> None:
