@@ -1,6 +1,6 @@
 // Легенда встроенного блока схемы (окно просмотра на странице). Компактная кнопка
 // «Легенда» в правом нижнем углу холста + всплывающая панель-справочник по визуальным
-// кодировкам схемы (фигуры объектов, статусы, пунктир гостя, рамка уровня).
+// кодировкам схемы (фигуры объектов, статусы, пунктир гостя, рамки системы и контейнера).
 //
 // Механика панели — по образцу SchemaAlerts: relative-якорь + absolute-панель,
 // useState(open), закрытие по клику вне и Escape. Отличие: кнопка стоит ВНИЗУ справа,
@@ -8,11 +8,14 @@
 // роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
 // variant="deployment" — холст «Развёртывание»: пользователей и гостей там нет, зато
 // есть площадки (зона с заливкой, свёрнутая — белая карточка), группа «Размещение не
-// указано» и пометка «1/2».
+// указано», пунктирная карточка системы целиком на площадке и пометка «1/2».
+// Рамки — по элементу архитектуры (Р20, Р24 эпика docs/plan-c4-elements.md): обе
+// пунктиром, у контейнера заливка цветом глубины (graph/frameStyle.ts).
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import "./SchemaLegend.css";
 import { useDismiss } from "../ui/useDismiss";
+import { getNodeColors, hexToRgba } from "./graph/colors";
 
 /* ── Мини-свотчи фигур (в тех же цветах, что узлы на схеме) ────────── */
 const BLUE = "#1168bd";      // getNodeColors: internal, depth 0
@@ -60,11 +63,33 @@ function SwatchGhost() {
     </svg>
   );
 }
-/* Рамка уровня — вложенный контейнер (граница родительского слоя) */
+/* Рамка системы (и группа «Размещение не указано») — серый пунктир без заливки */
 function SwatchFrame() {
   return (
     <svg width={26} height={18} viewBox="0 0 26 18">
       <rect x={1} y={1} width={24} height={16} rx={4} fill="transparent" stroke="#9ca3af" strokeWidth={1.3} strokeDasharray="4 2.5" />
+    </svg>
+  );
+}
+/* Рамка контейнера — тот же пунктир и заливка цветом глубины 0. На холсте заливка
+   ~8 % (frameStyle.ts); в свотче 26×18 такая не читается, поэтому плотнее. */
+const CONTAINER_SWATCH_ALPHA = 0.15;
+function SwatchContainerFrame() {
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <rect
+        x={1} y={1} width={24} height={16} rx={4}
+        fill={hexToRgba(getNodeColors(false, 0).bg, CONTAINER_SWATCH_ALPHA)}
+        stroke="#9ca3af" strokeWidth={1.3} strokeDasharray="4 2.5"
+      />
+    </svg>
+  );
+}
+/* Система целиком на площадке — карточка пунктирным контуром (NodeShapeSvg dashed) */
+function SwatchWholeSystem() {
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <rect x={1} y={1} width={24} height={16} rx={4} fill={BLUE} stroke={BLUE_BORDER} strokeWidth={1.3} strokeDasharray="3.5 2" />
     </svg>
   );
 }
@@ -151,12 +176,14 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
               <Row swatch={<SwatchSite />} label="Площадка" />
               <Row swatch={<SwatchSiteCard />} label="Свёрнутая площадка" />
               <Row swatch={<SwatchFrame />} label="Размещение не указано" />
+              <Row swatch={<SwatchWholeSystem />} label="Система целиком на площадке" />
               <Row swatch={<SwatchMark />} label="Объект на нескольких площадках" />
             </Section>
           ) : (
             <Section title="Обозначения">
               <Row swatch={<SwatchGhost />} label="Объект с другого уровня" />
-              <Row swatch={<SwatchFrame />} label="Граница родительского слоя" />
+              <Row swatch={<SwatchFrame />} label="Рамка системы" />
+              <Row swatch={<SwatchContainerFrame />} label="Рамка контейнера" />
             </Section>
           )}
         </div>
