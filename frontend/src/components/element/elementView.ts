@@ -90,6 +90,18 @@ export function pageElement(
 
 // Станет ли новый вложенный объект компонентом: у контейнера (в том числе пока без
 // компонентов — элемент хранится явно) и внутри контейнера. Иначе первый вложенный
-// объект у листа спросит окно (Р4), а у системы он — её контейнер или подсистема.
+// объект у листа задаёт элемент листу (Р38), а у системы он — её контейнер или подсистема.
 export const childIsComponent = (node: Pick<Node, "element" | "element_effective">): boolean =>
   node.element === "container" || node.element_effective === "component";
+
+// Ждёт ли объект первого вложенного объекта, который задаст его элемент (Р38): лист-сервис
+// без хранимого элемента и не компонент. Пустая система (хранимое «система», Р39) и лист
+// с хранимым «контейнер» уже ответили.
+export function awaitsFirstChild(
+  node: Pick<Node, "shape" | "element" | "has_children" | "element_effective">,
+): boolean {
+  return node.shape === "service"
+    && node.element === null
+    && !node.has_children
+    && node.element_effective !== "component";
+}

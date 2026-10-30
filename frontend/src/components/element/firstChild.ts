@@ -10,6 +10,7 @@
 import type { Node, NodeElement, NodeShape } from "../../types";
 import { configParamsApi, nodesApi } from "../../api/nodes";
 import { isTourRunning } from "../tour/tourBus";
+import { awaitsFirstChild } from "./elementView";
 
 export type FirstChildPlan =
   // Выбора нет: родителя нет (корень), у него уже есть дети или элемент, он не сервис
@@ -21,14 +22,6 @@ export type FirstChildPlan =
   | { kind: "system"; parent: Node }
   // Спросить окном; preselect — предвыбор по фактам листа.
   | { kind: "ask"; parent: Node; preselect: NodeElement };
-
-// Ждёт ли родитель ответа на «что это такое» с первым ребёнком.
-export function awaitsFirstChild(parent: Node): boolean {
-  return parent.shape === "service"
-    && parent.element === null
-    && !parent.has_children
-    && parent.element_effective !== "component";
-}
 
 // Предвыбор «Контейнер», если у листа есть факты процесса: спецификация, конфигурация
 // или площадки. Иначе «Система». Конфигурацию спрашиваем, только если первых двух нет;

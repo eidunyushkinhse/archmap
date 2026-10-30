@@ -2,7 +2,7 @@
 // странице объекта, в панели свойств, в окне узла и в вопросах ввоза и уже разошлись
 // («Брокер» в вопросах против «Брокер сообщений» везде остальном).
 import type {
-  NodeApproval, NodeDocKind, NodeElement, NodeShape, NodeStatus, SiteKind, VersionCategory,
+  Node, NodeApproval, NodeDocKind, NodeElement, NodeShape, NodeStatus, SiteKind, VersionCategory,
   VersionItemStatus,
 } from "../types";
 
@@ -27,6 +27,43 @@ export const ELEMENT_ORDER: NodeElement[] = ["system", "container"];
 
 // Порядок типов в выпадашках — от самого частого (сервис) к самому редкому.
 export const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
+
+// Тип объекта в интерфейсе (Р35 раздела 13 docs/plan-c4-elements.md) — проекция формы и
+// действующего элемента: первые три — сервис с элементом «система», «контейнер» или
+// «компонент». В файлах YAML и в MCP словарь прежний: shape: service и поле element.
+// Элемент считает сервер (element_effective); здесь только его название.
+export type NodeType = "system" | "container" | "component" | "database" | "broker" | "person";
+export const TYPE_ORDER: NodeType[] = ["system", "container", "component", "database", "broker", "person"];
+export const TYPE_LABEL: Record<NodeType, string> = {
+  system: "Система",
+  container: "Контейнер",
+  component: "Компонент",
+  database: "База данных",
+  broker: "Брокер",
+  person: "Пользователь",
+};
+// Вторая строка пункта поля «Тип»: простыми словами, без слов C4 сверх названий.
+export const TYPE_HINT: Record<NodeType, string> = {
+  system: "Группа контейнеров: сама не запускается",
+  container: "Одно приложение, которое запускается целиком",
+  component: "Часть кода контейнера, отдельно не запускается",
+  database: "Хранилище: таблицы и колонки",
+  broker: "Очереди и каналы сообщений",
+  person: "Человек или внешняя роль",
+};
+
+// Тип объекта по ответу сервера. У сервиса действующий элемент задан всегда (с пустой
+// системой, Р39); null бывает только у «Пользователя» — запасной путь «контейнер» для
+// чужих данных, где поля нет.
+export function typeOf(node: Pick<Node, "shape" | "element_effective">): NodeType {
+  if (node.shape !== "service") return node.shape;
+  return node.element_effective ?? "container";
+}
+
+// Форма, которой тип записывается в модели: система, контейнер и компонент — сервис.
+export function shapeOfType(type: NodeType): NodeShape {
+  return type === "database" || type === "broker" || type === "person" ? type : "service";
+}
 
 export const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
 
