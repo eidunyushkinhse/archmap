@@ -44,6 +44,8 @@ from app.channels_import import (
 )
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
+from app.element import CONTAINER
+from app.import_element import sanitize_elements, tree_paths
 from app.import_merge import union_sites
 from app.import_yaml import ParsedImport, _ImpEdge, seed_import
 from app.models.edge import Edge
@@ -130,12 +132,19 @@ class Decisions:
     edges: dict[str, str] = field(default_factory=dict)  # id связи → путь компонента
     new_edges: list[NewEdgeIn] = field(default_factory=list)
     merges: dict[str, str] = field(default_factory=dict)  # id пары → имя склеенного
+    # id вопросов «похоже на контейнер» с ответом «container» (Р7)
+    containers: list[str] = field(default_factory=list)
 
     def empty(self) -> bool:
-        return not (self.fields or self.edges or self.new_edges or self.merges)
+        return not (
+            self.fields or self.edges or self.new_edges or self.merges or self.containers
+        )
 
 
-_SECTIONS = ("fields", "edges", "new_edges", "merges")
+_SECTIONS = ("fields", "edges", "new_edges", "merges", "container_hints")
+# Ответы на вопрос «похоже на контейнер»: «system» — сегодняшнее поведение (узел
+# остаётся без элемента), поэтому применять по нему нечего.
+_HINT_ANSWERS = ("container", "system")
 
 
 def _text(value: object, что: str) -> str | None:
@@ -217,6 +226,17 @@ def parse_decisions(raw: str | None) -> Decisions:
                 f"Поле decisions: ответ о паре «{pid}» — «diff» либо объект с name"
             )
         out.merges[str(pid)] = имя
+
+    подсказки = data.get("container_hints") or {}
+    if not isinstance(подсказки, dict):
+        raise UnifiedImportError("Поле decisions: container_hints — объект «id: ответ»")
+    for hid, choice in подсказки.items():
+        if choice not in _HINT_ANSWERS:
+            raise UnifiedImportError(
+                f"Поле decisions: ответ о контейнере «{hid}» — «container» либо «system»"
+            )
+        if choice == "container":
+            out.containers.append(str(hid))
     return out
 
 
@@ -232,9 +252,12 @@ class ResolvedDecisions:
         default_factory=list
     )
     merges: list[tuple[int, int, str]] = field(default_factory=list)  # A, B, имя склеенного
+    containers: list[int] = field(default_factory=list)  # узлы, отмеченные контейнером
 
     def empty(self) -> bool:
-        return not (self.fields or self.edges or self.new_edges or self.merges)
+        return not (
+            self.fields or self.edges or self.new_edges or self.merges or self.containers
+        )
 
 
 def resolve_decisions(
@@ -281,6 +304,12 @@ def resolve_decisions(
         if пара is None:
             raise UnifiedImportError(STALE)
         out.merges.append((пара[0], пара[1], имя))
+
+    for hid in decisions.containers:
+        узел = index.hints.get(hid)
+        if узел is None:
+            raise UnifiedImportError(STALE)
+        out.containers.append(узел)
     return out
 
 
@@ -314,6 +343,14 @@ def merge_chain(
     return out
 
 
+def apply_container_hints(merged: ParsedImport, res: ResolvedDecisions) -> None:
+    """Ответ «Контейнер» на вопрос «похоже на контейнер» (Р7): элемент слитому узлу ДО
+    санитизации — дальше обычные правила ввоза (база внутри выносится, у компонентов
+    элемент и площадки снимаются). Общий у создания и догрузки."""
+    for node_idx in res.containers:
+        merged.nodes[node_idx].element = CONTAINER
+
+
 def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
     """Правки СЛИТОГО ДЕРЕВА до записи в БД: значения полей, перевешенные концы,
     дорисованные связи. Возвращает число выброшенных дублей.
@@ -324,6 +361,7 @@ def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
     значит ровно то же, что и в его отчёте."""
     for node_idx, fld, value in res.fields:
         setattr(merged.nodes[node_idx], fld, value)
+    apply_container_hints(merged, res)
     for edge_idx, end, comp_idx in res.edges:
         e = merged.edges[edge_idx]
         if end == "source":
@@ -364,6 +402,7 @@ def decisions_note(res: ResolvedDecisions, merges_done: int) -> str | None:
         (len(res.new_edges), "добавлено связей"),
         (merges_done, "склеено объектов"),
         (len(res.fields), "выбрано значений полей"),
+        (len(res.containers), "отмечено контейнерами"),
     ]
     названо = [f"{слово} {n}" for n, слово in части if n]
     return "Ваши решения: " + " · ".join(названо) if названо else None
@@ -518,12 +557,27 @@ def apply_unified_plan(
     # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
     # посева: узлы уже созданы, а семьи адресованы индексами плана.
     apply_tree_decisions(merged, решения)
-    # Размещение склеиваемых — выжившему ДО посева (объединением, как у мерджа):
-    # поглощённый уйдёт из проекта вместе со своими экземплярами.
-    for survivor, absorbed, _имя in merge_chain(решения.merges):
-        merged.nodes[survivor].sites = union_sites(
-            merged.nodes[survivor].sites, merged.nodes[absorbed].sites
-        )
+    # Склейки готовим в дереве ДО посева — то, что правилу элемента нужно видеть:
+    # размещение выжившему объединением, как у мерджа (поглощённый уйдёт из проекта
+    # вместе со своими экземплярами); имя и дети поглощённого — выжившему
+    # (_apply_merges после посева сделал бы то же); элемент поглощённого — выжившему,
+    # только в пустое. Выживший всегда раньше поглощённого (merge_chain), так что
+    # «родители раньше детей» сохраняется.
+    for survivor, absorbed, имя in merge_chain(решения.merges):
+        живёт, уходит = merged.nodes[survivor], merged.nodes[absorbed]
+        живёт.name = имя
+        живёт.sites = union_sites(живёт.sites, уходит.sites)
+        for n in merged.nodes:
+            if n.parent_idx == absorbed:
+                n.parent_idx = survivor
+        if живёт.element is None:
+            живёт.element = уходит.element
+        уходит.element = None
+    # Ответ на спор элемента архитектуры или склейка могли сделать дерево недопустимым
+    # (выбран «Контейнер», а внутри база) — та же санитизация, что у разбора и слияния:
+    # база выносится на уровень выше. Без ответов дерево уже чистое, и она ничего не
+    # меняет; пути — по дереву после склеек (у тех же узлов прежние, пока склеек нет).
+    пересмотр = sanitize_elements(merged.nodes, tree_paths(merged.nodes))
 
     # ── Имя и описание: поля пользователя либо манифест единственного архива (П3).
     project_name = (name or "").strip()
@@ -566,6 +620,7 @@ def apply_unified_plan(
     # Отсюда начинаются строки самого применения — они и пойдут в свёртку отчёта
     # (плановые уже в ней: остаток и замечания входов — пунктами выше).
     плановые = len(warnings)
+    warnings.extend(пересмотр)
 
     # ── Склейки по ответу пользователя: поглощённый узел отдаёт выжившему связи,
     #    детей и знание (node_of[поглощённый] = выживший) и исчезает. Пути после
@@ -738,7 +793,10 @@ def absorb_knowledge(живёт: Node, уходит: Node) -> bool:
     якоря второго источника следующий синк ТОГО репозитория не узнает склеенный
     объект и привезёт дубль. Занятый якорь не перевешиваем — второго места под
     него нет (множественные якоря за рамками MVP), и выбор между двумя решает
-    порядок файлов, как и везде."""
+    порядок файлов, как и везде.
+
+    Элемент архитектуры сюда не входит: он переходит выжившему ещё в дереве, до
+    посева (apply_unified_plan), чтобы правило элемента увидело дерево после склейки."""
     changed = False
     for fld in ABSORB_FIELDS:
         новое, своё = getattr(уходит, fld), getattr(живёт, fld)

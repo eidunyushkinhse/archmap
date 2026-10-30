@@ -12,14 +12,15 @@
 • каждый шаг процесса привязан к схеме логики (AL34 по построению ноль);
 • жизненный цикл показан: в схеме есть и planned, и deprecated;
 • раскладку пакет НЕ везёт (решение Р3, docs/archive/plan-demo-template.md);
-• неизвестный пакет не сеется и сирот не оставляет.
+• неизвестный пакет не сеется и сирот не оставляет;
+• вопрос «похоже на контейнер» (Р7) на демо ложно не срабатывает.
 """
 
 import pytest
 from conftest import ensure_architect
 
 from app.alerts import compute_alerts
-from app.demo_package import DEMO_PACKAGE, seed_package_template
+from app.demo_package import DEMO_PACKAGE, _package_zip, seed_package_template
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
 from app.models.config_param import ConfigParam
@@ -30,6 +31,8 @@ from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
 from app.models.project import Project
 from app.models.view_layout import ViewLayoutItem
+from app.unified_import import build_unified_plan
+from app.unified_remarks import remainder_from_plan
 
 ДЕМО = DEMO_PACKAGE
 
@@ -126,3 +129,11 @@ def test_неизвестный_пакет_не_сеется_и_сирот_не�
     db.commit()
     assert db.query(Project).count() == было
     assert db.query(BusinessProcess).count() == 0
+
+
+def test_вопроса_похоже_на_контейнер_на_демо_нет():
+    """Признак «похоже на контейнер» строгий: у групп демо своего пути в репозитории
+    нет, и превью единого ввоза пакета такого вопроса не задаёт."""
+    план = build_unified_plan([(f"{ДЕМО}.zip", _package_zip(ДЕМО))])
+    assert план.ok, план.errors
+    assert remainder_from_plan(план).container_hints == []

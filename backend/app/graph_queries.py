@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from app import tree
 from app.approval import effective_approvals
+from app.element import Elements
+from app.element_marks import elements_from_nodes, stamp_element
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.view_layout import DEPLOY_KEY_PREFIX, ViewLayoutItem
@@ -83,10 +85,12 @@ def ghost_registry(
     all_nodes: dict[uuid.UUID, Node],
     endpoint_ids: set[uuid.UUID],
     child_counts: Counter,
+    elements: Elements[uuid.UUID],
 ) -> list[GhostNodeResponse]:
     """Реестр не-локальных концов рёбер с цепочками предков (сортировка по id —
     детерминизм ответа). По нему фронтовая проекция поднимает конец к ближайшему
-    видимому представителю и строит рамки/раскрытия."""
+    видимому представителю и строит рамки/раскрытия. elements — действующие элементы
+    проекта (app/element_marks.elements_from_nodes по той же карте узлов)."""
     return [
         GhostNodeResponse(
             id=all_nodes[nid].id,
@@ -101,7 +105,8 @@ def ghost_registry(
             node_depth=tree.node_depth(all_nodes, nid),
             has_children=child_counts.get(nid, 0) > 0,
             child_count=child_counts.get(nid, 0),
-            ancestors=tree.ancestors(all_nodes, nid),
+            element_effective=elements.effective(nid),
+            ancestors=tree.ancestors(all_nodes, nid, elements=elements),
         )
         for nid in sorted(endpoint_ids, key=str)
         if nid in all_nodes
@@ -163,14 +168,20 @@ def build_graph(
     # Число прямых детей у каждого родителя — одним проходом по всем узлам.
     # Питает бейдж «есть дети (N)» и кнопку «Войти» и у концов-реестра, и у локалов.
     child_counts = Counter(n.parent_id for n in all_nodes.values() if n.parent_id is not None)
+    # Действующий элемент архитектуры — по той же карте, один раз на запрос: он нужен
+    # локалам, гостям и каждому предку в их цепочках.
+    elements = elements_from_nodes(all_nodes)
+    names = {nid: n.name for nid, n in all_nodes.items()}
     # Реестр не-локальных концов рёбер (единый строитель ghost_registry).
-    endpoints = ghost_registry(all_nodes, endpoint_ids, child_counts)
+    endpoints = ghost_registry(all_nodes, endpoint_ids, child_counts, elements)
     # child_count/has_children локальных узлов — из того же Counter
     # (карта всех узлов уже в памяти; отдельный SQL _mark_has_children здесь лишний).
-    # Статус страницы с учётом детей — по той же карте (app/approval): холст его пока
-    # не показывает, но выдачу читают MCP и страница, и дефолт «в работе» у
-    # согласованного узла был бы ложью.
-    effective = effective_approvals((n.id, n.parent_id, n.approval) for n in all_nodes.values())
+    # Статус страницы (у системы — из единиц) — по той же карте и тем же элементам
+    # (app/approval): холст его пока не показывает, но выдачу читают MCP и страница, и
+    # дефолт «в работе» у согласованного узла был бы ложью.
+    effective = effective_approvals(
+        ((n.id, n.parent_id, n.approval) for n in all_nodes.values()), elements
+    )
     # Размещение (NodeResponse.sites) здесь НЕ заполняется и остаётся []: холст
     # объектов его не показывает, а выборка экземпляров и площадок на каждый уровень
     # была бы лишней. Его отдают выдачи роутера узлов (mark_sites) и граф развёртывания.
@@ -178,9 +189,10 @@ def build_graph(
         n.child_count = child_counts.get(n.id, 0)
         n.has_children = n.child_count > 0
         n.approval_effective = effective.get(n.id, n.approval)
-    # ORM-узлы сериализуются в NodeResponse через from_attributes ( child_count/
-    # has_children/approval_effective проставлены выше) — на границе сериализации типизируем как
-    # list[NodeResponse].
+        stamp_element(n, elements, names)
+    # ORM-узлы сериализуются в NodeResponse через from_attributes (child_count/
+    # has_children/approval_effective/element_effective проставлены выше) — на границе
+    # сериализации типизируем как list[NodeResponse].
     return GraphResponse(
         nodes=local_nodes,
         edges=result_edges,

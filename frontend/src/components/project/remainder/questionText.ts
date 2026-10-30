@@ -4,12 +4,12 @@
 // подсчёты, здесь — только текст, формы по родам и склонения. Тексты ФИНАЛЬНЫЕ:
 // правятся вместе с ТЗ, а не по вкусу.
 import type {
-  ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
-  IsolatedGroupOut, NodeShape, NodeStatus,
+  ComponentOut, ContainerEdgeOut, ContainerHintOut, FamilyConflictOut, FieldDisputeOut,
+  FuzzyPairOut, IsolatedGroupOut, NodeElement, NodeShape, NodeStatus,
 } from "../../../types";
 import { plural } from "../../../ui/plural";
 import { STATUS_META } from "../../graph/colors";
-import { SHAPE_LABEL } from "../../nodeTerms";
+import { ELEMENT_LABEL, SHAPE_LABEL } from "../../nodeTerms";
 
 /** Последний сегмент пути: «Grafana / Сервер Grafana» → «Сервер Grafana». */
 export const lastSegment = (path: string): string => path.split(" / ").pop() ?? path;
@@ -29,13 +29,14 @@ export function sourcesPhrase(n: number): string {
 
 
 /**
- * Значение поля человеческими словами (Р5 задания): форма и статус приезжают
- * кодами контракта («service», «planned») — в вопросе они читались бы как
- * внутренности. Прочие поля показываются как есть.
+ * Значение поля человеческими словами (Р5 задания): форма, статус и элемент
+ * архитектуры приезжают кодами контракта («service», «planned», «container») — в
+ * вопросе они читались бы как внутренности. Прочие поля показываются как есть.
  */
 export function humanValue(field: string, value: string): string {
   if (field === "shape" && value in SHAPE_LABEL) return SHAPE_LABEL[value as NodeShape];
   if (field === "status" && value in STATUS_META) return STATUS_META[value as NodeStatus].label;
+  if (field === "element" && value in ELEMENT_LABEL) return ELEMENT_LABEL[value as NodeElement];
   return value;
 }
 
@@ -127,6 +128,7 @@ const FIELD: Record<string, FieldForms> = {
   role: { what: "роль указана", q: "Какую", adj: "правильной" },
   shape: { what: "форма указана", q: "Какую", adj: "правильной" },
   status: { what: "статус указан", q: "Какой", adj: "правильным" },
+  element: { what: "элемент архитектуры указан", q: "Какой", adj: "правильным" },
 };
 
 export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; ifLeft: string } {
@@ -146,8 +148,49 @@ export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; if
   };
 }
 
+// Сколько имён вложенных объектов называть в вопросе «похоже на контейнер»: дальше —
+// счётчиком, как у перечней в замечаниях ввоза.
+const HINT_NAMES = 6;
+
+/**
+ * Вопрос «похоже на контейнер» (Р7, лексикон эпика элементов §3.5): у узла нет
+ * элемента во входе, а дети лежат в его каталоге того же репозитория.
+ */
+export function hintTexts(h: ContainerHintOut): {
+  title: string; context: string; why: string; ifLeft: string;
+} {
+  const имя = lastSegment(h.node_path);
+  const n = h.children.length;
+  const имена = h.children.slice(0, HINT_NAMES).join(", ")
+    + (n > HINT_NAMES ? ` …ещё ${n - HINT_NAMES}` : "");
+  return {
+    title: `Похоже, «${имя}» — контейнер с компонентами. Отметить его контейнером?`,
+    context: `${имена} ${n === 1 ? "лежит" : "лежат"} в ${h.folder} того же репозитория`,
+    why: "Части одной программы обычно лежат в её каталоге. Если вложенный объект"
+      + " запускается отдельно, например воркер из того же кода, то это система из"
+      + " нескольких контейнеров.",
+    ifLeft: `Если не отвечать, то «${имя}» останется системой. Отметить его контейнером`
+      + " можно и потом, в свойствах объекта.",
+  };
+}
+
 /** Окно, в котором идёт разбор: от него зависит одна сноска (4.3). */
 export type QuestionMode = "create" | "into";
+
+/**
+ * Тег объекта с вложенными в списках разбора: «система» или «контейнер» по
+ * действующему элементу из ответа сервера (составной компонент — редкость — зовётся
+ * контейнером, как в словах вопроса о связи). Без элемента (ответ прежнего сервера) —
+ * «система», как читается узел с детьми без элемента. У листа тега нет.
+ */
+export function nestedTag(x: ComponentOut): string | undefined {
+  if (!x.has_children) return undefined;
+  return x.element_effective === "container" || x.element_effective === "component"
+    ? "контейнер" : "система";
+}
+
+/** Конец связи — система (иначе контейнер): от этого зависят слова вопроса 4.3. */
+export const endIsSystem = (e: ContainerEdgeOut): boolean => e.container_element === "system";
 
 export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
   title: string; context: string; why: string; ifLeft: string;
@@ -155,10 +198,28 @@ export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
   const начало = lastSegment(e.from_path);
   const конец = lastSegment(e.to_path);
   const пара = `«${начало} → ${конец}»`;
-  // Контейнер в первом предложении — полным путём (тёзки-контейнеры законны), во
-  // втором коротким именем: вопрос о компоненте читается, а не разбирается (Т2).
+  // Конец в первом предложении — полным путём (тёзки законны), во втором коротким
+  // именем: вопрос о вложенном объекте читается, а не разбирается (Т2).
   const короткое = lastSegment(e.container_path);
   const n = e.components.length;
+  // Единственная фраза разбора, зависящая от окна: в догрузке проект уже
+  // создан, и обещать «после создания проекта» было бы ложью о моменте.
+  const момент = mode === "into" ? "догрузки" : "создания проекта";
+  if (endIsSystem(e)) {
+    return {
+      title: e.end === "target"
+        ? `Связь ${пара} приходит в систему «${e.container_path}». `
+          + `С каким объектом внутри системы «${короткое}» связан объект «${начало}»?`
+        : `Связь ${пара} выходит из системы «${e.container_path}». `
+          + `С каким объектом внутри системы «${короткое}» связан объект «${конец}»?`,
+      context: `внутри ${n} ${plural(n, ["объекта", "объектов", "объектов"])}, считая вложенные`,
+      why: `В одном файле «${короткое}» описана одним объектом, а в другом у неё есть`
+        + " вложенные объекты. После слияния она станет системой, а вызовы принимают"
+        + " объекты внутри неё. Конец связи нужно перевесить на один из них.",
+      ifLeft: `Если не отвечать, то связь останется на системе и после ${момент} будет ждать`
+        + " в панели «Рекомендации». Перевесить её можно будет там.",
+    };
+  }
   return {
     title: e.end === "target"
       ? `Связь ${пара} приходит в контейнер «${e.container_path}». `
@@ -166,15 +227,11 @@ export function edgeTexts(e: ContainerEdgeOut, mode: QuestionMode = "create"): {
       : `Связь ${пара} выходит из контейнера «${e.container_path}». `
         + `С каким компонентом контейнера «${короткое}» связан объект «${конец}»?`,
     context: `внутри ${n} ${plural(n, ["компонент", "компонента", "компонентов"])}, считая вложенные`,
-    why: "В одном файле описаны дочерние компоненты объекта, а в другом не описаны."
-      + " При слиянии файлов такой объект станет контейнером. Но концы связей крепятся"
-      + " к самостоятельным объектам, а не к контейнерам. Конец стрелки нужно перевесить"
-      + " с контейнера на его дочерний объект.",
-    // Единственная фраза разбора, зависящая от окна: в догрузке проект уже
-    // создан, и обещать «после создания проекта» было бы ложью о моменте.
-    ifLeft: `Если не отвечать, то связь останется на контейнере и после ${
-      mode === "into" ? "догрузки" : "создания проекта"
-    } будет ждать в панели «Рекомендации». Перевесить её можно будет там.`,
+    why: `В одном файле «${короткое}» описан одним объектом, а в другом у него есть`
+      + " компоненты. После слияния он станет контейнером, а вызовы принимают его"
+      + " компоненты. Конец связи нужно перевесить на один из них.",
+    ifLeft: `Если не отвечать, то связь останется на контейнере и после ${момент} будет ждать`
+      + " в панели «Рекомендации». Перевесить её можно будет там.",
   };
 }
 

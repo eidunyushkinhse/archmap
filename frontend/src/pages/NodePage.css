@@ -545,6 +545,16 @@ button.np-approval {
 .np-menu li:hover {
   background: #f1f5f9;
 }
+/* Пункт в две строки: подпись и серое пояснение (элемент архитектуры) */
+.np-menu-two {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.np-menu-two small {
+  font-size: 11.5px;
+  color: #64748b;
+}
 
 .np-backdrop {
   position: fixed;
@@ -695,6 +705,22 @@ button.np-approval {
   text-transform: uppercase;
   color: #94a3b8;
   margin: 14px 0 6px;
+}
+
+/* Пояснение у компонента: что за него ведёт контейнер (API, конфигурация) — обычный
+   текст, а не пустое состояние: это факт, а не отсутствие данных. */
+.np-inherit {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 6px;
+}
+/* Мелкая строка под значением свойства («Компонент размещается вместе с контейнером»). */
+.np-site-note {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 /* ── Пустое состояние ────────────────────────────────────────────── */

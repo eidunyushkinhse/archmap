@@ -1,13 +1,17 @@
 // Пилюля статуса СТРАНИЦЫ объекта у имени в шапке (docs/tasks/page-status.md): «В работе»
 // или «Согласовано». Это не жизненный цикл узла (status existing/planned/deprecated).
 //
-// Три вида:
-// • лист + редактор — кнопка со стрелкой, выпадашка из двух значений, выбор зовёт onPick;
-// • лист + читатель — неинтерактивная пилюля: статус меняет редактор проекта;
-// • контейнер (обе роли) — пилюля со счётчиком «N из M», выпадашка-список детей с точками
-//   статуса, клик по строке открывает страницу ребёнка.
-// Вычисленный статус контейнера приходит с сервера (approval_effective) — здесь только
-// показ: ни правила «все дети согласованы», ни запроса компонент не знает.
+// Кто ставит статус, решает элемент архитектуры (Р14 эпика docs/plan-c4-elements.md):
+// у контейнера (в том числе с компонентами), компонента и «Пользователя» он свой, у
+// системы складывается из вложенных объектов. Три вида:
+// • не система + редактор — кнопка со стрелкой, выпадашка из двух значений, выбор зовёт onPick;
+// • не система + читатель — неинтерактивная пилюля: статус меняет редактор проекта;
+// • система (обе роли) — пилюля со счётчиком «N из M», выпадашка-список единиц (вложенные
+//   объекты любой глубины, кроме систем) с точками статуса, клик по строке открывает его
+//   страницу.
+// Элемент (element_effective) и вычисленный статус системы (approval_effective) приходят
+// с сервера — здесь только показ: ни правила «все единицы согласованы», ни запроса
+// компонент не знает.
 import { useEffect, useState } from "react";
 import type { Node, NodeApproval } from "../../types";
 import { APPROVAL_HINT, APPROVAL_LABEL, APPROVAL_ORDER } from "../nodeTerms";
@@ -15,8 +19,9 @@ import { APPROVAL_HINT, APPROVAL_LABEL, APPROVAL_ORDER } from "../nodeTerms";
 interface Props {
   node: Node;
   isArchitect: boolean;
-  // Непосредственные дети контейнера; null — ещё грузятся (или узел не контейнер).
-  children: Node[] | null;
+  // Единицы статуса системы — её потомки, кроме вложенных систем (контейнеры,
+  // компоненты, «Пользователи»); null — ещё грузятся (или узел не система).
+  units: Node[] | null;
   onNavigateNode: (id: string) => void;
   onPick: (value: NodeApproval) => void;
 }
@@ -28,7 +33,7 @@ function Dot({ value }: { value: NodeApproval }) {
   return <span className={`np-approval-dot np-approval-dot--${tone(value)}`} aria-hidden="true" />;
 }
 
-export default function ApprovalPill({ node, isArchitect, children, onNavigateNode, onPick }: Props) {
+export default function ApprovalPill({ node, isArchitect, units, onNavigateNode, onPick }: Props) {
   const [open, setOpen] = useState(false);
 
   // Escape закрывает выпадашку. Клавишу не гасим (без preventDefault): нативный
@@ -40,12 +45,12 @@ export default function ApprovalPill({ node, isArchitect, children, onNavigateNo
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Контейнер — по наличию детей: его статус складывается из них.
-  const isContainer = node.has_children;
+  // Система — по элементу с сервера: её статус складывается из вложенных объектов.
+  const isSystem = node.element_effective === "system";
   const shown = node.approval_effective;
   const pillClass = `np-approval np-approval--${tone(shown)}`;
 
-  if (!isContainer && !isArchitect) {
+  if (!isSystem && !isArchitect) {
     return (
       <span className={pillClass} title="Статус меняет редактор проекта">
         <Dot value={shown} />
@@ -54,8 +59,8 @@ export default function ApprovalPill({ node, isArchitect, children, onNavigateNo
     );
   }
 
-  const approvedCount = children ? children.filter((c) => c.approval_effective === "approved").length : 0;
-  const counter = isContainer && children ? ` · ${approvedCount} из ${children.length}` : "";
+  const approvedCount = units ? units.filter((c) => c.approval_effective === "approved").length : 0;
+  const counter = isSystem && units ? ` · ${approvedCount} из ${units.length}` : "";
   const close = () => setOpen(false);
 
   return (
@@ -64,7 +69,7 @@ export default function ApprovalPill({ node, isArchitect, children, onNavigateNo
         type="button"
         className={pillClass}
         aria-expanded={open}
-        title={isContainer ? "Статус контейнера складывается из детей" : "Статус страницы"}
+        title={isSystem ? "Статус системы складывается из вложенных объектов" : "Статус страницы"}
         onClick={() => setOpen((o) => !o)}
       >
         <Dot value={shown} />
@@ -75,13 +80,13 @@ export default function ApprovalPill({ node, isArchitect, children, onNavigateNo
         <>
           <div className="np-backdrop" onClick={close} />
           <div className="np-approval-menu">
-            {isContainer ? (
-              children === null ? (
+            {isSystem ? (
+              units === null ? (
                 <div className="np-approval-head">Загрузка…</div>
               ) : (
                 <>
-                  <div className="np-approval-head">Согласовано {approvedCount} из {children.length}</div>
-                  {children.map((c) => (
+                  <div className="np-approval-head">Согласовано {approvedCount} из {units.length}</div>
+                  {units.map((c) => (
                     <button
                       key={c.id}
                       type="button"

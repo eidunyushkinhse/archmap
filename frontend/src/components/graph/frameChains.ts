@@ -15,9 +15,10 @@ import type { Node as RFNode } from "@xyflow/react";
 import type { AncestorRef } from "../../types";
 import type { FrameData } from "./types";
 
-/** breadcrumb-предки уровня как AncestorRef-лайт (для lca в computeFrames важны id). */
+/** breadcrumb-предки уровня как AncestorRef-лайт (для lca в computeFrames важны id;
+ *  элемента архитектуры у лайт-звена нет — его здесь никто не читает). */
 export function breadcrumbRefs(ancestorIds: string[], ancestorNames: string[]): AncestorRef[] {
-  return ancestorIds.map((id, i) => ({ id, name: ancestorNames[i] ?? id, is_external: false }));
+  return ancestorIds.map((id, i) => ({ id, name: ancestorNames[i] ?? id, is_external: false, element_effective: null }));
 }
 
 /**
@@ -36,8 +37,9 @@ export function framedBlockRefs(
     const chain: AncestorRef[] = [];
     for (let cur = startId ? frameNodes.get(startId) : undefined; cur;
       cur = cur.parentId ? frameNodes.get(cur.parentId) : undefined) {
-      // имя рамки не участвует в членстве/глубине; берём из data, фолбэк — id
-      chain.unshift({ id: cur.id, name: (cur.data as FrameData).name ?? cur.id, is_external: false });
+      // имя рамки не участвует в членстве/глубине; берём из data, фолбэк — id. Элемента
+      // архитектуры FrameData пока не несёт (холст — фаза Ф7), членству он не нужен.
+      chain.unshift({ id: cur.id, name: (cur.data as FrameData).name ?? cur.id, is_external: false, element_effective: null });
     }
     return chain;
   };

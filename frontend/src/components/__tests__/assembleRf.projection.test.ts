@@ -17,12 +17,13 @@ function appNode(id: string, kids = false): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids, child_count: kids ? 1 : 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: kids ? "system" : "container", container_name: null,
   } as AppNode;
 }
 
 function frame(id: string, depth: number, members: string[]) {
   return {
-    id, name: id, depth, native: false, memberIds: new Set(members),
+    id, name: id, depth, native: false, memberIds: new Set(members), element: "system" as const, is_external: false,
     content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
     rect: { x: 0, y: 0, w: 100, h: 100 },
   };
@@ -208,7 +209,8 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
     const nodes = assemble(false);
     const s = nodes.find((n) => n.id === "S")!.data as FrameData;
-    expect(Object.keys(s).sort()).toEqual(["name", "onCollapse"]);
+    // вид рамки по элементу (Ф7 эпика элементов) — всегда, декора нет
+    expect(Object.keys(s).sort()).toEqual(["depth", "element", "is_external", "name", "onCollapse"]);
     expect(typeof s.onCollapse).toBe("function");
     const a = nodes.find((n) => n.id === "a@S")!.data as BlockData;
     expect("mark" in a).toBe(false);

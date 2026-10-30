@@ -6,7 +6,7 @@
 import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
-import { humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
+import { endIsSystem, humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
 import DocViewer from "./DocViewer";
 import MergeNameStep from "./MergeNameStep";
 import NewEdgeForm from "./NewEdgeForm";
@@ -97,6 +97,27 @@ export default function QuestionBody(p: Props) {
     );
   }
 
+  if (q.kind === "hint") {
+    const a = p.answers[q.id];
+    return (
+      <div className="rq-opts">
+        <Option
+          main={<b>Контейнер</b>}
+          tag="по источникам"
+          selected={a?.kind === "container"}
+          onClick={() => p.onAnswer(q.id, { kind: "container" })}
+        />
+        <Option
+          main="Система"
+          tag="как сейчас"
+          keep
+          selected={a?.kind === "keep"}
+          onClick={() => p.onAnswer(q.id, { kind: "keep" })}
+        />
+      </div>
+    );
+  }
+
   if (q.kind === "edge") {
     const a = p.answers[q.id];
     return (
@@ -110,7 +131,7 @@ export default function QuestionBody(p: Props) {
         />
         <div className="rq-opts" style={{ marginTop: 6 }}>
           <Option
-            main={`Оставить на контейнере «${q.source.container_path}»`}
+            main={`Оставить на ${endIsSystem(q.source) ? "системе" : "контейнере"} «${q.source.container_path}»`}
             tag="как сейчас"
             keep
             selected={a?.kind === "keep"}

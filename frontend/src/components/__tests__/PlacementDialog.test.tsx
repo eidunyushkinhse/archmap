@@ -3,9 +3,10 @@
 // (нетронутая частичная сохраняется у каждого объекта), «Убрать размещение» — пустой
 // набор. Дерево площадок общее с окном «Площадки» (SiteTree): свёрнуто, кроме предков
 // площадок, где стоят выбранные; новая площадка заводится «+» в дереве (родитель — где
-// нажали) и появляется отмеченной, отказ по пределу демо — строкой в окне. Контейнер —
-// это его объекты (deployment.md D30): набор пишется им по составу проекта, снятие —
-// после второго шага со списком «объект: площадки» («Снять», «Назад»).
+// нажали) и появляется отмеченной, отказ по пределу демо — строкой в окне. Система —
+// это её единицы (deployment.md D30, D33): набор пишется им по составу проекта, снятие —
+// после второго шага со списком «объект: площадки» («Снять», «Назад»). Контейнер с
+// компонентами — единица: пишется сам, состав проекта не нужен.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
@@ -27,26 +28,31 @@ function site(id: string, parent_id: string | null = null, technology: string | 
   return { id, name: id, kind: "kubernetes", technology, description: null, parent_id, version: 1, instance_count: 0 };
 }
 const ref = (id: string, partial = false): Node["sites"][number] => ({ id, name: id, kind: "vm", partial });
-// Объект: own — его площадки. Контейнер (has_children): whole — где стоят все его
-// объекты, partial — где часть.
+// Объект: own — его площадки. Система (has_children): whole — где стоят все её
+// единицы, partial — где часть.
 function obj(id: string, own: string[]): DeploymentNode {
   return {
     id, name: id.toUpperCase(), description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "container", container_name: null,
     version: 1, created_at: "", updated_at: "",
     sites: own.map((s) => ref(s)), instances: own,
   };
 }
 function box(id: string, name: string, whole: string[], partial: string[] = []): DeploymentNode {
   return {
-    ...obj(id, whole), name, has_children: true, child_count: 2,
+    ...obj(id, whole), name, has_children: true, child_count: 2, element_effective: "system",
     sites: [...whole.map((s) => ref(s)), ...partial.map((s) => ref(s, true))],
   };
 }
-// Узел состава проекта (ответ /nodes/all).
-function pn(id: string, name: string, parent_id: string | null, sites: Node["sites"], shape: Node["shape"] = "service"): Node {
-  return { ...obj(id, []), name, parent_id, shape, sites };
+// Узел состава проекта (ответ /nodes/all). Элемент — как его считает сервер: лист —
+// контейнер, «Пользователь» — без элемента; систему и компонент задают явно.
+function pn(
+  id: string, name: string, parent_id: string | null, sites: Node["sites"], shape: Node["shape"] = "service",
+  element: Node["element_effective"] = shape === "person" ? null : "container",
+): Node {
+  return { ...obj(id, []), name, parent_id, shape, sites, element_effective: element };
 }
 
 const SITES = [site("cloud", null, "AWS"), site("k8s", "cloud"), site("vm1"), site("vm2")];
@@ -65,9 +71,15 @@ describe("PlacementDialog", () => {
     vi.mocked(deploymentApi.setPlacements).mockResolvedValue(undefined);
   });
 
-  it("подзаголовок: имя одного объекта или число объектов", () => {
+  it("подзаголовок: имя одного объекта или число объектов; у системы — кому достанутся площадки", () => {
     setup([obj("a", [])]);
     expect(screen.getByText("A")).toBeInTheDocument();
+  });
+
+  it("подзаголовок одной системы: площадки получат все её контейнеры", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    setup([box("c", "Заказы", [])]);
+    expect(await screen.findByText("Заказы · площадки получат все контейнеры системы")).toBeInTheDocument();
   });
 
   it("галочки: у всех — отмечена, у части — частичная; предки площадок раскрыты", () => {
@@ -169,18 +181,18 @@ describe("PlacementDialog", () => {
     expect(props.onApplied).not.toHaveBeenCalled();
   });
 
-  // ── Контейнер — это его объекты (deployment.md D30) ──
+  // ── Система — это её единицы (deployment.md D30, D33) ──
   // «Заказы» ⊃ Order API (vm2), Каталог (vm1), Покупатель («Пользователь», не
-  // размещается): у контейнера vm1 и vm2 — частичные.
+  // размещается): у системы vm1 и vm2 — частичные.
   const container = () => box("c", "Заказы", [], ["vm1", "vm2"]);
   const inside = (): Node[] => [
-    pn("c", "Заказы", null, [ref("vm1", true), ref("vm2", true)]),
+    pn("c", "Заказы", null, [ref("vm1", true), ref("vm2", true)], "service", "system"),
     pn("x", "Order API", "c", [ref("vm2")]),
     pn("y", "Каталог", "c", [ref("vm1")]),
     pn("u", "Покупатель", "c", [], "person"),
   ];
 
-  it("контейнер: частичные галочки по его объектам; набор пишется объектам по составу проекта", async () => {
+  it("система: частичные галочки по её единицам; набор пишется единицам по составу проекта", async () => {
     let resolveAll: (ns: Node[]) => void = () => {};
     vi.mocked(nodesApi.getAll).mockReturnValue(new Promise((r) => { resolveAll = r; }));
     const props = setup([container()]);
@@ -203,9 +215,9 @@ describe("PlacementDialog", () => {
     expect(props.onApplied).toHaveBeenCalled();
   });
 
-  it("контейнер, у которого все объекты на одной площадке, — галочка отмечена; снятая — пишется всем", async () => {
+  it("система, у которой все единицы на одной площадке, — галочка отмечена; снятая — пишется всем", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      pn("c", "Заказы", null, [ref("vm1")]),
+      pn("c", "Заказы", null, [ref("vm1")], "service", "system"),
       pn("x", "Order API", "c", [ref("vm1")]),
       pn("y", "Каталог", "c", [ref("vm1")]),
     ]);
@@ -219,14 +231,14 @@ describe("PlacementDialog", () => {
     expect(deploymentApi.setPlacements).toHaveBeenCalledTimes(1);
   });
 
-  it("«Убрать размещение» у контейнера: второй шаг со списком объектов → «Снять» шлёт пустой набор объектам", async () => {
+  it("«Убрать размещение» у системы: второй шаг со списком единиц → «Снять» шлёт пустой набор единицам", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
     const props = setup([container()]);
     await waitFor(() => expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeEnabled());
     await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
     expect(screen.getByText("Снять размещение «Заказы»?")).toBeInTheDocument();
-    expect(screen.getByText(/Размещение всех его компонентов будет снято/)).toBeInTheDocument();
+    expect(screen.getByText("Размещение всех контейнеров системы будет снято:")).toBeInTheDocument();
     const list = screen.getByRole("list", { name: "Объекты с другим размещением" });
     expect(list).toHaveTextContent("Каталог: vm1");
     expect(list).toHaveTextContent("Order API: vm2");
@@ -249,9 +261,9 @@ describe("PlacementDialog", () => {
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
   });
 
-  it("контейнер без объектов едет сам — отказ сервера строкой в окне", async () => {
+  it("система без единиц едет сама — отказ сервера строкой в окне", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      pn("c", "Заказы", null, []),
+      pn("c", "Заказы", null, [], "service", "system"),
       pn("u", "Покупатель", "c", [], "person"),
     ]);
     vi.mocked(deploymentApi.setPlacements).mockRejectedValue(
@@ -269,7 +281,7 @@ describe("PlacementDialog", () => {
     vi.mocked(nodesApi.getAll).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен")).mockResolvedValue(inside());
     setup([container()]);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Не удалось загрузить объекты контейнера. Сервер недоступен");
+    expect(alert).toHaveTextContent("Не удалось загрузить контейнеры системы. Сервер недоступен");
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
     await userEvent.click(check("vm2"));
     await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
@@ -277,9 +289,44 @@ describe("PlacementDialog", () => {
     expect(check("vm2").checked).toBe(true);
   });
 
-  it("без контейнеров состав проекта не грузится", () => {
+  it("без систем состав проекта не грузится", () => {
     setup([obj("a", ["k8s"])]);
     expect(nodesApi.getAll).not.toHaveBeenCalled();
     expect(screen.queryByText("Загрузка…")).toBeNull();
+  });
+
+  // ── Единица размещения — контейнер (D33) ──
+  it("контейнер с компонентами — единица: набор пишется ему самому, состав проекта не грузится", async () => {
+    const orders: DeploymentNode = { ...obj("o", ["vm1"]), name: "orders", has_children: true, child_count: 2 };
+    const props = setup([orders]);
+    expect(nodesApi.getAll).not.toHaveBeenCalled();
+    expect(check("vm1").checked).toBe(true);
+    await userEvent.click(check("vm2"));
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["o"], ["vm1", "vm2"]));
+    expect(props.onApplied).toHaveBeenCalled();
+  });
+
+  it("«Убрать размещение» у контейнера с компонентами — сразу, без второго шага", async () => {
+    const orders: DeploymentNode = { ...obj("o", ["vm1"]), name: "orders", has_children: true, child_count: 2 };
+    setup([orders]);
+    await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["o"], []));
+    expect(screen.queryByText(/Снять размещение/)).toBeNull();
+  });
+
+  it("система: набор получают её контейнеры — контейнер с компонентами целиком, компоненты нет", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([
+      pn("s", "Магазин", null, [ref("vm1")], "service", "system"),
+      pn("o", "orders", "s", [ref("vm1")]),
+      pn("a", "api", "o", [], "service", "component"),
+      pn("b", "billing", "s", [ref("vm1")]),
+    ]);
+    setup([box("s", "Магазин", ["vm1"])]);
+    await userEvent.click(check("vm2"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Применить" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Применить" }));
+    await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["o", "b"], ["vm1", "vm2"]));
+    expect(deploymentApi.setPlacements).toHaveBeenCalledTimes(1);
   });
 });

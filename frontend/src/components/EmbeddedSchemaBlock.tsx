@@ -4,7 +4,7 @@
 // Одинарный клик по узлу — выделение + индиго-подсветка инцидентных связей.
 // Двойной клик по узлу — переход на его страницу (onNavigateNode).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GhostNode, Node, ViewLayout, Edge, LevelEdge } from "../types";
+import type { GhostNode, Node, ViewLayout, Edge, LevelEdge, AncestorRef } from "../types";
 import LevelGraph from "./LevelGraph";
 import type { LevelDrillCallbacks, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LinkedHighlight } from "./graph/types";
 import { useEdgeChoice } from "./graph/interaction/useEdgeChoice";
@@ -33,6 +33,8 @@ interface Props {
   persistence?: LevelPersistenceProps;
   ancestorNames: string[];
   ancestorIds: string[];
+  // элементы архитектуры тех же предков (параллельно ancestorIds) — вид их рамок
+  ancestorElements: AncestorRef["element_effective"][];
   depth: number;
   isArchitect: boolean;
   // Вид схемы (as-is/переход/to-be) — общий клиентский ключ localStorage
@@ -63,7 +65,7 @@ interface Props {
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
-  ancestorNames, ancestorIds, depth, isArchitect,
+  ancestorNames, ancestorIds, ancestorElements, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
   height, toolbarHint, showViewFilter, empty,
 }: Props) {
@@ -227,6 +229,7 @@ export default function EmbeddedSchemaBlock({
                 persistence={persistence}
                 ancestorNames={ancestorNames}
                 ancestorIds={ancestorIds}
+                ancestorElements={ancestorElements}
                 depth={depth}
                 isArchitect={isArchitect}
                 linkedHighlight={linkedHighlight}

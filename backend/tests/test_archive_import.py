@@ -142,6 +142,34 @@ def test_полный_круг_архива(db):
     assert шаг.doc_id == доки["POST /orders"].id
 
 
+def test_круг_архива_несёт_элемент_архитектуры(db):
+    """Элемент архитектуры едет в c4.yaml архива (это экспорт) и обратно разбором —
+    ARCHIVE_FORMAT прежний (Р29): после круга значения на месте, и архив нового
+    проекта несёт тот же c4.yaml байт-в-байт."""
+    исходный = _полигон(db)
+    узлы_исходного = {n.name: n for n in db.query(Node).filter(Node.project_id == исходный.id)}
+    узлы_исходного["Ярмарка"].element = "system"
+    узлы_исходного["orders"].element = "container"  # лист-сервис: намерение (Р3)
+    db.commit()
+    архив = build_archive(db, исходный)
+
+    план, новый, отчёт = _ввоз(db, архив)
+    db.commit()
+
+    assert план.ok and отчёт.warnings == []
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == новый.id)}
+    assert {name: n.element for name, n in узлы.items()} == {
+        "Ярмарка": "system", "orders": "container", "Kafka": None, "Каталог-БД": None,
+    }
+
+    def c4(данные: bytes) -> bytes:
+        with zipfile.ZipFile(io.BytesIO(данные)) as z:
+            return z.read("c4.yaml")
+
+    assert c4(build_archive(db, новый)) == c4(архив)
+    assert b"  element: system\n" in c4(архив)
+
+
 def test_кривой_zip_не_создаёт_проекта(db):
     было = db.query(Project).count()
     # Магия zip есть, содержимого нет — вход разбирается как архив и падает на нём.

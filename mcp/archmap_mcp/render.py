@@ -12,6 +12,7 @@ Uuid остаются там, где агент обязан ими оперир
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,8 +25,10 @@ SHAPE_WORD = {
 STATUS_WORD = {"existing": "", "planned": "запланирован", "deprecated": "выводится"}
 
 
-def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
-    """Строка объекта: имя, форма, технология, статус, внешность, id."""
+def node_line(node: dict[str, Any], *, with_id: bool = True, marker: str | None = None) -> str:
+    """Строка объекта: имя, форма, технология, статус, внешность, id. marker — слово
+    в скобках сразу после имени, отдельно от свойств (дерево ставит так элемент
+    архитектуры)."""
     bits: list[str] = []
     shape = SHAPE_WORD.get(str(node.get("shape")), str(node.get("shape") or ""))
     if shape:
@@ -41,7 +44,45 @@ def node_line(node: dict[str, Any], *, with_id: bool = True) -> str:
         bits.append("внешний")
     tail = f" [{', '.join(bits)}]" if bits else ""
     ident = f"  id={node['id']}" if with_id and node.get("id") else ""
-    return f"{node.get('name', '?')}{tail}{ident}"
+    mark = f" ({marker})" if marker else ""
+    return f"{node.get('name', '?')}{mark}{tail}{ident}"
+
+
+# ── Элемент архитектуры (docs/plan-c4-elements.md) ────────────────────────────
+#
+# Система — группа контейнеров, сама не запускается; контейнер запускается отдельно, и
+# его вложенные объекты — компоненты. Действующий элемент (element_effective) сервер
+# отдаёт готовым: MCP его не вычисляет, только называет словом и ищет имя контейнера
+# среди предков, которые уже пришли в /nodes/all.
+ELEMENT_WORD = {"system": "система", "container": "контейнер", "component": "компонент"}
+
+
+def element_line(node: dict[str, Any], container: str | None = None) -> str | None:
+    """Строка «Элемент архитектуры: …» по действующему элементу; у компонента — с
+    именем его контейнера, если оно известно. Сервер, который элемента не знает, поля
+    не отдаёт — тогда строки нет; у «Пользователя» элемента нет — строки нет тоже."""
+    value = node.get("element_effective")
+    if value is None:
+        return None
+    word = ELEMENT_WORD.get(str(value), str(value))
+    if value == "component" and container:
+        word += f" контейнера «{container}»"
+    return f"Элемент архитектуры: {word}"
+
+
+def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
+    """Имя ближайшего предка с действующим элементом «контейнер» — по данным сервера,
+    обход с seen (данные бывают циклическими)."""
+    seen: set[str] = {str(node.get("id"))}
+    parent = node.get("parent_id")
+    cur = by_id.get(str(parent)) if parent else None
+    while cur is not None and str(cur["id"]) not in seen:
+        if cur.get("element_effective") == "container":
+            return str(cur.get("name", "?"))
+        seen.add(str(cur["id"]))
+        parent = cur.get("parent_id")
+        cur = by_id.get(str(parent)) if parent else None
+    return None
 
 
 # ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
@@ -98,21 +139,55 @@ def anchor_line(node: dict[str, Any]) -> str:
 APPROVAL_WORD = {"in_progress": "в работе", "approved": "согласовано"}
 
 
-def approval_line(node: dict[str, Any], children: list[dict[str, Any]]) -> str | None:
-    """Строка карточки «Статус страницы: …». У листа — его статус; у контейнера —
-    статус, вычисленный сервером по детям (approval_effective), и счётчик согласованных
-    прямых детей. Сервер, который статуса страниц не знает, поля не отдаёт — тогда
-    строки нет: выдуманное «в работе» было бы неправдой."""
+def approval_units(node: dict[str, Any], all_nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Позиции счётчика статуса страницы. Сервер с элементами архитектуры: у системы
+    статус складывается из вложенных объектов любой глубины, кроме вложенных систем
+    (контейнеры, компоненты, «Пользователи»), — обход потомков с seen (данные бывают
+    циклическими). Старый сервер (поля element_effective нет): прямые дети, как раньше."""
+    if "element_effective" not in node:
+        return [n for n in all_nodes if str(n.get("parent_id")) == str(node["id"])]
+    kids: dict[str, list[dict[str, Any]]] = {}
+    for n in all_nodes:
+        if n.get("parent_id"):
+            kids.setdefault(str(n["parent_id"]), []).append(n)
+    out: list[dict[str, Any]] = []
+    seen = {str(node["id"])}
+    stack = list(reversed(kids.get(str(node["id"]), [])))
+    while stack:
+        cur = stack.pop()
+        if str(cur["id"]) in seen:
+            continue
+        seen.add(str(cur["id"]))
+        if cur.get("element_effective") != "system":
+            out.append(cur)
+        stack.extend(reversed(kids.get(str(cur["id"]), [])))
+    return out
+
+
+def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | None:
+    """Строка карточки «Статус страницы: …». У контейнера (в том числе с компонентами),
+    компонента и «Пользователя» — свой статус; у системы — статус, вычисленный сервером
+    (approval_effective), и счётчик согласованных единиц (approval_units). Старый сервер
+    без элементов архитектуры — по наличию детей, со счётчиком прямых детей, теми же
+    словами. Сервер, который статуса страниц не знает, поля не отдаёт — тогда строки
+    нет: выдуманное «в работе» было бы неправдой."""
     value = node.get("approval_effective")
     if value is None:
         return None
     word = APPROVAL_WORD.get(str(value), str(value))
-    if not node.get("has_children"):
+    done = sum(1 for c in units if c.get("approval_effective") == "approved")
+    if "element_effective" not in node:
+        if not node.get("has_children"):
+            return f"Статус страницы: {word}"
+        return (
+            f"Статус страницы: {word} — складывается из вложенных объектов, "
+            f"согласовано {done} из {len(units)}"
+        )
+    if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
-    done = sum(1 for c in children if c.get("approval_effective") == "approved")
     return (
-        f"Статус страницы: {word} — складывается из детей, "
-        f"согласовано {done} из {len(children)}"
+        f"Статус страницы: {word} — складывается из вложенных объектов, "
+        f"согласовано {done} из {len(units)}"
     )
 
 
@@ -136,19 +211,21 @@ PLACEMENT_CAP = 20  # объектов на площадку и в «Без ра
 
 
 def _site_name(s: dict[str, Any]) -> str:
-    """Площадка строкой карточки: «Кластер prod (в Облако)»; у контейнера площадка, где
-    стоит часть его объектов, — «(в Облако, часть объектов)» / «(часть объектов)»."""
+    """Площадка строкой карточки: «Кластер prod (в Облако)»; у системы площадка, где
+    стоит часть её контейнеров, — «(в Облако, часть контейнеров)» / «(часть
+    контейнеров)», те же слова, что строка «Размещение» страницы объекта."""
     notes = [f"в {s['parent_name']}"] if s.get("parent_name") else []
     if s.get("partial"):
-        notes.append("часть объектов")
+        notes.append("часть контейнеров")
     name = str(s.get("name", "?"))
     return f"{name} ({', '.join(notes)})" if notes else name
 
 
 def placement_line(node: dict[str, Any]) -> str | None:
     """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
-    (NodeResponse.sites); у контейнера — площадки его объектов, частичные помечены.
-    Пусто — строки нет."""
+    (NodeResponse.sites); у системы — площадки её контейнеров, частичные помечены.
+    Пусто — строки нет: у компонента размещения не бывает, и строки «как у контейнера»
+    нарочно нет — она читалась бы наследованием (ошибка 2026-10)."""
     sites = list(node.get("sites") or [])
     if not sites:
         return None
@@ -184,48 +261,74 @@ def _objects(n: int) -> str:
     return f"{n} {_plural(n, ('объект', 'объекта', 'объектов'))}"
 
 
-def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str, Any], int]]]:
-    """Состав площадок: площадка → [(узел, объектов в нём)]. Контейнер, все объекты
-    которого стоят на одном наборе площадок (sites без partial), — одной строкой со
-    счётчиком объектов, внутрь не спускаемся; иначе — его объекты по отдельности."""
+def _containers(n: int) -> str:
+    return f"{n} {_plural(n, ('контейнер', 'контейнера', 'контейнеров'))}"
+
+
+def _placement_role(n: dict[str, Any]) -> str | None:
+    """Чем узел считается в размещении (Р16 эпика элементов архитектуры): "unit" —
+    единица, контейнер (лист или с компонентами), площадки хранит сам; "system" —
+    складывает площадки своих единиц; None — размещения нет (компонент,
+    «Пользователь»). Элемент — от сервера (element_effective), MCP его не вычисляет;
+    старый сервер поля не шлёт — тогда, как раньше: узел с детьми — система, лист —
+    единица."""
+    if n.get("shape") == "person":
+        return None
+    if "element_effective" in n:
+        return {"container": "unit", "system": "system"}.get(str(n.get("element_effective")))
+    return "system" if n.get("has_children") else "unit"
+
+
+def _site_members(
+    nodes: list[dict[str, Any]],
+) -> dict[str, list[tuple[dict[str, Any], int, bool]]]:
+    """Состав площадок: площадка → [(узел, единиц в нём, целиком ли)]. Единица —
+    контейнер, лист или с компонентами, — одной строкой на каждой своей площадке:
+    внутрь не спускаемся, компоненты не размещаются. Система, все единицы которой стоят
+    на одном наборе площадок (sites без partial), — одной строкой «целиком» со счётчиком
+    единиц; иначе — её единицы по отдельности."""
     kids_of: dict[str | None, list[dict[str, Any]]] = {}
     for n in nodes:
         parent = str(n["parent_id"]) if n.get("parent_id") else None
         kids_of.setdefault(parent, []).append(n)
-    members: dict[str, list[tuple[dict[str, Any], int]]] = {}
+    members: dict[str, list[tuple[dict[str, Any], int, bool]]] = {}
 
-    def leaves(n: dict[str, Any], seen: set[str]) -> int:
-        """Объектов в поддереве n; его узлы ложатся в seen — контейнер, взятый целиком,
-        второй раз (по списку всех узлов) не обходится."""
-        children = kids_of.get(str(n["id"]), [])
-        if not children:
-            return 0 if n.get("shape") == "person" else 1
+    def units(n: dict[str, Any], seen: set[str]) -> int:
+        """Единиц в поддереве системы n (сквозь вложенные системы); её узлы ложатся в
+        seen — система, взятая целиком, второй раз (по списку всех узлов) не
+        обходится."""
         total = 0
-        for k in children:
+        for k in kids_of.get(str(n["id"]), []):
             kid = str(k["id"])
             if kid in seen:
                 continue
             seen.add(kid)
-            total += leaves(k, seen)
+            role = _placement_role(k)
+            if role == "unit":
+                total += 1
+            elif role == "system":
+                total += units(k, seen)
         return total
 
     def walk(n: dict[str, Any], seen: set[str]) -> None:
         nid = str(n["id"])
-        if nid in seen or n.get("shape") == "person":
+        if nid in seen:
             return
         seen.add(nid)
+        role = _placement_role(n)
         placed = list(n.get("sites") or [])
-        children = kids_of.get(nid, [])
-        if not children:
+        if role == "unit":
             for s in placed:
-                members.setdefault(str(s["id"]), []).append((n, 1))
+                members.setdefault(str(s["id"]), []).append((n, 1, False))
+            return
+        if role != "system":
             return
         if placed and not any(s.get("partial") for s in placed):
-            count = leaves(n, seen)
+            count = units(n, seen)
             for s in placed:
-                members.setdefault(str(s["id"]), []).append((n, count))
+                members.setdefault(str(s["id"]), []).append((n, count, True))
             return
-        for k in children:
+        for k in kids_of.get(nid, []):
             walk(k, seen)
 
     seen: set[str] = set()
@@ -239,10 +342,12 @@ def _site_members(nodes: list[dict[str, Any]]) -> dict[str, list[tuple[dict[str,
 def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) -> list[str]:
     """Площадки деревом с составом (archmap_deployment без объекта).
 
-    Под площадкой — что на ней стоит: контейнер целиком одной строкой («целиком, N
-    объектов») или объекты по отдельности (_site_members). Затем «Без размещения» —
-    объекты без площадок, кроме «Пользователей» (они живут вне системы). nodes —
-    /nodes/all: sites объекта — его площадки, контейнера — площадки его объектов."""
+    Под площадкой — что на ней стоит: единица (контейнер, и с компонентами) одной
+    строкой без хвоста, цельная система — одной строкой «система целиком, N контейнеров»
+    по числу её единиц, иначе единицы по отдельности (_site_members). Затем «Без размещения» —
+    единицы без площадок: компонентов и «Пользователей» там нет, размещения у них не
+    бывает. nodes — /nodes/all: sites единицы — её площадки, системы — площадки её
+    единиц."""
     by_id = {str(n["id"]): n for n in nodes}
     own = _site_members(nodes)
     ids = {str(s["id"]) for s in sites}
@@ -261,10 +366,10 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
         seen.add(sid)
         pad = "  " * depth
         members = sorted(own.get(sid, []), key=lambda m: path_of(str(m[0]["id"]), by_id))
-        total = sum(c for _n, c in members)
+        total = sum(c for _n, c, _whole in members)
         out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
-        for n, c in members[:PLACEMENT_CAP]:
-            tail = f" (целиком, {_objects(c)})" if n.get("has_children") else ""
+        for n, c, whole in members[:PLACEMENT_CAP]:
+            tail = f" (система целиком, {_containers(c)})" if whole else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
         if len(members) > PLACEMENT_CAP:
             out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
@@ -279,7 +384,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
     unplaced = sorted(
         path_of(str(n["id"]), by_id) + f"  id={n['id']}"
         for n in nodes
-        if not n.get("has_children") and n.get("shape") != "person" and not n.get("sites")
+        if _placement_role(n) == "unit" and not n.get("sites")
     )
     if not unplaced:
         out.append("Без размещения: нет — все объекты стоят на площадках")
@@ -295,11 +400,20 @@ def node_placement(
     node: dict[str, Any], by_id: dict[str, dict[str, Any]], sites: list[dict[str, Any]]
 ) -> list[str]:
     """Размещение одного объекта (archmap_deployment с node_id): путь объекта, затем
-    площадки путями с видом; у контейнера это площадки его объектов, и где стоит часть
-    — пометка «часть объектов»."""
+    площадки путями с видом; у системы это площадки её единиц, и где стоит часть —
+    пометка «часть контейнеров». У компонента размещения нет: строка называет контейнер,
+    которому задаются площадки, — тем же словом, что отказ сервера."""
     out = [f"Путь: {path_of(str(node['id']), by_id)}  id={node['id']}"]
     if node.get("shape") == "person":
         out.append("Размещения нет: пользователь живёт вне системы")
+        return out
+    if node.get("element_effective") == "component":
+        holder = container_name(node, by_id)
+        out.append(
+            f"Размещения нет: это компонент — площадки задаются контейнеру «{holder}»"
+            if holder
+            else "Размещения нет: это компонент — площадки задаются его контейнеру"
+        )
         return out
     placed = list(node.get("sites") or [])
     if not placed:
@@ -313,7 +427,7 @@ def node_placement(
         site = by_site.get(sid, e)
         label = site_label({**site, "name": paths.get(sid, e.get("name", "?"))})
         if e.get("partial"):
-            label += " — часть объектов"
+            label += " — часть контейнеров"
         out.append(f"  • {label}")
     return out
 
@@ -349,7 +463,11 @@ def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
 
     def walk(parent: str | None, depth: int) -> None:
         for n in kids.get(parent, []):
-            lines.append("  " * depth + "• " + node_line(n, with_id=with_ids))
+            # Маркер — только у контейнера с компонентами: лист-контейнер и система —
+            # сегодняшняя картина, и дерево проекта без контейнеров не меняется.
+            container = n.get("element_effective") == "container" and n.get("has_children")
+            marker = ELEMENT_WORD["container"] if container else None
+            lines.append("  " * depth + "• " + node_line(n, with_id=with_ids, marker=marker))
             walk(str(n["id"]), depth + 1)
 
     walk(None, 0)
@@ -416,29 +534,120 @@ CHANNEL_REASON = {
     "ambiguous": "имя неоднозначно, укажите „Брокер / канал“",
     "unknown_field": "поля нет в канале",
 }
-# Пометка «зависит от:» причины не несёт — она единственная (AL33), поэтому текст
-# постоянный и, как в панели, называет ОБА выхода: описать ручку или переписать фразу.
+# Пометка «зависит от:» причины не несёт — она единственная (AL33): параметра нет у
+# ближайшего контейнера владельца схемы. Текст зависит только от того, ГДЕ искали, и,
+# как в панели (SchemaAlerts.configReason), называет ОБА выхода: описать ручку или
+# переписать фразу.
 CONFIG_REASON = (
     "параметра нет в конфигурации объекта: опишите его или, "
     "если это обычная фраза, уберите двоеточие"
 )
+CONFIG_REASON_SYSTEM = (
+    "схема у системы, а параметры живут у контейнера: перенесите схему "
+    "контейнеру или компоненту либо уберите двоеточие"
+)
+CONFIG_REASON_CONTAINER = (
+    "параметра нет в конфигурации контейнера «{name}»: опишите его там или, "
+    "если это обычная фраза, уберите двоеточие"
+)
+
+
+# Совет «Систем и контейнеров со своей документацией» по элементу архитектуры записи и
+# место фактов компонента — дословно из панели (OWN_DOCS_HINT и раздел «Конфигурация и
+# спецификации у компонентов» в SchemaAlerts.tsx).
+OWN_DOCS_HINT = {
+    "system": (
+        "спецификация, конфигурация и схемы логики описывают её контейнеры — "
+        "перенесите их вложенным объектам"
+    ),
+    "container": "схемы логики описывают код компонентов — перенесите их компонентам",
+}
+COMPONENT_FACTS_HINT = "место — у контейнера «{name}»"
+
+
+def own_docs_line(record: dict[str, Any]) -> str:
+    """Строка AL24: имя и совет по элементу. Сервер без элементов архитектуры поля не
+    шлёт — тогда, как раньше, одно имя."""
+    hint = OWN_DOCS_HINT.get(str(record.get("element_effective")))
+    return f"{record['node_name']} ({hint})" if hint else str(record["node_name"])
+
+
+def component_facts_line(record: dict[str, Any]) -> str:
+    """Строка AL36: компонент, что у него осталось и контейнер, куда это перенести.
+    Порядок слов — как на панели: конфигурация, спецификация, площадки; сервер без
+    флага площадок его не шлёт — слова нет."""
+    facts = ", ".join(
+        word
+        for flag, word in (
+            ("has_config", "конфигурация"),
+            ("has_spec", "спецификация"),
+            ("has_sites", "площадки"),
+        )
+        if record.get(flag)
+    )
+    hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")
+    return f"{record['node_name']} · {facts} ({hint})"
+
+
+def config_reason(record: dict[str, Any]) -> str:
+    """Причина записи AL33 по месту поиска: сам владелец схемы, его контейнер или
+    нигде (владелец — система). Сервер без поля container_id (до эпика «Элемент
+    архитектуры») искал только у владельца — тогда текст прежний."""
+    if "container_id" not in record or record["container_id"] == record.get("node_id"):
+        return CONFIG_REASON
+    if record["container_id"] is None:
+        return CONFIG_REASON_SYSTEM
+    return CONFIG_REASON_CONTAINER.format(name=record.get("container_name") or "")
 
 
 def _caption(item: dict[str, Any]) -> str:
     return f"«{item['caption']}»" if item.get("caption") else "без подписи"
 
 
+UNKNOWN_ALERTS_SHOWN = 5  # записей незнакомого класса в блоке: дальше — счётчиком
+
+
+def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[str, int]]:
+    """Классы замечаний, которых этот MCP-сервер не знает: (блок, число записей).
+
+    Слов панели для них у клиента нет, поэтому заголовок — ключ ответа, а записи —
+    как пришли (JSON строкой): сырое честнее, чем ничего."""
+    out: list[tuple[str, int]] = []
+    for key, value in data.items():
+        if key in known or not isinstance(value, list) or not value:
+            continue
+        lines = [
+            json.dumps(item, ensure_ascii=False) if isinstance(item, dict | list) else str(item)
+            for item in value[:UNKNOWN_ALERTS_SHOWN]
+        ]
+        if len(value) > UNKNOWN_ALERTS_SHOWN:
+            lines.append(f"… и ещё {len(value) - UNKNOWN_ALERTS_SHOWN}")
+        head = (
+            f"«{key}» ({len(value)}). Этот класс замечаний MCP-серверу незнаком — сервер "
+            "ArchMap новее, обновите MCP-сервер. Записи как есть:"
+        )
+        out.append((head + "\n" + "\n".join("  • " + line for line in lines), len(value)))
+    return out
+
+
 def alerts(data: dict[str, Any]) -> str:
-    """Незавершённость схемы — 15 классов в порядке, заголовках и словах панели
+    """Незавершённость схемы — 16 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
 
     Читается это агентом, а показывается человеку панелью — значит и называться
     должно одинаково: расхождение слов дороже любой экономии контекста.
 
     Все списки берутся через .get(..., []): сервер старше клиента новых классов не
-    отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError.
+    отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError. Обратный
+    случай — сервер НОВЕЕ клиента: незнакомый непустой список печатается общим
+    блоком (ключ, число записей, первые записи как есть), а не глотается — иначе
+    агент прочёл бы «Замечаний нет», пока панель горит (камень 24
+    docs/plan-c4-elements.md).
     """
+    known: set[str] = set()
+
     def lst(key: str) -> list[dict[str, Any]]:
+        known.add(key)
         value = data.get(key) or []
         return list(value) if isinstance(value, list) else []
 
@@ -447,6 +656,7 @@ def alerts(data: dict[str, Any]) -> str:
     descendant = lst("descendant_edges")
     isolated = lst("isolated_groups")
     container_own = lst("container_own_docs")
+    component_facts = lst("component_facts")
     data_refs = lst("unresolved_data_refs")
     channel_refs = lst("unresolved_channel_refs")
     config_refs = lst("unresolved_config_refs")
@@ -470,7 +680,7 @@ def alerts(data: dict[str, Any]) -> str:
 
     add("Объекты без связей", [str(d["node_name"]) for d in disconnected])
     add(
-        "Связи в контейнер",
+        "Связи в систему или контейнер",
         [
             f"{end(str(e['source_name']), bool(e.get('source_is_intermediate')))} → "
             f"{end(str(e['target_name']), bool(e.get('target_is_intermediate')))}"
@@ -478,7 +688,7 @@ def alerts(data: dict[str, Any]) -> str:
         ],
     )
     add(
-        "Связи в собственный компонент",
+        "Связи с собственной частью",
         [
             f"{e['source_name']} → {e['target_name']}: "
             f"«{e['source_name'] if e.get('source_is_part') else e['target_name']}» — часть "
@@ -494,7 +704,11 @@ def alerts(data: dict[str, Any]) -> str:
             for i, g in enumerate(isolated)
         ],
     )
-    add("Контейнеры со своей документацией", [str(c["node_name"]) for c in container_own])
+    add("Системы и контейнеры со своей документацией", [own_docs_line(c) for c in container_own])
+    add(
+        "Конфигурация и спецификации у компонентов",
+        [component_facts_line(c) for c in component_facts],
+    )
     add(
         "Обращения к неописанным данным",
         [
@@ -513,7 +727,10 @@ def alerts(data: dict[str, Any]) -> str:
     )
     add(
         "Обращения к неописанным параметрам",
-        [f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {CONFIG_REASON}" for r in config_refs],
+        [
+            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {config_reason(r)}"
+            for r in config_refs
+        ],
     )
     add(
         "Связи с брокером без канала",
@@ -556,9 +773,11 @@ def alerts(data: dict[str, Any]) -> str:
         ],
     )
     add(
-        "Пользователи внутри контейнера",
+        "Пользователи внутри системы",
         [f"{p['node_name']} внутри {p['parent_name']}" for p in persons_inside],
     )
+    unknown = _unknown_alert_blocks(data, known)
+    blocks.extend(block for block, _ in unknown)
 
     if not blocks:
         return "Замечаний нет — схема завершена."
@@ -567,9 +786,10 @@ def alerts(data: dict[str, Any]) -> str:
     # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
     total = (
         len(disconnected) + len(intermediate) + len(descendant) + max(0, len(isolated) - 1)
-        + len(container_own) + len(data_refs) + len(channel_refs) + len(config_refs)
+        + len(container_own) + len(component_facts) + len(data_refs) + len(channel_refs) + len(config_refs)
         + len(broker_edges) + len(dangling) + len(orphan_legs) + len(unbound)
         + len(unlinked) + len(undescribed) + len(persons_inside)
+        + sum(count for _, count in unknown)
     )
     head = f"Замечаний: {total}"
     return head + "\n\n" + "\n\n".join(blocks)
@@ -1408,7 +1628,7 @@ def _channel_stubs_line(data: dict[str, Any]) -> list[str]:
     return [
         f"Каналов брокеров заведено по связям схемы: {n} "
         f"{_plural(n, ('заглушка', 'заглушки', 'заглушек'))} без описания — дозалейте "
-        "пакет каналов (archmap_facts_prompt family=channel)."
+        "пакет каналов (archmap_facts_prompt family=channels)."
     ]
 
 

@@ -39,6 +39,7 @@ def _seed(parsed: ParsedImport) -> tuple[list[Node], list[Edge]]:
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                element=n.element,
                 source_ref=n.source_keys[0] if n.source_keys else None,
                 parent_id=nodes[n.parent_idx].id if n.parent_idx is not None else None,
             )
@@ -574,3 +575,340 @@ class TestMatchBasis:
         предупреждение = next(w for w in plan.warnings if "orders-db" in w)
         assert "относится к другому имени зависимости orders-db" in предупреждение
         assert "сетевому имени" not in предупреждение
+
+
+# ── Элемент архитектуры: синк — fill-only через правило (Ф2, Р30) ────────────
+
+RUN_ЭЛЕМЕНТ = RUN.replace(
+    "      - name: orders\n",
+    "      - name: orders\n        element: container\n",
+)
+
+
+def _узел_плана(plan, path: str):
+    return next(a for a in plan.nodes if a.path == path)
+
+
+def test_элемент_пустой_живой_доливается():
+    nodes, edges = _seed(_parse(RUN))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+
+    orders = _узел_плана(plan, "Система / orders")
+    assert (orders.action, orders.fields) == ("update", ["element"])
+    assert plan.conflicts == []
+
+
+def test_элемент_фикспойнт_план_пуст():
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    assert build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ)).is_noop
+
+
+def test_элемент_занятый_живой_не_трогается_строкой():
+    """Решение человека синк не переписывает: другое значение в YAML — строка
+    conflicts словами продукта, «не сказано» в YAML — ничего."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(
+        nodes, edges, _parse(RUN_ЭЛЕМЕНТ.replace("element: container", "element: system"))
+    )
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: в YAML элемент архитектуры другой («система») — в схеме оставляем как есть"
+    ]
+    assert plan.is_noop
+
+    молчит = build_sync_plan(nodes, edges, _parse(RUN))
+    assert молчит.is_noop and молчит.conflicts == []
+
+
+def test_элемент_отказ_правила_по_живому_дереву_строкой():
+    """YAML чист сам по себе, а живое дерево против: узел лежит в живом контейнере
+    (Р5) или под ним живая база, которой нет в прогоне (Р6), — значение не ложится,
+    причина — текстом отказа API."""
+    nodes, edges = _seed(_parse(RUN))
+    by_name = {n.name: n for n in nodes}
+    by_name["Система"].element = "container"
+    # orders — сервис внутри живого контейнера, его компонент: без галочки синк его не
+    # трогает вовсе, отказ правила виден только с галочкой.
+    без_галочки = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+    assert "Система / orders" not in _пути(без_галочки) and без_галочки.conflicts == []
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ), SyncPolicies(sync_components=True))
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: элемент архитектуры из YAML не применён — объект «orders» лежит внутри "
+        "контейнера «Система» и считается его компонентом. Элемент архитектуры задаётся у "
+        "самого контейнера."
+    ]
+
+    nodes, edges = _seed(_parse(RUN))
+    orders = next(n for n in nodes if n.name == "orders")
+    nodes.append(Node(id=uuid.uuid4(), project_id=orders.project_id, name="orders-cache",
+                      shape="database", parent_id=orders.id))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+    assert _узел_плана(plan, "Система / orders").fields == []
+    assert plan.conflicts == [
+        "«orders»: элемент архитектуры из YAML не применён — внутри лежит база данных "
+        "«orders-cache», она не может входить в состав контейнера. Вынесите её на уровень "
+        "выше и повторите."
+    ]
+
+
+# ── База и брокер в живом контейнере: действующий родитель — родитель контейнера (Р6) ──
+
+С_БАЗОЙ_В_КОНТЕЙНЕРЕ = RUN_ЭЛЕМЕНТ.replace(
+    "      - name: orders\n        element: container\n",
+    "      - name: orders\n        children:\n          - name: api\n"
+    "          - name: orders-cache\n            shape: database\n",
+)
+С_КОМПОНЕНТАМИ = SyncPolicies(sync_components=True)
+
+
+def _ids(nodes) -> dict[str, uuid.UUID]:
+    return {n.name: n.id for n in nodes}
+
+
+def test_база_в_живом_контейнере_создаётся_уровнем_выше():
+    """Прогон кладёт базу в живой контейнер: создание — у родителя контейнера (живой
+    parent_id старше пути), строка плана объясняет, почему не там, где в прогоне."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == (
+        "create", _ids(nodes)["Система"], None
+    )
+    api = _узел_плана(plan, "Система / orders / api")
+    assert (api.action, api.parent_id, api.parent_path) == ("create", None, "Система / orders")
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — будет "
+        "создана уровнем выше, в «Система»"
+    ]
+
+
+def test_брокер_корневого_контейнера_создаётся_на_верхнем_уровне():
+    """Брокер компонентом не бывает (Р6): под живым контейнером он в зоне синка и без
+    галочки и выносится наверх, а сервисы-компоненты рядом с ним синк не трогает."""
+    живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
+    прогон = (
+        "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "      - name: scheduler\n"
+        "      - name: Kafka\n        shape: broker\n"
+    )
+    nodes, edges = _seed(_parse(живой))
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+
+    kafka = _узел_плана(plan, "orders / Kafka")
+    assert (kafka.action, kafka.parent_id, kafka.parent_path) == ("create", None, None)
+    # Компоненты без галочки вне зоны: ни живой api, ни новый scheduler.
+    assert _пути(plan) == ["orders", "orders / Kafka"]
+    assert plan.conflicts == [
+        "«Kafka»: брокер не может входить в состав контейнера «orders» — будет создан на "
+        "верхнем уровне"
+    ]
+
+
+def test_база_под_новым_компонентом_живого_контейнера_тоже_выносится():
+    """Родитель базы в прогоне — новый компонент живого контейнера: он ляжет внутрь
+    контейнера, значит и база оказалась бы в его составе."""
+    прогон = RUN_ЭЛЕМЕНТ.replace(
+        "      - name: orders\n        element: container\n",
+        "      - name: orders\n        children:\n          - name: worker\n"
+        "            children:\n              - name: orders-cache\n"
+        "                shape: database\n",
+    )
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / worker / orders-cache")
+    assert (кэш.action, кэш.parent_id) == ("create", _ids(nodes)["Система"])
+    assert _узел_плана(plan, "Система / orders / worker").parent_path == "Система / orders"
+
+
+def test_база_под_живым_листом_без_элемента_не_выносится():
+    """Лист без заданного элемента читается контейнером, но база внутри делает его
+    системой — это законно, и синк кладёт её туда, куда прогон."""
+    прогон = RUN.replace(
+        "      - name: orders\n",
+        "      - name: orders\n        children:\n          - name: orders-cache\n"
+        "            shape: database\n",
+    )
+    nodes, edges = _seed(_parse(RUN))
+    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == ("create", None, "Система / orders")
+    assert plan.conflicts == []
+
+
+def test_вынесенная_база_находится_уровнем_выше_фикспойнт():
+    """Повторный прогон: база уже лежит у родителя контейнера — она и находится, план
+    пуст по действиям, строка объясняет расхождение с прогоном."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, parent in (("api", "orders"), ("orders-cache", "Система")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name,
+            shape="database" if name == "orders-cache" else "service",
+            status="existing", parent_id=ids[parent],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    assert plan.is_noop, plan.summary
+    assert _узел_плана(plan, "Система / orders / orders-cache").node_id == _ids(nodes)["orders-cache"]
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — в "
+        "схеме она лежит уровнем выше, в «Система»"
+    ]
+
+
+def test_база_уже_в_живом_контейнере_не_дублируется():
+    """Создать базу под контейнером API не запрещает: если она уже лежит там, куда её
+    кладёт прогон, — это она, без переноса и без второй копии уровнем выше."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, shape in (("api", "service"), ("orders-cache", "database")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name, shape=shape,
+            status="existing", parent_id=ids["orders"],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ), С_КОМПОНЕНТАМИ)
+
+    assert plan.is_noop, plan.summary
+    assert plan.conflicts == []
+
+
+def test_база_под_живым_контейнером_без_галочки_выносится():
+    """База компонентом не бывает (Р6): прогон кладёт её в живой контейнер на глубине,
+    где по прежнему правилу начинались компоненты, — без галочки она в зоне синка и
+    создаётся уровнем выше; сервис-компонент рядом с ней синк не трогает."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ))
+
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == (
+        "create", _ids(nodes)["Система"], None
+    )
+    assert "Система / orders / api" not in _пути(plan)
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — будет "
+        "создана уровнем выше, в «Система»"
+    ]
+
+
+def test_живая_база_в_контейнере_пропавшая_без_галочки():
+    """База прямо в живом контейнере в зоне и на стороне живого дерева: прогон о ней
+    молчит — «пропавшая»; сервис-компонент рядом — нет."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, shape in (("api", "service"), ("orders-cache", "database")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name, shape=shape,
+            status="existing", parent_id=ids["orders"],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+
+    assert _by_action(plan, "missing") == ["Система / orders / orders-cache"]
+
+
+# ── Зона синка по элементу архитектуры, запасной путь — по глубине прогона (Ф6) ──
+
+def _пути(plan) -> list[str]:
+    return [a.path for a in plan.nodes]
+
+
+def test_зона_контейнер_прогона_на_глубине_2_дети_вне_синка():
+    """Контейнер в прогоне — его компоненты вне зоны, а сам он в ней (элемент
+    доливается)."""
+    nodes, edges = _seed(_parse(RUN))
+    прогон = RUN_ЭЛЕМЕНТ.replace(
+        "        element: container\n",
+        "        element: container\n        children:\n          - name: api\n",
+    )
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+
+    assert "Система / orders / api" not in _пути(plan)
+    assert _узел_плана(plan, "Система / orders").fields == ["element"]
+    assert _by_action(plan, "missing") == []
+
+
+def test_зона_системы_вкладываются_на_любую_глубину():
+    """Система на глубине 3 с контейнером на глубине 4 — в зоне; компонент контейнера
+    на глубине 5 — нет. По глубине всё это было бы слоем компонентов."""
+    nodes, edges = _seed(_parse(RUN))
+    прогон = RUN.replace(
+        "      - name: orders-db\n",
+        "      - name: platform\n        children:\n          - name: shop\n"
+        "            children:\n              - name: checkout\n"
+        "                element: container\n                children:\n"
+        "                  - name: handler\n"
+        "      - name: orders-db\n",
+    )
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+
+    assert _by_action(plan, "create") == [
+        "Система / platform", "Система / platform / shop", "Система / platform / shop / checkout",
+    ]
+    assert not any(p.endswith("handler") for p in _пути(plan))
+
+
+def _живой_контейнер_с_компонентами() -> tuple[list[Node], list[Edge]]:
+    """Живой orders — контейнер с компонентами api и worker (прогон о них молчит)."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    orders = next(n for n in nodes if n.name == "orders")
+    for name in ("api", "worker"):
+        nodes.append(Node(id=uuid.uuid4(), project_id=orders.project_id, name=name,
+                          shape="service", status="existing", parent_id=orders.id))
+    return nodes, edges
+
+
+def test_зона_компоненты_живого_контейнера_вне_синка_и_не_пропавшие():
+    nodes, edges = _живой_контейнер_с_компонентами()
+    прогон = RUN.replace(
+        "      - name: orders\n",
+        "      - name: orders\n        children:\n          - name: api\n"
+        "          - name: scheduler\n",
+    )
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+
+    # Прогон элемента не задаёт, но живой проект задал: зона по элементу.
+    assert not any(p.startswith("Система / orders / ") for p in _пути(plan))
+    assert _by_action(plan, "missing") == []
+    assert plan.is_noop
+
+
+def test_зона_с_галочкой_всё():
+    nodes, edges = _живой_контейнер_с_компонентами()
+    прогон = RUN_ЭЛЕМЕНТ.replace(
+        "        element: container\n",
+        "        element: container\n        children:\n          - name: api\n"
+        "          - name: scheduler\n",
+    )
+    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+
+    assert _узел_плана(plan, "Система / orders / api").action == "unchanged"
+    assert _by_action(plan, "create") == ["Система / orders / scheduler"]
+    assert _by_action(plan, "missing") == ["Система / orders / worker"]
+
+
+def test_зона_запасной_путь_по_глубине_без_элементов():
+    """Элемент не задан нигде — зона прежняя, по глубине прогона: система на глубине 2
+    отдаёт своих детей слою компонентов, живые дети не «пропавшие». Хоть один элемент с
+    любой стороны — зона по элементу, и та же система вкладывается глубже."""
+    живой = RUN.replace(
+        "      - name: orders-db\n",
+        "      - name: shop\n        children:\n          - name: cart\n"
+        "      - name: orders-db\n",
+    )
+    прогон = живой.replace(
+        "          - name: cart\n", "          - name: cart\n          - name: checkout\n"
+    ).replace("          - name: cart\n", "")
+    nodes, edges = _seed(_parse(живой))
+
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
+    assert plan.is_noop and _by_action(plan, "missing") == []
+
+    with_element = _parse(прогон.replace(
+        "      - name: payments\n", "      - name: payments\n        element: container\n"
+    ))
+    plan = build_sync_plan(nodes, edges, with_element)
+    assert _by_action(plan, "create") == ["Система / shop / checkout"]
+    assert _by_action(plan, "missing") == ["Система / shop / cart"]

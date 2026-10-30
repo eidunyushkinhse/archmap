@@ -2,8 +2,9 @@
 
 Нужен, чтобы читать и править ТЕКСТОВКИ панели алертов на живых данных: каждый
 класс из docs/specs/alerts.md представлен минимум одной записью, а те классы, где
-формулировка зависит от флагов или причины (контейнер со своими доками, битые
-пометки данных и событий, связь с брокером), — ВСЕМИ вариантами.
+формулировка зависит от флагов, причины или элемента архитектуры (система или
+контейнер со своими доками, факты компонента, битые пометки данных и событий, связь с
+брокером), — ВСЕМИ вариантами.
 
 Запуск (из корня репозитория, бэкенд поднимать не нужно — пишем прямо в БД):
     backend/venv/bin/python scripts/seed-alerts-demo.py
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Session  # noqa: E402
 import app.models.broker_channel  # noqa: E402
 import app.models.business_process  # noqa: E402
 import app.models.channel_field  # noqa: F401,E402
+import app.models.config_param  # noqa: E402
 import app.models.db_column  # noqa: F401,E402
 import app.models.db_table  # noqa: E402
 import app.models.edge  # noqa: E402
@@ -48,8 +50,11 @@ from app.database import SessionLocal  # noqa: E402
 from app.models.broker_channel import BrokerChannel  # noqa: E402
 from app.models.business_process import BusinessProcess  # noqa: E402
 from app.models.channel_field import ChannelField  # noqa: E402
+from app.models.config_param import ConfigParam  # noqa: E402
 from app.models.db_column import DbColumn  # noqa: E402
 from app.models.db_table import DbTable  # noqa: E402
+from app.models.deployment_instance import DeploymentInstance  # noqa: E402
+from app.models.deployment_site import DeploymentSite  # noqa: E402
 from app.models.edge import Edge  # noqa: E402
 from app.models.node import Node  # noqa: E402
 from app.models.node_doc import NodeDoc  # noqa: E402
@@ -73,6 +78,15 @@ paths:
 DOC = """flowchart TD
   A[Пришёл запрос] --> B{Хватает денег?}
   B -- да --> C[Списать]
+  B -- нет --> D[Отказать]
+"""
+
+# Схема, оставшаяся на КОНТЕЙНЕРЕ с компонентами (AL24, вариант «контейнер»): схемы
+# описывают код, а код — у компонентов. Пометка «зависит от:» ищет параметр у самого
+# контейнера, а его там нет (AL33, место поиска — сам владелец схемы).
+DOC_ORDERS = """flowchart TD
+  A["Принять заказ<br>зависит от: ORDERS_LIMIT"] --> B{"Лимит не превышен?"}
+  B -- да --> C[Сохранить заказ]
   B -- нет --> D[Отказать]
 """
 
@@ -152,6 +166,7 @@ def main() -> None:
             role: str | None = None,
             technology: str | None = None,
             spec: str | None = None,
+            element: str | None = None,
         ) -> Node:
             n = Node(
                 project_id=pid,
@@ -161,21 +176,53 @@ def main() -> None:
                 role=role,
                 technology=technology,
                 openapi_spec=spec,
+                element=element,
             )
             db.add(n)
             db.flush()
             return n
 
         # --- Схема -----------------------------------------------------------
-        # «Платформа» — контейнер, на котором осталась СПЕКА (AL24: только has_spec).
+        # Элемент архитектуры не задан — узлы с детьми системы (как до эпика), кроме
+        # «Заказов» ниже: там явный контейнер с компонентом.
+        # «Платформа» — система, на которой осталась СПЕКА (AL24 system: только has_spec).
         platform = node("Платформа", role="система", spec=SPEC)
         gateway = node("Шлюз", parent=platform.id, role="сервис", technology="Go")
-        # «Биллинг» — контейнер, на котором осталась СХЕМА ЛОГИКИ (AL24: только has_docs).
+        # «Биллинг» — система, на которой осталась СХЕМА ЛОГИКИ (AL24 system: только has_docs).
         billing = node("Биллинг", parent=platform.id, role="сервис", technology="Python")
         billing_worker = node(
             "Биллинг-воркер", parent=billing.id, role="воркер", technology="Celery"
         )
-        # «Каталог» — контейнер, на котором остались И доки, И спека (AL24: оба флага).
+        # «Заказы» — КОНТЕЙНЕР с компонентом «Заказы-API». У контейнера осталась своя схема
+        # логики (AL24 container), его спецификация и конфигурация — норма. У компонента —
+        # параметр, спецификация и площадка: факты процесса не у контейнера (AL36, все
+        # флаги). Базы и брокера внутри контейнера нет: они в него не входят (Р6).
+        orders = node(
+            "Заказы", parent=platform.id, role="сервис", technology="Python", element="container"
+        )
+        orders_api = node("Заказы-API", parent=orders.id, role="API", spec=SPEC)
+        # У компонента — и «спящий» экземпляр на площадке (AL36, флаг площадок): прежние
+        # данные или перенос размещённого объекта внутрь контейнера. Прямой записью, в
+        # обход ручки — она отказала бы 422 «Площадки задаются контейнеру»; размещение
+        # такой экземпляр не считает (app/deployment.placement_map).
+        cloud = DeploymentSite(project_id=pid, name="Облако", kind="cloud")
+        db.add(cloud)
+        db.flush()
+        db.add(DeploymentInstance(project_id=pid, node_id=orders_api.id, site_id=cloud.id))
+        db.add(
+            ConfigParam(
+                node_id=orders_api.id,
+                name="ORDERS_LIMIT",
+                description="Сколько заказов в минуту принимает API",
+                value_type="int",
+                required=False,
+                default_value="100",
+            )
+        )
+        db.add(NodeDoc(node_id=orders.id, name="Приём заказа", kind="operation", content=DOC_ORDERS))
+        # AL35: заглушка разведки (схема без тела) — у компонента, где ей и место.
+        db.add(NodeDoc(node_id=orders_api.id, name="GET /orders/{id}", kind="operation", content=""))
+        # «Каталог» — система, на которой остались И доки, И спека (AL24 system: оба флага).
         catalog = node("Каталог", parent=platform.id, role="сервис", spec=SPEC)
         catalog_db = node(
             "Каталог-БД", parent=catalog.id, shape="database", role="БД", technology="PostgreSQL"
@@ -311,6 +358,7 @@ def main() -> None:
         edge(platform.id, billing.id, "внутренний вызов")
         # Нормальные связи — держат первый кластер связным.
         queue = edge(gateway.id, billing_worker.id, "поставить в очередь", sync=False)
+        edge(gateway.id, orders_api.id, "создать заказ")
         edge(gateway.id, catalog_db.id, "читать товары")
         edge(operator.id, gateway.id, "оформляет заказ")
         # AL31, обе причины плюс контроль. Все три связи держим в ПЕРВОМ кластере:

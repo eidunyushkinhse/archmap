@@ -23,10 +23,12 @@ function render(ui: ReactElement) {
 }
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
+    get: vi.fn(),
     getGraph: vi.fn(),
     getAll: vi.fn(),
     deletionSnapshot: vi.fn(),
     moveSnapshot: vi.fn(),
+    movePreview: vi.fn(),
     delete: vi.fn(),
     restore: vi.fn(),
     update: vi.fn(),
@@ -133,6 +135,8 @@ function node(id: string, over: Partial<Node> = {}): Node {
     docs: [],
     has_children: false,
     child_count: 0,
+    element: null,
+    element_effective: "container",
     created_at: "",
     updated_at: "",
     ...over,
@@ -341,6 +345,14 @@ describe("MapEditorPage: перенос объекта", () => {
     vi.clearAllMocks();
     vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
     vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    // Цель переноса — узел с детьми: окна первого вложенного объекта нет.
+    vi.mocked(nodesApi.get).mockResolvedValue(
+      node("new", { has_children: true, child_count: 1, element_effective: "system" }) as never,
+    );
+    // Последствий для площадок нет — окна последствий тоже (Р18).
+    vi.mocked(nodesApi.movePreview).mockResolvedValue(
+      { kind: "none", before: [], after: [], docs_names: [], container_name: null } as never,
+    );
   });
 
   const снимок = { nodes: [], edges: [], layout_items: [{ view_id: null, item_id: "kid", payload: { x: 1, y: 2 } }] };
@@ -379,6 +391,59 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось перенести объект: Нет связи с сервером");
     expect(historyMock.push).not.toHaveBeenCalled();
     expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
+  });
+
+  // Р4 эпика элементов: цель — лист-сервис без элемента. Сначала окно первого вложенного
+  // объекта; «Отмена» — объект остаётся на месте, ни снимка, ни правки.
+  it("перенос в лист: сначала окно первого вложенного объекта, «Отмена» ничего не делает", async () => {
+    vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: null, element_effective: "container", sites: [] }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    expect(await screen.findByText("Внутри «NEW» появился первый объект")).toBeInTheDocument();
+    await act(async () => { screen.getByText("Отмена").click(); });
+    expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    expect(historyMock.push).not.toHaveBeenCalled();
+  });
+
+  // Р18: перенос в контейнер переносит площадки — сначала окно последствий; такой перенос
+  // в историю не ложится (обратное действие — тот же перенос назад).
+  it("перенос с последствиями: окно, правка после подтверждения и без истории", async () => {
+    vi.mocked(nodesApi.movePreview).mockResolvedValue({
+      kind: "join_container",
+      before: [{ node_id: "new", name: "NEW", sites: ["prod-eu"] }, { node_id: "kid", name: "KID", sites: ["prod-ru"] }],
+      after: [{ node_id: "new", name: "NEW", sites: ["prod-eu", "prod-ru"] }],
+      docs_names: [], container_name: "NEW",
+    } as never);
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("kid") as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    expect(await screen.findByText("Сделать «KID» частью «NEW»?")).toBeInTheDocument();
+    expect(nodesApi.movePreview).toHaveBeenCalledWith("kid", "new");
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    await act(async () => { screen.getByText("Перенести").click(); });
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "new" }));
+    expect(historyMock.push).not.toHaveBeenCalled();
+  });
+
+  it("«Отмена» в окне последствий — объект остаётся на месте", async () => {
+    vi.mocked(nodesApi.movePreview).mockResolvedValue({
+      kind: "leave_container", before: [{ node_id: "old", name: "OLD", sites: ["prod-eu"] }],
+      after: [{ node_id: "old", name: "OLD", sites: ["prod-eu"] }, { node_id: "kid", name: "KID", sites: ["prod-eu"] }],
+      docs_names: [], container_name: "OLD",
+    } as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
+    await act(async () => { (await screen.findByText("Отмена")).click(); });
+    expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
   it("Undo возвращает и родителя, и снятую раскладку — именно в этом порядке", async () => {
@@ -448,7 +513,25 @@ describe("MapEditorPage: правка объекта в истории", () => {
       // Якорь у узла без якоря — явный null: не прислать поле значит «не трогать»,
       // и откат правки якоря не вернул бы прежний.
       source: null,
+      // Элемент архитектуры — тем же правилом (камень 16 эпика «Элемент архитектуры»).
+      element: null,
     });
+  });
+
+  it("Undo смены элемента архитектуры возвращает прежний, Redo — новый", async () => {
+    // Не присланный элемент сервер не трогает: без него в снимке компенсации Undo
+    // смены «не задан → контейнер» тихо оставил бы контейнер.
+    const before = node("n1", { element: null, version: 1 });
+    const saved = node("n1", { element: "container", has_children: true, version: 2 });
+    const cmd = await поправить(before, saved);
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ element: null }));
+
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.redo(); });
+    expect(nodesApi.update).toHaveBeenCalledWith("n1", expect.objectContaining({ element: "container" }));
   });
 
   it("Undo правки якоря возвращает прежний якорь, Redo — новый", async () => {

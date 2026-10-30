@@ -26,6 +26,7 @@ const EMPTY: Alerts = {
   descendant_edges: [],
   unlinked_messages: [],
   undescribed_docs: [],
+  component_facts: [],
 };
 
 const DANGLING = {
@@ -560,9 +561,9 @@ describe("SchemaAlerts: связи с брокером без канала", () 
   });
 });
 
-// ── Связи в собственный компонент (AL32) ─────────────────────────────────────
-// Совет здесь ПРОТИВОПОЛОЖЕН соседней секции «Связи в контейнер»: не «уточните конец
-// до компонента» (конец уже компонент — этого же контейнера), а «удалите или
+// ── Связи с собственной частью (AL32) ────────────────────────────────────────
+// Совет здесь ПРОТИВОПОЛОЖЕН соседней секции «Связи в систему или контейнер»: не
+// «уточните конец» (конец уже часть этого же объекта), а «удалите или
 // перевесьте». Паритет с превью импорта (К4): два взаимоисключающих совета на одну
 // связь — то, ради чего класс и заведён.
 
@@ -576,14 +577,14 @@ const SELF_NEST = {
   source_is_part: false,
 };
 
-describe("SchemaAlerts: связи в собственный компонент", () => {
+describe("SchemaAlerts: связи с собственной частью", () => {
   it("названа концами, объясняет вложенность и зажигает точку", async () => {
     render(<SchemaAlerts alerts={{ ...EMPTY, descendant_edges: [SELF_NEST] }} />);
 
     expect(dot()).not.toBeNull();
     await openPanel();
 
-    expect(screen.getByText("Связи в собственный компонент")).toBeTruthy();
+    expect(screen.getByText("Связи с собственной частью")).toBeTruthy();
     expect(screen.getByText(/background-workers → email-senders/)).toBeTruthy();
     // Часть подсвечена как конец-нарушитель, целое названо рядом.
     expect(screen.getByText("«email-senders»")).toBeTruthy();
@@ -627,7 +628,7 @@ describe("SchemaAlerts: связи в собственный компонент"
     render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} />);
     await openPanel();
 
-    expect(screen.queryByText("Связи в собственный компонент")).toBeNull();
+    expect(screen.queryByText("Связи с собственной частью")).toBeNull();
   });
 });
 
@@ -637,6 +638,8 @@ const BROKEN_PARAM = {
   doc_id: "d1",
   doc_name: "POST /orders",
   ref: "FEATURE_Y",
+  container_id: "n1",
+  container_name: "Заказы",
 };
 
 describe("SchemaAlerts: обращения к неописанным параметрам", () => {
@@ -653,6 +656,31 @@ describe("SchemaAlerts: обращения к неописанным парам�
     // второй выход, иначе такая строка читается как шум продукта.
     expect(screen.getByText(/параметра нет в конфигурации объекта/)).toBeTruthy();
     expect(screen.getByText(/уберите двоеточие/)).toBeTruthy();
+  });
+
+  it("схема компонента называет контейнер, где искали параметр", async () => {
+    const component = { ...BROKEN_PARAM, node_id: "n2", node_name: "api", container_name: "orders" };
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [component] }} />);
+    await openPanel();
+
+    expect(
+      screen.getByText(
+        /параметра нет в конфигурации контейнера «orders»: опишите его там или, если это обычная фраза, уберите двоеточие/,
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/конфигурации объекта/)).toBeNull();
+  });
+
+  it("схема у системы зовёт перенести её контейнеру или компоненту", async () => {
+    const system = { ...BROKEN_PARAM, container_id: null, container_name: null };
+    render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_config_refs: [system] }} />);
+    await openPanel();
+
+    expect(
+      screen.getByText(
+        /схема у системы, а параметры живут у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие/,
+      ),
+    ).toBeTruthy();
   });
 
   it("три семьи пометок живут отдельными секциями", async () => {
@@ -684,5 +712,106 @@ describe("SchemaAlerts: обращения к неописанным парам�
     await userEvent.click(screen.getByText("„FEATURE_Y“"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
+  });
+});
+
+// ── Системы и контейнеры со своей документацией (AL24) и факты компонентов (AL36) ──
+// Совет AL24 — по элементу архитектуры: у системы не на месте всё, у контейнера с
+// компонентами — только схемы логики. Факты процесса у компонента — свой раздел сразу
+// следом: что осталось и у какого контейнера им место.
+
+const OWN_DOCS = {
+  node_id: "s1", node_name: "Торговля", element_effective: "system" as const,
+  has_docs: false, has_spec: true, has_config: false,
+};
+const COMPONENT_FACTS = {
+  node_id: "a1", node_name: "orders/api", container_id: "o1", container_name: "orders",
+  has_spec: true, has_config: true, has_sites: false,
+};
+
+describe("SchemaAlerts: документация не на своём месте", () => {
+  it("система и контейнер — одно имя раздела, совет по элементу", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          container_own_docs: [
+            OWN_DOCS,
+            { ...OWN_DOCS, node_id: "o1", node_name: "orders", element_effective: "container", has_docs: true },
+          ],
+        }}
+      />,
+    );
+    expect(dot()).not.toBeNull();
+    await openPanel();
+
+    const head = screen.getByText("Системы и контейнеры со своей документацией").closest(".sa-sec-head");
+    expect(head?.textContent).toBe("Системы и контейнеры со своей документацией2");
+    expect(screen.getByText("Торговля").nextElementSibling?.textContent).toBe(
+      "спецификация, конфигурация и схемы логики описывают её контейнеры — перенесите их вложенным объектам",
+    );
+    expect(screen.getByText("orders").nextElementSibling?.textContent).toBe(
+      "схемы логики описывают код компонентов — перенесите их компонентам",
+    );
+  });
+
+  it("факты компонента: что осталось и контейнер, раздел сразу после документации", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          container_own_docs: [OWN_DOCS],
+          component_facts: [
+            COMPONENT_FACTS,
+            { ...COMPONENT_FACTS, node_id: "w1", node_name: "worker", has_config: false },
+            { ...COMPONENT_FACTS, node_id: "h1", node_name: "handlers", has_spec: false, has_sites: true },
+          ],
+        }}
+      />,
+    );
+    await openPanel();
+
+    const titles = [...document.querySelectorAll(".sa-sec-head > span:first-child")].map((s) => s.textContent);
+    expect(titles).toEqual(["Системы и контейнеры со своей документацией", "Конфигурация и спецификации у компонентов"]);
+    expect(screen.getByText("orders/api · конфигурация, спецификация")).toBeTruthy();
+    expect(screen.getByText("worker · спецификация")).toBeTruthy();
+    // порядок слов: конфигурация, спецификация, площадки
+    expect(screen.getByText("handlers · конфигурация, площадки")).toBeTruthy();
+    expect(screen.getAllByText("место — у контейнера «orders»")).toHaveLength(3);
+  });
+
+  it("факты компонента зажигают точку и ведут к компоненту", async () => {
+    const onLocate = vi.fn();
+    render(<SchemaAlerts alerts={{ ...EMPTY, component_facts: [COMPONENT_FACTS] }} onLocate={onLocate} />);
+    expect(dot()).not.toBeNull();
+    await openPanel();
+
+    await userEvent.click(screen.getByText("orders/api · конфигурация, спецификация"));
+
+    expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "a1" });
+  });
+
+  it("заголовки словами продукта: система, часть, без старого «контейнера» у пользователей", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          intermediate_edges: [{
+            edge_id: "e1", label: null, source_id: "p", source_name: "Покупатель",
+            target_id: "s1", target_name: "Торговля", source_is_intermediate: false, target_is_intermediate: true,
+          }],
+          persons_inside: [{ node_id: "p", node_name: "Покупатель", parent_id: "s1", parent_name: "Торговля" }],
+          container_own_docs: [OWN_DOCS],
+          component_facts: [COMPONENT_FACTS],
+        }}
+      />,
+    );
+    await openPanel();
+
+    expect(screen.getByText("Связи в систему или контейнер")).toBeTruthy();
+    expect(screen.getByText("Пользователи внутри системы")).toBeTruthy();
+    const panel = screen.getByRole("dialog", { name: "Рекомендации" });
+    // Внутреннее «спека» в продукт не попадает — только «спецификация».
+    expect(panel.textContent ?? "").not.toMatch(/спек/i);
   });
 });

@@ -13,7 +13,9 @@ import {
 import { fetchMe, getCanCreateProject, getMe, subscribeMe } from "../../api/auth";
 import { nodesApi } from "../../api/nodes";
 import { projectsApi } from "../../api/projects";
-import { onTourEvent, requestTourFocus, requestTourLevel, type TourBusEvent } from "./tourBus";
+import {
+  onTourEvent, requestTourFocus, requestTourLevel, setTourRunning, type TourBusEvent,
+} from "./tourBus";
 import {
   availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
   stepTotal, treeExpandTarget,
@@ -117,6 +119,12 @@ function TourRuntime({ userId }: { userId: string }) {
   const env = useMemo<TourEnv>(() => ({ yarProjectId, yarObjects }), [yarProjectId, yarObjects]);
   const state = useMemo(() => normalize(raw, env), [raw, env]);
   const running = state.status === "running";
+  // Признак для окна первого вложенного объекта: пока тур идёт, элемент «система»
+  // пишется без вопроса (components/element/firstChild).
+  useEffect(() => {
+    setTourRunning(running);
+    return () => setTourRunning(false);
+  }, [running]);
 
   // Последние значения для слушателей и кадрового цикла (ставятся эффектами).
   const stateRef = useRef(state);

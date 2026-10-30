@@ -9,11 +9,19 @@
 // ЗНАЧЕНИЙ НЕТ НИГДЕ: «по умолчанию» — текст дефолта ИЗ КОДА, а не значение среды.
 // ArchMap не хранилище секретов, и поля под значение в модели нет вовсе.
 //
-// «Где используется» — разворот пометок «зависит от:» из схем логики ЭТОГО ЖЕ
-// объекта: сослаться на ручку может только его собственная схема, поэтому в строке
-// достаточно имени схемы (у таблиц и каналов там ещё и узел — там зовущий чужой).
+// «Где используется» — разворот пометок «зависит от:» из схем логики этого объекта и,
+// если он контейнер, его компонентов: пометка ищет ручку у ближайшего контейнера
+// владельца схемы. Своя схема называется одним именем, схема компонента — с именем
+// компонента (у таблиц и каналов узел в строке есть всегда — там зовущий чужой).
+//
+// По элементу архитектуры (Ф8 эпика docs/plan-c4-elements.md): конфигурацию читает то,
+// что запускается, — контейнер. У системы её нет (меню «+ Параметр» нет, старые параметры —
+// с предупреждением и «Перенести документацию»); у компонента — текст со ссылкой на
+// контейнер и строка, от каких его параметров зависят схемы компонента.
 import { useState } from "react";
 import { configParamsApi } from "../api/nodes";
+import { useAsyncLoad } from "../lib/useAsyncLoad";
+import type { ContainerLink, PageElement } from "./element/elementView";
 import AddDocsMenu from "./AddDocsMenu";
 import InfoPopover from "../ui/InfoPopover";
 import ConfigAgentModal from "./docsImport/ConfigAgentModal";
@@ -25,11 +33,20 @@ import { noAutofill } from "../ui/noAutofill";
 
 interface Props {
   nodeId: string;
+  // Как страница читает объект (components/element/elementView.pageElement).
+  element: PageElement;
   isArchitect: boolean;
   // Положена ли конфигурация этой форме (shapeDocs.config). Не положена, а записи
   // есть — показываем их с предупреждением: спрятать применённое хуже, чем показать
   // (тот же приём, что у легаси-схем логики).
   allowed: boolean;
+  // «Перенести документацию» (Р19) — у системы: своей конфигурации у неё нет, параметры
+  // уходят потомку-контейнеру. undefined — кнопки нет.
+  onTransfer?: () => void;
+  // «Собрать с компонентов» — у контейнера, у компонентов которого есть параметры.
+  onCollect?: () => void;
+  // Переход на страницу контейнера (у компонента).
+  onNavigateNode: (id: string) => void;
 }
 
 const TYPE_TITLE =
@@ -40,9 +57,30 @@ const DEFAULT_TITLE =
   "хранятся — ArchMap не хранилище секретов";
 const REQUIRED_TITLE = "Обязательный: без него сервис не стартует";
 
-export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Props) {
+// Пояснение «?» у заголовка: откуда берётся «Зависит от».
+function dependsHelp(element: PageElement): string {
+  const where = element.kind === "container" ? "этого контейнера и его компонентов" : "этого объекта";
+  return `«Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики ${where}. ` +
+    "Своей формы ввода у зависимости нет.";
+}
+
+export default function ConfigParamsSection({
+  nodeId, element, isArchitect, allowed, onTransfer, onCollect, onNavigateNode,
+}: Props) {
   const { rows: params, usage, error, limit, apply, reload } =
     useFactRows(nodeId, configParamsApi, "Не удалось загрузить конфигурацию");
+  const kind = element.kind;
+  const component = kind === "component" || kind === "composite" ? element.container : null;
+  // Компонент: от каких параметров контейнера зависят его схемы — обратный индекс
+  // контейнера, отобранный по схемам этого узла. Не компонент — запроса нет.
+  const containerId = component?.id ?? null;
+  const containerUsage = useAsyncLoad(
+    containerId ? `config-usage:${containerId}` : "config-usage:none",
+    () => (containerId ? configParamsApi.usage(containerId) : Promise.resolve([])),
+  );
+  const dependsOn = [...new Set(
+    (containerUsage.data ?? []).filter((u) => u.node_id === nodeId).map((u) => u.param_name),
+  )];
   // Окно дозаливки от агента: открывается пунктом того же меню, что и «Вручную».
   const [agentOpen, setAgentOpen] = useState(false);
 
@@ -60,6 +98,9 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
   // бы шумом ради случая, которого почти не бывает.
   const empty = (params ?? []).length === 0;
   if (!allowed && empty) return null;
+  // Новые параметры заводят только там, где конфигурацию читают: у контейнера и у
+  // объекта без вложенных вне контейнера. У системы и компонента меню нет.
+  const canAdd = allowed && (kind === "leaf" || kind === "container");
 
   if (params === null && error === null) {
     return (
@@ -82,10 +123,7 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
         {!empty && (
           <span style={{ display: "inline-flex", marginLeft: 6, fontWeight: 400 }}>
             <InfoPopover label="Откуда берётся «Зависит от»" width={340} iconSize={17}>
-              <p>
-                «Зависит от» собирается из пометок «зависит от: ИМЯ» в схемах логики этого
-                объекта. Своей формы ввода у зависимости нет.
-              </p>
+              <p>{dependsHelp(element)}</p>
             </InfoPopover>
           </span>
         )}
@@ -98,8 +136,23 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
           её на сервис, который с ним работает
         </p>
       )}
+      {component && <ComponentConfig container={component} dependsOn={dependsOn} onNavigateNode={onNavigateNode} />}
+      {kind === "system" && !empty && (
+        <p className="np-warn">
+          Конфигурацию читают контейнеры, у системы её нет. Перенесите параметры одному из них
+        </p>
+      )}
+      {component && !empty && (
+        <p className="np-warn">
+          Конфигурацию читает контейнер целиком. Перенесите параметры в «{component.name}»: на его странице есть кнопка «Собрать с компонентов»
+        </p>
+      )}
       {empty ? (
-        <p className="np-empty">Параметры не описаны</p>
+        kind === "system" ? (
+          <p className="np-empty">Это система, своей конфигурации у неё нет. Параметры описывают у её контейнеров</p>
+        ) : component ? null : (
+          <p className="np-empty">Параметры не описаны</p>
+        )
       ) : (
         <div className="cfg-list">
           {/* Шапка: без неё колонка типа неотличима от колонки дефолта. Ширины — те же
@@ -124,18 +177,32 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
           ))}
         </div>
       )}
-      {isArchitect && allowed && (
+      {isArchitect && allowed && (canAdd || (onTransfer && !empty) || onCollect) && (
         <div className="cfg-actions">
           {/* Тот же вход, что у «Логики», OpenAPI, структуры базы и каналов: одна
               кнопка с шевроном, а «вручную / через агента» — пункты меню. Два способа
               завести одну сущность не должны выглядеть как две разные кнопки. */}
-          <AddDocsMenu
-            label="+ Параметр"
-            groups={[
-              [{ label: "Вручную", onSelect: addParam }],
-              [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
-            ]}
-          />
+          {canAdd && (
+            <AddDocsMenu
+              label="+ Параметр"
+              groups={[
+                [{ label: "Вручную", onSelect: addParam }],
+                [{ label: "Через ИИ-агента", onSelect: () => setAgentOpen(true) }],
+              ]}
+            />
+          )}
+          {/* Конфигурацию читает запускаемое целиком (Р19): у системы она не на месте,
+              у компонентов — тоже, контейнер собирает её к себе. */}
+          {onTransfer && !empty && (
+            <button type="button" className="np-addbtn" onClick={onTransfer}>
+              Перенести документацию
+            </button>
+          )}
+          {onCollect && (
+            <button type="button" className="np-addbtn" onClick={onCollect}>
+              Собрать с компонентов
+            </button>
+          )}
         </div>
       )}
       {agentOpen && (
@@ -146,6 +213,32 @@ export default function ConfigParamsSection({ nodeId, isArchitect, allowed }: Pr
         />
       )}
     </div>
+  );
+}
+
+// Компонент: конфигурацию читает его контейнер. Ссылка «Открыть» ведёт на страницу
+// контейнера (нет id — цепочка предков разошлась — ссылки нет); строка зависимостей —
+// только когда они есть.
+function ComponentConfig({ container, dependsOn, onNavigateNode }: {
+  container: ContainerLink;
+  dependsOn: string[];
+  onNavigateNode: (id: string) => void;
+}) {
+  const id = container.id;
+  return (
+    <>
+      <p className="np-inherit">
+        Конфигурацию читает контейнер «{container.name}», параметры описаны у него
+        {id !== null && (
+          <button type="button" className="np-site-edit" onClick={() => onNavigateNode(id)}>
+            Открыть
+          </button>
+        )}
+      </p>
+      {dependsOn.length > 0 && (
+        <p className="np-inherit">Схемы этого компонента зависят от: {dependsOn.join(", ")}</p>
+      )}
+    </>
   );
 }
 
@@ -167,7 +260,11 @@ function ParamRow({
   const used = usage.length > 0 && (
     <div className="cfg-usage">
       <span className="cfg-usagelabel">зависит:</span>
-      <span className="cfg-ro cfg-usagedocs">{usage.map((u) => u.doc_name).join(", ")}</span>
+      <span className="cfg-ro cfg-usagedocs">
+        {usage
+          .map((u) => (u.node_id === nodeId ? u.doc_name : `${u.doc_name} · ${u.node_name}`))
+          .join(", ")}
+      </span>
     </div>
   );
 

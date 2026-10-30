@@ -538,6 +538,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
             "- name: Voting App\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: redis\n",
@@ -551,7 +552,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
         "уточните её до конкретного компонента: «vote / web-api»"
     ) in report.warnings
     # Ребро от компонента — законное, про него не предупреждаем.
-    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 1
+    assert len([w for w in report.warnings if "уточните её до" in w]) == 1
 
 
 def test_оба_конца_контейнеры_названы_оба():
@@ -560,9 +561,11 @@ def test_оба_конца_контейнеры_названы_оба():
             "- name: Voting App\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: worker\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: queue-reader\n",
             "edges:\n- from: vote\n  to: worker\n",
@@ -575,6 +578,45 @@ def test_оба_конца_контейнеры_названы_оба():
         "есть компоненты, — уточните её до конкретных компонентов: «vote / web-api»; "
         "«worker / queue-reader»"
     ) in report.warnings
+
+
+def test_слова_замечания_по_элементу_конца():
+    """Правило одно для любого объекта с вложенными (Р22), слова — по действующему
+    элементу конца в слитом дереве: у системы — «вложенные объекты» и «одного из
+    них», у контейнера — «компоненты»; оба конца — с согласованием. Перечень целей —
+    прежней формой «Объект / вложенный» (П5): агент вписывает её в YAML как есть."""
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Торговля\n"
+            "  children:\n"
+            "  - name: catalog\n"
+            "  - name: orders\n"
+            "    element: container\n"
+            "    children:\n"
+            "    - name: api\n"
+            "- name: Склад\n"
+            "  children:\n"
+            "  - name: worker\n"
+            "- name: Витрина\n",
+            "edges:\n- from: Витрина\n  to: Торговля\n- from: Витрина\n  to: orders\n"
+            "- from: Склад\n  to: orders\n- from: Склад\n  to: Торговля\n",
+        )
+    ])
+
+    assert errors == []
+    связи = [w for w in report.warnings if w.startswith("связь «")]
+    assert связи == [
+        "связь «Витрина → Торговля»: конец в системе «Торговля», у которой есть вложенные "
+        "объекты, — уточните её до одного из них: «Торговля / catalog», «Торговля / orders»",
+        "связь «Витрина → orders»: конец в контейнере «orders», у которого есть компоненты, "
+        "— уточните её до конкретного компонента: «orders / api»",
+        "связь «Склад → orders»: оба конца в системе «Склад» и контейнере «orders», у "
+        "которых есть вложенные объекты, — уточните её до вложенных объектов: "
+        "«Склад / worker»; «orders / api»",
+        "связь «Склад → Торговля»: оба конца в системах «Склад» и «Торговля», у которых "
+        "есть вложенные объекты, — уточните её до вложенных объектов: «Склад / worker»; "
+        "«Торговля / catalog», «Торговля / orders»",
+    ]
 
 
 # ── «цель с ответом»: перечень компонентов прямо в замечании (П5) ─────────────
@@ -593,6 +635,7 @@ def test_замечание_несёт_перечень_компонентов_�
             "- name: Zabbix\n"
             "  children:\n"
             "  - name: server\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: poller\n"
             "    - name: trapper\n"
@@ -617,7 +660,8 @@ def test_перечень_компонентов_капится_хвостом()
     дети = "".join(f"    - name: c{i}\n" for i in range(1, 10))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Zabbix\n  children:\n  - name: server\n    children:\n"
+            "- name: Zabbix\n  children:\n  - name: server\n    element: container\n"
+            "    children:\n"
             + дети
             + "  - name: db\n",
             "edges:\n- from: db\n  to: server\n",
@@ -639,9 +683,10 @@ def test_при_двух_перечнях_кап_строже():
     правые = "".join(f"    - name: r{i}\n" for i in range(1, 7))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Voting App\n  children:\n  - name: vote\n    children:\n"
+            "- name: Voting App\n  children:\n  - name: vote\n    element: container\n"
+            "    children:\n"
             + левые
-            + "  - name: worker\n    children:\n"
+            + "  - name: worker\n    element: container\n    children:\n"
             + правые,
             "edges:\n- from: vote\n  to: worker\n",
         )
@@ -670,7 +715,7 @@ def test_связи_только_в_листья_молчат():
     ])
 
     assert errors == []
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
 
 
 def test_кап_на_связях_в_контейнер():
@@ -685,7 +730,7 @@ def test_кап_на_связях_в_контейнер():
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
 
     assert errors == []
-    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 10
+    assert len([w for w in report.warnings if "уточните её до" in w]) == 10
     assert "…ещё 2 таких связей" in report.warnings
 
 
@@ -781,7 +826,7 @@ def test_на_связь_с_потомком_приходится_ровно_о�
 
     assert errors == []
     assert len([w for w in report.warnings if "background-workers → email-senders" in w]) == 1
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
 
 
 def test_связь_в_чужой_контейнер_остаётся_прежним_классом():
@@ -803,9 +848,9 @@ def test_связь_в_чужой_контейнер_остаётся_прежн
 
     assert errors == []
     assert (
-        "связь «background-workers → zulip-web»: оба конца в контейнерах "
-        "«background-workers» и «zulip-web», у которых есть компоненты, — уточните её "
-        "до конкретных компонентов: «background-workers / email-senders»; "
+        "связь «background-workers → zulip-web»: оба конца в системах "
+        "«background-workers» и «zulip-web», у которых есть вложенные объекты, — уточните "
+        "её до вложенных объектов: «background-workers / email-senders»; "
         "«zulip-web / django-app»"
     ) in report.warnings
     assert not any("иерархия уже выражает вложенность" in w for w in report.warnings)
@@ -1216,7 +1261,7 @@ def test_паритет_связь_в_коробку_соединяет_подд
     assert алерт.isolated_groups == []
     assert _группы(report) == []
     assert len(алерт.intermediate_edges) == 1
-    assert any("конец в контейнере «Grafana»" in w for w in report.warnings)
+    assert any("конец в системе «Grafana»" in w for w in report.warnings)
 
 
 def test_паритет_с_алертом_изолированных_групп(db):
@@ -1295,7 +1340,7 @@ def test_паритет_с_алертом_связи_в_собственного
     assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
     # И обе молчат об остальном: ни «уточните конец», ни «канал».
     assert алерт.intermediate_edges == [] and алерт.broker_edge_channels == []
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
     assert not any("а канал не указан" in w for w in report.warnings)
 
 
@@ -1635,8 +1680,8 @@ def test_контейнер_раскрытый_чужим_файлом_адре�
 
     assert файлы[0].file == 1
     assert файлы[0].warnings == [
-        "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
-        "уточните её до конкретного компонента: «redis / redis-core»"
+        "связь «vote → redis»: конец в системе «redis», у которой есть вложенные объекты, — "
+        "уточните её до одного из них: «redis / redis-core»"
     ]
     assert not any("контейнер" in w for w in схема)
 
@@ -1648,8 +1693,8 @@ def test_контейнер_с_вкладом_своего_файла_адрес
     файлы, _ошибки, схема = _корзины(_Ф7_СВОЙ_КОНТЕЙНЕР, _Ф7_КОМПОНЕНТЫ_REDIS)
 
     assert (
-        "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
-        "уточните её до конкретного компонента: «redis / redis-core»"
+        "связь «vote → redis»: конец в системе «redis», у которой есть вложенные объекты, — "
+        "уточните её до одного из них: «redis / redis-core»"
     ) in файлы[0].warnings
     assert not any("контейнер" in w for w in схема)
 
@@ -2263,14 +2308,14 @@ def test_снимок_одно_файлового_прогона_file_a():
     предупреждения = [
         "объектов без единой связи: 2 («api», «charge-worker») — проверьте, не "
         "потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
-        "связь «payments → payments-db»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «payments → payments-db»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
-        "связь «payments → Stripe»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «payments → Stripe»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
-        "связь «orders → payments»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «orders → payments»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
     ]
     assert _снимок(FILE_A) == {
@@ -2365,8 +2410,8 @@ def test_снимок_одно_файлового_прогона_со_всеми
         "объектов без единой связи: 7 («сирота1», «сирота2», «сирота3», «сирота4», "
         "«сирота5», «сирота6» и ещё 1) — проверьте, не потерялись ли связи; такие "
         "объекты попадут в «Незавершённость схемы»",
-        "связь «orders → kafka»: конец в контейнере «orders», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «orders / api»",
+        "связь «orders → kafka»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api»",
         "связь «orders → kafka»: конец — брокер «kafka», а канал не указан — добавьте "
         "channel: имя топика/очереди",
         "связь «api → kafka»: в channel перечень «orders.created, orders.paid» — "
@@ -2654,7 +2699,7 @@ def test_остаток_связь_в_контейнер_обоими_конца
         ("source", "Grafana"), ("target", "Zabbix")
     ]
     assert len({r.warning_idx for r in оба}) == 1  # одна строка на связь
-    assert "оба конца в контейнерах" in report.warnings[оба[0].warning_idx]
+    assert "оба конца в системах" in report.warnings[оба[0].warning_idx]
     # Второй связи контейнером приходится только конец.
     [конец] = [r for r in report.container_edges if r.edge_idx == 1]
     assert (конец.end, paths[конец.container_idx]) == ("target", "Zabbix")
@@ -2833,3 +2878,282 @@ def test_слияние_не_трогает_размещение_исходны�
 
     assert _node_by_path(первый, "Ярмарка / api").sites == ["Кластер", "ВМ"]
     assert _node_by_path(второй, "Ярмарка / api").sites == ["Стойка", "Кластер"]
+
+
+# ── Элемент архитектуры (эпик «Элемент архитектуры», Ф2: Р30, камень 6) ──────
+#
+# «Не сказано» (None) уступает любому значению, «система» против «контейнера» — спор
+# П2; слитое дерево санитизируется так же, как один файл; объекты, положенные в
+# контейнер файлом, который не называл его контейнером, — замечанием.
+
+
+def _элемент(merged: ParsedImport, path: str) -> str | None:
+    return _node_by_path(merged, path).element
+
+
+def test_элемент_не_сказано_уступает_значению_в_обе_стороны():
+    молчит = _parse("nodes:\n  - name: svc\n    children:\n      - name: api\n")
+    говорит = _parse(
+        "nodes:\n  - name: svc\n    element: container\n    children:\n      - name: api\n"
+    )
+    for файлы in ([молчит, говорит], [говорит, молчит]):
+        merged, report = merge_imports(файлы)
+        assert _элемент(merged, "svc") == "container"
+        assert report.conflicts == [] and report.field_disputes == []
+        assert not any("элемент" in w or "контейнер по" in w for w in report.warnings)
+
+
+def test_элемент_содержательный_вклад_бьёт_заглушку():
+    """Заглушка соседа («это система») против файла, разобравшего узел изнутри
+    (репозиторий и компоненты): П2 знает ответ — строка конфликта без вопроса."""
+    заглушка = _parse("nodes:\n  - name: svc\n    element: system\n")
+    изнутри = _parse(
+        "nodes:\n  - name: svc\n    element: container\n"
+        "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
+    )
+    merged, report = merge_imports([заглушка, изнутри])
+    assert _элемент(merged, "svc") == "container"
+    assert report.conflicts == [
+        "svc: element: оставлено «container» (файл 2), отброшено «system» (файл 1)"
+    ]
+    assert report.field_disputes == []
+
+    merged2, report2 = merge_imports([изнутри, заглушка])
+    assert _элемент(merged2, "svc") == "container"
+    assert report2.conflicts == [
+        "svc: element: оставлено «container» (файл 1), отброшено «system» (файл 2)"
+    ]
+    assert report2.field_disputes == []
+
+
+def test_элемент_равные_вклады_спорят_полем_element():
+    система = _parse(
+        "nodes:\n  - name: svc\n    element: system\n    children:\n      - name: api\n"
+    )
+    контейнер = _parse(
+        "nodes:\n  - name: svc\n    element: container\n    children:\n      - name: api\n"
+    )
+    merged, report = merge_imports([система, контейнер])
+
+    assert _элемент(merged, "svc") == "system"  # первый побеждает, как у прочих полей
+    assert report.conflicts == [
+        "svc: element: оставлено «system» (файл 1), отброшено «container» (файл 2)"
+    ]
+    спор = _спор(report, merged, "svc", "element")
+    assert спор is not None
+    assert спор.contributions == [(0, "system"), (1, "container")]
+
+
+_ОБЪЕДИНЕНИЕ_А = """
+nodes:
+  - name: shop
+    children:
+      - name: orders
+        element: container
+        children:
+          - name: api
+"""
+
+
+def test_замечание_об_объединении_детей_контейнера():
+    """Камень 6: контейнер по файлу 1, а файл 2 положил внутрь свои объекты, не зная,
+    что это контейнер, — они молча стали компонентами. Одна строка на контейнер,
+    схемная (виноватого файла нет: каждый по отдельности чист)."""
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "          - name: worker\n          - name: api\n          - name: cache\n"
+    )
+    merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
+
+    assert _элемент(merged, "shop / orders") == "container"
+    строка = (
+        "shop / orders: контейнер по файлу 1, а файл 2 положил внутрь объекты («cache» и "
+        "«worker»), не зная, что это контейнер — они стали его компонентами; проверьте, "
+        "не система ли это"
+    )
+    assert строка in report.warnings
+    assert report.warning_files[report.warnings.index(строка)] is None
+    # «api» есть и в файле-«контейнере» — его тот положил осознанно, в перечне его нет.
+
+
+def test_замечание_об_объединении_детей_не_нужно_когда_дети_из_файла_контейнера():
+    б = _parse("nodes:\n  - name: shop\n    children:\n      - name: orders\n")
+    _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
+    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+
+    # И когда второй файл тоже называет узел контейнером — он знал, куда кладёт.
+    в = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        element: "
+        "container\n        children:\n          - name: worker\n"
+    )
+    _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), в])
+    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+
+
+def test_замечание_об_объединении_детей_кап_перечня_и_два_файла():
+    дети = "".join(f"          - name: w{i}\n" for i in range(8))
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n" + дети
+    )
+    в = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "          - name: z9\n"
+    )
+    _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б, в])
+    [строка] = [w for w in report.warnings if "не зная, что это контейнер" in w]
+    assert строка == (
+        "shop / orders: контейнер по файлу 1, а файлы 2 и 3 положили внутрь объекты "
+        "(«w0», «w1», «w2», «w3», «w4», «w5» и ещё 3), не зная, что это контейнер — они "
+        "стали его компонентами; проверьте, не система ли это"
+    )
+
+
+def test_база_второго_файла_в_контейнере_первого_вынесена():
+    """Каждый файл по отдельности чист, слитое дерево — нет: база из файла 2 легла в
+    контейнер файла 1. Она выносится уровнем выше (Р6), контейнер остаётся; пути
+    слитого дерева — уже по новому месту, и замечания об объединении детей о ней нет
+    (внутри контейнера её больше нет)."""
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "          - name: orders-db\n            shape: database\n"
+    )
+    merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
+
+    assert _элемент(merged, "shop / orders") == "container"
+    assert "shop / orders-db" in _path_list(merged)
+    assert "shop / orders / orders-db" not in _path_list(merged)
+    строка = (
+        "shop / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — вынесена на уровень выше, в «shop»"
+    )
+    assert строка in report.warnings
+    assert report.warning_files[report.warnings.index(строка)] is None
+    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+
+
+def test_после_выноса_строки_слияния_называют_новый_путь():
+    """Вынос меняет путь базы: строки склеек называют её там, где она окажется, а не где
+    её записал файл. Вложенных объектов у базы не бывает — её дети подняты к её родителю
+    ещё разбором файла, и замечания слияния называют их уже там."""
+    def база(ребёнок: str) -> ParsedImport:
+        return _parse(
+            "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+            "          - name: orders-db\n            shape: database\n            children:\n"
+            f"              - name: {ребёнок}\n"
+        )
+
+    merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), база("payments"), база("payment")])
+
+    assert "shop / orders / payments" in _path_list(merged)
+    assert "shop / orders-db" in report.merged_paths
+    assert "shop / orders / orders-db" not in report.merged_paths
+    assert any(
+        "«payments» и «payment» (внутри «shop / orders») похожи" in w for w in report.warnings
+    )
+
+
+def test_спор_элемента_остаётся_когда_база_вынесена():
+    """Равные вклады спорят «контейнер / система», а в узле — база из файла-«системы».
+    Вынос базы элемент не меняет — вопрос остаётся, и с ответом по умолчанию база уже
+    уровнем выше."""
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        element: system\n"
+        "        children:\n          - name: api\n          - name: orders-db\n"
+        "            shape: database\n"
+    )
+    merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
+
+    assert _элемент(merged, "shop / orders") == "container"
+    assert _спор(report, merged, "shop / orders", "element") is not None
+    assert any("вынесена на уровень выше, в «shop»" in w for w in report.warnings)
+
+
+def test_спор_элемента_снимается_когда_ответило_правило():
+    """Равные вклады спорят «контейнер / система», но третий файл делает родителя
+    контейнером: узел — его компонент, элемента у него нет, и вопрос был бы о
+    решённом — его нет."""
+    а = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+    )
+    б = _parse(
+        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n          - name: api\n"
+    )
+    в = _parse(
+        "nodes:\n  - name: shop\n    element: container\n    children:\n"
+        "      - name: orders\n"
+    )
+    merged, report = merge_imports([а, б, в])
+
+    assert _элемент(merged, "shop") == "container"
+    assert _элемент(merged, "shop / orders") is None
+    assert _спор(report, merged, "shop / orders", "element") is None
+    # Строка конфликта остаётся «для чтения», а замечание объясняет, чем кончилось.
+    assert any("element: оставлено «container»" in c for c in report.conflicts)
+    assert (
+        "shop / orders: объект лежит внутри контейнера «shop» и считается его компонентом "
+        "— элемент архитектуры пропущен"
+    ) in report.warnings
+
+
+def test_файлы_без_элемента_отчёт_прежний():
+    """Слияние документов без поля element — тем же отчётом, что до эпика: эталон
+    снят с прежней версии слияния (git 4fe7d24c), строка в строку. Кроме слов замечаний
+    о связях в объект с вложенными (Ф6): без элемента такой объект — система."""
+    а = """
+nodes:
+  - name: Ярмарка
+    description: Торговая площадка
+    children:
+      - name: orders
+        technology: Python
+        children:
+          - name: api
+      - name: Каталог-БД
+        shape: database
+edges:
+  - from: orders
+    to: Каталог-БД
+    label: пишет
+"""
+    б = """
+nodes:
+  - name: Ярмарка
+    description: Магазин
+    children:
+      - name: orders
+        technology: Go
+        children:
+          - name: worker
+      - name: Оператор
+        shape: person
+edges:
+  - from: Оператор
+    to: orders
+    label: смотрит
+"""
+    merged, report, errors = parse_and_merge([а, б])
+    assert errors == [] and merged is not None
+    assert all(n.element is None for n in merged.nodes)
+    assert report.conflicts == [
+        "Ярмарка: description: оставлено «Торговая площадка» (файл 1), отброшено «Магазин» (файл 2)",
+        "Ярмарка / orders: technology: оставлено «Python» (файл 1), отброшено «Go» (файл 2)",
+    ]
+    assert report.warnings == [
+        "внутри системы оказались люди («Оператор») — по C4 человек пользуется системой, а "
+        "не входит в неё; перенесите их в корень",
+        "объектов без единой связи: 1 («api») — проверьте, не потерялись ли связи; такие "
+        "объекты попадут в «Незавершённость схемы»",
+        "объектов без единой связи: 1 («worker») — проверьте, не потерялись ли связи; такие "
+        "объекты попадут в «Незавершённость схемы»",
+        "связь «orders → Каталог-БД»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api», «orders / worker»",
+        "связь «Оператор → orders»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api», «orders / worker»",
+    ]
+    assert report.warning_files == [1, 0, 1, 0, 1]
+    assert [(d.node_idx, d.field, d.contributions) for d in report.field_disputes] == [
+        (0, "description", [(0, "Торговая площадка"), (1, "Магазин")]),
+        (1, "technology", [(0, "Python"), (1, "Go")]),
+    ]

@@ -843,6 +843,50 @@ export interface paths {
         patch: operations["update_node_api_v1_nodes__node_id__patch"];
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/element-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Element Preview
+         * @description Что сделает смена элемента узла (Р18), БЕЗ записи: какие площадки переедут и чья
+         *     документация останется на месте. Отказ — тот же 422 и тот же текст, что у PATCH
+         *     (проверяется только смена значения, как там).
+         */
+        get: operations["element_preview_api_v1_nodes__node_id__element_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/move-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Move Preview
+         * @description Что сделает перенос узла под parent_id (без него — в корень), БЕЗ записи: вход в
+         *     контейнер или выход из него и перенос в лист с площадками переносят площадки (Р18,
+         *     D34). Отказ — тот же 400 и текст, что у PATCH parent_id.
+         */
+        get: operations["move_preview_api_v1_nodes__node_id__move_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/move-snapshot": {
         parameters: {
             query?: never;
@@ -1161,12 +1205,54 @@ export interface paths {
         put?: never;
         /**
          * Distribute Docs
-         * @description «Распределить по детям» (правила контейнеров, grandfather): переносит
-         *     СОБСТВЕННЫЕ доки контейнера на его непосредственных детей, а также (опц.)
-         *     его openapi_spec — целиком одному ребёнку. Вызывается из модалки
-         *     распределения на странице контейнера. Доки — МЕТА узла: бампаем meta_rev.
+         * @description «Перенести документацию» (Р19 эпика элементов; до 2026-10-29 — «Распределить по
+         *     детям»): собственные схемы логики, спецификация и параметры конфигурации узла —
+         *     потомкам по семьям фактов (app/facts_transfer). Путь и имена полей прежние. Мета —
+         *     курсор двигает домен, если что-то переехало.
          */
         post: operations["distribute_docs_api_v1_nodes__node_id__docs_distribute_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/facts/collect-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Collect Preview
+         * @description Что соберёт «Собрать с компонентов», БЕЗ записи: компоненты с фактами процесса,
+         *     одноимённые параметры и держатели спецификации. 422 — не контейнер с компонентами.
+         */
+        get: operations["collect_preview_api_v1_nodes__node_id__facts_collect_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/nodes/{node_id}/facts/collect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Collect
+         * @description «Собрать с компонентов»: параметры (одноимённые — по выбору) и выбранная
+         *     спецификация — контейнеру. Всё проверяется до записи.
+         */
+        post: operations["collect_api_v1_nodes__node_id__facts_collect_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1545,11 +1631,13 @@ export interface paths {
         };
         /**
          * List Usage
-         * @description Какие схемы логики этого объекта зависят от его параметров.
+         * @description Какие схемы логики зависят от параметров этого объекта.
          *
-         *     Разворот пометок «зависит от:» из текстов СВОИХ схем — чужие сюда попасть не
-         *     могут по построению резолва. Источник — сам текст доков: разбор и резолв на
-         *     чтении, хранения обращений нет.
+         *     Разворот пометок «зависит от:» из схем самого контейнера и всех его компонентов
+         *     (catalog.config_readers): пометка ищет параметр у ближайшего контейнера владельца
+         *     схемы, и других читателей у его конфигурации нет. У компонента и системы индекс
+         *     пуст — их собственные параметры не найдёт ни одна пометка. Источник — сам текст
+         *     доков: разбор и резолв на чтении, хранения обращений нет.
          *
          *     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
          */
@@ -1942,10 +2030,11 @@ export interface paths {
         get?: never;
         /**
          * Put Placements
-         * @description Каждому объекту из node_ids — ровно набор площадок site_ids (пустой — снять);
-         *     контейнер размещается целиком — набор получает каждый объект внутри. Объект или
-         *     площадка не из проекта — 404, «Пользователь» среди объектов или контейнер без
-         *     объектов — 422; при отказе не записывается ничего: проверки идут до записи.
+         * @description Каждой единице из node_ids — ровно набор площадок site_ids (пустой — снять):
+         *     контейнер (в том числе лист) пишется сам, система размещается целиком — набор
+         *     получает каждый контейнер внутри неё. Объект или площадка не из проекта — 404;
+         *     «Пользователь» или компонент среди объектов (площадки задаются контейнеру), система
+         *     без единиц — 422; при отказе не записывается ничего: проверки идут до записи.
          */
         put: operations["put_placements_api_v1_deployment_placements_put"];
         post?: never;
@@ -1966,14 +2055,19 @@ export interface paths {
          * Get Deployment Graph
          * @description Граф вида «Развёртывание» уровня level (пусто — весь проект).
          *
-         *     Объекты — ВСЁ ПОДДЕРЕВО уровня: контейнеры и листья любой глубины (сам контейнер
-         *     уровня не входит — уровень это объём, а не объект), кроме «Пользователей»: они
-         *     живут вне системы. Кого рисовать — цельный контейнер одной карточкой или его
-         *     объекты по отдельности — решает фронт по размещению листьев, поэтому у каждого
-         *     узла есть instances (у контейнера — площадки, где стоят все его объекты) и число
-         *     прямых детей. Связи — сырые, у которых оба конца в этом поддереве (правило
-         *     «к ближайшему экземпляру» и подъём к представителю применяет фронт). Площадки —
-         *     все площадки проекта: на любом уровне они одни и те же.
+         *     Узлы — ВСЁ ПОДДЕРЕВО уровня любой глубины (сам узел уровня не входит — уровень это
+         *     объём, а не объект), кроме «Пользователей»: они живут вне системы. Компоненты в
+         *     ответе остаются — это поддерево уровня, а концы их связей фронт поднимает к
+         *     контейнеру; представителями проекция их не делает: контейнер — единица, вниз не
+         *     спускается. Кого рисовать — цельную систему одной карточкой или её единицы по
+         *     отдельности — решает фронт по размещению единиц, поэтому у каждого узла есть
+         *     instances (у единицы — её площадки, у системы — где стоят все её единицы, у
+         *     компонента — пусто) и число прямых детей. Связи — сырые, у которых оба конца в этом
+         *     поддереве (правило «к ближайшему экземпляру» и подъём к представителю применяет
+         *     фронт). Площадки — все площадки проекта: на любом уровне они одни и те же.
+         *
+         *     Уровень контейнера с компонентами — 422 (CONTAINER_LEVEL): контейнер стоит на
+         *     площадках сам, рисовать внутри него нечего.
          */
         get: operations["get_deployment_graph_api_v1_deployment_graph_get"];
         put?: never;
@@ -2099,7 +2193,9 @@ export interface paths {
         /**
          * Export Subtree
          * @description Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
-         *     Площадки — только те, на которых стоят узлы поддерева, с их предками.
+         *     Площадки — только те, на которых стоят узлы поддерева, с их предками. Элементы —
+         *     по всему проекту: контейнер над корнем поддерева делает его узлы компонентами, и
+         *     их экземпляры не пишутся.
          */
         get: operations["export_subtree_api_v1_export__node_id__get"];
         put?: never;
@@ -3108,6 +3204,11 @@ export interface components {
              * @default []
              */
             undescribed_docs: components["schemas"]["UndescribedDocsAlert"][];
+            /**
+             * Component Facts
+             * @default []
+             */
+            component_facts: components["schemas"]["ComponentFactsAlert"][];
         };
         /** AncestorRef */
         AncestorRef: {
@@ -3123,6 +3224,8 @@ export interface components {
              * @default false
              */
             is_external: boolean;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
         };
         /**
          * AnchorPreviewOut
@@ -3711,14 +3814,160 @@ export interface components {
             prompt: string;
         };
         /**
+         * CollectCandidateOut
+         * @description Кто держит одноимённый параметр (в том числе сам контейнер) и его описание.
+         */
+        CollectCandidateOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /** Description */
+            description: string | null;
+        };
+        /**
+         * CollectClashOut
+         * @description Одноимённый параметр у нескольких объектов: это один и тот же параметр
+         *     контейнера, остаётся одно описание — какое, выбирает пользователь.
+         */
+        CollectClashOut: {
+            /** Name */
+            name: string;
+            /** Candidates */
+            candidates: components["schemas"]["CollectCandidateOut"][];
+        };
+        /**
+         * CollectComponentOut
+         * @description Компонент с фактами процесса: сколько у него параметров и есть ли спецификация.
+         */
+        CollectComponentOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Params */
+            params: number;
+            /** Has Spec */
+            has_spec: boolean;
+        };
+        /**
+         * CollectFactsIn
+         * @description «Собрать с компонентов»: все параметры компонентов переезжают контейнеру; для
+         *     одноимённых обязателен выбор (param_choices). spec_from — компонент, чья
+         *     спецификация переезжает контейнеру (заменяя его прежнюю); null — спецификации не
+         *     трогать.
+         */
+        CollectFactsIn: {
+            /**
+             * Param Choices
+             * @default []
+             */
+            param_choices: components["schemas"]["CollectParamChoice"][];
+            /** Spec From */
+            spec_from?: string | null;
+        };
+        /**
+         * CollectFactsOut
+         * @description Отчёт сбора: сколько параметров переехало контейнеру и переехала ли
+         *     спецификация.
+         */
+        CollectFactsOut: {
+            /** Moved Params */
+            moved_params: number;
+            /** Spec Moved */
+            spec_moved: boolean;
+        };
+        /**
+         * CollectFactsPreview
+         * @description «Собрать с компонентов» без записи (GET /nodes/{id}/facts/collect-preview):
+         *     компоненты с фактами процесса, одноимённые параметры и держатели спецификации.
+         *     Пустые components — собирать нечего.
+         */
+        CollectFactsPreview: {
+            /** Components */
+            components: components["schemas"]["CollectComponentOut"][];
+            /** Param Clashes */
+            param_clashes: components["schemas"]["CollectClashOut"][];
+            /** Specs */
+            specs: components["schemas"]["CollectSpecOut"][];
+        };
+        /**
+         * CollectParamChoice
+         * @description Выбор при одноимённых параметрах: чьё описание остаётся.
+         */
+        CollectParamChoice: {
+            /** Name */
+            name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+        };
+        /**
+         * CollectSpecOut
+         * @description Объект со спецификацией (сам контейнер или его компонент).
+         */
+        CollectSpecOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+        };
+        /**
+         * ComponentFactsAlert
+         * @description Компонент со своей спецификацией OpenAPI, своими параметрами конфигурации или
+         *     своими площадками размещения (AL36, Р10 и Р16 docs/plan-c4-elements.md). API отдаёт,
+         *     конфигурацию читает и на площадках стоит контейнер целиком, поэтому место этих
+         *     фактов — у ближайшего контейнера компонента (app/element.py, container_of); свои
+         *     параметры компонента пометка «зависит от:» не видит (ProjectCatalog.params_for), а
+         *     его экземпляры размещение не считает (app/deployment.placement_map). Данные остаются
+         *     от прежнего правила «факты на листьях», от ввоза с адресом компонента и от переноса
+         *     размещённого объекта внутрь контейнера.
+         */
+        ComponentFactsAlert: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
+            /**
+             * Container Id
+             * Format: uuid
+             */
+            container_id: string;
+            /** Container Name */
+            container_name: string;
+            /** Has Spec */
+            has_spec: boolean;
+            /** Has Config */
+            has_config: boolean;
+            /** Has Sites */
+            has_sites: boolean;
+        };
+        /**
          * ComponentOut
-         * @description Компонент контейнера — возможная цель конца связи.
+         * @description Объект внутри конца связи — возможная цель её конца (и строка пикера концов
+         *     новой связи).
          */
         ComponentOut: {
             /** Path */
             path: string;
             /** Has Children */
             has_children: boolean;
+            /** Element Effective */
+            element_effective?: ("system" | "container" | "component") | null;
         };
         /** ConfigImportIn */
         ConfigImportIn: {
@@ -3889,9 +4138,9 @@ export interface components {
          *     ручек говорит, ЧТО у сервиса переключается, а индекс — что именно сломается,
          *     если ручку убрать.
          *
-         *     Узла в строке НЕТ, и это не упущение: сослаться на параметр может только схема
-         *     ТОГО ЖЕ объекта (§3 плана), так что колонка «кто» несла бы одно и то же имя во
-         *     всех строках. У таблиц и каналов она есть именно потому, что там зовущий — чужой.
+         *     Узел — владелец схемы. Сослаться на параметр может схема самого контейнера или
+         *     любого его компонента (эпик «Элемент архитектуры», Р11), поэтому зовущий бывает
+         *     другим объектом, и строка называет его, как у таблиц и каналов.
          */
         ConfigParamUsage: {
             /**
@@ -3901,6 +4150,13 @@ export interface components {
             param_id: string;
             /** Param Name */
             param_name: string;
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Node Name */
+            node_name: string;
             /**
              * Doc Id
              * Format: uuid
@@ -3916,8 +4172,9 @@ export interface components {
         };
         /**
          * ContainerEdgeOut
-         * @description Конец связи, легший на контейнер целиком (§4.3 ТЗ). Оба конца в
-         *     контейнерах — ДВА элемента: у каждого свой ответ.
+         * @description Конец связи, легший на объект с вложенными целиком (§4.3 ТЗ). Оба конца в
+         *     таких объектах — ДВА элемента: у каждого свой ответ. Имя класса историческое:
+         *     конец бывает и системой.
          */
         ContainerEdgeOut: {
             /** Id */
@@ -3937,16 +4194,43 @@ export interface components {
             end: "source" | "target";
             /** Container Path */
             container_path: string;
+            /**
+             * Container Element
+             * @enum {string}
+             */
+            container_element: "system" | "container";
             /** Components */
             components: components["schemas"]["ComponentOut"][];
         };
         /**
+         * ContainerHintOut
+         * @description Вопрос «похоже на контейнер» (Р7 эпика элементов архитектуры): у узла с детьми
+         *     во входе нет элемента, а источники кода говорят, что дети — части одной программы
+         *     (app/container_hints). Ответ «container» отмечает узел контейнером до записи,
+         *     «system» и молчание оставляют как есть.
+         */
+        ContainerHintOut: {
+            /** Id */
+            id: string;
+            /** Node Path */
+            node_path: string;
+            /** Children */
+            children: string[];
+            /** Folder */
+            folder: string;
+            /** Repo */
+            repo: string;
+        };
+        /**
          * ContainerOwnDocsAlert
-         * @description Контейнер с СОБСТВЕННЫМИ доками/спецификацией/конфигурацией (grandfather): узел стал
-         *     контейнером (появились дети), но логика/спецификация/параметры остались на нём самом.
-         *     Правила контейнеров: логика, спецификации и конфигурация живут на атомарных детях —
-         *     доки распределяют по детям (модалка «Распределить по детям»), параметры
-         *     описывают заново у компонентов, чей код их читает (2026-10-28).
+         * @description Система или контейнер со своей документацией (AL24); совет — по элементу
+         *     архитектуры (docs/plan-c4-elements.md, раздел 0а):
+         *     - система (группа, сама не запускается) с собственными схемами логики,
+         *       спецификацией или параметрами конфигурации: всё это описывает её контейнеры, и
+         *       переносят это вложенным объектам — как до эпика у любого узла с детьми;
+         *     - контейнер с компонентами с собственными схемами логики: схемы описывают код, а
+         *       код — у компонентов (Р9). Спецификация и конфигурация у контейнера — норма: флаги
+         *       has_spec/has_config в записи остаются, но в класс их одних не хватает.
          */
         ContainerOwnDocsAlert: {
             /**
@@ -3956,6 +4240,11 @@ export interface components {
             node_id: string;
             /** Node Name */
             node_name: string;
+            /**
+             * Element Effective
+             * @enum {string}
+             */
+            element_effective: "system" | "container";
             /** Has Docs */
             has_docs: boolean;
             /** Has Spec */
@@ -4386,9 +4675,10 @@ export interface components {
         };
         /**
          * DeploymentGraph
-         * @description Граф вида «Развёртывание» уровня: всё его поддерево — контейнеры и листья (без
-         *     «Пользователей» и без самого контейнера уровня), все площадки проекта, сырые связи
-         *     с обоими концами в этом поддереве и раскладка вида.
+         * @description Граф вида «Развёртывание» уровня: всё его поддерево любой глубины (без
+         *     «Пользователей» и без самого узла уровня; компоненты — в ответе, концы их связей
+         *     фронт поднимает к контейнеру), все площадки проекта, сырые связи с обоими концами
+         *     в этом поддереве и раскладка вида.
          *
          *     layout — строки view_layout вида этого уровня с ключами «deploy:<узел>@<площадка>»
          *     (карточка экземпляра) и «deploy:site:<площадка>» (рамка площадки): вид делит
@@ -4453,9 +4743,10 @@ export interface components {
         /**
          * DeploymentNodeOut
          * @description Узел поддерева уровня на холсте развёртывания: все поля узла плюс instances —
-         *     id площадок, где стоит объект; у контейнера — где стоят ВСЕ его объекты (а где
-         *     часть — видно в sites с пометкой partial). Кого рисовать карточкой — объект или
-         *     цельный контейнер — решает фронт по размещению листьев.
+         *     id площадок, где стоит единица (контейнер, в том числе лист); у системы — где
+         *     стоят ВСЕ её единицы (а где часть — видно в sites с пометкой partial); у компонента
+         *     — пусто. Кого рисовать карточкой — единицу или цельную систему — решает фронт по
+         *     размещению единиц и element_effective.
          */
         DeploymentNodeOut: {
             /**
@@ -4514,6 +4805,12 @@ export interface components {
              * @enum {string}
              */
             approval_effective: "in_progress" | "approved";
+            /** Element */
+            element: ("system" | "container") | null;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Container Name */
+            container_name: string | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
@@ -4620,7 +4917,8 @@ export interface components {
         };
         /**
          * DistributeDocAssignment
-         * @description Назначение одного собственного дока контейнера конкретному ребёнку.
+         * @description Назначение одной собственной схемы логики узла получателю. Имя поля child_id —
+         *     историческое: получатель — любой потомок, у которого схемы логики на месте.
          */
         DistributeDocAssignment: {
             /**
@@ -4636,11 +4934,13 @@ export interface components {
         };
         /**
          * DistributeDocsIn
-         * @description Вход переноса: маппинг доков по детям + опциональный ребёнок для спецификации.
+         * @description «Перенести документацию» (POST /nodes/{id}/docs/distribute, Р19 эпика элементов):
+         *     получатели — по семьям фактов, в поддереве узла (app/facts_transfer).
          *
-         *     openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
-         *     (spec_child_id). Если детей несколько и спецификация есть — пользователь в
-         *     модалке выбирает, кому она отойдёт.
+         *     Схемы логики — компоненту (в том числе составному) или объекту без вложенных вне
+         *     контейнера; спецификация (одна у узла, переезжает целиком) — потомку-контейнеру
+         *     (spec_child_id); все собственные параметры конфигурации — одному потомку-контейнеру
+         *     (params_target_id). null — эту часть не переносить.
          */
         DistributeDocsIn: {
             /**
@@ -4650,6 +4950,8 @@ export interface components {
             doc_assignments: components["schemas"]["DistributeDocAssignment"][];
             /** Spec Child Id */
             spec_child_id?: string | null;
+            /** Params Target Id */
+            params_target_id?: string | null;
         };
         /**
          * DistributeDocsOut
@@ -4660,6 +4962,8 @@ export interface components {
             moved_docs: number;
             /** Spec Moved */
             spec_moved: boolean;
+            /** Moved Params */
+            moved_params: number;
         };
         /**
          * DocChoiceOut
@@ -4949,6 +5253,36 @@ export interface components {
             base_version?: number | null;
         };
         /**
+         * ElementChangePreview
+         * @description Последствия смены элемента или переноса узла — БЕЗ записи (app/element_change, Р18).
+         *
+         *     kind — что переезжает: система → контейнер (узел займёт площадки своих частей),
+         *     контейнер → система (площадки контейнера получит каждый объект внутри), вход в
+         *     контейнер (контейнер займёт и площадки переносимого), выход из него (переносимое
+         *     получит площадки контейнера) и первый вложенный объект у листа с площадками (лист
+         *     станет системой, его площадки получат объекты внутри); none — площадки на месте.
+         *     before и after — строки с непустыми площадками до и после. docs_names — объекты, чья
+         *     документация останется на месте и будет отмечена рекомендацией. container_name —
+         *     контейнер-участник переноса (цель или прежний), у первого вложенного объекта — лист,
+         *     ставший системой, у смены элемента — null. Последствий нет, когда before == after и
+         *     docs_names пуст: окно тогда не нужно.
+         */
+        ElementChangePreview: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "none" | "system_to_container" | "container_to_system" | "join_container" | "leave_container" | "first_child";
+            /** Before */
+            before: components["schemas"]["PlacementRowOut"][];
+            /** After */
+            after: components["schemas"]["PlacementRowOut"][];
+            /** Docs Names */
+            docs_names: string[];
+            /** Container Name */
+            container_name: string | null;
+        };
+        /**
          * ExportResponse
          * @description Экспорт схемы как текст. format держим явным полем, чтобы позже добавить
          *     другие сериализации без слома контракта; content — сам документ. mermaid —
@@ -5035,7 +5369,7 @@ export interface components {
              * Field
              * @enum {string}
              */
-            field: "description" | "technology" | "role" | "shape" | "status";
+            field: "description" | "technology" | "role" | "shape" | "status" | "element";
             /** Candidates */
             candidates: components["schemas"]["RemainderCandidateOut"][];
             /** Default */
@@ -5185,6 +5519,8 @@ export interface components {
              * @default 0
              */
             child_count: number;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
             /**
              * Ancestors
              * @default []
@@ -5576,13 +5912,15 @@ export interface components {
             /**
              * @default {
              *       "field_conflicts": [],
+             *       "container_hints": [],
              *       "container_edges": [],
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],
              *       "unfixable": [],
              *       "converted_warnings": [],
              *       "node_paths": [],
-             *       "node_has_children": []
+             *       "node_has_children": [],
+             *       "node_elements": []
              *     }
              */
             remainder: components["schemas"]["RemainderOut"];
@@ -5851,6 +6189,8 @@ export interface components {
              * @enum {string}
              */
             status: "existing" | "planned" | "deprecated";
+            /** Element */
+            element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;
@@ -6153,6 +6493,12 @@ export interface components {
              * @enum {string}
              */
             approval_effective: "in_progress" | "approved";
+            /** Element */
+            element: ("system" | "container") | null;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Container Name */
+            container_name: string | null;
             /** Source Ref */
             source_ref?: string | null;
             source?: components["schemas"]["NodeSource"] | null;
@@ -6252,6 +6598,8 @@ export interface components {
              * @enum {string}
              */
             approval: "in_progress" | "approved";
+            /** Element */
+            element?: ("system" | "container") | null;
             /** Source Ref */
             source_ref?: string | null;
         };
@@ -6298,6 +6646,8 @@ export interface components {
             status?: ("existing" | "planned" | "deprecated") | null;
             /** Approval */
             approval?: ("in_progress" | "approved") | null;
+            /** Element */
+            element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Site Ids */
             site_ids?: string[] | null;
@@ -6500,11 +6850,28 @@ export interface components {
             expires_at: string | null;
         };
         /**
+         * PlacementRowOut
+         * @description Строка таблицы площадок в окне последствий: объект и имена его площадок в порядке
+         *     площадок проекта (порядок имени, как в списке площадок).
+         */
+        PlacementRowOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Sites */
+            sites: string[];
+        };
+        /**
          * PlacementsIn
-         * @description Размещение нескольких объектов разом: КАЖДОМУ объекту — ровно этот набор
+         * @description Размещение нескольких объектов разом: КАЖДОЙ единице — ровно этот набор
          *     площадок (лишние экземпляры снимаются, недостающие добавляются); пустой
-         *     site_ids — снять размещение у всех перечисленных. Контейнер среди node_ids
-         *     размещается целиком: набор получает каждый объект внутри него.
+         *     site_ids — снять размещение у всех перечисленных. Контейнер (в том числе лист)
+         *     пишется сам; система среди node_ids размещается целиком — набор получает каждый
+         *     контейнер внутри неё; компонент — отказ 422: площадки задаются его контейнеру.
          */
         PlacementsIn: {
             /** Node Ids */
@@ -6915,6 +7282,11 @@ export interface components {
              */
             field_conflicts: components["schemas"]["FieldDisputeOut"][];
             /**
+             * Container Hints
+             * @default []
+             */
+            container_hints: components["schemas"]["ContainerHintOut"][];
+            /**
              * Container Edges
              * @default []
              */
@@ -6949,6 +7321,11 @@ export interface components {
              * @default []
              */
             node_has_children: boolean[];
+            /**
+             * Node Elements
+             * @default []
+             */
+            node_elements: (("system" | "container" | "component") | null)[];
         };
         /** ReorderPayload */
         ReorderPayload: {
@@ -7584,13 +7961,15 @@ export interface components {
             /**
              * @default {
              *       "field_conflicts": [],
+             *       "container_hints": [],
              *       "container_edges": [],
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],
              *       "unfixable": [],
              *       "converted_warnings": [],
              *       "node_paths": [],
-             *       "node_has_children": []
+             *       "node_has_children": [],
+             *       "node_elements": []
              *     }
              */
             remainder: components["schemas"]["RemainderOut"];
@@ -7684,10 +8063,11 @@ export interface components {
          * @description Пометка «зависит от:» в схеме логики, не нашедшая параметра конфигурации.
          *
          *     Третий отдельный класс по той же причине, что и второй: своя починка — «опишите
-         *     ручку в разделе „Конфигурация“ этого объекта или поправьте имя». Ни поля reason,
-         *     ни поля mode здесь НЕТ, и это не экономия: у семьи ровно одна причина промаха
-         *     (параметра с таким именем у объекта нет) и ровно один режим — неоднозначность и
-         *     «нет члена» невозможны по построению (docs/plan-config-docs.md §3).
+         *     ручку в разделе „Конфигурация“ контейнера или поправьте имя». Ни поля reason, ни
+         *     поля mode здесь НЕТ, и это не экономия: у семьи ровно одна причина промаха
+         *     (параметра с таким именем у ближайшего контейнера владельца схемы нет) и ровно
+         *     один режим — неоднозначность и «нет члена» невозможны по построению
+         *     (docs/plan-config-docs.md §3; область поиска — Р11 docs/plan-c4-elements.md).
          *
          *     ⚠️ Класс заведомо ловит и ПРОЗУ: «зависит от: нагрузки» — обычная русская фраза,
          *     а не ссылка. Так и задумано (маркер с двоеточием — обещание факта), поэтому текст
@@ -7711,6 +8091,10 @@ export interface components {
             doc_name: string;
             /** Ref */
             ref: string;
+            /** Container Id */
+            container_id: string | null;
+            /** Container Name */
+            container_name: string | null;
         };
         /**
          * UnresolvedDataRefAlert
@@ -9554,6 +9938,76 @@ export interface operations {
             };
         };
     };
+    element_preview_api_v1_nodes__node_id__element_preview_get: {
+        parameters: {
+            query: {
+                element: "system" | "container";
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementChangePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    move_preview_api_v1_nodes__node_id__move_preview_get: {
+        parameters: {
+            query?: {
+                parent_id?: string | null;
+            };
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ElementChangePreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_move_snapshot_api_v1_nodes__node_id__move_snapshot_get: {
         parameters: {
             query?: never;
@@ -10140,6 +10594,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DistributeDocsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    collect_preview_api_v1_nodes__node_id__facts_collect_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectFactsPreview"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    collect_api_v1_nodes__node_id__facts_collect_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectFactsIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectFactsOut"];
                 };
             };
             /** @description Validation Error */

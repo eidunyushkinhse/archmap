@@ -26,6 +26,7 @@ export function baseProps(): LevelGraphProps {
     containerId: null,
     ancestorNames: [],
     ancestorIds: [],
+    ancestorElements: [],
     isArchitect: true,
     drill: {
       onDrillDown: vi.fn<(n: AppNode) => void>(),

@@ -3,11 +3,15 @@
 // openapi у проекции нет, править её нельзя (реальный узел живёт в другой ветке дерева).
 // Кнопка «Перейти к оригиналу» уводит на уровень, где узел показан как локал; раздел
 // «Документация → Открыть» — на страницу узла, как у своего узла (двойной клик по узлу
-// сам на страницу не уводит).
+// сам на страницу не уводит). Строка «Элемент архитектуры» — тем же вычислением, что у
+// своего узла (elementView), только текстом: у компонента контейнер — ссылкой на его
+// страницу, контейнер ищется в пути гостя.
 import type { GhostNode } from "../../types";
-import { canHaveChildren } from "../../types";
+import { treeNesting } from "../../types";
 import { STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
+import { elementView } from "../element/elementView";
+import { ElementValue } from "../element/ElementParts";
 import "./inspector.css";
 
 interface Props {
@@ -19,8 +23,8 @@ interface Props {
 }
 
 export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: Props) {
-  const container = canHaveChildren(ghost.shape) && ghost.has_children;
   const path = ghost.ancestors.map((a) => a.name).join(" / ");
+  const element = elementView(ghost, false, ghost.ancestors);
 
   return (
     <div>
@@ -28,10 +32,18 @@ export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: 
         {ghost.is_external ? "Внешний объект" : "Объект"} · проекция
       </div>
       <div className="insp-ghost-head">
-        <ShapeGlyph container={container} shape={ghost.shape} />
+        <ShapeGlyph nesting={treeNesting(ghost)} shape={ghost.shape} />
         <span className="insp-endname">{ghost.name}</span>
       </div>
       <dl className="insp-meta insp-meta--stacked">
+        {(element.kind === "text" || element.kind === "link") && (
+          <div className="insp-row">
+            <dt className="insp-term">Элемент архитектуры</dt>
+            <dd className="insp-value" style={{ margin: 0 }}>
+              <ElementValue view={element} onNavigateNode={onNavigateNode} />
+            </dd>
+          </div>
+        )}
         {ghost.role && (
           <div className="insp-row">
             <dt className="insp-term">Роль</dt>

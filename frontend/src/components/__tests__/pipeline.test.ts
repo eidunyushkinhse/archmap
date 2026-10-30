@@ -12,7 +12,7 @@ import { NODE_W, NODE_H } from "../graph/constants";
 // интентами (а не записью в БД), конвергенция «второй прогон с засеянными позициями —
 // no-op», слияние мастеров, геометрия по ключу пучка, контекст-режим без интентов.
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 
 function appNode(id: string): AppNode {
   return {
@@ -21,6 +21,7 @@ function appNode(id: string): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: false, child_count: 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: "container", container_name: null,
   } as AppNode;
 }
 
@@ -28,7 +29,7 @@ function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,
     shape: "service", status: "existing", node_depth: ancestors.length,
-    has_children: false, child_count: 0, ancestors, is_ghost: true,
+    has_children: false, child_count: 0, element_effective: "container", ancestors, is_ghost: true,
   } as GhostNode;
 }
 

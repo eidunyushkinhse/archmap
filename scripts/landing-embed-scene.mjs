@@ -85,11 +85,12 @@ if (FOCUS_NAME) {
   focus = hits[0];
 }
 
-// Предки уровня (корень → непосредственный родитель): подписи вложенных рамок.
+// Предки уровня (корень → непосредственный родитель): подписи вложенных рамок. Звено —
+// AncestorRef контракта, с действующим элементом архитектуры из выдачи сервера.
 const ancestors = [];
 for (let id = focus?.parent_id; id; id = byId.get(id)?.parent_id) {
   const n = byId.get(id);
-  ancestors.unshift({ id: n.id, name: n.name, is_external: n.is_external });
+  ancestors.unshift({ id: n.id, name: n.name, is_external: n.is_external, element_effective: n.element_effective });
 }
 
 const graph = await api(token, focus ? `/nodes/${focus.id}/context-graph` : "/nodes/graph", pid);

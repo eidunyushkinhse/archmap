@@ -130,6 +130,8 @@ class SyncPreviewIn(BaseModel):
     contents: list[_ImportDoc] = Field(min_length=1, max_length=MAX_IMPORT_FILES)
     update_descriptions: bool = False
     update_names: bool = False
+    # Синхронизировать и компоненты контейнеров — всё внутри контейнера, на любой
+    # глубине (без элементов архитектуры — глубина прогона 3+); см. SyncPolicies.
     sync_components: bool = False
     mark_missing_deprecated: bool = False
     # Снимать «устаревший» с вернувшихся в YAML. Симметрично пометке; см.

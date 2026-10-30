@@ -304,6 +304,7 @@ def anchored(api: FakeApi, source: dict[str, Any] | None, source_ref: str | None
     target = node(NODE, "Оркестратор заказа", shape="service")
     target |= {
         "docs": [], "child_count": 0, "has_children": False,
+        "element": None, "element_effective": "container", "container_name": None,
         "source_ref": source_ref, "source": source, "version": 3,
         "created_at": "2026-09-04T10:00:00", "updated_at": "2026-09-04T10:00:00",
     }
@@ -376,11 +377,64 @@ async def test_статус_страницы_листа(client: ArchMapClient, a
     assert lines.index("Статус страницы: согласовано") == lines.index(render.anchor_line(node(NODE, "Узел"))) + 1
 
 
-async def test_статус_страницы_контейнера_складывается_из_детей(
+async def test_статус_страницы_системы_складывается_из_вложенных_объектов(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    # Хранимое «согласовано» у контейнера не показывается: статус — вычисленный
-    # сервером по детям, счётчик — по прямым детям (внук не считается).
+    # Хранимое «согласовано» у системы не показывается: статус — вычисленный сервером,
+    # счётчик — по единицам любой глубины: контейнер и его компонент считаются оба,
+    # вложенная система — нет (её объекты — да).
+    target = base_routes(
+        api, "service", has_children=True, approval="approved", approval_effective="in_progress",
+        element=None, element_effective="system",
+    )
+    api.get("/nodes/all", [
+        target,
+        node(u(1), "orders", NODE, element="container", element_effective="container",
+             has_children=True, approval="approved", approval_effective="approved"),
+        node(u(2), "orders/api", u(1), element=None, element_effective="component",
+             approval="in_progress", approval_effective="in_progress"),
+        node(u(3), "Склад", NODE, element=None, element_effective="system", has_children=True,
+             approval="approved", approval_effective="approved"),
+        node(u(4), "Остатки", u(3), element=None, element_effective="container",
+             approval="approved", approval_effective="approved"),
+        node(u(5), "Покупатель", NODE, shape="person", element=None, element_effective=None,
+             approval="in_progress", approval_effective="in_progress"),
+    ])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert (
+        "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 4"
+        in out.splitlines()
+    )
+
+
+async def test_статус_страницы_контейнера_с_компонентами_свой(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Р14: у контейнера с компонентами статус свой, как у листа, — без счётчика.
+    target = base_routes(
+        api, "service", has_children=True, approval="approved", approval_effective="approved",
+        element="container", element_effective="container",
+    )
+    api.get("/nodes/all", [
+        target,
+        node(u(1), "orders/api", NODE, element=None, element_effective="component",
+             approval="in_progress", approval_effective="in_progress"),
+    ])
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Статус страницы: согласовано" in out.splitlines()
+
+
+async def test_старый_сервер_статус_по_прямым_детям(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Сервер без элементов архитектуры (нет element_effective): как до эпика —
+    # складывается из прямых детей (внук не считается), слова — как у системы.
     target = base_routes(
         api, "service", has_children=True, approval="approved", approval_effective="in_progress"
     )
@@ -397,7 +451,7 @@ async def test_статус_страницы_контейнера_складыв
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Статус страницы: в работе — складывается из детей, согласовано 2 из 3" in out
+    assert "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 3" in out
 
 
 async def test_сервер_без_статуса_страниц_строки_не_выдумывает(
@@ -460,7 +514,7 @@ async def test_частичное_размещение_контейнера_по
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Размещение: Кластер prod (в Облако, часть объектов), ВМ-2 (часть объектов)" in out
+    assert "Размещение: Кластер prod (в Облако, часть контейнеров), ВМ-2 (часть контейнеров)" in out
 
 
 async def test_без_размещения_строки_нет(client: ArchMapClient, api: FakeApi) -> None:
@@ -470,3 +524,74 @@ async def test_без_размещения_строки_нет(client: ArchMapCl
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "Размещение" not in out
+
+
+# ── Элемент архитектуры (docs/plan-c4-elements.md, Ф1) ─────────────────────────
+
+def element_routes(api: FakeApi, target: dict[str, Any], others: list[dict[str, Any]]) -> None:
+    api.get(f"/nodes/{NODE}", target)
+    api.get("/nodes/all", [*others, target])
+    api.get(f"/nodes/{NODE}/edges", [])
+    api.get(f"/nodes/{NODE}/docs", [])
+    api.get(f"/nodes/{NODE}/processes", [])
+    api.get(f"/nodes/{NODE}/config", [])
+
+
+async def test_карточка_компонента_называет_его_контейнер(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Составной компонент jobs между узлом и контейнером: имя берётся у ближайшего
+    # предка-контейнера, а не у родителя.
+    target = node(NODE, "nightly", u(3), element=None, element_effective="component")
+    element_routes(api, target, [
+        node(u(1), "shop", element=None, element_effective="system", has_children=True),
+        node(u(2), "orders", u(1), element="container", element_effective="container",
+             has_children=True),
+        node(u(3), "jobs", u(2), element=None, element_effective="component", has_children=True),
+    ])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    lines = out.splitlines()
+    i = lines.index("Элемент архитектуры: компонент контейнера «orders»")
+    assert lines[i - 1].startswith("Объект: nightly")
+    assert lines[i + 1].startswith("Источник:")
+
+
+async def test_карточка_компонента_без_строки_размещения(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # У компонента размещения нет (Р16): строки нет вовсе — ни «не указано», ни «как у
+    # контейнера» (такая строка читалась бы наследованием, ошибка 2026-10).
+    target = node(NODE, "api", u(2), element=None, element_effective="component", sites=[])
+    element_routes(api, target, [
+        node(u(2), "orders", element="container", element_effective="container",
+             has_children=True, sites=check("node", "NodeSiteOut", [site_ref(u(70), "Облако")])),
+    ])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры: компонент контейнера «orders»" in out.splitlines()
+    assert "Размещение" not in out
+
+
+async def test_карточка_контейнера(client: ArchMapClient, api: FakeApi) -> None:
+    target = node(NODE, "orders", element="container", element_effective="container",
+                  has_children=True)
+    element_routes(api, target, [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры: контейнер" in out.splitlines()
+
+
+async def test_карточка_без_элемента_от_старого_сервера(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Сервер, который элемента не знает, поле не отдаёт — строки нет, а не выдумка.
+    base_routes(api, "service")
+    api.get(f"/nodes/{NODE}/config", [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Элемент архитектуры" not in out

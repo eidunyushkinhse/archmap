@@ -19,7 +19,7 @@ import uuid
 
 from pydantic import BaseModel, field_validator
 
-from app.domain_types import NodeApproval
+from app.domain_types import NodeApproval, NodeElement
 from app.identity import known_key
 from app.schemas.node import NodeShape, NodeStatus
 from app.schemas.node_doc import NodeDocKind
@@ -39,6 +39,10 @@ class NodeSnapshot(BaseModel):
     # Статус страницы (хранимый): откат удаления не должен молча вернуть согласованную
     # страницу «в работе». Дефолт — для снимков, снятых до появления поля.
     approval: NodeApproval = "in_progress"
+    # Элемент архитектуры (хранимый): откат удаления и откат версии возвращают его, как
+    # форму. Дефолт None («не сказано») — для снимков, снятых до появления поля: он же
+    # значение всех узлов до эпика, поэтому старый снимок не даёт ложных изменений.
+    element: NodeElement | None = None
     # Якорь источника (импорт/синк «Архитектура из кода»): без него откат удаления
     # возвращал узел, которого следующий прогон агента не узнаёт — и заводил дубль.
     source_ref: str | None = None

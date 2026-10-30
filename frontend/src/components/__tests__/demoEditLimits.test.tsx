@@ -196,7 +196,7 @@ describe("экран 5 · предел при сохранении докуме�
     }]);
     vi.mocked(configParamsApi.usage).mockResolvedValue([]);
     vi.mocked(configParamsApi.update).mockRejectedValue(limit(VOLUME));
-    render(<ConfigParamsSection nodeId="n1" isArchitect allowed />);
+    render(<ConfigParamsSection nodeId="n1" element={{ kind: "leaf" }} isArchitect allowed onNavigateNode={vi.fn()} />);
     const поле = await screen.findByDisplayValue("старое");
     await userEvent.clear(поле);
     await userEvent.type(поле, "очень длинное описание");

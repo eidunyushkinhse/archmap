@@ -93,12 +93,13 @@ describe("LevelGraph orchestration: drill / expand", () => {
   it("drill узла из раскрытого контейнера → onEnterNode с полным путём (breadcrumb + цепочка + узел)", async () => {
     const onEnterNode = vi.fn<(path: AncestorRef[]) => void>();
     // Уровень «root» (хлебные крошки), внутри раскрытого p1 лежит целевой n.
-    const p1 = appNode("p1", { name: "Промежуточный", parent_id: "root" });
-    const n = appNode("n", { name: "Цель", parent_id: "p1" });
+    const p1 = appNode("p1", { name: "Промежуточный", parent_id: "root", element_effective: "system" });
+    const n = appNode("n", { name: "Цель", parent_id: "p1", element_effective: "container" });
     await renderGraph({
       containerId: "root",
       ancestorIds: ["root"],
       ancestorNames: ["Root"],
+      ancestorElements: ["system"],
       nodes: [p1],
       drill: { ...baseProps().drill, onEnterNode },
     });
@@ -106,10 +107,12 @@ describe("LevelGraph orchestration: drill / expand", () => {
     getCb().drillWithPath(n);
 
     expect(onEnterNode).toHaveBeenCalledOnce();
+    // Звенья цепочки несут элемент узла, звено крошек — элемент из пропа предков
+    // (внешность пропом не приходит).
     expect(onEnterNode).toHaveBeenCalledWith([
-      { id: "root", name: "Root", is_external: false },
-      { id: "p1", name: "Промежуточный", is_external: false },
-      { id: "n", name: "Цель", is_external: false },
+      { id: "root", name: "Root", is_external: false, element_effective: "system" },
+      { id: "p1", name: "Промежуточный", is_external: false, element_effective: "system" },
+      { id: "n", name: "Цель", is_external: false, element_effective: "container" },
     ]);
   });
 

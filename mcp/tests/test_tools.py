@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any, get_args
 
 import httpx
@@ -569,11 +570,53 @@ async def test_каждый_инструмент_описан_и_вызывае�
         assert callable(t["handler"])
 
 
+# Внутренний словарь в описания не попадает (правило владельца 2026-10-29): агент
+# пользователя говорит словами продукта — «спецификация», «схемы логики и
+# спецификации», «система», «контейнер», «компонент».
+_JARGON = re.compile(
+    r"(?<![а-яёА-ЯЁ])([Сс]пек(а|и|у|ой|е|ам|ах|ами)?|[Дд]оки|[Дд]оков|[Кк]оробк\w*|[Мм]одул\w*)"
+    r"(?![а-яёА-ЯЁ])"
+)
+
+
+def _descriptions(value: object) -> list[str]:
+    """Все тексты description в схеме инструмента, на любой глубине."""
+    if isinstance(value, dict):
+        own = [value["description"]] if isinstance(value.get("description"), str) else []
+        return own + [d for v in value.values() for d in _descriptions(v)]
+    if isinstance(value, list):
+        return [d for v in value for d in _descriptions(v)]
+    return []
+
+
+def test_в_описаниях_инструментов_нет_жаргона() -> None:
+    hits = [
+        f"{t['name']}: {m.group(0)}"
+        for t in [*tools.TOOLS, *tools.REMOTE_TOOLS]
+        for text in [t["description"], *_descriptions(t["schema"])]
+        for m in _JARGON.finditer(text)
+    ]
+    assert not hits
+
+
 # ── Источник в правках объекта ──────────────────────────────────────────────────
 
 def check_node_contract(schema: str, body: dict[str, object]) -> None:
-    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate)."""
-    getattr(backend("schemas.node"), schema).model_validate(body)
+    """Тело правки объекта глазами бэкенда (NodeCreate / NodeUpdate).
+
+    Схемы бэкенда лишних полей не запрещают (extra="forbid" нет), поэтому одной
+    model_validate мало: поле, которого сервер не знает, прошло бы проверку, сервер
+    молча выбросил бы его, а инструмент ответил бы «обновлён» (камень 24
+    docs/plan-c4-elements.md). Ключи тела сверяются с полями схемы."""
+    model = getattr(backend("schemas.node"), schema)
+    unknown = set(body) - set(model.model_fields)
+    assert not unknown, f"{schema} не знает полей тела: {sorted(unknown)}"
+    model.model_validate(body)
+
+
+def test_сторож_контракта_ловит_лишнее_поле_тела() -> None:
+    with pytest.raises(AssertionError, match="no_such_field"):
+        check_node_contract("NodeUpdate", {"name": "X", "no_such_field": 1})
 
 
 async def test_создание_объекта_шлёт_источник(client: ArchMapClient, api: FakeApi) -> None:
@@ -668,6 +711,24 @@ async def test_правка_объекта_шлёт_статус_страниц�
     assert body == {"approval": "approved"}
     check_node_contract("NodeUpdate", body)
     assert "Статус страницы: согласовано" in out
+
+
+async def test_статус_страницы_ставится_у_контейнера_с_компонентами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Р14: контейнер с компонентами ставит свой статус — подтверждение без счётчика.
+    api.patch("/nodes/n2", node("n2", "orders", has_children=True, element="container",
+                                element_effective="container",
+                                approval="approved", approval_effective="approved"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "approval": "approved"}, client
+    )
+
+    assert out.splitlines()[-1] == "Статус страницы: согласовано"
+    desc = tools.BY_NAME["archmap_update_node"]["description"]
+    assert "только у контейнера или компонента" in desc
+    assert "у системы он складывается из вложенных объектов" in desc
 
 
 async def test_статус_страницы_в_каталоге_тот_же_что_у_бэкенда() -> None:
@@ -847,3 +908,103 @@ async def test_без_ключа_sites_размещение_не_трогает�
 
     assert json.loads(api.calls[-1].content) == {"name": "API"}
     assert "Размещение" not in out
+
+
+# ── Элемент архитектуры (docs/plan-c4-elements.md, Ф1) ─────────────────────────
+
+async def test_создание_объекта_шлёт_элемент(client: ArchMapClient, api: FakeApi) -> None:
+    api.post("/nodes", node("n7", "orders", element="container", element_effective="container"))
+
+    out = await tools.call(
+        "archmap_create_node",
+        {"project": "Ярмарка", "name": "orders", "element": "container"},
+        client,
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body["element"] == "container"
+    check_node_contract("NodeCreate", body)
+    assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
+
+
+async def test_создание_без_элемента_поля_не_шлёт(client: ArchMapClient, api: FakeApi) -> None:
+    api.post("/nodes", node("n8", "billing", element=None, element_effective="container"))
+
+    out = await tools.call(
+        "archmap_create_node", {"project": "Ярмарка", "name": "billing", "element": ""}, client
+    )
+
+    assert "element" not in json.loads(api.calls[-1].content)
+    assert "Элемент архитектуры" not in out
+
+
+async def test_правка_объекта_шлёт_элемент(client: ArchMapClient, api: FakeApi) -> None:
+    api.patch("/nodes/n2", node("n2", "orders", element="container", element_effective="container"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "element": "container"}, client
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"element": "container"}
+    check_node_contract("NodeUpdate", body)
+    assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
+
+
+async def test_пустая_строка_элемента_снимает_значение(client: ArchMapClient, api: FakeApi) -> None:
+    """⚠️ Фильтр «не None» отбросил бы снятие: пустая строка — синоним null, как у
+    doc_id в archmap_bind_step. Действующий элемент после снятия — от сервера."""
+    api.patch("/nodes/n2", node("n2", "orders", element=None, element_effective="system"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "element": ""}, client
+    )
+
+    body = json.loads(api.calls[-1].content)
+    assert body == {"element": None}
+    check_node_contract("NodeUpdate", body)
+    assert "Элемент архитектуры: система" in out
+
+
+async def test_старый_сервер_без_элемента_строки_не_печатает(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    # Сервер, который элемента не знает, поле не отдаёт: выдуманное слово было бы неправдой.
+    api.patch("/nodes/n2", node("n2", "orders"))
+
+    out = await tools.call(
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "element": "container"}, client
+    )
+
+    assert "Элемент архитектуры" not in out
+
+
+async def test_элемент_в_каталоге_тот_же_что_у_бэкенда() -> None:
+    # Пустая строка — синоним снятия (клиенты выбрасывают настоящий null), остальное —
+    # ровно словарь сервера: лишнее значение было бы 422 на живом сервере.
+    for name in ("archmap_create_node", "archmap_update_node"):
+        arg = tools.BY_NAME[name]["schema"]["properties"]["element"]
+        assert [v for v in arg["enum"] if v] == list(get_args(backend("domain_types").NodeElement))
+        assert "" in arg["enum"]
+
+
+async def test_дерево_помечает_контейнер_с_компонентами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.get("/nodes/all", [
+        node("n1", "shop", has_children=True, element_effective="system"),
+        node("n2", "orders", "n1", has_children=True, element="container", element_effective="container"),
+        node("n3", "api", "n2", element_effective="component"),
+        node("n4", "billing", "n1", element_effective="container"),
+    ])
+    api.get("/edges", [])
+
+    out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
+
+    lines = out.splitlines()
+    assert "• shop [сервис]  id=n1" in lines
+    assert "  • orders (контейнер) [сервис]  id=n2" in lines
+    # Компонент, лист-контейнер и система — без маркера: дерево проекта без контейнеров
+    # с компонентами печатается как до эпика.
+    assert "    • api [сервис]  id=n3" in lines
+    assert "  • billing [сервис]  id=n4" in lines

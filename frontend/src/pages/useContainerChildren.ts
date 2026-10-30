@@ -9,13 +9,16 @@
 // по непосредственным детям контейнера: доки/спеки самого ребёнка идут плоско
 // (own), а доки/спеки более глубоких потомков — в раскрываемую группу (deep)
 // под их ближайшим предком, который является непосредственным ребёнком.
-// Непосредственные дети выводятся как подмножество потомков
-// (parent_id === nodeId) — они нужны модалке «Распределить по детям».
+// Непосредственные дети выводятся как подмножество потомков (parent_id === nodeId).
 //
 // Слои (аудит F-37): useDescendants грузит потомков, группировка и сводная технология —
 // чистые функции над ними, useContainerChildren — их композиция для страницы объекта.
 // Инспектору редактора нужна только технология: он берёт useDescendants и aggregateTech,
 // не считая групп впустую.
+//
+// Элемент архитектуры (docs/plan-c4-elements.md) решает, что из этого нужно странице:
+// потомки грузятся у любого узла с детьми (единицы статуса системы), сводная технология —
+// только у системы (Р15), группы документации — по scope.docs.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Node, NodeDocMeta } from "../types";
 import { compareByRank } from "../types";
@@ -43,8 +46,12 @@ export interface ContainerSpecGroup {
 
 export interface ContainerChildrenState {
   // Непосредственные дети (подмножество потомков): null — ещё не загружены (или
-  // узел не контейнер), [] — загружены и детей нет. Для модалки распределения.
+  // узел не контейнер), [] — загружены и детей нет.
   children: Node[] | null;
+  // Единицы статуса страницы — потомки, которые не системы (контейнеры, компоненты,
+  // «Пользователи»), в порядке потомков: из них складывается статус системы
+  // (пилюля у имени). null — ещё не загружены (или узел не контейнер).
+  units: Node[] | null;
   // true, пока потомки грузятся (только для контейнера)
   loading: boolean;
   // Схемы логики потомков, сгруппированные по непосредственным детям
@@ -159,7 +166,15 @@ export function aggregateTech(descendants: Node[]): string {
   return [...seen].join(", ");
 }
 
-export function useContainerChildren(nodeId: string, isContainer: boolean): ContainerChildrenState {
+// Что считать над загруженными потомками: группы документации и сводную технологию.
+export interface ContainerChildrenScope {
+  docs: boolean;
+  tech: boolean;
+}
+
+export function useContainerChildren(
+  nodeId: string, isContainer: boolean, scope: ContainerChildrenScope,
+): ContainerChildrenState {
   const { descendants, reload } = useDescendants(nodeId, isContainer);
 
   // Непосредственные дети: потомки с parent_id === nodeId.
@@ -167,14 +182,23 @@ export function useContainerChildren(nodeId: string, isContainer: boolean): Cont
     () => (descendants === null ? null : descendants.filter((d) => d.parent_id === nodeId)),
     [descendants, nodeId],
   );
-  const groups = useMemo(
-    () => (descendants ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
-    [descendants, nodeId],
+  // Элемент каждого потомка сервер отдаёт готовым (element_effective): здесь только отбор.
+  const units = useMemo<Node[] | null>(
+    () => (descendants === null ? null : descendants.filter((d) => d.element_effective !== "system")),
+    [descendants],
   );
-  const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
+  const groups = useMemo(
+    () => (descendants && scope.docs ? groupByDirectChild(descendants, nodeId) : { docGroups: [], specGroups: [] }),
+    [descendants, nodeId, scope.docs],
+  );
+  const aggTech = useMemo(
+    () => (descendants && scope.tech ? aggregateTech(descendants) : ""),
+    [descendants, scope.tech],
+  );
 
   return {
     children,
+    units,
     loading: isContainer && descendants === null,
     docGroups: groups.docGroups,
     specGroups: groups.specGroups,

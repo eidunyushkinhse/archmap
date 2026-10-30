@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app import identity, reparent, restore, tree
+from app import element_change, identity, reparent, restore, tree
 from app.alerts import compute_alerts
 from app.approval import manual_approval_refusal, mark_approval
 from app.auth import get_current_user, require_session_user
@@ -20,6 +20,9 @@ from app.deps import (
     scoped_node,
     touch_project,
 )
+from app.domain_types import NodeElement
+from app.element_marks import mark_element, project_element_rows
+from app.element_rules import STORE_CREATE, element_change_refusal, store_refusal
 from app.graph_queries import build_graph, external_edges, project_has_status_info
 from app.models.business_process import BusinessProcess
 from app.models.edge import Edge
@@ -33,6 +36,7 @@ from app.processes import process_list_items
 from app.schemas.alerts import AlertsResponse
 from app.schemas.node import (
     AnchorPreviewOut,
+    ElementChangePreview,
     GraphResponse,
     NodeCreate,
     NodeEdgeInfo,
@@ -85,13 +89,40 @@ def _mark_has_children(db: Session, nodes: list[Node]) -> None:
 
 def _mark_derived(db: Session, project: Project, nodes: list[Node]) -> None:
     """Все вычисляемые атрибуты NodeResponse разом: число детей и их наличие, статус
-    страницы с учётом детей (app/approval), действующее размещение (app/deployment).
-    Одна точка — новый производный атрибут не забудется ни в одной из выдач роутера."""
+    страницы (у системы — из вложенных объектов, app/approval), действующее размещение (app/deployment),
+    действующий элемент архитектуры (app/element_marks). Одна точка — новый производный
+    атрибут не забудется ни в одной из выдач роутера."""
     if not nodes:
         return
     _mark_has_children(db, nodes)
     mark_approval(db, project.id, nodes)
     mark_sites(db, project.id, nodes)
+    mark_element(db, project.id, nodes)
+
+
+def _refuse_element(
+    db: Session,
+    project: Project,
+    *,
+    node_id: uuid.UUID | None,
+    name: str,
+    parent_id: uuid.UUID | None,
+    shape: str,
+    value: NodeElement,
+) -> None:
+    """Элемент архитектуры из POST/PATCH: отказ правила (app/element_rules) — 422 в общем
+    формате {"detail": "…"}. Узлы проекта выбираются только здесь: правка без элемента
+    лишнего запроса не платит."""
+    reason = element_change_refusal(
+        project_element_rows(db, project.id),
+        node_id=node_id,
+        name=name,
+        parent_id=parent_id,
+        shape=shape,
+        value=value,
+    )
+    if reason:
+        raise HTTPException(status_code=422, detail=reason)
 
 
 @router.get("", response_model=list[NodeResponse])
@@ -121,6 +152,25 @@ def create_node(
         parent = scoped_node(db, payload.parent_id, project)
         if not parent:
             raise HTTPException(status_code=404, detail="Родительский узел не найден")
+        # Те же запреты вложения, что у переноса (app/reparent): внутрь формы без детей
+        # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
+        if parent.shape not in reparent.CONTAINER_SHAPES:
+            raise HTTPException(status_code=422, detail=reparent.NO_CHILDREN)
+        # Узлы проекта выбираются только для базы и брокера: прочим формам Р6 не грозит.
+        if payload.shape in STORE_CREATE:
+            reason = store_refusal(
+                project_element_rows(db, project.id), node_id=None, name=payload.name,
+                parent_id=payload.parent_id, shape=payload.shape, action="create",
+            )
+            if reason:
+                raise HTTPException(status_code=422, detail=reason)
+    # Элемент архитектуры — с запретами (app/element_rules): форма и «внутри контейнера»
+    # по цепочке предков будущего родителя.
+    if payload.element is not None:
+        _refuse_element(
+            db, project, node_id=None, name=payload.name, parent_id=payload.parent_id,
+            shape=payload.shape, value=payload.element,
+        )
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
     # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
@@ -131,6 +181,10 @@ def create_node(
     )
     db.add(node)
     db.flush()
+    # Лист с площадками, получивший первого ребёнка и ставший системой, отдаёт их ребёнку
+    # в той же транзакции (D34, правило 5): иначе экземпляры листа уснули бы, а новый
+    # объект остался бы без площадок. Курсор меты — если экземпляры изменились.
+    relocated = element_change.apply_created(db, project, node)
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
     # хранилище; в колонках узла позиций больше нет). Без координат — авто (ELK).
     if payload.pos_x is not None and payload.pos_y is not None:
@@ -144,7 +198,7 @@ def create_node(
         )
     # мир вида родителя изменился (новый локал ± строка позиции): fence + курсор
     bump_view_version(db, project.id, payload.parent_id)
-    commit_change(db, project, user.id, graph=True)
+    commit_change(db, project, user.id, graph=True, meta=relocated > 0)
     db.refresh(node)
     _mark_derived(db, project, [node])  # только что создан — детей нет, но для единообразия
     return node
@@ -403,9 +457,12 @@ def _apply_site_ids(
     db: Session, project: Project, node: Node, site_ids: list[uuid.UUID] | None
 ) -> None:
     """Размещение из PATCH узла (NodeUpdate.site_ids): None — не прислано, не трогаем;
-    список — набор площадок целиком, у контейнера — каждому объекту внутри
-    (app/deployment.set_placements). Отказ домена — в HTTP (404 — площадка не из
-    проекта, 422 — «Пользователь» или контейнер без объектов)."""
+    список — набор площадок целиком: контейнер (в том числе лист) пишется сам, у
+    системы — каждому контейнеру внутри (app/deployment.set_placements, Р16 эпика
+    элементов). Отказ домена — в HTTP (404 — площадка не из проекта, 422 —
+    «Пользователь», компонент — площадки задаются его контейнеру, тихого
+    перенаправления нет — или система без контейнеров). Элемент, форма и родитель из
+    того же запроса уже применены: set_placements читает дерево после flush."""
     if site_ids is None:
         return
     try:
@@ -440,31 +497,56 @@ def update_node(
     # null равен «не прислано». Применяется после правки полей — правило «у
     # пользователя размещения нет» смотрит на уже итоговую форму узла.
     site_ids = data.pop("site_ids", None)
-    # Статус страницы у контейнера не хранится, а складывается из детей
-    # (app/approval): правка руками отказывается 422, даже если значение совпадает
-    # с хранимым. Курсор — мета (approval не в structural ниже): его ставит общее
-    # правило «по фактическому изменению».
+    # Статус страницы у системы не хранится, а складывается из вложенных объектов
+    # (app/approval, Р14 эпика элементов): правка руками отказывается 422, даже если
+    # значение совпадает с хранимым. Контейнер (и с компонентами), компонент и
+    # «Пользователь» ставят свой. Элемент — по дереву после правки: родитель, форма и
+    # элемент из того же запроса. Курсор — мета (approval не в structural ниже): его
+    # ставит общее правило «по фактическому изменению».
     if "approval" in data:
-        reason = manual_approval_refusal(db, node)
+        reason = manual_approval_refusal(
+            db, project.id, node,
+            parent_id=data.get("parent_id", node.parent_id),
+            shape=data.get("shape") or node.shape,
+            element=data.get("element", node.element),
+        )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
     if data:
         old_parent = node.parent_id
+        # Прежние родитель, форма, имя и элемент — для переноса размещения (Р18): дерево
+        # до правки восстанавливается по ним после присваивания.
+        old_shape, old_name, old_element = node.shape, node.name, node.element
         # Перенос на другой уровень — единственная правка со ЗАПРЕТАМИ (цикл оторвал бы
         # поддерево от корня) и с последствиями для раскладки. Проверяем ДО присваивания:
         # узел ещё в исходном состоянии, поддерево считается по нему.
         moved = "parent_id" in data and data["parent_id"] != old_parent
         if moved:
-            reason = reparent.validate_reparent(db, project, node, data["parent_id"])
+            reason = reparent.validate_reparent(
+                db, project, node, data["parent_id"], shape=data.get("shape") or node.shape
+            )
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
         # Смена ФОРМЫ — вторая правка с запретами: форма решает, может ли узел иметь
         # детей и чем он владеет. Проверяем ДО присваивания (узел ещё в исходном
         # состоянии — старая форма нужна самой проверке).
         if "shape" in data and data["shape"] != node.shape:
-            reason = reparent.validate_shape_change(db, node, data["shape"])
+            reason = reparent.validate_shape_change(
+                db, node, data["shape"], parent_id=data.get("parent_id", node.parent_id)
+            )
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
+        # Элемент архитектуры — третья правка с запретами (app/element_rules): форма,
+        # «внутри контейнера», состав контейнера. Дерево — уже после правки: форма и
+        # родитель из того же запроса. Проверяется только СМЕНА значения, как форма выше:
+        # полный набор полей (Undo/Redo правки) повторяет прежний элемент и не должен
+        # падать от состояния, к этой правке не относящегося. Очистка (null) — всегда.
+        if data.get("element") is not None and data["element"] != node.element:
+            _refuse_element(
+                db, project, node_id=node.id, name=data.get("name") or node.name,
+                parent_id=data.get("parent_id", node.parent_id),
+                shape=data.get("shape") or node.shape, value=data["element"],
+            )
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост
@@ -473,7 +555,9 @@ def update_node(
         # узнаёт объект при обновлениях (см. NodeSource). Отдельной ветки ему не
         # нужно — общее правило «курсор по фактическому изменению» уже накрывает
         # source_ref, раз он лежит в data обычным полем узла.
-        structural = {"parent_id", "name", "shape"}
+        # Элемент архитектуры — тоже схема: его смена меняет вид всего поддерева (рамки,
+        # компоненты), и соседние сессии обязаны перерисоваться (камень 1 плана эпика).
+        structural = {"parent_id", "name", "shape", "element"}
         struct_changed = any(data[f] != getattr(node, f) for f in data.keys() & structural)
         meta_changed = any(data[f] != getattr(node, f) for f in data.keys() - structural)
         for field, value in data.items():
@@ -483,7 +567,19 @@ def update_node(
             # Позиции переехавшего поддерева во ВНЕШНИХ видах больше ничего не значат:
             # снимаем их и двигаем версии затронутых видов (в т.ч. обоих родителей).
             reparent.strip_layout(db, project, node, old_parent)
-        # Структурные поля двигают СХЕМУ (имя/форма/иерархия видны на холсте);
+        # Смена элемента у узла с детьми, перенос в контейнер или из него и перенос в лист
+        # с площадками (он становится системой) меняют, кто держит размещение: площадки
+        # переезжают в той же транзакции (app/element_change, Р18, D34). Явно присланные site_ids ниже ложатся поверх. Схема уже двигается
+        # структурным полем; мета — если экземпляры изменились (строка «Размещение»).
+        relocated = element_change.apply(
+            db, project, node,
+            old_parent=old_parent, old_shape=old_shape, old_name=old_name,
+            old_element=old_element, moved=moved,
+            element_changed="element" in data and data["element"] != old_element,
+        )
+        if relocated:
+            meta_changed = True
+        # Структурные поля двигают СХЕМУ (имя/форма/иерархия/элемент видны на холсте);
         # мета (роль/технология/статус/описание/внешность/openapi) — курсор меты:
         # поллинг страницы отличает «данные обновлены» от «схема обновлена».
         if struct_changed:
@@ -495,6 +591,45 @@ def update_node(
     db.refresh(node)
     _mark_derived(db, project, [node])
     return node
+
+
+@router.get("/{node_id}/element-preview", response_model=ElementChangePreview)
+def element_preview(
+    node_id: uuid.UUID,
+    element: NodeElement,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_project_editor),
+) -> ElementChangePreview:
+    """Что сделает смена элемента узла (Р18), БЕЗ записи: какие площадки переедут и чья
+    документация останется на месте. Отказ — тот же 422 и тот же текст, что у PATCH
+    (проверяется только смена значения, как там)."""
+    node = node_or_404(db, node_id, project)
+    if element != node.element:
+        _refuse_element(
+            db, project, node_id=node.id, name=node.name, parent_id=node.parent_id,
+            shape=node.shape, value=element,
+        )
+    return element_change.preview(db, project, node, element=element, moved=False)
+
+
+@router.get("/{node_id}/move-preview", response_model=ElementChangePreview)
+def move_preview(
+    node_id: uuid.UUID,
+    parent_id: uuid.UUID | None = None,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_project_editor),
+) -> ElementChangePreview:
+    """Что сделает перенос узла под parent_id (без него — в корень), БЕЗ записи: вход в
+    контейнер или выход из него и перенос в лист с площадками переносят площадки (Р18,
+    D34). Отказ — тот же 400 и текст, что у PATCH parent_id."""
+    node = node_or_404(db, node_id, project)
+    if parent_id != node.parent_id:
+        reason = reparent.validate_reparent(db, project, node, parent_id)
+        if reason:
+            raise HTTPException(status_code=400, detail=reason)
+    return element_change.preview(db, project, node, parent_id=parent_id, moved=True)
 
 
 @router.get("/{node_id}/move-snapshot", response_model=DeletionSnapshot)

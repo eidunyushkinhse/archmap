@@ -351,3 +351,150 @@ def test_индекс_пуст_без_описанных_параметров(db
     db.commit()
 
     assert _usage(db, сервис) == []
+
+
+# ── Область поиска «зависит от:» — ближайший контейнер (эпик «Элемент архитектуры», Р11) ──
+
+
+def _узел(db, name, parent=None, shape="service", element=None):
+    n = Node(
+        id=uuid.uuid4(),
+        name=name,
+        shape=shape,
+        element=element,
+        parent_id=parent.id if parent is not None else None,
+        project_id=ensure_project(db).id,
+    )
+    db.add(n)
+    db.flush()
+    return n
+
+
+def _пометки(db, узел):
+    """Резолв пометок «зависит от:» в схемах узла — тем же обходом, что алерты."""
+    from app.data_refs import catalog_for_project, doc_ref_hits
+
+    catalog = catalog_for_project(db, ensure_project(db).id)
+    return {
+        h.ref.ref: h.ref.status
+        for h in doc_ref_hits(db, ensure_project(db).id, catalog, node_ids=[узел.id])
+        if h.ref.mode == "config"
+    }
+
+
+def _магазин(db):
+    """shop (система) → orders (контейнер) → orders/api (компонент); рядом лист billing
+    вне контейнера и «Пользователь» в корне."""
+    shop = _узел(db, "shop")
+    orders = _узел(db, "orders", shop, element="container")
+    api = _узел(db, "api", orders)
+    billing = _узел(db, "billing", shop)
+    клиент = _узел(db, "Клиент", shape="person")
+    return shop, orders, api, billing, клиент
+
+
+def test_схема_компонента_ищет_параметр_у_контейнера(db):
+    _shop, orders, api, _billing, _клиент = _магазин(db)
+    _param(db, orders, "TOLERANCE")
+    _док(db, api, content='A["зависит от: TOLERANCE"] --> B["зависит от: MISSING"]')
+    db.commit()
+
+    assert _пометки(db, api) == {"TOLERANCE": "ok", "MISSING": "unknown_param"}
+
+
+def test_свой_параметр_компонента_для_пометки_невидим(db):
+    """Данные прежнего правила «факты на листьях»: параметр у компонента лежит, но
+    искать его там пометке нельзя — объединение «свои + контейнера» дало бы
+    неоднозначность, а у AL33 причина одна по построению."""
+    _shop, orders, api, _billing, _клиент = _магазин(db)
+    _param(db, api, "OWN_FLAG")
+    _param(db, orders, "TOLERANCE")
+    _док(db, api, content='A["зависит от: OWN_FLAG, TOLERANCE"]')
+    db.commit()
+
+    assert _пометки(db, api) == {"OWN_FLAG": "unknown_param", "TOLERANCE": "ok"}
+
+
+def test_схема_у_системы_параметра_не_находит(db):
+    shop, _orders, _api, _billing, _клиент = _магазин(db)
+    _param(db, shop, "FLAG")  # конфигурация у системы — тоже данные прежнего правила
+    _док(db, shop, content='A["зависит от: FLAG"]')
+    db.commit()
+
+    assert _пометки(db, shop) == {"FLAG": "unknown_param"}
+
+
+def test_лист_вне_контейнера_ищет_у_себя_как_прежде(db):
+    _shop, _orders, _api, billing, _клиент = _магазин(db)
+    _param(db, billing, "RETRY")
+    _док(db, billing, content='A["зависит от: RETRY"]')
+    db.commit()
+
+    assert _пометки(db, billing) == {"RETRY": "ok"}
+
+
+def test_params_for_по_элементу(db):
+    """Сторож каталога: у «Пользователя», системы и неизвестного id параметров нет."""
+    from app.data_refs import catalog_for_project
+
+    shop, orders, api, billing, клиент = _магазин(db)
+    _узел(db, "Оператор", orders, shape="person")  # в составе, но схем-читателей у него нет
+    флаг = _param(db, orders, "TOLERANCE")
+    _param(db, клиент, "PERSON_FLAG")
+    _param(db, shop, "SYSTEM_FLAG")
+    _param(db, billing, "RETRY")
+    db.commit()
+
+    catalog = catalog_for_project(db, ensure_project(db).id)
+    assert catalog.params_for(api.id) == {"TOLERANCE": флаг.id}
+    assert catalog.params_for(orders.id) == {"TOLERANCE": флаг.id}
+    assert set(catalog.params_for(billing.id)) == {"RETRY"}
+    assert catalog.params_for(клиент.id) == {}
+    assert catalog.params_for(shop.id) == {}
+    assert catalog.params_for(uuid.uuid4()) == {}
+    # Свои параметры узла каталог по-прежнему знает: их показывает страница.
+    assert set(catalog.params_by_node[клиент.id]) == {"PERSON_FLAG"}
+    assert catalog.config_readers(orders.id) == [orders.id, api.id]
+    assert catalog.config_readers(api.id) == []
+    assert catalog.config_readers(shop.id) == []
+    assert catalog.config_readers(billing.id) == [billing.id]
+
+
+def test_индекс_контейнера_видит_схемы_компонентов(db):
+    """Р11: обратный индекс параметра — схемы контейнера и всех его компонентов, с
+    владельцем схемы в строке."""
+    shop, orders, api, billing, _клиент = _магазин(db)
+    worker = _узел(db, "worker", orders)
+    флаг = _param(db, orders, "TOLERANCE")
+    _param(db, billing, "TOLERANCE")  # тёзка у соседнего контейнера
+    _док(db, orders, "GET /health", 'A["зависит от: TOLERANCE"]')
+    _док(db, api, "POST /orders", 'A["зависит от: TOLERANCE"]')
+    _док(db, worker, "Сверка", 'A["зависит от: TOLERANCE"]')
+    _док(db, billing, "POST /pay", 'A["зависит от: TOLERANCE"]')
+    db.commit()
+
+    строки = _usage(db, orders)
+    assert [(u.node_name, u.doc_name) for u in строки] == [
+        ("api", "POST /orders"),
+        ("orders", "GET /health"),
+        ("worker", "Сверка"),
+    ]
+    assert {u.param_id for u in строки} == {флаг.id}
+    assert {u.node_id for u in строки} == {orders.id, api.id, worker.id}
+    # Соседний контейнер видит только свою схему.
+    assert [(u.node_name, u.doc_name) for u in _usage(db, billing)] == [("billing", "POST /pay")]
+    # Индекс системы пуст — читателей у её конфигурации нет.
+    assert _usage(db, shop) == []
+
+
+def test_индекс_компонента_пуст(db):
+    """Компонент своих параметров не читает: даже данные прежнего правила у него
+    пометкой не находятся, и индекс пуст."""
+    _shop, orders, api, _billing, _клиент = _магазин(db)
+    _param(db, orders, "TOLERANCE")
+    _param(db, api, "OWN_FLAG")
+    _док(db, api, "POST /orders", 'A["зависит от: TOLERANCE, OWN_FLAG"]')
+    db.commit()
+
+    assert _usage(db, api) == []
+    assert [u.param_name for u in _usage(db, orders)] == ["TOLERANCE"]

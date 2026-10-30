@@ -6,13 +6,13 @@ import type { GhostNode, AncestorRef } from "../../types";
 // предку уровня. Кейсы перенесены из прежних бэкенд-тестов find_effective
 // (test_build_graph.py) — семантика должна совпадать один-в-один.
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 
 function ep(id: string, ancestors: AncestorRef[]): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: false,
     shape: "service", status: "existing", node_depth: ancestors.length,
-    has_children: false, child_count: 0, ancestors, is_ghost: true,
+    has_children: false, child_count: 0, element_effective: "container", ancestors, is_ghost: true,
   } as GhostNode;
 }
 

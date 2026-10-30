@@ -257,29 +257,40 @@ def _read_input(label: str, payload: bytes) -> _Input:
 # ── Пути и происхождение ─────────────────────────────────────────────────────
 
 
-def _paths(parsed: ParsedImport) -> list[str]:
+def _parents(parsed: ParsedImport, as_written: bool) -> list[int | None]:
+    """Родители узлов: по дереву (слитое, поправленное разбором) либо как их записал
+    документ входа (as_written) — база, вынесенная разбором из контейнера, адресуется
+    своим входом по прежнему пути (ParsedImport.doc_parents)."""
+    if as_written and parsed.doc_parents:
+        return list(parsed.doc_parents)
+    return [n.parent_idx for n in parsed.nodes]
+
+
+def _paths(parsed: ParsedImport, as_written: bool = False) -> list[str]:
     """Полные пути узлов разобранного импорта (родители раньше детей — инвариант
-    parse_import и merge_imports, на нём же стоит seed_import)."""
+    parse_import и merge_imports, на нём же стоит seed_import). as_written — пути
+    документа входа, а не поправленного дерева (_parents)."""
+    parents = _parents(parsed, as_written)
     out: list[str] = []
-    for n in parsed.nodes:
-        out.append(n.name if n.parent_idx is None else f"{out[n.parent_idx]}{SEP}{n.name}")
+    for n, parent in zip(parsed.nodes, parents, strict=True):
+        out.append(n.name if parent is None else f"{out[parent]}{SEP}{n.name}")
     return out
 
 
-def _index(parsed: ParsedImport) -> RefIndex:
+def _index(parsed: ParsedImport, as_written: bool = False) -> RefIndex:
     """Карта ссылок с уточнителями по разобранному импорту (порядок разбора — это
     порядок документа)."""
     return RefIndex(
         [n.name for n in parsed.nodes],
-        [n.parent_idx for n in parsed.nodes],
+        _parents(parsed, as_written),
         [n.source_keys for n in parsed.nodes],
     )
 
 
-def _addresses(parsed: ParsedImport) -> list[str]:
+def _addresses(parsed: ParsedImport, as_written: bool = False) -> list[str]:
     """Адреса узлов разобранного импорта: полный путь, у тёзок и их потомков — с
     уточнителями по тем же правилам, по каким их пишет экспорт."""
-    return [a or "" for a in _index(parsed).addresses()]
+    return [a or "" for a in _index(parsed, as_written).addresses()]
 
 
 class _Resolver:
@@ -302,10 +313,12 @@ class _Resolver:
         self.origin = origin
         self.contribs = contribs
         self.remarks = remarks
+        # Адреса файлов семей написаны путями ДОКУМЕНТА входа: база, вынесенная разбором
+        # из контейнера, находится по прежнему пути (её таблицы не теряются).
         self.by_path: dict[str, list[int]] = {}
-        for i, p in enumerate(_paths(parsed)):
+        for i, p in enumerate(_paths(parsed, as_written=True)):
             self.by_path.setdefault(p, []).append(i)
-        self.index = _index(parsed)
+        self.index = _index(parsed, as_written=True)
 
     def _hits(self, path: str) -> list[int]:
         """Точный путь первым (имя с законным « @ » работает), иначе уточнители.
@@ -606,7 +619,12 @@ def _failed(inputs: list[_Input], errors: list[str], report: MergeReport) -> Uni
     )
 
 
-def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool = True) -> UnifiedPlan:
+def build_unified_plan(
+    inputs: list[tuple[str, bytes]],
+    *,
+    limit_unpacked: bool = True,
+    live_origin: int | None = None,
+) -> UnifiedPlan:
     """План ввоза N входов (label, payload) в порядке пользователя.
 
     Порядок входов значим: от него зависят tie-break C4-мерджа и дефолт «первый
@@ -614,7 +632,10 @@ def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool 
 
     limit_unpacked=False — для догрузки: среди входов там самоархив живого проекта,
     собранный сервером, и в предел распаковки он не считается (догрузка проверила
-    пользовательские входы сама)."""
+    пользовательские входы сама).
+
+    live_origin — вход, который есть снимок ЖИВОГО проекта (догрузка, вход №0): его
+    объекты санитизация элемента архитектуры не переносит (app/import_element)."""
     if not inputs:
         raise UnifiedImportError("Не передан ни один файл")
     if len(inputs) > MAX_INPUTS:
@@ -643,7 +664,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool 
     parse_errors: list[str] = []
     parse_by_file: dict[int, list[str]] = {}
     for i, inp in enumerate(read):
-        parsed, errs = parse_import(inp.c4 or "")
+        parsed, errs = parse_import(inp.c4 or "", live=i == live_origin)
         if parsed is None:
             parse_errors.extend(f"вход {i + 1}: {e}" for e in errs)
             parse_by_file[i] = list(errs)
@@ -652,7 +673,7 @@ def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool 
     if parse_errors:
         return _failed(read, parse_errors, MergeReport(files=len(read), file_errors=parse_by_file))
 
-    merged, report = merge_imports(parts)
+    merged, report = merge_imports(parts, pinned_file=live_origin)
     if report.errors:  # суммарные лимиты — свойство слитой картины
         return _failed(read, list(report.errors), report)
     carry_parse_warnings(parts, report)
@@ -699,8 +720,10 @@ def build_unified_plan(inputs: list[tuple[str, bytes]], *, limit_unpacked: bool 
         merged=merged,
         node_paths=node_paths,
         node_addresses=node_addresses,
-        origin_paths=[_paths(p) for p in parts],
-        origin_addresses=[_addresses(p) for p in parts],
+        # Пути и адреса ВХОДОВ — как их записали документы: ими адресованы семьи,
+        # привязки процессов и карта догрузки на живые записи.
+        origin_paths=[_paths(p, as_written=True) for p in parts],
+        origin_addresses=[_addresses(p, as_written=True) for p in parts],
         items=items,
         conflicts=conflicts,
         processes=processes,

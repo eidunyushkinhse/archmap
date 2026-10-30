@@ -24,6 +24,8 @@ describe("RelayoutConfirm", () => {
     const onDone = vi.fn();
     render(<RelayoutConfirm containerId="n1" levelName="Ярмарка" onCancel={vi.fn()} onDone={onDone} />);
     expect(screen.getByText("Переразложить уровень «Ярмарка»?")).toBeInTheDocument();
+    // Пояснение — словами элемента архитектуры: раскрытыми бывают системы и контейнеры.
+    expect(screen.getByText(/Раскрытые системы и контейнеры останутся раскрытыми, их содержимое разложится заново/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Да, переразложить" }));
     expect(nodesApi.relayoutLevel).toHaveBeenCalledWith("n1");
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));

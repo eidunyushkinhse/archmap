@@ -102,7 +102,8 @@ def resolve_to_participant(
         return node_id
     # ancestors() даёт корень→родитель; реверс → идём от ближайшего предка вверх,
     # берём первого участника (самый глубокий побеждает).
-    for a in reversed(ancestors(all_nodes, node_id)):
+    # Элемент архитектуры не нужен: цепочка в ответ не уходит, здесь только id.
+    for a in reversed(ancestors(all_nodes, node_id, elements=None)):
         if a.id in participant_ids:
             return a.id
     return None
@@ -268,7 +269,9 @@ def node_path(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> str:
     """Полный путь узла от корня («Ярмарка / Заказы») — подпись каталога и карточки,
     он же адресная часть кругового прогона «%% archmap-doc: путь / имя» (Ф7)."""
     node = all_nodes[node_id]
-    return " / ".join([*(a.name for a in ancestors(all_nodes, node.id)), node.name])
+    # Элемент архитектуры не нужен: из цепочки берутся только имена.
+    chain = ancestors(all_nodes, node.id, elements=None)
+    return " / ".join([*(a.name for a in chain), node.name])
 
 
 def message_out(

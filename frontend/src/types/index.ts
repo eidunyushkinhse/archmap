@@ -19,10 +19,38 @@ export type NodeStatus = Schemas["NodeResponse"]["status"];
 // У листа хранится (approval), у контейнера вычисляется по детям (approval_effective).
 export type NodeApproval = Schemas["NodeResponse"]["approval"];
 
+// Элемент архитектуры (эпик «Элемент архитектуры», docs/plan-c4-elements.md): хранимое
+// значение узла — система или контейнер; «не задан» (null) в алиас не входит.
+export type NodeElement = NonNullable<Schemas["NodeResponse"]["element"]>;
+
 // Узел-контейнер (можно «провалиться» внутрь и заводить детей) — ТОЛЬКО сервис.
 // БД, брокер и пользователь — атомарные: drill-down/контекст внутрь не ведёт,
 // детей у них не заводим, на схеме они не «зона входа» для сквозной связи.
 export const canHaveChildren = (shape: NodeShape): boolean => shape === "service";
+
+// Вид узла по вложенности — ОДНА точка решения «узел с детьми или лист» для фронта
+// (эпик «Элемент архитектуры», docs/plan-c4-elements.md, Ф0). group — сервис с детьми:
+// в сегодняшнем интерфейсе «контейнер» (вход на слой, глиф с крышкой, сводная
+// технология и документация детей); leaf — всё остальное. База или брокер с детьми
+// (данные до проверки формы родителя на сервере) — лист: детей у них быть не должно.
+// После эпика элемент узла (система, контейнер, компонент) приходит с сервера готовым;
+// точки решения, которые зависят от элемента, а не только от вложенности, переходят на
+// него отсюда — поэтому сами has_children они не спрашивают.
+export type NodeNesting = "group" | "leaf";
+export const nodeNesting = (node: Pick<Node, "shape" | "has_children">): NodeNesting =>
+  canHaveChildren(node.shape) && node.has_children ? "group" : "leaf";
+
+// Вид узла для глифа (дерево, шапка страницы, инспекторы; Ф8 эпика «Элемент
+// архитектуры»): вложенность из nodeNesting и элемент с сервера. Система — узел с детьми
+// без явного «контейнер» (норма эпика); составной компонент — узел с детьми внутри
+// контейнера; leaf — всё без вложенных (глиф своей формы).
+export type TreeNesting = "leaf" | "system" | "container" | "component";
+export const treeNesting = (node: Pick<Node, "shape" | "has_children" | "element_effective">): TreeNesting => {
+  if (nodeNesting(node) === "leaf") return "leaf";
+  if (node.element_effective === "container") return "container";
+  if (node.element_effective === "component") return "component";
+  return "system";
+};
 
 // Какая документация уместна форме узла (docs/plan-db-docs.md §1). Логика (mermaid)
 // и OpenAPI — артефакты СЕРВИСА: они описывают его код и его API. У базы данных ни
@@ -81,6 +109,7 @@ export type RemainderOut = Schemas["RemainderOut"];
 export type RemainderCandidateOut = Schemas["RemainderCandidateOut"];
 export type FieldDisputeOut = Schemas["FieldDisputeOut"];
 export type ContainerEdgeOut = Schemas["ContainerEdgeOut"];
+export type ContainerHintOut = Schemas["ContainerHintOut"];
 export type ComponentOut = Schemas["ComponentOut"];
 export type IsolatedGroupOut = Schemas["IsolatedGroupOut"];
 export type FuzzyPairOut = Schemas["FuzzyPairOut"];
@@ -124,7 +153,8 @@ export type Node = Schemas["NodeResponse"];
 // узла), при равенстве — по алфавиту. child_count считает бэкенд
 // (_mark_has_children). Наследуется на всех уровнях дерева.
 const siblingRank = (n: Node): number =>
-  n.shape === "service" ? (n.child_count > 0 ? 0 : 1)
+  nodeNesting(n) === "group" ? 0
+  : n.shape === "service" ? 1
   : n.shape === "database" ? 2
   : n.shape === "broker" ? 3
   : 4; // person
@@ -155,6 +185,15 @@ export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
 export type DistributeDocsIn = Schemas["DistributeDocsIn"];
 export type DistributeDocsOut = Schemas["DistributeDocsOut"];
+// «Собрать с компонентов» (Р19 эпика элементов): превью, вход и отчёт.
+export type CollectFactsPreview = Schemas["CollectFactsPreview"];
+export type CollectFactsIn = Schemas["CollectFactsIn"];
+export type CollectFactsOut = Schemas["CollectFactsOut"];
+
+// Последствия смены элемента архитектуры или переноса узла (Р18): что переедет на
+// площадках и чья документация останется на месте.
+export type ElementChangePreview = Schemas["ElementChangePreview"];
+export type PlacementRowOut = Schemas["PlacementRowOut"];
 
 // Дозаливка доков от ИИ-агента: отчёт превью/применения пакета archmap-docs.
 export type DocsImportReport = Schemas["DocsImportReport"];
@@ -228,6 +267,8 @@ export type NodeEdgeInfo = Schemas["NodeEdgeInfo"];
 export type UnresolvedDataRefAlert = Schemas["UnresolvedDataRefAlert"];
 // То же для событий: «публикует:/потребляет:» без канала у брокеров (AL30).
 export type UnresolvedChannelRefAlert = Schemas["UnresolvedChannelRefAlert"];
+// И для конфигурации: «зависит от:» без параметра у ближайшего контейнера (AL33).
+export type UnresolvedConfigRefAlert = Schemas["UnresolvedConfigRefAlert"];
 export type SchemaAlerts = Schemas["AlertsResponse"];
 
 export type Token = Schemas["Token"];

@@ -8,11 +8,11 @@ import type { LayoutEdge, GhostNode, AncestorRef } from "../../types";
 // Раскладка гостей на кольца запретных рамок (boundary labeling). Чистые данные: позиции
 // заданы явно, ELK не нужен. Ключевой инвариант — после колец enforceFramesKeepOut no-op.
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 function ghost(id: string, ancestors: AncestorRef[]): GhostNode {
   return {
     id, name: id, role: null, technology: null, is_external: true,
-    shape: "service", status: "existing", node_depth: ancestors.length, has_children: false, child_count: 0, ancestors, is_ghost: true,
+    shape: "service", status: "existing", node_depth: ancestors.length, has_children: false, child_count: 0, element_effective: "container", ancestors, is_ghost: true,
   };
 }
 function leaf(id: string, ancestors: AncestorRef[]): DisplayExternal {

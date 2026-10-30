@@ -15,14 +15,25 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
+from app.element import Elements
 from app.models.node import Node
 from app.schemas.node import AncestorRef
 
 
-def ancestors(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> list[AncestorRef]:
+def ancestors(
+    all_nodes: dict[uuid.UUID, Node],
+    node_id: uuid.UUID,
+    *,
+    elements: Elements[uuid.UUID] | None,
+) -> list[AncestorRef]:
     """Цепочка предков узла, корень → непосредственный родитель.
 
     Порядок (корень первым) держит breadcrumb на фронте — не менять.
+
+    elements — действующие элементы проекта (app/element_marks): по ним у каждого
+    предка проставляется element_effective. Аргумент обязательный и без дефолта, чтобы
+    выдача не забыла его молча (камень 2 docs/plan-c4-elements.md); None — только для
+    обходов, чья цепочка в ответ не уходит (там поле остаётся пустым).
     """
     chain: list[AncestorRef] = []
     current = all_nodes.get(node_id)
@@ -33,7 +44,16 @@ def ancestors(all_nodes: dict[uuid.UUID, Node], node_id: uuid.UUID) -> list[Ance
         if parent is None:
             break
         seen.add(parent.id)
-        chain.append(AncestorRef(id=parent.id, name=parent.name, is_external=parent.is_external))
+        chain.append(
+            AncestorRef(
+                id=parent.id,
+                name=parent.name,
+                is_external=parent.is_external,
+                element_effective=(
+                    elements.effective(parent.id) if elements is not None else None
+                ),
+            )
+        )
         parent_id = parent.parent_id
     chain.reverse()  # корень → непосредственный родитель
     return chain

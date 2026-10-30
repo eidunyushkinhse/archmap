@@ -2,13 +2,16 @@
 
 Принимает ровно тот документ, что строит build_export: {nodes: <дерево через
 children>, edges: <список по именам>}. Гарантия roundtrip: любой вывод
-build_export импортируется без ошибок с той же семантикой (имя, форма, статус,
-роль, технология, external, описание, якорь source, вложенность, связи с
-каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
+build_export импортируется без ошибок с той же семантикой (имя, форма, элемент
+архитектуры, статус, роль, технология, external, описание, якорь source, вложенность,
+связи с каналом и типом sync). Тёзок (одно имя в одном родителе) экспорт адресует путём с
 уточнителем — якорным «путь @ ключ» или порядковым «путь @ #N», — резолвер связей
 его понимает (app/node_ref.py). Размещение (docs/tasks/deployment-view.md): раздел
 deployment.sites — площадки с вложенностью по имени родителя, у узла sites — имена
-площадок, где он стоит сам. Раскладки в формате
+площадок, где он стоит сам. Элемент архитектуры (element: system | container,
+docs/plan-c4-elements.md) — необязательный: нет ключа — «не сказано»; недопустимое
+значение (у не-сервиса, у контейнера с базой внутри, у компонента) снимается с
+замечанием, а не валит документ (app/import_element). Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -31,17 +34,21 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app import yaml_io
-from app.deployment import leaf_placements
+from app.deployment import unit_placements
 from app.domain_types import (
+    NODE_ELEMENTS,
     NODE_SHAPES,
     NODE_STATUSES,
     SITE_KINDS,
+    NodeElement,
     NodeShape,
     NodeStatus,
     SiteKind,
     pick,
 )
+from app.element_marks import ElementRow, build_elements
 from app.identity import SourceRef, source_keys
+from app.import_element import sanitize_elements
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
@@ -77,6 +84,9 @@ class _ImpNode:
     # Имена площадок, где узел стоит САМ (ключ sites), без повторов. Унаследованное
     # от контейнера сюда не входит: оно производное и восстанавливается само.
     sites: list[str] = field(default_factory=list)
+    # Элемент архитектуры (ключ element). None — «не сказано»: у узла с детьми это
+    # система, и слияние уступает такое значение любому заданному (Р30).
+    element: NodeElement | None = None
 
 
 @dataclass
@@ -123,6 +133,11 @@ class ParsedImport:
     # Площадки развёртывания: родители раньше детей (order_sites). Пусто — документ
     # без раздела deployment и без sites у узлов, то есть прежний формат.
     sites: list[_ImpSite] = field(default_factory=list)
+    # Родители узлов, КАК ИХ ЗАПИСАЛ ДОКУМЕНТ, — если разбор их поменял (база или брокер
+    # вынесены из контейнера, app/import_element). Пусто — совпадают с parent_idx.
+    # Нужны адресам «своего» входа: семьи фактов архива, привязки процессов и карта
+    # догрузки написаны путями документа, а не путями поправленного дерева.
+    doc_parents: list[int | None] = field(default_factory=list)
 
 
 def _yaml_error(e: yaml.YAMLError) -> str:
@@ -430,10 +445,14 @@ def _closest_node(
 _MAX_AMBIGUOUS_PATHS = 6
 
 
-def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
+def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | None, list[str]]:
     """Разбор + валидация YAML импорта. Возвращает (результат, ошибки): при любой
     ошибке результат None, список — все найденные проблемы (не первая попавшаяся).
     Неизвестные ключи игнорируются молча (форвард-совместимость формата).
+
+    live=True — документ это снимок ЖИВОГО проекта (вход №0 догрузки): его объекты
+    санитизация элемента не переносит, а живой контейнер с живой базой внутри не
+    трогает (догрузка живое дерево не перестраивает и живое не судит).
 
     Толерантность к выводу ИИ-агентов (пользователь вставляет финальное сообщение
     агента целиком): если сырой текст не разбирается в словарь с nodes, пробуем
@@ -543,6 +562,18 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         if shape is None:
             errors.append(f"{path}: shape {raw_shape!r} не поддерживается ({' | '.join(_SHAPES)})")
             shape = "service"
+        # Элемент архитектуры: нет ключа (или null) — «не сказано»; чужое значение —
+        # ошибка, как у shape. Допустимость по месту в дереве проверяется в конце
+        # разбора (sanitize_elements): для неё нужно всё дерево.
+        raw_element = raw.get("element")
+        element: NodeElement | None = None
+        if raw_element is not None:
+            element = pick(raw_element, NODE_ELEMENTS)
+            if element is None:
+                errors.append(
+                    f"{path}: element {raw_element!r} не поддерживается "
+                    f"({' | '.join(NODE_ELEMENTS)})"
+                )
         raw_status = raw.get("status", "existing")
         status = pick(raw_status, _STATUSES)
         if status is None:
@@ -572,6 +603,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
                 parent_idx=parent_idx,
                 source_keys=parse_source(raw, path),
                 sites=node_sites,
+                element=element,
             )
         )
         full = f"{prefix} / {name}" if prefix else name
@@ -752,6 +784,19 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
 
     if errors:
         return None, errors
+    # Элемент архитектуры — по всему дереву: у не-сервиса и у компонентов значение
+    # снимается, база и брокер выносятся из контейнера на уровень выше — с замечанием
+    # (пути — те же «Корень / … / Имя», что у замечаний слияния о том же узле). Связи
+    # уже разрешены по путям документа (fulls, by_path, RefIndex), перенос их не задевает.
+    doc_parents = [n.parent_idx for n in nodes]
+    warnings.extend(
+        sanitize_elements(
+            nodes, fulls,
+            pinned=(lambda _i: True) if live else None,
+            live_element=(lambda _i: True) if live else None,
+        )
+    )
+    moved = any(n.parent_idx != p for n, p in zip(nodes, doc_parents, strict=True))
     roots = [n.name for n in nodes if n.parent_idx is None]
     return ParsedImport(
         nodes=nodes,
@@ -759,6 +804,7 @@ def parse_import(content: str) -> tuple[ParsedImport | None, list[str]]:
         roots=roots,
         warnings=warnings,
         sites=order_sites(site_draft.sites, site_parents),
+        doc_parents=doc_parents if moved else [],
     ), []
 
 
@@ -789,6 +835,7 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> lis
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
+                element=n.element,
                 # Сильнейший якорь прогона: по нему будущий синк узнает узел, даже
                 # если сервис переименуют (docs/plan-arch-sync.md).
                 source_ref=n.source_keys[0] if n.source_keys else None,
@@ -817,9 +864,10 @@ def seed_placements(
     db: Session, project_id: uuid.UUID, parsed: ParsedImport, ids: list[uuid.UUID]
 ) -> None:
     """Площадки и экземпляры разобранного импорта в НОВЫЙ проект: ids — узлы в порядке
-    parsed.nodes (возврат seed_import). Размещение достаётся объектам (листьям): свои
-    объявления — себе, объявление контейнера — его объектам без своего
-    (app/deployment.leaf_placements). Догрузка в живой проект — своим путём
+    parsed.nodes (возврат seed_import). Размещение достаётся единицам — контейнерам (в
+    том числе листьям): своё объявление — себе, объявление системы — её контейнерам без
+    своего (app/deployment.unit_placements). Элементы — по разобранным узлам: проект
+    новый, дерево целиком в документе. Догрузка в живой проект — своим путём
     (unified_into): там площадки сперва ищутся по имени среди живых."""
     if not parsed.sites:
         return
@@ -845,12 +893,15 @@ def seed_placements(
         node_id: (ids[n.parent_idx] if n.parent_idx is not None else None)
         for n, node_id in zip(parsed.nodes, ids, strict=True)
     }
-    shapes = {node_id: n.shape for n, node_id in zip(parsed.nodes, ids, strict=True)}
+    elements = build_elements(
+        ElementRow(node_id, parent_of[node_id], n.shape, n.element, n.name)
+        for n, node_id in zip(parsed.nodes, ids, strict=True)
+    )
     declared: dict[uuid.UUID, list[uuid.UUID]] = {}
     for n, node_id in zip(parsed.nodes, ids, strict=True):
         site_ids_of = [by_name[name] for name in n.sites if name in by_name]
         if site_ids_of and n.shape != "person":
             declared[node_id] = site_ids_of
-    for node_id, placed in leaf_placements(parent_of, shapes, declared).items():
+    for node_id, placed in unit_placements(parent_of, declared, elements).items():
         for site_id in placed:
             db.add(DeploymentInstance(project_id=project_id, node_id=node_id, site_id=site_id))

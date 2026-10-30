@@ -20,13 +20,14 @@ from app.routers.nodes import update_node
 from app.schemas.node import NodeUpdate
 
 
-def _node(db, name, parent=None, shape="service"):
+def _node(db, name, parent=None, shape="service", element=None):
     n = Node(
         id=uuid.uuid4(),
         name=name,
         shape=shape,
         parent_id=parent.id if parent else None,
         project_id=ensure_project(db).id,
+        element=element,
     )
     db.add(n)
     db.flush()
@@ -101,6 +102,70 @@ def test_запрет_возвращается_ошибкой_400(db):
     with pytest.raises(HTTPException) as e:
         _move(db, root, kid.id)
     assert e.value.status_code == 400
+
+
+# ── Р6: база и брокер не входят в контейнер (эпик «Элемент архитектуры») ─────
+
+
+def test_базу_нельзя_перенести_в_контейнер(db):
+    p = ensure_project(db)
+    orders = _node(db, "orders", element="container")
+    _node(db, "api", orders)
+    jobs = _node(db, "jobs", orders)
+    orders_db = _node(db, "orders-db", shape="database")
+    events = _node(db, "events", shape="broker")
+    # И в сам контейнер, и в его компонент: ближайший контейнер назван по имени.
+    assert reparent.validate_reparent(db, p, orders_db, orders.id) == (
+        "База данных «orders-db» не может входить в состав контейнера «orders». "
+        "Перенесите её на уровень выше."
+    )
+    assert reparent.validate_reparent(db, p, events, jobs.id) == (
+        "Брокер «events» не может входить в состав контейнера «orders». "
+        "Перенесите его на уровень выше."
+    )
+    # Лист с намерением «контейнер» с первым ребёнком им и станет — тот же отказ.
+    billing = _node(db, "billing", element="container")
+    assert "контейнера «billing»" in reparent.validate_reparent(db, p, orders_db, billing.id)
+    # В систему — можно, как и до эпика.
+    shop = _node(db, "shop")
+    assert reparent.validate_reparent(db, p, orders_db, shop.id) is None
+
+
+def test_поддерево_с_брокером_нельзя_перенести_в_контейнер(db):
+    p = ensure_project(db)
+    orders = _node(db, "orders", element="container")
+    _node(db, "api", orders)
+    billing = _node(db, "billing")
+    worker = _node(db, "worker", billing)
+    _node(db, "zeta-events", worker, shape="broker")
+    _node(db, "billing-db", billing, shape="database")
+    # Первый виновник — в обходе в глубину с детьми по имени: billing-db раньше worker.
+    assert reparent.validate_reparent(db, p, billing, orders.id) == (
+        "Внутри «billing» лежит база данных «billing-db», она не может входить в состав "
+        "контейнера «orders». Вынесите её на уровень выше и повторите."
+    )
+    assert reparent.validate_reparent(db, p, worker, orders.id) == (
+        "Внутри «worker» лежит брокер «zeta-events», он не может входить в состав "
+        "контейнера «orders». Вынесите его на уровень выше и повторите."
+    )
+    with pytest.raises(HTTPException) as e:
+        _move(db, billing, orders.id)
+    assert e.value.status_code == 400
+    db.refresh(billing)
+    assert billing.parent_id is None
+
+
+def test_контейнер_в_контейнер_переносить_можно(db):
+    """По Р5 контейнер внутри контейнера — составной компонент: хранимое значение спит,
+    действующий элемент решают предки. Это не отказ."""
+    p = ensure_project(db)
+    orders = _node(db, "orders", element="container")
+    _node(db, "api", orders)
+    payments = _node(db, "payments", element="container")
+    _node(db, "gateway", payments)
+    assert reparent.validate_reparent(db, p, payments, orders.id) is None
+    moved = _move(db, payments, orders.id)
+    assert (moved.element, moved.element_effective) == ("container", "component")
 
 
 # ── Раскладка ─────────────────────────────────────────────────────────────────

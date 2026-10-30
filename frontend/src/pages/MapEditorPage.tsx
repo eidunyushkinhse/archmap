@@ -50,6 +50,9 @@ import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../compon
 import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
+import { useFirstChild } from "../components/element/useFirstChild";
+import { useConsequences } from "../components/element/useConsequences";
+import { hasConsequences } from "../components/element/elementChange";
 
 interface Props {
   projectId: string;
@@ -131,6 +134,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
   // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
   const [errorToast, showErrorToast] = useMessageToast();
+  // Первый вложенный объект у листа (Р4 эпика элементов): «+» дерева, бросок шаблона на
+  // уровень листа и перенос в лист спрашивают элемент родителя ДО создания или переноса.
+  const firstChild = useFirstChild(showErrorToast);
+  // Стабильная ссылка (useCallback в хуке) — для бандла броска холста ниже.
+  const ensureFirstChild = firstChild.ensure;
+  // Перенос в контейнер и из него переносит площадки (Р18): сначала окно последствий.
+  const consequences = useConsequences();
 
   const history = useHistory();
   // Право правки — роль в проекте (owner/editor), не глобальная роль.
@@ -403,7 +413,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       ghost: {
         id: node.id, name: node.name, role: node.role, technology: node.technology, is_external: node.is_external,
         shape: node.shape, status: node.status, node_depth: chain.length, has_children: node.has_children,
-        child_count: node.child_count, ancestors: chain.map(ancestorRef),
+        child_count: node.child_count, element_effective: node.element_effective, ancestors: chain.map(ancestorRef),
         is_ghost: true,
       },
     });
@@ -411,7 +421,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   // Клик по контейнеру → дрилл на его слой (путь собран деревом).
   function drillFromTree(path: Node[]) {
-    drillToPath(path.map((n) => ({ id: n.id, name: n.name, is_external: n.is_external })));
+    drillToPath(path.map(ancestorRef));
   }
 
   // Клик по листу → прыжок на его слой (слой родителя), выделение и пульс.
@@ -468,9 +478,13 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // отсутствии: поле source, не присланное в PATCH, якорь НЕ трогает, и Undo
   // правки якоря не вернул бы прежний (а Redo — новый). Для узла без якоря
   // null — та же пустота, что и была: очистка пустого ничего не меняет и
-  // курсоров не двигает (проверено приёмкой Ф0).
+  // курсоров не двигает (проверено приёмкой Ф0). Элемент архитектуры — тем же
+  // правилом: не присланный элемент сервер не трогает, и Undo его смены молча ничего бы
+  // не вернул (камень 16 docs/plan-c4-elements.md). Прежнее значение повторно не
+  // проверяется сервером (проверка — только на смену), так что Undo чужой правки не
+  // упрётся в отказ элемента.
   function nodeFields(n: Node): NodeUpdate {
-    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status, source: n.source ?? null };
+    return { name: n.name, description: n.description, role: n.role, technology: n.technology, openapi_spec: n.openapi_spec, is_external: n.is_external, shape: n.shape, status: n.status, source: n.source ?? null, element: n.element };
   }
 
   // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки
@@ -480,6 +494,22 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
+    // Цель — лист без элемента: сначала окно первого вложенного объекта. «Отмена» —
+    // объект остаётся на месте.
+    if (!(await firstChild.ensure(newParentId, node.shape))) return;
+    // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
+    // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
+    // перенос назад, с теми же последствиями).
+    let withHistory: boolean;
+    try {
+      const preview = await nodesApi.movePreview(node.id, newParentId);
+      withHistory = !hasConsequences(preview);
+      if (!(await consequences.ask(preview, node.name))) return;
+    } catch (e) {
+      setTreeReload((t) => t + 1);
+      if (!showLimit(e, "save")) showErrorToast(`Не удалось перенести объект: ${loadErrorText(e)}`);
+      return;
+    }
     let snapshot: Awaited<ReturnType<typeof nodesApi.moveSnapshot>>;
     try {
       snapshot = await nodesApi.moveSnapshot(node.id);
@@ -494,6 +524,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     setTreeReload((t) => t + 1);
     load(levelAtMove);
     noteMutation();
+    if (!withHistory) return;
     history.push({
       label: "Перенос объекта", level: levelAtMove,
       // Порядок важен: сначала возвращаем родителя (эта же правка снимет позиции,
@@ -684,6 +715,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     return { kind: "node", id: selectedObject.node.id };
   }, [selectedObject]);
 
+  // Предки выбранного узла для панели свойств: крошки уровня и, если узел лежит в
+  // раскрытой рамке, её объект среди узлов уровня. Глубже (вторая раскрытая рамка)
+  // цепочка обрывается — строка «Элемент архитектуры» тогда назовёт контейнер текстом.
+  const selectedAncestors = useMemo((): AncestorRef[] => {
+    if (selectedObject?.kind !== "node") return breadcrumb;
+    return [...breadcrumb, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
+  }, [selectedObject, breadcrumb, nodes]);
+
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
     ? { key: currentParentId, title: "Экспорт поддерева", load: () => exportApi.subtree(currentParentId) }
@@ -744,11 +783,17 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const drop = useMemo<LevelDropProps>(() => ({
     onDropNode: (shape, pos, dropParentId) => {
+      // В раскрытую рамку — у её узла дети уже есть, выбора нет. На уровень — родитель
+      // уровня мог быть листом: сначала окно первого вложенного объекта.
       if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
-      else setNodeModal({ open: true, node: null, shape, pos });
+      else {
+        void ensureFirstChild(currentParentId, shape).then((go) => {
+          if (go) setNodeModal({ open: true, node: null, shape, pos });
+        });
+      }
     },
     dragShape,
-  }), [currentParentId, dragShape]);
+  }), [currentParentId, dragShape, ensureFirstChild]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -854,7 +899,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
+          onCreateChild={(parentId) => {
+            void firstChild.ensure(parentId, "service").then((go) => {
+              if (go) setNodeModal({ open: true, node: null, parentId, pos: null });
+            });
+          }}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
           onTemplateDrag={setDragShape}
         />
@@ -893,6 +942,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
               mutationToken={mutationToken}
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
+              ancestorElements={breadcrumb.map((b) => b.element_effective)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
               childrenRev={childrenRev}
@@ -920,7 +970,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           ) : (
             <div style={rightContent}>
               <ObjectInspector
-                selected={selectedObject} isArchitect={isArchitect}
+                selected={selectedObject} nodeAncestors={selectedAncestors} isArchitect={isArchitect}
                 onNodeSaved={handleNodeSaved} onNodeDeleted={handleNodeDeleted}
                 onEdgeSaved={handleEdgeSaved} onEdgeDeleted={handleEdgeDeleted}
                 onGhostGoToSource={(ghost) => { onNavigateNode(ghost.id); }}
@@ -940,6 +990,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       </div>
 
       {/* Модалки */}
+      {firstChild.dialog}
+      {consequences.dialog}
       {nodeModal.open && (
         <NodeModal
           parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}

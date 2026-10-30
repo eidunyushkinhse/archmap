@@ -17,7 +17,8 @@
 Обращений к параметрам («какая развилка от него зависит») своих записей здесь нет:
 их истина — пометки «зависит от:» в текстах схем логики, разбор и резолв на чтении
 (docs/plan-config-docs.md §5). Обратный индекс их только РАЗВОРАЧИВАЕТ, ничего не
-храня, — появится вместе с резолвом.
+храня: схемы контейнера и всех его компонентов — пометка ищет параметр у ближайшего
+контейнера владельца схемы (эпик «Элемент архитектуры», Р11).
 """
 
 import uuid
@@ -86,30 +87,32 @@ def list_usage(
     project: Project = Depends(get_current_project),
     _: User = Depends(get_current_user),
 ) -> list[ConfigParamUsage]:
-    """Какие схемы логики этого объекта зависят от его параметров.
+    """Какие схемы логики зависят от параметров этого объекта.
 
-    Разворот пометок «зависит от:» из текстов СВОИХ схем — чужие сюда попасть не
-    могут по построению резолва. Источник — сам текст доков: разбор и резолв на
-    чтении, хранения обращений нет.
+    Разворот пометок «зависит от:» из схем самого контейнера и всех его компонентов
+    (catalog.config_readers): пометка ищет параметр у ближайшего контейнера владельца
+    схемы, и других читателей у его конфигурации нет. У компонента и системы индекс
+    пуст — их собственные параметры не найдёт ни одна пометка. Источник — сам текст
+    доков: разбор и резолв на чтении, хранения обращений нет.
 
     ОБЪЯВЛЕН ДО путей с {param_id}: иначе «usage» поехало бы в разбор uuid.
     """
     node = node_or_404(db, node_id, project)
     catalog = catalog_for_project(db, project.id)
-    owner_params = catalog.params_by_node.get(node.id, {})
-    if not owner_params:
+    own_params = catalog.params_by_node.get(node.id, {})
+    readers = catalog.config_readers(node.id)
+    if not own_params or not readers:
         return []
-    by_id = {pid: name for name, pid in owner_params.items()}
+    by_id = {pid: name for name, pid in own_params.items()}
 
     rows: list[ConfigParamUsage] = []
     seen: set[tuple[uuid.UUID, uuid.UUID]] = set()
-    # Только СВОИ схемы: «зависит от:» резолвится среди параметров владельца схемы.
-    for hit in doc_ref_hits(db, project.id, catalog, node_id=node.id):
+    for hit in doc_ref_hits(db, project.id, catalog, node_ids=readers):
         ref = hit.ref
         # Индекс отвечает за ФАКТЫ: непонятая пометка живёт в алертах (AL33) и в
         # плашке редактора, а сюда не попадает. Пометки чужих семей отсеиваются
         # сами — param_id у них пуст.
-        if ref.status != "ok" or ref.param_id is None:
+        if ref.status != "ok" or ref.param_id is None or ref.param_id not in by_id:
             continue
         key = (hit.doc_id, ref.param_id)
         if key in seen:
@@ -119,11 +122,13 @@ def list_usage(
             ConfigParamUsage(
                 param_id=ref.param_id,
                 param_name=by_id[ref.param_id],
+                node_id=hit.node_id,
+                node_name=hit.node_name,
                 doc_id=hit.doc_id,
                 doc_name=hit.doc_name,
             )
         )
-    rows.sort(key=lambda u: (u.param_name, u.doc_name))
+    rows.sort(key=lambda u: (u.param_name, u.node_name, u.doc_name))
     return rows
 
 

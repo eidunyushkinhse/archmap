@@ -1,8 +1,9 @@
 // Проекция графа развёртывания на холст (docs/specs/deployment.md): вложенность
 // площадок, экземпляры с пометками «i/n», группа «Размещение не указано», правило
-// ближайших экземпляров для связей, пустая площадка карточкой, правило цельного
-// контейнера (представители), реестр концов и подъём связи к свёрнутой площадке,
-// глубина цвета карточки — архитектурная глубина узла (D9).
+// ближайших экземпляров для связей, пустая площадка карточкой, правило цельной
+// системы (представители), единица размещения — контейнер (D33: одна сплошная карточка,
+// компоненты не рисуются, их связи — от карточки контейнера), реестр концов и подъём
+// связи к свёрнутой площадке, глубина цвета карточки — архитектурная глубина узла (D9).
 import { describe, it, expect } from "vitest";
 import {
   projectDeployment, siteKey, instanceKey, UNPLACED, UNPLACED_NAME, cardsOf, pickedSite,
@@ -13,20 +14,25 @@ import type { DeploymentGraph, DeploymentNode, SiteKind, SiteOut } from "../../t
 function site(id: string, parent_id: string | null = null, kind: SiteKind = "kubernetes", technology: string | null = null): SiteOut {
   return { id, name: id, kind, technology, description: null, parent_id, version: 1, instance_count: 0 };
 }
-// Объект графа: instances — его площадки (у контейнера — где стоят все его объекты).
+// Объект графа: instances — его площадки (у системы — где стоят все её единицы).
 function obj(id: string, places: string[]): DeploymentNode {
   return {
     id, name: id.toUpperCase(), description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "container", container_name: null,
     version: 1, created_at: "", updated_at: "",
     sites: places.map((sid) => ({ id: sid, name: sid, kind: "vm" as const, partial: false })),
     instances: places,
   };
 }
-// Узел поддерева с родителем: контейнер (kids > 0) или лист.
-function tnode(id: string, parent: string | null, places: string[] = [], kids = 0): DeploymentNode {
-  return { ...obj(id, places), parent_id: parent, has_children: kids > 0, child_count: kids };
+// Узел поддерева с родителем: система (kids > 0) или лист-контейнер. Элемент — как его
+// считает сервер по дереву; контейнер с компонентами и компонент задаются явно.
+function tnode(
+  id: string, parent: string | null, places: string[] = [], kids = 0,
+  element: DeploymentNode["element_effective"] = kids > 0 ? "system" : "container",
+): DeploymentNode {
+  return { ...obj(id, places), parent_id: parent, has_children: kids > 0, child_count: kids, element_effective: element };
 }
 function graph(sites: SiteOut[], nodes: DeploymentNode[], edges: [string, string, string][] = []): DeploymentGraph {
   return {
@@ -149,7 +155,7 @@ describe("projectDeployment", () => {
     ]);
   });
 
-  it("цельный контейнер на одной площадке — одна карточка, бейдж — число объектов внутри", () => {
+  it("цельная система на одной площадке — одна карточка, бейдж — число единиц внутри", () => {
     const p = projectDeployment(graph([site("s1")], [
       tnode("c", null, ["s1"], 2),
       tnode("l1", "c", ["s1"]),
@@ -165,11 +171,11 @@ describe("projectDeployment", () => {
     expect(p.marks).toEqual({});
     expect(p.groupOf(card.id)).toBe("c");
     expect(p.siteOf.get(card.id)).toEqual({ nodeId: "c", siteId: "s1" });
-    // контейнер не раскрывается: в карте состава его нет
+    // система не раскрывается: в карте состава её нет
     expect(p.children[card.id]).toBeUndefined();
   });
 
-  it("цельный контейнер на двух площадках — две карточки с пометками 1/2 и 2/2", () => {
+  it("цельная система на двух площадках — две карточки с пометками 1/2 и 2/2", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
       tnode("c", null, ["s1", "t"], 2),
       tnode("l1", "c", ["s1", "t"]),
@@ -180,7 +186,7 @@ describe("projectDeployment", () => {
     expect(p.marks).toEqual({ [instanceKey("c", "s1")]: "1/2", [instanceKey("c", "t")]: "2/2" });
   });
 
-  it("цельный контейнер без размещения — одна карточка в группе «не указано»", () => {
+  it("цельная система без размещения — одна карточка в группе «не указано»", () => {
     const p = projectDeployment(graph([site("s1")], [
       tnode("c", null, [], 2), tnode("l1", "c"), tnode("l2", "c"),
     ]));
@@ -188,7 +194,7 @@ describe("projectDeployment", () => {
     expect(p.children[siteKey(UNPLACED)][0].child_count).toBe(2);
   });
 
-  it("рассыпанный контейнер — объекты по отдельности, вложенный цельный — карточка", () => {
+  it("рассыпанная система — объекты по отдельности, вложенная цельная — карточка", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
       tnode("c", null, [], 2),
       tnode("l1", "c", ["s1"]),
@@ -202,12 +208,37 @@ describe("projectDeployment", () => {
     expect(p.siteOf.has(instanceKey("c", "s1"))).toBe(false);
   });
 
-  it("контейнер без листьев в ответе (внутри одни «Пользователи») не рисуется", () => {
+  it("каждый лист развёртываем на любой глубине; узел с детьми своих экземпляров не имеет", () => {
+    // Характеризация Ф0 эпика «Элемент архитектуры» (docs/plan-c4-elements.md): при
+    // элементе null (узел с детьми — система, лист — контейнер) единица размещения —
+    // лист. Узел с детьми карточку получает только представителем цельного набора
+    // листьев; его собственные instances (данные прежней модели) проекция не читает.
+    const p = projectDeployment(graph([site("s1"), site("t")], [
+      tnode("r", null, ["t"], 2), // свои экземпляры у рассыпанного корня — не в счёт
+      tnode("a", "r", ["s1"]),
+      tnode("m", "r", ["s1"], 2), // свои экземпляры s1, но листья рассыпаны
+      tnode("b", "m", ["t"]),
+      tnode("c", "m", ["s1", "t"]),
+      tnode("w", null, ["s1"], 1), // цельный: набор листа, а не свой «t»
+      tnode("d", "w", ["t"]),
+      tnode("e", null, []),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("a", "s1"), instanceKey("c", "s1")]);
+    expect(ids(p.children[siteKey("t")])).toEqual([
+      instanceKey("b", "t"), instanceKey("c", "t"), instanceKey("w", "t"),
+    ]);
+    expect(ids(p.children[siteKey(UNPLACED)])).toEqual([instanceKey("e", UNPLACED)]);
+    // у рассыпанных r и m карточек нет ни на своих, ни на чужих площадках
+    for (const key of p.siteOf.keys()) expect(["r", "m"]).not.toContain(p.siteOf.get(key)?.nodeId);
+    expect(p.marks).toEqual({ [instanceKey("c", "s1")]: "1/2", [instanceKey("c", "t")]: "2/2" });
+  });
+
+  it("система без единиц в ответе (внутри одни «Пользователи») не рисуется", () => {
     const p = projectDeployment(graph([site("s1")], [tnode("c", null, ["s1"], 1), tnode("x", null, ["s1"])]));
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);
   });
 
-  it("связи поднимаются к представителям: внутри цельного — скрыта, наружу — от карточки контейнера", () => {
+  it("связи поднимаются к представителям: внутри цельной — скрыта, наружу — от карточки системы", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
       tnode("c", null, ["s1"], 2),
       tnode("l1", "c", ["s1"]),
@@ -220,7 +251,7 @@ describe("projectDeployment", () => {
     ]);
   });
 
-  it("связь с концом-рассыпанным контейнером не рисуется — у него нет представителя", () => {
+  it("связь с концом-рассыпанной системой не рисуется — у неё нет представителя", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
       tnode("c", null, [], 2),
       tnode("l1", "c", ["s1"]),
@@ -264,6 +295,58 @@ describe("projectDeployment", () => {
 
 // Проекция на настоящем конвейере: подъём конца связи к карточке свёрнутой площадки
 // (реестр концов + liftEdgesToLevel), без гостей.
+describe("единица размещения — контейнер (D33, Р16–Р17)", () => {
+  // Система shop: контейнер orders (компоненты api и worker) и лист billing; x — снаружи.
+  const c4 = (orders: string[], billing: string[], shop: string[] = []): DeploymentNode[] => [
+    tnode("shop", null, shop, 2),
+    tnode("orders", "shop", orders, 2, "container"),
+    tnode("api", "orders", [], 0, "component"),
+    tnode("worker", "orders", [], 0, "component"),
+    tnode("billing", "shop", billing),
+    tnode("x", null, ["t"]),
+  ];
+
+  it("контейнер с компонентами — одна сплошная карточка на площадку, компоненты не карточки", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], c4(["s1", "t"], ["s1"])));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("orders", "s1"), instanceKey("billing", "s1")]);
+    expect(ids(p.children[siteKey("t")])).toEqual([instanceKey("orders", "t"), instanceKey("x", "t")]);
+    const card = p.children[siteKey("s1")][0];
+    // сплошная, как у объекта: без признака детей и бейджа (лупы нет)
+    expect([card.has_children, card.child_count, card.element_effective]).toEqual([false, 0, "container"]);
+    expect(p.marks).toEqual({ [instanceKey("orders", "s1")]: "1/2", [instanceKey("orders", "t")]: "2/2" });
+    // компоненты не рисуются нигде — и в группе «не указано» их нет
+    expect(cardsOf(p, "api")).toEqual([]);
+    expect(cardsOf(p, "worker")).toEqual([]);
+    expect(p.children[siteKey(UNPLACED)]).toBeUndefined();
+    const ep = p.endpoints.find((e) => e.id === instanceKey("orders", "s1"));
+    expect([ep?.has_children, ep?.child_count]).toEqual([false, 0]);
+  });
+
+  it("связи компонентов поднимаются к карточке контейнера; внутри контейнера — не рисуются", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], c4(["s1"], ["t"]),
+      [["out", "api", "x"], ["in", "api", "worker"], ["up", "api", "orders"], ["side", "worker", "billing"]]));
+    expect(p.edges.map((e) => `${e.id}:${e.source_id}>${e.target_id}`)).toEqual([
+      `deploy:out@s1@t:${instanceKey("orders", "s1")}>${instanceKey("x", "t")}`,
+      `deploy:side@s1@t:${instanceKey("orders", "s1")}>${instanceKey("billing", "t")}`,
+    ]);
+  });
+
+  it("система над контейнером цельная — одна пунктирная карточка, бейдж — число единиц", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], c4(["s1"], ["s1"])));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("shop", "s1")]);
+    const card = p.children[siteKey("s1")][0];
+    // единиц две — orders и billing, а не три листа (компоненты — не единицы)
+    expect([card.has_children, card.child_count]).toEqual([true, 2]);
+    expect(cardsOf(p, "orders")).toEqual([]);
+  });
+
+  it("контейнер без размещения — одна карточка в группе «не указано», компоненты — нет", () => {
+    const p = projectDeployment(graph([site("s1"), site("t")], c4([], ["s1"])));
+    expect(ids(p.children[siteKey(UNPLACED)])).toEqual([instanceKey("orders", UNPLACED)]);
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("billing", "s1")]);
+  });
+});
+
 describe("проекция + конвейер: свёрнутая площадка", () => {
   const g = graph(
     [site("cloud", null, "cloud"), site("k8s", "cloud"), site("vm", null, "vm")],

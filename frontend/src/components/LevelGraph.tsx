@@ -20,7 +20,7 @@ import "./LevelGraph.css";
 import { ExitUpTile, HistoryToolbar, ViewToolbar } from "./graph/CanvasToolbars";
 import DropOverlays from "./graph/DropOverlays";
 import { useConnectTargets } from "./graph/interaction/useConnectTargets";
-import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint } from "../types";
+import type { Node as AppNode, GhostNode, Edge as AppEdge, ViewLayout, EdgePoint, AncestorRef } from "../types";
 import { distToPolyline } from "./graph/edgePath";
 
 /** Допуск попадания двойного клика в линию соседней связи (общее плечо, E95), px холста. */
@@ -124,6 +124,10 @@ interface LevelGraphProps {
   ancestorNames: string[];
   /** id тех же предков (параллельно ancestorNames) — для сопоставления гостей */
   ancestorIds: string[];
+  /** элементы архитектуры тех же предков (параллельно ancestorIds; element_effective
+      звена крошек) — вид нативных рамок (LevelBoundary, Р20) и звенья пути «Войти».
+      Конвейеру раскладки не нужны: на геометрию элемент не влияет. */
+  ancestorElements: AncestorRef["element_effective"][];
   isArchitect: boolean;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
@@ -187,6 +191,7 @@ function LevelGraphInner({
   layoutViewId,
   ancestorNames,
   ancestorIds,
+  ancestorElements,
   isArchitect,
   linkedHighlight,
   childrenRev = 0,
@@ -413,7 +418,7 @@ function LevelGraphInner({
     expandLocalContainer: rawExpandLocalContainer, collapseContainer: rawCollapseContainer,
     expanded, relevantCounts, localChildren,
   } = useLevelDrill({
-    containerId, nodes, edges, endpoints, ancestorIds, ancestorNames,
+    containerId, nodes, edges, endpoints, ancestorIds, ancestorNames, ancestorElements,
     onDrillDown, onEnterNode, viewLayout, ignorePersistedExpanded, isReadOnly,
     fitOnExpand, autoFitRef, childrenRev, commitLayout, noteExpand, noteCollapse,
     layoutLatestRef, projectedChildren,
@@ -1244,6 +1249,7 @@ function LevelGraphInner({
               rfNodes={rfNodes}
               ancestorIds={ancestorIds}
               ancestorNames={ancestorNames}
+              ancestorElements={ancestorElements}
             />
           </ViewportPortal>
         )}

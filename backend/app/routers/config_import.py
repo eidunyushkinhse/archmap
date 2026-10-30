@@ -51,8 +51,9 @@ def config_prompt(
     variant — строительный промпт (дефолт), обёртка с аудитом или один аудит
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
-    # Адреса владельца — листовые сервисы: контейнер для конфигурации такая же
-    # абстракция, как для связей и доков (app.config_import.owner_service_paths).
+    # Адреса владельца — контейнеры: конфигурацию читает процесс, а запускается
+    # контейнер; компоненты и системы в перечень не идут
+    # (app.config_import.owner_service_paths).
     service_paths = owner_service_paths(NodeIndex.of(nodes))
     return ConfigPromptOut(
         prompt=prompt_for_variant(variant, "config", build_config_prompt(service_paths))

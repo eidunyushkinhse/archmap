@@ -37,11 +37,26 @@ describe("ObjectList (§5.3)", () => {
     expect(screen.queryByRole("button", { name: /Показать остальные/ })).toBeNull();
   });
 
-  it("у контейнера — тег, у пути — серый префикс и полужирный хвост", () => {
+  it("у объекта с вложенными — тег, у пути — серый префикс и полужирный хвост", () => {
     render(<ObjectList items={[{ path: "Grafana / Сервер / Рантайм", has_children: true }]} base="Grafana" onPick={vi.fn()} />);
-    expect(screen.getByText("контейнер")).toBeInTheDocument();
+    // Без элемента (ответ прежнего сервера) объект с вложенными — система.
+    expect(screen.getByText("система")).toBeInTheDocument();
     expect(screen.getByText("Сервер /")).toBeInTheDocument();
     expect(screen.getByText("Рантайм").tagName).toBe("B");
+  });
+
+  it("тег — по действующему элементу: система, контейнер; у листа тега нет", () => {
+    render(<ObjectList
+      items={[
+        { path: "Grafana / Сервер", has_children: true, element_effective: "container" },
+        { path: "Grafana / Плагины", has_children: true, element_effective: "system" },
+        { path: "Grafana / Сервер / Рантайм", has_children: true, element_effective: "component" },
+        { path: "Grafana / Веб", has_children: false, element_effective: "container" },
+      ]}
+      onPick={vi.fn()}
+    />);
+    expect(screen.getAllByText("контейнер")).toHaveLength(2);
+    expect(screen.getAllByText("система")).toHaveLength(1);
   });
 
   it("фильтр сужает список, а пустой ответ говорит словами", async () => {

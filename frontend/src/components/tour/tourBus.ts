@@ -40,3 +40,16 @@ export type TourFocus = { kind: "node"; id: string } | { kind: "level" };
 const focusRequests = createEmitter<TourFocus>();
 export const requestTourFocus = focusRequests.emit;
 export const onTourFocusRequest = focusRequests.on;
+
+// ── Признак «тур идёт» ──────────────────────────────────────────────────────
+// Окно первого вложенного объекта (components/element) во время тура не показывается:
+// сюжет тура — «Моя система», в которую бросают сервис, становится системой, и элемент
+// пишется явно, без вопроса. Признак ставит эффект DemoTour; читают его в момент
+// действия, поэтому пропсы через все страницы не нужны.
+let tourRunning = false;
+export function setTourRunning(running: boolean): void {
+  tourRunning = running;
+}
+export function isTourRunning(): boolean {
+  return tourRunning;
+}

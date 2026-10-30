@@ -6,6 +6,7 @@ import { Fragment } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN } from "./layout/frames";
 import FramePlaque from "./FramePlaque";
+import { frameStyle, frameClass } from "./frameStyle";
 import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
@@ -23,9 +24,11 @@ import type { AncestorRef } from "../../types";
  * compound-узлы RF (type "frame", см. nodes.tsx), их rect задаёт раскладка.
  */
 export function LevelBoundary({
-  rfNodes, ancestorIds, ancestorNames,
+  rfNodes, ancestorIds, ancestorNames, ancestorElements,
 }: {
   rfNodes: RFNode[]; ancestorIds: string[]; ancestorNames: string[];
+  // элементы архитектуры предков (параллельно ancestorIds) — вид их рамок (Р20)
+  ancestorElements: AncestorRef["element_effective"][];
 }) {
   if (ancestorIds.length === 0) return null;
   const blocks = rfNodes.filter((n) => n.type === "block");
@@ -62,7 +65,7 @@ export function LevelBoundary({
       const n = byId.get(id);
       return n ? absPositionOf(n, byId) : undefined;
     },
-    ancestorIds, ancestorNames,
+    ancestorIds, ancestorNames, ancestorElements,
   }).filter((f) => f.native);
 
   return (
@@ -72,16 +75,17 @@ export function LevelBoundary({
         return (
           <Fragment key={f.id}>
             <div
-              // класс — стабильный хук для полигона (scripts/dump-levels.mjs): рамки
-              // входят в структурную сигнатуру уровня
-              className="lg-frame"
+              // класс lg-frame — стабильный хук для полигона (scripts/dump-levels.mjs):
+              // рамки входят в структурную сигнатуру уровня; у рамки контейнера — ещё
+              // маркер lg-frame--container (frameStyle.ts)
+              className={frameClass(f)}
               data-frame-id={f.id}
               style={{
                 position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
-                // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме,
-                // растёт при отдалении — на экране рамка всегда ~1px и не исчезает
-                border: "var(--lg-frame-bw, 1px) dashed #9ca3af", borderRadius: 12, background: "transparent",
-                boxSizing: "border-box", pointerEvents: "none",
+                // вид — общий с compound-рамкой и оверлеем драга (frameStyle.ts): по
+                // элементу, глубине и внешности предка
+                ...frameStyle(f),
+                pointerEvents: "none",
               }}
             />
             <FramePlaque frameId={f.id} x={r.x} bottom={r.y + r.h} interactive={false}>

@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, aliased
 from app.connectivity import connected_components
 from app.data_refs import ProjectCatalog, RefStatus, catalog_for_project, doc_ref_hits
 from app.models.business_process import BusinessProcess
-from app.models.config_param import ConfigParam
+from app.models.deployment_instance import DeploymentInstance
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -30,6 +30,7 @@ from app.models.process_participant import ProcessParticipant
 from app.schemas.alerts import (
     AlertsResponse,
     BrokerEdgeChannelAlert,
+    ComponentFactsAlert,
     ContainerOwnDocsAlert,
     DanglingMessageAlert,
     DescendantEdgeAlert,
@@ -141,8 +142,10 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
        иерархией; класс свой, и такие связи не попадают ни в (2), ни в (11):
        «уточните конец» и «допишите канал» противоречат совету «удалите связь»;
     3) изолированные группы — связные компоненты графа рёбер;
-    4) контейнеры с СОБСТВЕННЫМИ доками/спекой/конфигурацией (grandfather) — логика,
-       спеки и параметры должны жить на атомарных детях, такие доки распределяют по детям;
+    4) системы и контейнеры со своей документацией — совет по элементу архитектуры:
+       у системы собственные схемы логики, спецификация и параметры (их место — у её
+       контейнеров), у контейнера с компонентами — только собственные схемы логики
+       (их место — у компонентов; спецификация и конфигурация у контейнера — норма);
     5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
        контекстном уровне, ВНЕ границы системы;
     6) повисшие сообщения процессов — связь, которой шло сообщение, удалена
@@ -160,8 +163,10 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
     13) шаги процессов без привязки к схеме логики (doc_id = NULL) — алерт
        полноты, той же семьи, что «не описана» у разведки: гаснет привязкой;
     14) объекты с неописанными схемами логики (заглушки разведки — схемы без
-       тела): одна запись на объект с числом заглушек, гаснет описанием.
-    Контейнеры в проверке (1) не участвуют: прямых связей у них быть не должно
+       тела): одна запись на объект с числом заглушек, гаснет описанием;
+    15) компоненты со своей спецификацией или своими параметрами конфигурации — факты
+       процесса, их место у ближайшего контейнера (класс называет его).
+    Промежуточные узлы в проверке (1) не участвуют: прямых связей у них быть не должно
     (это как раз ловит проверка 2), а группировку детей за «подвисание» не считаем.
     """
     ctx = AlertContext.load(db, project_id)
@@ -182,6 +187,7 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
         unresolved_config_refs=config_refs,
         broker_edge_channels=_broker_edge_channels(ctx),
         descendant_edges=ctx.descendant_edges,
+        component_facts=_component_facts(ctx),
     )
 
 
@@ -272,29 +278,28 @@ def _isolated_groups(ctx: AlertContext) -> list[IsolatedGroupAlert]:
 
 
 def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
-    """4) Контейнеры с собственными доками/спекой/конфигурацией (grandfather). Контейнер =
-    service с детьми. Алерт: узел стал контейнером, но логика/спека/параметры остались
-    на нём — надо распределить по детям.
-
-    Конфигурация — третий жилец (2026-10-28, полевой репорт): контейнер для неё такая
-    же абстракция, параметры читает код компонентов, а пометки «зависит от:» в их
-    схемах ищут ручку у владельца схемы (data_refs._resolve_config), не у родителя —
-    параметры на контейнере не найдёт никто."""
+    """4) Системы и контейнеры со своей документацией (AL24): узел с детьми формы
+    service, у которого остались собственные схемы логики, спецификация или параметры
+    конфигурации. Совет — по действующему элементу архитектуры (app/element.py, раздел
+    0а docs/plan-c4-elements.md; элементы — из каталога, без второй сборки):
+    - система — замечание на всё, как до эпика у любого узла с детьми: группа сама не
+      запускается, API отдают и конфигурацию читают её контейнеры;
+    - контейнер с компонентами — только на собственные схемы логики (Р9): схемы
+      описывают код, а код — у компонентов. Спецификация и конфигурация у контейнера —
+      его законные факты (пометки «зависит от:» компонентов ищут ручку именно у него).
+    Составной компонент (узел с детьми внутри контейнера) сюда не попадает: схемы
+    логики — факт кода компонента, а его спецификацию и конфигурацию ловит класс 15.
+    Не-service с детьми не алертится (элемент архитектуры — только у сервиса)."""
+    elements = ctx.catalog.elements
     node_ids = [n.id for n in ctx.nodes]
     doc_owners: set[uuid.UUID] = set()
-    param_owners: set[uuid.UUID] = set()
     if node_ids:
         rows = (
             ctx.db.query(NodeDoc.node_id).filter(NodeDoc.node_id.in_(node_ids)).distinct().all()
         )
         doc_owners = {nid for (nid,) in rows}
-        prow = (
-            ctx.db.query(ConfigParam.node_id)
-            .filter(ConfigParam.node_id.in_(node_ids))
-            .distinct()
-            .all()
-        )
-        param_owners = {nid for (nid,) in prow}
+    # Свои параметры узлов — из того же каталога, что резолвит AL33 (без второго запроса).
+    param_owners = set(ctx.catalog.params_by_node)
     out: list[ContainerOwnDocsAlert] = []
     for n in ctx.nodes:
         if n.id not in ctx.intermediate_ids or n.shape != "service":
@@ -302,16 +307,73 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
         has_docs = n.id in doc_owners
         has_spec = bool(n.openapi_spec)
         has_config = n.id in param_owners
-        if has_docs or has_spec or has_config:
+        element: Literal["system", "container"]
+        if elements.effective(n.id) == "system":
+            element = "system"
+            misplaced = has_docs or has_spec or has_config
+        elif elements.effective(n.id) == "container":
+            element = "container"
+            misplaced = has_docs
+        else:
+            continue
+        if misplaced:
             out.append(
                 ContainerOwnDocsAlert(
                     node_id=n.id,
                     node_name=n.name,
+                    element_effective=element,
                     has_docs=has_docs,
                     has_spec=has_spec,
                     has_config=has_config,
                 )
             )
+    return out
+
+
+def _component_facts(ctx: AlertContext) -> list[ComponentFactsAlert]:
+    """15) Конфигурация и спецификации у компонентов (AL36, Р10 docs/plan-c4-elements.md):
+    компонент — часть кода контейнера, отдельно не запускается — со своей спецификацией
+    OpenAPI, своими параметрами конфигурации или своими площадками. Это факты процесса:
+    API отдаёт, конфигурацию читает и на площадках стоит контейнер целиком, поэтому
+    место им у ближайшего контейнера (Elements.container_of). Свои параметры компонента
+    пометка «зависит от:» не видит (ProjectCatalog.params_for), его экземпляры размещение
+    не считает (app/deployment.placement_map, Р16) — «спящие». Данные остаются от
+    прежнего правила «факты на листьях», от ввоза с адресом компонента и от переноса
+    размещённого объекта внутрь контейнера. Одна запись на компонент с флагами; узлы с
+    экземплярами — одной выборкой по проекту, без запроса на узел. Порядок — по имени,
+    затем по id: панель и MCP показывают одно и то же в одном порядке."""
+    elements = ctx.catalog.elements
+    params = ctx.catalog.params_by_node
+    placed = {
+        node_id
+        for (node_id,) in ctx.db.query(DeploymentInstance.node_id)
+        .filter(DeploymentInstance.project_id == ctx.project_id)
+        .distinct()
+    }
+    out: list[ComponentFactsAlert] = []
+    for n in sorted(ctx.nodes, key=lambda n: (n.name, str(n.id))):
+        if elements.effective(n.id) != "component":
+            continue
+        has_spec = bool(n.openapi_spec)
+        has_config = n.id in params
+        has_sites = n.id in placed
+        if not (has_spec or has_config or has_sites):
+            continue
+        container = elements.container_of(n.id)
+        # Компонент без контейнера бывает только в цикле данных — нести факты некуда.
+        if container is None:
+            continue
+        out.append(
+            ComponentFactsAlert(
+                node_id=n.id,
+                node_name=n.name,
+                container_id=container,
+                container_name=ctx.name(container),
+                has_spec=has_spec,
+                has_config=has_config,
+                has_sites=has_sites,
+            )
+        )
     return out
 
 
@@ -491,10 +553,18 @@ def _unresolved_refs(
         }
         # 12) Пометка «зависит от:» не нашла параметра (AL33). Класс отдельный по той
         #     же причине, что и канальный: своя починка — «опишите ручку в разделе
-        #     „Конфигурация“ этого объекта». Причину не передаём: она здесь ровно одна
-        #     (см. UnresolvedConfigRefAlert).
+        #     „Конфигурация“ контейнера». Причину не передаём: она здесь ровно одна
+        #     (см. UnresolvedConfigRefAlert). Контейнер — тот же, у которого искал
+        #     резолв (ProjectCatalog.params_for): запись называет место починки.
         if ref.mode == "config":
-            config.append(UnresolvedConfigRefAlert(**where))
+            container = ctx.catalog.elements.container_of(hit.node_id)
+            config.append(
+                UnresolvedConfigRefAlert(
+                    **where,
+                    container_id=container,
+                    container_name=ctx.name(container) if container is not None else None,
+                )
+            )
             continue
         # 10) То же самое для каналов (AL30): пометка «публикует:/потребляет:» не нашла
         #     канал в структуре брокеров. Класс ОТДЕЛЬНЫЙ — причины и слова починки

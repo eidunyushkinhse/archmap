@@ -17,7 +17,8 @@ const g = (id: string, ancestors: string[] = []): GhostNode => ({
   has_children: false,
   child_count: 0,
   is_ghost: true,
-  ancestors: ancestors.map((a) => ({ id: a, name: a, is_external: false })),
+  element_effective: "container" as const,
+  ancestors: ancestors.map((a) => ({ id: a, name: a, is_external: false, element_effective: "system" as const })),
 });
 
 const kid = (id: string) => ({ id });

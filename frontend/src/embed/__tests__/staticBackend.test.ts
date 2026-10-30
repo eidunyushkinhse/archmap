@@ -35,7 +35,7 @@ const scene: LandingScene = {
   },
   containerId: "sys",
   layoutViewId: "p1",
-  ancestors: [{ id: "sys", name: "Маркетплейс «Ярмарка»", is_external: false }],
+  ancestors: [{ id: "sys", name: "Маркетплейс «Ярмарка»", is_external: false, element_effective: "system" }],
   children: { p1: [makeNode()] },
 };
 

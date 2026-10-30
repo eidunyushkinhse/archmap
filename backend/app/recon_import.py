@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app import yaml_io
 from app.docs_pkg import spec_check
+from app.element_marks import build_elements, element_rows_of
 from app.import_yaml import _FENCE_RE, _closest_node
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
@@ -435,6 +436,21 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
     return None
 
 
+def _addressee_note(path: str, element: str | None) -> str:
+    """Предупреждение об адресате перечня с вложенными объектами — по элементу."""
+    if element == "system":
+        return f"«{path}» — система; перечень операций адресуйте контейнеру или компоненту"
+    if element == "container":
+        return (
+            f"«{path}» — контейнер с компонентами; собственные схемы контейнера попадут "
+            "в «Рекомендации» — перечень лучше адресовать компонентам"
+        )
+    return (
+        f"«{path}» — компонент с вложенными компонентами; собственные схемы попадут в "
+        "«Рекомендации» — перечень лучше адресовать вложенным компонентам"
+    )
+
+
 def build_recon_plan(
     db: Session,
     nodes: list[Node],
@@ -468,14 +484,15 @@ def build_recon_plan(
         (fulls[i] for i, n in enumerate(flat) if n.id == node.id), node.name
     )
 
-    # Р15: заглушки у контейнера дадут штатный алерт AL24 «контейнер со своей
-    # документацией» — алерт правильный, но узнать о нём человек должен здесь, а не
-    # потом. Предупреждение, а не ошибка: бывают и законные случаи.
+    # Р15: заглушки у узла с вложенными объектами дадут штатное замечание AL24 —
+    # замечание правильное, но узнать о нём человек должен здесь, а не потом.
+    # Предупреждение, а не ошибка: бывают и законные случаи (Р9 эпика «Элемент
+    # архитектуры»: заглушки ложатся на адресата, перенос компонентам — потом).
     if any(n.parent_id == node.id for n in nodes):
         plan.report.warnings.append(
-            f"«{plan.report.node_path}» — контейнер; собственные схемы контейнеров "
-            "попадают в алерт «Контейнеры со своей документацией» — перечень лучше "
-            "адресовать листовому объекту"
+            _addressee_note(
+                plan.report.node_path, build_elements(element_rows_of(nodes)).effective(node.id)
+            )
         )
 
     stubs, warnings, errors = recon_stubs(parsed)

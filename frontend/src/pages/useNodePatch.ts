@@ -4,7 +4,9 @@
 // страница правки в Undo не кладёт (ТЗ, решение Ф8-Б), а панель редактора кладёт их
 // сама в onSaved — узел ДО правки приходит вторым аргументом.
 import { useCallback, useRef, useState } from "react";
-import type { Node, NodeApproval, NodeDocMeta, NodeSource, NodeUpdate } from "../types";
+import type {
+  ElementChangePreview, Node, NodeApproval, NodeDocMeta, NodeElement, NodeSource, NodeUpdate,
+} from "../types";
 import { nodesApi } from "../api/nodes";
 import { ApiError, isConflict, isDemoLimit } from "../api/client";
 import type { NodeDocEvent } from "../components/inspector/FlowchartDocs";
@@ -47,6 +49,12 @@ interface NodePatch {
   // пилюля читает node.approval / approval_effective. Отказ сервера (422 у
   // контейнера) приезжает в error общим путём.
   pickApproval: (value: NodeApproval) => void;
+  // Элемент архитектуры (Р18 эпика элементов): превью последствий без записи — null при
+  // отказе (422 «внутри контейнера», база внутри и т. п.), текст отказа — в error.
+  previewElement: (value: NodeElement) => Promise<ElementChangePreview | null>;
+  // Смена элемента; history=false — правка с последствиями (перенесённые площадки) в
+  // Undo не ложится: onSaved получает узел без «до». Возвращает текст отказа или null.
+  pickElement: (value: NodeElement, history: boolean) => Promise<string | null>;
   // Конфликт CAS
   conflict: string | null;
   // Отказ сервера, НЕ конфликт версий (400 с причиной: смена типа у контейнера,
@@ -65,7 +73,9 @@ interface NodePatch {
 
 export function useNodePatch(
   initial: Node,
-  onSaved?: (saved: Node, before: Node) => void,
+  // before — узел ДО правки; нет его у правки, которую в историю не кладут (элемент с
+  // последствиями).
+  onSaved?: (saved: Node, before?: Node) => void,
 ): NodePatch {
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description ?? "");
@@ -98,7 +108,7 @@ export function useNodePatch(
   // rethrowLimit: отказ по пределу демо-стенда не глотать, а пробросить вызывающему
   // (окно спеки оставляет правку в редакторе и показывает отказ у себя).
   const save = useCallback(
-    async (over: Partial<NodeUpdate>, rethrowLimit = false): Promise<string | null> => {
+    async (over: Partial<NodeUpdate>, rethrowLimit = false, history = true): Promise<string | null> => {
       const before = beforeRef.current;
       const payload: NodeUpdate = {
         name: name.trim() || before.name,
@@ -118,7 +128,7 @@ export function useNodePatch(
         setNode(saved);
         setConflict(null);
         setError(null);
-        onSaved?.(saved, before);
+        onSaved?.(saved, history ? before : undefined);
         return null;
       } catch (e: unknown) {
         if (rethrowLimit && isDemoLimit(e)) throw e;
@@ -214,6 +224,24 @@ export function useNodePatch(
     void save({ approval: value });
   }, [save]);
 
+  // Элемент — тоже только через over: полный payload его не шлёт (сервер не трогает
+  // не присланное), иначе каждая правка роли повторяла бы элемент.
+  const previewElement = useCallback(async (value: NodeElement): Promise<ElementChangePreview | null> => {
+    try {
+      const preview = await nodesApi.elementPreview(beforeRef.current.id, value);
+      setError(null);
+      return preview;
+    } catch (e: unknown) {
+      setError(e instanceof ApiError ? e.message : "Не удалось проверить последствия");
+      return null;
+    }
+  }, []);
+
+  const pickElement = useCallback(
+    (value: NodeElement, history: boolean) => save({ element: value }, false, history),
+    [save],
+  );
+
   const applyDocEvent = useCallback((evt: NodeDocEvent) => {
     const patchDocs = (mut: (docs: NodeDocMeta[]) => NodeDocMeta[]) => {
       setNode((n) => ({ ...n, docs: mut(n.docs) }));
@@ -228,7 +256,7 @@ export function useNodePatch(
     name, description, role, technology, isExternal, status, shape,
     setName, setDescription, setRole, setTechnology, setIsExternal, setStatus,
     commitName, commitDesc, commitRole, commitTech, commitOpenapi, toggleExternal,
-    pickStatus, pickShape, commitSource, pickApproval,
+    pickStatus, pickShape, commitSource, pickApproval, previewElement, pickElement,
     conflict, error, node, applyDocEvent, refresh,
   };
 }

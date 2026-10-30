@@ -1,6 +1,6 @@
 // Строка «Размещение» карточки «Свойства» (docs/tasks/deployment-view.md, Ф3): перечень
-// площадок из node.sites (имя, «в <родитель>»; у контейнера это площадки его объектов,
-// где стоит часть — «часть объектов»), пусто — «не указано», у «Пользователя» строки
+// площадок из node.sites (имя, «в <родитель>»; у системы это площадки её контейнеров,
+// где стоит часть — «часть контейнеров»), пусто — «не указано», у «Пользователя» строки
 // нет. Редактор открывает настоящее окно «Размещение» на одном объекте: площадки
 // грузятся по нажатию, размещение в окне отмечено, применение зовёт перечитывание
 // страницы. Хук правки свойств — настоящий (useNodePatch), моков нет ни у него, ни у окна.
@@ -34,6 +34,7 @@ function node(over: Partial<Node> = {}): Node {
     id: "n1", name: "Витрина", description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "container", container_name: null,
     version: 1, created_at: "", updated_at: "", sites: [],
     ...over,
   };
@@ -44,29 +45,32 @@ function site(id: string, name: string, kind: SiteOut["kind"], parent_id: string
 }
 const SITES = [site("aws", "AWS", "cloud"), site("k8s", "Кластер prod", "kubernetes", "aws"), site("vm1", "vm-1", "vm")];
 
-function Harness({ n, isArchitect, isContainer, onPlacementChanged }: {
-  n: Node; isArchitect: boolean; isContainer: boolean; onPlacementChanged: () => void;
+function Harness({ n, isArchitect, isSystem, onPlacementChanged }: {
+  n: Node; isArchitect: boolean; isSystem: boolean; onPlacementChanged: () => void;
 }) {
   const patch = useNodePatch(n);
   return (
     <NodeProperties
       patch={patch}
+      ancestors={[]}
       isArchitect={isArchitect}
-      isContainer={isContainer}
+      isSystem={isSystem}
       techLoading={false}
       aggTech=""
+      containerSites={null}
+      onNavigateNode={vi.fn()}
       onPlacementChanged={onPlacementChanged}
     />
   );
 }
 
-function setup(over: Partial<Node> = {}, opts: { isArchitect?: boolean; isContainer?: boolean } = {}) {
+function setup(over: Partial<Node> = {}, opts: { isArchitect?: boolean; isSystem?: boolean } = {}) {
   const onPlacementChanged = vi.fn();
   render(
     <Harness
       n={node(over)}
       isArchitect={opts.isArchitect ?? true}
-      isContainer={opts.isContainer ?? false}
+      isSystem={opts.isSystem ?? false}
       onPlacementChanged={onPlacementChanged}
     />,
   );
@@ -93,14 +97,17 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(screen.getByText("Кластер prod")).toBeInTheDocument();
     expect(screen.getByText("в AWS")).toBeInTheDocument();
     expect(screen.getByText("vm-1")).toBeInTheDocument();
-    expect(screen.queryByText(/часть объектов/)).toBeNull();
+    expect(screen.queryByText(/часть контейнеров/)).toBeNull();
     expect(screen.queryByText("не указано")).toBeNull();
   });
 
-  it("у контейнера площадка, где стоит часть его объектов, помечена «часть объектов»", () => {
-    setup({ sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2 }, { isArchitect: false, isContainer: true });
+  it("у системы площадка, где стоит часть её контейнеров, помечена «часть контейнеров»", () => {
+    setup(
+      { sites: [PART_K8S, OWN_VM], has_children: true, child_count: 2, element_effective: "system" },
+      { isArchitect: false, isSystem: true },
+    );
     expect(screen.getByText("Кластер prod")).toBeInTheDocument();
-    expect(screen.getAllByText("часть объектов")).toHaveLength(1);
+    expect(screen.getAllByText("часть контейнеров")).toHaveLength(1);
     expect(screen.getByText("vm-1")).toBeInTheDocument();
   });
 
@@ -136,13 +143,16 @@ describe("NodeProperties: строка «Размещение»", () => {
     expect(screen.queryByRole("button", { name: "Применить" })).toBeNull();
   });
 
-  it("контейнер в окне: площадка части объектов — частичная галочка, набор пишется его объектам", async () => {
+  it("система в окне: площадка части объектов — частичная галочка, набор пишется её контейнерам", async () => {
+    // Элемент — как ответил бы сервер: узел с детьми без хранимого элемента — система,
+    // её листья — контейнеры (единицы размещения, D33).
+    const SYSTEM: Partial<Node> = { sites: [PART_K8S], has_children: true, child_count: 2, element_effective: "system" };
     vi.mocked(nodesApi.getAll).mockResolvedValue([
-      node({ sites: [PART_K8S], has_children: true, child_count: 2 }),
+      node(SYSTEM),
       node({ id: "x", name: "API", parent_id: "n1", sites: [OWN_K8S] }),
       node({ id: "y", name: "Корзина", parent_id: "n1", sites: [] }),
     ]);
-    const onPlacementChanged = setup({ sites: [PART_K8S], has_children: true, child_count: 2 }, { isContainer: true });
+    const onPlacementChanged = setup(SYSTEM, { isSystem: true });
     await userEvent.click(editButton()!);
     const k8s = await screen.findByRole("checkbox", { name: /^Кластер prod/ }) as HTMLInputElement;
     expect(k8s.checked).toBe(false);

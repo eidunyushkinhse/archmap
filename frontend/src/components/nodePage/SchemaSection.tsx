@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, ViewLayoutPayload } from "../../types";
 import { canHaveChildren } from "../../types";
 import { nodesApi } from "../../api/nodes";
+import { childIsComponent } from "../element/elementView";
 import { usePersistenceHost } from "../../pages/usePersistenceHost";
 import LoadError from "../../ui/LoadError";
 import { useRemoteSync } from "../../pages/useRemoteSync";
@@ -194,9 +195,12 @@ export default function SchemaSection({
         <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
         {isArchitect && onNavigateMap && (
           <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
+            {/* Подпись называет, кем станет новый объект: компонентом — у контейнера и
+                внутри контейнера, иначе вложенным объектом (системой или контейнером он
+                станет по ответу в окне первого вложенного объекта). */}
             {canHaveChildren(node.shape) && (
               <button className="btn-sm-primary" onClick={() => onNavigateMap(node.id)}>
-                Добавить компонент
+                {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}
               </button>
             )}
             <button
@@ -236,6 +240,7 @@ export default function SchemaSection({
         persistence={persistence}
         ancestorNames={ancestors.map((a) => a.name)}
         ancestorIds={ancestors.map((a) => a.id)}
+        ancestorElements={ancestors.map((a) => a.element_effective)}
         depth={ancestors.length}
         isArchitect={isArchitect}
         schemaView={schemaView}

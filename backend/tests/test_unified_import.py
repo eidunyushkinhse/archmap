@@ -45,6 +45,7 @@ from app.unified_apply import (
     apply_unified_plan,
     dedup_edges,
     parse_decisions,
+    resolve_decisions,
 )
 from app.unified_import import (
     MAX_ARCHIVES,
@@ -1516,6 +1517,9 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert (вход.end, вход.container_path) == ("target", "Ярмарка / orders")
     assert [c.path for c in вход.components] == ["Ярмарка / orders / api"]
     assert [c.has_children for c in вход.components] == [False]
+    # Элемента в файлах нет: orders — система, её лист api — контейнер (слова и теги).
+    assert вход.container_element == "system"
+    assert [c.element_effective for c in вход.components] == ["container"]
     assert выход.id == "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source"
     assert (выход.end, выход.label, выход.technology) == ("source", "пишет", None)
 
@@ -1534,6 +1538,28 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert остаток.node_paths == план.node_paths
     контейнер = dict(zip(остаток.node_paths, остаток.node_has_children, strict=True))
     assert контейнер["Ярмарка / orders"] and not контейнер["Ярмарка / Каталог-БД"]
+    элемент = dict(zip(остаток.node_paths, остаток.node_elements, strict=True))
+    assert (элемент["Ярмарка / orders"], элемент["Оператор"]) == ("system", None)
+
+
+def test_остаток_слова_по_элементу_конца_контейнер():
+    """Объявленный контейнер: замечание и вопрос — словами контейнера, вложенные — его
+    компоненты; замечание по-прежнему становится вопросом и прячется из списков."""
+    с_контейнером = _ОСТАТОК_1.replace(
+        "      - name: orders\n", "      - name: orders\n        element: container\n"
+    )
+    превью = preview_from_plan(build_unified_plan(
+        [("shop.yaml", с_контейнером.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    ))
+
+    вход, выход = превью.remainder.container_edges
+    assert (вход.container_element, выход.container_element) == ("container", "container")
+    assert [c.element_effective for c in вход.components] == ["component"]
+    скрыть = превью.remainder.converted_warnings
+    assert sum(
+        1 for w in скрыть if "конец в контейнере «orders», у которого есть компоненты" in w
+    ) == 2
+    assert not any("конец в системе" in w for w in превью.c4.warnings)
 
 
 def test_остаток_строки_остаются_на_месте():
@@ -1543,7 +1569,7 @@ def test_остаток_строки_остаются_на_месте():
     assert превью.c4 is not None
     assert any("description" in c for c in превью.c4.conflicts)
     assert any("похожи" in w for w in превью.c4.warnings)
-    assert any("конец в контейнере" in w for w in превью.c4.warnings)
+    assert any("конец в системе" in w for w in превью.c4.warnings)
 
 
 def test_остаток_id_детерминированы_между_сборками():
@@ -2179,7 +2205,7 @@ def test_остаток_называет_строки_ставшие_вопро�
     # Ровно четыре вопроса-из-строк: две связи в контейнер, группа, похожие имена.
     assert len(скрыть) == 4
     assert any("похожи" in w for w in скрыть)
-    assert sum(1 for w in скрыть if "конец в контейнере" in w) == 2
+    assert sum(1 for w in скрыть if "конец в системе" in w) == 2
     assert any("не связана с остальной схемой" in w for w in скрыть)
     # Замечание, вопросом не ставшее, прятать нельзя.
     assert not any("без единой связи" in w for w in скрыть)
@@ -2377,3 +2403,302 @@ def test_склейка_объединяет_размещение_поглощё
         (True, "prod"),
         (True, "stage"),
     ]
+
+
+# ── Элемент архитектуры: спор поля в превью и его применение (Ф2, Р30, Р31) ──
+
+_ЭЛЕМЕНТ_1 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        element: system
+        children:
+          - name: api
+"""
+_ЭЛЕМЕНТ_2 = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        element: container
+        children:
+          - name: api
+"""
+
+
+def _план_элемента(первый: str = _ЭЛЕМЕНТ_1, второй: str = _ЭЛЕМЕНТ_2):
+    return build_unified_plan(
+        [("shop.yaml", первый.encode()), ("billing.yaml", второй.encode())]
+    )
+
+
+def _элемент_в_проекте(db, project_id, name: str) -> str | None:
+    узел = db.query(Node).filter(Node.project_id == project_id, Node.name == name).one()
+    return узел.element
+
+
+def test_спор_элемента_вопросом_в_превью():
+    """Равные вклады спорят «система / контейнер» — существующий вид вопроса «спор
+    поля» с полем element; значения — кодами контракта, словами их называет фронт."""
+    [спор] = preview_from_plan(_план_элемента()).remainder.field_conflicts
+    assert спор.id == "field|Ярмарка / orders|element"
+    assert (спор.node_path, спор.field, спор.default) == ("Ярмарка / orders", "element", 0)
+    assert [(c.origin, c.value) for c in спор.candidates] == [(0, "system"), (1, "container")]
+
+
+def test_спор_элемента_применяется_ответом(db):
+    без_ответа, _ = apply_unified_plan(
+        db, _план_элемента(), {}, "Без ответа", None, ensure_architect(db).id
+    )
+    assert _элемент_в_проекте(db, без_ответа.id, "orders") == "system"
+
+    с_ответом, отчёт = apply_unified_plan(
+        db, _план_элемента(), {}, "С ответом", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {"field|Ярмарка / orders|element": 1}})),
+    )
+    assert _элемент_в_проекте(db, с_ответом.id, "orders") == "container"
+    assert "Ваши решения: выбрано значений полей 1" in отчёт.warnings
+
+
+def test_выбранный_контейнер_выносит_базу_уровнем_выше(db):
+    """Ответ «Контейнер» там, где в слитом дереве лежит база (её принёс файл, где узел
+    — система): применение выносит базу к родителю контейнера той же санитизацией, что
+    у разбора, и говорит об этом пунктом отчёта; контейнер остаётся."""
+    с_базой = _ЭЛЕМЕНТ_1 + "          - name: orders-db\n            shape: database\n"
+    план = _план_элемента(с_базой, _ЭЛЕМЕНТ_2)
+    [спор] = preview_from_plan(план).remainder.field_conflicts
+    assert спор.field == "element"
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ответ мимо правила", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: 1}})),
+    )
+    db.commit()
+    assert _элемент_в_проекте(db, проект.id, "orders") == "container"
+    пути, _ = _состав(db, проект)
+    assert "Ярмарка / orders-db" in пути and "Ярмарка / orders / orders-db" not in пути
+    строка = (
+        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
+        "состав контейнера — вынесена на уровень выше, в «Ярмарка»"
+    )
+    assert строка in отчёт.warnings
+    assert строка in [u.text for u in отчёт.unfixable]
+
+
+def test_вынесенная_база_получает_таблицы_по_адресу_своего_архива(db):
+    """Файл семьи архива адресует базу так, как её записал C4 этого архива — внутри
+    контейнера. Разбор вынес базу, а таблицы всё равно доезжают до неё."""
+    c4 = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+        "          - name: orders-db\n            shape: database\n"
+    )
+    архив = _архив(c4=c4, db=(("db/orders-db.yaml", _таблица("Ярмарка / orders / orders-db")),))
+    план = build_unified_plan([("a.zip", архив)])
+    assert план.ok, план.errors
+
+    проект, отчёт = apply_unified_plan(db, план, {}, "Вынос", None, ensure_architect(db).id)
+    db.commit()
+
+    база = db.query(Node).filter(Node.project_id == проект.id, Node.name == "orders-db").one()
+    корень = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Ярмарка").one()
+    assert база.parent_id == корень.id
+    assert [t.name for t in db.query(DbTable).filter(DbTable.node_id == база.id)] == ["orders"]
+    assert not any("не найден" in w for w in отчёт.warnings)
+
+
+_СКЛЕЙКА_ЭЛЕМЕНТА_A = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Сервер
+  - name: Плагин Zabbix
+    children:
+      - name: backend
+      - name: plugin-db
+        shape: database
+"""
+
+_СКЛЕЙКА_ЭЛЕМЕНТА_B = """
+nodes:
+  - name: Grafana
+    children:
+      - name: Веб
+  - name: Плагин
+    element: container
+    children:
+      - name: frontend
+"""
+
+
+def test_склейка_выносит_базу_поглощённого_из_контейнера_выжившего(db):
+    """Дети поглощённого переходят выжившему ещё в дереве, до посева: база поглощённого
+    не оказывается внутри контейнера-выжившего, а выносится уровнем выше."""
+    а = _СКЛЕЙКА_ЭЛЕМЕНТА_A.replace(
+        "  - name: Плагин Zabbix\n", "  - name: Плагин Zabbix\n    element: container\n"
+    ).replace("      - name: plugin-db\n        shape: database\n", "")
+    б = _СКЛЕЙКА_ЭЛЕМЕНТА_B.replace("    element: container\n", "").replace(
+        "      - name: frontend\n", "      - name: frontend\n      - name: plugin-cache\n"
+        "        shape: database\n",
+    )
+    план = build_unified_plan([("a.yaml", а.encode()), ("b.yaml", б.encode())])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Склейка", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}})),
+    )
+    db.commit()
+
+    пути, _ = _состав(db, проект)
+    assert {"Плагин / backend", "Плагин / frontend", "plugin-cache"} <= пути
+    assert _элемент_в_проекте(db, проект.id, "Плагин") == "container"
+    assert (
+        "Плагин: внутри лежит база данных «plugin-cache», она не может входить в состав "
+        "контейнера — вынесена на верхний уровень"
+    ) in отчёт.warnings
+
+
+def test_склейка_переносит_элемент_через_правило_дерева(db):
+    """Элемент поглощённого достаётся пустому выжившему ещё в дереве, до посева, —
+    правило элемента видит дерево после склейки: база выжившего выносится, а не
+    оказывается внутри контейнера."""
+    план = build_unified_plan([
+        ("a.yaml", _СКЛЕЙКА_ЭЛЕМЕНТА_A.encode()), ("b.yaml", _СКЛЕЙКА_ЭЛЕМЕНТА_B.encode()),
+    ])
+    [пара] = remainder_from_plan(план, None).fuzzy_pairs
+    assert пара.id == "pair|Плагин Zabbix|Плагин"
+
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Склейка", None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"merges": {пара.id: {"name": "Плагин"}}})),
+    )
+    db.commit()
+
+    пути, _ = _состав(db, проект)
+    assert {"Плагин / backend", "Плагин / frontend", "plugin-db"} <= пути
+    assert _элемент_в_проекте(db, проект.id, "Плагин") == "container"
+    assert (
+        "Плагин: внутри лежит база данных «plugin-db», она не может входить в состав "
+        "контейнера — вынесена на верхний уровень"
+    ) in отчёт.warnings
+
+
+# ── Вопрос «похоже на контейнер» по источникам кода (Р7, Ф6) ─────────────────
+
+_ПОХОЖЕ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        source: {repo: github.com/org/shop, path: services/orders}
+        children:
+          - name: api
+            source: {repo: github.com/org/shop, path: services/orders/api}
+            children:
+              - name: orders-cache
+                shape: database
+          - name: checkout
+            source: {repo: github.com/org/shop, path: services/orders/checkout}
+          - name: scheduler
+            source: {repo: github.com/org/shop, path: services/orders/scheduler}
+edges:
+  - {from: api, to: checkout}
+  - {from: checkout, to: scheduler}
+  - {from: api, to: orders-cache}
+"""
+_ПОДСКАЗКА = "hint|Ярмарка / orders"
+
+
+def _подсказки(текст: str):
+    план = build_unified_plan([("shop.yaml", текст.encode())])
+    assert план.ok, план.errors
+    return план, preview_from_plan(план).remainder.container_hints
+
+
+def test_похоже_на_контейнер_вопрос_по_источникам():
+    """Все дети — сервисы из каталога родителя в том же репозитории: вопрос с именами
+    детей, каталогом и репозиторием. Внук-база на признак не влияет."""
+    _план, подсказки = _подсказки(_ПОХОЖЕ)
+    assert [h.model_dump() for h in подсказки] == [{
+        "id": _ПОДСКАЗКА,
+        "node_path": "Ярмарка / orders",
+        "children": ["api", "checkout", "scheduler"],
+        "folder": "services/orders",
+        "repo": "github.com/org/shop",
+    }]
+
+
+@pytest.mark.parametrize(
+    ("старое", "новое"),
+    [
+        # База среди детей — сильный признак системы.
+        (
+            "          - name: checkout\n",
+            "          - name: orders-db\n            shape: database\n"
+            "          - name: checkout\n",
+        ),
+        # Чужой репозиторий.
+        (
+            "{repo: github.com/org/shop, path: services/orders/scheduler}",
+            "{repo: github.com/org/jobs, path: services/orders/scheduler}",
+        ),
+        # Путь вне каталога родителя (и сам каталог — не «внутри»).
+        ("path: services/orders/scheduler}", "path: services/scheduler}"),
+        ("path: services/orders/scheduler}", "path: services/orders}"),
+        # Ребёнок без источника кода.
+        ("          - name: checkout\n", "          - name: worker\n          - name: checkout\n"),
+        # Ребёнок с именем зависимости.
+        ("path: services/orders/scheduler}", "path: services/orders/scheduler, host: scheduler}"),
+        # Элемент задан во входе — спрашивать не о чем.
+        ("      - name: orders\n", "      - name: orders\n        element: system\n"),
+        # У родителя нет пути в репозитории.
+        ("{repo: github.com/org/shop, path: services/orders}", "{repo: github.com/org/shop}"),
+    ],
+)
+def test_похоже_на_контейнер_не_срабатывает(старое, новое):
+    assert _ПОХОЖЕ.count(старое) == 1
+    _план, подсказки = _подсказки(_ПОХОЖЕ.replace(старое, новое))
+    assert подсказки == []
+
+
+def _создать_с_ответом(db, ответ: dict | None):
+    план, _ = _подсказки(_ПОХОЖЕ)
+    решения = parse_decisions(json.dumps(ответ)) if ответ is not None else None
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ярмарка", None, ensure_architect(db).id, decisions=решения,
+    )
+    db.commit()
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == проект.id)}
+    return узлы, отчёт
+
+
+def test_похоже_на_контейнер_ответ_контейнер_дальше_правила_ввоза(db):
+    """«Контейнер» ставит элемент до санитизации: база внутри будущего контейнера
+    выносится на уровень выше с замечанием, как у любого ввоза."""
+    узлы, отчёт = _создать_с_ответом(db, {"container_hints": {_ПОДСКАЗКА: "container"}})
+
+    assert узлы["orders"].element == "container"
+    assert узлы["orders-cache"].parent_id == узлы["Ярмарка"].id
+    assert any("внутри лежит база данных «orders-cache»" in w for w in отчёт.warnings)
+    assert any("Ваши решения: отмечено контейнерами 1" in w for w in отчёт.warnings)
+
+
+@pytest.mark.parametrize("ответ", [None, {"container_hints": {_ПОДСКАЗКА: "system"}}])
+def test_похоже_на_контейнер_система_и_молчание_оставляют_как_есть(db, ответ):
+    узлы, отчёт = _создать_с_ответом(db, ответ)
+
+    assert узлы["orders"].element is None
+    assert узлы["orders-cache"].parent_id == узлы["api"].id
+    assert not any("Ваши решения" in w for w in отчёт.warnings)
+
+
+def test_похоже_на_контейнер_ответ_проверяется():
+    with pytest.raises(UnifiedImportError, match="«container» либо «system»"):
+        parse_decisions(json.dumps({"container_hints": {_ПОДСКАЗКА: "да"}}))
+    план, _ = _подсказки(_ПОХОЖЕ)
+    with pytest.raises(UnifiedImportError, match="Превью устарело"):
+        resolve_decisions(
+            план, parse_decisions(json.dumps({"container_hints": {"hint|Нет": "container"}}))
+        )

@@ -33,7 +33,7 @@ vi.mock("../graph/interaction/useEdgeConnect", async () => (await import("./leve
 
 // Рамка пустого слоя: синтетический бокс 190×100 в начале координат + паддинг 30.
 const levelFrame: FrameRect = {
-  id: "P", name: "Родитель", depth: 0, native: true,
+  id: "P", name: "Родитель", depth: 0, native: true, element: "system", is_external: false,
   memberIds: new Set(),
   content: { minX: 0, minY: 0, maxX: 190, maxY: 100 },
   rect: { x: -30, y: -30, w: 250, h: 190 },

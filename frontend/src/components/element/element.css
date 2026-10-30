@@ -1,0 +1,19 @@
+/* Строка «Элемент архитектуры» (components/element/ElementParts): имя контейнера у
+   компонента — ссылка на его страницу, в ритме текста строки. */
+.el-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: #2563eb;
+  cursor: pointer;
+}
+.el-link:hover {
+  text-decoration: underline;
+}
+/* «?» рядом с термином в карточке «Свойства» (в инспекторе терм сам flex с зазором). */
+.el-term {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

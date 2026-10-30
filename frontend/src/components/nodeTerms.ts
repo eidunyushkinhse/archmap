@@ -1,7 +1,10 @@
 // Подписи и порядок терминов узла и схемы — одним местом (аудит F-22). Копии жили на
 // странице объекта, в панели свойств, в окне узла и в вопросах ввоза и уже разошлись
 // («Брокер» в вопросах против «Брокер сообщений» везде остальном).
-import type { NodeApproval, NodeDocKind, NodeShape, NodeStatus, SiteKind, VersionCategory, VersionItemStatus } from "../types";
+import type {
+  NodeApproval, NodeDocKind, NodeElement, NodeShape, NodeStatus, SiteKind, VersionCategory,
+  VersionItemStatus,
+} from "../types";
 
 export const SHAPE_LABEL: Record<NodeShape, string> = {
   service: "Сервис",
@@ -9,6 +12,18 @@ export const SHAPE_LABEL: Record<NodeShape, string> = {
   broker: "Брокер сообщений",
   person: "Пользователь",
 };
+
+// Элемент архитектуры словами — зеркало NODE_ELEMENT_LABELS бэка (domain_types).
+export const ELEMENT_LABEL: Record<NodeElement, string> = {
+  system: "Система",
+  container: "Контейнер",
+};
+// Вторая строка пункта выпадашки «Элемент архитектуры» (как APPROVAL_HINT у статуса).
+export const ELEMENT_HINT: Record<NodeElement, string> = {
+  system: "группа контейнеров, сама не запускается",
+  container: "запускается отдельно, внутри его компоненты",
+};
+export const ELEMENT_ORDER: NodeElement[] = ["system", "container"];
 
 // Порядок типов в выпадашках — от самого частого (сервис) к самому редкому.
 export const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];

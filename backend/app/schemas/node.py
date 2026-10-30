@@ -4,7 +4,15 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from app.domain_types import NodeApproval, NodeShape, NodeStatus, SiteKind
+from app.domain_types import (
+    ElementChangeKind,
+    NodeApproval,
+    NodeElement,
+    NodeElementEffective,
+    NodeShape,
+    NodeStatus,
+    SiteKind,
+)
 from app.schemas.node_doc import NodeDocMeta
 from app.schemas.view import ViewLayoutPayload
 
@@ -76,6 +84,11 @@ class NodeCreate(BaseModel):
     is_external: bool = False
     shape: NodeShape = "service"
     status: NodeStatus = "existing"
+    # Элемент архитектуры (docs/plan-c4-elements.md): system | container. Не прислан или
+    # null — «не сказано» (узел с детьми читается системой, как до эпика). Задаётся только
+    # у сервиса и не внутри контейнера; у листа хранится как намерение (Р3). Отказы — 422
+    # словами продукта (app/element_rules), те же, что у NodeUpdate.
+    element: NodeElement | None = None
     # ЯКОРЬ узла при создании: объект может родиться сразу опознаваемым из кода
     # (агент MCP создаёт узел и тут же привязывает его к репозиторию — иначе
     # понадобился бы второй PATCH). Правила и отказы те же, что у NodeUpdate.source:
@@ -100,9 +113,17 @@ class NodeUpdate(BaseModel):
     shape: NodeShape | None = None
     status: NodeStatus | None = None
     # Статус СТРАНИЦЫ (docs/tasks/page-status.md). Не прислан — не трогаем (фронт шлёт
-    # его только из пилюли, отдельным PATCH). У контейнера (есть дети) — 422: его
-    # статус складывается из детей. В NodeCreate поля нет: новый объект всегда «в работе».
+    # его только из пилюли, отдельным PATCH). У системы — 422: её статус складывается
+    # из вложенных объектов; контейнер (и с компонентами), компонент и «Пользователь»
+    # ставят свой (Р14 эпика элементов). В NodeCreate поля нет: новый объект всегда
+    # «в работе».
     approval: NodeApproval | None = None
+    # Элемент архитектуры. Не прислан — не трогаем (фронт шлёт полный payload свойств и не
+    # обязан знать про элемент); null — очистка («не сказано»), разрешена всегда; значение —
+    # проверяется при СМЕНЕ (app/element_rules: форма, «внутри контейнера», состав
+    # контейнера), отказ — 422. Поле структурное: смена меняет вид всего поддерева и
+    # двигает graph_rev, а не meta_rev.
+    element: NodeElement | None = None
     # ЯКОРЬ узла. Поле НЕ ПРИСЛАНО — якорь не трогаем (фронт шлёт полный payload
     # свойств и не обязан знать про якорь); прислан null или объект без значимых
     # полей — якорь очищается; объект с полями — нормализуется (app/identity) и
@@ -141,11 +162,26 @@ class NodeResponse(BaseModel):
     child_count: int = 0
     has_children: bool = False
     # Статус СТРАНИЦЫ объекта (не жизненный цикл status): approval — хранимое значение
-    # (ставит редактор у листа), approval_effective — вычисленное с учётом детей
-    # (app/approval.py): у листа совпадает с хранимым, у контейнера — approved, только
-    # если согласованы все дети. Показывать надо approval_effective.
+    # (ставит редактор у всего, кроме системы), approval_effective — показываемое
+    # (app/approval.py): у контейнера, компонента и «Пользователя» совпадает с хранимым,
+    # у системы — approved, только если согласованы все вложенные объекты, кроме
+    # вложенных систем. Показывать надо approval_effective.
     approval: NodeApproval = "in_progress"
     approval_effective: NodeApproval = "in_progress"
+    # Элемент архитектуры (docs/plan-c4-elements.md): element — хранимое значение
+    # (system | container | null, null — «не сказано»), element_effective — действующее
+    # (app/element.py): system | container | component, у «Пользователя» null. Показывать
+    # и рассуждать надо по element_effective: лист вне контейнера — контейнер при любом
+    # хранимом, всё внутри контейнера — компоненты. Оба поля без дефолта: сервер отдаёт
+    # их всегда, и в генерате фронта они обязательные (не «?:»), а выдача, забывшая
+    # проставить действующий элемент, видна сторожу как null (tests/test_element_api.py).
+    element: NodeElement | None
+    element_effective: NodeElementEffective | None
+    # Контейнер, частью которого узел является: имя ближайшего контейнера у компонента,
+    # у остальных null (Ф5 эпика элементов; строка «Компонент контейнера «orders»» в
+    # свойствах). Проставляется там же, где element_effective (app/element_marks.stamp_element).
+    # Без дефолта, как element_effective: в генерате фронта поле обязательное.
+    container_name: str | None
     # Якорь узла: канонический ключ хранения (source_ref) и он же разобранный
     # по видам (source). Ставится прогоном агента ИЛИ рукой архитектора —
     # PATCH принимает source (см. NodeUpdate). Разобранный вид — для карточки
@@ -170,6 +206,9 @@ class AncestorRef(BaseModel):
     name: str
     # внешний ли узел-предок — нужно для цвета свёрнутого гостя-контейнера на схеме
     is_external: bool = False
+    # Действующий элемент архитектуры предка (как NodeResponse.element_effective): фронт
+    # строит по цепочке предков вложенные рамки гостей и не вычисляет элемент сам.
+    element_effective: NodeElementEffective | None
 
 
 class GhostNodeResponse(BaseModel):
@@ -186,6 +225,8 @@ class GhostNodeResponse(BaseModel):
     has_children: bool = False
     # число прямых детей — для бейджа «есть дети (N)» на узле-госте схемы уровня.
     child_count: int = 0
+    # Действующий элемент архитектуры гостя (как NodeResponse.element_effective).
+    element_effective: NodeElementEffective | None
     # цепочка предков (корень → непосредственный родитель) — по ней фронт
     # проецирует конец на видимого представителя и строит вложенные рамки
     ancestors: list[AncestorRef] = []
@@ -251,25 +292,117 @@ class NodeEdgeInfo(BaseModel):
     other_node_name: str
 
 
+class PlacementRowOut(BaseModel):
+    """Строка таблицы площадок в окне последствий: объект и имена его площадок в порядке
+    площадок проекта (порядок имени, как в списке площадок)."""
+    node_id: uuid.UUID
+    name: str
+    sites: list[str]
+
+
+class ElementChangePreview(BaseModel):
+    """Последствия смены элемента или переноса узла — БЕЗ записи (app/element_change, Р18).
+
+    kind — что переезжает: система → контейнер (узел займёт площадки своих частей),
+    контейнер → система (площадки контейнера получит каждый объект внутри), вход в
+    контейнер (контейнер займёт и площадки переносимого), выход из него (переносимое
+    получит площадки контейнера) и первый вложенный объект у листа с площадками (лист
+    станет системой, его площадки получат объекты внутри); none — площадки на месте.
+    before и after — строки с непустыми площадками до и после. docs_names — объекты, чья
+    документация останется на месте и будет отмечена рекомендацией. container_name —
+    контейнер-участник переноса (цель или прежний), у первого вложенного объекта — лист,
+    ставший системой, у смены элемента — null. Последствий нет, когда before == after и
+    docs_names пуст: окно тогда не нужно."""
+    kind: ElementChangeKind
+    before: list[PlacementRowOut]
+    after: list[PlacementRowOut]
+    docs_names: list[str]
+    container_name: str | None
+
+
 # --- Алерты незавершённости схемы (глобальные, только для архитектора) ---
 
 class DistributeDocAssignment(BaseModel):
-    """Назначение одного собственного дока контейнера конкретному ребёнку."""
+    """Назначение одной собственной схемы логики узла получателю. Имя поля child_id —
+    историческое: получатель — любой потомок, у которого схемы логики на месте."""
     doc_id: uuid.UUID
     child_id: uuid.UUID
 
 
 class DistributeDocsIn(BaseModel):
-    """Вход переноса: маппинг доков по детям + опциональный ребёнок для спецификации.
+    """«Перенести документацию» (POST /nodes/{id}/docs/distribute, Р19 эпика элементов):
+    получатели — по семьям фактов, в поддереве узла (app/facts_transfer).
 
-    openapi_spec у узла один: переносится целиком на ОДНОГО ребёнка
-    (spec_child_id). Если детей несколько и спецификация есть — пользователь в
-    модалке выбирает, кому она отойдёт."""
+    Схемы логики — компоненту (в том числе составному) или объекту без вложенных вне
+    контейнера; спецификация (одна у узла, переезжает целиком) — потомку-контейнеру
+    (spec_child_id); все собственные параметры конфигурации — одному потомку-контейнеру
+    (params_target_id). null — эту часть не переносить."""
     doc_assignments: list[DistributeDocAssignment] = []
     spec_child_id: uuid.UUID | None = None
+    params_target_id: uuid.UUID | None = None
 
 
 class DistributeDocsOut(BaseModel):
     """Отчёт переноса."""
     moved_docs: int
+    spec_moved: bool
+    moved_params: int
+
+
+class CollectComponentOut(BaseModel):
+    """Компонент с фактами процесса: сколько у него параметров и есть ли спецификация."""
+    node_id: uuid.UUID
+    name: str
+    params: int
+    has_spec: bool
+
+
+class CollectCandidateOut(BaseModel):
+    """Кто держит одноимённый параметр (в том числе сам контейнер) и его описание."""
+    node_id: uuid.UUID
+    node_name: str
+    description: str | None
+
+
+class CollectClashOut(BaseModel):
+    """Одноимённый параметр у нескольких объектов: это один и тот же параметр
+    контейнера, остаётся одно описание — какое, выбирает пользователь."""
+    name: str
+    candidates: list[CollectCandidateOut]
+
+
+class CollectSpecOut(BaseModel):
+    """Объект со спецификацией (сам контейнер или его компонент)."""
+    node_id: uuid.UUID
+    name: str
+
+
+class CollectFactsPreview(BaseModel):
+    """«Собрать с компонентов» без записи (GET /nodes/{id}/facts/collect-preview):
+    компоненты с фактами процесса, одноимённые параметры и держатели спецификации.
+    Пустые components — собирать нечего."""
+    components: list[CollectComponentOut]
+    param_clashes: list[CollectClashOut]
+    specs: list[CollectSpecOut]
+
+
+class CollectParamChoice(BaseModel):
+    """Выбор при одноимённых параметрах: чьё описание остаётся."""
+    name: str
+    node_id: uuid.UUID
+
+
+class CollectFactsIn(BaseModel):
+    """«Собрать с компонентов»: все параметры компонентов переезжают контейнеру; для
+    одноимённых обязателен выбор (param_choices). spec_from — компонент, чья
+    спецификация переезжает контейнеру (заменяя его прежнюю); null — спецификации не
+    трогать."""
+    param_choices: list[CollectParamChoice] = []
+    spec_from: uuid.UUID | None = None
+
+
+class CollectFactsOut(BaseModel):
+    """Отчёт сбора: сколько параметров переехало контейнеру и переехала ли
+    спецификация."""
+    moved_params: int
     spec_moved: bool

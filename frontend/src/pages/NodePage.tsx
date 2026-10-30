@@ -4,7 +4,7 @@
 import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
-import { canHaveChildren, shapeDocs } from "../types";
+import { nodeNesting, shapeDocs, treeNesting } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors } from "../components/graph/colors";
@@ -17,8 +17,9 @@ import { useContainerChildren } from "./useContainerChildren";
 import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
 import ConfigParamsSection from "../components/ConfigParamsSection";
+import { useFactsTransfer } from "../components/element/useFactsTransfer";
+import { pageElement } from "../components/element/elementView";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
-import DistributeDocsModal from "../components/DistributeDocsModal";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
 import DocsAgentModal from "../components/docsImport/DocsAgentModal";
@@ -53,6 +54,10 @@ const nodeSig = (n: Node): string => JSON.stringify([
   // Статус страницы — пилюля у имени. У контейнера вычисленный статус меняет чужое
   // согласование РЕБЁНКА (meta_rev): без него в сигнатуре страница промолчала бы.
   n.approval, n.approval_effective,
+  // Элемент архитектуры — хранимый и действующий: чужая смена элемента двигает graph_rev,
+  // а действующий меняется и без правки самого узла (предок стал контейнером — узел
+  // стал компонентом), поэтому version строки здесь не помощник.
+  n.element, n.element_effective,
   // Размещение — строка «Свойств» (Ф3 развёртывания): чужая смена площадок двигает
   // курсоры, но не CAS узла, — без неё в сигнатуре строка осталась бы прежней.
   n.sites.map((s) => [s.id, s.name, s.kind, s.parent_name, s.partial]),
@@ -163,7 +168,7 @@ function NodePageInner({
   const patch = useNodePatch(initialNode, syncCursors);
   const node = patch.node;
   const shape = node.shape;
-  const isContainer = canHaveChildren(shape) && node.has_children;
+  const isContainer = nodeNesting(node) === "group";
   // Какая документация уместна этой форме (types/shapeDocs). У базы данных не бывает
   // ни схем логики, ни OpenAPI — до 2026-08-12 страница предлагала ей и то, и другое.
   const allow = shapeDocs(shape);
@@ -172,9 +177,25 @@ function NodePageInner({
   // унести их было бы нечем.
   const legacyLogic = !allow.logic && node.docs.length > 0;
   const legacySpec = !allow.spec && !!node.openapi_spec;
-  // Правила контейнеров: непосредственные дети и их объединённые данные
-  // (доки/спеки/технологии). Не контейнер — хук не фетчит.
-  const container = useContainerChildren(node.id, isContainer);
+  // Элемент архитектуры решает секции страницы (Ф8 эпика docs/plan-c4-elements.md).
+  // Система сама не запускается: сводная технология потомков (Р15), статус из вложенных
+  // объектов (Р14), перенос своей документации вниз (Р19), документацию потомков страница
+  // системы не собирает (Р34) — её собирают контейнер с компонентами и составной компонент.
+  const element = pageElement(node, ancestors);
+  const isSystem = element.kind === "system";
+  const descendantDocs = element.kind === "container" || element.kind === "composite";
+  // Потомки узла с детьми (единицы статуса системы) и то, что над ними нужно странице.
+  // Лист — хук не фетчит.
+  const container = useContainerChildren(node.id, isContainer, { docs: descendantDocs, tech: isSystem });
+  // Контейнер компонента — один запрос: его площадки (строка «Размещение») и есть ли у
+  // него спецификация («OpenAPI»). Не компонент или контейнер не найден в крошках —
+  // запроса нет.
+  const containerId = element.kind === "component" || element.kind === "composite" ? element.container.id : null;
+  const componentContainer = useAsyncLoad(
+    `container:${containerId ?? "none"}`,
+    () => (containerId ? nodesApi.get(containerId) : Promise.resolve(null)),
+  );
+  const containerNode = componentContainer.data;
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -195,9 +216,6 @@ function NodePageInner({
   // Токен мутации (правка связи со страницы): секция «Схема» перерисовывает
   // изменившиеся стрелки анимированно (окно мутаций, AN28а).
   const [mutationToken, setMutationToken] = useState(0);
-  // Модалка «Распределить по детям» (правила контейнеров, grandfather-доки/спека)
-  const [distributeOpen, setDistributeOpen] = useState(false);
-  const openDistribute = useCallback(() => setDistributeOpen(true), []);
   const openDocsAgent = useCallback(() => setDocsAgent(true), []);
   const openReconAgent = useCallback(() => setReconAgent(true), []);
   // CAS-база для правки openapi РЕБЁНКА со страницы контейнера: полный узел
@@ -258,6 +276,17 @@ function NodePageInner({
     onEdgesReload();
     setPageEpoch((e) => e + 1);
   }, [refreshNode, isContainer, reloadChildren, onEdgesReload]);
+
+  // «Перенести документацию» и «Собрать с компонентов» (Р19 эпика «Элемент архитектуры»):
+  // запись меняет мету узла, его потомков и параметры — свежий узел, потомки, курсоры
+  // (своя запись) и новая эпоха секций (секция конфигурации грузит себя при маунте).
+  const handleFactsMoved = useCallback(() => {
+    refreshNode();
+    if (isContainer) reloadChildren();
+    syncCursors();
+    setPageEpoch((e) => e + 1);
+  }, [refreshNode, isContainer, reloadChildren, syncCursors]);
+  const facts = useFactsTransfer(node, isArchitect, pageEpoch, handleFactsMoved);
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
   const handleDocEvent = useCallback((evt: NodeDocEvent) => {
@@ -351,7 +380,7 @@ function NodePageInner({
           {/* Глиф + имя + бейджи */}
           <div className="np-title-row">
             <span className="np-glyph" style={{ background: colors.bg }}>
-              <HeaderGlyph shape={shape} container={isContainer} />
+              <HeaderGlyph shape={shape} nesting={treeNesting(node)} />
             </span>
 
             {isArchitect ? (
@@ -372,11 +401,11 @@ function NodePageInner({
               <span className="np-name">{node.name}</span>
             )}
 
-            {/* Статус страницы: у листа — выбор редактора, у контейнера — из детей */}
+            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор редактора */}
             <ApprovalPill
               node={node}
               isArchitect={isArchitect}
-              children={container.children}
+              units={container.units}
               onNavigateNode={onNavigateNode}
               onPick={patch.pickApproval}
             />
@@ -435,10 +464,13 @@ function NodePageInner({
         <Fragment key={pageEpoch}>
         <NodeProperties
           patch={patch}
+          ancestors={ancestors}
           isArchitect={isArchitect}
-          isContainer={isContainer}
+          isSystem={isSystem}
           techLoading={container.loading}
           aggTech={container.aggTech}
+          containerSites={containerNode ? containerNode.sites : null}
+          onNavigateNode={onNavigateNode}
           onPlacementChanged={handlePlacementChanged}
         />
 
@@ -512,21 +544,25 @@ function NodePageInner({
               бы хуже, чем показать с предупреждением). */}
           <ConfigParamsSection
             nodeId={node.id}
+            element={element}
             isArchitect={isArchitect}
             allowed={allow.config}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectParams}
+            onNavigateNode={onNavigateNode}
           />
 
           {/* ── Логика (node_docs) ────────────────────────────────── */}
           <LogicSection
             node={node}
-            isContainer={isContainer}
+            element={element}
             isArchitect={isArchitect}
             allowed={allow.logic}
             legacy={legacyLogic}
             groups={container.docGroups}
             loading={container.loading}
             onOpen={setDoc}
-            onDistribute={openDistribute}
+            onTransfer={facts.openTransfer}
             onDocsAgent={openDocsAgent}
             onReconAgent={openReconAgent}
             onNavigateNode={onNavigateNode}
@@ -536,7 +572,9 @@ function NodePageInner({
           {/* ── OpenAPI ───────────────────────────────────────────── */}
           <OpenApiSection
             spec={node.openapi_spec}
-            isContainer={isContainer}
+            docs={node.docs}
+            element={element}
+            containerHasSpec={containerNode ? (containerNode.openapi_spec ?? "").trim() !== "" : null}
             isArchitect={isArchitect}
             allowed={allow.spec}
             legacy={legacySpec}
@@ -544,7 +582,8 @@ function NodePageInner({
             loading={container.loading}
             onOpen={setDoc}
             onOpenChildSpec={openChildSpec}
-            onDistribute={openDistribute}
+            onTransfer={isSystem ? facts.openTransfer : undefined}
+            onCollect={facts.collectSpec}
             onNavigateNode={onNavigateNode}
           />
         </div>
@@ -647,21 +686,8 @@ function NodePageInner({
         />
       )}
 
-      {/* «Распределить по детям» (правила контейнеров): перенос собственных
-          (grandfather) схем логики и спеки контейнера на детей. */}
-      {distributeOpen && isContainer && (
-        <DistributeDocsModal
-          nodeId={node.id}
-          onClose={() => setDistributeOpen(false)}
-          onApplied={() => {
-            // Перенос изменил мету узла (доки/спека ушли детям) и мету детей:
-            // свежий узел (обновляет CAS-базу и значения полей — секции «Логика»/
-            // «OpenAPI» пересчитаются) и перезагрузка детей для объединения.
-            refreshNode();
-            container.reload();
-          }}
-        />
-      )}
+      {/* «Перенести документацию» и «Собрать с компонентов» (Р19). */}
+      {facts.dialogs}
     </div>
   );
 }

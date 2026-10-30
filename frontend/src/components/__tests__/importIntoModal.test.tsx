@@ -69,12 +69,13 @@ const В_КОНТЕЙНЕР: ContainerEdgeOut = {
   id: "edge|Склад / Синхронизатор|Ярмарка||target",
   from_path: "Склад / Синхронизатор", to_path: "Ярмарка",
   label: "заказы", technology: "HTTP", end: "target", container_path: "Ярмарка",
+  container_element: "container",
   components: [{ path: "Ярмарка / orders", has_children: false }],
 };
 
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [], ...over,
 });
 
 const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({

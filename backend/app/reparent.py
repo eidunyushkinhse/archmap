@@ -27,6 +27,8 @@ from sqlalchemy.orm import Session
 
 from app import tree
 from app.domain_types import NodeShape
+from app.element_marks import project_element_rows
+from app.element_rules import store_refusal
 from app.models.broker_channel import BrokerChannel
 from app.models.db_table import DbTable
 from app.models.deployment_instance import DeploymentInstance
@@ -39,12 +41,23 @@ from app.view_state import bump_view_version
 # Формы, внутрь которых можно вкладывать объекты. Зеркало фронтового
 # canHaveChildren: у БД, брокера и человека детей не бывает.
 CONTAINER_SHAPES = {"service"}
+# Отказ «внутрь формы без детей» — общий у переноса и создания (routers/nodes.create_node).
+NO_CHILDREN = "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"
 
 
 def validate_reparent(
-    db: Session, project: Project, node: Node, new_parent_id: uuid.UUID | None
+    db: Session,
+    project: Project,
+    node: Node,
+    new_parent_id: uuid.UUID | None,
+    *,
+    shape: str | None = None,
 ) -> str | None:
-    """Причина, по которой переносить нельзя, либо None. Чистая проверка, без HTTP."""
+    """Причина, по которой переносить нельзя, либо None. Чистая проверка, без HTTP.
+
+    shape — форма узла после правки, если тот же запрос её меняет (иначе текущая): база
+    или брокер внутри контейнера (Р6 эпика элементов) проверяются по дереву после
+    переноса."""
     # Человек по C4 живёт на контекстном уровне, ЗА границей системы — именно это
     # нарушение и ловит алерт AL25. Запрет односторонний: вынести человека НАРУЖУ
     # (parent_id = None) можно всегда, иначе алерт снова стал бы тупиком.
@@ -62,10 +75,20 @@ def validate_reparent(
     if parent is None:
         return "Новый родитель не найден в проекте"
     if parent.shape not in CONTAINER_SHAPES:
-        return "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"
+        return NO_CHILDREN
     if new_parent_id in tree.collect_subtree_ids_db(db, node.id):
         return "Объект нельзя перенести внутрь собственного потомка"
-    return None
+    # Р6: база или брокер — сам переносимый или в его поддереве — не входят в контейнер.
+    # Контейнер внутрь контейнера переносить можно: по Р5 он становится составным
+    # компонентом, хранимое значение спит (действующий элемент решают предки).
+    return store_refusal(
+        project_element_rows(db, project.id),
+        node_id=node.id,
+        name=node.name,
+        parent_id=new_parent_id,
+        shape=shape or node.shape,
+        action="move",
+    )
 
 
 def _outside_rows(db: Session, project_id: uuid.UUID, node: Node) -> list[ViewLayoutItem]:
@@ -114,7 +137,13 @@ def strip_layout(db: Session, project: Project, node: Node, old_parent: uuid.UUI
         bump_view_version(db, project.id, vid)
 
 
-def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str | None:
+def validate_shape_change(
+    db: Session,
+    node: Node,
+    new_shape: NodeShape,
+    *,
+    parent_id: uuid.UUID | None,
+) -> str | None:
     """Причина, по которой форму узла менять нельзя, либо None. Чистая проверка, без HTTP.
 
     Оба запрета — про то, чем узел УЖЕ владеет и чего новая форма держать не умеет:
@@ -135,6 +164,10 @@ def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str 
     Доки логики и OpenAPI смену на person/broker не держат осознанно: страница
     показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
     с предупреждением и без кнопок добавления, то есть унести его есть чем.
+
+    И запрет по месту, а не по владению: база или брокер не входят в контейнер (Р6 эпика
+    элементов). Объект внутри контейнера — его компонент, и стать базой или брокером он
+    не может. parent_id — родитель после правки (тот же запрос может и переносить).
     """
     if new_shape not in CONTAINER_SHAPES:
         has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
@@ -161,4 +194,11 @@ def validate_shape_change(db: Session, node: Node, new_shape: NodeShape) -> str 
         )
         if placed:
             return "У объекта указано размещение — у пользователя его нет, сначала снимите его"
-    return None
+    return store_refusal(
+        project_element_rows(db, node.project_id),
+        node_id=node.id,
+        name=node.name,
+        parent_id=parent_id,
+        shape=new_shape,
+        action="shape",
+    )

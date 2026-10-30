@@ -22,6 +22,7 @@ function block(id: string, parent_id: string | null, kids = 0): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids > 0, child_count: kids,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: kids > 0 ? "system" : "container", container_name: null,
   } as AppNode;
 }
 function edge(id: string, source_id: string, target_id: string, label: string | null = null): AppEdge {

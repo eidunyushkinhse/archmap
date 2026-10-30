@@ -51,7 +51,8 @@ vi.mock("../graph/interaction/useEdgeConnect", async () => (await import("./leve
 const ghost = (id: string): GhostNode => ({
   id, name: id.toUpperCase(), role: null, technology: null, is_external: false,
   shape: "service", status: "existing", node_depth: 2, has_children: false,
-  child_count: 0, ancestors: [{ id: "c1", name: "C1", is_external: false }],
+  child_count: 0, element_effective: "container",
+  ancestors: [{ id: "c1", name: "C1", is_external: false, element_effective: "system" }],
   is_ghost: true,
 });
 const edge = (id: string, source: string, target: string): AppEdge => ({

@@ -41,6 +41,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
   const edges = useMemo(() => toLevelEdges(graph), [graph]);
   const ancestorNames = useMemo(() => scene.ancestors.map((a) => a.name), [scene]);
   const ancestorIds = useMemo(() => scene.ancestors.map((a) => a.id), [scene]);
+  const ancestorElements = useMemo(() => scene.ancestors.map((a) => a.element_effective), [scene]);
 
   useEffect(() => {
     if (!active) return;
@@ -123,7 +124,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
       {!active && (
         <button type="button" className="esb-activate lp-activate" onClick={activate}>
           <span className="esb-activate-pill lp-pill">
-            <span className="lp-pill-long">Нажмите, чтобы двигать объекты и раскрывать контейнеры</span>
+            <span className="lp-pill-long">Нажмите, чтобы двигать объекты и заглядывать внутрь систем</span>
             <span className="lp-pill-short">Попробовать</span>
           </span>
         </button>
@@ -139,6 +140,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
           persistence={persistence}
           ancestorNames={ancestorNames}
           ancestorIds={ancestorIds}
+          ancestorElements={ancestorElements}
           depth={scene.ancestors.length}
           isArchitect
           linkedHighlight={linkedHighlight}

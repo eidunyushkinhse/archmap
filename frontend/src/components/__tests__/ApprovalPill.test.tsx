@@ -1,10 +1,11 @@
 // Пилюля статуса страницы у имени объекта (docs/tasks/page-status.md).
 //
-// Что закрепляем: у листа редактор выбирает статус из выпадашки (выбор зовёт onPick,
-// текущий помечен), читатель видит пилюлю без стрелки и без выпадашки; у контейнера
-// обе роли видят счётчик «N из M» и список детей с точками, клик по строке открывает
-// страницу ребёнка; Escape и клик мимо закрывают выпадашку. Вычисленный статус
-// контейнера берётся из approval_effective — сам компонент правила не знает.
+// Что закрепляем: у листа и у контейнера с компонентами (Р14 эпика элементов) редактор
+// выбирает статус из выпадашки (выбор зовёт onPick, текущий помечен), читатель видит
+// пилюлю без стрелки и без выпадашки; у системы обе роли видят счётчик «N из M» и
+// список единиц с точками, клик по строке открывает его страницу; Escape и клик мимо
+// закрывают выпадашку. Система — по element_effective, её статус — approval_effective:
+// сам компонент правил не знает.
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import type { Node } from "../../types";
@@ -21,7 +22,9 @@ function makeNode(over: Partial<Node> = {}): Node {
   } as Node;
 }
 
-const container = makeNode({ id: "c", name: "Заказы", has_children: true, child_count: 3 });
+const container = makeNode({
+  id: "c", name: "Заказы", has_children: true, child_count: 3, element_effective: "system",
+});
 const kids = [
   makeNode({ id: "a", name: "Сервис заказов", parent_id: "c", approval: "approved", approval_effective: "approved" }),
   makeNode({ id: "b", name: "База заказов", parent_id: "c", shape: "database" }),
@@ -35,7 +38,7 @@ function renderPill(props: Partial<Parameters<typeof ApprovalPill>[0]> = {}) {
     <ApprovalPill
       node={makeNode()}
       isArchitect
-      children={null}
+      units={null}
       onNavigateNode={onNavigateNode}
       onPick={onPick}
       {...props}
@@ -83,10 +86,35 @@ describe("ApprovalPill", () => {
     expect(onPick).not.toHaveBeenCalled();
   });
 
-  it("контейнер: счётчик, список детей с точками, клик по строке открывает страницу ребёнка", () => {
-    const { onNavigateNode, onPick } = renderPill({ node: container, children: kids, isArchitect: false });
-    const pill = screen.getByRole("button", { name: /В работе · 2 из 3/ });
+  it("контейнер с компонентами + редактор: свой статус, как у листа", () => {
+    const { onPick } = renderPill({
+      node: makeNode({ id: "o", name: "orders", has_children: true, child_count: 2, element_effective: "container" }),
+      units: null,
+    });
+    const pill = screen.getByRole("button", { name: /В работе/ });
+    expect(pill.textContent).not.toContain("из");
+    expect(pill.title).toBe("Статус страницы");
     fireEvent.click(pill);
+    expect(screen.getByText("Статус страницы")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Согласовано проверено редактором/ }));
+    expect(onPick).toHaveBeenCalledWith("approved");
+  });
+
+  it("компонент + читатель: пилюля без выпадашки, как у листа", () => {
+    const { container: root } = renderPill({
+      node: makeNode({ id: "a", name: "api", parent_id: "o", element_effective: "component" }),
+      isArchitect: false,
+    });
+    expect(screen.queryByRole("button")).toBeNull();
+    expect((root.querySelector(".np-approval") as HTMLElement).title).toBe("Статус меняет редактор проекта");
+  });
+
+  it("система: счётчик, список единиц с точками, клик по строке открывает его страницу", () => {
+    const { onNavigateNode, onPick } = renderPill({ node: container, units: kids, isArchitect: false });
+    expect(screen.getByRole("button", { name: /В работе · 2 из 3/ }).title).toBe(
+      "Статус системы складывается из вложенных объектов",
+    );
+    fireEvent.click(screen.getByRole("button", { name: /В работе · 2 из 3/ }));
     expect(screen.getByText("Согласовано 2 из 3")).toBeTruthy();
     const row = screen.getByRole("button", { name: "База заказов" });
     expect(row.querySelector(".np-approval-dot--work")).toBeTruthy();
@@ -98,17 +126,17 @@ describe("ApprovalPill", () => {
     expect(screen.queryByText("Согласовано 2 из 3")).toBeNull();
   });
 
-  it("контейнер: зелёный по вычисленному статусу сервера, а не по хранимому", () => {
+  it("система: зелёный по вычисленному статусу сервера, а не по хранимому", () => {
     renderPill({
       node: { ...container, approval: "in_progress", approval_effective: "approved" },
-      children: kids.map((k) => ({ ...k, approval: "approved" as const, approval_effective: "approved" as const })),
+      units: kids.map((k) => ({ ...k, approval: "approved" as const, approval_effective: "approved" as const })),
     });
     const pill = screen.getByRole("button", { name: /Согласовано · 3 из 3/ });
     expect(pill.className).toContain("np-approval--ok");
   });
 
-  it("контейнер: пока дети грузятся — без счётчика, в выпадашке «Загрузка…»", () => {
-    renderPill({ node: container, children: null });
+  it("система: пока вложенные объекты грузятся — без счётчика, в выпадашке «Загрузка…»", () => {
+    renderPill({ node: container, units: null });
     const pill = screen.getByRole("button", { name: /В работе/ });
     expect(pill.textContent).not.toContain("из");
     fireEvent.click(pill);

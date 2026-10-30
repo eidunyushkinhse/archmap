@@ -10,6 +10,7 @@ function node(sites: Node["sites"], has_children = false): Node {
     id: "n1", name: "Витрина", description: null, role: null, technology: null, parent_id: "p1",
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: has_children ? 2 : 0, has_children, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: has_children ? "system" : "container", container_name: null,
     version: 3, created_at: "", updated_at: "", sites,
   };
 }

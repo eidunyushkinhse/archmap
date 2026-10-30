@@ -36,7 +36,7 @@ const red = (errors: string[], over: Partial<ImportPreviewOut> = {}): ImportPrev
 // Пустой остаток: превью без вопросов. Точечные тесты доливают в него своё.
 const ОСТАТОК: RemainderOut = {
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [],
 };
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({ ...ОСТАТОК, ...over });
 

@@ -17,6 +17,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from app.domain_types import NodeElementEffective
 from app.schemas.channels_import import ChannelsImportReport
 from app.schemas.config_import import ConfigImportReport
 from app.schemas.data_import import DataImportReport
@@ -94,21 +95,28 @@ class FieldDisputeOut(BaseModel):
 
     id: str  # «field|путь узла|поле»
     node_path: str
-    field: Literal["description", "technology", "role", "shape", "status"]
+    # element — элемент архитектуры: «Система» против «Контейнера» (Р31); имена прочих
+    # полей контракта остатка не меняются.
+    field: Literal["description", "technology", "role", "shape", "status", "element"]
     candidates: list[RemainderCandidateOut]  # в порядке входов
     default: int  # индекс кандидата, который применится без ответа
 
 
 class ComponentOut(BaseModel):
-    """Компонент контейнера — возможная цель конца связи."""
+    """Объект внутри конца связи — возможная цель её конца (и строка пикера концов
+    новой связи)."""
 
     path: str  # полный путь: «Grafana / Сервер Grafana / Рантайм плагинов»
     has_children: bool
+    # Действующий элемент в слитом дереве (app/element): тег объекта с вложенными —
+    # «система» или «контейнер»; у «Пользователя» — null.
+    element_effective: NodeElementEffective | None = None
 
 
 class ContainerEdgeOut(BaseModel):
-    """Конец связи, легший на контейнер целиком (§4.3 ТЗ). Оба конца в
-    контейнерах — ДВА элемента: у каждого свой ответ."""
+    """Конец связи, легший на объект с вложенными целиком (§4.3 ТЗ). Оба конца в
+    таких объектах — ДВА элемента: у каждого свой ответ. Имя класса историческое:
+    конец бывает и системой."""
 
     id: str  # «edge|откуда|куда|подпись|конец»
     from_path: str
@@ -117,7 +125,23 @@ class ContainerEdgeOut(BaseModel):
     technology: str | None = None
     end: Literal["source", "target"]
     container_path: str
-    components: list[ComponentOut]  # всё поддерево контейнера, без капа
+    # Элемент конца в слитом дереве — слова вопроса: «система» (вложенные объекты) или
+    # «контейнер» (компоненты; так же зовётся и составной компонент — редкость).
+    container_element: Literal["system", "container"]
+    components: list[ComponentOut]  # всё поддерево конца, без капа
+
+
+class ContainerHintOut(BaseModel):
+    """Вопрос «похоже на контейнер» (Р7 эпика элементов архитектуры): у узла с детьми
+    во входе нет элемента, а источники кода говорят, что дети — части одной программы
+    (app/container_hints). Ответ «container» отмечает узел контейнером до записи,
+    «system» и молчание оставляют как есть."""
+
+    id: str  # «hint|адрес узла»
+    node_path: str
+    children: list[str]  # имена прямых детей в порядке дерева; кап перечня — дело фронта
+    folder: str  # путь узла в репозитории — каталог, где лежат дети
+    repo: str
 
 
 class IsolatedGroupOut(BaseModel):
@@ -163,6 +187,7 @@ class RemainderOut(BaseModel):
     результат: спрашивать не о чем)."""
 
     field_conflicts: list[FieldDisputeOut] = []
+    container_hints: list[ContainerHintOut] = []
     container_edges: list[ContainerEdgeOut] = []
     isolated_groups: list[IsolatedGroupOut] = []
     fuzzy_pairs: list[FuzzyPairOut] = []
@@ -175,9 +200,10 @@ class RemainderOut(BaseModel):
     # MCP, и объединение корзин обязано оставаться плоскими списками отчёта.
     converted_warnings: list[str] = []
     # Слитое дерево для пикера концов новой связи (§5.3/5.4): полные пути всех
-    # узлов и признак «контейнер» строка в строку.
+    # узлов, признак «есть вложенные» и действующий элемент строка в строку.
     node_paths: list[str] = []
     node_has_children: list[bool] = []
+    node_elements: list[NodeElementEffective | None] = []
 
 
 class UnifiedFamilyCountsOut(BaseModel):

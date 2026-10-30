@@ -10,12 +10,17 @@ import {
   nodeContainer, SELECTED_GLOW,
   tagChip, nodeActions, nodeBtn,
 } from "./shapes";
-import type { BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers } from "./types";
+import type {
+  BlockRFNode, GhostRFNode, ContainerRFNode, FrameRFNode, FrameDockRFNode, SiteRFNode, QuickConnectHandlers,
+  FrameElement,
+} from "./types";
 import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
-import FramePlaque from "./FramePlaque";
+import FramePlaque, { FrameLabel } from "./FramePlaque";
+import { frameStyle, frameClass } from "./frameStyle";
+import { frameElement } from "./layout/frames";
 import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
@@ -45,12 +50,18 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
   );
 }
 
-// Бейдж «есть дети»: глиф-дерево (узел-родитель сверху, ветви к детям вниз) + число
-// прямых детей. Показывается у узлов с под-схемой — сигнал «сюда можно войти», читаемый
-// без вглядывания в кнопки. Цвет наследует text-цвет узла. child_count считает бэкенд.
-// На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2), total — все дети по БД:
-// при расхождении бейдж показывает «N из M» (сколько на схеме из скольких всего).
-function ChildrenBadge({ count, total, color }: { count: number; total?: number; color: string }) {
+// Бейдж «есть дети»: глиф + число прямых детей. Показывается у узлов с под-схемой —
+// сигнал «сюда можно войти», читаемый без вглядывания в кнопки. Глиф — по элементу
+// архитектуры (Р21): у системы дерево (узел-родитель сверху, ветви к детям вниз), у
+// контейнера и составного компонента — четыре квадратика «компоненты» (вложенные у них —
+// компоненты). Признак в DOM — data-glyph="tree" | "grid". Цвет наследует text-цвет узла.
+// child_count считает бэкенд. На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2),
+// total — все дети по БД: при расхождении бейдж показывает «N из M» (сколько на схеме из
+// скольких всего).
+function ChildrenBadge({ count, total, color, element }: {
+  count: number; total?: number; color: string; element: FrameElement;
+}) {
+  const grid = element !== "system";
   return (
     <span style={{
       position: "absolute", right: 12, bottom: 12, zIndex: 1,
@@ -60,12 +71,24 @@ function ChildrenBadge({ count, total, color }: { count: number; total?: number;
     }}>
       <svg width={13} height={13} viewBox="0 0 24 24" fill="none"
         stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round"
-        style={{ display: "block" }} aria-hidden>
-        <circle cx="12" cy="6" r="2.3" />
-        <circle cx="6" cy="18" r="2.3" />
-        <circle cx="18" cy="18" r="2.3" />
-        <path d="M12 8.3 V13" />
-        <path d="M6 15.7 V13 H18 V15.7" />
+        style={{ display: "block" }} aria-hidden data-glyph={grid ? "grid" : "tree"}>
+        {grid ? (
+          // компоненты: сетка 2×2 квадратиков 7×7 с зазором 2, по центру поля 24×24
+          <>
+            <rect x="4" y="4" width="7" height="7" rx="1.5" />
+            <rect x="13" y="4" width="7" height="7" rx="1.5" />
+            <rect x="4" y="13" width="7" height="7" rx="1.5" />
+            <rect x="13" y="13" width="7" height="7" rx="1.5" />
+          </>
+        ) : (
+          <>
+            <circle cx="12" cy="6" r="2.3" />
+            <circle cx="6" cy="18" r="2.3" />
+            <circle cx="18" cy="18" r="2.3" />
+            <path d="M12 8.3 V13" />
+            <path d="M6 15.7 V13 H18 V15.7" />
+          </>
+        )}
       </svg>
       {total !== undefined && total > count ? `${count} из ${total}` : count}
     </span>
@@ -303,9 +326,24 @@ function NodeName({ name }: { name: string }) {
 
 // Текст неактивной лупы (C8). Кнопка на предельной глубине остаётся видимой, но не
 // раскрывает: исчезающая кнопка не объясняет себя, а подсказка называет и предел, и
-// выход из него.
+// выход из него. Словами продукта: лупа есть у системы и у контейнера, поэтому
+// «вложенное» и «объект», а не название элемента.
 const LENS_LIMIT_HINT =
-  "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже";
+  "Раскрывать вложенное можно только два раза подряд. Чтобы увидеть состав этого объекта, войдите в него";
+
+// Подпись свёрнутого объекта с вложенными (ContainerNode) — его элемент архитектуры
+// (Р21; до эпика — всегда «контейнер»).
+const ELEMENT_CAPTION: Record<FrameElement, string> = {
+  system: "система",
+  container: "контейнер",
+  component: "компонент",
+};
+
+// Кнопка входа на слой объекта с вложенными — по элементу (лексикон эпика §1.3): у
+// системы «Войти», у контейнера и составного компонента — «Войти к компонентам»
+// (вложенные у них — компоненты). У листа — «Войти».
+const enterTitle = (element: FrameElement): string =>
+  element === "system" ? "Войти" : "Войти к компонентам";
 
 // Лупа «Раскрыть содержимое» — общая для локального блока, гостевого контейнера и
 // карточки свёрнутой площадки (у неё своя подсказка, title).
@@ -409,7 +447,12 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
       {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && <ChildrenBadge count={childCount} total={data.appNode.child_count} color={c.text} />}
+      {intoZone && (
+        <ChildrenBadge
+          count={childCount} total={data.appNode.child_count} color={c.text}
+          element={frameElement(data.appNode.element_effective)}
+        />
+      )}
       {/* Пометка хозяина проекции («1/2» на холсте развёртывания) — тот же угол. */}
       {data.mark && <MarkBadge text={data.mark} color={c.text} />}
       {/* Мета узла открывается двойным кликом по нему (правая панель), отдельной
@@ -423,7 +466,7 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
               data-tour="node-enter"
               onClick={(e) => { e.stopPropagation(); data.onDrillDown?.(data.appNode); }}
               style={btnStyle}
-              title="Войти"
+              title={data.appNode.has_children ? enterTitle(frameElement(data.appNode.element_effective)) : "Войти"}
             ><DrillInIcon /></button>
           )}
           <ExpandLens
@@ -471,12 +514,14 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); onEnter?.(); }}
             style={btnStyle}
-            title="Войти к компонентам"
+            title={enterTitle(frameElement(data.appNode.element_effective))}
           ><DrillInIcon /></button>
         </div>
       )}
       {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter. */}
-      {hasChildren && <ChildrenBadge count={data.appNode.child_count} color={c.text} />}
+      {hasChildren && (
+        <ChildrenBadge count={data.appNode.child_count} color={c.text} element={frameElement(data.appNode.element_effective)} />
+      )}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
         <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren ? 34 : 0 }}>
@@ -513,7 +558,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
               className="nodrag"
               onClick={(e) => { e.stopPropagation(); data.onEnter?.(); }}
               style={btnStyle}
-              title="Войти к компонентам"
+              title={enterTitle(data.element)}
             ><DrillInIcon /></button>
           )}
           {/* Лупа активна, пока контейнер не на пределе инлайн-глубины (C8): глубже
@@ -527,7 +572,7 @@ function ContainerNode({ data, selected }: NodeProps<ContainerRFNode>) {
       )}
       <IntoCue />
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", padding: "12px 14px", paddingRight: 40 }}>
-        <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>контейнер</div>
+        <div style={{ fontSize: 10, opacity: 0.8, fontWeight: 500, marginBottom: 2 }}>{ELEMENT_CAPTION[data.element]}</div>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{data.name}</div>
       </div>
     </div>
@@ -581,18 +626,15 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
   const picking = !!data.onPick;
   return (
     <div
-      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "") + (picking ? " lg-frame--pick" : "")}
+      // класс и вид — по данным рамки (frameStyle.ts): декор, элемент, глубина, внешность
+      className={frameClass(data) + (picking ? " lg-frame--pick" : "")}
       data-frame-id={id}
       onClickCapture={pickCapture(id, data.onPick)}
       style={{
         width: "100%", height: "100%",
-        // толщина из --lg-frame-bw (холст, LevelGraph): 1px при обычном зуме, растёт
-        // при отдалении — на экране рамка всегда ~1px и не исчезает
-        border: site
-          ? "var(--lg-frame-bw, 1px) solid #cbd5e1"
-          : "var(--lg-frame-bw, 1px) dashed #9ca3af",
-        borderRadius: 12, background: site ? "rgba(100,116,139,0.07)" : "transparent",
-        boxSizing: "border-box", pointerEvents: picking ? "auto" : "none",
+        // вид — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
+        ...frameStyle(data),
+        pointerEvents: picking ? "auto" : "none",
       }}
     >
       <FrameHandles nodeId={id} />
@@ -609,14 +651,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         onClick={data.onCollapse}
         title={data.onCollapse ? collapseTitle : undefined}
       >
-        {decor ? (
-          <>
-            {site && <SiteKindIcon kind={decor.icon ?? "other"} size={14} />}
-            <span>{data.name}</span>
-          </>
-        ) : (
-          <span>🔍 {data.name}</span>
-        )}
+        <FrameLabel decor={decor} name={data.name} />
         {data.onCollapse && (
           <button
             className="nodrag"

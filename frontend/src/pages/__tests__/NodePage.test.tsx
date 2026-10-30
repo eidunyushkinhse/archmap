@@ -7,11 +7,11 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodePage from "../NodePage";
-import { nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
+import { configParamsApi, nodesApi, nodeDocsApi, viewsApi } from "../../api/nodes";
 import { deploymentApi } from "../../api/deployment";
 import { ApiError } from "../../api/client";
 import { ProjectRoleContext } from "../projectRole";
-import type { Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
+import type { ConfigParam, Node, NodeDocMeta, NodeEdgeInfo, ProcessListItem, ProjectRole } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
@@ -26,6 +26,10 @@ vi.mock("../../api/nodes", () => ({
     // Живая нормализация источника (поле «Источник» в «Свойствах»): форма зовёт её при
     // вводе. Мок модуля ЦЕЛИКОМ — забыть метод значит уронить форму на «не функция».
     anchorPreview: vi.fn(),
+    // Превью «Собрать с компонентов» (Р19): страница контейнера с компонентами тянет его
+    // при маунте, чтобы решить, показывать ли кнопку сбора.
+    collectPreview: vi.fn(() => Promise.resolve({ components: [], param_clashes: [], specs: [] })),
+    collectFacts: vi.fn(),
   },
   // usage — обратный индекс «используется в процессах» (Ф8): страница тянет его
   // эффектом при маунте, без мока эффект падает на «не функция».
@@ -136,6 +140,8 @@ function node(id: string, over: Partial<Node> = {}): Node {
     child_count: 0,
     approval: "in_progress",
     approval_effective: "in_progress",
+    element: null,
+    element_effective: "container",
     sites: [],
     created_at: "",
     updated_at: "",
@@ -274,10 +280,12 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
-    // getDescendants — для хука агрегации контейнера; getChildren — для модалки
-    // «Распределить по детям» (она сама фетчит непосредственных детей).
+    // getDescendants — для хука агрегации контейнера и окна «Перенести документацию»
+    // (оно само фетчит узел и потомков).
     vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
     vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
+    // Перенос документации — своя запись: страница сверяет курсоры (syncCursors).
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
     return render(<NodePage nodeId="c1" isArchitect {...nav} />);
   }
 
@@ -357,15 +365,21 @@ describe("NodePage: правила контейнеров", () => {
     expect(nav.onNavigateNode).toHaveBeenCalledWith("g1");
   });
 
-  it("свои схемы: предупреждение и «Распределить по детям», создание скрыто", async () => {
+  it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
-    await screen.findByText(/остались собственные логические диаграммы/);
-    expect(screen.getByRole("button", { name: "Распределить по детям" })).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+    await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов");
+    expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
+    // Создания схем в «Логике» нет; «+ Добавить» в «OpenAPI» у контейнера есть — его
+    // спецификация своя (Ф8).
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest(".np-card") as HTMLElement;
+    expect(within(logic).queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
-  it("технология — агрегированная из детей, только чтение", async () => {
+  it("система: технология — агрегированная из детей, только чтение", async () => {
+    // Сводная технология — только у системы (Р15 эпика «Элемент архитектуры»): у
+    // контейнера с компонентами технология своя и правится.
     setupContainer({
+      own: { element_effective: "system" },
       children: [
         node("k1", { name: "А-сервис", technology: "Python" }),
         node("k2", { name: "Б-шлюз", technology: "Kafka" }),
@@ -373,19 +387,41 @@ describe("NodePage: правила контейнеров", () => {
       ],
     });
     expect(await screen.findByText("Python, Kafka")).toBeInTheDocument();
-    // Своего поля technology у контейнера нет — инпута с ним быть не должно
+    // Своего поля technology у системы нет — инпута с ним быть не должно
     expect(screen.queryByDisplayValue("Python")).not.toBeInTheDocument();
   });
 
-  it("модалка распределения: переносит схему выбранному ребёнку", async () => {
-    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false });
+  it("контейнер с компонентами: своя технология полем, сводной нет", async () => {
+    setupContainer({
+      own: { element: "container", element_effective: "container", technology: "Go" },
+      children: [node("k1", { name: "api", technology: "Python", element_effective: "component" })],
+    });
+    expect(await screen.findByDisplayValue("Go")).toBeInTheDocument();
+    expect(screen.queryByText("Python")).not.toBeInTheDocument();
+  });
+
+  it("база с детьми — не контейнер: своя технология полем, потомков не запрашивает", async () => {
+    // Характеризация Ф0 эпика «Элемент архитектуры»: контейнером страница считает только
+    // сервис с детьми (canHaveChildren); база с детьми — данные до проверки формы
+    // родителя на сервере — остаётся листом.
+    setupContainer({
+      own: { shape: "database", technology: "PostgreSQL" },
+      children: [node("k1", { name: "Реплика", technology: "Python" })],
+    });
+    expect(await screen.findByDisplayValue("PostgreSQL")).toBeInTheDocument();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+    expect(screen.queryByText("Python")).not.toBeInTheDocument();
+  });
+
+  it("окно «Перенести документацию»: переносит схему выбранному получателю", async () => {
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false, moved_params: 0 });
     setupContainer({
       own: { docs: [docMeta()] },
       children: [node("k1", { name: "Шлюз" })],
     });
-    await userEvent.click(await screen.findByRole("button", { name: "Распределить по детям" }));
-    await screen.findByText("Схемы логики"); // форма модалки загрузилась
-    await userEvent.click(screen.getByRole("button", { name: "Распределить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести документацию" }));
+    await screen.findByText("Схемы логики"); // форма окна загрузилась
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
     await waitFor(() =>
       expect(nodeDocsApi.distribute).toHaveBeenCalledWith("c1", {
         doc_assignments: [{ doc_id: "d1", child_id: "k1" }],
@@ -393,6 +429,58 @@ describe("NodePage: правила контейнеров", () => {
     );
     // Модалка закрылась после успеха
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
+  });
+
+  it("система с параметрами: «Перенести документацию» в конфигурации — параметры одному контейнеру", async () => {
+    const params = [{ id: "p1" }, { id: "p2" }] as ConfigParam[];
+    vi.mocked(configParamsApi.list).mockImplementation((id) => Promise.resolve(id === "c1" ? params : []));
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 0, spec_moved: false, moved_params: 2 });
+    setupContainer({
+      own: { element_effective: "system" },
+      children: [node("k1", { name: "Шлюз" })],
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести документацию" }));
+    expect(await screen.findByText("2 параметра")).toBeInTheDocument();
+    expect(screen.getByLabelText("Куда перенести конфигурацию")).toHaveValue("k1");
+    const listed = vi.mocked(configParamsApi.list).mock.calls.length;
+    await userEvent.click(screen.getByRole("button", { name: "Перенести" }));
+    await waitFor(() => expect(nodeDocsApi.distribute).toHaveBeenCalledWith("c1", {
+      doc_assignments: [], params_target_id: "k1",
+    }));
+    // После записи секции перемонтируются: конфигурация перечитана.
+    await waitFor(() => expect(vi.mocked(configParamsApi.list).mock.calls.length).toBeGreaterThan(listed));
+    // У системы сбора нет — и превью не запрашивается.
+    expect(nodesApi.collectPreview).not.toHaveBeenCalled();
+    vi.mocked(configParamsApi.list).mockImplementation(() => Promise.resolve([]));
+  });
+
+  it("контейнер с компонентами: «Собрать с компонентов» по превью, своя спецификация без переноса", async () => {
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({
+      components: [{ node_id: "k1", name: "api", params: 2, has_spec: true }],
+      param_clashes: [],
+      specs: [{ node_id: "k1", name: "api" }],
+    });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue({ moved_params: 2, spec_moved: true });
+    setupContainer({
+      own: { element: "container", element_effective: "container", openapi_spec: "openapi: 3.0.0" },
+      children: [node("k1", { name: "api", element_effective: "component", container_name: "Ядро" })],
+    });
+    // Кнопка — в конфигурации и в «OpenAPI».
+    const buttons = await screen.findAllByRole("button", { name: "Собрать с компонентов" });
+    expect(buttons).toHaveLength(2);
+    expect(nodesApi.collectPreview).toHaveBeenCalledWith("c1");
+    // Своя спецификация контейнера на месте — переносить её некуда и незачем.
+    expect(screen.queryByRole("button", { name: "Перенести документацию" })).not.toBeInTheDocument();
+
+    await userEvent.click(buttons[0]);
+    expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", {
+      param_choices: [], spec_from: "k1",
+    }));
+    // Превью перечитано по новой эпохе страницы.
+    await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({ components: [], param_clashes: [], specs: [] });
   });
 });
 
@@ -431,12 +519,20 @@ describe("NodePage: смена типа", () => {
   });
 
   it("отказ сервера виден на странице, а не проглатывается", async () => {
-    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    // У узла с детьми строки «Тип» нет (Р24 эпика «Элемент архитектуры»): отказ — на базе
+    // с описанной структурой.
+    const причина = "У узла описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
-    setupType({ shape: "service", has_children: true, child_count: 1 });
-    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }));
-    await userEvent.click(screen.getByText("База данных"));
+    setupType({ shape: "database" });
+    await userEvent.click(await screen.findByRole("button", { name: "База данных" }));
+    await userEvent.click(screen.getByText("Брокер сообщений"));
     expect(await screen.findByText(причина)).toBeInTheDocument();
+  });
+
+  it("у узла с детьми строки «Тип» нет — тип говорит элемент архитектуры", async () => {
+    setupType({ shape: "service", has_children: true, child_count: 1, element_effective: "system" });
+    await screen.findByText("Элемент архитектуры");
+    expect(screen.queryByText("Тип")).not.toBeInTheDocument();
   });
 });
 
@@ -538,6 +634,19 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
     expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
+  });
+
+  it("чужая смена элемента у предка (graph_rev) освежает страницу без правки самого узла", async () => {
+    // Предок стал контейнером: строка узла не менялась (version прежняя), а действующий
+    // элемент стал «компонент». Сигнатура без элемента промолчала бы.
+    setupPoll();
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument(), ждать);
+
+    vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { element_effective: "component" }));
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
+    await тик();
+
+    await waitFor(() => expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument(), ждать);
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
@@ -1103,28 +1212,31 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     expect(pill).toHaveTextContent("В работе");
   });
 
-  it("контейнер: счётчик по детям, клик по строке открывает страницу ребёнка", async () => {
+  it("система: счётчик по вложенным объектам, клик по строке открывает его страницу", async () => {
     const kids = [
       node("k1", { name: "Шлюз", parent_id: "c1", approval: "approved", approval_effective: "approved" }),
       node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
     ];
-    setupPage(node("c1", { name: "Ядро", has_children: true, child_count: 2 }), kids, false);
+    setupPage(
+      node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" }),
+      kids, false,
+    );
     const pill = await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
     await userEvent.click(pill);
     await userEvent.click(screen.getByRole("button", { name: "База платежей" }));
     expect(nav.onNavigateNode).toHaveBeenCalledWith("k2");
   });
 
-  it("контейнер: чужое согласование ребёнка перечитывает детей — счётчик не застывает", async () => {
+  it("система: чужое согласование ребёнка перечитывает детей — счётчик не застывает", async () => {
     const kids = [
       node("k1", { name: "Шлюз", parent_id: "c1" }),
       node("k2", { name: "База платежей", parent_id: "c1", shape: "database" }),
     ];
-    const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2 });
+    const cont = node("c1", { name: "Ядро", has_children: true, child_count: 2, element_effective: "system" });
     setupPage(cont, kids);
     await screen.findByRole("button", { name: /В работе · 0 из 2/ }, ждать);
 
-    // Другая сессия согласовала одного ребёнка: статус контейнера тот же («в работе»),
+    // Другая сессия согласовала одного ребёнка: статус системы тот же («в работе»),
     // его сигнатура не меняется — освежить счётчик обязано перечитывание детей.
     vi.mocked(nodesApi.getDescendants).mockResolvedValue([
       { ...kids[0], approval: "approved", approval_effective: "approved" }, kids[1],
@@ -1134,6 +1246,44 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await act(async () => { window.dispatchEvent(new Event("focus")); });
 
     await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
+  });
+
+  it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
+    // Торговля → Заказы (контейнер) → Заказы-API (компонент); Торговля → Склад (система) →
+    // Остатки. Вложенная система не позиция счётчика, её объекты — позиции.
+    const kids = [
+      node("o", { name: "Заказы", parent_id: "s", has_children: true, child_count: 1, element: "container",
+        approval: "approved", approval_effective: "approved" }),
+      node("a", { name: "Заказы-API", parent_id: "o", element_effective: "component" }),
+      node("w", { name: "Склад", parent_id: "s", has_children: true, child_count: 1, element_effective: "system",
+        approval: "approved", approval_effective: "in_progress" }),
+      node("r", { name: "Остатки", parent_id: "w" }),
+    ];
+    setupPage(
+      node("s", { name: "Торговля", has_children: true, child_count: 2, element_effective: "system" }),
+      kids, false,
+    );
+    const pill = await screen.findByRole("button", { name: /В работе · 1 из 3/ }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовано 1 из 3")).toBeInTheDocument();
+    for (const name of ["Заказы", "Заказы-API", "Остатки"]) {
+      expect(screen.getByRole("button", { name })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Склад" })).toBeNull();
+  });
+
+  it("контейнер с компонентами: редактор ставит свой статус PATCH-ом", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      node("o", { name: "Заказы", has_children: true, child_count: 1, element: "container",
+        approval: "approved", approval_effective: "approved", version: 2 }),
+    );
+    const kids = [node("a", { name: "Заказы-API", parent_id: "o", element_effective: "component" })];
+    setupPage(node("o", { name: "Заказы", has_children: true, child_count: 1, element: "container" }), kids);
+    const pill = await screen.findByRole("button", { name: "В работе" }, ждать);
+    await userEvent.click(pill);
+    await userEvent.click(screen.getByRole("button", { name: /^Согласовано проверено редактором/ }));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ approval: "approved", base_version: 1 });
   });
 });
 
@@ -1189,5 +1339,38 @@ describe("NodePage: ⋯-меню и версии документации", () =
     await openMenu(true, "owner");
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
     expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
+  });
+});
+
+// ── Пустая схема объекта: кнопка вложенного объекта (Ф8 эпика «Элемент архитектуры») ──
+// Подпись называет, кем станет новый объект: компонентом — у контейнера и внутри
+// контейнера, иначе вложенным объектом (кем станет сам объект, спросит окно первого
+// вложенного объекта).
+describe("NodePage: кнопка вложенного объекта в пустой схеме", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupLonely(over: Partial<Node>) {
+    const n = node("n1", over);
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue({
+      nodes: [n], endpoints: [], edges: [], layout: {}, version: 1, graph_rev: 1, meta_rev: 1,
+    } as never);
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  it("лист без явного элемента — «Добавить вложенный объект»", async () => {
+    setupLonely({ element: null, element_effective: "container" });
+    expect(await screen.findByRole("button", { name: "Добавить вложенный объект" })).toBeInTheDocument();
+  });
+
+  it("контейнер без компонентов и компонент — «Добавить компонент»", async () => {
+    const { unmount } = setupLonely({ element: "container", element_effective: "container" });
+    expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
+    unmount();
+    setupLonely({ element_effective: "component", container_name: "orders" });
+    expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
   });
 });

@@ -6,10 +6,14 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.container_hints import container_hints
+from app.domain_types import NODE_ELEMENT_LABELS
+from app.import_element import effective_elements
 from app.import_yaml import ParsedImport
 from app.schemas.unified_import import (
     ComponentOut,
     ContainerEdgeOut,
+    ContainerHintOut,
     FieldDisputeOut,
     FuzzyPairOut,
     IsolatedGroupOut,
@@ -227,12 +231,14 @@ _EXTRA_PARTS = re.compile(
     r"^(?P<kind>таблица|канал) «(?P<key>.+?)» узла «(?P<path>.+?)»: (?P<part>колонок|полей) "
     r"(?P<names>.+) в архиве нет — оставлены"
 )
-# Форма и статус едут в строку кодами контракта — человеку их называем словами.
-# Зеркало SHAPE_LABEL (questionText.ts) и STATUS_META (graph/colors.ts) фронта.
+# Форма, статус и элемент архитектуры едут в строку кодами контракта — человеку их
+# называем словами. Зеркало SHAPE_LABEL (questionText.ts), STATUS_META (graph/colors.ts)
+# и ELEMENT_LABEL (nodeTerms.ts) фронта.
 _CODE_RU: dict[str, dict[str, str]] = {
     "форма": {"service": "Сервис", "database": "База данных", "broker": "Брокер",
               "person": "Пользователь"},
     "статус": {"existing": "Существует", "planned": "Проектируется", "deprecated": "Выводится"},
+    "элемент архитектуры": {code: label for code, label in NODE_ELEMENT_LABELS.items()},
 }
 
 
@@ -319,12 +325,16 @@ def _remark_class(text: str) -> tuple[str, bool]:
 
 
 class _Tree:
-    """Слитое дерево под вопросы: потомки контейнера, признак «контейнер», связи узла."""
+    """Слитое дерево под вопросы: потомки конца связи, признак «есть вложенные»,
+    действующий элемент и связи узла. Дерево к этому моменту уже санитизировано
+    (sanitize_elements в слиянии), поэтому элементы — те, с которыми оно ляжет в
+    проект без ответов."""
 
     def __init__(self, plan: UnifiedPlan) -> None:
         merged = plan.merged
         nodes = merged.nodes if merged else []
         self.paths = plan.node_paths
+        self.elements = effective_elements(nodes)
         self.parent = [n.parent_idx for n in nodes]
         self.has_children = [False] * len(nodes)
         for pi in self.parent:
@@ -345,7 +355,7 @@ class _Tree:
         return False
 
     def components(self, container: int) -> list[int]:
-        """ВСЁ поддерево контейнера в порядке обхода дерева (индексы слитого
+        """ВСЁ поддерево конца связи в порядке обхода дерева (индексы слитого
         дерева идут «родители раньше детей»), без капа: кап — дело фронта."""
         return [i for i in range(len(self.paths)) if self.descends(i, container)]
 
@@ -366,6 +376,8 @@ class RemainderIndex:
     edges: dict[str, tuple[int, str, dict[str, int]]] = field(default_factory=dict)
     groups: dict[str, list[int]] = field(default_factory=dict)
     pairs: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # id вопроса «похоже на контейнер» → индекс узла
+    hints: dict[str, int] = field(default_factory=dict)
     # Путь узла → индекс: концы новой связи пользователь называет путями. Тёзки
     # (якорь разводит их законно) адресуются первым — как и везде в превью.
     nodes: dict[str, int] = field(default_factory=dict)
@@ -389,11 +401,13 @@ def remainder_with_index(
         return RemainderOut(), RemainderIndex()
     b = _RemainderBuilder(plan, plan.merged, current)
     fields = b.field_conflicts()
+    hints = b.container_hints()
     container = b.container_edges()
     groups = b.isolated_groups()
     pairs = b.fuzzy_pairs()
     return RemainderOut(
         field_conflicts=fields,
+        container_hints=hints,
         container_edges=container,
         isolated_groups=groups,
         fuzzy_pairs=pairs,
@@ -401,12 +415,13 @@ def remainder_with_index(
         converted_warnings=_converted_texts(plan.report.warnings, b.converted),
         node_paths=list(b.paths),
         node_has_children=list(b.tree.has_children),
+        node_elements=list(b.tree.elements),
     ), b.index
 
 
 class _RemainderBuilder:
     """Сборщик остатка: общие адреса, дедуп id и строки отчёта, ставшие вопросами,
-    на все четыре вида вопросов. Порядок вызова видов — порядок вопросов в окне."""
+    на все пять видов вопросов. Порядок вызова видов — порядок вопросов в окне."""
 
     def __init__(self, plan: UnifiedPlan, merged: ParsedImport, current: int | None) -> None:
         self.plan = plan
@@ -474,9 +489,28 @@ class _RemainderBuilder:
             self.index.fields[eid] = (d.node_idx, d.field, [c.value for c in cands])
         return out
 
+    def container_hints(self) -> list[ContainerHintOut]:
+        """Вопросы «похоже на контейнер» (Р7). В догрузке — только о новых узлах:
+        живой элемент ввоз не судит (Р3)."""
+        out: list[ContainerHintOut] = []
+        nodes = self.merged.nodes
+        for h in container_hints(nodes, skip=self.свой):
+            eid = f"hint|{self.addr[h.node_idx]}"
+            if not self.свежий(eid):
+                continue
+            out.append(ContainerHintOut(
+                id=eid,
+                node_path=self.paths[h.node_idx],
+                children=[nodes[c].name for c in h.children],
+                folder=h.folder,
+                repo=h.repo,
+            ))
+            self.index.hints[eid] = h.node_idx
+        return out
+
     def container_edges(self) -> list[ContainerEdgeOut]:
-        """Связи в контейнер. В догрузке — только НОВЫЕ связи: перевесить живую
-        значило бы тронуть то, о чём не спрашивали (Р3)."""
+        """Связи в объект с вложенными (систему или контейнер). В догрузке — только
+        НОВЫЕ связи: перевесить живую значило бы тронуть то, о чём не спрашивали (Р3)."""
         out: list[ContainerEdgeOut] = []
         paths, addr = self.paths, self.addr
         for rec in self.report.container_edges:
@@ -497,8 +531,14 @@ class _RemainderBuilder:
                 technology=e.technology,
                 end=rec.end,
                 container_path=paths[rec.container_idx],
+                container_element=(
+                    "system" if self.tree.elements[rec.container_idx] == "system" else "container"
+                ),
                 components=[
-                    ComponentOut(path=paths[i], has_children=self.tree.has_children[i])
+                    ComponentOut(
+                        path=paths[i], has_children=self.tree.has_children[i],
+                        element_effective=self.tree.elements[i],
+                    )
                     for i in comps
                 ],
             ))

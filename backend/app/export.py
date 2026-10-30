@@ -30,6 +30,8 @@ from collections.abc import Sequence
 
 import yaml
 
+from app.element import Elements
+from app.element_marks import build_elements, element_rows_of
 from app.identity import source_ref_dict
 from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
@@ -57,6 +59,7 @@ def build_export(
     root_id: uuid.UUID | None = None,
     sites: Sequence[DeploymentSite] = (),
     instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
+    elements: Elements[uuid.UUID] | None = None,
 ) -> str:
     """Собирает YAML-документ {nodes: <дерево>, edges: <список>} для набора узлов.
 
@@ -69,8 +72,14 @@ def build_export(
     sites и instances — площадки проекта (deployment.project_sites) и свои
     экземпляры парами (узел, площадка) (deployment.ordered_instances). Без них
     документ ровно прежний: раздела deployment и ключа sites у узлов нет.
+
+    elements — действующие элементы ПРОЕКТА (element_marks): по ним решается, чьи
+    экземпляры пишутся (только единиц размещения — контейнеров). Без них элементы
+    считаются по самому набору — это верно для набора, замкнутого вверх (вся схема);
+    поддерево обязано передать элементы проекта: контейнер над корнем поддерева делает
+    его узлы компонентами.
     """
-    return build_export_ordered(nodes, edges, root_id, sites, instances)[0]
+    return build_export_ordered(nodes, edges, root_id, sites, instances, elements)[0]
 
 
 def _sites_section(
@@ -136,6 +145,7 @@ def build_export_ordered(
     root_id: uuid.UUID | None = None,
     sites: Sequence[DeploymentSite] = (),
     instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
+    elements: Elements[uuid.UUID] | None = None,
 ) -> tuple[str, list[uuid.UUID]]:
     """То же, что build_export, плюс ПОРЯДОК id узлов в готовом документе.
 
@@ -157,38 +167,42 @@ def build_export_ordered(
         else:
             roots.append(n)
 
-    # Площадки объектов набора (листьев, не «Пользователей») — в порядке площадок (по
-    # имени): так их пишет ключ sites, и так же импорт вернёт их строкой «Размещение».
-    # Экземпляры контейнера (данные прежней модели) не в счёт: его размещение — объекты.
+    # Площадки единиц размещения набора — контейнеров, в том числе листьев (Р16 эпика
+    # docs/plan-c4-elements.md) — в порядке площадок (по имени): так их пишет ключ sites,
+    # и так же импорт вернёт их строкой «Размещение». Экземпляры системы, компонента и
+    # «Пользователя» (прежние данные, «спящие») не пишутся: размещение их не считает.
+    # Элементы нужны, только если экземпляры есть: документ без размещения их не читает.
     site_by_id = {s.id: s for s in sites}
     site_rank = {s.id: i for i, s in enumerate(sites)}
     own_sites: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    if instances and elements is None:
+        elements = build_elements(element_rows_of(nodes))
     for node_id, site_id in instances:
-        node = by_id.get(node_id)
-        if node is None or node_id in children_by_parent or node.shape == "person":
+        if node_id not in by_id or elements is None or elements.effective(node_id) != "container":
             continue
         if site_id in site_by_id and site_id not in own_sites[node_id]:
             own_sites[node_id].append(site_id)
     for site_ids in own_sites.values():
         site_ids.sort(key=lambda sid: site_rank[sid])
 
-    def whole_sites(node: Node) -> list[uuid.UUID] | None:
-        """Контейнер, все объекты которого стоят на одном наборе площадок, пишет
-        sites сам, а его поддерево — нет: короче, и читается как размещение целиком
-        (импорт раздаёт объявление контейнера объектам — leaf_placements). Иначе None."""
-        leaves: list[Node] = []
-        stack = [node]
-        while stack:
-            cur = stack.pop()
-            kids = children_by_parent.get(cur.id)
-            if kids:
-                stack.extend(kids)
-            elif cur.shape != "person":
-                leaves.append(cur)
-        if not leaves:
+    def placed_sites(node: Node) -> list[uuid.UUID] | None:
+        """Ключ sites узла. Единица (контейнер, в том числе с компонентами) пишет свои
+        площадки; компонент — никогда. Система, все единицы которой стоят на одном
+        непустом наборе площадок, пишет sites сама, а её поддерево — нет: короче, и
+        читается как размещение целиком (импорт раздаёт объявление системы её единицам
+        — unit_placements). Иначе None."""
+        if not own_sites or elements is None:
             return None
-        first = own_sites.get(leaves[0].id, [])
-        if not first or any(own_sites.get(leaf.id, []) != first for leaf in leaves[1:]):
+        element = elements.effective(node.id)
+        if element == "container":
+            return own_sites.get(node.id)
+        if element != "system":
+            return None
+        units = elements.units_under(node.id)
+        if not units:
+            return None
+        first = own_sites.get(units[0], [])
+        if not first or any(own_sites.get(unit, []) != first for unit in units[1:]):
             return None
         return first
 
@@ -224,9 +238,13 @@ def build_export_ordered(
     def node_dict(node: Node, covered: bool = False) -> dict:
         # Порядок ключей осознанный (sort_keys=False при дампе): сперва идентичность
         # и тип, потом необязательная семантика, дети — последними. covered —
-        # размещение уже записано у контейнера выше: у поддерева ключа sites нет.
+        # размещение уже записано у системы выше: у поддерева ключа sites нет.
         order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
+        # Элемент архитектуры (Р29) — рядом с формой и только заданный: null («не
+        # сказано») не пишем, и документ проекта без элементов остаётся прежним.
+        if node.element:
+            d["element"] = node.element
         if node.status != "existing":
             d["status"] = node.status
         if node.role:
@@ -245,7 +263,7 @@ def build_export_ordered(
             if src:
                 d["source"] = src
         kids = sort(children_by_parent.get(node.id, []))
-        placed = None if covered else (whole_sites(node) if kids else own_sites.get(node.id))
+        placed = None if covered else placed_sites(node)
         if placed:
             d["sites"] = [site_by_id[sid].name for sid in placed]
         if kids:

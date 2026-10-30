@@ -45,6 +45,7 @@ const поле: FieldDisputeOut = {
 const связь: ContainerEdgeOut = {
   id: "edge|Плагин/Датасорс|Zabbix||target", from_path: "Плагин / Датасорс", to_path: "Zabbix",
   label: "запросы", technology: "HTTP", end: "target", container_path: "Zabbix",
+  container_element: "container",
   components: [
     { path: "Zabbix / server", has_children: true },
     { path: "Zabbix / Поллер", has_children: false },
@@ -63,7 +64,8 @@ const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [поле], container_edges: [связь], isolated_groups: [группа], fuzzy_pairs: [пара],
   unfixable: [], converted_warnings: [],
   node_paths: ["Zabbix", "Zabbix / server", "Плагин", "Плагин / Датасорс"],
-  node_has_children: [true, false, true, false], ...over,
+  node_has_children: [true, false, true, false],
+  node_elements: ["system", "container", "system", "container"], container_hints: [], ...over,
 });
 
 const ВОПРОСЫ = buildQuestions({ family_conflicts: [семья], remainder: остаток() });
@@ -183,6 +185,30 @@ describe("список всех вопросов и итог (§3, §8)", () => 
     await userEvent.click(строки[4]!);
     expect(счётчик()).toBe("вопрос 5 из 5");
     expect(screen.getByText(/похожие имена/)).toBeInTheDocument();
+  });
+
+  it("связь в систему: вариант «Оставить на системе», ответ в списке — «на системе»", async () => {
+    const вопросы = buildQuestions({
+      family_conflicts: [],
+      remainder: остаток({
+        field_conflicts: [], isolated_groups: [], fuzzy_pairs: [],
+        container_edges: [{
+          ...связь,
+          container_element: "system",
+          components: [
+            { path: "Zabbix / server", has_children: true, element_effective: "container" },
+            { path: "Zabbix / Поллер", has_children: false, element_effective: "container" },
+          ],
+        }],
+      }),
+    });
+    render(<Stand questions={вопросы} />);
+    expect(screen.getByText(/приходит в систему «Zabbix»/)).toBeInTheDocument();
+    // Тег объекта с вложенными в списке — по его элементу.
+    expect(screen.getByText("контейнер")).toBeInTheDocument();
+    await userEvent.click(screen.getByText("Оставить на системе «Zabbix»"));
+    await userEvent.click(screen.getByRole("button", { name: "Все вопросы" }));
+    expect(screen.getByText("на системе")).toBeInTheDocument();
   });
 
   it("«как сейчас» — полноценный ответ и в списке, и в итоге (П8)", async () => {
@@ -339,7 +365,7 @@ describe("масштаб: 15 вопросов", () => {
     render(<Stand questions={много} />);
     expect(screen.queryByRole("button", { name: /^вопрос \d+$/ })).toBeNull();
     expect(screen.getByText("Поля · 0/13")).toBeInTheDocument();
-    expect(screen.getByText("В контейнер · 0/1")).toBeInTheDocument();
+    expect(screen.getByText("В систему или контейнер · 0/1")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Имена · 0/1"));
     expect(счётчик()).toBe("вопрос 15 из 15");
   });

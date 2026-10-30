@@ -111,6 +111,16 @@ export interface WrappedEdgeData extends Record<string, unknown> {
 
 export interface NodeColors { bg: string; border: string; text: string }
 
+// ЭЛЕМЕНТ АРХИТЕКТУРЫ объекта с вложенными на холсте (эпик «Элемент архитектуры»,
+// docs/plan-c4-elements.md, Р20/Р21): рамки раскрытия и уровня, свёрнутый гостевой
+// контейнер, бейдж детей. system — группа, сама не запускается; container — запускается
+// отдельно, вложенные — его компоненты; component — составной компонент (объект с
+// вложенными внутри контейнера, app/element.py). Источник один — element_effective от
+// сервера (локал, гость, звено цепочки предков); значения нет (синтетическое звено
+// frameChains или конвейера, предок без элемента) — система: так читался любой узел с
+// детьми до эпика (frameElement в layout/frames.ts).
+export type FrameElement = NonNullable<AncestorRef["element_effective"]>;
+
 // Колбэки «быстрой связи» (стрелка-глиф у стороны узла). enter — навели курсор на стрелку
 // стороны (side+frac), система подбирает цель и рисует превью; leave — увели курсор (превью
 // гаснет); activate — клик по стрелке (создать предложенную связь через модалку). Стабильны
@@ -178,6 +188,9 @@ export interface ContainerData extends Record<string, unknown> {
   depth: number;
   ancestors: AncestorRef[];
   colors: NodeColors;
+  // элемент архитектуры свёрнутого объекта (DisplayContainer.element): подпись под
+  // именем и звено пути «Войти»
+  element: FrameElement;
   // раскрыть содержимое ГОСТЕВОГО контейнера инлайн (R5). undefined — контейнер уже
   // на предельной инлайн-глубине MAX_INLINE_DEPTH (C8): лупа остаётся на месте, но
   // неактивна (expandLimited), глубже — только «Войти к компонентам».
@@ -199,6 +212,12 @@ export interface ContainerData extends Record<string, unknown> {
 // им нужен живой bbox-follow, а не фиксированный rect.
 export interface FrameData extends Record<string, unknown> {
   name: string;
+  // Элемент архитектуры раскрытого объекта, его глубина и внешность (FrameRect) — вид
+  // рамки (frameStyle.ts, Р20): заливка контейнера цветом той же глубины, которой он
+  // красился свёрнутым. Оверлей драга берёт их отсюда же — и выглядит как рамка.
+  element: FrameElement;
+  depth: number;
+  is_external: boolean;
   // свернуть контейнер (клик по подписи «🔍 name ✕») — undefined в read-only
   onCollapse?: () => void;
   // Декор рамки по данным хозяина (проекция, LevelProjectionProps.frameDecor). Нет поля —
@@ -257,7 +276,12 @@ export type SiteRFNode = RFNode<SiteCardData, "site">;
 
 // --- Проекция гостей с учётом свёрнутых контейнеров ---
 
-export interface DisplayContainer { kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; is_external: boolean; }
+// Свёрнутый предок гостя (projectGhosts). element — элемент архитектуры звена цепочки
+// предков, которое он представляет (норма «нет значения — система», FrameElement).
+export interface DisplayContainer {
+  kind: "container"; id: string; name: string; depth: number; ancestors: AncestorRef[]; is_external: boolean;
+  element: FrameElement;
+}
 export interface DisplayLeaf { kind: "leaf"; id: string; ghost: GhostNode; }
 export type DisplayExternal = DisplayContainer | DisplayLeaf;
 

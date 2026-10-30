@@ -2,11 +2,13 @@
 действующее размещение, роутер /deployment, копия проекта и откат удаления.
 
 Площадка — где крутится объект (облако, кластер, ВМ, сервер), вложенная в другую
-площадку; экземпляр — «объект стоит на площадке». Экземпляры — только у объектов
-(листьев): контейнер размещается целиком, его размещение выводится из объектов.
-Сторожим модель (вложенность, копия, снимок удаления), домен (объекты контейнера,
-правило импорта, вывод размещения, цикл в данных), ручки (права, CAS, отказы,
-курсоры), граф вида и раздельные ключи раскладки двух холстов одного уровня.
+площадку; экземпляр — «объект стоит на площадке». Экземпляры — только у единиц
+размещения — контейнеров (в том числе листьев, Р16 эпика docs/plan-c4-elements.md): у
+компонента размещения нет (422), система размещается целиком, её размещение
+выводится из единиц. Сторожим модель (вложенность, копия, снимок удаления), домен
+(единицы системы, правило импорта, вывод размещения, цикл в данных), ручки (права,
+CAS, отказы, курсоры), граф вида, закрытый уровень контейнера и раздельные ключи
+раскладки двух холстов одного уровня.
 """
 
 import uuid
@@ -22,7 +24,9 @@ from app.auth import create_access_token
 from app.config import settings
 from app.database import get_db
 from app.demo_limits import DEMO_LIMIT_CODE, Excess, excess_out
-from app.deployment import SitePlace, leaf_placements, placeable_leaves, placement_map
+from app.deployment import SitePlace, placeable_units, placement_map, unit_placements
+from app.element import Elements
+from app.element_marks import ElementRow, build_elements
 from app.main import app
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
@@ -235,58 +239,144 @@ def _ids(n: int) -> list[uuid.UUID]:
     return [uuid.uuid4() for _ in range(n)]
 
 
-def _shapes(parent_of: dict, persons: tuple = ()) -> dict:
-    return {nid: ("person" if nid in persons else "service") for nid in parent_of}
+def _tree(*spec: tuple) -> tuple[dict[str, uuid.UUID], dict, Elements[uuid.UUID]]:
+    """Дерево домена по строкам (имя, родитель, форма, хранимый элемент): id по имени,
+    карта родителей и действующие элементы (как их собирают выдачи — build_elements;
+    дети — по имени, поэтому порядок обхода задают имена)."""
+    ids = {name: uuid.uuid4() for name, *_ in spec}
+    rows = [
+        ElementRow(ids[name], ids[parent] if parent else None, shape, element, name)
+        for name, parent, shape, element in spec
+    ]
+    return ids, {r.id: r.parent_id for r in rows}, build_elements(rows)
 
 
-def test_объекты_узла_лист_сам_а_контейнер_листья_без_пользователей():
-    root, mid, leaf, deep, person = _ids(5)
-    parent_of = {root: None, mid: root, leaf: mid, deep: root, person: root}
-    shapes = _shapes(parent_of, (person,))
-    assert placeable_leaves(parent_of, shapes, leaf) == [leaf]
-    assert placeable_leaves(parent_of, shapes, root) == [leaf, deep]
-    assert placeable_leaves(parent_of, shapes, person) == []
-    # контейнер из одних «Пользователей» — объектов нет
-    only = {root: None, person: root}
-    assert placeable_leaves(only, _shapes(only, (person,)), root) == []
+def _null_tree(parent_of: dict, persons: tuple = ()) -> Elements[uuid.UUID]:
+    """Элементы дерева без хранимых значений (сегодняшние проекты): узел с детьми —
+    система, лист — контейнер. Имена — по порядку карты, он же порядок обхода."""
+    return build_elements(
+        ElementRow(nid, pid, "person" if nid in persons else "service", None, str(i).zfill(3))
+        for i, (nid, pid) in enumerate(parent_of.items())
+    )
 
 
-def test_правило_импорта_объявление_контейнера_достаётся_объектам_без_своего():
+def test_единицы_узла_лист_сам_а_система_единицы_без_пользователей():
+    ids, _parent_of, el = _tree(
+        ("root", None, "service", None),
+        ("a-mid", "root", "service", None),
+        ("leaf", "a-mid", "service", None),
+        ("b-deep", "root", "service", None),
+        ("c-person", "root", "person", None),
+        ("desk", None, "service", None),
+        ("op", "desk", "person", None),
+    )
+    assert placeable_units(el, ids["leaf"]) == [ids["leaf"]]
+    assert placeable_units(el, ids["root"]) == [ids["leaf"], ids["b-deep"]]
+    assert placeable_units(el, ids["c-person"]) == []
+    # система из одних «Пользователей» — единиц нет
+    assert placeable_units(el, ids["desk"]) == []
+
+
+def test_контейнер_с_компонентами_единица_а_компоненты_не_обходятся():
+    ids, _parent_of, el = _tree(
+        ("platform", None, "service", None),
+        ("shop", "platform", "service", None),
+        ("orders", "shop", "service", "container"),
+        ("api", "orders", "service", None),
+        ("core", "api", "service", None),
+        ("billing", "shop", "service", None),
+        ("mail", "platform", "service", None),
+    )
+    assert placeable_units(el, ids["orders"]) == [ids["orders"]]
+    # компонент (и составной) — размещения не бывает
+    assert placeable_units(el, ids["api"]) == []
+    assert placeable_units(el, ids["core"]) == []
+    # вложенная система прозрачна, обход стоит на контейнере
+    assert placeable_units(el, ids["shop"]) == [ids["billing"], ids["orders"]]
+    assert placeable_units(el, ids["platform"]) == [ids["mail"], ids["billing"], ids["orders"]]
+
+
+def test_правило_импорта_объявление_системы_достаётся_единицам_без_своего():
     root, mid, leaf, deep, other, person, s_root, s_mid, s_other = _ids(9)
     parent_of = {root: None, mid: root, leaf: mid, deep: leaf, other: root, person: root}
-    got = leaf_placements(
-        parent_of, _shapes(parent_of, (person,)),
+    got = unit_placements(
+        parent_of,
         {root: [s_root], mid: [s_mid], other: [s_other, s_other]},
+        _null_tree(parent_of, (person,)),
     )
-    # deep — единственный объект под mid: ближайшее объявление — mid, а не root; повтор
-    # площадки схлопнут; контейнеры и «Пользователь» в ответе не появляются.
+    # deep — единственная единица под mid: ближайшее объявление — mid, а не root; повтор
+    # площадки схлопнут; системы и «Пользователь» в ответе не появляются.
     assert got == {deep: [s_mid], other: [s_other]}
+
+
+def test_правило_импорта_контейнер_с_компонентами_целиком_а_объявление_компонента_не_в_счёт():
+    ids, parent_of, el = _tree(
+        ("shop", None, "service", None),
+        ("orders", "shop", "service", "container"),
+        ("api", "orders", "service", None),
+        ("worker", "orders", "service", None),
+        ("billing", "shop", "service", None),
+    )
+    s1, s2, s3 = _ids(3)
+    # объявление системы — её контейнеру с компонентами целиком, не его компонентам
+    got = unit_placements(parent_of, {ids["shop"]: [s1]}, el)
+    assert got == {ids["orders"]: [s1], ids["billing"]: [s1]}
+    # объявление компонента не используется: ни ему, ни контейнеру
+    assert unit_placements(parent_of, {ids["api"]: [s2]}, el) == {}
+    got = unit_placements(parent_of, {ids["api"]: [s2], ids["shop"]: [s1], ids["billing"]: [s3]}, el)
+    assert got == {ids["orders"]: [s1], ids["billing"]: [s3]}
+    # своё объявление контейнера важнее объявления системы
+    got = unit_placements(parent_of, {ids["orders"]: [s2], ids["shop"]: [s1]}, el)
+    assert got == {ids["orders"]: [s2], ids["billing"]: [s1]}
 
 
 def test_правило_импорта_цикл_родителей_не_вешает():
     a, b, c, site = _ids(4)
     # a ↔ b — цикл без объявлений; c под a со своим объявлением.
-    got = leaf_placements({a: b, b: a, c: a}, {a: "service", b: "service", c: "service"}, {c: [site]})
+    parent_of = {a: b, b: a, c: a}
+    got = unit_placements(parent_of, {c: [site]}, _null_tree(parent_of))
     assert got == {c: [site]}
 
 
-def test_размещение_контейнера_выводится_из_объектов():
+def test_размещение_системы_выводится_из_единиц():
     root, sub, a, b, c, person, s1, s2 = _ids(8)
     parent_of = {root: None, sub: root, a: sub, b: sub, c: root, person: root}
-    shapes = _shapes(parent_of, (person,))
+    el = _null_tree(parent_of, (person,))
     rank = {s1: 0, s2: 1}
-    # у root — экземпляр прежней модели: не в счёт, размещение контейнера — объекты
-    got = placement_map(parent_of, shapes, {a: [s2, s1], b: [s1], c: [s1], root: [s2]}, rank)
+    # у root — экземпляр прежней модели: не в счёт, размещение системы — единицы
+    got = placement_map(parent_of, {a: [s2, s1], b: [s1], c: [s1], root: [s2]}, rank, el)
     assert got[a] == [SitePlace(s1), SitePlace(s2)]
     assert got[sub] == [SitePlace(s1), SitePlace(s2, partial=True)]
     assert got[root] == [SitePlace(s1), SitePlace(s2, partial=True)]
     assert got[person] == []
-    # объект без размещения внутри — площадка у контейнера частичная
-    got = placement_map(parent_of, shapes, {a: [s1]}, rank)
+    # единица без размещения внутри — площадка у системы частичная
+    got = placement_map(parent_of, {a: [s1]}, rank, el)
     assert got[sub] == [SitePlace(s1, partial=True)] and got[b] == []
-    # контейнер без объектов — пусто
+    # система без единиц — пусто
     only = {root: None, person: root}
-    assert placement_map(only, _shapes(only, (person,)), {}, rank)[root] == []
+    assert placement_map(only, {}, rank, _null_tree(only, (person,)))[root] == []
+
+
+def test_размещение_контейнер_с_компонентами_свои_экземпляры_компоненты_спят():
+    ids, parent_of, el = _tree(
+        ("platform", None, "service", None),
+        ("shop", "platform", "service", None),
+        ("orders", "shop", "service", "container"),
+        ("api", "orders", "service", None),
+        ("billing", "shop", "service", None),
+    )
+    s1, s2 = _ids(2)
+    rank = {s1: 0, s2: 1}
+    # у api — спящий экземпляр (прежние данные): ни ему, ни контейнеру, ни системе
+    got = placement_map(parent_of, {ids["orders"]: [s1], ids["api"]: [s2]}, rank, el)
+    assert got[ids["orders"]] == [SitePlace(s1)]
+    assert got[ids["api"]] == []
+    # billing не размещён — у системы площадка частичная; вложенная система прозрачна
+    assert got[ids["shop"]] == [SitePlace(s1, partial=True)]
+    assert got[ids["platform"]] == [SitePlace(s1, partial=True)]
+    got = placement_map(parent_of, {ids["orders"]: [s1, s2], ids["billing"]: [s1]}, rank, el)
+    assert got[ids["shop"]] == [SitePlace(s1), SitePlace(s2, partial=True)]
+    assert got[ids["platform"]] == got[ids["shop"]]
 
 
 # ── Ручки (HTTP) ─────────────────────────────────────────────────────────────
@@ -580,6 +670,136 @@ def test_контейнер_без_объектов_422_и_отказ_ничег
     )
     db.expire_all()
     assert {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)} == {(api, b)}
+
+
+# ── Единица размещения — контейнер (Р16 эпика элементов) ─────────────────────
+
+
+def _c4(db, scene) -> dict[str, str]:
+    """Система shop: контейнер orders с компонентами api и worker и лист billing рядом;
+    связь api → billing (конец — компонент)."""
+    p = scene["p"]
+    shop = _node(db, p.id, "shop")
+    orders = _node(db, p.id, "orders", shop, element="container")
+    api = _node(db, p.id, "api", orders)
+    worker = _node(db, p.id, "worker", orders)
+    billing = _node(db, p.id, "billing", shop)
+    db.add(Edge(id=uuid.uuid4(), project_id=p.id, source_id=api.id, target_id=billing.id))
+    db.commit()
+    return {n.name: str(n.id) for n in (shop, orders, api, worker, billing)}
+
+
+COMPONENT_422 = {"detail": "Площадки задаются контейнеру: «api» — компонент контейнера «orders»"}
+
+
+def test_компонент_не_размещается_422_и_ничего_не_пишет(client, db, scene):
+    """У компонента размещения не бывает: PUT и PATCH site_ids отказывают текстом,
+    который называет контейнер, — и ничего не пишут (тихого перенаправления в
+    контейнер нет, ни отдельно, ни в паре с другой единицей)."""
+    h = scene["h"]
+    c = _c4(db, scene)
+    a = _post_site(client, h, "A")["id"]
+    url = f"{API}/deployment/placements"
+    r = client.put(url, json={"node_ids": [c["api"]], "site_ids": [a]}, headers=h)
+    assert (r.status_code, r.json()) == (422, COMPONENT_422)
+    r = client.put(url, json={"node_ids": [c["orders"], c["api"]], "site_ids": [a]}, headers=h)
+    assert (r.status_code, r.json()) == (422, COMPONENT_422)
+    r = client.patch(f"{API}/nodes/{c['api']}", json={"site_ids": [a]}, headers=h)
+    assert (r.status_code, r.json()) == (422, COMPONENT_422)
+    # и снять у компонента тоже нечего — тот же отказ, а не тихое «ничего не изменилось»
+    r = client.put(url, json={"node_ids": [c["api"]], "site_ids": []}, headers=h)
+    assert (r.status_code, r.json()) == (422, COMPONENT_422)
+    db.expire_all()
+    assert db.query(DeploymentInstance).count() == 0
+
+
+def test_контейнер_с_компонентами_хранит_размещение_сам(client, db, scene):
+    """Контейнер — единица: экземпляры у него самого, у компонентов размещения нет, у
+    системы над ним — partial, пока рядом неразмещённая единица. Система размещается
+    целиком — набор получают её контейнеры, а не компоненты. Спящий экземпляр
+    компонента (прежние данные) не в счёт нигде."""
+    h = scene["h"]
+    c = _c4(db, scene)
+    a = _post_site(client, h, "A")["id"]
+    b = _post_site(client, h, "B")["id"]
+    url = f"{API}/deployment/placements"
+
+    def pairs() -> set[tuple[str, str]]:
+        db.expire_all()
+        return {(str(i.node_id), str(i.site_id)) for i in db.query(DeploymentInstance)}
+
+    def sites_of(name: str) -> list[tuple[str, bool]]:
+        got = client.get(f"{API}/nodes/{c[name]}", headers=h).json()["sites"]
+        return [(s["name"], s["partial"]) for s in got]
+
+    def graph_nodes() -> dict:
+        return {x["name"]: x for x in client.get(f"{API}/deployment/graph", headers=h).json()["nodes"]}
+
+    assert client.put(url, json={"node_ids": [c["orders"]], "site_ids": [a]}, headers=h).status_code == 204
+    assert pairs() == {(c["orders"], a)}
+    assert sites_of("orders") == [("A", False)]
+    assert sites_of("api") == []
+    assert sites_of("shop") == [("A", True)]
+    nodes = graph_nodes()
+    assert (nodes["orders"]["instances"], nodes["orders"]["element_effective"]) == ([a], "container")
+    assert (nodes["orders"]["has_children"], nodes["orders"]["child_count"]) == (True, 2)
+    # компоненты в ответе остаются (поддерево уровня), но без размещения
+    assert (nodes["api"]["instances"], nodes["api"]["sites"], nodes["api"]["element_effective"]) == (
+        [], [], "component"
+    )
+    assert nodes["worker"]["instances"] == []
+    assert nodes["shop"]["instances"] == []
+
+    # Система целиком: набор получают orders (сам) и billing, компоненты — нет.
+    assert client.put(url, json={"node_ids": [c["shop"]], "site_ids": [b]}, headers=h).status_code == 204
+    assert pairs() == {(c["orders"], b), (c["billing"], b)}
+    assert graph_nodes()["shop"]["instances"] == [b]
+    assert sites_of("shop") == [("B", False)]
+
+    # Спящий экземпляр компонента: ни компоненту, ни контейнеру, ни системе.
+    _place(db, db.get(Node, uuid.UUID(c["api"])), db.get(DeploymentSite, uuid.UUID(a)))
+    db.commit()
+    nodes = graph_nodes()
+    assert (nodes["api"]["instances"], nodes["api"]["sites"]) == ([], [])
+    assert (nodes["orders"]["instances"], nodes["shop"]["instances"]) == ([b], [b])
+    assert sites_of("api") == []
+    assert sites_of("shop") == [("B", False)]
+
+
+def test_элемент_и_площадки_одним_запросом_ложатся_на_контейнер(client, db, scene):
+    """PATCH «element: container + site_ids» у узла с детьми: элемент применяется до
+    размещения, набор пишется самому контейнеру, а не раздаётся детям как у системы."""
+    h, p = scene["h"], scene["p"]
+    core = _node(db, p.id, "core")
+    _node(db, p.id, "x", core)
+    _node(db, p.id, "y", core)
+    db.commit()
+    a = _post_site(client, h, "A")["id"]
+    r = client.patch(f"{API}/nodes/{core.id}", json={"element": "container", "site_ids": [a]}, headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["element_effective"] == "container"
+    assert [s["name"] for s in r.json()["sites"]] == ["A"]
+    db.expire_all()
+    assert {(i.node_id, str(i.site_id)) for i in db.query(DeploymentInstance)} == {(core.id, a)}
+
+
+def test_граф_уровня_контейнера_закрыт_а_связи_компонентов_в_ответе(client, db, scene):
+    """Уровень контейнера с компонентами — 422 текстом (рисовать внутри нечего); уровень
+    системы отдаёт контейнер, его компоненты и связь компонента — подъём к контейнеру
+    делает фронт; лист-контейнер как уровень — пустой граф, как и раньше."""
+    h = scene["h"]
+    c = _c4(db, scene)
+    graph = f"{API}/deployment/graph"
+    r = client.get(graph, params={"level": c["orders"]}, headers=h)
+    assert (r.status_code, r.json()) == (
+        422,
+        {"detail": "Внутри контейнера «orders» отдельного размещения нет: компоненты развёртываются вместе с ним"},
+    )
+    g = client.get(graph, params={"level": c["shop"]}, headers=h).json()
+    assert {x["name"] for x in g["nodes"]} == {"orders", "api", "worker", "billing"}
+    assert [(e["source_id"], e["target_id"]) for e in g["edges"]] == [(c["api"], c["billing"])]
+    g = client.get(graph, params={"level": c["billing"]}, headers=h).json()
+    assert (g["nodes"], g["edges"]) == ([], [])
 
 
 def test_граф_поддерево_размещение_и_связи(client, db, scene):

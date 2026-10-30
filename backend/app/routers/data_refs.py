@@ -3,9 +3,10 @@
 Единственная ручка: разобрать присланный текст и сказать по каждой пометке, нашлась
 ли её цель — у данных («читает:/пишет:» → таблица), у событий
 («публикует:/потребляет:» → канал брокера) и у конфигурации («зависит от:» → параметр
-самого узла). Тот же резолв, что у обратных индексов базы и брокера и у алертов —
-потребители одной чистой функции, расходиться им не на чем; новые семьи плашка
-понимает автоматически, ровно поэтому резолвер и един.
+ближайшего контейнера узла: у компонента — контейнера-предка). Тот же резолв, что у
+обратных индексов базы и брокера и у алертов — потребители одной чистой функции,
+расходиться им не на чем; новые семьи плашка понимает автоматически, ровно поэтому
+резолвер и един.
 
 Читают все роли проекта: плашка живёт в редакторе, но док открывает и читатель.
 """
@@ -33,7 +34,8 @@ router = APIRouter(prefix="/data-refs", tags=["data-refs"])
 
 
 def _owner_short_name(node_paths: dict[uuid.UUID, str], node_id: uuid.UUID) -> str:
-    """Короткая подпись узла-владельца (БД или брокера) — ПОСЛЕДНИЙ сегмент пути.
+    """Короткая подпись узла-владельца (БД, брокера или контейнера) — ПОСЛЕДНИЙ
+    сегмент пути.
 
     Плашке нужен не адрес объекта в дереве, а имя базы: «Платформа / Хранилище» →
     «Хранилище». Полный путь остаётся языком САМОЙ пометки (квалификатор), но в
@@ -54,20 +56,24 @@ def preview_data_refs(
     Порядок ответа = порядок появления пометок в тексте (его задаёт parse_data_refs):
     плашка читается сверху вниз вместе с диаграммой.
     """
-    tables, channels, params_by_node, node_paths = catalog_for_project(db, project.id)
-    by_id: dict[uuid.UUID, CatalogTable] = {t.id: t for t in tables}
-    ch_by_id: dict[uuid.UUID, CatalogChannel] = {c.id: c for c in channels}
-    # Конфигурация ВЛАДЕЛЬЦА дока. Владельца может не быть (старый клиент не шлёт
-    # node_id) — тогда конфигурационные пометки из ответа выпадают: см. ниже.
-    owner_params = (
-        params_by_node.get(payload.node_id, {}) if payload.node_id is not None else {}
-    )
+    catalog = catalog_for_project(db, project.id)
+    node_paths = catalog.node_paths
+    by_id: dict[uuid.UUID, CatalogTable] = {t.id: t for t in catalog.tables}
+    ch_by_id: dict[uuid.UUID, CatalogChannel] = {c.id: c for c in catalog.channels}
+    # Конфигурация ближайшего КОНТЕЙНЕРА владельца дока (у компонента — его
+    # контейнера-предка, Р11). Владельца может не быть (старый клиент не шлёт node_id)
+    # — тогда конфигурационные пометки из ответа выпадают: см. ниже.
+    owner_params: dict[str, uuid.UUID] = {}
+    container: uuid.UUID | None = None
+    if payload.node_id is not None:
+        owner_params = catalog.params_for(payload.node_id)
+        container = catalog.elements.container_of(payload.node_id)
 
     out: list[DataRefPreviewItem] = []
     for ref in resolve_data_refs(
         parse_data_refs(payload.content),
-        tables,
-        channels,
+        catalog.tables,
+        catalog.channels,
         node_paths,
         owner_params=owner_params,
     ):
@@ -79,9 +85,15 @@ def preview_data_refs(
         channel = ch_by_id.get(ref.channel_id) if ref.channel_id is not None else None
         target: str | None = None
         if ref.param_id is not None:
-            # Владелец параметра — сам узел, чей док открыт: его имя в подписи было бы
-            # шумом, а вот РАЗДЕЛ, куда идти сверяться, назвать полезно.
-            target = f"Конфигурация · {ref.ref}"
+            if container is None or container == payload.node_id:
+                # Владелец параметра — сам узел, чей док открыт: его имя в подписи
+                # было бы шумом, а вот РАЗДЕЛ, куда идти сверяться, назвать полезно.
+                target = f"Конфигурация · {ref.ref}"
+            else:
+                # Док компонента: параметр живёт у его контейнера — назвать, у какого,
+                # иначе человек пойдёт искать ручку на странице самого компонента.
+                short = _owner_short_name(node_paths, container)
+                target = f"Конфигурация «{short}» · {ref.ref}"
         elif table is not None:
             # unknown_column: таблица-то нашлась — её и показываем (обращение считается
             # к таблице ЦЕЛИКОМ), а несуществующую колонку в подпись не тащим —

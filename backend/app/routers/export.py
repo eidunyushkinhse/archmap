@@ -15,6 +15,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.deployment import ordered_instances, project_sites
 from app.deps import get_current_project
+from app.element_marks import elements_from_nodes
 from app.export import build_export
 from app.models.edge import Edge
 from app.models.node import Node
@@ -77,7 +78,9 @@ def export_subtree(
     _user: User = Depends(get_current_user),
 ) -> ExportResponse:
     """Экспорт поддерева от узла (сам узел + все потомки + связи внутри поддерева).
-    Площадки — только те, на которых стоят узлы поддерева, с их предками."""
+    Площадки — только те, на которых стоят узлы поддерева, с их предками. Элементы —
+    по всему проекту: контейнер над корнем поддерева делает его узлы компонентами, и
+    их экземпляры не пишутся."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     if node_id not in by_id:
@@ -100,5 +103,6 @@ def export_subtree(
             root_id=node_id,
             sites=sites,
             instances=ordered_instances(db, project.id, sites),
+            elements=elements_from_nodes(by_id),
         ),
     )

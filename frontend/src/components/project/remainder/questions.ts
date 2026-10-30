@@ -11,15 +11,16 @@
 // ответа» = сегодняшнее поведение бэка. Поэтому keep/diff в payload НЕ едут — их
 // отправка ничего бы не изменила, а лишний ключ пришлось бы валидировать.
 import type {
-  ComponentOut, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
-  IsolatedGroupOut, RemainderOut,
+  ComponentOut, ContainerEdgeOut, ContainerHintOut, FamilyConflictOut, FieldDisputeOut,
+  FuzzyPairOut, IsolatedGroupOut, RemainderOut,
 } from "../../../types";
 import type { QuestionMode } from "./questionText";
 import {
-  edgeTexts, familyTexts, fieldTexts, groupTexts, humanValue, lastSegment, pairTexts,
+  edgeTexts, endIsSystem, familyTexts, fieldTexts, groupTexts, hintTexts, humanValue,
+  lastSegment, pairTexts,
 } from "./questionText";
 
-export type QuestionKind = "family" | "field" | "edge" | "group" | "pair";
+export type QuestionKind = "family" | "field" | "hint" | "edge" | "group" | "pair";
 
 interface QuestionBase {
   /** id элемента бэка: детерминирован между превью и применением. */
@@ -32,6 +33,8 @@ interface QuestionBase {
 }
 export interface FamilyQuestion extends QuestionBase { kind: "family"; source: FamilyConflictOut }
 export interface FieldQuestion extends QuestionBase { kind: "field"; source: FieldDisputeOut }
+/** «Похоже на контейнер» (Р7): отметить узел контейнером или оставить системой. */
+export interface HintQuestion extends QuestionBase { kind: "hint"; source: ContainerHintOut }
 export interface EdgeQuestion extends QuestionBase { kind: "edge"; source: ContainerEdgeOut }
 export interface GroupQuestion extends QuestionBase {
   kind: "group";
@@ -41,10 +44,12 @@ export interface GroupQuestion extends QuestionBase {
 }
 export interface PairQuestion extends QuestionBase { kind: "pair"; source: FuzzyPairOut }
 export type Question =
-  FamilyQuestion | FieldQuestion | EdgeQuestion | GroupQuestion | PairQuestion;
+  FamilyQuestion | FieldQuestion | HintQuestion | EdgeQuestion | GroupQuestion | PairQuestion;
 
 // Ответы на всё, кроме споров содержимого (те живут в resolutions).
 export interface FieldAnswer { kind: "field"; index: number }
+/** «Контейнер» на вопрос «похоже на контейнер»; «Система» — это KeepAnswer. */
+export interface ContainerAnswer { kind: "container" }
 export interface EdgeAnswer { kind: "edge"; toPath: string }
 /**
  * Проведённые связи изолированной группы: по одной на объект группы, которому
@@ -56,11 +61,13 @@ export interface NewEdgesAnswer {
   edges: { fromPath: string; toPath: string; label: string; tech: string }[];
 }
 export interface MergeAnswer { kind: "merge"; name: string }
-/** «Оставить как есть» у связи в контейнер и у изолированной группы. */
+/** «Как сейчас»: связь остаётся на объекте с вложенными, группа — без связей, узел
+ * без элемента — системой. */
 export interface KeepAnswer { kind: "keep" }
 /** «Разные объекты» у похожих имён. */
 export interface DiffAnswer { kind: "diff" }
-export type Answer = FieldAnswer | EdgeAnswer | NewEdgesAnswer | MergeAnswer | KeepAnswer | DiffAnswer;
+export type Answer =
+  FieldAnswer | ContainerAnswer | EdgeAnswer | NewEdgesAnswer | MergeAnswer | KeepAnswer | DiffAnswer;
 export type Answers = Record<string, Answer>;
 /** Выбор по спорам содержимого: id → «cand:<i>» либо «all». */
 export type Resolutions = Record<string, string>;
@@ -74,13 +81,15 @@ export interface DecisionsPayload {
   edges?: Record<string, { to_path: string }>;
   new_edges?: NewEdgeDecision[];
   merges?: Record<string, { name: string }>;
+  container_hints?: Record<string, "container" | "system">;
 }
 
 /**
  * Список вопросов из превью. Порядок — от самого дешёвого решения к самому
- * ответственному (§4 ТЗ): содержимое → поля → связи в контейнер → пропущенные
- * связи → похожие имена; внутри вида — порядок бэка. Названия видов на экран не
- * выводятся: пользователь видит вопросы, а не таксономию остатка.
+ * ответственному (§4 ТЗ): содержимое → поля → «похоже на контейнер» → связи в
+ * систему или контейнер → пропущенные связи → похожие имена; внутри вида — порядок
+ * бэка. Названия видов на экран не выводятся: пользователь видит вопросы, а не
+ * таксономию остатка.
  */
 export function buildQuestions(input: {
   family_conflicts: FamilyConflictOut[];
@@ -99,13 +108,22 @@ export function buildQuestions(input: {
     const t = fieldTexts(d);
     out.push({ kind: "field", id: d.id, source: d, context: null, ...t });
   }
+  // У ответа прежнего сервера раздела нет — вопросов этого вида тогда нет.
+  for (const h of r.container_hints ?? []) {
+    out.push({ kind: "hint", id: h.id, source: h, ...hintTexts(h) });
+  }
   for (const e of r.container_edges) {
     out.push({ kind: "edge", id: e.id, source: e, ...edgeTexts(e, mode) });
   }
   // Дерево для пикера концов новой связи собираем ОДИН раз на все группы: списки
-  // node_paths и node_has_children приезжают строка в строку.
+  // node_paths, node_has_children и node_elements приезжают строка в строку (у
+  // ответа прежнего сервера элементов нет — тег тогда по признаку «есть вложенные»).
   const дерево: ComponentOut[] = r.isolated_groups.length === 0 ? [] : r.node_paths.map(
-    (path, i) => ({ path, has_children: r.node_has_children[i] ?? false }),
+    (path, i) => ({
+      path,
+      has_children: r.node_has_children[i] ?? false,
+      element_effective: r.node_elements?.[i] ?? null,
+    }),
   );
   for (const g of r.isolated_groups) {
     out.push({ kind: "group", id: g.id, source: g, nodes: дерево, ...groupTexts(g) });
@@ -137,7 +155,8 @@ export function answerState(
 // Подписи сегментов полосы прогресса (§3 ТЗ) — единственное место, где названия
 // видов видны пользователю.
 const SEGMENT_LABEL: Record<QuestionKind, string> = {
-  family: "Содержимое", field: "Поля", edge: "В контейнер", group: "Связи", pair: "Имена",
+  family: "Содержимое", field: "Поля", hint: "Контейнеры", edge: "В систему или контейнер",
+  group: "Связи", pair: "Имена",
 };
 
 export interface ProgressSegment {
@@ -212,10 +231,12 @@ export function toDecisions(questions: Question[], answers: Answers): DecisionsP
   const edges: Record<string, { to_path: string }> = {};
   const new_edges: NewEdgeDecision[] = [];
   const merges: Record<string, { name: string }> = {};
+  const container_hints: Record<string, "container" | "system"> = {};
   for (const q of questions) {
     const a = answers[q.id];
     if (a === undefined) continue;
     if (a.kind === "field") fields[q.id] = a.index;
+    else if (a.kind === "container") container_hints[q.id] = "container";
     else if (a.kind === "edge") edges[q.id] = { to_path: a.toPath };
     else if (a.kind === "new_edges") {
       // По записи на строку формы: группу из пяти объектов человек связывает
@@ -233,6 +254,7 @@ export function toDecisions(questions: Question[], answers: Answers): DecisionsP
   if (Object.keys(edges).length) payload.edges = edges;
   if (new_edges.length) payload.new_edges = new_edges;
   if (Object.keys(merges).length) payload.merges = merges;
+  if (Object.keys(container_hints).length) payload.container_hints = container_hints;
   return Object.keys(payload).length ? payload : null;
 }
 
@@ -319,7 +341,11 @@ export function answerLabel(
   if (a === undefined) return null;
   // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): называем его
   // словами вида вопроса, а не общим «как сейчас».
-  if (a.kind === "keep") return q.kind === "edge" ? "на контейнере" : "как есть";
+  if (a.kind === "keep") {
+    if (q.kind === "edge") return endIsSystem(q.source) ? "на системе" : "на контейнере";
+    return q.kind === "hint" ? "система" : "как есть";
+  }
+  if (a.kind === "container") return "контейнер";
   if (a.kind === "diff") return "разные объекты";
   if (a.kind === "edge") return lastSegment(a.toPath);
   if (a.kind === "new_edges") {

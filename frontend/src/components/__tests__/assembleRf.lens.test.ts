@@ -9,7 +9,7 @@ import type { LayoutResult } from "../graph/layout/pipeline";
 import type { BlockData, ContainerData } from "../graph/types";
 import type { Node as AppNode, AncestorRef } from "../../types";
 
-const a = (id: string): AncestorRef => ({ id, name: id, is_external: false });
+const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
 
 function appNode(id: string, kids: boolean): AppNode {
   return {
@@ -18,13 +18,14 @@ function appNode(id: string, kids: boolean): AppNode {
     openapi_spec: null, docs: [], version: 1,
     created_at: "", updated_at: "", has_children: kids, child_count: kids ? 2 : 0,
     approval: "in_progress", approval_effective: "in_progress", sites: [],
+    element: null, element_effective: kids ? "system" : "container", container_name: null,
   } as AppNode;
 }
 
 // Рамка раскрытия: nesting считается по вложенности memberIds (внешняя — надмножество).
 function frame(id: string, depth: number, members: string[]) {
   return {
-    id, name: id, depth, native: false, memberIds: new Set(members),
+    id, name: id, depth, native: false, memberIds: new Set(members), element: "system" as const, is_external: false,
     content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
     rect: { x: 0, y: 0, w: 100, h: 100 },
   };
@@ -36,8 +37,8 @@ function frame(id: string, depth: number, members: string[]) {
 const layout: LayoutResult = {
   nodes: [appNode("onLevel", true), appNode("in1", true), appNode("in2", true), appNode("leaf2", false)],
   entities: [
-    { kind: "container", id: "cLevel", name: "cLevel", depth: 1, ancestors: [a("R")], is_external: true },
-    { kind: "container", id: "cIn2", name: "cIn2", depth: 1, ancestors: [a("R")], is_external: true },
+    { kind: "container", id: "cLevel", name: "cLevel", depth: 1, ancestors: [a("R")], is_external: true, element: "system" },
+    { kind: "container", id: "cIn2", name: "cIn2", depth: 1, ancestors: [a("R")], is_external: true, element: "system" },
   ],
   positions: new Map(
     ["onLevel", "in1", "in2", "leaf2", "cLevel", "cIn2"].map((id) => [id, { x: 0, y: 0 }])

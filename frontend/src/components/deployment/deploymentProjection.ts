@@ -1,13 +1,17 @@
 // ПРОЕКЦИЯ ГРАФА РАЗВЁРТЫВАНИЯ НА ХОЛСТ (docs/specs/deployment.md). Чистая функция:
 // ответ GET /deployment/graph → вход LevelGraph с бандлом projection.
 //
-// Граф отдаёт ВСЁ поддерево уровня, холст рисует ПРЕДСТАВИТЕЛЕЙ (D22). Контейнер ЦЕЛЬНЫЙ,
-// если у всех листьев его поддерева одинаковый набор действующих площадок («не указано»
-// — тоже набор): тогда он одна карточка в каждой площадке набора, а его объекты не
-// рисуются. Иначе контейнер рассыпается до детей, и правило повторяется на них сверху
-// вниз. Лист — всегда свой представитель; контейнер без листьев в ответе (внутри одни
-// «Пользователи») не рисуется. Контейнеры на этом холсте НЕ раскрываются: у карточки
-// контейнера бейдж числа объектов внутри, двойной клик по ней — вход в его уровень.
+// Граф отдаёт ВСЁ поддерево уровня, холст рисует ПРЕДСТАВИТЕЛЕЙ (D22, D33). Единица
+// размещения — контейнер (element_effective от сервера: лист вне контейнера или контейнер
+// с компонентами; Р16 эпика docs/plan-c4-elements.md) — всегда свой представитель: одна
+// сплошная карточка в каждой площадке своего размещения, без бейджа; вниз проекция не
+// спускается, компоненты не рисуются, а концы их связей поднимаются к контейнеру.
+// Система ЦЕЛЬНАЯ, если у всех её единиц одинаковый набор площадок («не указано» — тоже
+// набор): тогда она одна пунктирная карточка в каждой площадке набора с бейджем числа
+// единиц, а её содержимое не рисуется. Иначе система рассыпается до детей, и правило
+// повторяется на них сверху вниз. Система без единиц в ответе (внутри одни
+// «Пользователи») не рисуется. Системы на этом холсте НЕ раскрываются: двойной клик по
+// карточке системы — вход в её уровень, по карточке единицы — страница объекта.
 //
 // Площадки — раскрываемые ЛОКАЛЬНЫЕ контейнеры уровня (R5): корневые площадки — узлы
 // уровня, вложенные площадки и карточки — их дети (children). Площадка по умолчанию
@@ -41,7 +45,8 @@ export const siteKey = (siteId: string): string => `deploy:site:${siteId}`;
 export const instanceKey = (nodeId: string, siteId: string): string => `deploy:${nodeId}@${siteId}`;
 
 /** Карточки узла на холсте уровня — в порядке его действующего размещения. Пусто, если
- *  объект на этом уровне не представитель (его рисует цельный контейнер) или вне объёма. */
+ *  узел на этом уровне не представитель (его рисует цельная система, компонента нет на
+ *  холсте вовсе) или вне объёма. */
 export function cardsOf(proj: Pick<DeploymentProjection, "siteOf">, nodeId: string): string[] {
   const out: string[] = [];
   for (const [cardId, inst] of proj.siteOf) if (inst.nodeId === nodeId) out.push(cardId);
@@ -80,18 +85,18 @@ export interface DeploymentProjection {
   depths: Record<string, number>;
 }
 
-// Представитель: узел (лист или цельный контейнер), его площадки и число объектов
-// (листьев) внутри — у листа 1.
+// Представитель: единица (контейнер) или цельная система, её площадки и число единиц
+// внутри — у единицы 1.
 interface Rep {
   node: DeploymentNode;
   places: string[];
-  leaves: number;
-  container: boolean;
+  units: number;
+  system: boolean;
 }
 
-// Набор площадок поддерева: общий у всех его листьев (places — в порядке первого
-// листа), «mixed» — у листьев разные наборы, «empty» — листьев в ответе нет.
-type Uniform = { places: string[]; leaves: number } | "mixed" | "empty";
+// Набор площадок поддерева: общий у всех его единиц (places — в порядке первой
+// единицы), «mixed» — у единиц разные наборы, «empty» — единиц в ответе нет.
+type Uniform = { places: string[]; units: number } | "mixed" | "empty";
 
 // Ключ набора площадок: множество id, порядок не важен.
 const setKey = (places: string[]): string => [...places].sort().join("|");
@@ -115,6 +120,10 @@ function siteNode(site: SiteOut, parentKey: string | null, childCount: number): 
     has_children: childCount > 0,
     approval: "in_progress",
     approval_effective: "in_progress",
+    // Площадка — не объект архитектуры: элемента у её карточки нет.
+    element: null,
+    element_effective: null,
+    container_name: null,
     sites: [],
     version: site.version,
     created_at: "",
@@ -123,21 +132,22 @@ function siteNode(site: SiteOut, parentKey: string | null, childCount: number): 
 }
 
 // Карточка представителя: поля узла (имя, форма, статус, внешность…) под ключом
-// карточки. У цельного контейнера — признак детей и число объектов внутри (бейдж);
-// раскрывать его холст не станет — в карте состава его нет.
+// карточки. У цельной системы — признак детей и число единиц внутри (пунктир и бейдж);
+// раскрывать её холст не станет — в карте состава её нет. У единицы — карточка
+// объекта: сплошная, без бейджа и лупы, и у контейнера с компонентами (Р17).
 function repCard(rep: Rep, siteId: string): AppNode {
   return {
     ...rep.node,
     id: instanceKey(rep.node.id, siteId),
     parent_id: siteKey(siteId),
-    has_children: rep.container,
-    child_count: rep.container ? rep.leaves : 0,
+    has_children: rep.system,
+    child_count: rep.system ? rep.units : 0,
     docs: [],
   };
 }
 
 /** Проекция графа уровня на холст. levelDepth — число предков у корней объёма (прямых
- *  детей контейнера уровня; 0 у всего проекта): от него считается глубина цвета карточек. */
+ *  детей системы уровня; 0 у всего проекта): от него считается глубина цвета карточек. */
 export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): DeploymentProjection {
   const siteById = new Map(graph.sites.map((s) => [s.id, s] as const));
   // Корневая площадка каждой площадки (обход с seen: данные могут оказаться циклом).
@@ -168,12 +178,17 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
     }
   }
   // Лист — узел без детей вообще: has_children сервер считает по всем прямым детям, и
-  // контейнер, внутри которого одни «Пользователи», листом не становится.
+  // система, внутри которой одни «Пользователи», листом не становится.
   const isLeaf = (n: DeploymentNode): boolean => !n.has_children && !kidsOf.has(n.id);
+  // Единица размещения (D33) — контейнер: лист вне контейнера или контейнер с
+  // компонентами. Элемент считает сервер; компонент единицей не бывает и листом.
+  const isComponent = (n: DeploymentNode): boolean => n.element_effective === "component";
+  const isUnit = (n: DeploymentNode): boolean =>
+    !isComponent(n) && (n.element_effective === "container" || isLeaf(n));
 
-  // Площадки листа в порядке ответа (неизвестные отброшены); без площадок — группа
-  // «не указано». Размещение хранится у листьев: контейнер — производное от них.
-  const leafPlaces = (n: DeploymentNode): string[] => {
+  // Площадки единицы в порядке ответа (неизвестные отброшены); без площадок — группа
+  // «не указано». Размещение хранится у единиц: система — производное от них.
+  const unitPlaces = (n: DeploymentNode): string[] => {
     const places = n.instances.filter((id) => siteById.has(id));
     return places.length > 0 ? [...new Set(places)] : [UNPLACED];
   };
@@ -186,15 +201,17 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
     const hit = memo.get(n.id);
     if (hit) return hit;
     let res: Uniform = "empty";
-    if (isLeaf(n)) {
-      res = { places: leafPlaces(n), leaves: 1 };
+    if (isComponent(n)) {
+      // компонент не размещается и не рисуется: его площадки — у контейнера
+    } else if (isUnit(n)) {
+      res = { places: unitPlaces(n), units: 1 };
     } else {
       for (const k of kidsOf.get(n.id) ?? []) {
         const u = uniformOf(k);
         if (u === "empty") continue;
         if (u === "mixed") { res = "mixed"; break; }
-        if (res === "empty") res = { places: u.places, leaves: u.leaves };
-        else if (setKey(res.places) === setKey(u.places)) res = { places: res.places, leaves: res.leaves + u.leaves };
+        if (res === "empty") res = { places: u.places, units: u.units };
+        else if (setKey(res.places) === setKey(u.places)) res = { places: res.places, units: res.units + u.units };
         else { res = "mixed"; break; }
       }
     }
@@ -202,9 +219,9 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
     return res;
   };
 
-  // Представители сверху вниз: лист и цельный контейнер — представитель (вниз не
-  // спускаемся), рассыпанный контейнер — к детям, пустой — пропуск. Порядок — порядок
-  // ответа (по имени): от него зависит порядок карточек в рамке.
+  // Представители сверху вниз: единица и цельная система — представитель (вниз не
+  // спускаемся), рассыпанная система — к детям, пустой узел и компонент — пропуск.
+  // Порядок — порядок ответа (по имени): от него зависит порядок карточек в рамке.
   const reps: Rep[] = [];
   const walk = (n: DeploymentNode): void => {
     const u = uniformOf(n);
@@ -213,7 +230,7 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
       for (const k of kidsOf.get(n.id) ?? []) walk(k);
       return;
     }
-    reps.push({ node: n, places: u.places, leaves: u.leaves, container: !isLeaf(n) });
+    reps.push({ node: n, places: u.places, units: u.units, system: !isUnit(n) });
   };
   for (const r of roots) walk(r);
   reps.sort((a, b) => (order.get(a.node.id) ?? 0) - (order.get(b.node.id) ?? 0));
@@ -272,10 +289,12 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
   const children: Record<string, AppNode[]> = {};
   const chainOf = new Map<string, AncestorRef[]>();
   const countOf = new Map<string, number>();
+  // Звено цепочки — площадка, а не объект: элемента архитектуры у неё нет.
   const siteRef = (site: SiteOut): AncestorRef => ({
     id: siteKey(site.id),
     name: site.technology ? `${site.name} · ${site.technology}` : site.name,
     is_external: false,
+    element_effective: null,
   });
   const build = (site: SiteOut, parentKey: string | null, chain: AncestorRef[], seen: Set<string>): AppNode => {
     const nested = (childSites.get(site.id) ?? []).filter((c) => !seen.has(c.id));
@@ -305,7 +324,7 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
       role: null,
     });
     children[unplacedKey] = unplaced;
-    chainOf.set(UNPLACED, [{ id: unplacedKey, name: UNPLACED_NAME, is_external: false }]);
+    chainOf.set(UNPLACED, [{ id: unplacedKey, name: UNPLACED_NAME, is_external: false, element_effective: null }]);
   }
 
   // Реестр концов: каждая карточка — с цепочкой площадок над ней. Свёрнута площадка в
@@ -325,16 +344,18 @@ export function projectDeployment(graph: DeploymentGraph, levelDepth = 0): Deplo
         shape: n.shape,
         status: n.status,
         node_depth: ancestors.length,
-        has_children: rep.container,
-        child_count: rep.container ? rep.leaves : 0,
+        has_children: rep.system,
+        child_count: rep.system ? rep.units : 0,
+        element_effective: n.element_effective,
         ancestors,
         is_ghost: true,
       });
     }
   }
 
-  // Представитель конца связи: сам узел или ближайший предок-представитель (подъём с
-  // seen — данные могут оказаться циклом). Нет такого — связь не рисуется.
+  // Представитель конца связи: сам узел или ближайший предок-представитель — у
+  // компонента это его контейнер или цельная система над ним (подъём с seen — данные
+  // могут оказаться циклом). Нет такого — связь не рисуется.
   const repOf = (id: string): Rep | undefined => {
     const seen = new Set<string>();
     for (let cur: string | null | undefined = id; cur && !seen.has(cur); cur = nodeById.get(cur)?.parent_id) {

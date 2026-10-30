@@ -1,16 +1,29 @@
-"""Размещение объектов на площадках развёртывания (docs/tasks/deployment-view.md).
+"""Размещение объектов на площадках развёртывания (docs/tasks/deployment-view.md;
+единица размещения — эпик docs/plan-c4-elements.md, решение Р16).
 
-Домен без HTTP: запись набора экземпляров, размещение контейнера целиком, вычисляемое
+Домен без HTTP: запись набора экземпляров, размещение системы целиком, вычисляемое
 поле NodeResponse.sites, правило разбора объявлений импорта и проверка вложенности
 площадок. Роутеры (routers/deployment, routers/nodes) переводят отказы PlacementError
 в 404/422.
 
-Размещение хранится только у ОБЪЕКТОВ — листьев дерева (узлов без детей), кроме
-«Пользователя»: он живёт вне системы. Контейнер размещается целиком: записать ему
-набор площадок значит записать его каждому объекту внутри, а его собственное
-размещение — производное от объектов (площадки, где стоят все они, и где — часть).
-Наследования как отдельного понятия нет (решение 2026-10-27): у объекта внутри
-размещённого контейнера своя галочка на той же площадке, что и у контейнера.
+ЕДИНИЦА РАЗМЕЩЕНИЯ — узел с действующим элементом «контейнер» (app/element.py): лист
+вне контейнера или контейнер с компонентами. Экземпляры хранятся только у единиц.
+- У компонента размещения НЕ БЫВАЕТ — не «унаследовано», а «не бывает»: запись ему
+  отказывается 422 (COMPONENT_DETAIL). Тихого перенаправления в контейнер нет нигде:
+  оно вернуло бы наследование с другой стороны (ошибка 2026-10, ТЗ §2а п. 14).
+- Система размещения не хранит. Записать ей набор площадок значит записать его каждой
+  её единице, а её размещение — производное от единиц: площадки, где стоят все, и где
+  — часть (partial). Обход вниз останавливается на единице (компоненты контейнера не
+  обходятся) и идёт сквозь вложенные системы.
+- «Пользователь» живёт вне системы — размещения у него нет.
+Экземпляры у компонента или системы (прежние данные, перенос узла — эпик, Ф5) —
+«спящие»: размещение их не считает, площадки компонента видит алерт AL36 (has_sites).
+При элементе null во всём проекте (узел с детьми — система, лист — контейнер) единица —
+лист: ровно правило 2026-10-27.
+
+Элементы (app/element.Elements) — обязательный аргумент всех функций без дефолта
+(камень 2 плана эпика): забытый аргумент молча вернул бы прежнюю семантику «единица —
+лист».
 """
 
 import uuid
@@ -19,6 +32,8 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
+from app.element import Elements
+from app.element_marks import build_elements, project_element_rows
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
@@ -27,6 +42,10 @@ from app.schemas.node import NodeSiteOut
 
 PERSON_DETAIL = "У пользователя нет размещения — он живёт вне системы"
 EMPTY_CONTAINER = "В «{name}» нет объектов, которые можно разместить"
+COMPONENT_DETAIL = "Площадки задаются контейнеру: «{name}» — компонент контейнера «{container}»"
+CONTAINER_LEVEL = (
+    "Внутри контейнера «{name}» отдельного размещения нет: компоненты развёртываются вместе с ним"
+)
 SITE_NOT_FOUND = "Площадка не найдена"
 PARENT_NOT_FOUND = "Родительская площадка не найдена"
 
@@ -43,62 +62,45 @@ class PlacementError(ValueError):
 
 @dataclass(frozen=True)
 class SitePlace:
-    """Площадка в размещении узла. partial — только у контейнера: на площадке стоит
-    часть его объектов, а не все."""
+    """Площадка в размещении узла. partial — только у системы: на площадке стоит часть
+    её единиц, а не все."""
 
     site_id: uuid.UUID
     partial: bool = False
 
 
 ParentOf = Mapping[uuid.UUID, uuid.UUID | None]
-Shapes = Mapping[uuid.UUID, str]
 
 
-def _children(parent_of: ParentOf) -> dict[uuid.UUID, list[uuid.UUID]]:
-    kids: dict[uuid.UUID, list[uuid.UUID]] = {}
-    for node_id, parent_id in parent_of.items():
-        if parent_id is not None and parent_id != node_id:
-            kids.setdefault(parent_id, []).append(node_id)
-    return kids
+def placeable_units(elements: Elements[uuid.UUID], root_id: uuid.UUID) -> list[uuid.UUID]:
+    """Единицы размещения узла root_id: единица — она сама; система — единицы её
+    поддерева (сквозь вложенные системы, вниз до первой единицы, без «Пользователей»);
+    компонент и «Пользователь» — пусто. Порядок — обход в глубину, дети по имени; обход
+    с seen (данные снимков и импорта бывают циклическими) — это Elements.units_under,
+    второй реализации обхода здесь нет."""
+    return elements.units_under(root_id)
 
 
-def placeable_leaves(parent_of: ParentOf, shapes: Shapes, root_id: uuid.UUID) -> list[uuid.UUID]:
-    """Объекты узла root_id, у которых есть размещение: он сам, если он лист (не
-    «Пользователь»), иначе листья его поддерева без «Пользователей». Порядок — обход
-    в глубину; с seen: данные снимков и импорта бывают циклическими."""
-    kids = _children(parent_of)
-    out: list[uuid.UUID] = []
-    seen: set[uuid.UUID] = set()
-    stack = [root_id]
-    while stack:
-        cur = stack.pop()
-        if cur in seen:
-            continue
-        seen.add(cur)
-        children = kids.get(cur, [])
-        if children:
-            stack.extend(reversed(children))
-        elif shapes.get(cur) != "person":
-            out.append(cur)
-    return out
-
-
-def leaf_placements(
-    parent_of: ParentOf, shapes: Shapes, declared: Mapping[uuid.UUID, Sequence[uuid.UUID]]
+def unit_placements(
+    parent_of: ParentOf,
+    declared: Mapping[uuid.UUID, Sequence[uuid.UUID]],
+    elements: Elements[uuid.UUID],
 ) -> dict[uuid.UUID, list[uuid.UUID]]:
-    """Правило импорта: объявленные площадки узла достаются его объектам. Лист берёт
-    своё объявление, без него — объявление ближайшего предка (контейнер размещается
-    целиком). Возвращает только листья с непустым набором; «Пользователь» — никогда.
+    """Правило импорта: объявленные площадки узла достаются единицам. Единица берёт
+    своё объявление, без него — объявление ближайшей системы над ней (система
+    размещается целиком: её объявление получает каждая её единица, контейнер с
+    компонентами — целиком, а не его компоненты). Объявления компонентов и
+    «Пользователей» не используются: у них размещения не бывает (ввоз замечает это
+    раньше — app/import_element). Возвращает только единицы с непустым набором.
     Подъём с seen: цикл родителей без объявления даёт пустое размещение, а не зависание."""
-    kids = _children(parent_of)
     out: dict[uuid.UUID, list[uuid.UUID]] = {}
     for node_id in parent_of:
-        if node_id in kids or shapes.get(node_id) == "person":
+        if elements.effective(node_id) != "container":
             continue
         seen: set[uuid.UUID] = set()
         cur: uuid.UUID | None = node_id
         while cur is not None and cur in parent_of and cur not in seen:
-            if declared.get(cur):
+            if declared.get(cur) and (cur == node_id or elements.effective(cur) == "system"):
                 out[node_id] = list(dict.fromkeys(declared[cur]))
                 break
             seen.add(cur)
@@ -108,35 +110,41 @@ def leaf_placements(
 
 def placement_map(
     parent_of: ParentOf,
-    shapes: Shapes,
     own: Mapping[uuid.UUID, Sequence[uuid.UUID]],
     site_rank: Mapping[uuid.UUID, int],
+    elements: Elements[uuid.UUID],
 ) -> dict[uuid.UUID, list[SitePlace]]:
-    """Размещение КАЖДОГО узла карты parent_of. Лист — свои экземпляры (own, в порядке
-    площадок); контейнер — площадки его объектов: где стоят все — обычные, где часть —
-    partial; без объектов — пусто. Экземпляры у самого контейнера (данные прежней
-    модели) не в счёт — его размещение всегда выводится из объектов."""
-    kids = _children(parent_of)
+    """Размещение КАЖДОГО узла карты parent_of. Единица — свои экземпляры (own, в порядке
+    площадок); система — площадки её единиц: где стоят все — обычные, где часть —
+    partial; без единиц — пусто. Компонент и «Пользователь» — пусто: их экземпляры
+    (спящие, прежние данные) не в счёт, как и экземпляры у самой системы."""
     result: dict[uuid.UUID, list[SitePlace]] = {}
     for node_id in parent_of:
-        if shapes.get(node_id) == "person":
-            result[node_id] = []
-            continue
-        if node_id not in kids:
+        element = elements.effective(node_id)
+        if element == "container":
             places = sorted(dict.fromkeys(own.get(node_id, ())), key=lambda s: site_rank.get(s, len(site_rank)))
             result[node_id] = [SitePlace(s) for s in places]
             continue
-        leaves = placeable_leaves(parent_of, shapes, node_id)
-        if not leaves:
+        units = placeable_units(elements, node_id) if element == "system" else []
+        if not units:
             result[node_id] = []
             continue
         counts: dict[uuid.UUID, int] = {}
-        for leaf in leaves:
-            for site_id in dict.fromkeys(own.get(leaf, ())):
+        for unit in units:
+            for site_id in dict.fromkeys(own.get(unit, ())):
                 counts[site_id] = counts.get(site_id, 0) + 1
         ordered = sorted(counts, key=lambda s: site_rank.get(s, len(site_rank)))
-        result[node_id] = [SitePlace(s, partial=counts[s] < len(leaves)) for s in ordered]
+        result[node_id] = [SitePlace(s, partial=counts[s] < len(units)) for s in ordered]
     return result
+
+
+def level_refusal(elements: Elements[uuid.UUID], node: Node, has_children: bool) -> str | None:
+    """Почему уровень node не открывается на холсте развёртывания; None — открывается.
+    Контейнер с компонентами — единица: он стоит на площадках сам, а его компоненты
+    отдельно не развёртываются, поэтому внутри него холсту рисовать нечего."""
+    if has_children and elements.effective(node.id) == "container":
+        return CONTAINER_LEVEL.format(name=node.name)
+    return None
 
 
 def check_site_parent(
@@ -167,25 +175,33 @@ def check_site_parent(
     return None
 
 
-def project_tree(db: Session, project_id: uuid.UUID) -> tuple[dict[uuid.UUID, uuid.UUID | None], dict[uuid.UUID, str]]:
-    """Карты «узел → родитель» и «узел → форма» всего проекта одним лёгким запросом:
-    по ним считаются объекты контейнера и выводится его размещение."""
-    rows = db.query(Node.id, Node.parent_id, Node.shape).filter(Node.project_id == project_id).all()
-    return {nid: pid for nid, pid, _shape in rows}, {nid: shape for nid, _pid, shape in rows}
+def project_tree(
+    db: Session, project_id: uuid.UUID
+) -> tuple[dict[uuid.UUID, uuid.UUID | None], Elements[uuid.UUID]]:
+    """Карта «узел → родитель» и действующие элементы всего проекта одной лёгкой
+    выборкой (app/element_marks.project_element_rows): по ним считаются единицы системы
+    и выводится её размещение."""
+    rows = project_element_rows(db, project_id)
+    return {r.id: r.parent_id for r in rows}, build_elements(rows)
 
 
 def set_placements(
     db: Session, project: Project, nodes: Sequence[Node], site_ids: set[uuid.UUID]
 ) -> int:
-    """Задать КАЖДОМУ объекту узлов nodes ровно набор площадок site_ids: недостающие
-    экземпляры добавить, лишние снять; пустой набор — снять размещение. Контейнер
-    размещается целиком: объекты — листья его поддерева без «Пользователей». Узлы —
-    уже проверенные на принадлежность проекту (node_or_404 в роутере).
+    """Задать КАЖДОЙ единице узлов nodes ровно набор площадок site_ids: недостающие
+    экземпляры добавить, лишние снять; пустой набор — снять размещение. Единица
+    (контейнер, в том числе лист) пишется сама; система размещается целиком — набор
+    получает каждая её единица. Узлы — уже проверенные на принадлежность проекту
+    (node_or_404 в роутере).
 
     Отказы — до любой записи, поэтому частично применённого набора не бывает:
-    «Пользователь» среди узлов или контейнер без объектов — 422, площадка не из
+    «Пользователь» или компонент среди узлов, система без единиц — 422, площадка не из
     проекта — 404. Возвращает число добавленных и снятых экземпляров (0 — набор уже
     был таким, курсоры двигать не нужно). Коммит — на вызывающей стороне.
+
+    Дерево читается из БД после flush: PATCH узла применяет элемент, форму и родителя
+    до размещения (routers/nodes), и набор должен лечь по уже итоговому дереву — сессия
+    без autoflush иначе отдала бы прежнее.
     """
     if any(n.shape == "person" for n in nodes):
         raise PlacementError(PERSON_DETAIL)
@@ -201,14 +217,22 @@ def set_placements(
     if not nodes:
         return 0
 
-    parent_of, shapes = project_tree(db, project.id)
+    db.flush()
+    _parent_of, elements = project_tree(db, project.id)
+    for node in nodes:
+        if elements.effective(node.id) == "component":
+            holder_id = elements.container_of(node.id) or node.parent_id
+            holder = db.get(Node, holder_id) if holder_id is not None else None
+            raise PlacementError(
+                COMPONENT_DETAIL.format(name=node.name, container="" if holder is None else holder.name)
+            )
     targets: dict[uuid.UUID, None] = {}
     for node in nodes:
-        leaves = placeable_leaves(parent_of, shapes, node.id)
-        if not leaves:
+        units = placeable_units(elements, node.id)
+        if not units:
             raise PlacementError(EMPTY_CONTAINER.format(name=node.name))
-        for leaf in leaves:
-            targets[leaf] = None
+        for unit in units:
+            targets[unit] = None
 
     have: dict[uuid.UUID, dict[uuid.UUID, DeploymentInstance]] = {}
     for inst in db.query(DeploymentInstance).filter(DeploymentInstance.node_id.in_(list(targets))):
@@ -235,7 +259,8 @@ def site_refs(
     sites_by_id: Mapping[uuid.UUID, DeploymentSite],
 ) -> list[NodeSiteOut]:
     """Размещение узла строками NodeResponse.sites. «Пользователь» — всегда пусто
-    (импорт мог положить его внутрь системы — это ловит алерт AL25, а не размещение)."""
+    (импорт мог положить его внутрь системы — это ловит алерт AL25, а не размещение);
+    компонент — тоже: placement_map его экземпляры не считает."""
     if node.shape == "person":
         return []
     out: list[NodeSiteOut] = []
@@ -259,7 +284,7 @@ def site_refs(
 
 def project_sites(db: Session, project_id: uuid.UUID) -> list[DeploymentSite]:
     """Площадки проекта в порядке имени (затем id) — единый порядок для списка, графа и
-    строк размещения: от него зависит и порядок экземпляров объекта."""
+    строк размещения: от него зависит и порядок экземпляров единицы."""
     return (
         db.query(DeploymentSite)
         .filter(DeploymentSite.project_id == project_id)
@@ -294,10 +319,10 @@ def own_by_node(pairs: Sequence[tuple[uuid.UUID, uuid.UUID]]) -> dict[uuid.UUID,
 def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> None:
     """Проставляет вычисляемый Node.sites на экземплярах перед отдачей NodeResponse.
 
-    Выборка экземпляров проекта — одна на вызов; площадки и карта дерева читаются,
-    только если экземпляры в проекте есть: проект без размещения платит одним лёгким
-    запросом. Дерево нужно всё — размещение контейнера выводится из объектов любой
-    глубины внутри него.
+    Выборка экземпляров проекта — одна на вызов; площадки и дерево с элементами
+    читаются, только если экземпляры в проекте есть: проект без размещения платит одним
+    лёгким запросом. Дерево нужно всё — размещение системы выводится из единиц любой
+    глубины внутри неё, а элемент узла зависит от всех его предков.
     """
     if not nodes:
         return
@@ -307,9 +332,9 @@ def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> Non
         for n in nodes:
             n.sites = []
         return
-    parent_of, shapes = project_tree(db, project_id)
+    parent_of, elements = project_tree(db, project_id)
     rank = {site.id: i for i, site in enumerate(sites)}
-    places = placement_map(parent_of, shapes, own_by_node(pairs), rank)
+    places = placement_map(parent_of, own_by_node(pairs), rank, elements)
     sites_by_id = {site.id: site for site in sites}
     for n in nodes:
         n.sites = site_refs(n, places.get(n.id, []), sites_by_id)

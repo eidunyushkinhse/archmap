@@ -72,6 +72,13 @@ describe("AnchorField — ⓘ", () => {
       expect(panel.textContent).toContain(p.body);
     }
   });
+
+  it("слова элемента архитектуры: система и уровень, а не контейнер в старом смысле", () => {
+    const text = ANCHOR_HELP.map((p) => p.body).join(" ");
+    expect(text).toContain("перенесённый в другую систему сервис");
+    expect(text).toContain("опознаётся только по имени среди соседей по уровню");
+    expect(text).not.toContain("контейнер");
+  });
 });
 
 describe("AnchorField — правка", () => {

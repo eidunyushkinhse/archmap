@@ -362,3 +362,84 @@ def test_модули_синка_размещение_не_читают():
 
     for module in (sync_plan, sync_apply):
         assert ".sites" not in inspect.getsource(module)
+
+
+# ── Элемент архитектуры: синк доливает пустое и создаёт с элементом (Ф2, Р30) ─
+
+RUN_ЭЛЕМЕНТ = NEXT_RUN.replace(
+    "      - name: orders\n", "      - name: orders\n        element: container\n"
+).replace("      - name: cache\n", "      - name: cache\n        element: container\n")
+
+
+def test_apply_доливает_элемент_и_создаёт_с_элементом_фикспойнт(db):
+    """Пустой элемент живого узла доливается, новый узел создаётся с элементом (лист-
+    контейнер без компонентов — норма, Р3), и повторный план на том же входе пуст."""
+    p, user = _project(db)
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
+
+    assert "Система / orders" in out.updated_nodes
+    assert out.created_nodes == ["Система / cache"]
+    assert _node(db, p.id, "orders").element == "container"
+    assert _node(db, p.id, "cache").element == "container"
+    assert _node(db, p.id, "payments").element is None
+
+    again = sync_preview(p.id, SyncPreviewIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
+    assert again.is_noop, again.summary
+
+
+# ── База и брокер в живом контейнере: создаются у его родителя (Р6) ─────────
+
+def _plan(db, p, text: str, **policies: bool):
+    from app.import_merge import parse_and_merge
+    from app.sync_plan import SyncPolicies, plan_for
+
+    merged, _report, errors = parse_and_merge([text])
+    assert merged is not None, errors
+    return plan_for(db, p.id, merged, SyncPolicies(**policies))
+
+
+def test_apply_создаёт_базу_уровнем_выше_живого_контейнера_фикспойнт(db):
+    """Прогон кладёт базу в живой контейнер: она создаётся у родителя контейнера, связь
+    к ней находит конец по пути прогона, повторный план пуст по действиям."""
+    p, _user = _project(db, RUN_ЭЛЕМЕНТ)
+    прогон = RUN_ЭЛЕМЕНТ.replace(
+        "      - name: orders\n        element: container\n",
+        "      - name: orders\n        children:\n          - name: api\n"
+        "          - name: orders-cache\n            shape: database\n",
+    ) + "  - {from: api, to: orders-cache, label: кэширует}\n"
+
+    report = _apply(db, p, прогон, sync_components=True)
+
+    assert "Система / orders / orders-cache" in report.created_nodes
+    кэш, система = _node(db, p.id, "orders-cache"), _node(db, p.id, "Система")
+    assert кэш.parent_id == система.id
+    assert _node(db, p.id, "api").parent_id == _node(db, p.id, "orders").id
+    assert _node(db, p.id, "orders").element == "container"
+    связь = db.query(Edge).filter(Edge.project_id == p.id, Edge.target_id == кэш.id).one()
+    assert связь.source_id == _node(db, p.id, "api").id
+
+    again = _plan(db, p, прогон, sync_components=True)
+    assert again.is_noop, again.summary
+    assert again.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — в "
+        "схеме она лежит уровнем выше, в «Система»"
+    ]
+
+
+def test_apply_брокер_корневого_контейнера_на_верхнем_уровне(db):
+    живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
+    прогон = (
+        "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "      - name: scheduler\n"
+        "      - name: Kafka\n        shape: broker\n"
+    )
+    p, _user = _project(db, живой)
+
+    report = _apply(db, p, прогон)
+
+    # Брокер компонентом не бывает — выносится и без галочки; новый сервис-компонент
+    # scheduler без галочки не создаётся.
+    assert report.created_nodes == ["orders / Kafka"]
+    assert _node(db, p.id, "Kafka").parent_id is None
+    assert _plan(db, p, прогон).is_noop

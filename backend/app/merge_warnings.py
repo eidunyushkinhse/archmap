@@ -5,6 +5,7 @@
 
 
 from app.connectivity import connected_components
+from app.import_element import effective_elements
 from app.import_yaml import (
     ParsedImport,
     _ImpNode,
@@ -183,7 +184,7 @@ def _warn_descendant_edges(merged: ParsedImport, report: MergeReport) -> set[int
 def _warn_container_edges(
     merged: ParsedImport, report: MergeReport, parents: set[int], skip: set[int]
 ) -> None:
-    """Связи, упирающиеся в контейнер, У КОТОРОГО ЕСТЬ компоненты.
+    """Связи, упирающиеся в объект, У КОТОРОГО ЕСТЬ вложенные объекты.
 
     После импорта это алерт AL8, но агент к тому моменту уже ушёл: в раунде 3
     полевого QA (docs/qa-zabbix-7.md) их накопилось 13 — «дополняй связями» слабая
@@ -191,8 +192,12 @@ def _warn_container_edges(
     ДО импорта и НАЗЫВАЕМ каждую связь: замечание лечится переносом конца на
     компонент, и агенту нужен конкретный конец, а не правило.
 
-    Определение контейнера — зеркало app/alerts.compute_alerts (узел с детьми),
-    но по СЛИТОМУ дереву: проекта на этот момент ещё не существует.
+    Определение такого конца — зеркало app/alerts.compute_alerts (узел с детьми),
+    но по СЛИТОМУ дереву: проекта на этот момент ещё не существует. Правило одно для
+    любого объекта с вложенными (Р22 эпика элементов архитектуры), а слова — по его
+    действующему элементу в слитом (уже санитизированном) дереве: у системы —
+    «вложенные объекты», у контейнера — «компоненты». Составной компонент в роли конца
+    (редкость) зовётся, как контейнер: у него тоже есть части одной программы.
 
     Замечание несёт ОТВЕТ — перечень реальных компонентов конца в форме
     «Контейнер / компонент» (П5; урок Ф8 брокерного эпика, подтверждён трижды:
@@ -213,6 +218,7 @@ def _warn_container_edges(
     одну связь противоречили бы друг другу.
     """
     kids = _children_names(merged)
+    elements = effective_elements(merged.nodes)
     shown = hidden = 0
     hidden_idxs: list[int] = []
     hidden_recs: list[ContainerEdgeRec] = []
@@ -244,22 +250,48 @@ def _warn_container_edges(
             rec.warning_idx = len(report.warnings)
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         names = [merged.nodes[i].name for i in ends]
-        one = len(names) == 1
-        cap = _MAX_CONTAINER_KIDS if one else _MAX_CONTAINER_KIDS_BOTH
+        systems = [elements[i] == "system" for i in ends]
+        cap = _MAX_CONTAINER_KIDS if len(names) == 1 else _MAX_CONTAINER_KIDS_BOTH
         targets = "; ".join(_kids_phrase(merged.nodes[i].name, kids[i], cap) for i in ends)
-        head = (
-            f"конец в контейнере «{names[0]}», у которого есть компоненты, — "
-            f"уточните её до конкретного компонента: {targets}"
-            if one
-            else f"оба конца в контейнерах «{names[0]}» и «{names[1]}», у которых есть "
-            f"компоненты, — уточните её до конкретных компонентов: {targets}"
-        )
+        head = _container_edge_head(names, systems, targets)
         report.warn(f"связь «{a} → {b}»: {head}", report.owner_of_edges([ei]))
     if hidden:
         for rec in hidden_recs:
             rec.warning_idx = len(report.warnings)
         # Хвост-счётчик — тому, чьи все скрытые связи (как у соседних классов).
         report.warn(f"…ещё {hidden} таких связей", report.owner_of_edges(hidden_idxs))
+
+
+def _container_edge_head(names: list[str], systems: list[bool], targets: str) -> str:
+    """Суть замечания о связи в объект с вложенными — словами элемента конца. names и
+    systems — концы (один или оба) и «конец — система»; targets — готовые цели (П5)."""
+    if len(names) == 1:
+        if systems[0]:
+            return (
+                f"конец в системе «{names[0]}», у которой есть вложенные объекты, — "
+                f"уточните её до одного из них: {targets}"
+            )
+        return (
+            f"конец в контейнере «{names[0]}», у которого есть компоненты, — "
+            f"уточните её до конкретного компонента: {targets}"
+        )
+    if not any(systems):
+        return (
+            f"оба конца в контейнерах «{names[0]}» и «{names[1]}», у которых есть "
+            f"компоненты, — уточните её до конкретных компонентов: {targets}"
+        )
+    where = (
+        f"системах «{names[0]}» и «{names[1]}»"
+        if all(systems)
+        else " и ".join(
+            f"{'системе' if system else 'контейнере'} «{name}»"
+            for name, system in zip(names, systems, strict=True)
+        )
+    )
+    return (
+        f"оба конца в {where}, у которых есть вложенные объекты, — уточните её до "
+        f"вложенных объектов: {targets}"
+    )
 
 
 def _children_names(merged: ParsedImport) -> dict[int, list[str]]:

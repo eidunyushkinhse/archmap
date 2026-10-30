@@ -15,6 +15,25 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 Порядок важен: путь строится от смэтченного родителя, иначе переименование
 контейнера оторвало бы от живых узлов всё его поддерево.
 
+База и брокер не входят в состав контейнера (решение владельца Р6): если прогон кладёт
+их в живой контейнер или глубже, в его компонент, действующий родитель — родитель
+контейнера (_lift_target). Матчинг и создание идут уже в нём: повторный прогон находит
+базу там, где её создал первый, и план пуст (фикспойнт). Путь действия остаётся путём
+прогона — по нему связи находят концы.
+
+Зона синка (что синк рассматривает без галочки «компоненты») — по элементу архитектуры:
+компоненты — всё, что лежит ВНУТРИ контейнера, на любой глубине, — вне зоны; системы
+вкладываются друг в друга сколько угодно, и их объекты в зоне на любой глубине. Узел
+прогона вне зоны, если над ним контейнер: предок в прогоне с элементом «контейнер» или
+ближайший смэтченный живой предок — контейнер (заданный элемент) или его компонент.
+База и брокер компонентами не бывают (Р6): под живым контейнером или его компонентом они
+остаются в зоне и без галочки и выносятся уровнем выше (_lift_target); предка в прогоне с
+элементом «контейнер» у них нет — разбор прогона уже вынес их санитизацией. Живые
+«пропавшие» — только узлы не внутри живого контейнера (база и брокер в нём — тоже в
+зоне). Запасной путь: элемент не задан нигде — ни в прогоне, ни в живом проекте (старые
+проекты и старые YAML), — тогда зона прежняя, по глубине прогона (_CONTAINER_DEPTH). Хоть
+один элемент с любой стороны — зона по элементу.
+
 Политики — защита от того, что прогон агента недетерминирован (см. анализ дыр):
 проза и имена дрейфуют, состав слоя компонентов нестабилен, а пропажа узла из
 одного прогона ещё не значит, что сервиса больше нет. Поэтому по умолчанию синк
@@ -27,15 +46,23 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.domain_types import NODE_ELEMENT_LABELS
+from app.element import CONTAINER, Elements
+from app.element_marks import build_elements, element_rows_of
+from app.element_rules import element_change_refusal
 from app.identity import basis_of_key, compare_identity
+from app.import_element import as_clause
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.text import identity_name
 
-# Глубина дерева импорта: 1 — корень-система, 2 — контейнеры, 3+ — компоненты.
+# Запасной путь зоны синка, когда элемент архитектуры не задан нигде (старые проекты и
+# YAML): глубина дерева прогона, 1 — корень-система, 2 — контейнеры, 3+ — компоненты.
 # Слой компонентов вне синка по умолчанию (его состав меняется от прогона к прогону).
 _CONTAINER_DEPTH = 2
+# Предел глубины при галочке «компоненты» — с ней синк рассматривает всё.
+_ALL_DEPTH = 32
 
 
 @dataclass
@@ -49,8 +76,10 @@ class SyncPolicies:
     # такая же ручная правка, как описание (переименование ВИДНО в плане и без
     # применения, потому что якорь уже связал узлы).
     update_names: bool = False
-    # Синхронизировать слой компонентов (глубина 3+). Выключено: состав слоя
-    # нестабилен и утопил бы настоящий diff в шуме.
+    # Синхронизировать и компоненты контейнеров — всё, что лежит внутри контейнера, на
+    # любой глубине (без элементов в прогоне и проекте — глубина прогона 3+, запасной
+    # путь). Выключено: состав компонентов от прогона к прогону нестабилен и утопил бы
+    # настоящий diff в шуме.
     sync_components: bool = False
     # Пропавшим из прогона узлам ставить status=deprecated. Выключено: пропажа
     # может означать, что репозиторий просто не прогнали. УДАЛЕНИЯ НЕТ НИКОГДА.
@@ -80,6 +109,9 @@ class SyncNodeAction:
     # build_sync_plan, а apply остаётся исполнителем и матчинг не дублирует.
     imp_idx: int | None = None
     parent_path: str | None = None
+    # Живой узел, под которым создать (create): база или брокер, вынесенные из живого
+    # контейнера к его родителю. Старше parent_path; у выноса на верхний уровень оба None.
+    parent_id: uuid.UUID | None = None
     # Узел был помечен устаревшим, а в YAML он снова есть. Показываем ВСЕГДА,
     # даже когда статус не трогаем: иначе вернувшийся объект не упоминался бы в
     # плане ни строкой (он попадал в unchanged, а неизменные скрыты).
@@ -160,6 +192,9 @@ _SOURCE_KIND = {"git": "коду", "host": "имени зависимости"}
 # Основания, означающие «сошлось по ЯКОРЮ» (в отличие от имени).
 _ANCHOR_BASIS = frozenset({"code", "dependency"})
 
+# Формы, которые не входят в состав контейнера (Р6), — с родом для строк плана.
+_STORE_WORDS = {"database": ("база данных", "создана", "она"), "broker": ("брокер", "создан", "он")}
+
 
 def _human_source(ref: str | None) -> str:
     if not ref:
@@ -196,6 +231,14 @@ class _Matcher:
         self.imp_to_live: dict[int, Node] = {}
         self.imp_paths: list[str] = []
         self.skipped: set[int] = set()  # компоненты вне синка (вместе с поддеревом)
+        # Зона синка по элементу архитектуры (иначе — запасной путь по глубине прогона);
+        # решается в walk_import, когда виден и прогон.
+        self.by_element = False
+        # Элементы архитектуры живой схемы — для правила элемента при доливке (Р5, Р6).
+        # Долитое планом записывается и сюда: следующий узел прогона проверяется уже
+        # против дерева с ним.
+        self.element_rows = {r.id: r for r in element_rows_of(nodes)}
+        self._elements: Elements[uuid.UUID] | None = None  # сборка по element_rows
 
     def _index_paths(self, node: Node, prefix: str) -> None:
         full = f"{prefix} / {node.name}" if prefix else node.name
@@ -254,26 +297,142 @@ class _Matcher:
             fields.append("shape")
         if (imp.status != "existing" and live.status != imp.status) or (self.policies.restore_returned and _is_return(live, imp)):
             fields.append("status")
+        self._diff_element(live, imp, fields)
         # Якорь — не пользовательские данные: проставляем и обновляем всегда.
         new_ref = imp.source_keys[0] if imp.source_keys else None
         if new_ref and new_ref != live.source_ref:
             fields.append("source_ref")
         return fields
 
+    def _diff_element(self, live: Node, imp: _ImpNode, fields: list[str]) -> None:
+        """Элемент архитектуры (Р30) — fill-only: «не сказано» в YAML ничего не меняет,
+        пустое живое значение доливается, если правило элемента по живому дереву не
+        против (под узлом база, над ним контейнер), расхождение и отказ — строкой
+        conflicts. Решение человека синк не переписывает никогда."""
+        new, cur = imp.element, live.element
+        if new is None or new == cur:
+            return
+        if cur is not None:
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML элемент архитектуры другой "
+                f"(«{NODE_ELEMENT_LABELS[new].lower()}») — в схеме оставляем как есть"
+            )
+            return
+        # Форма — та, что будет после update: смену формы синк применяет раньше.
+        shape = imp.shape if "shape" in fields else live.shape
+        refusal = element_change_refusal(
+            list(self.element_rows.values()), node_id=live.id, name=live.name,
+            parent_id=live.parent_id, shape=shape, value=new,
+        )
+        if refusal is not None:
+            self.plan.conflicts.append(
+                f"«{live.name}»: элемент архитектуры из YAML не применён — {as_clause(refusal)}"
+            )
+            return
+        fields.append("element")
+        self.element_rows[live.id] = self.element_rows[live.id]._replace(element=new, shape=shape)
+        self._elements = None
+
+    def _live_anchor(self, parsed: ParsedImport, idx: int) -> Node | None:
+        """Ближайший смэтченный живой предок узла прогона: под ним ляжет и сам узел, и
+        новые узлы между ними. None — цепочка дошла до верха без живых."""
+        cur = parsed.nodes[idx].parent_idx
+        for _ in range(len(parsed.nodes)):
+            if cur is None:
+                return None
+            live = self.imp_to_live.get(cur)
+            if live is not None:
+                return live
+            cur = parsed.nodes[cur].parent_idx
+        return None
+
+    def _lift_target(
+        self, parsed: ParsedImport, idx: int
+    ) -> tuple[Node, Node | None] | None:
+        """База или брокер прогона, которые легли бы в живой контейнер (сам контейнер или
+        его компонент): (контейнер, действующий родитель — родитель контейнера или None
+        для верхнего уровня). Контейнер — заданный элемент «контейнер»: лист без значения
+        тоже читается контейнером, но с базой внутри он станет системой, и это законно."""
+        if parsed.nodes[idx].shape not in _STORE_WORDS:
+            return None
+        anchor = self._live_anchor(parsed, idx)
+        if anchor is None:
+            return None
+        cid = self._live_elements().container_of(anchor.id)
+        if cid is None or (cid == anchor.id and self.element_rows[cid].element != CONTAINER):
+            return None
+        container = self.by_id[cid]
+        parent = self.by_id.get(container.parent_id) if container.parent_id else None
+        return container, parent
+
+    def _lift_note(self, imp: _ImpNode, container: Node, parent: Node | None, found: bool) -> str:
+        what, done, pron = _STORE_WORDS[imp.shape]
+        where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
+        tail = f"в схеме {pron} лежит {where}" if found else f"будет {done} {where}"
+        return (
+            f"«{imp.name}»: {what} не может входить в состав контейнера «{container.name}» — "
+            f"{tail}"
+        )
+
+    def _live_elements(self) -> Elements[uuid.UUID]:
+        """Элементы живого дерева с уже долитыми планом значениями (element_rows)."""
+        if self._elements is None:
+            self._elements = build_elements(self.element_rows.values())
+        return self._elements
+
+    def _under_container(self, parsed: ParsedImport, idx: int) -> bool:
+        """Узел прогона лежит внутри контейнера — компонент, вне зоны синка по умолчанию:
+        предок в прогоне с элементом «контейнер» или ближайший смэтченный живой предок —
+        контейнер (заданный элемент; у листа без него — нет: с детьми он станет
+        системой) или компонент живого контейнера. База и брокер по живому предку внутри
+        контейнера не бывают (Р6): они остаются в зоне и выносятся уровнем выше."""
+        cur = parsed.nodes[idx].parent_idx
+        # Подъём с пределом шагов: дерево прогона без циклов, но обход на это не полагается.
+        for _ in range(len(parsed.nodes)):
+            if cur is None:
+                break
+            if parsed.nodes[cur].element == CONTAINER:
+                return True
+            cur = parsed.nodes[cur].parent_idx
+        if parsed.nodes[idx].shape in _STORE_WORDS:
+            return False
+        anchor = self._live_anchor(parsed, idx)
+        if anchor is None:
+            return False
+        return (
+            self.element_rows[anchor.id].element == CONTAINER
+            or self._live_elements().effective(anchor.id) == "component"
+        )
+
+    def _out_of_zone(self, parsed: ParsedImport, idx: int) -> bool:
+        """Узел прогона вне зоны синка (правило — в шапке модуля)."""
+        if self.policies.sync_components:
+            return self._depth(parsed, idx) > _ALL_DEPTH
+        if self.by_element:
+            return self._under_container(parsed, idx)
+        return self._depth(parsed, idx) > _CONTAINER_DEPTH
+
     def walk_import(self, parsed: ParsedImport) -> None:
-        max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH
+        # Запасной путь по глубине — только когда элемента нет ни с одной стороны.
+        self.by_element = any(n.element is not None for n in parsed.nodes) or any(
+            r.element is not None for r in self.element_rows.values()
+        )
         for i, imp in enumerate(parsed.nodes):
             parent_idx = imp.parent_idx
             prefix = self.imp_paths[parent_idx] if parent_idx is not None else ""
             self.imp_paths.append(f"{prefix} / {imp.name}" if prefix else imp.name)
             # Компоненты вне синка — пропускаем вместе с поддеревом (их родитель
             # уже пропущен, иначе они искались бы среди корней).
-            if (parent_idx is not None and parent_idx in self.skipped) or self._depth(
+            if (parent_idx is not None and parent_idx in self.skipped) or self._out_of_zone(
                 parsed, i
-            ) > max_depth:
+            ):
                 self.skipped.add(i)
                 continue
             parent_live = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+            lift = self._lift_target(parsed, i)
+            if lift is not None:
+                self._walk_lifted(i, imp, parent_idx, lift)
+                continue
             if parent_idx is not None and parent_live is None:
                 # Родитель создаётся заново — ребёнок тоже новый, матчить не с чем.
                 self.plan.nodes.append(
@@ -300,52 +459,112 @@ class _Matcher:
                     )
                 )
                 continue
-            self.taken.add(live.id)
-            self.imp_to_live[i] = live
-            if how in _ANCHOR_BASIS and identity_name(live.name) != identity_name(imp.name):
-                verb = (
-                    "имя будет изменено"
-                    if self.policies.update_names
-                    else "имя в схеме оставляем как есть"
-                )
-                self.plan.conflicts.append(
-                    f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
-                    f"(узнали по {_human_source(live.source_ref)}) — {verb}"
-                )
-            live_parent = live.parent_id if live.parent_id in self.by_id else None
-            want_parent = parent_live.id if parent_live else None
-            if live_parent != want_parent:
-                self.plan.conflicts.append(
-                    f"«{live.name}»: в YAML этот объект показан в другом месте "
-                    f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
-                    f"останется прежней"
-                )
-            fields = self._diff_fields(live, imp)
+            self._take(i, imp, parent_idx, live, how, parent_live.id if parent_live else None)
+
+    def _walk_lifted(
+        self, i: int, imp: _ImpNode, parent_idx: int | None, lift: tuple[Node, Node | None]
+    ) -> None:
+        """База или брокер, которые прогон кладёт в живой контейнер: матчинг и создание —
+        у родителя контейнера. Строка conflicts объясняет, почему объект в схеме не там,
+        где его показал прогон."""
+        container, parent = lift
+        # Живой родитель из прогона — если база уже лежит в схеме там, куда её кладёт
+        # прогон, внутри контейнера (создать её там API не запрещает): синк её не
+        # переносит и не дублирует уровнем выше.
+        here = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+        live, how = self._match(imp, parent)
+        if live is None and here is not None:
+            live, how = self._match(imp, here)
+        if live is None:
+            self.plan.conflicts.append(self._lift_note(imp, container, parent, found=False))
             self.plan.nodes.append(
                 SyncNodeAction(
                     path=self.imp_paths[i],
-                    action="update" if fields else "unchanged",
-                    returned=_is_return(live, imp),
-                    node_id=live.id,
-                    source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
-                    fields=fields,
-                    matched_by=how,
+                    action="create",
+                    node_id=None,
+                    source_ref=imp.source_keys[0] if imp.source_keys else None,
                     imp_idx=i,
-                    parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
+                    parent_id=parent.id if parent else None,
                 )
             )
+            return
+        want_parent = parent.id if parent else None
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if here is not None and live_parent == here.id:
+            self._take(i, imp, parent_idx, live, how, here.id)
+            return
+        if live_parent == want_parent:
+            # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
+            # «показан в другом месте».
+            self.plan.conflicts.append(self._lift_note(imp, container, parent, found=True))
+        self._take(i, imp, parent_idx, live, how, want_parent)
+
+    def _take(
+        self,
+        i: int,
+        imp: _ImpNode,
+        parent_idx: int | None,
+        live: Node,
+        how: str | None,
+        want_parent: uuid.UUID | None,
+    ) -> None:
+        """Узел прогона сошёлся с живым: имя по источнику, место в дереве, поля."""
+        self.taken.add(live.id)
+        self.imp_to_live[i] = live
+        if how in _ANCHOR_BASIS and identity_name(live.name) != identity_name(imp.name):
+            verb = (
+                "имя будет изменено"
+                if self.policies.update_names
+                else "имя в схеме оставляем как есть"
+            )
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
+                f"(узнали по {_human_source(live.source_ref)}) — {verb}"
+            )
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if live_parent != want_parent:
+            self.plan.conflicts.append(
+                f"«{live.name}»: в YAML этот объект показан в другом месте "
+                f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
+                f"останется прежней"
+            )
+        fields = self._diff_fields(live, imp)
+        self.plan.nodes.append(
+            SyncNodeAction(
+                path=self.imp_paths[i],
+                action="update" if fields else "unchanged",
+                returned=_is_return(live, imp),
+                node_id=live.id,
+                source_ref=imp.source_keys[0] if imp.source_keys else live.source_ref,
+                fields=fields,
+                matched_by=how,
+                imp_idx=i,
+                parent_path=self.imp_paths[parent_idx] if parent_idx is not None else None,
+            )
+        )
 
     def collect_missing(self) -> None:
         """Живые узлы зоны синка, которых прогон не показал. Зона — поддеревья
-        смэтченных корней: узлы чужих корней и ручные ветки глубже порога синк не
-        касается. Действие информативно, пока не включён mark_missing_deprecated."""
+        смэтченных корней без компонентов живых контейнеров (запасной путь — без
+        ветвей глубже порога): узлы чужих корней и компоненты синк не касается. База и
+        брокер прямо в живом контейнере — в зоне, как и на стороне прогона.
+        Действие информативно, пока не включён mark_missing_deprecated."""
         matched_roots = [
             n for n in self.children.get(None, []) if n.id in self.taken
         ]
-        max_depth = 32 if self.policies.sync_components else _CONTAINER_DEPTH
+        by_depth = self.policies.sync_components or not self.by_element
+        max_depth = _ALL_DEPTH if self.policies.sync_components else _CONTAINER_DEPTH
 
         def walk(node: Node, path: str, depth: int) -> None:
-            if depth > max_depth:
+            if by_depth and depth > max_depth:
+                return
+            # Компонент живого контейнера — вне зоны вместе с поддеревом; база и брокер
+            # компонентами не бывают (Р6), хотя по дереву читаются так.
+            if (
+                not by_depth
+                and node.shape not in _STORE_WORDS
+                and self._live_elements().effective(node.id) == "component"
+            ):
                 return
             if node.id not in self.taken:
                 self.plan.nodes.append(

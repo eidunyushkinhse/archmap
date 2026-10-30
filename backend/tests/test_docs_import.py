@@ -412,19 +412,35 @@ def test_plan_operation_kind_warning(db):
     assert any("kind=operation без поля operation" in w for w in plan.warnings)
 
 
-def test_plan_доки_контейнеру_предупреждают_а_не_блокируют(db):
-    # Полевой QA: агент адресовал обзоры контейнерам — итог два алерта AL24. Ошибкой
-    # это делать жестоко (алерт и «распределение» — уже готовый ответ продукта), но и
-    # молчать нельзя: превью обязано сказать это ДО применения.
+def test_plan_схемы_системе_предупреждают_а_не_блокируют(db):
+    # Полевой QA: агент адресовал обзоры узлам с вложенными — итог два замечания AL24.
+    # Ошибкой это делать жестоко (замечание и перенос — уже готовый ответ продукта), но
+    # и молчать нельзя: превью обязано сказать это ДО применения — словами элемента.
     _tree(db)
     plan = _plan(db, [("a.mmd", _mmd("Обзор", node="billing")), ("b.mmd", _mmd("Л", node="orders"))])
 
     assert plan.errors == []
     assert [a.action for a in plan.logic] == ["create", "create"]  # пакет не заблокирован
-    про_контейнер = [w for w in plan.warnings if "контейнер" in w]
-    assert len(про_контейнер) == 1  # у листа orders предупреждения нет
-    assert "a.mmd: «Ярмарка / billing» — контейнер" in про_контейнер[0]
-    assert "Контейнеры со своей документацией" in про_контейнер[0]
+    # У листа orders предупреждения нет; billing с вложенными без элемента — система.
+    assert [w for w in plan.warnings if "Рекомендации" in w] == [
+        "a.mmd: «Ярмарка / billing» — система; схемы логики описывают код и живут у "
+        "контейнеров и компонентов, у системы они попадут в «Рекомендации»"
+    ]
+
+
+def test_plan_схемы_контейнеру_с_компонентами_советуют_компоненты(db):
+    _root, _orders, billing, *_ = _tree(db)
+    billing.element = "container"
+    db.commit()
+
+    plan = _plan(db, [("a.mmd", _mmd("Обзор", node="billing"))])
+
+    assert plan.errors == [] and [a.action for a in plan.logic] == ["create"]
+    assert [w for w in plan.warnings if "Рекомендации" in w] == [
+        "a.mmd: «Ярмарка / billing» — контейнер с компонентами; схемы логики описывают "
+        "код компонентов — лучше адресовать их компонентам, у контейнера они попадут "
+        "в «Рекомендации»"
+    ]
 
 
 def test_plan_адрес_вне_поддерева_окна(db):
@@ -1488,3 +1504,233 @@ def test_pkg_from_mmd_чинит_ромб_и_говорит_об_этом():
 
     assert 'B{"Оплачено?"}' in pkg.entries[0].logic[0].mermaid
     assert notes == ["a.mmd: исправлено фигур с непарной скобкой («{…]» или «[…}»): 1"]
+
+
+# ── Конфигурация по ближайшему контейнеру (эпик «Элемент архитектуры», Р11) ──────
+
+
+def _контейнер(db):
+    """shop (система) → orders (контейнер) → api (компонент)."""
+    shop = _node(db, "shop")
+    orders = _node(db, "orders", parent=shop)
+    orders.element = "container"
+    api = _node(db, "api", parent=orders)
+    db.commit()
+    return shop, orders, api
+
+
+def _параметр(db, узел, name):
+    db.add(ConfigParam(
+        id=uuid.uuid4(), node_id=узел.id, name=name,
+        value_type="string", required=False, default_value="",
+    ))
+    db.commit()
+
+
+def test_пометка_компонента_ищет_параметр_у_контейнера(db):
+    _shop, orders, api = _контейнер(db)
+    _параметр(db, orders, "TOLERANCE")
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: TOLERANCE, TOLERANSE"))], window=api)
+
+    промахи = [w for w in plan.warnings if "пометка «" in w]
+    # Найденный параметр контейнера молчит, промах называет контейнер и подсказывает
+    # имя из ЕГО конфигурации.
+    assert промахи == [
+        "a.mmd: пометка «TOLERANSE» — параметра нет в конфигурации контейнера "
+        "«shop / orders» — похоже на «TOLERANCE»"
+    ]
+    assert not any("конфигурация не описана" in w for w in plan.warnings)
+
+
+def test_пустая_конфигурация_контейнера_называет_контейнер(db):
+    _shop, _orders, api = _контейнер(db)
+    _параметр(db, api, "OWN_FLAG")  # свой параметр компонента пометка не видит
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: OWN_FLAG"))], window=api)
+
+    assert [w for w in plan.warnings if "конфигурация не описана" in w] == [
+        "a.mmd: у контейнера «shop / orders» конфигурация не описана — пометки "
+        "«зависит от:» в схемах «shop / orders / api» (OWN_FLAG) останутся "
+        "ненайденными, пока её не опишут"
+    ]
+
+
+def test_пометка_у_системы_зовёт_адресовать_схему_контейнеру(db):
+    shop, _orders, _api = _контейнер(db)
+    _параметр(db, shop, "FLAG")  # конфигурация у системы — данные прежнего правила
+
+    plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: FLAG"))], window=shop)
+
+    assert (
+        "a.mmd: «shop» — система; пометки «зависит от:» (FLAG) ищут параметры у "
+        "контейнера, а у системы их нет — адресуйте схему контейнеру или компоненту"
+    ) in plan.warnings
+    assert [w for w in plan.warnings if "пометка «" in w] == []
+
+
+def test_промпт_со_страницы_компонента_перечисляет_параметры_контейнера(db):
+    """Срез промпта — поддерево компонента, а ручки живут у контейнера-предка вне
+    среза: без него каталог был бы пуст, и агент выдумывал бы имена (камень 11)."""
+    _shop, orders, api = _контейнер(db)
+    _параметр(db, orders, "TOLERANCE")
+    _параметр(db, api, "OWN_FLAG")  # свой параметр компонента пометка не найдёт
+
+    prompt = docs_prompt(
+        node_id=api.id, lang="ru", hints=None, target=None,
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    ).prompt
+
+    assert "  - shop / orders: TOLERANCE" in prompt
+    assert "OWN_FLAG" not in prompt
+
+
+def test_промпт_называет_владельца_спецификации_по_элементу_окна(db):
+    """Ф9: файл спецификации ложится на главный узел среза, и промпт говорит, куда он
+    уедет на самом деле (_spec_target): от компонента — его контейнеру (путь от корня
+    проекта, контейнер вне среза), у системы своего API нет."""
+    shop, orders, api = _контейнер(db)
+
+    def промпт(узел):
+        return docs_prompt(
+            node_id=узел.id, include="api", lang="ru", hints=None, target=None,
+            db=db, project=ensure_project(db), _=ensure_architect(db),
+        ).prompt
+
+    assert "Спецификация уезжает не главному узлу, а его контейнеру «shop / orders»" in промпт(api)
+    assert "Главный узел этого среза — система «shop»" in промпт(shop)
+    assert "Спецификация уезжает ГЛАВНОМУ узлу этого среза — первому в списке." in промпт(orders)
+
+
+# ── Спецификация — факт контейнера (эпик «Элемент архитектуры», Р12) ─────────────
+
+
+def _spec_pkg(ref, file="api.yaml", logic=None):
+    """Запись пакета со спецификацией по адресу (голая спецификация окна адреса не
+    несёт — так записи строит разбор пакета, если адрес есть)."""
+    from app.docs_pkg import OpenapiIn, ParsedPkg, PkgEntry
+
+    return ParsedPkg(entries=[PkgEntry(
+        node_ref=ref, logic=logic or [], openapi=OpenapiIn(file=file, origin="found"),
+    )])
+
+
+def _spec_plan(db, entries, assets, window=None, scope=None):
+    return build_docs_plan(
+        _nodes(db), entries, assets, False,
+        window.id if window is not None else None, scope,
+        db=db, project_id=ensure_project(db).id,
+    )
+
+
+def _компоненты(db):
+    """shop (система) → orders (контейнер) → api, worker (компоненты)."""
+    shop = _node(db, "shop")
+    orders = _node(db, "orders", parent=shop)
+    orders.element = "container"
+    api = _node(db, "api", parent=orders)
+    worker = _node(db, "worker", parent=orders)
+    db.commit()
+    return shop, orders, api, worker
+
+
+def test_спецификация_компонента_уезжает_контейнеру(db):
+    _shop, orders, api, _worker = _компоненты(db)
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("shop / orders / api"))], {"api.yaml": SPEC})
+
+    assert plan.errors == []
+    [spec] = plan.specs
+    assert (spec.node_id, spec.node_path, spec.action) == (orders.id, "shop / orders", "create")
+    assert (
+        "a.yaml: спецификация узла «shop / orders / api» описана у контейнера "
+        "«shop / orders»: API отдаёт контейнер, операции «api» привязываются к ней в "
+        "схемах логики"
+    ) in plan.warnings
+    apply_docs_plan(db, plan)
+    db.commit()
+    assert (db.get(Node, orders.id).openapi_spec, db.get(Node, api.id).openapi_spec) == (SPEC, None)
+
+
+def test_схемы_записи_остаются_у_компонента_а_спецификация_у_контейнера(db):
+    from app.docs_pkg import LogicIn
+
+    _shop, orders, api, _worker = _компоненты(db)
+    logic = [LogicIn(name="POST /orders", kind="operation", operation="POST /orders",
+                     mermaid="graph TD\n  A --> B\n")]
+
+    plan = _spec_plan(
+        db, [("a.yaml", _spec_pkg("shop / orders / api", logic=logic))], {"api.yaml": SPEC}
+    )
+
+    assert plan.errors == []
+    assert [(a.node_id, a.name) for a in plan.logic] == [(api.id, "POST /orders")]
+    assert [s.node_id for s in plan.specs] == [orders.id]
+
+
+def test_окно_компонента_голая_спецификация_едет_контейнеру(db):
+    _shop, _orders, api, _worker = _компоненты(db)
+
+    report = docs_import_preview(
+        _spec_payload(("orders-api.yaml", SPEC), node=api),
+        db=db, project=ensure_project(db), _=ensure_architect(db),
+    )
+
+    assert report.errors == []
+    assert [s.node_path for s in report.specs] == ["shop / orders"]
+    assert any("описана у контейнера «shop / orders»" in w for w in report.warnings)
+
+
+def test_окно_компонента_допускает_адрес_своего_контейнера_только_спецификации(db):
+    _shop, orders, api, _worker = _компоненты(db)
+    scope = {api.id}
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("shop / orders"))], {"api.yaml": SPEC},
+                      window=api, scope=scope)
+    assert plan.errors == []
+    assert [s.node_id for s in plan.specs] == [orders.id]
+
+    # Схемы логики правило окна держит прежним: адрес контейнера — вне окна.
+    со_схемой = _plan(db, [("b.mmd", _mmd("Л", node="shop / orders"))], window=api, scope=scope)
+    assert any("не относится" in e for e in со_схемой.errors)
+
+
+def test_две_спецификации_от_двух_компонентов_конфликтуют(db):
+    _компоненты(db)
+
+    plan = _spec_plan(
+        db,
+        [("a.yaml", _spec_pkg("shop / orders / api", file="a-api.yaml")),
+         ("b.yaml", _spec_pkg("shop / orders / worker", file="b-api.yaml"))],
+        {"a-api.yaml": SPEC, "b-api.yaml": SPEC},
+    )
+
+    assert plan.errors == []
+    assert [s.source for s in plan.specs] == ["a-api.yaml"]
+    assert (
+        "OpenAPI-спецификация узла «shop / orders» уже задана файлом a.yaml — вход из "
+        "b.yaml пропущен"
+    ) in plan.conflicts
+
+
+def test_спецификация_у_системы_предупреждает_и_применяется(db):
+    shop, *_ = _компоненты(db)
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("shop"))], {"api.yaml": SPEC})
+
+    assert plan.errors == []
+    assert [s.node_id for s in plan.specs] == [shop.id]
+    assert (
+        "a.yaml: «shop» — система; API отдают её контейнеры, опишите спецификацию у "
+        "одного из них"
+    ) in plan.warnings
+
+
+def test_спецификация_листа_вне_контейнера_как_прежде(db):
+    _root, orders, *_ = _tree(db)
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("orders"))], {"api.yaml": SPEC})
+
+    assert plan.errors == []
+    assert [s.node_id for s in plan.specs] == [orders.id]
+    assert [w for w in plan.warnings if "контейнер" in w or "систем" in w] == []
