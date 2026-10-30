@@ -159,7 +159,7 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
           <div style={head}>Легенда</div>
 
           <Section title="Типы объектов">
-            <Row swatch={<SwatchService />} label="Сервис" />
+            <Row swatch={<SwatchService />} label="Система, контейнер, компонент" />
             <Row swatch={<SwatchDatabase />} label="База данных" />
             <Row swatch={<SwatchBroker />} label="Брокер сообщений" />
             {!deployment && <Row swatch={<SwatchPerson />} label="Пользователь" />}

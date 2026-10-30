@@ -193,6 +193,16 @@
 .template-card:active {
   cursor: grabbing;
 }
+/* Тип, невозможный на текущем уровне: серая плитка без драга, объяснение — в подсказке. */
+.template-card--off,
+.template-card--off:active {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.template-card--off:hover {
+  border-color: #e2e8f0;
+  box-shadow: none;
+}
 
 /* Футер сворачивания панели — нижняя строка вне скролла контента. */
 .nt-collapse {

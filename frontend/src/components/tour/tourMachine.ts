@@ -187,6 +187,8 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
       const pid = routeProject(s.route);
       return pid && pid !== yar ? { ownProjectId: pid } : null;
     }
+    // «Система» и «Контейнер» с палитры (шаги 15 и 20) — в модели форма service с
+    // элементом (Р35 раздела 13 docs/plan-c4-elements.md): событие несёт форму.
     case "create-system":
       return s.kind === "node-created" && s.projectId === own && s.parentId === null && s.shape === "service"
         ? { systemId: s.id, systemName: s.name }

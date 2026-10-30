@@ -3,8 +3,9 @@
 import type { Node as RFNode } from "@xyflow/react";
 import type {
   Node as AppNode, GhostNode, Edge as AppEdge, AncestorRef, EdgePoint, LayoutEdge,
-  NodeShape, SiteKind, ViewLayoutPayload,
+  SiteKind, ViewLayoutPayload,
 } from "../../types";
+import type { NodeType } from "../nodeTerms";
 import type { EdgeSide } from "./edgePath";
 import type { SchemaView } from "../schemaView";
 import type { History } from "./interaction/useHistory";
@@ -435,11 +436,12 @@ export interface LevelDeleteCallbacks {
 
 // Дроп шаблона узла из боковой палитры на схему.
 export interface LevelDropProps {
-  // Отпускание перетянутого шаблона: shape — форма, pos — координаты в системе графа,
-  // parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) / null (уровень).
-  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
-  // Форма шаблона, который СЕЙЧАС перетаскивают (null — драга нет) — для превью-рамки в dragover.
-  dragShape?: NodeShape | null;
+  // Отпускание перетянутого шаблона: type — тип объекта (Р41), pos — координаты в системе
+  // графа, parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) /
+  // null (уровень).
+  onDropNode?: (type: NodeType, pos: { x: number; y: number }, parentId: string | null) => void;
+  // Тип шаблона, который СЕЙЧАС перетаскивают (null — драга нет) — для превью-рамки в dragover.
+  dragType?: NodeType | null;
 }
 
 // Undo/Redo: общая история + дисптчеры из страницы-хозяина (кросс-уровневый редирект).

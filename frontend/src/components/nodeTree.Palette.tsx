@@ -1,26 +1,24 @@
 import type { CSSProperties, ReactNode } from "react";
-import type { NodeShape } from "../types";
 import { ChevronIcon } from "../ui/icons";
+import { TYPE_LABEL, TYPE_ORDER, type NodeType } from "./nodeTerms";
+import type { TypeOption } from "./element/typeOptions";
 import type { PaletteDrag } from "./nodeTree.usePaletteDrag";
+import "./NodeTreePanel.css";
 
-// Палитра «Добавить объект» дерева редактора-карты (аудит F-7): шаблоны форм, которые
-// тянут на схему, и «корзина» поверх панели на время драга — дроп на неё ничего не
-// создаёт. Сама плитка-источник и секция объявлены на уровне модуля: компонент,
-// объявленный внутри другого, ремаунтится на каждый рендер и срывает нативный драг.
+// Палитра «Добавить объект» дерева редактора-карты (аудит F-7): шесть типов объекта
+// (Р41 раздела 13 docs/plan-c4-elements.md), которые тянут на схему, и «корзина» поверх
+// панели на время драга — дроп на неё ничего не создаёт. Тип, невозможный на текущем
+// уровне, — серая плитка с тем же объяснением, что в окне «Новый объект»; её не тянут.
+// Сама плитка-источник и секция объявлены на уровне модуля: компонент, объявленный
+// внутри другого, ремаунтится на каждый рендер и срывает нативный драг.
 
-// Шаблоны узлов в палитре «Добавить узел»
-const NODE_TEMPLATES: Array<{ shape: NodeShape; label: string }> = [
-  { shape: "service", label: "Сервис" },
-  { shape: "database", label: "База данных" },
-  { shape: "broker", label: "Брокер" },
-  { shape: "person", label: "Пользователь" },
-];
-
-// Мини-иконка формы узла (C4) для палитры — упрощённые SVG в духе NodeShapeSvg
-function ShapeIcon({ shape }: { shape: NodeShape }) {
+// Мини-иконка типа для палитры — упрощённые SVG в духе NodeShapeSvg. Система, контейнер
+// и компонент — прямоугольник сервиса с различием: система — пунктирная рамка вокруг двух
+// прямоугольников, контейнер — сплошной прямоугольник, компонент — прямоугольник меньше.
+function TypeIcon({ type }: { type: NodeType }) {
   const W = 40, H = 30, stroke = "#475569", fill = "#f1f5f9", sw = 1.4;
   const common = { fill, stroke, strokeWidth: sw };
-  if (shape === "database") {
+  if (type === "database") {
     const rx = (W - 4) / 2, ry = 5, cx = W / 2;
     return (
       <svg width={W} height={H} style={iconSvg}>
@@ -29,7 +27,7 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
       </svg>
     );
   }
-  if (shape === "broker") {
+  if (type === "broker") {
     const rxc = 6, ryc = (H - 4) / 2;
     return (
       <svg width={W} height={H} style={iconSvg}>
@@ -38,7 +36,7 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
       </svg>
     );
   }
-  if (shape === "person") {
+  if (type === "person") {
     // Карточка как у сервиса + мини-человечок слева (в духе аватара на узле)
     return (
       <svg width={W} height={H} style={iconSvg}>
@@ -48,7 +46,24 @@ function ShapeIcon({ shape }: { shape: NodeShape }) {
       </svg>
     );
   }
-  // service — прямоугольник со скруглением
+  if (type === "system") {
+    // Пунктирная рамка (эхо рамки системы на холсте) вокруг двух контейнеров.
+    return (
+      <svg width={W} height={H} style={iconSvg}>
+        <rect x={2} y={3} width={W - 4} height={H - 6} rx={4} fill="none" stroke={stroke} strokeWidth={sw} strokeDasharray="3 2" />
+        <rect x={7} y={10} width={11} height={10} rx={2} {...common} />
+        <rect x={22} y={10} width={11} height={10} rx={2} {...common} />
+      </svg>
+    );
+  }
+  if (type === "component") {
+    return (
+      <svg width={W} height={H} style={iconSvg}>
+        <rect x={9} y={8} width={W - 18} height={H - 16} rx={3} {...common} />
+      </svg>
+    );
+  }
+  // container — прямоугольник со скруглением (прежний «сервис»)
   return (
     <svg width={W} height={H} style={iconSvg}>
       <rect x={2} y={3} width={W - 4} height={H - 6} rx={4} {...common} />
@@ -97,27 +112,50 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-// Секция палитры: шаблоны форм в сетке, каждый — источник нативного драга.
-export function PaletteSection({ open, onToggle, drag }: { open: boolean; onToggle: () => void; drag: PaletteDrag }) {
+// Секция палитры: шесть типов в сетке, каждый — источник нативного драга. options —
+// варианты поля «Тип» на текущем уровне (element/typeOptions); null — родитель уровня
+// не загружен, палитра ничего не гасит (тип проверит окно «Новый объект»).
+export function PaletteSection({ open, onToggle, drag, options }: {
+  open: boolean; onToggle: () => void; drag: PaletteDrag; options: readonly TypeOption[] | null;
+}) {
   return (
     <Section title="Добавить объект" open={open} onToggle={onToggle}>
       <div style={paletteHint}>Перетащите форму на схему</div>
       <div style={palette} data-tour="palette">
-        {NODE_TEMPLATES.map((t) => (
-          <div
-            key={t.shape}
-            data-tour={`palette:${t.shape}`}
-            className="template-card"
-            draggable
-            onDragStart={(e) => drag.onTemplateDragStart(e, t.shape)}
-            onDragEnd={drag.onTemplateDragEnd}
-            style={templateCard}
-            title={`Перетащить «${t.label}» на схему`}
-          >
-            <ShapeIcon shape={t.shape} />
-            <span style={templateLabel}>{t.label}</span>
-          </div>
-        ))}
+        {TYPE_ORDER.map((type) => {
+          const label = TYPE_LABEL[type];
+          const off = options?.find((o) => o.type === type && o.disabled);
+          if (off) {
+            return (
+              <div
+                key={type}
+                data-tour={`palette:${type}`}
+                className="template-card template-card--off"
+                aria-disabled="true"
+                style={templateCard}
+                title={off.reason}
+              >
+                <TypeIcon type={type} />
+                <span style={templateLabel}>{label}</span>
+              </div>
+            );
+          }
+          return (
+            <div
+              key={type}
+              data-tour={`palette:${type}`}
+              className="template-card"
+              draggable
+              onDragStart={(e) => drag.onTemplateDragStart(e, type)}
+              onDragEnd={drag.onTemplateDragEnd}
+              style={templateCard}
+              title={`Перетащить «${label}» на схему`}
+            >
+              <TypeIcon type={type} />
+              <span style={templateLabel}>{label}</span>
+            </div>
+          );
+        })}
       </div>
     </Section>
   );

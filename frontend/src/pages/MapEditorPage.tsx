@@ -10,7 +10,7 @@ import { getIsGuest } from "../api/auth";
 import { canEditProject, useProjectRole } from "./projectRole";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
-  Node, NodeShape, NodeUpdate,
+  Node, NodeUpdate,
   ViewLayout, ViewLayoutPayload,
 } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
@@ -121,7 +121,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Токен мутации (создание/удаление узлов и связей): LevelGraph перерисовывает
   // изменившиеся стрелки анимированно и рисует новые (окно мутаций, AN28а).
   const [mutationToken, setMutationToken] = useState(0);
-  const [dragShape, setDragShape] = useState<NodeShape | null>(null);
+  // Тип плитки палитры, которую сейчас тянут (null — драга нет): превью на схеме.
+  const [dragType, setDragType] = useState<NodeType | null>(null);
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
@@ -494,9 +495,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
-    // Цель — лист без элемента: сначала окно первого вложенного объекта. «Отмена» —
-    // объект остаётся на месте.
-    if (!(await firstChild.ensure(newParentId, node.shape))) return;
+    // Цель — лист без элемента: сначала окно первого вложенного объекта (что такое
+    // переносимый внутри цели). «Отмена» — объект остаётся на месте.
+    if (!(await firstChild.ensure(newParentId, node))) return;
     // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
     // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
     // перенос назад, с теми же последствиями).
@@ -782,16 +783,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }), []);
 
   const drop = useMemo<LevelDropProps>(() => ({
-    onDropNode: (shape, pos, dropParentId) => {
-      // Шаблон палитры — предвыбор поля «Тип»: у сервиса тип выбирают в окне.
-      const type: NodeType | undefined = shape === "service" ? undefined : shape;
+    onDropNode: (type, pos, dropParentId) => {
+      // Тип плитки палитры — предвыбор поля «Тип», если он возможен в этом месте (Р41).
       // В раскрытую рамку — родитель рамки, позиция в виде текущего уровня; на уровень —
       // родитель уровня. Если он лист, окно само скажет, кем он станет (Р38).
       if (dropParentId) setNodeModal({ open: true, node: null, type, pos, parentId: dropParentId, posView: currentParentId });
       else setNodeModal({ open: true, node: null, type, pos });
     },
-    dragShape,
-  }), [currentParentId, dragShape]);
+    dragType,
+  }), [currentParentId, dragType]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -899,7 +899,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onPickLeaf={(node) => { void pickFromTree(node); }}
           onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
-          onTemplateDrag={setDragShape}
+          onTemplateDrag={setDragType}
         />
 
         {/* Холст */}

@@ -22,6 +22,13 @@ const swatchRect = (label: string) =>
   screen.getByText(label).previousElementSibling?.querySelector("rect");
 
 describe("SchemaLegend", () => {
+  it("типы объектов словами типов, без слова «Сервис» (Р35)", async () => {
+    await open();
+    const title = screen.getByText("Типы объектов");
+    const labels = [...(title.parentElement?.children ?? [])].slice(1).map((row) => row.lastElementChild?.textContent);
+    expect(labels).toEqual(["Система, контейнер, компонент", "База данных", "Брокер сообщений", "Пользователь"]);
+  });
+
   it("холст объектов: рамки системы и контейнера вместо границы родительского слоя", async () => {
     await open();
     expect(notations()).toEqual(["Объект с другого уровня", "Рамка системы", "Рамка контейнера"]);

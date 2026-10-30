@@ -140,7 +140,7 @@ describe("DemoTour", () => {
     localStorage.setItem(KEY, JSON.stringify({
       status: "running", step: "create-system", variant: "full", dir: 1, vars: { ownProjectId: OWN },
     }));
-    target("palette:service");
+    target("palette:system");
     target("palette", { x: 10, y: 600, w: 300, h: 180 });
     render(<DemoTour />);
     expect(await screen.findByRole("dialog", { name: "Создайте свою систему" })).toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("DemoTour — плавные переходы", () => {
     localStorage.setItem(KEY, JSON.stringify({
       status: "running", step: "create-system", variant: "full", dir: 1, vars: { ownProjectId: OWN },
     }));
-    target("palette:service", { x: 10, y: 600, w: 150, h: 40 });
+    target("palette:system", { x: 10, y: 600, w: 150, h: 40 });
     const flow = document.createElement("div");
     flow.className = "react-flow";
     place(flow, { x: 400, y: 80, w: 900, h: 700 });

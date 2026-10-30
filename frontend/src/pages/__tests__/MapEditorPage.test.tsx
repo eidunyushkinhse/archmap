@@ -375,14 +375,24 @@ describe("MapEditorPage: создание объекта", () => {
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
-  it("бросок в раскрытую рамку — родитель рамки; у сервиса тип выбирают в окне", async () => {
+  it("бросок в раскрытую рамку — родитель рамки, тип плитки уходит в окно", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("level-graph");
     const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
-    act(() => { drop.onDropNode("service", { x: 10, y: 20 }, "box"); });
+    act(() => { drop.onDropNode("component", { x: 10, y: 20 }, "box"); });
     const modal = screen.getByTestId("node-modal");
     expect(modal).toHaveAttribute("data-parent", "box");
-    expect(modal).toHaveAttribute("data-type", "");
+    expect(modal).toHaveAttribute("data-type", "component");
+  });
+
+  it("драг плитки палитры — тип уходит холсту для превью", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onTemplateDrag = treeProps.current.onTemplateDrag as (type: string | null) => void;
+    act(() => { onTemplateDrag("system"); });
+    expect((levelGraphProps.current!.drop as { dragType: string | null }).dragType).toBe("system");
+    act(() => { onTemplateDrag(null); });
+    expect((levelGraphProps.current!.drop as { dragType: string | null }).dragType).toBeNull();
   });
 });
 
@@ -442,15 +452,16 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
   });
 
-  // Р4 эпика элементов: цель — лист-сервис без элемента. Сначала окно первого вложенного
-  // объекта; «Отмена» — объект остаётся на месте, ни снимка, ни правки.
-  it("перенос в лист: сначала окно первого вложенного объекта, «Отмена» ничего не делает", async () => {
+  // Р38 раздела 13 плана: цель — лист-сервис без элемента, переносимый — сервис без
+  // элемента. Сначала окно со стороны переносимого; «Отмена» — объект остаётся на месте,
+  // ни снимка, ни правки.
+  it("перенос в лист: сначала окно «что такое переносимый», «Отмена» ничего не делает", async () => {
     vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: null, element_effective: "container", sites: [] }) as never);
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("tree-panel");
     const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
     await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
-    expect(await screen.findByText("Внутри «NEW» появился первый объект")).toBeInTheDocument();
+    expect(await screen.findByText("Что такое «KID» внутри «NEW»?")).toBeInTheDocument();
     await act(async () => { screen.getByText("Отмена").click(); });
     expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
     expect(nodesApi.update).not.toHaveBeenCalled();

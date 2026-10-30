@@ -196,7 +196,9 @@ describe("NodeTreePanel: цели переноса", () => {
     return onReparent;
   }
 
-  const row = (name: string) => screen.getByText(name).closest(".nt-row") as HTMLElement;
+  // Строка дерева по имени (палитра под деревом показывает подписи типов — «Контейнер» тоже).
+  const row = (name: string) =>
+    screen.getAllByText(name).map((el) => el.closest(".nt-row")).find((r) => r !== null) as HTMLElement;
 
   it("дроп на чужой контейнер переносит", async () => {
     const onReparent = await scene([

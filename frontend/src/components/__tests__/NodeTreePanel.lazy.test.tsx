@@ -121,6 +121,63 @@ describe("NodeTreePanel: палитра шаблонов", () => {
     expect(trash()).toBeNull();
   });
 
+  // Палитра — шесть типов объекта (Р41 раздела 13 docs/plan-c4-elements.md); невозможные
+  // на текущем уровне — серые, с объяснением окна «Новый объект», и не тянутся.
+  const tile = (type: string) => document.querySelector<HTMLElement>(`[data-tour="palette:${type}"]`)!;
+  const greyed = () => [...document.querySelectorAll<HTMLElement>('[data-tour^="palette:"][aria-disabled="true"]')]
+    .map((t) => t.dataset.tour);
+
+  it("шесть типов по порядку; на верхнем уровне «Компонент» серый с объяснением и не тянется", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([]);
+    const onTemplateDrag = vi.fn();
+    render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId={null} onTemplateDrag={onTemplateDrag} />);
+    await screen.findByText("Нет объектов");
+    const tiles = [...document.querySelectorAll<HTMLElement>('[data-tour^="palette:"]')];
+    expect(tiles.map((t) => t.textContent)).toEqual([
+      "Система", "Контейнер", "Компонент", "База данных", "Брокер", "Пользователь",
+    ]);
+    expect(greyed()).toEqual(["palette:component"]);
+    expect(tile("component")).toHaveAttribute("title", "Компонентом объект бывает только внутри контейнера.");
+    expect(tile("component")).not.toHaveAttribute("draggable");
+    fireEvent.dragStart(tile("component"), { dataTransfer: dt() });
+    expect(onTemplateDrag).not.toHaveBeenCalled();
+
+    const transfer = dt();
+    fireEvent.dragStart(tile("system"), { dataTransfer: transfer });
+    expect(transfer.data.get(NODE_DRAG_MIME)).toBe("system");
+    expect(onTemplateDrag).toHaveBeenLastCalledWith("system");
+  });
+
+  it("уровень контейнера: доступны «Компонент» и «Пользователь»; родитель — строка загруженного дерева", async () => {
+    const box = node("box", { has_children: true, child_count: 1, element: "container", element_effective: "container" });
+    vi.mocked(nodesApi.list).mockResolvedValue([box]);
+    vi.mocked(nodesApi.get).mockResolvedValue(box);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([]);
+    render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId="box" />);
+    await waitFor(() => expect(greyed()).toEqual([
+      "palette:system", "palette:container", "palette:database", "palette:broker",
+    ]));
+    expect(tile("database")).toHaveAttribute("title", "База данных не входит в состав контейнера, создайте её рядом с «BOX».");
+    expect(nodesApi.get).toHaveBeenCalledTimes(1); // только раскрытие ветки — своего запроса у палитры нет
+  });
+
+  it("лист без элемента ждёт первого вложенного объекта — доступно всё", async () => {
+    const leaf = node("api", { element: null, element_effective: "container" });
+    vi.mocked(nodesApi.list).mockResolvedValue([leaf]);
+    vi.mocked(nodesApi.get).mockResolvedValue(leaf);
+    render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId="api" />);
+    await screen.findByText("API");
+    expect(greyed()).toEqual([]);
+  });
+
+  it("родитель уровня ещё не загружен — палитра ничего не гасит, окно проверит само", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([]);
+    vi.mocked(nodesApi.get).mockReturnValue(new Promise<Node>(() => {}));
+    render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId="deep" />);
+    await screen.findByText("Нет объектов");
+    expect(greyed()).toEqual([]);
+  });
+
   it("палитры нет у наблюдателя и в дереве страниц", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([]);
     const { unmount } = render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect={false} />);

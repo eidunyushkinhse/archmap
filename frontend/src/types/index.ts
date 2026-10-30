@@ -42,11 +42,14 @@ export const nodeNesting = (node: Pick<Node, "shape" | "has_children">): NodeNes
 
 // Вид узла для глифа (дерево, шапка страницы, инспекторы; Ф8 эпика «Элемент
 // архитектуры»): вложенность из nodeNesting и элемент с сервера. Система — узел с детьми
-// без явного «контейнер» (норма эпика); составной компонент — узел с детьми внутри
-// контейнера; leaf — всё без вложенных (глиф своей формы).
+// без явного «контейнер» (норма эпика) и пустая система (сервис-лист, который сервер
+// читает системой, Р39 раздела 13 docs/plan-c4-elements.md); составной компонент — узел
+// с детьми внутри контейнера; leaf — всё остальное без вложенных (глиф своей формы).
 export type TreeNesting = "leaf" | "system" | "container" | "component";
 export const treeNesting = (node: Pick<Node, "shape" | "has_children" | "element_effective">): TreeNesting => {
-  if (nodeNesting(node) === "leaf") return "leaf";
+  if (nodeNesting(node) === "leaf") {
+    return node.shape === "service" && node.element_effective === "system" ? "system" : "leaf";
+  }
   if (node.element_effective === "container") return "container";
   if (node.element_effective === "component") return "component";
   return "system";

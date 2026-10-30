@@ -158,7 +158,7 @@ interface LevelGraphProps {
   // Запросы удаления узлов с канваса (клавиатура → подтверждение в родителе):
   // onRequestDeleteNode, onRequestDeleteNodes. Состав — LevelDeleteCallbacks.
   delete?: LevelDeleteCallbacks;
-  // Дроп шаблона узла из боковой палитры: onDropNode, dragShape. Состав — LevelDropProps.
+  // Дроп шаблона узла из боковой палитры: onDropNode, dragType. Состав — LevelDropProps.
   drop?: LevelDropProps;
   // Undo/Redo: history, onUndo, onRedo (общая история + дисптчеры страницы-хозяина;
   // без бандла канвас заводит локальную историю). Состав — LevelUndoProps.
@@ -239,7 +239,7 @@ function LevelGraphInner({
   );
   const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
-  const { onDropNode, dragShape } = drop ?? {};
+  const { onDropNode, dragType } = drop ?? {};
   const { history: historyProp, onUndo, onRedo } = undo ?? {};
   // readOnly гейтит все жесты правки, но не влияет на рендер уровня
   const isReadOnly = readOnly;
@@ -896,7 +896,7 @@ function LevelGraphInner({
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
-    isArchitect, disabled: !canStructure, onDropNode, dragShape, expandedFrames,
+    isArchitect, disabled: !canStructure, onDropNode, dragType, expandedFrames,
   });
 
   // Рамка уровня, когда слой пуст: приглашение «первый узел кладут сюда» (CV20a).

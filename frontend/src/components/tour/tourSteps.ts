@@ -251,10 +251,10 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
   "create-system": {
     id: "create-system", kind: "act", n: 15, screen: OWN_MAP,
-    target: { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "canvas" } },
+    target: { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "canvas" } },
     title: "Создайте свою систему",
     body: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.",
-    action: "Перетащите «Сервис» на схему и назовите его именем вашей системы.",
+    action: "Перетащите «Систему» на схему и назовите её именем вашей системы.",
   },
   "add-peer": {
     id: "add-peer", kind: "act", n: 16, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
@@ -285,10 +285,10 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
   "add-child": {
     id: "add-child", kind: "act", n: 20, screen: OWN_MAP,
-    target: { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "system" } },
+    target: { kind: "pair", main: { kind: "tour", key: "palette:container" }, zone: { kind: "system" } },
     title: "Соберите систему из сервисов",
     body: "Поместите в рамку сервис, который входит в состав вашей системы. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте приложение, которое отдаёт ему фронтенд. А если внешнюю систему, то сервис, который с ней интегрирован.",
-    action: "Перетащите «Сервис» в рамку «{system}».",
+    action: "Перетащите «Контейнер» в рамку «{system}».",
   },
   rehang: {
     id: "rehang", kind: "act", n: 21, screen: OWN_MAP, target: { kind: "frame-end" },

@@ -1,41 +1,50 @@
-// Окно «Внутри «X» появился первый объект» (Р4, тексты прототипа v2 дословно): выбор
-// элемента архитектуры листа, который получает первого ребёнка. Показывается ДО окна
-// «Новый объект» и до переноса — вложенных нативных окон не бывает (ui/Modal).
+// Окно первого вложенного объекта при переносе (Р38 раздела 13 docs/plan-c4-elements.md):
+// сервис без хранимого элемента переносят в лист без хранимого элемента, и окно
+// спрашивает со стороны переносимого — что такое «Y» внутри «X». Ответ задаёт элемент
+// цели: «Компонент» — «X» станет контейнером, «Отдельное приложение» — системой.
+// Показывается ДО переноса — вложенных нативных окон не бывает (ui/Modal).
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { NodeElement } from "../../types";
 import Modal from "../../ui/Modal";
 import DialogTitle from "../../ui/DialogTitle";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
-import { ELEMENT_LABEL } from "../nodeTerms";
 
 interface Props {
+  // Цель переноса (лист, который получает первый вложенный объект).
   parentName: string;
+  // Переносимый объект.
+  childName: string;
   preselect: NodeElement;
   busy: boolean;
   onConfirm: (element: NodeElement) => void;
   onCancel: () => void;
 }
 
-// Порядок вариантов — как в прототипе: сначала «Контейнер».
+// Вариант — элемент, который получит цель: сначала «Компонент» (цель — контейнер).
 const OPTIONS: NodeElement[] = ["container", "system"];
 
-function optionText(element: NodeElement, name: string): string {
+const OPTION_LABEL: Record<NodeElement, string> = {
+  container: "Компонент",
+  system: "Отдельное приложение",
+};
+
+function optionText(element: NodeElement, parent: string): string {
   return element === "container"
-    ? "Одно приложение, которое запускается целиком. Объекты внутри описывают, из чего оно "
-      + `состоит, и отдельно не запускаются. Документация и площадки остаются у «${name}».`
-    : "Несколько приложений, каждое запускается само по себе. Документация и площадки "
-      + "ведутся у каждого из них.";
+    ? `Часть кода «${parent}», отдельно не запускается. «${parent}» станет контейнером, `
+      + "документация и площадки останутся у него."
+    : `Запускается само по себе. «${parent}» станет системой, документация и площадки `
+      + "ведутся у вложенных объектов.";
 }
 
-export default function FirstChildDialog({ parentName, preselect, busy, onConfirm, onCancel }: Props) {
+export default function FirstChildDialog({ parentName, childName, preselect, busy, onConfirm, onCancel }: Props) {
   const [choice, setChoice] = useState<NodeElement>(preselect);
   return (
     <Modal onClose={onCancel} onSubmit={() => onConfirm(choice)} closeButton={false} boxStyle={{ width: 500 }}>
-      <DialogTitle lead={`Уточните, что такое «${parentName}». От этого зависит, как ArchMap будет вести его документацию и площадки.`}>
-        Внутри «{parentName}» появился первый объект
+      <DialogTitle lead={`От этого зависит, кем станет «${parentName}» и как ArchMap поведёт его документацию и площадки.`}>
+        Что такое «{childName}» внутри «{parentName}»?
       </DialogTitle>
-      <div role="radiogroup" aria-label="Элемент архитектуры" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      <div role="radiogroup" aria-label={`Что такое «${childName}»`} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {OPTIONS.map((element) => {
           const active = element === choice;
           return (
@@ -48,14 +57,14 @@ export default function FirstChildDialog({ parentName, preselect, busy, onConfir
                 style={{ margin: "3px 0 0", flexShrink: 0 }}
               />
               <span>
-                <span style={optionTitle}>{ELEMENT_LABEL[element]}</span>
+                <span style={optionTitle}>{OPTION_LABEL[element]}</span>
                 <span style={optionBody}>{optionText(element, parentName)}</span>
               </span>
             </label>
           );
         })}
       </div>
-      <p style={hint}>Ответ можно изменить в любой момент в свойствах «{parentName}».</p>
+      <p style={hint}>Ответ можно изменить в свойствах «{parentName}».</p>
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button type="button" onClick={() => onConfirm(choice)} disabled={busy} style={primaryBtn}>
           Продолжить
