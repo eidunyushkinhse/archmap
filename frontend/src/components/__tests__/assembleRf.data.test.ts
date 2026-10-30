@@ -150,8 +150,8 @@ describe("assembleRfGraph — данные узлов", () => {
     const f = byId.get("F");
     expect(f).toMatchObject({ type: "frame", draggable: false, selectable: false, zIndex: -1, width: 300, height: 200 });
     const data = f?.data as FrameData;
-    expect(Object.keys(data).sort()).toEqual(["element", "name", "onCollapse"]);
-    expect(data.element).toBe("system");
+    expect(Object.keys(data).sort()).toEqual(["depth", "element", "is_external", "name", "onCollapse"]);
+    expect(data).toMatchObject({ element: "system", depth: 1, is_external: false });
     expect(data.name).toBe("Рамка");
     data.onCollapse?.();
     expect(cb.collapseContainer).toHaveBeenCalledWith("F");
@@ -159,7 +159,8 @@ describe("assembleRfGraph — данные узлов", () => {
 
   it("элемент архитектуры: рамка и свёрнутый контейнер внешней ветки — контейнер, путь «Войти» с ним", () => {
     const { byId, cb } = assemble();
-    expect((byId.get("FX")?.data as FrameData).element).toBe("container");
+    // вид рамки — по элементу, глубине и внешности раскрытого объекта
+    expect(byId.get("FX")?.data).toMatchObject({ element: "container", depth: 0, is_external: true });
     const data = byId.get("x")?.data as ContainerData;
     expect(data.element).toBe("container");
     data.onEnter?.();

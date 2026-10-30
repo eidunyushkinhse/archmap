@@ -16,7 +16,7 @@ import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
 import FramePlaque, { FrameLabel } from "./FramePlaque";
-import { frameStyle } from "./frameStyle";
+import { frameStyle, frameClass } from "./frameStyle";
 import { SiteKindIcon } from "../../ui/icons";
 import { useToast } from "../../pages/useToast";
 
@@ -582,13 +582,14 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
   const picking = !!data.onPick;
   return (
     <div
-      className={"lg-frame" + (decor ? ` lg-frame--${decor.kind}` : "") + (picking ? " lg-frame--pick" : "")}
+      // класс и вид — по данным рамки (frameStyle.ts): декор, элемент, глубина, внешность
+      className={frameClass(data) + (picking ? " lg-frame--pick" : "")}
       data-frame-id={id}
       onClickCapture={pickCapture(id, data.onPick)}
       style={{
         width: "100%", height: "100%",
-        // вид по декору — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
-        ...frameStyle(decor),
+        // вид — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
+        ...frameStyle(data),
         pointerEvents: picking ? "auto" : "none",
       }}
     >

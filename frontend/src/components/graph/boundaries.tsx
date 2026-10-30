@@ -6,7 +6,7 @@ import { Fragment } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import { computeFrames, frameLocalIds, EMPTY_LEVEL_MEMBER, EMPTY_LEVEL_ORIGIN } from "./layout/frames";
 import FramePlaque from "./FramePlaque";
-import { frameStyle } from "./frameStyle";
+import { frameStyle, frameClass } from "./frameStyle";
 import { framedBlockRefs } from "./frameChains";
 import { absPositionOf } from "./absPos";
 import type { GhostData, ContainerData } from "./types";
@@ -75,14 +75,16 @@ export function LevelBoundary({
         return (
           <Fragment key={f.id}>
             <div
-              // класс — стабильный хук для полигона (scripts/dump-levels.mjs): рамки
-              // входят в структурную сигнатуру уровня
-              className="lg-frame"
+              // класс lg-frame — стабильный хук для полигона (scripts/dump-levels.mjs):
+              // рамки входят в структурную сигнатуру уровня; у рамки контейнера — ещё
+              // маркер lg-frame--container (frameStyle.ts)
+              className={frameClass(f)}
               data-frame-id={f.id}
               style={{
                 position: "absolute", left: r.x, top: r.y, width: r.w, height: r.h,
-                // вид — общий с compound-рамкой и оверлеем драга (frameStyle.ts)
-                ...frameStyle(),
+                // вид — общий с compound-рамкой и оверлеем драга (frameStyle.ts): по
+                // элементу, глубине и внешности предка
+                ...frameStyle(f),
                 pointerEvents: "none",
               }}
             />

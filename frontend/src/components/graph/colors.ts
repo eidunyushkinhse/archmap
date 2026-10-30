@@ -47,6 +47,13 @@ export function getNodeColors(
   return palette[d];
 }
 
+// Цвет «#rrggbb» палитры с непрозрачностью — строкой rgba (заливка рамки контейнера,
+// frameStyle.ts). Палитры выше — только шестизначные hex.
+export function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+}
+
 // Метаданные статуса для бейджа на узле, легенды и цвета рёбер. badge=null —
 // у existing бейджа нет; edge — цвет связи, конец которой носит этот статус.
 export const STATUS_META: Record<NodeStatus, {

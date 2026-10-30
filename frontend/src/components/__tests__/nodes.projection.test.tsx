@@ -27,7 +27,7 @@ const SiteCard = nodeTypes.site as ComponentType<Partial<NodeProps>>;
 
 // Элемент рамки по умолчанию — система (норма «нет значения — система»).
 function renderFrame(input: Partial<FrameData> & { name: string }) {
-  const data: FrameData = { element: "system", ...input };
+  const data: FrameData = { element: "system", depth: 0, is_external: false, ...input };
   const { container } = render(
     <ReactFlowProvider>
       <Frame id="deploy:site:S1" data={data} />

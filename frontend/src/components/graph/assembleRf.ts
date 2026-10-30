@@ -161,12 +161,14 @@ export function assembleRfGraph(params: {
       // collapsible: false (группа «не указано») не свернуть — onCollapse не задаётся,
       // крестика нет; площадка сворачивается, как рамка раскрытия.
       const decor = frameDecor?.(f.id);
-      // элемент раскрытого объекта — из раскладки (FrameRect.element: звено цепочки)
+      // Вид рамки — по элементу, глубине и внешности раскрытого объекта из раскладки
+      // (FrameRect: звено цепочки; глубина — та, которой он красился свёрнутым).
+      const look = { element: f.element, depth: f.depth, is_external: f.is_external };
       const data: FrameData = decor?.collapsible === false
-        ? { name: f.name, element: f.element, decor, ...pick }
+        ? { name: f.name, ...look, decor, ...pick }
         : {
             name: f.name,
-            element: f.element,
+            ...look,
             onCollapse: () => getCb().collapseContainer(f.id),
             ...(decor ? { decor } : null),
             ...pick,

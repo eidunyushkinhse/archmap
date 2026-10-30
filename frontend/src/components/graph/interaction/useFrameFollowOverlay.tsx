@@ -17,9 +17,9 @@ import type { Node as RFNode } from "@xyflow/react";
 import { NODE_W, NODE_H } from "../constants";
 import { absPositionOf } from "../absPos";
 import { mustGet } from "../../../lib/mustGet";
-import { frameStyle } from "../frameStyle";
+import { frameStyle, type FrameLook } from "../frameStyle";
 import { FrameLabel } from "../FramePlaque";
-import type { FrameData, FrameDecor } from "../types";
+import type { FrameData } from "../types";
 
 interface Params {
   rfNodes: RFNode[];
@@ -28,7 +28,8 @@ interface Params {
 }
 
 type Pad = { l: number; t: number; r: number; b: number };
-type OverlayFrame = { id: string; name: string; decor?: FrameDecor; x: number; y: number; w: number; h: number };
+// Оверлей рамки: живой прямоугольник и вид подменяемой рамки (FrameLook из её FrameData).
+type OverlayFrame = FrameLook & { id: string; name: string; x: number; y: number; w: number; h: number };
 
 const rfSize = (n: RFNode): { w: number; h: number } => ({
   w: n.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W),
@@ -81,7 +82,11 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
       const abs = absPositionOf(f, byId);
       const { w, h } = rfSize(f);
       const data = f.data as Partial<FrameData>;
-      return { id, name: data.name ?? "", decor: data.decor, x: abs.x, y: abs.y, w, h };
+      return {
+        id, name: data.name ?? "",
+        decor: data.decor, element: data.element, depth: data.depth, is_external: data.is_external,
+        x: abs.x, y: abs.y, w, h,
+      };
     }));
     setRfNodes((prev) => prev.map((n) =>
       affected.has(n.id) ? { ...n, style: { ...n.style, opacity: 0 } } : n,
@@ -233,8 +238,9 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
           }}
           style={{
             position: "absolute", left: f.x, top: f.y, width: f.w, height: f.h,
-            // вид подменяемой рамки по её декору (frameStyle.ts): площадка — зона, а не пунктир
-            ...frameStyle(f.decor),
+            // вид подменяемой рамки по её данным (frameStyle.ts): площадка — зона, рамка
+            // контейнера — с заливкой, как сама рамка
+            ...frameStyle(f),
             pointerEvents: "none",
           }}
         >

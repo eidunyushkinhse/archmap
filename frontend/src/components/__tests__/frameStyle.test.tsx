@@ -31,10 +31,17 @@ const Ghost = nodeTypes.ghost as ComponentType<Partial<NodeProps>>;
 
 const DASHED = "border: var(--lg-frame-bw, 1px) dashed #9ca3af; border-radius: 12px; background: transparent; box-sizing: border-box;";
 const SITE = "border: var(--lg-frame-bw, 1px) solid #cbd5e1; border-radius: 12px; background: rgba(100, 116, 139, 0.07); box-sizing: border-box;";
+// Рамка КОНТЕЙНЕРА (Р20): тот же пунктир и заливка цвета объекта по палитре глубины, 8 %.
+const filled = (rgb: string) =>
+  `border: var(--lg-frame-bw, 1px) dashed #9ca3af; border-radius: 12px; background: rgba(${rgb}, 0.08); box-sizing: border-box;`;
+const CONTAINER_D0 = filled("17, 104, 189");   // #1168bd — глубина 0
+const CONTAINER_D1 = filled("35, 137, 204");   // #2389cc — глубина 1
+const CONTAINER_EXT0 = filled("85, 85, 85");   // #555555 — внешний, глубина 0
 
-// Данные рамки для теста: элемент по умолчанию — система (норма «нет значения — система»).
+// Данные рамки для теста: по умолчанию система глубины 0, своя (норма «нет значения —
+// система»).
 type FrameInput = Partial<FrameData> & { name: string };
-const frameData = (input: FrameInput): FrameData => ({ element: "system", ...input });
+const frameData = (input: FrameInput): FrameData => ({ element: "system", depth: 0, is_external: false, ...input });
 
 function renderFrame(input: FrameInput): HTMLElement {
   const data = frameData(input);
@@ -106,6 +113,66 @@ describe("стиль нативной рамки уровня (LevelBoundary) �
     const style = frame.getAttribute("style") ?? "";
     expect(style.startsWith("position: absolute; left: ")).toBe(true);
     expect(style.endsWith(`${DASHED} pointer-events: none;`)).toBe(true);
+  });
+});
+
+describe("рамка контейнера (Р20) — пунктир и заливка цвета глубины в трёх местах", () => {
+  const visual = (el: HTMLElement) => (el.getAttribute("style") ?? "").replace(/^.*?height: [^;]+; /, "");
+  const cases: [string, FrameInput, string][] = [
+    ["глубина 0", { name: "orders", element: "container", depth: 0 }, CONTAINER_D0],
+    ["глубина 1", { name: "orders", element: "container", depth: 1 }, CONTAINER_D1],
+    ["внешний", { name: "payments", element: "container", depth: 0, is_external: true }, CONTAINER_EXT0],
+  ];
+
+  it.each(cases)("рамка раскрытия и оверлей драга — одна строка: %s", (_, input, expected) => {
+    const frame = renderFrame({ ...input, onCollapse: () => {} });
+    expect(frame.className).toBe("lg-frame lg-frame--container");
+    expect(frame.getAttribute("style")).toBe(`width: 100%; height: 100%; ${expected} pointer-events: none;`);
+    const overlay = renderOverlay(input);
+    expect(visual(overlay)).toBe(`${expected} pointer-events: none;`);
+    expect(overlay.textContent).toBe(`🔍 ${input.name}`); // плашка без суффикса типа
+  });
+
+  it("нативная рамка уровня — та же строка; система и «не задан» — прежний пунктир", () => {
+    const rfNodes: RFNode[] = [
+      { id: "b1", type: "block", position: { x: 0, y: 0 }, data: { appNode: appNode("b1") } as unknown as BlockData },
+    ];
+    const { container } = render(
+      <LevelBoundary
+        rfNodes={rfNodes} ancestorIds={["p0", "p1", "p2"]} ancestorNames={["Торговля", "orders", "api"]}
+        ancestorElements={["system", "container", null]}
+      />,
+    );
+    const frames = [...container.querySelectorAll(".lg-frame")] as HTMLElement[];
+    const byId = (id: string) => frames.find((f) => f.getAttribute("data-frame-id") === id)!;
+    // глубина нативной рамки — индекс предка в крошках: «orders» — 1
+    expect(byId("p1").className).toBe("lg-frame lg-frame--container");
+    expect((byId("p1").getAttribute("style") ?? "").endsWith(`${CONTAINER_D1} pointer-events: none;`)).toBe(true);
+    for (const id of ["p0", "p2"]) {
+      expect(byId(id).className).toBe("lg-frame");
+      expect((byId(id).getAttribute("style") ?? "").endsWith(`${DASHED} pointer-events: none;`)).toBe(true);
+    }
+    // плашки — только имена, без суффиксов типа
+    expect(container.textContent).toBe("Торговляordersapi");
+  });
+
+  it("система и составной компонент — прозрачные, строка прежняя байт-в-байт", () => {
+    for (const element of ["system", "component"] as const) {
+      const frame = renderFrame({ name: "Торговля", element, depth: 1, onCollapse: () => {} });
+      expect(frame.className).toBe("lg-frame");
+      expect(frame.getAttribute("style")).toBe(`width: 100%; height: 100%; ${DASHED} pointer-events: none;`);
+      expect(visual(renderOverlay({ name: "Торговля", element, depth: 1 }))).toBe(`${DASHED} pointer-events: none;`);
+    }
+  });
+
+  it("декор холста «Развёртывание» приоритетнее элемента: площадка — зона, группа — пунктир", () => {
+    const site = renderFrame({ name: "Кластер", element: "container", depth: 1, decor: { kind: "site", icon: "kubernetes" } });
+    expect(site.className).toBe("lg-frame lg-frame--site");
+    expect(site.getAttribute("style")).toBe(`width: 100%; height: 100%; ${SITE} pointer-events: none;`);
+    const group = renderFrame({ name: "Не указано", element: "container", decor: { kind: "group", collapsible: false } });
+    expect(group.className).toBe("lg-frame lg-frame--group");
+    expect(group.getAttribute("style")).toBe(`width: 100%; height: 100%; ${DASHED} pointer-events: none;`);
+    expect(visual(renderOverlay({ name: "Кластер", element: "container", decor: { kind: "site" } }))).toBe(`${SITE} pointer-events: none;`);
   });
 });
 

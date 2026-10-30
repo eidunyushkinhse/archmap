@@ -212,8 +212,12 @@ export interface ContainerData extends Record<string, unknown> {
 // им нужен живой bbox-follow, а не фиксированный rect.
 export interface FrameData extends Record<string, unknown> {
   name: string;
-  // элемент архитектуры раскрытого объекта (FrameRect.element) — вид рамки (frameStyle.ts)
+  // Элемент архитектуры раскрытого объекта, его глубина и внешность (FrameRect) — вид
+  // рамки (frameStyle.ts, Р20): заливка контейнера цветом той же глубины, которой он
+  // красился свёрнутым. Оверлей драга берёт их отсюда же — и выглядит как рамка.
   element: FrameElement;
+  depth: number;
+  is_external: boolean;
   // свернуть контейнер (клик по подписи «🔍 name ✕») — undefined в read-only
   onCollapse?: () => void;
   // Декор рамки по данным хозяина (проекция, LevelProjectionProps.frameDecor). Нет поля —

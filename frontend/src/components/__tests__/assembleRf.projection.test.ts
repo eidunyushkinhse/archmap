@@ -209,8 +209,8 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
     const nodes = assemble(false);
     const s = nodes.find((n) => n.id === "S")!.data as FrameData;
-    // элемент архитектуры рамки есть всегда (Ф7 эпика элементов), декора нет
-    expect(Object.keys(s).sort()).toEqual(["element", "name", "onCollapse"]);
+    // вид рамки по элементу (Ф7 эпика элементов) — всегда, декора нет
+    expect(Object.keys(s).sort()).toEqual(["depth", "element", "is_external", "name", "onCollapse"]);
     expect(typeof s.onCollapse).toBe("function");
     const a = nodes.find((n) => n.id === "a@S")!.data as BlockData;
     expect("mark" in a).toBe(false);
