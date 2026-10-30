@@ -135,3 +135,29 @@ def test_откат_версии_возвращает_элемент(db):
     db.commit()
     db.expire_all()
     assert db.get(Node, orders.id).element == "container"
+
+
+def test_пустая_система_в_копии_и_версии(db):
+    """Пустая система (Р39): элемент листа едет в копию проекта и возвращается откатом
+    версии, как у любого узла."""
+    p, shop, _orders, api = _shop(db)
+    user = ensure_architect(db)
+    db.get(Node, api.id).element = "system"
+    db.commit()
+    dst = make_project(db, "Ярмарка (копия)")
+    copy_project_schema(db, p.id, dst.id)
+    db.commit()
+    copied = {n.name: n.element for n in db.query(Node).filter(Node.project_id == dst.id)}
+    assert copied == {"shop": None, "orders": None, "api": "system"}
+
+    versions.create_version(db, p, user, shop, "v1")
+    db.commit()
+    db.get(Node, api.id).element = None
+    db.commit()
+    row = versions.get_version(db, p, shop, 1)
+    assert row is not None
+    restore_version(db, p, user, shop, row)
+    db.commit()
+    db.expire_all()
+    assert db.get(Node, api.id).element == "system"
+

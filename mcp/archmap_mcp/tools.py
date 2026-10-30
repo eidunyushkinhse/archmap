@@ -1005,8 +1005,8 @@ async def t_create_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     if args.get("element"):
         body["element"] = args["element"]
     data = await client.request("POST", "/nodes", project_id=pid, json=body)
-    # Элемент — действующим словом по ответу сервера (у листа — «контейнер»); старый
-    # сервер поля не отдаёт — строки нет.
+    # Элемент — действующим словом по ответу сервера (у листа — «контейнер», у листа с
+    # «система» — «система без контейнеров»); старый сервер поля не отдаёт — строки нет.
     element = render.element_line(data) if "element" in body else None
     tail = "\n" + element if element else ""
     return (
@@ -1086,9 +1086,9 @@ async def t_update_node(client: ArchMapClient, args: dict[str, Any]) -> str:
     # приходит его текстом.
     if "site_ids" in body:
         tail += "\n" + (render.placement_line(data) or "Размещение: не указано")
-    # Элемент — действующим словом по ответу сервера: у листа «контейнер» при любом
-    # сохранённом, внутри контейнера — «компонент». Старый сервер поля не отдаёт —
-    # строки нет.
+    # Элемент — действующим словом по ответу сервера: у листа «контейнер», а с
+    # сохранённым «система» — «система без контейнеров», внутри контейнера —
+    # «компонент». Старый сервер поля не отдаёт — строки нет.
     if "element" in body:
         element = render.element_line(data)
         if element:

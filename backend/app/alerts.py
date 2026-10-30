@@ -278,9 +278,9 @@ def _isolated_groups(ctx: AlertContext) -> list[IsolatedGroupAlert]:
 
 
 def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
-    """4) Системы и контейнеры со своей документацией (AL24): узел с детьми формы
-    service, у которого остались собственные схемы логики, спецификация или параметры
-    конфигурации. Совет — по действующему элементу архитектуры (app/element.py, раздел
+    """4) Системы и контейнеры со своей документацией (AL24): система формы service (с
+    детьми или пустая — лист с хранимым «система», Р39) или контейнер с компонентами, у
+    которых остались собственные схемы логики, спецификация или параметры конфигурации. Совет — по действующему элементу архитектуры (app/element.py, раздел
     0а docs/plan-c4-elements.md; элементы — из каталога, без второй сборки):
     - система — замечание на всё, как до эпика у любого узла с детьми: группа сама не
       запускается, API отдают и конфигурацию читают её контейнеры;
@@ -302,16 +302,18 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
     param_owners = set(ctx.catalog.params_by_node)
     out: list[ContainerOwnDocsAlert] = []
     for n in ctx.nodes:
-        if n.id not in ctx.intermediate_ids or n.shape != "service":
+        if n.shape != "service":
             continue
         has_docs = n.id in doc_owners
         has_spec = bool(n.openapi_spec)
         has_config = n.id in param_owners
         element: Literal["system", "container"]
-        if elements.effective(n.id) == "system":
+        effective = elements.effective(n.id)
+        # Система — и пустая (лист с хранимым «система», Р39): своих фактов у неё нет.
+        if effective == "system":
             element = "system"
             misplaced = has_docs or has_spec or has_config
-        elif elements.effective(n.id) == "container":
+        elif effective == "container" and n.id in ctx.intermediate_ids:
             element = "container"
             misplaced = has_docs
         else:

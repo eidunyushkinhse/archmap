@@ -55,16 +55,28 @@ def node_line(node: dict[str, Any], *, with_id: bool = True, marker: str | None 
 # отдаёт готовым: MCP его не вычисляет, только называет словом и ищет имя контейнера
 # среди предков, которые уже пришли в /nodes/all.
 ELEMENT_WORD = {"system": "система", "container": "контейнер", "component": "компонент"}
+# Пустая система — объект без вложенных с элементом «система» (сервер с 0.11.1 читает его
+# системой, Р39): агенту важно знать, что внутри пока ничего нет.
+EMPTY_SYSTEM = "система без контейнеров"
+
+
+def empty_system(node: dict[str, Any]) -> bool:
+    """Пустая система: действующий элемент «система» у объекта без вложенных. Признак
+    берётся из ответа сервера (has_children), MCP элемент не вычисляет."""
+    return node.get("element_effective") == "system" and node.get("has_children") is False
 
 
 def element_line(node: dict[str, Any], container: str | None = None) -> str | None:
     """Строка «Элемент архитектуры: …» по действующему элементу; у компонента — с
-    именем его контейнера, если оно известно. Сервер, который элемента не знает, поля
-    не отдаёт — тогда строки нет; у «Пользователя» элемента нет — строки нет тоже."""
+    именем его контейнера, если оно известно; у пустой системы — «система без
+    контейнеров». Сервер, который элемента не знает, поля не отдаёт — тогда строки нет;
+    у «Пользователя» элемента нет — строки нет тоже."""
     value = node.get("element_effective")
     if value is None:
         return None
     word = ELEMENT_WORD.get(str(value), str(value))
+    if empty_system(node):
+        word = EMPTY_SYSTEM
     if value == "component" and container:
         word += f" контейнера «{container}»"
     return f"Элемент архитектуры: {word}"
@@ -185,6 +197,10 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
         )
     if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
+    if not units:
+        # Система без единиц (пустая или с одними вложенными системами) не согласована:
+        # «0 из 0» читалось бы как «всё согласовано».
+        return f"Статус страницы: {word} — складывается из вложенных объектов, согласовывать пока нечего"
     return (
         f"Статус страницы: {word} — складывается из вложенных объектов, "
         f"согласовано {done} из {len(units)}"
@@ -415,6 +431,9 @@ def node_placement(
             else "Размещения нет: это компонент — площадки задаются его контейнеру"
         )
         return out
+    if empty_system(node):
+        out.append(f"Размещения нет: это {EMPTY_SYSTEM} — площадки задаются её контейнерам")
+        return out
     placed = list(node.get("sites") or [])
     if not placed:
         out.append("Размещение: не указано")
@@ -463,10 +482,13 @@ def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
 
     def walk(parent: str | None, depth: int) -> None:
         for n in kids.get(parent, []):
-            # Маркер — только у контейнера с компонентами: лист-контейнер и система —
-            # сегодняшняя картина, и дерево проекта без контейнеров не меняется.
+            # Маркер — у контейнера с компонентами и у пустой системы: лист-контейнер и
+            # система с вложенными — сегодняшняя картина, и дерево проекта без
+            # контейнеров не меняется; пустая система без маркера читалась бы листом.
             container = n.get("element_effective") == "container" and n.get("has_children")
             marker = ELEMENT_WORD["container"] if container else None
+            if empty_system(n):
+                marker = EMPTY_SYSTEM
             lines.append("  " * depth + "• " + node_line(n, with_id=with_ids, marker=marker))
             walk(str(n["id"]), depth + 1)
 

@@ -242,7 +242,8 @@ def test_post_и_patch_принимают_и_возвращают_элемент
 
     r = _patch(client, db, h, orders, {"element": "system"})
     assert r.status_code == 200, r.text
-    assert (r.json()["element"], r.json()["element_effective"]) == ("system", "container")
+    # Лист с «система» — пустая система (Р39), а не контейнер.
+    assert (r.json()["element"], r.json()["element_effective"]) == ("system", "system")
     # Без ключа — не трогаем: фронт и MCP шлют только то, что правят.
     r = _patch(client, db, h, orders, {"description": "Заказы покупателей"})
     assert r.json()["element"] == "system"

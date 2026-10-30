@@ -595,3 +595,33 @@ async def test_карточка_без_элемента_от_старого_се
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "Элемент архитектуры" not in out
+
+
+async def test_карточка_пустой_системы(client: ArchMapClient, api: FakeApi) -> None:
+    # Пустая система (Р39): объект без вложенных с элементом «система» сервер читает
+    # системой. Агенту важно, что внутри пока ничего нет, а статус — не «0 из 0».
+    target = node(NODE, "Ярмарка", element="system", element_effective="system",
+                  has_children=False, approval="in_progress", approval_effective="in_progress",
+                  sites=[])
+    element_routes(api, target, [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    lines = out.splitlines()
+    assert "Элемент архитектуры: система без контейнеров" in lines
+    assert (
+        "Статус страницы: в работе — складывается из вложенных объектов, согласовывать пока нечего"
+        in lines
+    )
+    assert "согласовано 0 из 0" not in out
+    assert "Размещение" not in out
+
+
+def test_система_с_вложенными_не_пустая() -> None:
+    # Признак пустой системы — только у объекта без вложенных; у системы с вложенными
+    # строка прежняя, у старого сервера без has_children — тоже.
+    full = node(NODE, "shop", element_effective="system", has_children=True)
+    old = node(NODE, "shop", element_effective="system")
+    assert render.element_line(full) == "Элемент архитектуры: система"
+    assert render.element_line(old) == "Элемент архитектуры: система"
+

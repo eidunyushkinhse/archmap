@@ -1,7 +1,7 @@
 // Последствия смены элемента архитектуры или переноса узла (Р18 эпика
 // docs/plan-c4-elements.md) словами окна. Что именно переедет, считает сервер
 // (GET element-preview / move-preview, ElementChangePreview); здесь только решение
-// «нужно ли окно» и тексты прототипа v2 для пяти видов. Своей логики площадок нет.
+// «нужно ли окно» и тексты прототипа v2 для шести видов. Своей логики площадок нет.
 import type { ElementChangePreview, PlacementRowOut } from "../../types";
 
 function sameRows(a: PlacementRowOut[], b: PlacementRowOut[]): boolean {
@@ -64,6 +64,19 @@ export function consequenceTexts(preview: ElementChangePreview, name: string): C
         docs: preview.docs_names.length > 0
           ? `Документация самого «${name}» останется у него. ArchMap отметит это подсказкой, а на `
             + `странице «${name}» будет кнопка, чтобы раздать её объектам внутри.`
+          : null,
+        confirm: "Сделать системой",
+      };
+    case "empty_system":
+      // Лист становится пустой системой (Р39): единиц у неё нет, площадки спят у листа
+      // до первого вложенного контейнера (D34, правило 5).
+      return {
+        title: `Сделать «${name}» системой?`,
+        lead: "Система сама не запускается: площадки и документацию ведут объекты внутри неё.",
+        placementNote: `Площадки «${name}» перейдут первому вложенному контейнеру.`,
+        docs: preview.docs_names.length > 0
+          ? `Документация самого «${name}» останется у него. ArchMap отметит это подсказкой, а когда `
+            + `внутри появятся объекты, на странице «${name}» будет кнопка, чтобы раздать её им.`
           : null,
         confirm: "Сделать системой",
       };

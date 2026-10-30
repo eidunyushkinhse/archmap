@@ -1008,3 +1008,16 @@ async def test_дерево_помечает_контейнер_с_компон�
     # с компонентами печатается как до эпика.
     assert "    • api [сервис]  id=n3" in lines
     assert "  • billing [сервис]  id=n4" in lines
+
+
+async def test_дерево_помечает_пустую_систему(client: ArchMapClient, api: FakeApi) -> None:
+    # Пустая система (Р39) — лист в дереве; без маркера агент прочёл бы её контейнером.
+    api.get("/nodes/all", [
+        node("n1", "shop", has_children=True, element_effective="system"),
+        node("n2", "warehouse", "n1", has_children=False, element="system", element_effective="system"),
+    ])
+    api.get("/edges", [])
+
+    out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
+
+    assert "  • warehouse (система без контейнеров) [сервис]  id=n2" in out.splitlines()

@@ -14,6 +14,7 @@ import yaml
 from conftest import seed_project_from_yaml
 
 from app.deployment import ordered_instances, project_sites
+from app.element_marks import elements_for_project as build_elements_of
 from app.element_marks import project_element_rows
 from app.element_rules import element_change_refusal
 from app.export import build_export
@@ -1821,3 +1822,29 @@ def test_круг_экспорта_с_элементами_байт_в_байт(
     db.commit()
     assert первый.count("element:") == 3
     assert экспорт(dst.id) == первый
+
+
+def test_круг_экспорта_с_пустой_системой(db):
+    """Пустая система (Р39) — лист с «element: system» — переживает круг экспорта и
+    импорта и остаётся системой: ввоз берёт значение листа-сервиса как есть."""
+    src = _project(db, "Источник")
+    корень = _node(db, src.id, "Ярмарка", element="system")
+    _node(db, src.id, "Склад", корень, element="system")
+    _node(db, src.id, "billing", корень)
+    db.commit()
+
+    def экспорт(project_id) -> str:
+        nodes = db.query(Node).filter(Node.project_id == project_id).all()
+        edges = db.query(Edge).filter(Edge.project_id == project_id).all()
+        return build_export(nodes, edges)
+
+    первый = экспорт(src.id)
+    assert "  - name: Склад\n    shape: service\n    element: system\n" in первый
+    parsed, errors = parse_import(первый)
+    assert errors == [] and parsed is not None and parsed.warnings == []
+    dst = _project(db, "Приёмник")
+    seed_import(db, dst.id, parsed)
+    db.commit()
+    assert экспорт(dst.id) == первый
+    склад = db.query(Node).filter(Node.project_id == dst.id, Node.name == "Склад").one()
+    assert build_elements_of(db, dst.id).effective(склад.id) == "system"

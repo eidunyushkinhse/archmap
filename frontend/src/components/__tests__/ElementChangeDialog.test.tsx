@@ -1,4 +1,4 @@
-// Окно последствий смены элемента архитектуры и переноса (Р18): пять видов текстов
+// Окно последствий смены элемента архитектуры и переноса (Р18): шесть видов текстов
 // прототипа v2, секции «Площадки» и «Документация» — только когда им есть что показать.
 // Решение «нужно ли окно» (hasConsequences) — чистая функция рядом.
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -103,6 +103,25 @@ describe("окно последствий", () => {
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Перенести"));
     expect(onConfirm).toHaveBeenCalledOnce();
+  });
+
+  it("лист становится пустой системой: площадки ждут первого вложенного контейнера", () => {
+    show(preview({
+      kind: "empty_system",
+      before: [row("orders", ["prod-eu"])],
+      after: [],
+      docs_names: ["orders"],
+    }), "orders");
+    expect(screen.getByText("Сделать «orders» системой?")).toBeInTheDocument();
+    expect(screen.getByText("Система сама не запускается: площадки и документацию ведут объекты внутри неё.")).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "Площадки до" })).toBeInTheDocument();
+    // Площадки отдать некому — строки «после» и стрелки нет.
+    expect(screen.queryByRole("list", { name: "Площадки после" })).not.toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру.")).toBeInTheDocument();
+    expect(screen.getByText(/^Документация самого «orders» останется у него/)).toBeInTheDocument();
+    expect(screen.getByText("Сделать системой")).toBeInTheDocument();
+    expect(hasConsequences(preview({ kind: "empty_system", before: [row("orders", ["prod-eu"])] }))).toBe(true);
+    expect(hasConsequences(preview({ kind: "empty_system" }))).toBe(false);
   });
 
   it("площадки не переезжают — секции «Площадки» нет, документация есть", () => {

@@ -12,8 +12,16 @@
 - есть предок (не сам узел) с хранимым container — компонент; у узла с детьми это
   составной компонент;
 - иначе узел с детьми — контейнер, если так хранится, и система в любом другом случае;
-- иначе (лист) — контейнер: хранимое значение у листа не читается, как и у узла,
-  потерявшего последнего ребёнка.
+- иначе (лист) — система, если у сервиса так хранится («пустая система», Р39 раздела 13
+  плана: пользователь выбрал тип «Система» заранее, и до первого вложенного объекта она
+  не должна показываться контейнером), и контейнер в любом другом случае — хранимое
+  «контейнер» и «не сказано» у листа читаются одинаково, как и у узла, потерявшего
+  последнего ребёнка.
+
+Пустая система — система во всём: своих фактов у неё нет (их ловит AL24), статус
+складывается из единиц, а их нет («в работе»), размещать нечего (units_under пусто), её
+экземпляры спят до первого вложенного объекта-единицы (app/element_change, правило 5
+D34).
 
 Факт процесса (конфигурация, спецификация OpenAPI, площадки, статус страницы) — у
 ближайшего контейнера (`container_of`), факт кода (схемы логики, источник, концы связей) —
@@ -30,6 +38,7 @@ from collections.abc import Hashable, Mapping, Sequence
 from app.domain_types import NodeElement, NodeElementEffective
 
 CONTAINER: NodeElement = "container"
+SYSTEM: NodeElement = "system"
 
 
 class Elements[K: Hashable]:
@@ -106,7 +115,9 @@ class Elements[K: Hashable]:
         return self._inside[node_id]
 
     def effective(self, node_id: K) -> NodeElementEffective | None:
-        """Действующий элемент узла (правила — в шапке модуля)."""
+        """Действующий элемент узла (правила — в шапке модуля): у «Пользователя» — None,
+        внутри контейнера — компонент, у узла с детьми — хранимый контейнер или система,
+        у листа — система при хранимом «система» (пустая система, Р39), иначе контейнер."""
         if node_id in self._memo:
             return self._memo[node_id]
         result: NodeElementEffective | None
@@ -116,6 +127,10 @@ class Elements[K: Hashable]:
             result = "component"
         elif self._children.get(node_id):
             result = "container" if self._stored.get(node_id) == CONTAINER else "system"
+        elif self._stored.get(node_id) == SYSTEM and self._shape_of.get(node_id) == "service":
+            # Пустая система (Р39): элемент задаётся только у сервиса — у другой формы
+            # хранимое значение (данные в обход правил) не читается.
+            result = "system"
         else:
             result = "container"
         self._memo[node_id] = result

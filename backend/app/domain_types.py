@@ -34,7 +34,8 @@ NodeElementEffective = Literal["system", "container", "component"]
 # Последствия смены элемента или переноса узла для размещения (app/element_change, Р18):
 # система ↔ контейнер у узла с детьми, вход в контейнер (переносимое становится его
 # частью) и выход из него, первый вложенный объект у листа с площадками (лист становится
-# системой); none — площадки никуда не переезжают.
+# системой), лист становится пустой системой (Р39: площадки спят у него до первого
+# вложенного контейнера); none — площадки никуда не переезжают.
 ElementChangeKind = Literal[
     "none",
     "system_to_container",
@@ -42,6 +43,7 @@ ElementChangeKind = Literal[
     "join_container",
     "leave_container",
     "first_child",
+    "empty_system",
 ]
 
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная

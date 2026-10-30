@@ -275,3 +275,20 @@ def test_слова_вида_площадки_те_же_что_у_бэкенда
     from typing import get_args
 
     assert set(render.SITE_KIND_WORD) == set(get_args(backend("domain_types").SiteKind))
+
+
+async def test_размещение_пустой_системы(client: ArchMapClient, api: FakeApi) -> None:
+    # Пустая система (Р39) не единица: размещать нечего, площадки получат её контейнеры.
+    # В «Без размещения» её нет — там только единицы.
+    empty = node(u(30), "Склад", element="system", element_effective="system",
+                 has_children=False, sites=[])
+    routes(api, [SITES[1]], [*c4_nodes(), empty])
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": u(30)}, client)
+    tree = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines()[2:] == [
+        "Размещения нет: это система без контейнеров — площадки задаются её контейнерам",
+    ]
+    assert "Склад" not in tree
+
