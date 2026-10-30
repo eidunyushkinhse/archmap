@@ -80,11 +80,11 @@ export function placeQuestion(name: string, siteNames: readonly string[]): strin
 }
 
 // Пояснение под вопросом — перед списком «объект: площадки».
-export const PLACE_LEAD = "Все вложенные объекты будут размещены там же, включая те, что сейчас стоят на других площадках:";
+export const PLACE_LEAD = "Все контейнеры системы будут размещены там же, включая те, что сейчас стоят на других площадках:";
 
 /** Вопрос снятия размещения системы: его теряют все её единицы. */
 export function unplaceQuestion(name: string): string {
   return `Снять размещение «${name}»?`;
 }
 
-export const UNPLACE_LEAD = "Размещение всех вложенных объектов будет снято:";
+export const UNPLACE_LEAD = "Размещение всех контейнеров системы будет снято:";

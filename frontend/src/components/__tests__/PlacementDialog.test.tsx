@@ -71,9 +71,15 @@ describe("PlacementDialog", () => {
     vi.mocked(deploymentApi.setPlacements).mockResolvedValue(undefined);
   });
 
-  it("подзаголовок: имя одного объекта или число объектов", () => {
+  it("подзаголовок: имя одного объекта или число объектов; у системы — кому достанутся площадки", () => {
     setup([obj("a", [])]);
     expect(screen.getByText("A")).toBeInTheDocument();
+  });
+
+  it("подзаголовок одной системы: площадки получат все её контейнеры", async () => {
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    setup([box("c", "Заказы", [])]);
+    expect(await screen.findByText("Заказы · площадки получат все контейнеры системы")).toBeInTheDocument();
   });
 
   it("галочки: у всех — отмечена, у части — частичная; предки площадок раскрыты", () => {
@@ -232,7 +238,7 @@ describe("PlacementDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
     expect(screen.getByText("Снять размещение «Заказы»?")).toBeInTheDocument();
-    expect(screen.getByText("Размещение всех вложенных объектов будет снято:")).toBeInTheDocument();
+    expect(screen.getByText("Размещение всех контейнеров системы будет снято:")).toBeInTheDocument();
     const list = screen.getByRole("list", { name: "Объекты с другим размещением" });
     expect(list).toHaveTextContent("Каталог: vm1");
     expect(list).toHaveTextContent("Order API: vm2");
@@ -275,7 +281,7 @@ describe("PlacementDialog", () => {
     vi.mocked(nodesApi.getAll).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен")).mockResolvedValue(inside());
     setup([container()]);
     const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent("Не удалось загрузить вложенные объекты. Сервер недоступен");
+    expect(alert).toHaveTextContent("Не удалось загрузить контейнеры системы. Сервер недоступен");
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
     await userEvent.click(check("vm2"));
     await userEvent.click(screen.getByRole("button", { name: "Повторить" }));

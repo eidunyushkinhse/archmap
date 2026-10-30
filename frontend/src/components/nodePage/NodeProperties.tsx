@@ -4,7 +4,7 @@
 // текстом. Выпадашки типа, элемента и статуса — одна PropDropdown.
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { AncestorRef, NodeStatus } from "../../types";
+import type { AncestorRef, Node, NodeStatus } from "../../types";
 import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
@@ -14,7 +14,7 @@ import PlacementRow from "./PlacementRow";
 import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
 import { useElementPick } from "../element/useElementPick";
-import { elementView } from "../element/elementView";
+import { elementView, pageElement } from "../element/elementView";
 import { ElementHelp, ElementValue } from "../element/ElementParts";
 import "../element/element.css";
 
@@ -80,7 +80,7 @@ function PropDropdown<T extends string>({ current, options, renderOption, onPick
 }
 
 export default function NodeProperties({
-  patch, ancestors, isArchitect, isSystem, techLoading, aggTech, onNavigateNode, onPlacementChanged,
+  patch, ancestors, isArchitect, isSystem, techLoading, aggTech, containerSites, onNavigateNode, onPlacementChanged,
 }: {
   patch: NodePatch;
   // Предки объекта от корня (крошки страницы): контейнер компонента для ссылки.
@@ -90,6 +90,9 @@ export default function NodeProperties({
   isSystem: boolean;
   techLoading: boolean;
   aggTech: string;
+  // Площадки контейнера компонента (строка «Размещение»); null — не компонент или
+  // контейнер ещё грузится.
+  containerSites: Node["sites"] | null;
   // Переход на страницу другого объекта (имя контейнера у компонента).
   onNavigateNode: (id: string) => void;
   // Размещение записано из окна строки «Размещение» — страница перечитывает узел.
@@ -261,7 +264,14 @@ export default function NodeProperties({
         {/* Размещение — площадки развёртывания (Ф3 эпика развёртывания). У
             «Пользователя» размещения нет: он живёт вне системы. */}
         {shape !== "person" && (
-          <PlacementRow node={node} isArchitect={isArchitect} onChanged={onPlacementChanged} />
+          <PlacementRow
+            node={node}
+            element={pageElement(node, ancestors)}
+            containerSites={containerSites}
+            isArchitect={isArchitect}
+            onChanged={onPlacementChanged}
+            onNavigateNode={onNavigateNode}
+          />
         )}
 
         {/* Описание — последняя строка таблицы свойств */}

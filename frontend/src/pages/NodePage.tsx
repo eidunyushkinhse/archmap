@@ -18,6 +18,7 @@ import DbStructureSection from "../components/DbStructureSection";
 import BrokerChannelsSection from "../components/BrokerChannelsSection";
 import ConfigParamsSection from "../components/ConfigParamsSection";
 import { useFactsTransfer } from "../components/element/useFactsTransfer";
+import { pageElement } from "../components/element/elementView";
 import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import EdgeEditModal from "../components/EdgeEditModal";
 import ExportModal from "../components/ExportModal";
@@ -176,12 +177,25 @@ function NodePageInner({
   // унести их было бы нечем.
   const legacyLogic = !allow.logic && node.docs.length > 0;
   const legacySpec = !allow.spec && !!node.openapi_spec;
-  // Система (элемент с сервера): сама не запускается — сводная технология потомков (Р15),
-  // статус из вложенных объектов (Р14), перенос своей документации вниз (Р19).
-  const isSystem = isContainer && node.element_effective === "system";
-  // Потомки узла с детьми и их объединённые данные (доки/спеки/технология). Лист — хук
-  // не фетчит.
-  const container = useContainerChildren(node.id, isContainer, { docs: true, tech: isSystem });
+  // Элемент архитектуры решает секции страницы (Ф8 эпика docs/plan-c4-elements.md).
+  // Система сама не запускается: сводная технология потомков (Р15), статус из вложенных
+  // объектов (Р14), перенос своей документации вниз (Р19), документацию потомков страница
+  // системы не собирает (Р34) — её собирают контейнер с компонентами и составной компонент.
+  const element = pageElement(node, ancestors);
+  const isSystem = element.kind === "system";
+  const descendantDocs = element.kind === "container" || element.kind === "composite";
+  // Потомки узла с детьми (единицы статуса системы) и то, что над ними нужно странице.
+  // Лист — хук не фетчит.
+  const container = useContainerChildren(node.id, isContainer, { docs: descendantDocs, tech: isSystem });
+  // Контейнер компонента — один запрос: его площадки (строка «Размещение») и есть ли у
+  // него спецификация («OpenAPI»). Не компонент или контейнер не найден в крошках —
+  // запроса нет.
+  const containerId = element.kind === "component" || element.kind === "composite" ? element.container.id : null;
+  const componentContainer = useAsyncLoad(
+    `container:${containerId ?? "none"}`,
+    () => (containerId ? nodesApi.get(containerId) : Promise.resolve(null)),
+  );
+  const containerNode = componentContainer.data;
   const colors = getNodeColors(node.is_external, 0, node.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -455,6 +469,7 @@ function NodePageInner({
           isSystem={isSystem}
           techLoading={container.loading}
           aggTech={container.aggTech}
+          containerSites={containerNode ? containerNode.sites : null}
           onNavigateNode={onNavigateNode}
           onPlacementChanged={handlePlacementChanged}
         />
@@ -529,16 +544,18 @@ function NodePageInner({
               бы хуже, чем показать с предупреждением). */}
           <ConfigParamsSection
             nodeId={node.id}
+            element={element}
             isArchitect={isArchitect}
             allowed={allow.config}
             onTransfer={isSystem ? facts.openTransfer : undefined}
             onCollect={facts.collectParams}
+            onNavigateNode={onNavigateNode}
           />
 
           {/* ── Логика (node_docs) ────────────────────────────────── */}
           <LogicSection
             node={node}
-            isContainer={isContainer}
+            element={element}
             isArchitect={isArchitect}
             allowed={allow.logic}
             legacy={legacyLogic}
@@ -555,7 +572,9 @@ function NodePageInner({
           {/* ── OpenAPI ───────────────────────────────────────────── */}
           <OpenApiSection
             spec={node.openapi_spec}
-            isContainer={isContainer}
+            docs={node.docs}
+            element={element}
+            containerHasSpec={containerNode ? (containerNode.openapi_spec ?? "").trim() !== "" : null}
             isArchitect={isArchitect}
             allowed={allow.spec}
             legacy={legacySpec}

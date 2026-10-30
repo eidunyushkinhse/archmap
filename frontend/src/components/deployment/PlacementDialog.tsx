@@ -102,8 +102,12 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   };
 
   const hasOwn = objects.some((o) => o.sites.length > 0);
-  const subtitle = objects.length === 1
-    ? objects[0].name
+  // Окно на одной системе говорит, кому достанутся площадки: её контейнерам (единицам).
+  // На нескольких объектах — прежние слова: среди них бывают и контейнеры.
+  const single = objects.length === 1 ? objects[0] : null;
+  const singleSystem = single !== null && single.element_effective === "system";
+  const subtitle = single
+    ? (singleSystem ? `${single.name} · площадки получат все контейнеры системы` : single.name)
     : `${objects.length} ${plural(objects.length, ["объект", "объекта", "объектов"])}`;
 
   const run = async (write: () => Promise<void>) => {
@@ -234,7 +238,8 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
       {error && <p style={errText} role="alert">{error}</p>}
       {needAll && all.error !== null && (
         <p style={errText} role="alert">
-          Не удалось загрузить вложенные объекты. {loadErrorText(all.error)}{" "}
+          {singleSystem ? "Не удалось загрузить контейнеры системы." : "Не удалось загрузить вложенные объекты."}{" "}
+          {loadErrorText(all.error)}{" "}
           <button type="button" className="site-row-link" onClick={all.reload}>Повторить</button>
         </p>
       )}

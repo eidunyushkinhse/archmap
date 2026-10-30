@@ -46,6 +46,7 @@ function Harness({ n, ancestors, isArchitect, isSystem, aggTech }: {
       isSystem={isSystem}
       techLoading={false}
       aggTech={aggTech}
+      containerSites={null}
       onNavigateNode={onNavigateNode}
       onPlacementChanged={vi.fn()}
     />
@@ -92,7 +93,8 @@ describe("NodeProperties: элемент архитектуры", () => {
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
-    const link = screen.getByRole("button", { name: "«orders»" });
+    // Первая ссылка — строка элемента, вторая — «как у контейнера» в размещении.
+    const [link] = screen.getAllByRole("button", { name: "«orders»" });
     expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
     await userEvent.click(link);
     expect(onNavigateNode).toHaveBeenCalledWith("c");

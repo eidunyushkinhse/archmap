@@ -367,9 +367,12 @@ describe("NodePage: правила контейнеров", () => {
 
   it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
-    await screen.findByText(/остались собственные логические диаграммы/);
+    await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов");
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
-    expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
+    // Создания схем в «Логике» нет; «+ Добавить» в «OpenAPI» у контейнера есть — его
+    // спецификация своя (Ф8).
+    const logic = screen.getByRole("heading", { name: "Логика" }).closest(".np-card") as HTMLElement;
+    expect(within(logic).queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
   it("система: технология — агрегированная из детей, только чтение", async () => {
@@ -1336,5 +1339,38 @@ describe("NodePage: ⋯-меню и версии документации", () =
     await openMenu(true, "owner");
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
     expect(screen.getByTestId("versions-panel")).toHaveAttribute("data-can-delete", "true");
+  });
+});
+
+// ── Пустая схема объекта: кнопка вложенного объекта (Ф8 эпика «Элемент архитектуры») ──
+// Подпись называет, кем станет новый объект: компонентом — у контейнера и внутри
+// контейнера, иначе вложенным объектом (кем станет сам объект, спросит окно первого
+// вложенного объекта).
+describe("NodePage: кнопка вложенного объекта в пустой схеме", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function setupLonely(over: Partial<Node>) {
+    const n = node("n1", over);
+    vi.mocked(nodesApi.get).mockResolvedValue(n);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([n]);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue({
+      nodes: [n], endpoints: [], edges: [], layout: {}, version: 1, graph_rev: 1, meta_rev: 1,
+    } as never);
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+  }
+
+  it("лист без явного элемента — «Добавить вложенный объект»", async () => {
+    setupLonely({ element: null, element_effective: "container" });
+    expect(await screen.findByRole("button", { name: "Добавить вложенный объект" })).toBeInTheDocument();
+  });
+
+  it("контейнер без компонентов и компонент — «Добавить компонент»", async () => {
+    const { unmount } = setupLonely({ element: "container", element_effective: "container" });
+    expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
+    unmount();
+    setupLonely({ element_effective: "component", container_name: "orders" });
+    expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
   });
 });

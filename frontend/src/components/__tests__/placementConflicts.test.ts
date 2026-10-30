@@ -6,7 +6,7 @@
 // имени. Элемент узла — из ответа сервера.
 import { describe, expect, it } from "vitest";
 import {
-  hasPlacement, placementConflicts, placeQuestion, unitsOf, unplaceQuestion,
+  hasPlacement, PLACE_LEAD, placementConflicts, placeQuestion, unitsOf, UNPLACE_LEAD, unplaceQuestion,
 } from "../deployment/placementConflicts";
 import type { Node } from "../../types";
 
@@ -99,5 +99,10 @@ describe("placementConflicts", () => {
     expect(placeQuestion("Заказы", ["Облако"])).toBe("Разместить «Заказы» на «Облако»?");
     expect(placeQuestion("Заказы", ["Облако", "ЦОД"])).toBe("Разместить «Заказы» на «Облако», «ЦОД»?");
     expect(unplaceQuestion("Заказы")).toBe("Снять размещение «Заказы»?");
+  });
+
+  it("пояснения подтверждения говорят о контейнерах системы (её единицах размещения)", () => {
+    expect(PLACE_LEAD).toBe("Все контейнеры системы будут размещены там же, включая те, что сейчас стоят на других площадках:");
+    expect(UNPLACE_LEAD).toBe("Размещение всех контейнеров системы будет снято:");
   });
 });

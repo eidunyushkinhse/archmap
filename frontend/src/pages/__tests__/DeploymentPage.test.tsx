@@ -520,7 +520,7 @@ describe("DeploymentPage", () => {
     place();
     expect(await screen.findByText("Разместить «Витрина» на «t»?")).toBeInTheDocument();
     expect(screen.getByText(
-      "Все вложенные объекты будут размещены там же, включая те, что сейчас стоят на других площадках:",
+      "Все контейнеры системы будут размещены там же, включая те, что сейчас стоят на других площадках:",
     )).toBeInTheDocument();
     const items = screen.getAllByRole("listitem").map((li) => li.textContent);
     expect(items).toEqual(["БД заказов: S1, DC", "Order API: S1"]);
@@ -546,7 +546,7 @@ describe("DeploymentPage", () => {
     act(() => { treeProps().onPlace?.(pnode("c1", "Витрина", null, { has_children: true })); });
     await userEvent.click(await screen.findByRole("button", { name: "Снять размещение" }));
     expect(await screen.findByText("Снять размещение «Витрина»?")).toBeInTheDocument();
-    expect(screen.getByText("Размещение всех вложенных объектов будет снято:")).toBeInTheDocument();
+    expect(screen.getByText("Размещение всех контейнеров системы будет снято:")).toBeInTheDocument();
     expect(screen.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["Order API: S1"]);
     await userEvent.click(screen.getByRole("button", { name: "Снять" }));
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["c1"], []));

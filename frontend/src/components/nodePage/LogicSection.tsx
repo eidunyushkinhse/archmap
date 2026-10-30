@@ -1,8 +1,14 @@
 // Секция «Логика» страницы объекта (аудит F-5: вынесена из NodePage): описанные схемы
-// группами по видам, бэклог заглушек под чертой, меню «+ Добавить»; у контейнера —
-// собственные (grandfather) схемы с предупреждением и объединение схем потомков.
+// группами по видам, бэклог заглушек под чертой, меню «+ Добавить».
+//
+// Узел с вложенными объектами — по элементу архитектуры (Ф8, Р34 эпика
+// docs/plan-c4-elements.md). Схемы логики описывают код, поэтому своих схем у такого узла
+// быть не должно: если они есть — предупреждение и «Перенести документацию», меню
+// «+ Добавить» нет. Система документацию потомков не собирает; контейнер с компонентами и
+// составной компонент показывают схемы компонентов группами по прямым детям.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Node, NodeDocUsage } from "../../types";
+import type { PageElement } from "../element/elementView";
 import { nodeDocsApi } from "../../api/nodes";
 import type { ContainerDocGroup } from "../../pages/useContainerChildren";
 import AddDocsMenu from "../AddDocsMenu";
@@ -12,18 +18,34 @@ import UndescribedDocs from "../UndescribedDocs";
 import { DescendantGroups, DocSplitRow } from "./DescendantGroups";
 import type { DocTarget } from "./docTarget";
 
+// Узел с вложенными объектами: свои схемы — предупреждение, пусто — пояснение.
+type NestedKind = "system" | "container" | "composite";
+const OWN_DOCS_WARN: Record<NestedKind, string> = {
+  system: "У системы остались собственные схемы логики. Схемы описывают код, их место у контейнеров и компонентов",
+  container: "У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов",
+  composite: "У компонента есть свои схемы логики. Схемы описывают код, их место у вложенных компонентов",
+};
+const COMPONENTS_EMPTY = "Схемы логики компонентов появятся здесь, когда их опишут";
+const NESTED_EMPTY: Record<NestedKind, string> = {
+  system: "Это система, своих схем логики у неё нет. Схемы логики описывают у её контейнеров и компонентов",
+  container: COMPONENTS_EMPTY,
+  composite: COMPONENTS_EMPTY,
+};
+
 export default function LogicSection({
-  node, isContainer, isArchitect, allowed, legacy, groups, loading,
+  node, element, isArchitect, allowed, legacy, groups, loading,
   onOpen, onTransfer, onDocsAgent, onReconAgent, onNavigateNode, onNavigateProcesses,
 }: {
   node: Node;
-  isContainer: boolean;
+  // Как страница читает объект (components/element/elementView.pageElement).
+  element: PageElement;
   isArchitect: boolean;
   // Схемы логики уместны этой форме (types/shapeDocs).
   allowed: boolean;
   // Легаси: у формы схем быть не должно, а они есть — показываем с предупреждением.
   legacy: boolean;
-  // Схемы потомков контейнера по непосредственным детям и признак их загрузки.
+  // Схемы компонентов по непосредственным детям (у контейнера с компонентами и у
+  // составного компонента; у остальных пусто) и признак их загрузки.
   groups: ContainerDocGroup[];
   loading: boolean;
   onOpen: (target: DocTarget) => void;
@@ -67,9 +89,11 @@ export default function LogicSection({
   // «Сохранить») / через ИИ-агента (модалка режимом «Пакетом» по умолчанию; на «По
   // одной» пользователь переключится в модалке сам) / «Составить список операций» —
   // нулевой шаг: агент приносит не документацию, а ПЕРЕЧЕНЬ, и он ложится заглушками
-  // (docs/plan-recon.md). Оба агентских пути — в одной группе. Правила контейнеров:
-  // контейнеру новую логику создавать нельзя.
-  const addMenu = !isContainer && allowed && isArchitect ? (
+  // (docs/plan-recon.md). Оба агентских пути — в одной группе. Узлу с вложенными
+  // объектами новую логику не заводят: её место у компонентов (Р9).
+  const nested: NestedKind | null =
+    element.kind === "system" || element.kind === "container" || element.kind === "composite" ? element.kind : null;
+  const addMenu = nested === null && allowed && isArchitect ? (
     <AddDocsMenu
       groups={[
         [{ label: "Вручную", onSelect: () => onOpen({ mode: "flowchart", create: true }) }],
@@ -84,16 +108,14 @@ export default function LogicSection({
   return (
     <div className="np-card">
       <h3 className="np-card-title">Логика</h3>
-      {isContainer ? (
+      {nested !== null ? (
         <>
           {/* Собственные схемы узла с вложенными: схемы логики описывают код, их
-              место у компонентов и сервисов без вложенных — предупреждение и окно
+              место у компонентов и объектов без вложенных — предупреждение и окно
               «Перенести документацию» (Р19 эпика «Элемент архитектуры»). */}
           {node.docs.length > 0 && (
             <>
-              <p className="np-warn">
-                У контейнера остались собственные логические диаграммы, распределите их по дочерним сервисам
-              </p>
+              <p className="np-warn">{OWN_DOCS_WARN[nested]}</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {node.docs.map((d) => (
                   <button
@@ -112,14 +134,14 @@ export default function LogicSection({
               )}
             </>
           )}
-          {/* Объединение схем ВСЕХ потомков (дети и глубже), сгруппированное
-              по непосредственным детям контейнера: собственные схемы ребёнка —
-              плоские split-кнопки, схемы глубоких потомков — в раскрываемой
-              группе под ребёнком. Левая часть split-кнопки открывает схему
-              владельца напрямую, правая ведёт на его страницу. */}
+          {/* Схемы компонентов (дети и глубже), сгруппированные по непосредственным
+              детям: собственные схемы ребёнка — плоские split-кнопки, схемы глубоких
+              потомков — в раскрываемой группе под ребёнком. Левая часть split-кнопки
+              открывает схему владельца напрямую, правая ведёт на его страницу. У
+              системы групп нет (Р34): страница системы документацию детей не собирает. */}
           {groups.length > 0 && (
             <>
-              {node.docs.length > 0 && <div className="np-sublabel">Схемы потомков</div>}
+              {node.docs.length > 0 && <div className="np-sublabel">Схемы компонентов</div>}
               <DescendantGroups
                 groups={groups}
                 words={["схема", "схемы", "схем"]}
@@ -133,13 +155,9 @@ export default function LogicSection({
               />
             </>
           )}
-          {loading && <p className="np-empty">Загрузка данных детей…</p>}
-          {!loading && node.docs.length === 0 && groups.length === 0 && (
-            <p className="np-empty">
-              Это контейнер, то есть абстракция. У него нет своей логики, она может быть у
-              дочерних сервисов. Задокументируйте логику дочерних сервисов, и она будет
-              отображаться здесь.
-            </p>
+          {nested !== "system" && loading && <p className="np-empty">Загрузка…</p>}
+          {(nested === "system" || !loading) && node.docs.length === 0 && groups.length === 0 && (
+            <p className="np-empty">{NESTED_EMPTY[nested]}</p>
           )}
         </>
       ) : (
