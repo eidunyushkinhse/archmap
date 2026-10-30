@@ -25,7 +25,7 @@ function appNode(id: string, kids: boolean): AppNode {
 // Рамка раскрытия: nesting считается по вложенности memberIds (внешняя — надмножество).
 function frame(id: string, depth: number, members: string[]) {
   return {
-    id, name: id, depth, native: false, memberIds: new Set(members),
+    id, name: id, depth, native: false, memberIds: new Set(members), element: "system" as const, is_external: false,
     content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
     rect: { x: 0, y: 0, w: 100, h: 100 },
   };
@@ -37,8 +37,8 @@ function frame(id: string, depth: number, members: string[]) {
 const layout: LayoutResult = {
   nodes: [appNode("onLevel", true), appNode("in1", true), appNode("in2", true), appNode("leaf2", false)],
   entities: [
-    { kind: "container", id: "cLevel", name: "cLevel", depth: 1, ancestors: [a("R")], is_external: true },
-    { kind: "container", id: "cIn2", name: "cIn2", depth: 1, ancestors: [a("R")], is_external: true },
+    { kind: "container", id: "cLevel", name: "cLevel", depth: 1, ancestors: [a("R")], is_external: true, element: "system" },
+    { kind: "container", id: "cIn2", name: "cIn2", depth: 1, ancestors: [a("R")], is_external: true, element: "system" },
   ],
   positions: new Map(
     ["onLevel", "in1", "in2", "leaf2", "cLevel", "cIn2"].map((id) => [id, { x: 0, y: 0 }])

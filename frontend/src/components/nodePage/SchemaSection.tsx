@@ -236,6 +236,7 @@ export default function SchemaSection({
         persistence={persistence}
         ancestorNames={ancestors.map((a) => a.name)}
         ancestorIds={ancestors.map((a) => a.id)}
+        ancestorElements={ancestors.map((a) => a.element_effective)}
         depth={ancestors.length}
         isArchitect={isArchitect}
         schemaView={schemaView}

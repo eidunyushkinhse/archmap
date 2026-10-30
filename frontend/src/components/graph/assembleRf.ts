@@ -161,10 +161,12 @@ export function assembleRfGraph(params: {
       // collapsible: false (группа «не указано») не свернуть — onCollapse не задаётся,
       // крестика нет; площадка сворачивается, как рамка раскрытия.
       const decor = frameDecor?.(f.id);
+      // элемент раскрытого объекта — из раскладки (FrameRect.element: звено цепочки)
       const data: FrameData = decor?.collapsible === false
-        ? { name: f.name, decor, ...pick }
+        ? { name: f.name, element: f.element, decor, ...pick }
         : {
             name: f.name,
+            element: f.element,
             onCollapse: () => getCb().collapseContainer(f.id),
             ...(decor ? { decor } : null),
             ...pick,
@@ -303,17 +305,17 @@ export function assembleRfGraph(params: {
           depth: ent.depth,
           ancestors: ent.ancestors,
           colors: getNodeColors(ent.is_external, ent.depth),
+          element: ent.element,
           // Лупа гостевого контейнера — как у локала, не глубже MAX_INLINE_DEPTH
           // слоёв от уровня (C8); на пределе глубины лупа неактивна — глубже только
           // «Войти к компонентам». Свёрнутый контейнер по построению с детьми.
           onExpand: atInlineLimit(pf) ? undefined : (id) => getCb().expandContainer(id),
           expandLimited: atInlineLimit(pf),
-          // Путь контейнера = его предки + он сам. Контейнер всегда промежуточный.
-          // «Войти к компонентам» — только в редакторе (drillNav). Элемента архитектуры
-          // у звена нет: DisplayContainer его пока не несёт (холст — фаза Ф7 эпика
-          // «Элемент архитектуры»), а путь «Войти» элемент не читает.
+          // Путь контейнера = его предки + он сам (со своим элементом архитектуры —
+          // крошки следующего уровня рисуют по нему его рамку). Контейнер всегда
+          // промежуточный. «Войти» — только в редакторе (drillNav).
           onEnter: drillNav
-            ? () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external, element_effective: null }])
+            ? () => getCb().onEnterNode?.([...ent.ancestors, { id: ent.id, name: ent.name, is_external: ent.is_external, element_effective: ent.element }])
             : undefined,
           connectable: isArchitect && !isReadOnly,
           quickConnect: isArchitect && !isReadOnly ? getCb().quickConnect : undefined,

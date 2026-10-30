@@ -37,7 +37,7 @@ vi.mock("../graph/ReconnectContext", async () => (await import("./levelGraphHarn
 // Рамка раскрытого контейнера F с единственным ребёнком K внутри.
 function frame(id: string, members: string[]): FrameRect {
   return {
-    id, name: id, depth: 1, native: false,
+    id, name: id, depth: 1, native: false, element: "system", is_external: false,
     memberIds: new Set(members),
     content: { minX: 0, minY: 0, maxX: 190, maxY: 100 },
     rect: { x: -30, y: -30, w: 250, h: 190 },

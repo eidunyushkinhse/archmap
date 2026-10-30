@@ -41,6 +41,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
   const edges = useMemo(() => toLevelEdges(graph), [graph]);
   const ancestorNames = useMemo(() => scene.ancestors.map((a) => a.name), [scene]);
   const ancestorIds = useMemo(() => scene.ancestors.map((a) => a.id), [scene]);
+  const ancestorElements = useMemo(() => scene.ancestors.map((a) => a.element_effective), [scene]);
 
   useEffect(() => {
     if (!active) return;
@@ -139,6 +140,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
           persistence={persistence}
           ancestorNames={ancestorNames}
           ancestorIds={ancestorIds}
+          ancestorElements={ancestorElements}
           depth={scene.ancestors.length}
           isArchitect
           linkedHighlight={linkedHighlight}

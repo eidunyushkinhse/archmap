@@ -13,6 +13,14 @@
 //    своими рамками снаружи родных).
 import { NODE_W, NODE_H, BOUNDARY_PAD, BOUNDARY_STEP, BOUNDARY_LABEL_PAD, BOUNDARY_LABEL_STEP } from "../constants";
 import type { AncestorRef } from "../../../types";
+import type { FrameElement } from "../types";
+
+// Элемент архитектуры объекта с вложенными по ответу сервера (element_effective): нет
+// значения — система (норма эпика «Элемент архитектуры»; так читался любой узел с детьми
+// до него). Одна точка нормы для рамок, свёрнутых контейнеров и бейджа детей.
+export function frameElement(e: AncestorRef["element_effective"] | undefined): FrameElement {
+  return e ?? "system";
+}
 
 // ПУСТОЙ УРОВЕНЬ (эпик «связи, упирающиеся в рамку»). Слой — это внутренность
 // родителя, и это должно быть видно СРАЗУ, даже когда детей ещё нет: рамка родителя
@@ -43,6 +51,15 @@ export interface FrameRect {
   depth: number;           // 0 — самый внешний предок; глубже → меньше отступ
   native: boolean;         // true — рамка из breadcrumb (родная)
   memberIds: Set<string>;  // id отображаемых узлов-членов рамки
+  // Элемент архитектуры объекта, нарисованного рамкой (вид — frameStyle.ts, Р20):
+  // гостевые рамки и рамки раскрытых локалов — из element_effective звена цепочки (у
+  // гостя её строит сервер, у раскрытого локала — expandLocal конвейера); нативные — из
+  // входа ancestorElements (элементы крошек). Нет значения — система (frameElement).
+  element: FrameElement;
+  // Внешний ли объект рамки — палитра заливки контейнера (своя или внешняя, getNodeColors).
+  // Гостевые — из звена цепочки; нативные — false: внешность предков крошек холст не
+  // получает (проп предков несёт имена, id и элементы).
+  is_external: boolean;
   // bbox самих членов (без паддинга)
   content: { minX: number; minY: number; maxX: number; maxY: number };
   // нарисованный прямоугольник (с паддингом и полосой под подпись снизу)
@@ -55,6 +72,8 @@ interface FrameDef {
   depth: number;
   native: boolean;
   memberIds: Set<string>;
+  element: FrameElement;
+  is_external: boolean;
 }
 
 /**
@@ -69,8 +88,12 @@ export function computeFrames(params: {
   pos: (id: string) => { x: number; y: number } | undefined;
   ancestorIds: string[];
   ancestorNames: string[];
+  // Элементы архитектуры предков крошек (параллельно ancestorIds) — только для вида
+  // нативных рамок (LevelBoundary). Конвейер и стадии геометрии вход не передают: на
+  // членство и прямоугольники элемент не влияет, их нативные рамки — системы.
+  ancestorElements?: readonly AncestorRef["element_effective"][];
 }): FrameRect[] {
-  const { localIds, externals, pos, ancestorIds, ancestorNames } = params;
+  const { localIds, externals, pos, ancestorIds, ancestorNames, ancestorElements } = params;
   // На корне (breadcrumb пуст) нативных рамок нет, но гостевые строятся: рамки
   // раскрытых ЛОКАЛЬНЫХ контейнеров (R5) живут и на корневом уровне.
   if (localIds.length === 0) return [];
@@ -79,7 +102,10 @@ export function computeFrames(params: {
   const frames = new Map<string, FrameDef>();
   // breadcrumb-рамки (нативные): локальные узлы — члены каждого предка
   ancestorIds.forEach((id, i) => {
-    frames.set(id, { id, name: ancestorNames[i], depth: i, native: true, memberIds: new Set(localIds) });
+    frames.set(id, {
+      id, name: ancestorNames[i], depth: i, native: true, memberIds: new Set(localIds),
+      element: frameElement(ancestorElements?.[i]), is_external: false,
+    });
   });
 
   for (const g of externals) {
@@ -103,7 +129,13 @@ export function computeFrames(params: {
       const a = anc[p];
       const depth = lcaIdx + (p - lcaPos);
       let frame = frames.get(a.id);
-      if (!frame) { frame = { id: a.id, name: a.name, depth, native: false, memberIds: new Set() }; frames.set(a.id, frame); }
+      if (!frame) {
+        frame = {
+          id: a.id, name: a.name, depth, native: false, memberIds: new Set(),
+          element: frameElement(a.element_effective), is_external: a.is_external,
+        };
+        frames.set(a.id, frame);
+      }
       frame.memberIds.add(g.id);
     }
   }
@@ -142,6 +174,7 @@ export function computeFrames(params: {
     const labelPad = BOUNDARY_LABEL_PAD + rings * BOUNDARY_LABEL_STEP;
     rects.push({
       id: f.id, name: f.name, depth: f.depth, native: f.native, memberIds: f.memberIds,
+      element: f.element, is_external: f.is_external,
       content: { minX, minY, maxX, maxY },
       rect: { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad + labelPad },
     });

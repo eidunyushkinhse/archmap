@@ -2,6 +2,7 @@
 // под характеризационными тестами Фазы 1.
 import type { DisplayContainer, DisplayExternal } from "../types";
 import type { GhostNode } from "../../../types";
+import { frameElement } from "./frames";
 
 /**
  * Сворачивает гостя к ближайшему НЕразвёрнутому контейнеру-предку. По умолчанию
@@ -39,7 +40,10 @@ export function projectGhosts(ghostNodes: GhostNode[], ancestorIds: string[], ex
     for (let pos = lcaPos + 1; pos < anc.length; pos++) {
       const a = anc[pos];
       if (!expanded.has(a.id)) {
-        container = { kind: "container", id: a.id, name: a.name, depth: pos, ancestors: anc.slice(0, pos), is_external: a.is_external };
+        container = {
+          kind: "container", id: a.id, name: a.name, depth: pos, ancestors: anc.slice(0, pos), is_external: a.is_external,
+          element: frameElement(a.element_effective),
+        };
         foundPos = pos;
         break;
       }

@@ -180,6 +180,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             persistence={persistence}
             ancestorNames={[]}
             ancestorIds={[]}
+            ancestorElements={[]}
             depth={0}
             isArchitect={isArchitect}
             schemaView={schemaView}

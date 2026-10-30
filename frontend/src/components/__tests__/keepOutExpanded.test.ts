@@ -10,7 +10,7 @@ const frame = (
   id: string, members: string[], rect: { x: number; y: number; w: number; h: number },
   depth = 0,
 ): FrameRect => ({
-  id, name: id, depth, native: false, memberIds: new Set(members),
+  id, name: id, depth, native: false, memberIds: new Set(members), element: "system", is_external: false,
   content: { minX: rect.x + 25, minY: rect.y + 25, maxX: rect.x + rect.w - 25, maxY: rect.y + rect.h - 25 },
   rect,
 });

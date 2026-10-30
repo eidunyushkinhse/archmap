@@ -15,7 +15,7 @@ const frame = (
     maxX = Math.max(maxX, p.x + NODE_W); maxY = Math.max(maxY, p.y + NODE_H);
   }
   return {
-    id, name: id, depth, native, memberIds: new Set(Object.keys(members)),
+    id, name: id, depth, native, memberIds: new Set(Object.keys(members)), element: "system", is_external: false,
     content: { minX, minY, maxX, maxY },
     rect: { x: minX - pad, y: minY - pad, w: maxX - minX + 2 * pad, h: maxY - minY + 2 * pad + 14 },
   };

@@ -99,6 +99,7 @@ describe("LevelGraph orchestration: drill / expand", () => {
       containerId: "root",
       ancestorIds: ["root"],
       ancestorNames: ["Root"],
+      ancestorElements: ["system"],
       nodes: [p1],
       drill: { ...baseProps().drill, onEnterNode },
     });
@@ -106,9 +107,10 @@ describe("LevelGraph orchestration: drill / expand", () => {
     getCb().drillWithPath(n);
 
     expect(onEnterNode).toHaveBeenCalledOnce();
-    // Звенья цепочки несут элемент узла; звено крошек известно только по id и имени.
+    // Звенья цепочки несут элемент узла, звено крошек — элемент из пропа предков
+    // (внешность пропом не приходит).
     expect(onEnterNode).toHaveBeenCalledWith([
-      { id: "root", name: "Root", is_external: false, element_effective: null },
+      { id: "root", name: "Root", is_external: false, element_effective: "system" },
       { id: "p1", name: "Промежуточный", is_external: false, element_effective: "system" },
       { id: "n", name: "Цель", is_external: false, element_effective: "container" },
     ]);

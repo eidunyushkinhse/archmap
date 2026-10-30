@@ -39,14 +39,23 @@ const layout: LayoutResult = {
   ],
   entities: [
     { kind: "leaf", id: "g", ghost },
-    { kind: "container", id: "c", name: "Витрина", depth: 1, ancestors: [a("R")], is_external: false },
+    { kind: "container", id: "c", name: "Витрина", depth: 1, ancestors: [a("R")], is_external: false, element: "system" },
+    // свёрнутый контейнер внешней ветки
+    { kind: "container", id: "x", name: "orders", depth: 0, ancestors: [], is_external: true, element: "container" },
   ],
-  positions: new Map(["group", "leaf", "db", "inF", "g", "c"].map((id) => [id, { x: 10, y: 20 }])),
+  positions: new Map(["group", "leaf", "db", "inF", "g", "c", "x"].map((id) => [id, { x: 10, y: 20 }])),
   edgeHandles: new Map(),
   guestFrames: [{
     id: "F", name: "Рамка", depth: 1, native: false, memberIds: new Set(["inF"]),
+    element: "system", is_external: false,
     content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
     rect: { x: 0, y: 0, w: 300, h: 200 },
+  }, {
+    // раскрытый контейнер внешней ветки — рядом, своя рамка без членов уровня
+    id: "FX", name: "payments", depth: 0, native: false, memberIds: new Set(),
+    element: "container", is_external: true,
+    content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+    rect: { x: 400, y: 0, w: 300, h: 200 },
   }],
   frameEnds: [],
   groupArr: [],
@@ -72,7 +81,7 @@ function assemble(over: { isReadOnly?: boolean; drillNav?: boolean; relevantCoun
 describe("assembleRfGraph — данные узлов", () => {
   it("порядок и типы: рамки первыми, затем блоки, гости и свёрнутые контейнеры", () => {
     expect(assemble().order).toEqual([
-      "frame:F", "block:group", "block:leaf", "block:db", "block:inF", "ghost:g", "container:c",
+      "frame:F", "frame:FX", "block:group", "block:leaf", "block:db", "block:inF", "ghost:g", "container:c", "container:x",
     ]);
   });
 
@@ -126,13 +135,13 @@ describe("assembleRfGraph — данные узлов", () => {
     const { byId, cb } = assemble();
     const data = byId.get("c")?.data as ContainerData;
     expect(data).toMatchObject({ id: "c", name: "Витрина", depth: 1, ancestors: [a("R")], expandLimited: false });
-    // элемента архитектуры в данных свёрнутого контейнера пока нет
-    expect("element" in data).toBe(false);
+    // элемент архитектуры свёрнутого контейнера — из DisplayContainer
+    expect(data.element).toBe("system");
     data.onExpand?.("c");
     expect(cb.expandContainer).toHaveBeenCalledWith("c");
     data.onEnter?.();
-    // Элемента у звена свёрнутого гостевого контейнера нет: DisplayContainer его не несёт.
-    expect(cb.onEnterNode).toHaveBeenCalledWith([a("R"), { id: "c", name: "Витрина", is_external: false, element_effective: null }]);
+    // Звено пути «Войти» — с элементом свёрнутого контейнера.
+    expect(cb.onEnterNode).toHaveBeenCalledWith([a("R"), { id: "c", name: "Витрина", is_external: false, element_effective: "system" }]);
     expect(assemble({ drillNav: false }).byId.get("c")?.data).toMatchObject({ onEnter: undefined });
   });
 
@@ -141,9 +150,19 @@ describe("assembleRfGraph — данные узлов", () => {
     const f = byId.get("F");
     expect(f).toMatchObject({ type: "frame", draggable: false, selectable: false, zIndex: -1, width: 300, height: 200 });
     const data = f?.data as FrameData;
-    expect(Object.keys(data).sort()).toEqual(["name", "onCollapse"]);
+    expect(Object.keys(data).sort()).toEqual(["element", "name", "onCollapse"]);
+    expect(data.element).toBe("system");
     expect(data.name).toBe("Рамка");
     data.onCollapse?.();
     expect(cb.collapseContainer).toHaveBeenCalledWith("F");
+  });
+
+  it("элемент архитектуры: рамка и свёрнутый контейнер внешней ветки — контейнер, путь «Войти» с ним", () => {
+    const { byId, cb } = assemble();
+    expect((byId.get("FX")?.data as FrameData).element).toBe("container");
+    const data = byId.get("x")?.data as ContainerData;
+    expect(data.element).toBe("container");
+    data.onEnter?.();
+    expect(cb.onEnterNode).toHaveBeenCalledWith([{ id: "x", name: "orders", is_external: true, element_effective: "container" }]);
   });
 });

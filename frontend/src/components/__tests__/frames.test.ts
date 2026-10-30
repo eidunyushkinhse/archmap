@@ -127,3 +127,48 @@ describe("computeFrames — вырожденные входы", () => {
     expect(computeFrames({ localIds: [], externals: [], pos: () => ({ x: 0, y: 0 }), ancestorIds: ["A"], ancestorNames: ["A"] })).toEqual([]);
   });
 });
+
+describe("computeFrames — элемент архитектуры и внешность рамок (Ф7 эпика элементов)", () => {
+  // Уровень внутри «Торговля» > «orders» (breadcrumb); локал L; гость G чужой ветки
+  // «payments» (внешний контейнер) > «gw» (составной компонент).
+  const pos = (id: string) =>
+    ({ L: { x: 0, y: 0 }, G: { x: 400, y: 0 } } as Record<string, { x: number; y: number }>)[id];
+  const base = {
+    localIds: ["L"],
+    externals: [{
+      id: "G",
+      ancestors: [
+        { id: "payments", name: "payments", is_external: true, element_effective: "container" as const },
+        { id: "gw", name: "gw", is_external: true, element_effective: "component" as const },
+      ],
+    }],
+    pos,
+    ancestorIds: ["shop", "orders"],
+    ancestorNames: ["Торговля", "orders"],
+  };
+
+  it("нативные — из ancestorElements, своя палитра; без входа или без значения — система", () => {
+    const withEls = computeFrames({ ...base, ancestorElements: ["system", "container"] });
+    const by = (id: string) => withEls.find((f) => f.id === id)!;
+    expect([by("shop").element, by("shop").is_external]).toEqual(["system", false]);
+    expect([by("orders").element, by("orders").is_external]).toEqual(["container", false]);
+    for (const els of [undefined, [null, null]]) {
+      const fs = computeFrames({ ...base, ancestorElements: els });
+      expect(fs.filter((f) => f.native).map((f) => f.element)).toEqual(["system", "system"]);
+    }
+  });
+
+  it("гостевые — из звена цепочки предков: элемент и внешность", () => {
+    const fs = computeFrames({ ...base, ancestorElements: ["system", "container"] });
+    const by = (id: string) => fs.find((f) => f.id === id)!;
+    expect([by("payments").element, by("payments").is_external]).toEqual(["container", true]);
+    expect([by("gw").element, by("gw").is_external]).toEqual(["component", true]);
+  });
+
+  it("геометрия от элементов не зависит: членство, глубины и прямоугольники прежние", () => {
+    const strip = (fs: ReturnType<typeof computeFrames>) =>
+      fs.map(({ id, depth, native, memberIds, content, rect }) => ({ id, depth, native, members: [...memberIds], content, rect }));
+    expect(strip(computeFrames({ ...base, ancestorElements: ["container", "container"] })))
+      .toEqual(strip(computeFrames(base)));
+  });
+});

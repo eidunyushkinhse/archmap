@@ -186,6 +186,20 @@ describe("projectGhosts", () => {
     }
   });
 
+  it("свёрнутый предок несёт элемент архитектуры своего звена; нет значения — система", () => {
+    const chain: AncestorRef[] = [
+      { id: "root", name: "Root", is_external: false, element_effective: "system" },
+      { id: "orders", name: "orders", is_external: true, element_effective: "container" },
+      { id: "api", name: "api", is_external: true, element_effective: "component" },
+    ];
+    expect(projectGhosts([ghost("g1", chain)], ["root"], new Set()).entities[0])
+      .toMatchObject({ kind: "container", id: "orders", element: "container", is_external: true });
+    expect(projectGhosts([ghost("g1", chain)], ["root"], new Set(["orders"])).entities[0])
+      .toMatchObject({ kind: "container", id: "api", element: "component" });
+    const bare = projectGhosts([ghost("g2", [{ id: "X", name: "X", is_external: false, element_effective: null }])], ["root"], new Set());
+    expect(bare.entities[0]).toMatchObject({ kind: "container", id: "X", element: "system" });
+  });
+
   it("нет общего предка-рамки, но есть контейнер-предок → сворачивается к нему (не голый лист)", () => {
     // напр. лист «БД» под корнем «Объекты мониторинга» (корень-сосед текущей ветки):
     // общего breadcrumb-предка нет, но гость всё равно представлен верхним контейнером.

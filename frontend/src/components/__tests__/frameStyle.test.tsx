@@ -32,7 +32,12 @@ const Ghost = nodeTypes.ghost as ComponentType<Partial<NodeProps>>;
 const DASHED = "border: var(--lg-frame-bw, 1px) dashed #9ca3af; border-radius: 12px; background: transparent; box-sizing: border-box;";
 const SITE = "border: var(--lg-frame-bw, 1px) solid #cbd5e1; border-radius: 12px; background: rgba(100, 116, 139, 0.07); box-sizing: border-box;";
 
-function renderFrame(data: FrameData): HTMLElement {
+// Данные рамки для теста: элемент по умолчанию — система (норма «нет значения — система»).
+type FrameInput = Partial<FrameData> & { name: string };
+const frameData = (input: FrameInput): FrameData => ({ element: "system", ...input });
+
+function renderFrame(input: FrameInput): HTMLElement {
+  const data = frameData(input);
   const { container } = render(
     <ReactFlowProvider><Frame id="f1" data={data} /></ReactFlowProvider>,
   );
@@ -48,7 +53,8 @@ const appNode = (id: string): AppNode => ({
 }) as AppNode;
 
 // Оверлей драга над рамкой f1 с одним ребёнком: старт жеста, затем его разметка.
-function renderOverlay(data: FrameData): HTMLElement {
+function renderOverlay(input: FrameInput): HTMLElement {
+  const data = frameData(input);
   const rfNodes: RFNode[] = [
     { id: "f1", type: "frame", position: { x: 0, y: 0 }, width: 300, height: 200, data },
     { id: "k1", type: "block", parentId: "f1", position: { x: 20, y: 20 }, data: { appNode: appNode("k1") } as unknown as BlockData },
@@ -93,7 +99,7 @@ describe("стиль нативной рамки уровня (LevelBoundary) �
       { id: "b1", type: "block", position: { x: 0, y: 0 }, data: { appNode: appNode("b1") } as unknown as BlockData },
     ];
     const { container } = render(
-      <LevelBoundary rfNodes={rfNodes} ancestorIds={["p1"]} ancestorNames={["Маркетплейс"]} />,
+      <LevelBoundary rfNodes={rfNodes} ancestorIds={["p1"]} ancestorNames={["Маркетплейс"]} ancestorElements={["system"]} />,
     );
     const frame = container.querySelector(".lg-frame") as HTMLElement;
     expect(frame).not.toBeNull();
@@ -109,7 +115,10 @@ describe("стиль нативных рамок нескольких предк
       { id: "b1", type: "block", position: { x: 0, y: 0 }, data: { appNode: appNode("b1") } as unknown as BlockData },
     ];
     const { container } = render(
-      <LevelBoundary rfNodes={rfNodes} ancestorIds={["p0", "p1"]} ancestorNames={["Торговля", "Витрина"]} />,
+      <LevelBoundary
+        rfNodes={rfNodes} ancestorIds={["p0", "p1"]} ancestorNames={["Торговля", "Витрина"]}
+        ancestorElements={["system", null]}
+      />,
     );
     const frames = [...container.querySelectorAll(".lg-frame")] as HTMLElement[];
     expect(frames.map((f) => f.getAttribute("data-frame-id"))).toEqual(["p0", "p1"]);

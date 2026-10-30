@@ -934,6 +934,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
               mutationToken={mutationToken}
               ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
+              ancestorElements={breadcrumb.map((b) => b.element_effective)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
               childrenRev={childrenRev}

@@ -23,7 +23,7 @@ function appNode(id: string, kids = false): AppNode {
 
 function frame(id: string, depth: number, members: string[]) {
   return {
-    id, name: id, depth, native: false, memberIds: new Set(members),
+    id, name: id, depth, native: false, memberIds: new Set(members), element: "system" as const, is_external: false,
     content: { minX: 0, minY: 0, maxX: 100, maxY: 100 },
     rect: { x: 0, y: 0, w: 100, h: 100 },
   };
@@ -209,7 +209,8 @@ describe("assembleRfGraph — проекция хозяина (развёрты�
   it("без проекции — прежняя сборка: нет decor и mark, рамка сворачивается", () => {
     const nodes = assemble(false);
     const s = nodes.find((n) => n.id === "S")!.data as FrameData;
-    expect(Object.keys(s).sort()).toEqual(["name", "onCollapse"]);
+    // элемент архитектуры рамки есть всегда (Ф7 эпика элементов), декора нет
+    expect(Object.keys(s).sort()).toEqual(["element", "name", "onCollapse"]);
     expect(typeof s.onCollapse).toBe("function");
     const a = nodes.find((n) => n.id === "a@S")!.data as BlockData;
     expect("mark" in a).toBe(false);

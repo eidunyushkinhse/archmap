@@ -13,7 +13,7 @@
 // Связи — как на холсте объектов: двойной клик по стрелке (или клик по плашке)
 // подсвечивает её и оба конца, несколько связей в пучке — окно выбора (useEdgeChoice).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Node as AppNode, LevelEdge, ViewLayoutPayload } from "../types";
+import type { Node as AppNode, AncestorRef, LevelEdge, ViewLayoutPayload } from "../types";
 import LevelGraph from "../components/LevelGraph";
 import NodeTreePanel from "../components/NodeTreePanel";
 import SchemaLegend from "../components/SchemaLegend";
@@ -59,6 +59,7 @@ interface Props {
 
 // Стабильный пустой вход холста: у развёртывания нет breadcrumb-рамок (уровень — объём).
 const NO_ANCESTORS: string[] = [];
+const NO_ANCESTOR_ELEMENTS: AncestorRef["element_effective"][] = [];
 
 /** Цепочка системы уровня от корня проекта (она сама — последней); пусто у всего проекта
  *  и пока объекты не загружены. Обход с seen: данные могут оказаться циклом. */
@@ -441,6 +442,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
                 containerId={level}
                 ancestorIds={NO_ANCESTORS}
                 ancestorNames={NO_ANCESTORS}
+                ancestorElements={NO_ANCESTOR_ELEMENTS}
                 isArchitect={isArchitect}
                 persistence={persistence}
                 linkedHighlight={linkedHighlight}
