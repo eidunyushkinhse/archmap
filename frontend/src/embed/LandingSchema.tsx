@@ -124,7 +124,7 @@ export default function LandingSchema({ scene, startActive = false }: { scene: L
       {!active && (
         <button type="button" className="esb-activate lp-activate" onClick={activate}>
           <span className="esb-activate-pill lp-pill">
-            <span className="lp-pill-long">Нажмите, чтобы двигать объекты и раскрывать контейнеры</span>
+            <span className="lp-pill-long">Нажмите, чтобы двигать объекты и заглядывать внутрь систем</span>
             <span className="lp-pill-short">Попробовать</span>
           </span>
         </button>

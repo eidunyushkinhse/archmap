@@ -1,5 +1,5 @@
-// Превью холста на странице входа: маленькая SVG-сцена, где контейнер «Сервис заказов»
-// раз в 3 секунды раскрывается в рамку с детьми и сворачивается обратно. Кадр
+// Превью холста на странице входа: маленькая SVG-сцена, где система «Сервис заказов»
+// раз в 3 секунды раскрывается в рамку с её контейнерами и сворачивается обратно. Кадр
 // считает чистая sceneFrame(t) (loginScene.ts), здесь — только отрисовка и цикл
 // requestAnimationFrame, который останавливается при размонтировании. При
 // prefers-reduced-motion: reduce цикла нет — статичный раскрытый кадр.
@@ -11,7 +11,7 @@ import type { SceneContainer, SceneEdge, SceneFrameBox, SceneService } from "./l
 import { prefersReducedMotion } from "../../lib/motion";
 
 const FONT = "system-ui, 'Segoe UI', Roboto, sans-serif";
-// Цвета обвязки — как у рамки раскрытого контейнера и плашек подписей на холсте
+// Цвета обвязки — как у рамки раскрытой системы и плашек подписей на холсте
 // (graph/nodes.tsx, graph/edges.tsx): там они заданы по месту, общей константы нет.
 const FRAME_STROKE = "#9ca3af";
 const PILL_STROKE = "#e5e7eb";
@@ -48,7 +48,7 @@ export default function LoginScenePreview() {
     <svg
       viewBox={SCENE_VIEWBOX}
       role="img"
-      aria-label="Схема маркетплейса «Ярмарка»: контейнер «Сервис заказов» раскрывается и сворачивается"
+      aria-label="Схема маркетплейса «Ярмарка»: система «Сервис заказов» раскрывается и сворачивается"
       fontFamily={FONT}
     >
       <defs>
@@ -83,7 +83,7 @@ function ServiceView({ service: s, shadow }: { service: SceneService; shadow: st
   );
 }
 
-// Свёрнутый контейнер: пунктир, «контейнер», имя, кнопка-лупа.
+// Свёрнутая система: пунктир, подпись «система», имя, кнопка-лупа.
 function ContainerView({ container: c, shadow }: { container: SceneContainer; shadow: string }) {
   const { x, y, w, h } = c.box;
   const ink = c.colors.text;
@@ -93,7 +93,7 @@ function ContainerView({ container: c, shadow }: { container: SceneContainer; sh
     <g opacity={c.alpha}>
       <rect x={x + 0.5} y={y + 0.5} width={w - 1} height={h - 1} rx={8} fill={c.colors.bg}
         stroke={c.colors.border} strokeWidth={1.5} strokeDasharray="5 3" filter={shadow} />
-      <text x={x + 12} y={y + 20} fontSize={8.5} fill={ink} opacity={0.85}>контейнер</text>
+      <text x={x + 12} y={y + 20} fontSize={8.5} fill={ink} opacity={0.85}>система</text>
       <text x={x + 12} y={y + 36} fontSize={12.5} fontWeight={700} fill={ink}>{c.name}</text>
       <rect x={lx} y={ly} width={16} height={14} rx={3}
         fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.3)" />
@@ -103,7 +103,7 @@ function ContainerView({ container: c, shadow }: { container: SceneContainer; sh
   );
 }
 
-// Рамка раскрытого контейнера: серый пунктир и плашка с именем внизу слева.
+// Рамка раскрытой системы: серый пунктир без заливки и плашка с именем внизу слева.
 function FrameView({ frame: f }: { frame: SceneFrameBox }) {
   const { x, y, w, h } = f.box;
   const titleW = f.name.length * 6.4 + 16;

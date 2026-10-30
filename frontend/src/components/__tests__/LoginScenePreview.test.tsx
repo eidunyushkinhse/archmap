@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import LoginScenePreview from "../login/LoginScenePreview";
 
-const ARIA = "Схема маркетплейса «Ярмарка»: контейнер «Сервис заказов» раскрывается и сворачивается";
+const ARIA = "Схема маркетплейса «Ярмарка»: система «Сервис заказов» раскрывается и сворачивается";
 
 function mockMotion(reduce: boolean) {
   vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({

@@ -249,7 +249,7 @@ describe("тур — свой проект", () => {
       .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Сервис» в рамку «Платёжный шлюз».");
-    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Система «Платёжный шлюз» стала контейнером.")).toBe(true);
+    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился сервис.")).toBe(true);
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
       .toBe("Связь теперь ведёт прямо к сервису «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
