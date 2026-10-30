@@ -122,12 +122,13 @@ describe("NodeTreePanel: палитра шаблонов", () => {
   });
 
   // Палитра — шесть типов объекта (Р41 раздела 13 docs/plan-c4-elements.md); невозможные
-  // на текущем уровне — серые, с объяснением окна «Новый объект», и не тянутся.
+  // на текущем уровне — серые, с объяснением окна «Новый объект», но тянутся: бросок в
+  // раскрытую рамку контейнера бывает законным, его проверит окно.
   const tile = (type: string) => document.querySelector<HTMLElement>(`[data-tour="palette:${type}"]`)!;
-  const greyed = () => [...document.querySelectorAll<HTMLElement>('[data-tour^="palette:"][aria-disabled="true"]')]
+  const greyed = () => [...document.querySelectorAll<HTMLElement>('[data-tour^="palette:"].template-card--off')]
     .map((t) => t.dataset.tour);
 
-  it("шесть типов по порядку; на верхнем уровне «Компонент» серый с объяснением и не тянется", async () => {
+  it("шесть типов по порядку; на верхнем уровне «Компонент» серый с объяснением, но тянется", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([]);
     const onTemplateDrag = vi.fn();
     render(<NodeTreePanel mode="editor" onPickLeaf={vi.fn()} onDrillTo={vi.fn()} isArchitect currentNodeId={null} onTemplateDrag={onTemplateDrag} />);
@@ -138,9 +139,12 @@ describe("NodeTreePanel: палитра шаблонов", () => {
     ]);
     expect(greyed()).toEqual(["palette:component"]);
     expect(tile("component")).toHaveAttribute("title", "Компонентом объект бывает только внутри контейнера.");
-    expect(tile("component")).not.toHaveAttribute("draggable");
-    fireEvent.dragStart(tile("component"), { dataTransfer: dt() });
-    expect(onTemplateDrag).not.toHaveBeenCalled();
+    expect(tile("component")).toHaveAttribute("draggable", "true");
+    const offTransfer = dt();
+    fireEvent.dragStart(tile("component"), { dataTransfer: offTransfer });
+    expect(offTransfer.data.get(NODE_DRAG_MIME)).toBe("component");
+    expect(onTemplateDrag).toHaveBeenLastCalledWith("component");
+    fireEvent.dragEnd(tile("component"));
 
     const transfer = dt();
     fireEvent.dragStart(tile("system"), { dataTransfer: transfer });

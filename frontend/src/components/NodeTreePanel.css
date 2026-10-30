@@ -193,10 +193,9 @@
 .template-card:active {
   cursor: grabbing;
 }
-/* Тип, невозможный на текущем уровне: серая плитка без драга, объяснение — в подсказке. */
-.template-card--off,
-.template-card--off:active {
-  cursor: not-allowed;
+/* Тип, невозможный на текущем уровне: серая плитка, объяснение — в подсказке; тянуть её
+   можно (бросок в раскрытую рамку контейнера проверяет окно «Новый объект»). */
+.template-card--off {
   opacity: 0.45;
 }
 .template-card--off:hover {

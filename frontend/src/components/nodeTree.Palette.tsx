@@ -8,7 +8,8 @@ import "./NodeTreePanel.css";
 // Палитра «Добавить объект» дерева редактора-карты (аудит F-7): шесть типов объекта
 // (Р41 раздела 13 docs/plan-c4-elements.md), которые тянут на схему, и «корзина» поверх
 // панели на время драга — дроп на неё ничего не создаёт. Тип, невозможный на текущем
-// уровне, — серая плитка с тем же объяснением, что в окне «Новый объект»; её не тянут.
+// уровне, — серая плитка с тем же объяснением, что в окне «Новый объект»; тянуть её можно:
+// бросок в раскрытую рамку контейнера проверяет окно.
 // Сама плитка-источник и секция объявлены на уровне модуля: компонент, объявленный
 // внутри другого, ремаунтится на каждый рендер и срывает нативный драг.
 
@@ -120,36 +121,24 @@ export function PaletteSection({ open, onToggle, drag, options }: {
 }) {
   return (
     <Section title="Добавить объект" open={open} onToggle={onToggle}>
-      <div style={paletteHint}>Перетащите форму на схему</div>
+      <div style={paletteHint}>Перетащите объект на схему</div>
       <div style={palette} data-tour="palette">
         {TYPE_ORDER.map((type) => {
           const label = TYPE_LABEL[type];
+          // Серая плитка остаётся источником драга: серость — про текущий уровень, а
+          // бросок в раскрытую рамку контейнера бывает законным («Компонент» с уровня
+          // системы в рамку её контейнера) — проверит окно «Новый объект».
           const off = options?.find((o) => o.type === type && o.disabled);
-          if (off) {
-            return (
-              <div
-                key={type}
-                data-tour={`palette:${type}`}
-                className="template-card template-card--off"
-                aria-disabled="true"
-                style={templateCard}
-                title={off.reason}
-              >
-                <TypeIcon type={type} />
-                <span style={templateLabel}>{label}</span>
-              </div>
-            );
-          }
           return (
             <div
               key={type}
               data-tour={`palette:${type}`}
-              className="template-card"
+              className={off ? "template-card template-card--off" : "template-card"}
               draggable
               onDragStart={(e) => drag.onTemplateDragStart(e, type)}
               onDragEnd={drag.onTemplateDragEnd}
               style={templateCard}
-              title={`Перетащить «${label}» на схему`}
+              title={off ? off.reason : `Перетащить «${label}» на схему`}
             >
               <TypeIcon type={type} />
               <span style={templateLabel}>{label}</span>
