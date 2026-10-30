@@ -10,7 +10,7 @@
 // Фикстуры типизированы схемами контракта: разъедется контракт — поймает tsc.
 import { describe, it, expect } from "vitest";
 import type {
-  ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
+  ContainerEdgeOut, ContainerHintOut, FamilyConflictOut, FieldDisputeOut, FuzzyPairOut,
   IsolatedGroupOut, RemainderCandidateOut, RemainderOut,
 } from "../../types";
 import {
@@ -62,9 +62,15 @@ const пара = (over: Partial<FuzzyPairOut> = {}): FuzzyPairOut => ({
   where: "на верхнем уровне", a_current: false, b_current: false, ...over,
 });
 
+const подсказка = (over: Partial<ContainerHintOut> = {}): ContainerHintOut => ({
+  id: "hint|Ярмарка / orders", node_path: "Ярмарка / orders",
+  children: ["api", "checkout", "scheduler"], folder: "services/orders",
+  repo: "github.com/org/shop", ...over,
+});
+
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [], ...over,
 });
 
 const всё = () => buildQuestions({
@@ -506,5 +512,57 @@ describe("массовые ответы догрузки (§7, Р10)", () => {
     expect(hasMineDisputes(buildQuestions({
       family_conflicts: [], remainder: остаток({ field_conflicts: [поле()] }),
     }))).toBe(false);
+  });
+});
+
+
+describe("вопрос «похоже на контейнер» (Р7)", () => {
+  const вопросы = (over: Partial<RemainderOut> = {}) => buildQuestions({
+    family_conflicts: [], remainder: остаток({ container_hints: [подсказка()], ...over }),
+  });
+
+  it("стоит после полей и до связей; тексты лексикона", () => {
+    const qs = вопросы({ field_conflicts: [поле()], container_edges: [связь()] });
+    expect(qs.map((q) => q.kind)).toEqual(["field", "hint", "edge"]);
+    const q = qs[1]!;
+    expect(q.id).toBe("hint|Ярмарка / orders");
+    expect(q.title).toBe("Похоже, «orders» — контейнер с компонентами. Отметить его контейнером?");
+    expect(q.context).toBe("api, checkout, scheduler лежат в services/orders того же репозитория");
+    expect(q.why).toBe(
+      "Части одной программы обычно лежат в её каталоге. Если вложенный объект запускается"
+      + " отдельно, например воркер из того же кода, то это система из нескольких контейнеров.");
+    expect(q.ifLeft).toBe(
+      "Если не отвечать, то «orders» останется системой. Отметить его контейнером можно и"
+      + " потом, в свойствах объекта.");
+  });
+
+  it("имена — первые шесть, остальные счётчиком; один объект «лежит»", () => {
+    const много = вопросы({ container_hints: [подсказка({
+      children: ["a", "b", "c", "d", "e", "f", "g", "h"],
+    })] })[0]!;
+    expect(много.context).toBe("a, b, c, d, e, f …ещё 2 лежат в services/orders того же репозитория");
+    const один = вопросы({ container_hints: [подсказка({ children: ["api"] })] })[0]!;
+    expect(один.context).toBe("api лежит в services/orders того же репозитория");
+  });
+
+  it("«Контейнер» едет в decisions, «Система» — молчанием; краткие ответы и сегмент", () => {
+    const qs = вопросы();
+    const q = qs[0]!;
+    const контейнер: Answers = { [q.id]: { kind: "container" } };
+    const система: Answers = { [q.id]: { kind: "keep" } };
+    expect(toDecisions(qs, контейнер)).toEqual({ container_hints: { [q.id]: "container" } });
+    expect(toDecisions(qs, система)).toBeNull();
+    expect(answerLabel(q, контейнер, {})).toBe("контейнер");
+    expect(answerLabel(q, система, {})).toBe("система");
+    expect(answerState(q, система, {})).toBe("keep");
+    expect(segments(qs, контейнер, {}).map((s) => s.caption)).toEqual(["Контейнеры · 1/1"]);
+  });
+
+  it("у ответа прежнего сервера раздела нет — вопросов этого вида нет", () => {
+    const прежний: Partial<RemainderOut> = { ...остаток() };
+    delete прежний.container_hints;
+    expect(buildQuestions({
+      family_conflicts: [], remainder: прежний as RemainderOut,
+    })).toEqual([]);
   });
 });

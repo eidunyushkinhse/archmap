@@ -2580,3 +2580,44 @@ def test_склейка_догрузки_не_делает_контейнеро�
         "состав контейнера — объект оставлен системой"
     ) in отчёт.warnings
     assert not any("элемент архитектуры» пустовало" in w for w in отчёт.warnings)
+
+
+# ── Вопрос «похоже на контейнер» в догрузке: только о новых узлах (Р7, Р3) ──
+
+
+def _из_кода(db, проект: Project, имя: str, родитель: Node | None, путь: str) -> Node:
+    return _узел(db, проект, имя, родитель, source_ref=f"git:github.com/org/shop#{путь}")
+
+
+def test_похоже_на_контейнер_в_догрузке_только_о_новых_узлах(db):
+    """Живой orders похож на контейнер не меньше нового «Склада», но живое ввоз не
+    судит (Р3): вопрос только о новом узле, а ответ «Контейнер» ставит элемент ему."""
+    проект = _проект(db, "Живой")
+    корень = _узел(db, проект, "Ярмарка", role="система")
+    orders = _из_кода(db, проект, "orders", корень, "services/orders")
+    _из_кода(db, проект, "api", orders, "services/orders/api")
+    db.commit()
+    донор = _проект(db, "Донор")
+    д_корень = _узел(db, донор, "Ярмарка", role="система")
+    д_orders = _из_кода(db, донор, "orders", д_корень, "services/orders")
+    _из_кода(db, донор, "api", д_orders, "services/orders/api")
+    склад = _из_кода(db, донор, "Склад", д_корень, "services/stock")
+    _из_кода(db, донор, "reserve", склад, "services/stock/reserve")
+    _из_кода(db, донор, "sync", склад, "services/stock/sync")
+    db.commit()
+    архив = build_archive(db, донор)
+
+    [подсказка] = into_preview(build_into_plan(db, проект, [("a.zip", архив)])).remainder.container_hints
+    assert (подсказка.id, подсказка.node_path) == ("hint|Ярмарка / Склад", "Ярмарка / Склад")
+    assert sorted(подсказка.children) == ["reserve", "sync"]
+    assert (подсказка.folder, подсказка.repo) == ("services/stock", "github.com/org/shop")
+
+    _превью, отчёт = _догрузить(
+        db, проект, архив,
+        решения=parse_decisions(json.dumps({"container_hints": {подсказка.id: "container"}})),
+    )
+
+    новый = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Склад").one()
+    assert новый.element == "container"
+    assert _элемент(db, orders) is None
+    assert any("Ваши решения: отмечено контейнерами 1" in w for w in отчёт.warnings)

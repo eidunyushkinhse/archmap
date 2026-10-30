@@ -44,7 +44,7 @@ const c4 = (): ImportPreviewOut => ({
 });
 const REMAINDER = {
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [],
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [],
 };
 const unified = (demo_excess: UnifiedPreviewOut["demo_excess"]): UnifiedPreviewOut => ({
   ok: true, errors: [], c4: c4(),

@@ -131,6 +131,19 @@ class ContainerEdgeOut(BaseModel):
     components: list[ComponentOut]  # всё поддерево конца, без капа
 
 
+class ContainerHintOut(BaseModel):
+    """Вопрос «похоже на контейнер» (Р7 эпика элементов архитектуры): у узла с детьми
+    во входе нет элемента, а источники кода говорят, что дети — части одной программы
+    (app/container_hints). Ответ «container» отмечает узел контейнером до записи,
+    «system» и молчание оставляют как есть."""
+
+    id: str  # «hint|адрес узла»
+    node_path: str
+    children: list[str]  # имена прямых детей в порядке дерева; кап перечня — дело фронта
+    folder: str  # путь узла в репозитории — каталог, где лежат дети
+    repo: str
+
+
 class IsolatedGroupOut(BaseModel):
     """Группа объектов, не связанная с остальной схемой (§4.4 ТЗ): факт
     совместного развёртывания не виден ни из одного репозитория по отдельности."""
@@ -174,6 +187,7 @@ class RemainderOut(BaseModel):
     результат: спрашивать не о чем)."""
 
     field_conflicts: list[FieldDisputeOut] = []
+    container_hints: list[ContainerHintOut] = []
     container_edges: list[ContainerEdgeOut] = []
     isolated_groups: list[IsolatedGroupOut] = []
     fuzzy_pairs: list[FuzzyPairOut] = []

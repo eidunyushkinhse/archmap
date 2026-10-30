@@ -97,6 +97,7 @@ export type RemainderOut = Schemas["RemainderOut"];
 export type RemainderCandidateOut = Schemas["RemainderCandidateOut"];
 export type FieldDisputeOut = Schemas["FieldDisputeOut"];
 export type ContainerEdgeOut = Schemas["ContainerEdgeOut"];
+export type ContainerHintOut = Schemas["ContainerHintOut"];
 export type ComponentOut = Schemas["ComponentOut"];
 export type IsolatedGroupOut = Schemas["IsolatedGroupOut"];
 export type FuzzyPairOut = Schemas["FuzzyPairOut"];

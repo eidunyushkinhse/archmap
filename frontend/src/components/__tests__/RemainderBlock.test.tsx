@@ -65,7 +65,7 @@ const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   unfixable: [], converted_warnings: [],
   node_paths: ["Zabbix", "Zabbix / server", "Плагин", "Плагин / Датасорс"],
   node_has_children: [true, false, true, false],
-  node_elements: ["system", "container", "system", "container"], ...over,
+  node_elements: ["system", "container", "system", "container"], container_hints: [], ...over,
 });
 
 const ВОПРОСЫ = buildQuestions({ family_conflicts: [семья], remainder: остаток() });

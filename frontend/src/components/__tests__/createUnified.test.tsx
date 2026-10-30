@@ -15,7 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import CreateProjectDialog from "../project/CreateProjectDialog";
 import { projectsApi } from "../../api/projects";
 import type {
-  ArchiveImportResult, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut,
+  ArchiveImportResult, ContainerEdgeOut, ContainerHintOut, FamilyConflictOut, FieldDisputeOut,
   ImportPreviewOut, RemainderOut, UnifiedPreviewOut,
 } from "../../types";
 
@@ -40,7 +40,7 @@ const c4 = (over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
 
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [], ...over,
 });
 
 const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut => ({
@@ -95,6 +95,16 @@ const В_КОНТЕЙНЕР: ContainerEdgeOut = {
     { path: "Ярмарка / orders", has_children: false },
     { path: "Ярмарка / billing", has_children: false },
   ],
+};
+
+// Вопрос «похоже на контейнер» (Р7): ответ «Контейнер» уезжает разделом
+// container_hints, «Система» — молчанием.
+const ПОДСКАЗКА: ContainerHintOut = {
+  id: "hint|Ярмарка / orders",
+  node_path: "Ярмарка / orders",
+  children: ["api", "checkout", "scheduler"],
+  folder: "services/orders",
+  repo: "github.com/org/shop",
 };
 
 const ОТЧЁТ: ArchiveImportResult = {
@@ -252,6 +262,30 @@ describe("единый ввоз · создание проекта", () => {
     const [, опции] = применение() ?? [];
     expect(опции?.decisions).toEqual({ fields: { [ПОЛЕ.id]: 1 } });
     expect(опции?.resolutions).toEqual({});
+  });
+
+  it("«похоже на контейнер»: ответ «Контейнер» уезжает разделом container_hints", async () => {
+    vi.mocked(projectsApi.unifiedPreview).mockResolvedValue(превью({
+      c4: c4({ files: 2 }), remainder: остаток({ container_hints: [ПОДСКАЗКА] }),
+    }));
+    await открыть();
+    await положить(
+      new File(["a"], "a.yaml", { type: "application/yaml" }),
+      new File(["b"], "b.yaml", { type: "application/yaml" }),
+    );
+
+    expect(await screen.findByText("Не всё сошлось идеально", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 4 }).textContent).toBe(
+      "Похоже, «orders» — контейнер с компонентами. Отметить его контейнером?");
+    expect(screen.getByText("api, checkout, scheduler лежат в services/orders того же репозитория"))
+      .toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /^Контейнер/ }));
+    await userEvent.type(screen.getByPlaceholderText(ИМЯ), "Ярмарка");
+    await userEvent.click(кнопка());
+
+    await waitFor(() => expect(projectsApi.importUnified).toHaveBeenCalled());
+    const [, опции] = применение() ?? [];
+    expect(опции?.decisions).toEqual({ container_hints: { [ПОДСКАЗКА.id]: "container" } });
   });
 
   it("ответ переживает перезапрос превью, а протухший отбрасывается", async () => {

@@ -4203,6 +4203,25 @@ export interface components {
             components: components["schemas"]["ComponentOut"][];
         };
         /**
+         * ContainerHintOut
+         * @description Вопрос «похоже на контейнер» (Р7 эпика элементов архитектуры): у узла с детьми
+         *     во входе нет элемента, а источники кода говорят, что дети — части одной программы
+         *     (app/container_hints). Ответ «container» отмечает узел контейнером до записи,
+         *     «system» и молчание оставляют как есть.
+         */
+        ContainerHintOut: {
+            /** Id */
+            id: string;
+            /** Node Path */
+            node_path: string;
+            /** Children */
+            children: string[];
+            /** Folder */
+            folder: string;
+            /** Repo */
+            repo: string;
+        };
+        /**
          * ContainerOwnDocsAlert
          * @description Система или контейнер со своей документацией (AL24); совет — по элементу
          *     архитектуры (docs/plan-c4-elements.md, раздел 0а):
@@ -5893,6 +5912,7 @@ export interface components {
             /**
              * @default {
              *       "field_conflicts": [],
+             *       "container_hints": [],
              *       "container_edges": [],
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],
@@ -7262,6 +7282,11 @@ export interface components {
              */
             field_conflicts: components["schemas"]["FieldDisputeOut"][];
             /**
+             * Container Hints
+             * @default []
+             */
+            container_hints: components["schemas"]["ContainerHintOut"][];
+            /**
              * Container Edges
              * @default []
              */
@@ -7936,6 +7961,7 @@ export interface components {
             /**
              * @default {
              *       "field_conflicts": [],
+             *       "container_hints": [],
              *       "container_edges": [],
              *       "isolated_groups": [],
              *       "fuzzy_pairs": [],

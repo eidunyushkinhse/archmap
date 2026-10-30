@@ -175,7 +175,7 @@ describe("BulkBox (§7, Р10)", () => {
   });
   const остаток: RemainderOut = {
     field_conflicts: [поле()], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-    unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [],
+    unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [],
   };
 
   it("две кнопки и подпись — как в ТЗ", async () => {

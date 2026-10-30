@@ -45,6 +45,7 @@ from app.unified_apply import (
     apply_unified_plan,
     dedup_edges,
     parse_decisions,
+    resolve_decisions,
 )
 from app.unified_import import (
     MAX_ARCHIVES,
@@ -2582,3 +2583,122 @@ def test_склейка_переносит_элемент_через_прави�
         "Плагин: внутри лежит база данных «plugin-db», она не может входить в состав "
         "контейнера — вынесена на верхний уровень"
     ) in отчёт.warnings
+
+
+# ── Вопрос «похоже на контейнер» по источникам кода (Р7, Ф6) ─────────────────
+
+_ПОХОЖЕ = """
+nodes:
+  - name: Ярмарка
+    children:
+      - name: orders
+        source: {repo: github.com/org/shop, path: services/orders}
+        children:
+          - name: api
+            source: {repo: github.com/org/shop, path: services/orders/api}
+            children:
+              - name: orders-cache
+                shape: database
+          - name: checkout
+            source: {repo: github.com/org/shop, path: services/orders/checkout}
+          - name: scheduler
+            source: {repo: github.com/org/shop, path: services/orders/scheduler}
+edges:
+  - {from: api, to: checkout}
+  - {from: checkout, to: scheduler}
+  - {from: api, to: orders-cache}
+"""
+_ПОДСКАЗКА = "hint|Ярмарка / orders"
+
+
+def _подсказки(текст: str):
+    план = build_unified_plan([("shop.yaml", текст.encode())])
+    assert план.ok, план.errors
+    return план, preview_from_plan(план).remainder.container_hints
+
+
+def test_похоже_на_контейнер_вопрос_по_источникам():
+    """Все дети — сервисы из каталога родителя в том же репозитории: вопрос с именами
+    детей, каталогом и репозиторием. Внук-база на признак не влияет."""
+    _план, подсказки = _подсказки(_ПОХОЖЕ)
+    assert [h.model_dump() for h in подсказки] == [{
+        "id": _ПОДСКАЗКА,
+        "node_path": "Ярмарка / orders",
+        "children": ["api", "checkout", "scheduler"],
+        "folder": "services/orders",
+        "repo": "github.com/org/shop",
+    }]
+
+
+@pytest.mark.parametrize(
+    ("старое", "новое"),
+    [
+        # База среди детей — сильный признак системы.
+        (
+            "          - name: checkout\n",
+            "          - name: orders-db\n            shape: database\n"
+            "          - name: checkout\n",
+        ),
+        # Чужой репозиторий.
+        (
+            "{repo: github.com/org/shop, path: services/orders/scheduler}",
+            "{repo: github.com/org/jobs, path: services/orders/scheduler}",
+        ),
+        # Путь вне каталога родителя (и сам каталог — не «внутри»).
+        ("path: services/orders/scheduler}", "path: services/scheduler}"),
+        ("path: services/orders/scheduler}", "path: services/orders}"),
+        # Ребёнок без источника кода.
+        ("          - name: checkout\n", "          - name: worker\n          - name: checkout\n"),
+        # Ребёнок с именем зависимости.
+        ("path: services/orders/scheduler}", "path: services/orders/scheduler, host: scheduler}"),
+        # Элемент задан во входе — спрашивать не о чем.
+        ("      - name: orders\n", "      - name: orders\n        element: system\n"),
+        # У родителя нет пути в репозитории.
+        ("{repo: github.com/org/shop, path: services/orders}", "{repo: github.com/org/shop}"),
+    ],
+)
+def test_похоже_на_контейнер_не_срабатывает(старое, новое):
+    assert _ПОХОЖЕ.count(старое) == 1
+    _план, подсказки = _подсказки(_ПОХОЖЕ.replace(старое, новое))
+    assert подсказки == []
+
+
+def _создать_с_ответом(db, ответ: dict | None):
+    план, _ = _подсказки(_ПОХОЖЕ)
+    решения = parse_decisions(json.dumps(ответ)) if ответ is not None else None
+    проект, отчёт = apply_unified_plan(
+        db, план, {}, "Ярмарка", None, ensure_architect(db).id, decisions=решения,
+    )
+    db.commit()
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == проект.id)}
+    return узлы, отчёт
+
+
+def test_похоже_на_контейнер_ответ_контейнер_дальше_правила_ввоза(db):
+    """«Контейнер» ставит элемент до санитизации: база внутри будущего контейнера
+    выносится на уровень выше с замечанием, как у любого ввоза."""
+    узлы, отчёт = _создать_с_ответом(db, {"container_hints": {_ПОДСКАЗКА: "container"}})
+
+    assert узлы["orders"].element == "container"
+    assert узлы["orders-cache"].parent_id == узлы["Ярмарка"].id
+    assert any("внутри лежит база данных «orders-cache»" in w for w in отчёт.warnings)
+    assert any("Ваши решения: отмечено контейнерами 1" in w for w in отчёт.warnings)
+
+
+@pytest.mark.parametrize("ответ", [None, {"container_hints": {_ПОДСКАЗКА: "system"}}])
+def test_похоже_на_контейнер_система_и_молчание_оставляют_как_есть(db, ответ):
+    узлы, отчёт = _создать_с_ответом(db, ответ)
+
+    assert узлы["orders"].element is None
+    assert узлы["orders-cache"].parent_id == узлы["api"].id
+    assert not any("Ваши решения" in w for w in отчёт.warnings)
+
+
+def test_похоже_на_контейнер_ответ_проверяется():
+    with pytest.raises(UnifiedImportError, match="«container» либо «system»"):
+        parse_decisions(json.dumps({"container_hints": {_ПОДСКАЗКА: "да"}}))
+    план, _ = _подсказки(_ПОХОЖЕ)
+    with pytest.raises(UnifiedImportError, match="Превью устарело"):
+        resolve_decisions(
+            план, parse_decisions(json.dumps({"container_hints": {"hint|Нет": "container"}}))
+        )

@@ -97,6 +97,27 @@ export default function QuestionBody(p: Props) {
     );
   }
 
+  if (q.kind === "hint") {
+    const a = p.answers[q.id];
+    return (
+      <div className="rq-opts">
+        <Option
+          main={<b>Контейнер</b>}
+          tag="по источникам"
+          selected={a?.kind === "container"}
+          onClick={() => p.onAnswer(q.id, { kind: "container" })}
+        />
+        <Option
+          main="Система"
+          tag="как сейчас"
+          keep
+          selected={a?.kind === "keep"}
+          onClick={() => p.onAnswer(q.id, { kind: "keep" })}
+        />
+      </div>
+    );
+  }
+
   if (q.kind === "edge") {
     const a = p.answers[q.id];
     return (

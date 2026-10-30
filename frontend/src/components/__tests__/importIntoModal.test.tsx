@@ -75,7 +75,7 @@ const В_КОНТЕЙНЕР: ContainerEdgeOut = {
 
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], container_hints: [], ...over,
 });
 
 const превью = (over: Partial<IntoPreviewOut> = {}): IntoPreviewOut => ({

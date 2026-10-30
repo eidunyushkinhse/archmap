@@ -479,7 +479,7 @@ function failedPreview(msg: string, files: number): UnifiedPreviewOut {
     remainder: {
       field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
       unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
-      node_elements: [],
+      node_elements: [], container_hints: [],
     },
     warnings: [],
     name_source: "fields",

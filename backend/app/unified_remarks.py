@@ -6,12 +6,14 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.container_hints import container_hints
 from app.domain_types import NODE_ELEMENT_LABELS
 from app.import_element import effective_elements
 from app.import_yaml import ParsedImport
 from app.schemas.unified_import import (
     ComponentOut,
     ContainerEdgeOut,
+    ContainerHintOut,
     FieldDisputeOut,
     FuzzyPairOut,
     IsolatedGroupOut,
@@ -374,6 +376,8 @@ class RemainderIndex:
     edges: dict[str, tuple[int, str, dict[str, int]]] = field(default_factory=dict)
     groups: dict[str, list[int]] = field(default_factory=dict)
     pairs: dict[str, tuple[int, int]] = field(default_factory=dict)
+    # id вопроса «похоже на контейнер» → индекс узла
+    hints: dict[str, int] = field(default_factory=dict)
     # Путь узла → индекс: концы новой связи пользователь называет путями. Тёзки
     # (якорь разводит их законно) адресуются первым — как и везде в превью.
     nodes: dict[str, int] = field(default_factory=dict)
@@ -397,11 +401,13 @@ def remainder_with_index(
         return RemainderOut(), RemainderIndex()
     b = _RemainderBuilder(plan, plan.merged, current)
     fields = b.field_conflicts()
+    hints = b.container_hints()
     container = b.container_edges()
     groups = b.isolated_groups()
     pairs = b.fuzzy_pairs()
     return RemainderOut(
         field_conflicts=fields,
+        container_hints=hints,
         container_edges=container,
         isolated_groups=groups,
         fuzzy_pairs=pairs,
@@ -415,7 +421,7 @@ def remainder_with_index(
 
 class _RemainderBuilder:
     """Сборщик остатка: общие адреса, дедуп id и строки отчёта, ставшие вопросами,
-    на все четыре вида вопросов. Порядок вызова видов — порядок вопросов в окне."""
+    на все пять видов вопросов. Порядок вызова видов — порядок вопросов в окне."""
 
     def __init__(self, plan: UnifiedPlan, merged: ParsedImport, current: int | None) -> None:
         self.plan = plan
@@ -481,6 +487,25 @@ class _RemainderBuilder:
                 default=default,
             ))
             self.index.fields[eid] = (d.node_idx, d.field, [c.value for c in cands])
+        return out
+
+    def container_hints(self) -> list[ContainerHintOut]:
+        """Вопросы «похоже на контейнер» (Р7). В догрузке — только о новых узлах:
+        живой элемент ввоз не судит (Р3)."""
+        out: list[ContainerHintOut] = []
+        nodes = self.merged.nodes
+        for h in container_hints(nodes, skip=self.свой):
+            eid = f"hint|{self.addr[h.node_idx]}"
+            if not self.свежий(eid):
+                continue
+            out.append(ContainerHintOut(
+                id=eid,
+                node_path=self.paths[h.node_idx],
+                children=[nodes[c].name for c in h.children],
+                folder=h.folder,
+                repo=h.repo,
+            ))
+            self.index.hints[eid] = h.node_idx
         return out
 
     def container_edges(self) -> list[ContainerEdgeOut]:
