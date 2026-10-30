@@ -126,6 +126,8 @@ describe("assembleRfGraph — данные узлов", () => {
     const { byId, cb } = assemble();
     const data = byId.get("c")?.data as ContainerData;
     expect(data).toMatchObject({ id: "c", name: "Витрина", depth: 1, ancestors: [a("R")], expandLimited: false });
+    // элемента архитектуры в данных свёрнутого контейнера пока нет
+    expect("element" in data).toBe(false);
     data.onExpand?.("c");
     expect(cb.expandContainer).toHaveBeenCalledWith("c");
     data.onEnter?.();

@@ -14,8 +14,8 @@ import { nodeTypes } from "../graph/nodes";
 import { LevelBoundary } from "../graph/boundaries";
 import { useFrameFollowOverlay } from "../graph/interaction/useFrameFollowOverlay";
 import { getNodeColors } from "../graph/colors";
-import type { BlockData, ContainerData, FrameData } from "../graph/types";
-import type { Node as AppNode } from "../../types";
+import type { BlockData, ContainerData, FrameData, GhostData } from "../graph/types";
+import type { Node as AppNode, GhostNode } from "../../types";
 
 // Плашка рамки — портал в слой плашек холста (FramePlaque → EdgeLabelRenderer); холста
 // здесь нет — портал подменён на рендер на месте.
@@ -27,6 +27,7 @@ vi.mock("@xyflow/react", async (importOriginal) => {
 const Frame = nodeTypes.frame as ComponentType<Partial<NodeProps>>;
 const Block = nodeTypes.block as ComponentType<Partial<NodeProps>>;
 const Container = nodeTypes.container as ComponentType<Partial<NodeProps>>;
+const Ghost = nodeTypes.ghost as ComponentType<Partial<NodeProps>>;
 
 const DASHED = "border: var(--lg-frame-bw, 1px) dashed #9ca3af; border-radius: 12px; background: transparent; box-sizing: border-box;";
 const SITE = "border: var(--lg-frame-bw, 1px) solid #cbd5e1; border-radius: 12px; background: rgba(100, 116, 139, 0.07); box-sizing: border-box;";
@@ -72,6 +73,12 @@ describe("стиль рамки раскрытия (FrameNode) — байт-в-�
     expect(frame.getAttribute("style")).toBe(`width: 100%; height: 100%; ${SITE} pointer-events: none;`);
   });
 
+  it("класс рамки — lg-frame (хук полигона), у декора — модификатор вида", () => {
+    expect(renderFrame({ name: "Кластер", decor: { kind: "site" } }).className).toBe("lg-frame lg-frame--site");
+    expect(renderFrame({ name: "Не указано", decor: { kind: "group", collapsible: false } }).className)
+      .toBe("lg-frame lg-frame--group");
+  });
+
   it("группа — пунктир, как у раскрытия; в режиме выбора тело ловит щелчок", () => {
     const frame = renderFrame({ name: "Размещение не указано", decor: { kind: "group", collapsible: false } });
     expect(frame.getAttribute("style")).toBe(`width: 100%; height: 100%; ${DASHED} pointer-events: none;`);
@@ -93,6 +100,23 @@ describe("стиль нативной рамки уровня (LevelBoundary) �
     const style = frame.getAttribute("style") ?? "";
     expect(style.startsWith("position: absolute; left: ")).toBe(true);
     expect(style.endsWith(`${DASHED} pointer-events: none;`)).toBe(true);
+  });
+});
+
+describe("стиль нативных рамок нескольких предков", () => {
+  it("каждый предок breadcrumb — своя рамка тем же пунктиром", () => {
+    const rfNodes: RFNode[] = [
+      { id: "b1", type: "block", position: { x: 0, y: 0 }, data: { appNode: appNode("b1") } as unknown as BlockData },
+    ];
+    const { container } = render(
+      <LevelBoundary rfNodes={rfNodes} ancestorIds={["p0", "p1"]} ancestorNames={["Торговля", "Витрина"]} />,
+    );
+    const frames = [...container.querySelectorAll(".lg-frame")] as HTMLElement[];
+    expect(frames.map((f) => f.getAttribute("data-frame-id"))).toEqual(["p0", "p1"]);
+    for (const f of frames) {
+      expect(f.className).toBe("lg-frame");
+      expect((f.getAttribute("style") ?? "").endsWith(`${DASHED} pointer-events: none;`)).toBe(true);
+    }
   });
 });
 
@@ -140,6 +164,39 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.querySelector('button[title="Войти"]')).not.toBeNull();
     expect(el.querySelector('button[title="Раскрыть содержимое"]')).not.toBeNull();
     expect(el.textContent).toContain("3");
+  });
+
+  it("бейдж детей у сервиса с детьми — глиф-дерево и число прямых детей", () => {
+    const el = renderBlock(blockData({ has_children: true, child_count: 3 }, { onExpand: vi.fn() }));
+    // дерево: три кружка (родитель и два ребёнка) и ветви
+    expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
+    expect(el.textContent).toContain("3");
+  });
+
+  it("лупа на пределе глубины — неактивна, подсказка про предел", () => {
+    const el = renderBlock(blockData({ has_children: true, child_count: 2 }, { expandLimited: true }));
+    const lens = el.querySelector('button[aria-disabled="true"]');
+    expect(lens?.getAttribute("title")).toBe(
+      "Контейнеры можно раскрыть только два раза подряд. Чтобы посмотреть состав этого контейнера, спуститесь на слой ниже",
+    );
+  });
+
+  it("гость с детьми — «Войти к компонентам» и бейдж детей с глифом-деревом", () => {
+    const ghost = {
+      id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
+      status: "existing", node_depth: 1, has_children: true, child_count: 4, ancestors: [], is_ghost: true,
+      element_effective: "system",
+    } as unknown as GhostNode;
+    const data: GhostData = { appNode: ghost, colors, onEnter: vi.fn() };
+    const el = render(<ReactFlowProvider><Ghost id="g" data={data} /></ReactFlowProvider>).container;
+    expect(el.querySelector('button[title="Войти к компонентам"]')).not.toBeNull();
+    expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
+    expect(el.textContent).toContain("4");
+    // гость-лист — ни кнопки, ни бейджа
+    const leaf: GhostData = { appNode: { ...ghost, has_children: false, child_count: 0 }, colors, onEnter: vi.fn() };
+    const el2 = render(<ReactFlowProvider><Ghost id="g2" data={leaf} /></ReactFlowProvider>).container;
+    expect(el2.querySelector('button[title="Войти к компонентам"]')).toBeNull();
+    expect(el2.querySelectorAll('circle[r="2.3"]')).toHaveLength(0);
   });
 
   it("база с детьми и лист — не зона входа, без бейджа и лупы", () => {
