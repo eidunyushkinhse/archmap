@@ -96,6 +96,19 @@ content, version}` (уникальность имени в пределах уз
   (`app/import_element.sanitize_elements`, правила 0 и 2).
   [тест: backend/tests/test_reparent.py, test_element_api.py, test_import.py,
   frontend nodeTree.useReparent.test.ts]
+- **N4в.** ПУСТАЯ СИСТЕМА (2026-10-30, Ф12 эпика «Элемент архитектуры», Р39 раздела 13
+  docs/plan-c4-elements.md). Сервис без детей с хранимым `element = system` — система:
+  `element_effective = system` считает `app/element.py` (лист с «контейнером» или без
+  элемента — по-прежнему контейнер; хранимое «система» у другой формы не читается).
+  Статус страницы — не согласована (единиц нет; ручной статус — отказ, как у системы);
+  не единица размещения (PATCH площадок — 422, на холсте «Развёртывание» её нет), а
+  экземпляры листа, ставшего пустой системой, спят до первого вложенного объекта-единицы
+  и достаются ему по правилу 5 [deployment.md](deployment.md) D34; свои факты ловит AL24.
+  В дереве, шапке страницы и инспекторах — глиф системы (`types/treeNesting`); на холсте
+  — обычный блок без рамки (рамки бывают только у узла с детьми). Тип такого объекта в
+  интерфейсе — «Система» (`nodeTerms.typeOf`); варианты поля «Тип» при создании и смене —
+  `element/typeOptions.ts`. [тест: backend/tests/test_empty_system.py, test_element.py,
+  frontend treeGlyphs.test.tsx, typeOptions.test.ts]
 
 ## 2. Текст на узле
 
