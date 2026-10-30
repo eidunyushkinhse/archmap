@@ -1,17 +1,20 @@
-// Строка «Элемент архитектуры» — чистая часть (components/element/elementView.ts, Ф8 эпика
-// docs/plan-c4-elements.md): контейнер компонента — ближайший предок-контейнер из цепочки;
-// вид строки — по элементу с сервера, наличию детей, внешности и праву правки. Справка «?»
-// (elementText.ts) — четыре абзаца лексикона без внутренних слов.
+// Строка «Тип» и чтение объекта страницей — чистая часть (components/element/elementView.ts,
+// Ф8 и Р40 эпика docs/plan-c4-elements.md): тип — проекция формы и элемента с сервера,
+// контейнер компонента — ближайший предок-контейнер из цепочки; пустая система (Р39)
+// читается системой и не ждёт первого вложенного объекта. Справка «?» (elementText.ts) —
+// четыре абзаца лексикона без внутренних слов.
 import { describe, expect, it } from "vitest";
-import { containerOf, elementView, type ElementSubject } from "../element/elementView";
+import {
+  awaitsFirstChild, childIsComponent, containerOf, pageElement, typeView, type TypeSubject,
+} from "../element/elementView";
 import { ELEMENT_HELP, ELEMENT_HELP_LABEL } from "../element/elementText";
-import type { AncestorRef } from "../../types";
+import type { AncestorRef, Node } from "../../types";
 
 const ref = (id: string, element_effective: AncestorRef["element_effective"]): AncestorRef =>
   ({ id, name: id, is_external: false, element_effective });
 
-const subject = (over: Partial<ElementSubject> = {}): ElementSubject => ({
-  element_effective: "container", has_children: false, is_external: false, container_name: null, ...over,
+const subject = (over: Partial<TypeSubject> = {}): TypeSubject => ({
+  shape: "service", element_effective: "container", container_name: null, ...over,
 });
 
 describe("containerOf", () => {
@@ -22,31 +25,43 @@ describe("containerOf", () => {
   });
 });
 
-describe("elementView", () => {
-  it("«Пользователь» — строки нет", () => {
-    expect(elementView(subject({ element_effective: null }), true, [])).toEqual({ kind: "none" });
+describe("typeView", () => {
+  it("тип — по форме и элементу; контейнер только у компонента", () => {
+    expect(typeView(subject(), [])).toEqual({ value: "container", container: null });
+    expect(typeView(subject({ element_effective: "system" }), [])).toEqual({ value: "system", container: null });
+    expect(typeView(subject({ shape: "database" }), [])).toEqual({ value: "database", container: null });
+    expect(typeView(subject({ shape: "person", element_effective: null }), [ref("orders", "container")]))
+      .toEqual({ value: "person", container: null });
   });
 
-  it("лист — «Контейнер», внешний лист — «Внешняя система»", () => {
-    expect(elementView(subject(), true, [])).toEqual({ kind: "text", text: "Контейнер" });
-    expect(elementView(subject({ is_external: true }), true, [])).toEqual({ kind: "text", text: "Внешняя система" });
-  });
-
-  it("узел с детьми — выбор у редактора, текст у читателя", () => {
-    const group = subject({ element_effective: "system", has_children: true });
-    expect(elementView(group, true, [])).toEqual({ kind: "pick", value: "system" });
-    expect(elementView(group, false, [])).toEqual({ kind: "text", text: "Система" });
-  });
-
-  it("компонент — ссылка на контейнер из цепочки, без него — имя текстом", () => {
+  it("компонент — контейнер из цепочки со ссылкой, без него — имя с сервера", () => {
     const comp = subject({ element_effective: "component", container_name: "orders" });
-    expect(elementView(comp, true, [ref("root", "system"), ref("orders", "container")])).toEqual({
-      kind: "link", lead: "Компонент контейнера", name: "orders", containerId: "orders",
+    expect(typeView(comp, [ref("root", "system"), ref("orders", "container")])).toEqual({
+      value: "component", container: { id: "orders", name: "orders" },
     });
-    expect(elementView(comp, true, [ref("root", "system")])).toEqual({
-      kind: "text", text: "Компонент контейнера «orders»",
+    expect(typeView(comp, [ref("root", "system")])).toEqual({
+      value: "component", container: { id: null, name: "orders" },
     });
-    expect(elementView(subject({ element_effective: "component" }), false, [])).toEqual({ kind: "text", text: "Компонент" });
+  });
+});
+
+describe("пустая система (Р39)", () => {
+  const empty: Pick<Node, "shape" | "element" | "has_children" | "element_effective" | "container_name"> = {
+    shape: "service", element: "system", has_children: false, element_effective: "system", container_name: null,
+  };
+
+  // Тот же лист без хранимого элемента — обычный контейнер.
+  const leaf = { ...empty, element: null, element_effective: "container" as const };
+
+  it("страница читает её системой, обычный лист — листом", () => {
+    expect(pageElement(empty, [])).toEqual({ kind: "system" });
+    expect(pageElement(leaf, [])).toEqual({ kind: "leaf" });
+  });
+
+  it("первого вложенного объекта не ждёт, и он у неё не компонент", () => {
+    expect(awaitsFirstChild(empty)).toBe(false);
+    expect(childIsComponent(empty)).toBe(false);
+    expect(awaitsFirstChild(leaf)).toBe(true);
   });
 });
 
@@ -57,5 +72,13 @@ describe("справка «?»", () => {
     const text = ELEMENT_HELP.map((p) => p.body).join(" ");
     expect(text).toContain("спецификация API");
     expect(text).not.toMatch(/[Сс]пек[^т]|модул|коробк/);
+  });
+
+  it("«Как выбрать» — тип при создании и чтение объекта без типа", () => {
+    expect(ELEMENT_HELP[3].body).toBe(
+      "Тип выбирается при создании и меняется в свойствах. Объект без типа из старого проекта "
+      + "или файла агента ArchMap читает так: без вложенных — контейнер, с вложенными — система, "
+      + "внутри контейнера — компонент. Поле «Роль» — свободная подпись на схеме, на это не влияет.",
+    );
   });
 });

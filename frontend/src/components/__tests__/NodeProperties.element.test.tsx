@@ -1,14 +1,14 @@
-// Карточка «Свойства» страницы объекта по элементу архитектуры (Ф8 эпика
-// docs/plan-c4-elements.md): у узла с детьми строки «Тип» нет (Р24), у термина «Элемент
-// архитектуры» — справка «?», у компонента имя контейнера — ссылка на его страницу
-// (контейнер берётся из крошек страницы), у внешнего листа — «Внешняя система»; сводная
-// технология только у системы (Р15), у остальных своя и правится; плейсхолдер роли без
-// слов форм. Хук правки свойств — настоящий (useNodePatch).
-import { render, screen } from "@testing-library/react";
+// Карточка «Свойства» страницы объекта: одна строка «Тип» (Р40 раздела 13
+// docs/plan-c4-elements.md) у любого объекта, у термина — справка «?»; у компонента имя
+// контейнера — ссылка на его страницу (контейнер берётся из крошек страницы); невозможные
+// пункты серые с причиной; сводная технология только у системы (Р15), у остальных своя и
+// правится; плейсхолдер роли без слов форм. Хук правки свойств — настоящий (useNodePatch).
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodeProperties from "../nodePage/NodeProperties";
 import { useNodePatch } from "../../pages/useNodePatch";
+import { nodesApi } from "../../api/nodes";
 import type { AncestorRef, Node } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
@@ -70,16 +70,21 @@ function setup(over: Partial<Node> = {}, opts: {
 const terms = () => [...document.querySelectorAll(".np-term")].map((t) => t.textContent);
 const GROUP: Partial<Node> = { has_children: true, child_count: 2, element: "container", element_effective: "container" };
 
-describe("NodeProperties: элемент архитектуры", () => {
+describe("NodeProperties: строка «Тип»", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("у узла с детьми строки «Тип» нет, элемент — первой строкой; у листа «Тип» над элементом", () => {
+  const typeButton = () => screen.getByRole("button", { name: "Тип" });
+  const option = (label: string) => screen.getByRole("option", { name: new RegExp(`^${label}`) });
+
+  it("одна строка «Тип» первой — у листа и у узла с детьми; «Элемент архитектуры» нет (Р40)", () => {
     const { unmount } = setup(GROUP);
-    expect(terms()[0]).toBe("Элемент архитектуры");
-    expect(terms()).not.toContain("Тип");
+    expect(terms()[0]).toBe("Тип");
+    expect(terms()).not.toContain("Элемент архитектуры");
+    expect(typeButton()).toHaveTextContent("Контейнер");
     unmount();
     setup();
-    expect(terms().slice(0, 2)).toEqual(["Тип", "Элемент архитектуры"]);
+    expect(terms()[0]).toBe("Тип");
+    expect(terms().filter((t) => t === "Тип")).toHaveLength(1);
   });
 
   it("«?» у термина — справка о системе, контейнере и компоненте", async () => {
@@ -88,24 +93,51 @@ describe("NodeProperties: элемент архитектуры", () => {
     expect(screen.getByRole("dialog")).toHaveTextContent("Компонент. Вложенный объект контейнера");
   });
 
-  it("компонент: «Компонент контейнера «orders»», имя ведёт на страницу контейнера", async () => {
+  it("компонент у архитектора: «Компонент» в выпадашке, имя контейнера ведёт на его страницу", async () => {
     setup(
       { element_effective: "component", container_name: "orders", parent_id: "c" },
       { ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
     );
-    // Первая ссылка — строка элемента, вторая — «как у контейнера» в размещении.
+    expect(typeButton()).toHaveTextContent("Компонент");
+    // Первая ссылка — строка «Тип», вторая — «как у контейнера» в размещении.
     const [link] = screen.getAllByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+    expect(link.parentElement).toHaveTextContent("Входит в контейнер «orders»");
     await userEvent.click(link);
     expect(onNavigateNode).toHaveBeenCalledWith("c");
   });
 
-  it("лист — «Контейнер», внешний лист — «Внешняя система»", () => {
+  it("компонент у читателя — «Компонент контейнера «orders»»", () => {
+    setup(
+      { element_effective: "component", container_name: "orders", parent_id: "c" },
+      { isArchitect: false, ancestors: [ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")] },
+    );
+    const [link] = screen.getAllByRole("button", { name: "«orders»" });
+    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+  });
+
+  it("лист — «Контейнер», внешний лист тоже, пустая система — «Система»", () => {
     const { unmount } = setup({}, { isArchitect: false });
     expect(screen.getByText("Контейнер")).toBeInTheDocument();
     unmount();
-    setup({ is_external: true }, { isArchitect: false });
-    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+    const external = setup({ is_external: true }, { isArchitect: false });
+    expect(screen.getByText("Контейнер")).toBeInTheDocument();
+    external.unmount();
+    setup({ element: "system", element_effective: "system" }, { isArchitect: false });
+    expect(screen.getByText("Система")).toBeInTheDocument();
+  });
+
+  it("смена формы — PATCH формы; серый пункт объясняет причину и не выбирается", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node({ shape: "broker", version: 2 }));
+    setup();
+    await userEvent.click(typeButton());
+    const component = option("Компонент");
+    expect(component).toHaveAttribute("aria-disabled", "true");
+    expect(component).toHaveTextContent("Компонентом объект бывает только внутри контейнера.");
+    await userEvent.click(component);
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    await userEvent.click(option("Брокер"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ shape: "broker", base_version: 1 });
   });
 
   it("технология: у контейнера с компонентами своя полем, у системы сводная без поля", () => {

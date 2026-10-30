@@ -484,11 +484,15 @@ describe("NodePage: правила контейнеров", () => {
   });
 });
 
+// Строка «Тип» (Р40): выпадашка с подписью «Тип» для скринридера, значение — текстом
+// кнопки; пункты меню — по подписи типа.
+const typeButton = () => screen.getByRole("button", { name: "Тип" });
+const typeOption = (label: string) => screen.getByRole("option", { name: new RegExp(`^${label}`) });
+
 // ── Смена типа узла ─────────────────────────────────────────────────────────
-// Тип (форма C4) правится с самой страницы: импорт мог ошибиться («Monitored
-// Hosts» приехал «Пользователем»), и раньше починить это можно было только
-// пересозданием объекта. Запреты держит сервер — страница обязана показать его
-// причину, а не проглотить отказ.
+// Тип правится с самой страницы: импорт мог ошибиться («Monitored Hosts» приехал
+// «Пользователем»), и раньше починить это можно было только пересозданием объекта.
+// Запреты держит сервер — страница обязана показать его причину, а не проглотить отказ.
 describe("NodePage: смена типа", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -502,37 +506,37 @@ describe("NodePage: смена типа", () => {
     return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
   }
 
-  it("архитектор меняет тип из выпадашки — PATCH с новой формой", async () => {
-    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
-    setupType({ shape: "person" });
-    const кнопка = await screen.findByRole("button", { name: "Пользователь" });
+  it("архитектор меняет тип из выпадашки — PATCH с новой формой и элементом", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", element: "container", version: 2 }));
+    setupType({ shape: "person", element_effective: null });
+    const кнопка = await screen.findByRole("button", { name: "Тип" });
+    expect(кнопка).toHaveTextContent("Пользователь");
     await userEvent.click(кнопка);
-    await userEvent.click(screen.getByText("Сервис"));
+    await userEvent.click(typeOption("Контейнер"));
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
-    expect(vi.mocked(nodesApi.update).mock.calls[0][1].shape).toBe("service");
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ shape: "service", element: "container" });
   });
 
   it("наблюдателю тип показан текстом, редактора нет", async () => {
-    setupType({ shape: "person" }, false);
+    setupType({ shape: "person", element_effective: null }, false);
     await waitFor(() => expect(screen.getByText("Пользователь")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Пользователь" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Тип" })).toBeNull();
   });
 
   it("отказ сервера виден на странице, а не проглатывается", async () => {
-    // У узла с детьми строки «Тип» нет (Р24 эпика «Элемент архитектуры»): отказ — на базе
-    // с описанной структурой.
+    // Отказ — на базе с описанной структурой.
     const причина = "У узла описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
     setupType({ shape: "database" });
-    await userEvent.click(await screen.findByRole("button", { name: "База данных" }));
-    await userEvent.click(screen.getByText("Брокер сообщений"));
+    await userEvent.click(await screen.findByRole("button", { name: "Тип" }));
+    await userEvent.click(typeOption("Брокер"));
     expect(await screen.findByText(причина)).toBeInTheDocument();
   });
 
-  it("у узла с детьми строки «Тип» нет — тип говорит элемент архитектуры", async () => {
+  it("у узла с детьми — та же строка «Тип», отдельной строки элемента нет (Р40)", async () => {
     setupType({ shape: "service", has_children: true, child_count: 1, element_effective: "system" });
-    await screen.findByText("Элемент архитектуры");
-    expect(screen.queryByText("Тип")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Тип" })).toHaveTextContent("Система");
+    expect(screen.queryByText("Элемент архитектуры")).not.toBeInTheDocument();
   });
 });
 
@@ -561,8 +565,8 @@ describe("NodePage: правки меты и схема страницы", () =>
     setupSchema({ shape: "service" });
     await waitFor(() => expect(схема()).toContain("n1:service"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Сервис" }));
-    await userEvent.click(screen.getByText("База данных"));
+    await userEvent.click(typeButton());
+    await userEvent.click(typeOption("База данных"));
 
     await waitFor(() => expect(схема()).toContain("n1:database"));
     // Сосед не пострадал, и контекст не перезапрашивался — данные уже были на руках
@@ -623,7 +627,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
   it("чужая смена ТИПА (graph_rev) освежает «Свойства», а не только схему", async () => {
     setupPoll({ shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("Контейнер"), ждать);
 
     // Другая сессия сменила тип: структурная правка двигает graph_rev, meta_rev
     // стоит на месте. Форма — единственное отличие, поэтому тест ловит и «слушаем
@@ -632,7 +636,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("База данных"), ждать);
     expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
   });
 
@@ -675,7 +679,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     // Тик застал СВОЮ правку: сервер отдаёт ровно то, что уже показано, —
     // ни подмены полей, ни тоста «Данные обновлены» быть не должно.
     setupPoll({ name: "Сервис оплаты", shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("Контейнер"), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Сервис оплаты", shape: "service", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
@@ -692,15 +696,15 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
     setupPoll({ shape: "service" });
     // findBy* ждёт тем же дефолтом в 1000 мс — болезнь та же, лечим заодно.
-    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }, ждать));
-    await userEvent.click(screen.getByText("База данных"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
+    await userEvent.click(await screen.findByRole("button", { name: "Тип" }, ждать));
+    await userEvent.click(typeOption("База данных"));
+    await waitFor(() => expect(typeButton()).toHaveTextContent("База данных"), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument();
+    expect(typeButton()).toHaveTextContent("База данных");
     expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
   });
 

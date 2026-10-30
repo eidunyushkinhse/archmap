@@ -1,7 +1,7 @@
-// Правая панель редактора: смена ТИПА узла (форма C4) архитектором, отказ сервера
-// плашкой и полное отсутствие редактора у наблюдателя. Смена типа коммитится сразу
-// (как статус) и уходит в Undo редактора тем же onNodeSaved, что и остальная мета —
-// своей истории у панели нет.
+// Правая панель редактора: строка «Тип» (Р40 раздела 13 docs/plan-c4-elements.md) —
+// смена формы и элемента архитектором, серые пункты, отказ сервера плашкой и полное
+// отсутствие выпадашки у наблюдателя. Смена коммитится сразу (как статус) и уходит в Undo
+// редактора тем же onNodeSaved, что и остальная мета — своей истории у панели нет.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -19,7 +19,7 @@ vi.mock("../../api/nodes", () => ({
     delete: vi.fn(),
     // Живая нормализация источника: форма поля «Источник» зовёт её при вводе.
     anchorPreview: vi.fn(),
-    // Превью последствий смены элемента: строка «Элемент архитектуры» зовёт его до записи.
+    // Превью последствий смены элемента: строка «Тип» зовёт его до записи.
     elementPreview: vi.fn(),
   },
 }));
@@ -47,7 +47,7 @@ function makeNode(over: Partial<Node> = {}): Node {
 }
 
 const cb = {
-  // Предки узла (крошки уровня): по ним строка «Элемент архитектуры» ищет контейнер.
+  // Предки узла (крошки уровня): по ним строка «Тип» ищет контейнер.
   ancestors: [],
   onNodeSaved: vi.fn(),
   onNodeDeleted: vi.fn(),
@@ -58,52 +58,67 @@ function setup(node: Node, isArchitect = true) {
   return render(<NodeInspector node={node} isArchitect={isArchitect} {...cb} />);
 }
 
-describe("NodeInspector: смена типа", () => {
+describe("NodeInspector: смена типа формой", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it("архитектор меняет тип из выпадашки — PATCH с новой формой и запись в историю", async () => {
-    const saved = makeNode({ shape: "service", version: 4 });
+  const typeButton = () => screen.getByRole("button", { name: "Тип" });
+  const option = (label: string) => screen.getByRole("option", { name: new RegExp(`^${label}`) });
+
+  it("«Пользователь» → «Контейнер»: сервис с элементом одной правкой, запись в историю", async () => {
+    const saved = makeNode({ shape: "service", element: "container", element_effective: "container", version: 4 });
     vi.mocked(nodesApi.update).mockResolvedValue(saved);
-    const before = makeNode({ shape: "person" });
+    const before = makeNode({ shape: "person", element_effective: null });
     setup(before);
 
-    await userEvent.click(screen.getByRole("button", { name: /Пользователь/ }));
-    await userEvent.click(screen.getByRole("option", { name: "Сервис" }));
+    expect(typeButton()).toHaveTextContent("Пользователь");
+    await userEvent.click(typeButton());
+    await userEvent.click(option("Контейнер"));
 
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
     const [id, payload] = vi.mocked(nodesApi.update).mock.calls[0];
     expect(id).toBe("n1");
-    expect(payload.shape).toBe("service");
-    // CAS от версии последнего сохранённого — как у любой правки панели
-    expect(payload.base_version).toBe(3);
-    // Undo редактора достаётся бесплатно: полный payload + узел ДО правки
+    expect(payload).toMatchObject({ shape: "service", element: "container", base_version: 3 });
+    // Превью элемента у не-сервиса сервер не считает — правка одна, без него.
+    expect(nodesApi.elementPreview).not.toHaveBeenCalled();
     await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(saved, false, before));
   });
 
+  it("«Контейнер» → «База данных»: смена формы, элемент не шлётся", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(makeNode({ shape: "database", version: 4 }));
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    await userEvent.click(typeButton());
+    await userEvent.click(option("База данных"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    const payload = vi.mocked(nodesApi.update).mock.calls[0][1];
+    expect(payload.shape).toBe("database");
+    expect(payload).not.toHaveProperty("element");
+  });
+
   it("тот же тип — без запроса", async () => {
-    setup(makeNode({ shape: "service" }));
-    await userEvent.click(screen.getByRole("button", { name: /Сервис/ }));
-    await userEvent.click(screen.getByRole("option", { name: "Сервис" }));
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    await userEvent.click(typeButton());
+    await userEvent.click(option("Контейнер"));
     expect(nodesApi.update).not.toHaveBeenCalled();
+    expect(nodesApi.elementPreview).not.toHaveBeenCalled();
   });
 
   it("отказ сервера показан плашкой, а не проглочен", async () => {
     const причина = "У узла описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
-    setup(makeNode({ shape: "database" }));
+    setup(makeNode({ shape: "database", element_effective: "container" }));
 
-    await userEvent.click(screen.getByRole("button", { name: /База данных/ }));
-    await userEvent.click(screen.getByRole("option", { name: "Сервис" }));
+    await userEvent.click(typeButton());
+    await userEvent.click(option("Брокер"));
 
     expect(await screen.findByText(причина)).toBeInTheDocument();
     // Правка не применилась — в историю ничего не легло
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });
 
-  it("наблюдателю тип показан текстом, редактора нет", async () => {
-    setup(makeNode({ shape: "person" }), false);
+  it("наблюдателю тип показан текстом, выпадашки нет", async () => {
+    setup(makeNode({ shape: "person", element_effective: null }), false);
     await waitFor(() => expect(screen.getAllByText("Пользователь").length).toBeGreaterThan(0));
-    expect(screen.queryByRole("button", { name: /Пользователь/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Тип" })).toBeNull();
   });
 });
 
@@ -231,11 +246,11 @@ describe("NodeInspector: правка текстовых полей", () => {
   });
 });
 
-// ── Элемент архитектуры (Ф5 эпика docs/plan-c4-elements.md) ─────────────────
-// Строка под «Типом»: выбор у узла с детьми (редактор), текст у листа и компонента, у
-// «Пользователя» строки нет. Смена — превью последствий: без них PATCH сразу и в историю,
-// с ними — окно, PATCH после подтверждения и без истории.
-describe("NodeInspector: элемент архитектуры", () => {
+// ── Строка «Тип»: система и контейнер (Р40) ──────────────────────────────────
+// Строки «Тип» и «Элемент архитектуры» слиты: система ↔ контейнер у сервиса — смена
+// элемента с превью последствий (без них PATCH сразу и в историю, с ними — окно, PATCH
+// после подтверждения и без истории). Невозможные пункты — серые с объяснением.
+describe("NodeInspector: тип система и контейнер", () => {
   beforeEach(() => vi.clearAllMocks());
 
   const system = (over: Partial<Node> = {}) => makeNode({
@@ -243,25 +258,27 @@ describe("NodeInspector: элемент архитектуры", () => {
     element: null, element_effective: "system", container_name: null, ...over,
   });
   const quiet = { kind: "system_to_container" as const, before: [], after: [], docs_names: [], container_name: null };
+  const typeButton = () => screen.getByRole("button", { name: "Тип" });
+  const option = (label: string) => screen.getByRole("option", { name: new RegExp(`^${label}`) });
 
   async function pickContainer() {
-    await userEvent.click(screen.getByRole("button", { name: /^Система/ }));
-    await userEvent.click(screen.getByRole("option", { name: /^Контейнер/ }));
+    await userEvent.click(typeButton());
+    await userEvent.click(option("Контейнер"));
   }
 
-  it("у узла с детьми — выпадашка; без последствий PATCH сразу и в историю", async () => {
+  it("система → контейнер без последствий: PATCH сразу и в историю", async () => {
     vi.mocked(nodesApi.elementPreview).mockResolvedValue(quiet);
     const saved = system({ element: "container", element_effective: "container", version: 4 });
     vi.mocked(nodesApi.update).mockResolvedValue(saved);
     const before = system();
     setup(before);
-    expect(screen.getByText("Элемент архитектуры")).toBeInTheDocument();
+    expect(typeButton()).toHaveTextContent("Система");
 
-    await userEvent.click(screen.getByRole("button", { name: /^Система/ }));
-    // Пункты в две строки: подпись и пояснение.
-    expect(screen.getByText("группа контейнеров, сама не запускается")).toBeInTheDocument();
-    expect(screen.getByText("запускается отдельно, внутри его компоненты")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("option", { name: /^Контейнер/ }));
+    await userEvent.click(typeButton());
+    // Пункты в две строки: подпись и подсказка.
+    expect(screen.getByText("Группа контейнеров: сама не запускается")).toBeInTheDocument();
+    expect(screen.getByText("Одно приложение, которое запускается целиком")).toBeInTheDocument();
+    await userEvent.click(option("Контейнер"));
 
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
     expect(nodesApi.elementPreview).toHaveBeenCalledWith("n1", "container");
@@ -308,46 +325,62 @@ describe("NodeInspector: элемент архитектуры", () => {
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
-  it("лист — «Контейнер», компонент — «Компонент контейнера «orders»», без выпадашки", () => {
-    const { unmount } = setup(makeNode({ shape: "service", element_effective: "container", container_name: null }));
-    expect(screen.getByText("Контейнер")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Контейнер/ })).not.toBeInTheDocument();
-    unmount();
-    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }));
-    expect(screen.getByText("Компонент контейнера «orders»")).toBeInTheDocument();
+  it("невозможные пункты серые с причиной и не выбираются", async () => {
+    setup(system());
+    await userEvent.click(typeButton());
+    const db = option("База данных");
+    expect(db).toHaveAttribute("aria-disabled", "true");
+    expect(db).toHaveTextContent("Объект с вложенными объектами не может стать базой данных.");
+    expect(option("Компонент")).toHaveTextContent("перенесите его в контейнер");
+    await userEvent.click(db);
+    expect(nodesApi.update).not.toHaveBeenCalled();
+    expect(nodesApi.elementPreview).not.toHaveBeenCalled();
   });
 
-  it("у «Пользователя» строки нет; читателю узел с детьми — текстом", () => {
-    const { unmount } = setup(makeNode({ shape: "person", element_effective: null, container_name: null }));
-    expect(screen.queryByText("Элемент архитектуры")).not.toBeInTheDocument();
-    unmount();
-    setup(system({ element: "container", element_effective: "container" }), false);
-    expect(screen.getByText("Элемент архитектуры")).toBeInTheDocument();
+  it("лист → «Система»: превью и запись элемента (пустая система, Р39)", async () => {
+    vi.mocked(nodesApi.elementPreview).mockResolvedValue({ ...quiet, kind: "empty_system" });
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      makeNode({ shape: "service", element: "system", element_effective: "system", version: 4 }),
+    );
+    setup(makeNode({ shape: "service", element_effective: "container" }));
+    await userEvent.click(typeButton());
+    await userEvent.click(option("Система"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(nodesApi.elementPreview).toHaveBeenCalledWith("n1", "system");
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].element).toBe("system");
+  });
+
+  it("читателю — текстом; у «Пользователя» тип тоже есть", () => {
+    const { unmount } = setup(system({ element: "container", element_effective: "container" }), false);
     expect(screen.getByText("Контейнер")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Контейнер/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Тип" })).not.toBeInTheDocument();
+    unmount();
+    setup(makeNode({ shape: "person", element_effective: null }));
+    expect(typeButton()).toHaveTextContent("Пользователь");
   });
 });
 
-// ── Ф8: справка «?», скрытый «Тип», ссылка компонента, технология по элементу ─────
-// Р24: у узла с детьми строки «Тип» нет (форма всегда «Сервис»), «Элемент архитектуры» —
-// первая строка; у компонента имя контейнера — ссылка на его страницу (контейнер берётся
-// из цепочки предков). Р15: сводная технология только у системы.
-describe("NodeInspector: элемент архитектуры по Ф8", () => {
+// ── Ф8 и Р40: одна строка «Тип», справка «?», ссылка компонента, технология ─────
+// Р40: строка «Тип» одна у любого объекта (у узла с детьми тоже) и стоит первой; у
+// компонента имя контейнера — ссылка на его страницу (контейнер берётся из цепочки
+// предков). Р15: сводная технология только у системы.
+describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
   beforeEach(() => vi.clearAllMocks());
 
   const ancestor = (id: string, name: string, element_effective: AncestorRef["element_effective"]): AncestorRef =>
     ({ id, name, is_external: false, element_effective });
   const terms = () => [...document.querySelectorAll(".insp-term")].map((t) => t.textContent);
 
-  it("у узла с детьми строки «Тип» нет, «Элемент архитектуры» первая; у листа «Тип» на месте", () => {
+  it("одна строка «Тип» первой — у листа и у узла с детьми; «Элемент архитектуры» нет", () => {
     const { unmount } = setup(makeNode({
       shape: "service", has_children: true, child_count: 2, element: "container", element_effective: "container",
     }));
-    expect(terms()[0]).toBe("Элемент архитектуры");
-    expect(terms()).not.toContain("Тип");
+    expect(terms()[0]).toBe("Тип");
+    expect(terms()).not.toContain("Элемент архитектуры");
     unmount();
     setup(makeNode({ shape: "service", element_effective: "container" }));
-    expect(terms().slice(0, 2)).toEqual(["Тип", "Элемент архитектуры"]);
+    expect(terms()[0]).toBe("Тип");
+    expect(terms().filter((t) => t === "Тип")).toHaveLength(1);
   });
 
   it("«?» у термина открывает справку о системе, контейнере и компоненте", async () => {
@@ -357,31 +390,33 @@ describe("NodeInspector: элемент архитектуры по Ф8", () => 
     for (const head of ["Контейнер.", "Компонент.", "Система.", "Как выбрать."]) {
       expect(help).toHaveTextContent(head);
     }
+    expect(help).toHaveTextContent("Тип выбирается при создании и меняется в свойствах.");
     expect(help.textContent).not.toMatch(/[Сс]пек/);
   });
 
-  it("компонент: имя контейнера — ссылка на его страницу, контейнер — из предков", async () => {
+  it("компонент: выпадашка «Компонент» и ссылка на контейнер из предков", async () => {
     render(<NodeInspector
       {...cb}
       ancestors={[ancestor("s", "Торговля", "system"), ancestor("c", "orders", "container")]}
       node={makeNode({ shape: "service", element_effective: "component", container_name: "orders" })}
       isArchitect
     />);
+    expect(screen.getByRole("button", { name: "Тип" })).toHaveTextContent("Компонент");
     const link = screen.getByRole("button", { name: "«orders»" });
-    expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
+    expect(link.parentElement).toHaveTextContent("Входит в контейнер «orders»");
     await userEvent.click(link);
     expect(cb.onNavigateNode).toHaveBeenCalledWith("c");
   });
 
-  it("компонент без контейнера в цепочке — имя текстом, без ссылки", () => {
-    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }));
+  it("компонент у читателя: «Компонент контейнера «orders»»; без контейнера в цепочке — без ссылки", () => {
+    setup(makeNode({ shape: "service", element_effective: "component", container_name: "orders" }), false);
     expect(screen.getByText("Компонент контейнера «orders»")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "«orders»" })).not.toBeInTheDocument();
   });
 
-  it("внешний лист — «Внешняя система»", () => {
-    setup(makeNode({ shape: "service", is_external: true, element_effective: "container" }));
-    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+  it("пустая система (Р39) — «Система»", () => {
+    setup(makeNode({ shape: "service", element: "system", element_effective: "system" }), false);
+    expect(screen.getByText("Система")).toBeInTheDocument();
   });
 
   it("технология: у контейнера с компонентами — своя полем, у системы — сводная", async () => {

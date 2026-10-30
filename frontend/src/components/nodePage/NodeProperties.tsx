@@ -1,21 +1,21 @@
-// Карточка «Свойства» страницы объекта (аудит F-5): тип, элемент архитектуры,
-// принадлежность, статус, роль, технология, источник, размещение, описание — у архитектора
-// правкой на месте (inline CAS через useNodePatch; размещение — окном), у наблюдателя
-// текстом. Выпадашки типа, элемента и статуса — одна PropDropdown.
+// Карточка «Свойства» страницы объекта (аудит F-5): тип, принадлежность, статус, роль,
+// технология, источник, размещение, описание — у архитектора правкой на месте (inline CAS
+// через useNodePatch; размещение — окном), у наблюдателя текстом. Строка «Тип» — общий
+// рендер с инспектором редактора (element/TypeValue), выпадашка статуса — PropDropdown.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { AncestorRef, Node, NodeStatus } from "../../types";
-import { nodeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ChevronDownIcon } from "../../ui/icons";
 import { noAutofill } from "../../ui/noAutofill";
 import AnchorField from "../anchor/AnchorField";
 import PlacementRow from "./PlacementRow";
-import { ELEMENT_HINT, ELEMENT_LABEL, ELEMENT_ORDER, SHAPE_LABEL, SHAPE_ORDER, STATUS_ORDER } from "../nodeTerms";
+import { STATUS_ORDER } from "../nodeTerms";
 import type { useNodePatch } from "../../pages/useNodePatch";
-import { useElementPick } from "../element/useElementPick";
-import { elementView, pageElement } from "../element/elementView";
-import { ElementHelp, ElementValue } from "../element/ElementParts";
+import { useTypePick } from "../element/useTypePick";
+import { pageElement, typeView } from "../element/elementView";
+import { typeOptions } from "../element/typeOptions";
+import { ElementHelp, TypeValue } from "../element/ElementParts";
 import "../element/element.css";
 
 type NodePatch = ReturnType<typeof useNodePatch>;
@@ -41,7 +41,7 @@ function StatusLabel({ status, isExternal }: { status: NodeStatus; isExternal: b
   );
 }
 
-// Выпадашка свойства (тип, статус): кнопка с текущим значением и меню вариантов поверх
+// Выпадашка свойства (статус): кнопка с текущим значением и меню вариантов поверх
 // подложки; выбор закрывает меню, а коммит делает хук правки — только при реальном
 // изменении.
 function PropDropdown<T extends string>({ current, options, renderOption, onPick }: {
@@ -100,62 +100,27 @@ export default function NodeProperties({
 }) {
   const node = patch.node;
   const shape = node.shape;
-  // Элемент архитектуры (Ф5): выбор у узла с детьми, у листа и компонента — текст, у
-  // «Пользователя» строки нет. Смена — с окном последствий, если они есть.
-  const element = useElementPick(patch);
-  const view = elementView(node, isArchitect, ancestors);
-  // Узел с детьми: форма всегда «Сервис», строки «Тип» нет (Р24).
-  const isGroup = nodeNesting(node) === "group";
+  // Тип (Р40): система ↔ контейнер — смена элемента с окном последствий, если они есть;
+  // база, брокер, «Пользователь» — смена формы с правилами сервера.
+  const typePick = useTypePick(patch);
   return (
     <div className="np-card">
       <h3 className="np-card-title">Свойства</h3>
       <div className="np-props">
-        {/* Тип. Архитектор меняет форму прямо здесь (импорт мог ошибиться в
-            типе — кейс «Monitored Hosts» с типом «Пользователь»). Запреты на
-            стороне сервера: контейнером бывает только сервис, базу с описанной
-            структурой не увести (node.md N4а); причина отказа — плашкой выше. У узла с
-            детьми строки нет: его тип — элемент архитектуры (Р24). */}
-        {!isGroup && (
-          <>
-            <span className="np-term">Тип</span>
-            <span className="np-value">
-              {isArchitect ? (
-                <PropDropdown
-                  current={SHAPE_LABEL[patch.shape]}
-                  options={SHAPE_ORDER}
-                  renderOption={(sh) => SHAPE_LABEL[sh]}
-                  onPick={patch.pickShape}
-                />
-              ) : (
-                SHAPE_LABEL[shape]
-              )}
-            </span>
-          </>
-        )}
-
-        {/* Элемент архитектуры — сразу под типом (у узла с детьми — первым), «?» у термина. */}
-        {view.kind !== "none" && (
-          <>
-            <span className="np-term el-term">Элемент архитектуры<ElementHelp /></span>
-            <span className="np-value">
-              {view.kind === "pick" ? (
-                <PropDropdown
-                  current={ELEMENT_LABEL[view.value]}
-                  options={ELEMENT_ORDER}
-                  renderOption={(el) => (
-                    <span className="np-menu-two">
-                      {ELEMENT_LABEL[el]}
-                      <small>{ELEMENT_HINT[el]}</small>
-                    </span>
-                  )}
-                  onPick={element.pick}
-                />
-              ) : (
-                <ElementValue view={view} onNavigateNode={onNavigateNode} />
-              )}
-            </span>
-          </>
-        )}
+        {/* Тип (Р40): одна строка из шести значений у любого объекта, справка «?» у
+            термина. Архитектор меняет тип прямо здесь (импорт мог ошибиться в типе —
+            кейс «Monitored Hosts» с типом «Пользователь»); невозможные пункты серые с
+            причиной (typeOptions), остальные запреты — на сервере, отказ плашкой выше. */}
+        <span className="np-term el-term">Тип<ElementHelp /></span>
+        <span className="np-value">
+          <TypeValue
+            view={typeView(node, ancestors)}
+            options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
+            onPick={typePick.pick}
+            onNavigateNode={onNavigateNode}
+            trigger={{ className: "np-select", chevron: <ChevronDownIcon />, inline: true }}
+          />
+        </span>
 
         {/* Принадлежность (до Ф3 развёртывания — «Размещение»: слово ушло площадкам).
             Внешность — относительно контура ОРГАНИЗАЦИИ (спека N2а): чужой
@@ -293,7 +258,7 @@ export default function NodeProperties({
           )}
         </span>
       </div>
-      {element.dialog}
+      {typePick.dialog}
     </div>
   );
 }

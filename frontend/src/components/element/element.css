@@ -127,3 +127,29 @@
   flex: none;
   color: #94a3b8;
 }
+/* «Свойства» страницы: кнопка по ширине значения, как у «Статуса»; меню шире кнопки —
+   в пунктах объяснения. */
+.ts-wrap--inline {
+  display: inline-block;
+  flex: none;
+  align-self: flex-start;
+}
+.ts-wrap--inline > .ts-trigger {
+  width: auto;
+}
+.ts-wrap--inline .ts-menu {
+  right: auto;
+  width: 300px;
+}
+/* Строка «Тип» в свойствах: выпадашка и под ней контейнер компонента. */
+.ts-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+.ts-sub {
+  font-size: 12px;
+  color: #64748b;
+}

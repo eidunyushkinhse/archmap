@@ -18,15 +18,6 @@ export const ELEMENT_LABEL: Record<NodeElement, string> = {
   system: "Система",
   container: "Контейнер",
 };
-// Вторая строка пункта выпадашки «Элемент архитектуры» (как APPROVAL_HINT у статуса).
-export const ELEMENT_HINT: Record<NodeElement, string> = {
-  system: "группа контейнеров, сама не запускается",
-  container: "запускается отдельно, внутри его компоненты",
-};
-export const ELEMENT_ORDER: NodeElement[] = ["system", "container"];
-
-// Порядок типов в выпадашках — от самого частого (сервис) к самому редкому.
-export const SHAPE_ORDER: NodeShape[] = ["service", "database", "broker", "person"];
 
 // Тип объекта в интерфейсе (Р35 раздела 13 docs/plan-c4-elements.md) — проекция формы и
 // действующего элемента: первые три — сервис с элементом «система», «контейнер» или

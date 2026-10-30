@@ -25,9 +25,13 @@ interface Props {
   placeholder?: string;
   // Подпись для скринридера, когда видимой подписи рядом нет.
   label?: string;
+  // Кнопка по ширине значения («Свойства» страницы), а не во всю ячейку.
+  inline?: boolean;
 }
 
-export default function TypeSelect({ value, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label }: Props) {
+export default function TypeSelect({
+  value, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
+}: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
@@ -68,7 +72,7 @@ export default function TypeSelect({ value, options, onPick, triggerClass, chevr
   };
 
   return (
-    <span className="ts-wrap">
+    <span className={inline ? "ts-wrap ts-wrap--inline" : "ts-wrap"}>
       <button
         ref={trigger}
         type="button"
