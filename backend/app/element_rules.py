@@ -17,6 +17,13 @@
 Тот же запрет Р6 с другой стороны — store_refusal: база или брокер не входят в контейнер
 ни созданием, ни переносом, ни сменой формы (роутер узлов и app/reparent переводят текст
 в 422/400). Тексты — одна семья шаблонов с родом формы, рядом со STORE_INSIDE.
+
+Первый вложенный объект задаёт элемент родителя (Р38 раздела 13 плана) —
+first_child_refusal: создание с NodeCreate.parent_element допустимо, только пока
+родитель ждёт первого вложенного объекта (сервис без хранимого элемента, без детей и не
+компонент — тот же признак, что у окна создания на фронте). «Контейнер» родителю даёт
+только компонент: база и брокер не входят в контейнер (Р6), «Пользователь» не часть
+кода, а контейнер внутри контейнера модель не допускает.
 """
 
 import uuid
@@ -88,6 +95,62 @@ STORE_SHAPE = {
         "входить в состав контейнера. Вынесите его на уровень выше и повторите."
     ),
 }
+
+
+# Р38: элемент родителя при создании первого вложенного объекта.
+PARENT_HAS_CHILDREN = "У «{name}» уже есть вложенные объекты, его тип меняют в свойствах."
+PARENT_ELEMENT_SET = "У «{name}» тип уже выбран, его меняют в свойствах."
+PARENT_ELEMENT_ROOT = "Элемент родителя задаётся только при создании вложенного объекта."
+PERSON_CREATE = (
+    "Пользователь «{name}» не входит в состав контейнера «{container}». "
+    "Создайте его рядом с «{container}»."
+)
+
+
+def first_child_refusal(
+    rows: Sequence[ElementRow],
+    *,
+    parent_id: uuid.UUID | None,
+    value: NodeElement,
+    child_name: str,
+    child_shape: str,
+    child_element: NodeElement | None,
+) -> str | None:
+    """Р38: почему первому вложенному объекту нельзя задать элемент родителя value;
+    None — можно. rows — все узлы проекта до правки; parent_id — будущий родитель
+    создаваемого объекта, child_* — сам создаваемый объект.
+
+    Родитель должен ждать первого вложенного объекта: сервис без хранимого элемента, без
+    детей и не компонент. «Контейнер» родителю задаёт только компонент — объект формы
+    «Сервис» без своего элемента «контейнер»: база и брокер в контейнер не входят (Р6,
+    те же тексты, что у создания базы под контейнером), «Пользователь» — не часть кода,
+    контейнер внутри контейнера модель не допускает (CONTAINER_INSIDE)."""
+    if parent_id is None:
+        return PARENT_ELEMENT_ROOT
+    by_id = {r.id: r for r in rows}
+    parent = by_id.get(parent_id)
+    if parent is None:  # родителя проверяет вызывающий (404) — здесь страховка
+        return PARENT_ELEMENT_ROOT
+    if parent.shape != "service":
+        return ONLY_SERVICE
+    elements = build_elements(rows)
+    if elements.effective(parent_id) == "component":
+        holder = elements.container_of(parent_id)
+        inside = by_id[holder].name if holder is not None else ""
+        return INSIDE_CONTAINER.format(name=parent.name, container=inside)
+    if any(r.parent_id == parent_id and r.id != parent_id for r in rows):
+        return PARENT_HAS_CHILDREN.format(name=parent.name)
+    if parent.element is not None:
+        return PARENT_ELEMENT_SET.format(name=parent.name)
+    if value != "container":
+        return None
+    if child_shape in STORE_CREATE:
+        return STORE_CREATE[child_shape].format(name=child_name, container=parent.name)
+    if child_shape == "person":
+        return PERSON_CREATE.format(name=child_name, container=parent.name)
+    if child_element == "container":
+        return CONTAINER_INSIDE.format(name=parent.name, inner=child_name)
+    return None
 
 
 def element_change_refusal(

@@ -6193,6 +6193,8 @@ export interface components {
             status: "existing" | "planned" | "deprecated";
             /** Element */
             element?: ("system" | "container") | null;
+            /** Parent Element */
+            parent_element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;

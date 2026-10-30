@@ -925,6 +925,10 @@ async def test_создание_объекта_шлёт_элемент(client: A
     assert body["element"] == "container"
     check_node_contract("NodeCreate", body)
     assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
+    # Элемент родителя (NodeCreate.parent_element, Р38) инструмент не выставляет и
+    # аргументом не принимает: агент задаёт element родителю заранее.
+    assert "parent_element" not in body
+    assert "parent_element" not in tools.BY_NAME["archmap_create_node"]["schema"]["properties"]
 
 
 async def test_создание_без_элемента_поля_не_шлёт(client: ArchMapClient, api: FakeApi) -> None:
