@@ -1,6 +1,6 @@
 # ArchMap — CLAUDE.md
 
-Стек (проверено 2026-10-14 по package.json / requirements-prod.txt / pyproject.toml)
+Стек (проверено 2026-10-30 по package.json / requirements-prod.txt / pyproject.toml)
 - Frontend: React 19 + Vite 8 + TypeScript 6; холст — @xyflow/react 12 + elkjs, схемы логики — mermaid 12
 - Backend: Python 3.12 + FastAPI 0.143 (Starlette 1.8, Pydantic 2.14, uvicorn 0.54); SDK MCP (mcp 1.30) —
   в рантайме бэкенда: удалённый MCP-сервер /mcp живёт в его процессе
@@ -22,7 +22,7 @@
   ОТДЕЛЬНЫЙ репозиторий github.com/eidunyushkinhse/archmap-docs (docs.archmap.tech; вынесена из
   docs-site/ 2026-10-16, локально — ../archmap-docs; у него свои CLAUDE.md и README.md)
 
-Структура проекта (проверено 2026-10-14)
+Структура проекта (проверено 2026-10-14; счётчики и модули элемента архитектуры — 2026-10-30)
 archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
@@ -41,14 +41,17 @@ archmap/
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
+│   │   │   ├── element/   # элемент архитектуры: строка «Элемент архитектуры» и справка «?», окно первого
+│   │   │   │              # вложенного объекта, смена элемента с последствиями, «Перенести документацию» /
+│   │   │   │              # «Собрать с компонентов»
 │   │   │   ├── users/     # меню профиля (смена пароля, «Токены для MCP»), окна экрана «Пользователи»
 │   │   │   ├── login/     # анимированное превью схемы на странице входа
 │   │   │   ├── demo/      # демо-режим: плашки и тосты пределов проекта
 │   │   │   ├── tour/      # обучающий тур демо: шаги, машина состояний, слой подсказок, пилюля «Обучение»
-│   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема», группы потомков
+│   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 238 тестовых файлов)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 254 тестовых файла)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
@@ -69,10 +72,11 @@ archmap/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
 │   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
 │   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры)
-│   │   ├── routers/       # 24 роутера /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
+│   │   ├── routers/       # 26 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
-│   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment
-│   │   ├── schemas/       # Pydantic-контракт API (29 модулей; из него генерируется api.gen.ts)
+│   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment,
+│   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки)
+│   │   ├── schemas/       # Pydantic-контракт API (30 модулей; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
@@ -82,6 +86,10 @@ archmap/
 │   │   ├── database.py / column_limits.py / view_state.py  # сессия и пул; длины строк до flush (422, а не 500); CAS-версии
 │   │   ├── tree.py / reparent.py / restore.py / projects.py / copy_plan.py / transition.py
 │   │   │                  # дерево узлов, перенос, Undo удаления, копия проекта, «Принять переход»
+│   │   ├── element.py / element_rules.py / element_marks.py / element_change.py / facts_transfer.py /
+│   │   │   import_element.py / container_hints.py  # элемент архитектуры: действующий элемент, правила
+│   │   │                  # записи, адаптер к БД, последствия смены, перенос и сбор фактов, санитизация
+│   │   │                  # ввоза, вопрос «похоже на контейнер»
 │   │   ├── graph_queries.py / context_graph.py / alerts.py / connectivity.py  # граф уровня, контекст-схема, алерты
 │   │   ├── export.py / import_yaml.py / import_merge.py / merge_report.py / merge_warnings.py
 │   │   │                  # YAML C4: экспорт, импорт, слияние прогонов, отчёт и анализаторы слияния
@@ -101,16 +109,16 @@ archmap/
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (80 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (85 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
 │   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
-│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (36 инструментов:
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (37 инструментов:
 │   │                      # чтение, поиск, промпты, превью → применение, точечные правки, версии документации, размещение;
-│   │                      # удалений нет; удалённый набор — 33, без диска агента), remote.py (Streamable HTTP без состояния, журнал вызовов),
+│   │                      # удалений нет; удалённый набор — 34, без диска агента), remote.py (Streamable HTTP без состояния, журнал вызовов),
 │   │                      # render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
@@ -276,6 +284,7 @@ Node (узел)
   контейнера, без базы, брокера и другого контейнера внутри (app/element_rules.py, 422)
 - element_effective — вычисляемое в API: system | container | component, у person — null; считает
   ТОЛЬКО app/element.py (адаптер к БД — app/element_marks.py), фронт и MCP его не вычисляют
+- container_name — вычисляемое в API: имя ближайшего контейнера у компонента (у остальных null)
 
 NodeDoc (схема логики узла; прежнее единственное поле Node.flowchart перенесено сюда)
 - id, node_id → Node, name (уникально в пределах узла)
@@ -298,9 +307,12 @@ ConfigParam (параметр конфигурации сервиса — тре
 - description — «что переключает», value_type — свободная строка, required — булево
 - default_value — ТЕКСТ ДЕФОЛТА ИЗ КОДА. ЗНАЧЕНИЙ СРЕД НЕ ХРАНИМ НИКОГДА
 - version — CAS
-- Владелец ВСЕГДА сам сервис: одинаковый параметр у двух сервисов — две записи.
-  Пометка «зависит от: ИМЯ» в тексте схемы логики резолвится ТОЛЬКО среди параметров
-  владельца схемы, поэтому «неоднозначно» невозможно по построению (класс алертов AL33)
+- Владелец параметра — КОНТЕЙНЕР (сервис с действующим элементом «контейнер»: лист вне
+  контейнера или контейнер с компонентами); одинаковый параметр у двух контейнеров — две записи.
+  Пометка «зависит от: ИМЯ» в тексте схемы логики резолвится ТОЛЬКО среди параметров ближайшего
+  контейнера владельца схемы (у компонента — контейнера-предка), поэтому «неоднозначно»
+  по-прежнему невозможно по построению (класс алертов AL33 называет контейнер). Свои параметры у
+  системы и компонента — старые данные, их ловят AL24 и AL36
 
 ProjectMember (участник проекта)
 - ключ (project_id → Project, user_id → User), оба CASCADE; role — owner | editor | reader
@@ -365,6 +377,8 @@ BusinessProcess / ProcessParticipant / ProcessMessage / ProcessFragment
 - QWEN.md — тот же файл для Qwen Code, собирается из CLAUDE.md: правишь CLAUDE.md →
   python3 scripts/agent-docs.py и коммитишь оба (хук и CI сверяют их через --check);
   строки про самого агента — в таблице AGENT_LINES скрипта.
+- Элемент архитектуры считает ТОЛЬКО `app/element.py`; факт процесса — у ближайшего контейнера,
+  факт кода — у листа или компонента (docs/plan-c4-elements.md, раздел 1)
 
 Архитектурные привычки (фронтенд)
 - Это дефолты, реагирующие на видимый «смелл» в коде, а НЕ чек-лист для сверки
