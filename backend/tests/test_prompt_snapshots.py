@@ -73,6 +73,13 @@ SLICE = (
     "    shape: database\n"
     "edges: []\n"
 )
+# Срез со страницы компонента: его поддерево, контейнер «Ярмарка / orders» вне среза.
+COMPONENT_SLICE = (
+    "nodes:\n"
+    "- name: api\n"
+    "  shape: service\n"
+    "edges: []\n"
+)
 DB_PATHS = ["Ярмарка / Каталог-БД", "Ярмарка / Учёт-БД"]
 BROKER_PATHS = ["Ярмарка / Шина событий"]
 SERVICE_PATHS = ["Ярмарка / orders", "Ярмарка / billing"]
@@ -145,6 +152,11 @@ CASES: list[Case] = [
           lambda: prompt_for_variant(
               "builder", "docs",
               build_docs_prompt(SLICE, described_entries=DESCRIBED, pending_entries=PENDING))),
+    # Окно компонента: спецификация уезжает его контейнеру (Р12, spec_owner).
+    _case("docs--builder-component-window", "docs", "builder",
+          lambda: prompt_for_variant(
+              "builder", "docs",
+              build_docs_prompt(COMPONENT_SLICE, spec_owner=("component", NODE_PATH)))),
     _case("docs--skeptic", "docs", "skeptic",
           lambda: prompt_for_variant("skeptic", "docs", build_docs_prompt(SLICE))),
     _case("docs--orchestrated", "docs", "orchestrated",

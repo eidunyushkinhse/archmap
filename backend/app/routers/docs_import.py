@@ -9,6 +9,7 @@ preview — dry-run плана без записи; apply — тот же пла
 """
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -29,11 +30,13 @@ from app.docs_import import (
     prompt_name_catalogs,
 )
 from app.docs_prompt import build_docs_prompt
+from app.element_marks import build_elements, element_rows_of
 from app.export import build_export
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
 from app.models.user import User
+from app.node_ref import NodeIndex
 from app.schemas.docs_import import (
     DocsImportIn,
     DocsImportReport,
@@ -72,10 +75,26 @@ def docs_prompt(
     (docs/plan-skeptic-audit.md)."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
+    # Куда уезжает спецификация главного узла среза, если не к нему самому (Р12
+    # docs/plan-c4-elements.md): у компонента — его контейнеру (путь от корня проекта:
+    # контейнер лежит вне среза), у системы — никуда, своего API у неё нет. Элементы
+    # считаются по всем узлам проекта: элемент узла зависит от его предков. (Не в
+    # докстринге: он уезжает в OpenAPI и в api.gen.ts.)
+    spec_owner: tuple[Literal["component", "system"], str] | None = None
     if node_id is not None:
         by_id = {n.id: n for n in nodes}
         if node_id not in by_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
+        elements = build_elements(element_rows_of(nodes))
+        element = elements.effective(node_id)
+        holder = elements.container_of(node_id)
+        if element == "system":
+            spec_owner = ("system", by_id[node_id].name)
+        elif element == "component" and holder in by_id:
+            # Узел в цикле родителей до корня не доходит, и полного пути у него нет —
+            # тогда хватает имени.
+            path = NodeIndex.of(nodes).path_by_id().get(holder, by_id[holder].name)
+            spec_owner = ("component", path)
         sub_ids = tree.subtree_ids(by_id, node_id)
         nodes = [by_id[i] for i in sub_ids]
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
@@ -88,7 +107,7 @@ def docs_prompt(
             "docs",
             build_docs_prompt(
                 export_slice, include, lang, hints, target, tables, channels,
-                described, pending, param_catalog=params,
+                described, pending, param_catalog=params, spec_owner=spec_owner,
             ),
         )
     )
