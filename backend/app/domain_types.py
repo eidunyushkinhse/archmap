@@ -33,9 +33,15 @@ NODE_ELEMENTS: tuple[NodeElement, ...] = get_args(NodeElement)
 NodeElementEffective = Literal["system", "container", "component"]
 # Последствия смены элемента или переноса узла для размещения (app/element_change, Р18):
 # система ↔ контейнер у узла с детьми, вход в контейнер (переносимое становится его
-# частью) и выход из него; none — площадки никуда не переезжают.
+# частью) и выход из него, первый вложенный объект у листа с площадками (лист становится
+# системой); none — площадки никуда не переезжают.
 ElementChangeKind = Literal[
-    "none", "system_to_container", "container_to_system", "join_container", "leave_container"
+    "none",
+    "system_to_container",
+    "container_to_system",
+    "join_container",
+    "leave_container",
+    "first_child",
 ]
 
 # Вид версии документации объекта (docs/tasks/doc-versions.md): manual — ручная

@@ -1,9 +1,10 @@
 """Смена элемента и перенос узла с последствиями для размещения (Р18 эпика
 docs/plan-c4-elements.md, app/element_change.py).
 
-Сторожим четыре вида переноса площадок (система → контейнер объединением, контейнер →
+Сторожим пять видов переноса площадок (система → контейнер объединением, контейнер →
 система раздачей единицам — и листьям бывшего составного компонента, вход в контейнер,
-выход из него), отсутствие спящих экземпляров после операции, «ничего не переезжает»
+выход из него, первый вложенный объект у листа с площадками — при создании и переносе),
+отсутствие спящих экземпляров после операции, «ничего не переезжает»
 (none), явные site_ids поверх переноса, элемент и родителя в одном PATCH, превью = итог,
 отказы превью теми же текстами, что у PATCH, и курсоры.
 """
@@ -84,6 +85,16 @@ class Scene:
         r = self.get(f"{URL}/{self.ids[name]}/move-preview", **params)
         assert r.status_code == 200, r.text
         return r.json()
+
+    def create(self, name: str, parent: str, **fields: Any):
+        """POST узла под parent; id запоминается под именем (для own)."""
+        self.db.expunge_all()
+        r = self.client.post(
+            URL, headers=self.h, json={"name": name, "parent_id": str(self.ids[parent]), **fields}
+        )
+        assert r.status_code == 201, r.text
+        self.ids[name] = uuid.UUID(r.json()["id"])
+        return r
 
     def patch(self, name: str, body: dict[str, Any]):
         self.db.expunge_all()
@@ -355,3 +366,98 @@ def test_превью_только_редактору(client, db):
     r = client.get(f"{URL}/{s.ids['orders']}/element-preview", params={"element": "container"},
                    headers=headers)
     assert r.status_code in (403, 404)
+
+
+# --- Правило 5: первый вложенный объект у листа с площадками ---
+
+@pytest.mark.parametrize("element", [None, "system"])
+def test_создание_под_листом_с_площадками_отдаёт_их_ребёнку(client, db, element):
+    """Лист-единица, получивший первого ребёнка, — система: его площадки получает ребёнок,
+    у самого листа экземпляров больше нет (спящих остатков нет)."""
+    s = Scene(db, client, [("orders", None, {"element": element}, ["prod-eu", "prod-ru"])])
+    g0, m0 = s.revs()
+    r = s.create("api", "orders")
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu", "prod-ru"]
+    assert s.own() == {"api": ["prod-eu", "prod-ru"]}
+    assert s.revs() == (g0 + 1, m0 + 1)
+    # Второй ребёнок — уже не первый: у системы площадок нет, переносить нечего.
+    s.create("scheduler", "orders")
+    assert s.own() == {"api": ["prod-eu", "prod-ru"]}
+
+
+@pytest.mark.parametrize(
+    ("fields", "child"),
+    [
+        ({"element": "container"}, {}),  # лист-контейнер: ребёнок — его компонент
+        ({}, {"shape": "person"}),  # «Пользователь» площадок не принимает
+    ],
+)
+def test_создание_ничего_не_переносит(client, db, fields, child):
+    s = Scene(db, client, [("orders", None, fields, ["prod-eu"])])
+    g0, m0 = s.revs()
+    s.create("api", "orders", **child)
+    assert s.own() == {"orders": ["prod-eu"]}
+    assert s.revs() == (g0 + 1, m0)
+
+
+def test_перенос_поддерева_в_лист_с_площадками(client, db):
+    """Переносимая система с единицами: каждая единица добавляет к своим площадкам
+    площадки листа, лист становится системой без экземпляров; превью = итог."""
+    s = Scene(db, client, [
+        ("shop", None, {}, []),
+        ("orders", "shop", {}, ["prod-eu"]),
+        ("billing", "shop", {}, []),
+        ("gateway", "billing", {"openapi_spec": "openapi: 3.0.0"}, ["prod-ru"]),
+        ("ledger", "billing", {}, []),
+    ])
+    p = s.preview_move("billing", "orders")
+    assert p["kind"] == "first_child"
+    assert p["container_name"] == "orders"
+    assert _rows(p, "before") == [("orders", ["prod-eu"]), ("gateway", ["prod-ru"])]
+    assert _rows(p, "after") == [("gateway", ["prod-eu", "prod-ru"]), ("ledger", ["prod-eu"])]
+    assert p["docs_names"] == []
+
+    g0, m0 = s.revs()
+    assert s.patch("billing", {"parent_id": str(s.ids["orders"])}).status_code == 200
+    assert s.own() == {"gateway": ["prod-eu", "prod-ru"], "ledger": ["prod-eu"]}
+    s.shown(p["after"])
+    assert s.revs() == (g0 + 1, m0 + 1)
+
+
+def test_выход_из_контейнера_в_лист_с_площадками(client, db):
+    """Компонент, вынесенный из контейнера в лист-систему: площадки прежнего контейнера
+    (правило 4) и площадки листа (правило 5) — объединением."""
+    s = Scene(db, client, [
+        ("orders", None, {"element": "container"}, ["prod-eu"]),
+        ("api", "orders", {}, []),
+        ("worker", "orders", {}, []),
+        ("billing", None, {"element": "system"}, ["prod-ru"]),
+    ])
+    p = s.preview_move("worker", "billing")
+    assert (p["kind"], p["container_name"]) == ("first_child", "billing")
+    assert _rows(p, "before") == [("orders", ["prod-eu"]), ("billing", ["prod-ru"])]
+    assert _rows(p, "after") == [("orders", ["prod-eu"]), ("worker", ["prod-eu", "prod-ru"])]
+
+    assert s.patch("worker", {"parent_id": str(s.ids["billing"])}).status_code == 200
+    assert s.own() == {"orders": ["prod-eu"], "worker": ["prod-eu", "prod-ru"]}
+    s.shown(p["after"])
+
+
+@pytest.mark.parametrize(
+    ("target", "kind"),
+    [
+        ("orders", "none"),  # лист без площадок
+        ("payments", "join_container"),  # лист-контейнер: переносимое — его компонент
+    ],
+)
+def test_перенос_в_лист_без_пятого_правила(client, db, target, kind):
+    s = Scene(db, client, [
+        ("orders", None, {}, []),
+        ("payments", None, {"element": "container"}, ["prod-eu"]),
+        ("billing", None, {}, []),
+    ])
+    p = s.preview_move("billing", target)
+    assert p["kind"] == kind
+    before = s.own()
+    assert s.patch("billing", {"parent_id": str(s.ids[target])}).status_code == 200
+    assert s.own() == before

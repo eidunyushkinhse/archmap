@@ -1,7 +1,7 @@
 // Последствия смены элемента архитектуры или переноса узла (Р18 эпика
 // docs/plan-c4-elements.md) словами окна. Что именно переедет, считает сервер
 // (GET element-preview / move-preview, ElementChangePreview); здесь только решение
-// «нужно ли окно» и тексты прототипа v2 для четырёх видов. Своей логики площадок нет.
+// «нужно ли окно» и тексты прототипа v2 для пяти видов. Своей логики площадок нет.
 import type { ElementChangePreview, PlacementRowOut } from "../../types";
 
 function sameRows(a: PlacementRowOut[], b: PlacementRowOut[]): boolean {
@@ -73,6 +73,15 @@ export function consequenceTexts(preview: ElementChangePreview, name: string): C
         lead: `«${name}» станет компонентом контейнера «${container}» и перестанет считаться отдельным приложением.`,
         placementNote: `«${container}» займёт и площадки «${name}».`,
         docs: componentDocs(preview.docs_names, container),
+        confirm: "Перенести",
+      };
+    case "first_child":
+      // Перенос в лист с площадками: лист станет системой (D34, правило 5).
+      return {
+        title: `Перенести «${name}» в «${container}»?`,
+        lead: `«${container}» станет системой из вложенных объектов, и его площадки перейдут к ним.`,
+        placementNote: `«${name}» получит площадки «${container}». Лишние можно убрать на холсте «Развёртывание».`,
+        docs: null,
         confirm: "Перенести",
       };
     default:

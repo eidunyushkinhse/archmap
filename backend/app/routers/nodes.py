@@ -181,6 +181,10 @@ def create_node(
     )
     db.add(node)
     db.flush()
+    # Лист с площадками, получивший первого ребёнка и ставший системой, отдаёт их ребёнку
+    # в той же транзакции (D34, правило 5): иначе экземпляры листа уснули бы, а новый
+    # объект остался бы без площадок. Курсор меты — если экземпляры изменились.
+    relocated = element_change.apply_created(db, project, node)
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
     # хранилище; в колонках узла позиций больше нет). Без координат — авто (ELK).
     if payload.pos_x is not None and payload.pos_y is not None:
@@ -194,7 +198,7 @@ def create_node(
         )
     # мир вида родителя изменился (новый локал ± строка позиции): fence + курсор
     bump_view_version(db, project.id, payload.parent_id)
-    commit_change(db, project, user.id, graph=True)
+    commit_change(db, project, user.id, graph=True, meta=relocated > 0)
     db.refresh(node)
     _mark_derived(db, project, [node])  # только что создан — детей нет, но для единообразия
     return node
@@ -563,9 +567,9 @@ def update_node(
             # Позиции переехавшего поддерева во ВНЕШНИХ видах больше ничего не значат:
             # снимаем их и двигаем версии затронутых видов (в т.ч. обоих родителей).
             reparent.strip_layout(db, project, node, old_parent)
-        # Смена элемента у узла с детьми и перенос в контейнер или из него меняют, кто
-        # держит размещение: площадки переезжают в той же транзакции (app/element_change,
-        # Р18). Явно присланные site_ids ниже ложатся поверх. Схема уже двигается
+        # Смена элемента у узла с детьми, перенос в контейнер или из него и перенос в лист
+        # с площадками (он становится системой) меняют, кто держит размещение: площадки
+        # переезжают в той же транзакции (app/element_change, Р18, D34). Явно присланные site_ids ниже ложатся поверх. Схема уже двигается
         # структурным полем; мета — если экземпляры изменились (строка «Размещение»).
         relocated = element_change.apply(
             db, project, node,
@@ -618,8 +622,8 @@ def move_preview(
     _: User = Depends(require_project_editor),
 ) -> ElementChangePreview:
     """Что сделает перенос узла под parent_id (без него — в корень), БЕЗ записи: вход в
-    контейнер или выход из него переносит площадки (Р18). Отказ — тот же 400 и текст,
-    что у PATCH parent_id."""
+    контейнер или выход из него и перенос в лист с площадками переносят площадки (Р18,
+    D34). Отказ — тот же 400 и текст, что у PATCH parent_id."""
     node = node_or_404(db, node_id, project)
     if parent_id != node.parent_id:
         reason = reparent.validate_reparent(db, project, node, parent_id)

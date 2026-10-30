@@ -121,6 +121,10 @@ class Elements[K: Hashable]:
         self._memo[node_id] = result
         return result
 
+    def parent(self, node_id: K) -> K | None:
+        """Родитель узла (None у корня и у узла, которого нет в дереве)."""
+        return self._parent_of.get(node_id)
+
     def container_of(self, node_id: K) -> K | None:
         """Контейнер, которому принадлежат факты процесса узла: у контейнера — он сам, у
         компонента — его предок с действующим элементом «контейнер»; у системы и у

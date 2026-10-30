@@ -1,4 +1,4 @@
-// Окно последствий смены элемента архитектуры и переноса (Р18): четыре вида текстов
+// Окно последствий смены элемента архитектуры и переноса (Р18): пять видов текстов
 // прототипа v2, секции «Площадки» и «Документация» — только когда им есть что показать.
 // Решение «нужно ли окно» (hasConsequences) — чистая функция рядом.
 import { fireEvent, render, screen } from "@testing-library/react";
@@ -87,6 +87,22 @@ describe("окно последствий", () => {
     expect(screen.getByText("«api» перестанет быть частью «orders» и получит свои площадки.")).toBeInTheDocument();
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
+  });
+
+  it("перенос в лист с площадками: лист станет системой, площадки — вложенным", () => {
+    const { onConfirm } = show(preview({
+      kind: "first_child",
+      before: [row("orders", ["prod-eu", "prod-ru"])],
+      after: [row("api", ["prod-eu", "prod-ru"])],
+      container_name: "orders",
+    }), "api");
+    expect(screen.getByText("Перенести «api» в «orders»?")).toBeInTheDocument();
+    expect(screen.getByText("«orders» станет системой из вложенных объектов, и его площадки перейдут к ним.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки")).toBeInTheDocument();
+    expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
+    expect(screen.queryByText("Документация")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Перенести"));
+    expect(onConfirm).toHaveBeenCalledOnce();
   });
 
   it("площадки не переезжают — секции «Площадки» нет, документация есть", () => {

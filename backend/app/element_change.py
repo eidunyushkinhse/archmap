@@ -5,14 +5,23 @@ docs/plan-c4-elements.md).
 смена элемента у узла с детьми или перенос узла внутрь контейнера и наружу меняет, кто
 единица, и площадки без переноса молча уснули бы у компонентов. Поэтому перенос
 размещения — часть той же правки (PATCH /nodes/{id}, одна транзакция; отдельной ручки нет:
-одна точка для интерфейса, MCP и повторов Undo/Redo). Четыре случая:
+одна точка для интерфейса, MCP и повторов Undo/Redo). Пять случаев:
 1. система → контейнер: узел получает объединение площадок своих единиц (до смены);
 2. контейнер → система: каждая единица после смены (в том числе листья бывших составных
    компонентов) получает площадки контейнера;
 3. вход в контейнер (переносимое становится компонентом): целевой контейнер добавляет к
    своим площадкам объединение площадок единиц переносимого поддерева;
 4. выход из контейнера (переносимое перестаёт быть компонентом): каждая единица
-   переносимого поддерева получает площадки прежнего контейнера (у него они остаются).
+   переносимого поддерева получает площадки прежнего контейнера (у него они остаются);
+5. первый вложенный объект у листа (лист вне контейнера был единицей со своими
+   площадками, получил первого ребёнка и стал системой — элемент null или «система»):
+   каждая единица нового поддерева добавляет к своим площадкам площадки листа, у листа
+   экземпляры снимаются. Срабатывает при переносе в лист (поверх правила 4, если
+   переносимое при этом выходит из контейнера) и при создании ребёнка (apply_created,
+   без превью: окно первого вложенного объекта на клиенте уже обещало, что площадки
+   ведутся у вложенных). Лист с элементом «контейнер» становится контейнером с
+   компонентом — переноса нет; ребёнок-«Пользователь» площадок не принимает — тогда
+   переноса тоже нет, экземпляры листа спят до его ухода.
 Контейнер → контейнер, компонент → компонент другого контейнера, лист без детей,
 «Пользователь» — ничего не переезжает (none). Компоненты после операции экземпляров не
 держат: их экземпляры удаляются, спящих остатков от операции не бывает. Спецификация,
@@ -49,7 +58,8 @@ class Relocation:
 
     own_after — новые наборы площадок затронутых узлов (пустой — снять все экземпляры);
     before_units и after_units — участники таблицы окна до и после, в порядке строк;
-    holder — контейнер-участник переноса (цель или прежний); future_components — кто
+    holder — контейнер-участник переноса (цель или прежний), у первого вложенного объекта
+    (правило 5) — лист, ставший системой; его имя окно называет; future_components — кто
     станет компонентом (их спецификацию и конфигурацию отметит AL36); former_container —
     контейнер, ставший системой (его собственную документацию отметит AL24)."""
 
@@ -71,6 +81,85 @@ def _union(lists: Sequence[Sequence[uuid.UUID]], rank: Mapping[uuid.UUID, int]) 
     return sorted(merged, key=lambda s: rank.get(s, len(rank)))
 
 
+def _moved(
+    before: Elements[uuid.UUID],
+    after: Elements[uuid.UUID],
+    node_id: uuid.UUID,
+    own: Own,
+    rank: Mapping[uuid.UUID, int],
+) -> Relocation:
+    """Правила 3 и 4: перенос узла внутрь контейнера или наружу."""
+    was, will = before.effective(node_id), after.effective(node_id)
+    subtree = [node_id, *after.descendants(node_id)]
+    if was in ("system", "container") and will == "component":
+        holder = after.container_of(node_id)
+        if holder is None:  # компонент без контейнера бывает только в цикле данных
+            return NOTHING
+        units = before.units_under(node_id)
+        out: dict[uuid.UUID, list[uuid.UUID]] = {n: [] for n in subtree}
+        out[holder] = _union([own.get(holder, ()), *(own.get(u, ()) for u in units)], rank)
+        return Relocation(
+            "join_container", out, [holder, *units], [holder], holder=holder,
+            future_components=tuple(n for n in subtree if after.effective(n) == "component"),
+        )
+    if was == "component" and will in ("system", "container"):
+        holder = before.container_of(node_id)
+        if holder is None:
+            return NOTHING
+        sites = list(own.get(holder, ()))
+        units = after.units_under(node_id)
+        out = {n: [] for n in subtree}
+        for unit in units:
+            out[unit] = list(sites)
+        return Relocation("leave_container", out, [holder], [holder, *units], holder=holder)
+    return NOTHING
+
+
+def _became_system(
+    before: Elements[uuid.UUID],
+    after: Elements[uuid.UUID],
+    parent_id: uuid.UUID,
+    own: Own,
+) -> bool:
+    """Условие правила 5: родитель был листом вне контейнера (единицей) со своими
+    площадками, получил первого ребёнка и стал системой. Лист внутри контейнера —
+    компонент без экземпляров; лист с элементом «контейнер» остаётся единицей."""
+    return (
+        bool(own.get(parent_id))
+        and before.effective(parent_id) == "container"
+        and not before.descendants(parent_id)
+        and after.effective(parent_id) == "system"
+    )
+
+
+def _first_child(
+    after: Elements[uuid.UUID],
+    parent_id: uuid.UUID,
+    own: Own,
+    rank: Mapping[uuid.UUID, int],
+    base: Relocation,
+) -> Relocation:
+    """Правило 5 поверх последствий самой правки (base — none или выход из контейнера):
+    каждая единица бывшего листа после правки добавляет к своим площадкам (в том числе
+    полученным по base) площадки листа, у листа экземпляры снимаются. Единиц нет
+    (ребёнок — «Пользователь») — площадки отдать некому, остаётся base."""
+    units = after.units_under(parent_id)
+    if not units:
+        return base
+    mid = _apply_own(own, base)
+    sites = own.get(parent_id, ())
+    out = dict(base.own_after)
+    out[parent_id] = []
+    for unit in units:
+        out[unit] = _union([mid.get(unit, ()), sites], rank)
+    if base.kind == "leave_container" and base.holder is not None:
+        # Прежний контейнер в таблице — как в правиле 4: его площадки остаются при нём.
+        rows_before, rows_after = [base.holder, parent_id], [base.holder, *units]
+    else:
+        rows_before, rows_after = [parent_id, *units], list(units)
+    return Relocation("first_child", out, rows_before, rows_after, holder=parent_id)
+
+
 def relocation(
     before: Elements[uuid.UUID],
     after: Elements[uuid.UUID],
@@ -83,32 +172,16 @@ def relocation(
     """Последствия правки узла node_id для размещения. before и after — элементы дерева
     до и после правки; own — экземпляры до неё; moved — правка переносит узел (иначе —
     меняет его элемент)."""
+    if moved:
+        base = _moved(before, after, node_id, own, rank)
+        parent_id = after.parent(node_id)
+        if parent_id is not None and _became_system(before, after, parent_id, own):
+            return _first_child(after, parent_id, own, rank, base)
+        return base
     was, will = before.effective(node_id), after.effective(node_id)
-    subtree = [node_id, *after.descendants(node_id)]
-    if moved and was in ("system", "container") and will == "component":
-        holder = after.container_of(node_id)
-        if holder is None:  # компонент без контейнера бывает только в цикле данных
-            return NOTHING
+    if was == "system" and will == "container":
         units = before.units_under(node_id)
-        out: dict[uuid.UUID, list[uuid.UUID]] = {n: [] for n in subtree}
-        out[holder] = _union([own.get(holder, ()), *(own.get(u, ()) for u in units)], rank)
-        return Relocation(
-            "join_container", out, [holder, *units], [holder], holder=holder,
-            future_components=tuple(n for n in subtree if after.effective(n) == "component"),
-        )
-    if moved and was == "component" and will in ("system", "container"):
-        holder = before.container_of(node_id)
-        if holder is None:
-            return NOTHING
-        sites = list(own.get(holder, ()))
-        units = after.units_under(node_id)
-        out = {n: [] for n in subtree}
-        for unit in units:
-            out[unit] = list(sites)
-        return Relocation("leave_container", out, [holder], [holder, *units], holder=holder)
-    if not moved and was == "system" and will == "container":
-        units = before.units_under(node_id)
-        out = {n: [] for n in after.members_of(node_id)}
+        out: dict[uuid.UUID, list[uuid.UUID]] = {n: [] for n in after.members_of(node_id)}
         out[node_id] = _union([own.get(u, ()) for u in units], rank)
         return Relocation(
             "system_to_container", out, units, [node_id],
@@ -116,12 +189,12 @@ def relocation(
                 n for n in after.members_of(node_id) if after.effective(n) == "component"
             ),
         )
-    if not moved and was == "container" and will == "system":
+    if was == "container" and will == "system":
         sites = list(own.get(node_id, ()))
         units = after.units_under(node_id)
         # Внутри бывшего контейнера держат площадки только новые единицы: составные
         # компоненты стали системами, а их собственные экземпляры (спящие) снимаются.
-        out = {n: [] for n in subtree}
+        out = {n: [] for n in [node_id, *after.descendants(node_id)]}
         for unit in units:
             out[unit] = list(sites)
         return Relocation(
@@ -276,6 +349,28 @@ def apply(
             build_elements(middle), build_elements(final), node.id, own, state.rank, moved=False,
         ))
     return _write(db, project, state.own, own)
+
+
+def apply_created(db: Session, project: Project, node: Node) -> int:
+    """Правило 5 при создании узла (routers/nodes.create_node, после flush узла): лист с
+    площадками, получивший первого ребёнка и ставший системой, отдаёт их единицам нового
+    поддерева — самому созданному узлу. Возвращает число добавленных и снятых
+    экземпляров. Узлы проекта выбираются, только когда у родителя есть свои экземпляры:
+    прочие создания лишнего запроса не платят. Коммит — на вызывающей стороне."""
+    parent_id = node.parent_id
+    if parent_id is None:
+        return 0
+    placed = db.query(DeploymentInstance.id).filter(DeploymentInstance.node_id == parent_id)
+    if placed.first() is None:
+        return 0
+    final = project_element_rows(db, project.id)
+    before = build_elements(r for r in final if r.id != node.id)
+    after = build_elements(final)
+    state = _state(db, project.id)
+    if not _became_system(before, after, parent_id, state.own):
+        return 0
+    change = _first_child(after, parent_id, state.own, state.rank, NOTHING)
+    return _write(db, project, state.own, _apply_own(state.own, change))
 
 
 def _write(
