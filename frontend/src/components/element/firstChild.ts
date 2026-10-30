@@ -1,15 +1,14 @@
 // Первый вложенный объект у листа (Р4 эпика docs/plan-c4-elements.md): лист-сервис без
 // явного элемента архитектуры, получив первого ребёнка, становится системой или
 // контейнером — и это меняет, кто ведёт его документацию и площадки. Сервер значение не
-// выводит (null читается системой), поэтому спрашивает клиент — ДО создания или переноса,
-// одним планом для всех путей: «+» в дереве (обе страницы), бросок шаблона на уровень
-// листа, перенос объекта в лист.
+// выводит (null читается системой), поэтому спрашивает клиент — ДО переноса объекта в
+// лист. Создание первого вложенного объекта это окно не спрашивает: окно «Новый объект»
+// задаёт родителя тем же запросом (Р38 раздела 13 плана).
 //
 // Чистая часть без разметки: какой путь у этого ребёнка — окно, тихая запись «система»
 // или ничего. Само окно и запись — useFirstChild.
 import type { Node, NodeElement, NodeShape } from "../../types";
 import { configParamsApi, nodesApi } from "../../api/nodes";
-import { isTourRunning } from "../tour/tourBus";
 import { awaitsFirstChild } from "./elementView";
 
 export type FirstChildPlan =
@@ -17,8 +16,7 @@ export type FirstChildPlan =
   // или лежит внутри контейнера (там всё — компоненты).
   | { kind: "proceed" }
   // Контейнером родитель стать не может (ребёнок — база, брокер или «Пользователь»,
-  // Р6) или идёт обучающий тур (его сюжет — «Моя система» становится системой):
-  // элемент «система» пишется явно, без окна.
+  // Р6): элемент «система» пишется явно, без окна.
   | { kind: "system"; parent: Node }
   // Спросить окном; preselect — предвыбор по фактам листа.
   | { kind: "ask"; parent: Node; preselect: NodeElement };
@@ -44,6 +42,6 @@ export async function planFirstChild(
   if (parentId === null) return { kind: "proceed" };
   const parent = await nodesApi.get(parentId);
   if (!awaitsFirstChild(parent)) return { kind: "proceed" };
-  if (childShape !== "service" || isTourRunning()) return { kind: "system", parent };
+  if (childShape !== "service") return { kind: "system", parent };
   return { kind: "ask", parent, preselect: await preselectOf(parent) };
 }

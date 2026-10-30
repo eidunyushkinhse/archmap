@@ -57,12 +57,18 @@ vi.mock("../../components/SchemaAlerts", () => ({
 }));
 
 vi.mock("../../components/NodeTreePanel", () => ({
-  default: ({ currentNodeId, isArchitect }: { currentNodeId?: string | null; isArchitect: boolean }) => (
-    <div data-testid="tree-panel" data-can-edit={String(isArchitect)}>{currentNodeId ?? "root"}</div>
+  default: ({ currentNodeId, isArchitect, onCreateChild }: {
+    currentNodeId?: string | null; isArchitect: boolean; onCreateChild?: (parentId: string) => void;
+  }) => (
+    <div data-testid="tree-panel" data-can-edit={String(isArchitect)}>
+      {currentNodeId ?? "root"}
+      {/* «+» у листа дерева. */}
+      <button data-testid="tree-plus" onClick={() => onCreateChild?.("leaf1")}>+</button>
+    </div>
   ),
 }));
 vi.mock("../../components/NodeModal", () => ({
-  default: () => <div data-testid="node-modal" />,
+  default: ({ parentId }: { parentId: string | null }) => <div data-testid="node-modal" data-parent={parentId ?? ""} />,
 }));
 vi.mock("../ProjectHomePage", () => ({
   default: () => <div data-testid="project-home" />,
@@ -164,6 +170,14 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
     expect(screen.getByTestId("project-home")).toBeInTheDocument();
     expect(screen.queryByTestId("node-page")).not.toBeInTheDocument();
+  });
+
+  it("«+» в дереве сразу открывает «Новый объект» с родителем — без окна первого вложенного объекта (Р38)", async () => {
+    setup(null);
+    await userEvent.click(screen.getByTestId("tree-plus"));
+    // Родителя окно загружает само; оболочка ничего не спрашивает и не пишет.
+    expect(screen.getByTestId("node-modal")).toHaveAttribute("data-parent", "leaf1");
+    expect(screen.queryByText(/внутри/)).not.toBeInTheDocument();
   });
 
   it("при выбранном узле рендерит NodePage вместо домашней страницы", () => {

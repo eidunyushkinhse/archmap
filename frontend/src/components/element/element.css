@@ -17,3 +17,113 @@
   align-items: center;
   gap: 4px;
 }
+
+/* Поле «Тип» (element/TypeSelect): выпадашка из шести типов — окно «Новый объект»,
+   инспектор и «Свойства» страницы. Вид кнопки-значения задаёт место вызова
+   (triggerClass), меню — общее: пункты в две строки, серые — с причиной вместо
+   подсказки. */
+.ts-wrap {
+  position: relative;
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+.ts-wrap > .ts-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.ts-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ts-placeholder {
+  color: #94a3b8;
+}
+.ts-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 240px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.16);
+  padding: 4px;
+}
+.ts-option {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: #334155;
+}
+.ts-option:hover,
+.ts-option:focus-visible {
+  background: #f1f5f9;
+  outline: none;
+}
+.ts-label {
+  grid-column: 1;
+  font-size: 13.5px;
+}
+.ts-hint {
+  grid-column: 1;
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: #64748b;
+}
+.ts-check {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: flex;
+  color: #2563eb;
+}
+/* Серый пункт: читается, но не выбирается — причина вместо подсказки. */
+.ts-option[aria-disabled="true"] {
+  cursor: default;
+}
+.ts-option[aria-disabled="true"] .ts-label {
+  color: #94a3b8;
+}
+.ts-option[aria-disabled="true"] .ts-hint {
+  color: #94a3b8;
+}
+.ts-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 15;
+}
+/* Кнопка-значение поля в окне «Новый объект» — как текстовое поле окна (ui/styles.input). */
+.ts-field {
+  padding: 9px 11px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  box-sizing: border-box;
+}
+.ts-chev {
+  display: flex;
+  flex: none;
+  color: #94a3b8;
+}

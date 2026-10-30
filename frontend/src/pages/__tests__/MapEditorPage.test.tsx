@@ -101,7 +101,12 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
 }));
 vi.mock("../../components/CrossLevelEdgePicker", () => ({ default: () => null }));
 vi.mock("../../components/EdgeQuickCreate", () => ({ default: () => null }));
-vi.mock("../../components/NodeModal", () => ({ default: () => null }));
+// Окно «Новый объект»: заглушка показывает, с каким родителем и шаблоном его открыли.
+vi.mock("../../components/NodeModal", () => ({
+  default: ({ parentId, type }: { parentId: string | null; type?: string }) => (
+    <div data-testid="node-modal" data-parent={parentId ?? ""} data-type={type ?? ""} />
+  ),
+}));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
@@ -334,6 +339,50 @@ describe("MapEditorPage", () => {
     // Навигация на уровень команды строит путь через getAll и грузит уровень
     await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledWith("other"));
     await waitFor(() => expect(historyMock.undo).toHaveBeenCalledOnce());
+  });
+});
+
+// ── Создание объекта (Р38 раздела 13 docs/plan-c4-elements.md) ──────────────────
+// «+» дерева и бросок шаблона открывают окно «Новый объект» сразу: родителя окно
+// загружает само и, если он лист, задаёт его тем же запросом. Редактор ничего не
+// спрашивает и не пишет — окна первого вложенного объекта на этих путях нет.
+describe("MapEditorPage: создание объекта", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+  });
+
+  it("«+» у листа в дереве — окно с этим родителем, без запросов и окна первого вложенного", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onCreateChild = treeProps.current.onCreateChild as (parentId: string) => void;
+    act(() => { onCreateChild("leaf1"); });
+    expect(screen.getByTestId("node-modal")).toHaveAttribute("data-parent", "leaf1");
+    expect(nodesApi.get).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("бросок шаблона на уровень — окно с родителем уровня и шаблоном как типом", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
+    act(() => { drop.onDropNode("database", { x: 10, y: 20 }, null); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "");
+    expect(modal).toHaveAttribute("data-type", "database");
+    expect(nodesApi.get).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("бросок в раскрытую рамку — родитель рамки; у сервиса тип выбирают в окне", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
+    act(() => { drop.onDropNode("service", { x: 10, y: 20 }, "box"); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "box");
+    expect(modal).toHaveAttribute("data-type", "");
   });
 });
 

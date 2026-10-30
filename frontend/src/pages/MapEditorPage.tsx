@@ -51,6 +51,7 @@ import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
 import { useFirstChild } from "../components/element/useFirstChild";
+import type { NodeType } from "../components/nodeTerms";
 import { useConsequences } from "../components/element/useConsequences";
 import { hasConsequences } from "../components/element/elementChange";
 
@@ -94,7 +95,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
-    open: boolean; node: Node | null; shape?: NodeShape;
+    open: boolean; node: Node | null; type?: NodeType;
     pos?: { x: number; y: number } | null;
     parentId?: string | null; posView?: string | null;
   }>({ open: false, node: null });
@@ -134,11 +135,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
   // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
   const [errorToast, showErrorToast] = useMessageToast();
-  // Первый вложенный объект у листа (Р4 эпика элементов): «+» дерева, бросок шаблона на
-  // уровень листа и перенос в лист спрашивают элемент родителя ДО создания или переноса.
+  // Перенос объекта в лист спрашивает элемент листа ДО переноса (окно первого вложенного
+  // объекта). Создание его не спрашивает: окно «Новый объект» задаёт родителя тем же
+  // запросом (Р38 раздела 13 docs/plan-c4-elements.md).
   const firstChild = useFirstChild(showErrorToast);
-  // Стабильная ссылка (useCallback в хуке) — для бандла броска холста ниже.
-  const ensureFirstChild = firstChild.ensure;
   // Перенос в контейнер и из него переносит площадки (Р18): сначала окно последствий.
   const consequences = useConsequences();
 
@@ -783,17 +783,15 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const drop = useMemo<LevelDropProps>(() => ({
     onDropNode: (shape, pos, dropParentId) => {
-      // В раскрытую рамку — у её узла дети уже есть, выбора нет. На уровень — родитель
-      // уровня мог быть листом: сначала окно первого вложенного объекта.
-      if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
-      else {
-        void ensureFirstChild(currentParentId, shape).then((go) => {
-          if (go) setNodeModal({ open: true, node: null, shape, pos });
-        });
-      }
+      // Шаблон палитры — предвыбор поля «Тип»: у сервиса тип выбирают в окне.
+      const type: NodeType | undefined = shape === "service" ? undefined : shape;
+      // В раскрытую рамку — родитель рамки, позиция в виде текущего уровня; на уровень —
+      // родитель уровня. Если он лист, окно само скажет, кем он станет (Р38).
+      if (dropParentId) setNodeModal({ open: true, node: null, type, pos, parentId: dropParentId, posView: currentParentId });
+      else setNodeModal({ open: true, node: null, type, pos });
     },
     dragShape,
-  }), [currentParentId, dragShape, ensureFirstChild]);
+  }), [currentParentId, dragShape]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -899,11 +897,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => {
-            void firstChild.ensure(parentId, "service").then((go) => {
-              if (go) setNodeModal({ open: true, node: null, parentId, pos: null });
-            });
-          }}
+          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
           onTemplateDrag={setDragShape}
         />
@@ -995,7 +989,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       {nodeModal.open && (
         <NodeModal
           parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}
-          shape={nodeModal.shape} initialPos={nodeModal.pos ?? null} posView={nodeModal.posView}
+          type={nodeModal.type} initialPos={nodeModal.pos ?? null} posView={nodeModal.posView}
           onClose={() => setNodeModal({ open: false, node: null })} onSaved={handleNodeSaved}
         />
       )}

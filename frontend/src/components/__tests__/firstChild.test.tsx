@@ -2,12 +2,11 @@
 // элемента, получая первого ребёнка, спрашивает «что это такое» — ДО создания или
 // переноса. Хук и план исполняются по-настоящему; подменён только транспорт API.
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { Node, NodeShape } from "../../types";
 import { configParamsApi, nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
 import { useFirstChild } from "../element/useFirstChild";
-import { setTourRunning } from "../tour/tourBus";
 
 vi.mock("../../api/nodes", () => ({
   nodesApi: { get: vi.fn(), update: vi.fn() },
@@ -53,7 +52,6 @@ beforeEach(() => {
   result = null;
   vi.mocked(nodesApi.update).mockResolvedValue(leaf());
 });
-afterEach(() => setTourRunning(false));
 
 describe("окно первого вложенного объекта", () => {
   it("лист со спецификацией — окно с предвыбором «Контейнер»; «Продолжить» пишет элемент", async () => {
@@ -112,14 +110,6 @@ describe("окно первого вложенного объекта", () => {
       expect(screen.queryByText("Продолжить")).not.toBeInTheDocument();
       unmount();
     }
-  });
-
-  it("тур идёт — система явно, без окна", async () => {
-    setTourRunning(true);
-    await run(leaf({ openapi_spec: "openapi: 3.0.0" }));
-    await expect(result).resolves.toBe(true);
-    expect(nodesApi.update).toHaveBeenCalledWith("p1", { element: "system" });
-    expect(screen.queryByText("Продолжить")).not.toBeInTheDocument();
   });
 
   it.each([
