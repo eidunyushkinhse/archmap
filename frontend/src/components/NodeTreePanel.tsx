@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeShape } from "../types";
-import { nodeNesting } from "../types";
+import { nodeNesting, treeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
 import { placeable, treeRowTitle } from "./nodeTree.mode";
@@ -61,6 +61,12 @@ type ModeProps =
       placingId?: string | null;
     };
 
+// «Развёртывание»: компоненты в дереве не показываются (на холсте их нет, размещаются они
+// вместе с контейнером — D33): ветка контейнера и составного компонента не раскрывается,
+// контейнер — строка без шеврона. Функция модульная — ссылка стабильна для мемо дерева.
+const hidesComponents = (node: Node): boolean =>
+  node.element_effective === "container" || node.element_effective === "component";
+
 type Props = ModeProps & {
   // «+» на строке → создать дочерний объект (модалка, авто-позиция); «+» и палитра
   // видны только архитектору
@@ -83,7 +89,7 @@ export default function NodeTreePanel(props: Props) {
   const {
     roots, loadingRoots, childrenById, expanded, loadingId, leaves, allById, pathTo,
     expandBranch, toggle, treeScrollRef,
-  } = useLazyTree(reloadToken, currentNodeId);
+  } = useLazyTree(reloadToken, currentNodeId, deploy ? hidesComponents : undefined);
   // Перенос узла на другой уровень перетаскиванием строки (только редактор-карта).
   const reparent = useTreeReparent(allById, pathTo, editor?.onReparent);
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
@@ -214,7 +220,7 @@ export default function NodeTreePanel(props: Props) {
                       title={treeRowTitle(props.mode, n)}
                     >
                       <span className="nt-chevspacer" />
-                      <ShapeGlyph container={nodeNesting(n) === "group"} shape={n.shape} />
+                      <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
                       <span className="nt-name">{n.name}</span>
                       {placeable(n, isArchitect, deploy?.onPlace) && <PlaceButton node={n} onPlace={deploy.onPlace} />}
                     </div>

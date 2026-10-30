@@ -40,6 +40,18 @@ export type NodeNesting = "group" | "leaf";
 export const nodeNesting = (node: Pick<Node, "shape" | "has_children">): NodeNesting =>
   canHaveChildren(node.shape) && node.has_children ? "group" : "leaf";
 
+// Вид узла для глифа (дерево, шапка страницы, инспекторы; Ф8 эпика «Элемент
+// архитектуры»): вложенность из nodeNesting и элемент с сервера. Система — узел с детьми
+// без явного «контейнер» (норма эпика); составной компонент — узел с детьми внутри
+// контейнера; leaf — всё без вложенных (глиф своей формы).
+export type TreeNesting = "leaf" | "system" | "container" | "component";
+export const treeNesting = (node: Pick<Node, "shape" | "has_children" | "element_effective">): TreeNesting => {
+  if (nodeNesting(node) === "leaf") return "leaf";
+  if (node.element_effective === "container") return "container";
+  if (node.element_effective === "component") return "component";
+  return "system";
+};
+
 // Какая документация уместна форме узла (docs/plan-db-docs.md §1). Логика (mermaid)
 // и OpenAPI — артефакты СЕРВИСА: они описывают его код и его API. У базы данных ни
 // того, ни другого не бывает — её «контракт» это СТРУКТУРА (таблицы/колонки); промпт

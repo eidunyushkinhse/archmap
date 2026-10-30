@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, DeletionSnapshot, Node, NodeElement, NodeShape, NodeStatus } from "../../types";
-import { nodeNesting } from "../../types";
+import { nodeNesting, treeNesting } from "../../types";
 import { getNodeColors, STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
 import NodeDeleteConfirm from "../NodeDeleteConfirm";
@@ -95,7 +95,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
       {error && <p style={noticeStyle}>{error}</p>}
       {/* Шапка-идентификатор: глиф формы + имя + строка типа */}
       <div className="insp-head">
-        <span className="insp-headglyph"><ShapeGlyph container={isGroup} shape={shape} /></span>
+        <span className="insp-headglyph"><ShapeGlyph nesting={treeNesting(node)} shape={shape} /></span>
         <div className="insp-headmain">
           {isArchitect ? (
             <input

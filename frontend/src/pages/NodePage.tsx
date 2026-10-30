@@ -4,7 +4,7 @@
 import { Fragment, useCallback, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { AncestorRef, Node, NodeEdgeInfo, NodeUpdate } from "../types";
-import { nodeNesting, shapeDocs } from "../types";
+import { nodeNesting, shapeDocs, treeNesting } from "../types";
 import { nodesApi, exportApi, viewsApi } from "../api/nodes";
 import { isConflict, isDemoLimit } from "../api/client";
 import { getNodeColors } from "../components/graph/colors";
@@ -380,7 +380,7 @@ function NodePageInner({
           {/* Глиф + имя + бейджи */}
           <div className="np-title-row">
             <span className="np-glyph" style={{ background: colors.bg }}>
-              <HeaderGlyph shape={shape} container={isContainer} />
+              <HeaderGlyph shape={shape} nesting={treeNesting(node)} />
             </span>
 
             {isArchitect ? (

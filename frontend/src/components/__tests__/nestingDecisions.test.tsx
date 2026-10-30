@@ -52,12 +52,15 @@ const dbWithKids = () => node("Склад", {
   shape: "database", has_children: true, child_count: 1, element_effective: "system",
 });
 
-// Глиф строки (nodeTree.shared.ShapeGlyph): «коробка с крышкой» у узла с детьми,
-// цилиндр у базы, прямоугольник у сервиса-листа.
+// Глиф строки (nodeTree.shared.ShapeGlyph). С Ф8 эпика вид узла с детьми решает элемент
+// (types/treeNesting): система — пунктирный прямоугольник («group» здесь — любой узел с
+// детьми, его вид проверяют тесты глифов), контейнер с компонентами — «коробка с
+// крышкой»; цилиндр у базы, прямоугольник у сервиса-листа.
 function glyphKind(root: Element | null): "group" | "database" | "service" | null {
-  const svg = root?.querySelector(".nt-glyph svg");
-  if (!svg) return null;
-  if (svg.querySelector('path[d^="M3.5 3.5"]')) return "group";
+  const glyph = root?.querySelector(".nt-glyph");
+  const svg = glyph?.querySelector("svg");
+  if (!glyph || !svg) return null;
+  if (glyph.getAttribute("data-nesting") !== "leaf") return "group";
   if (svg.querySelector('path[d^="M2 2 v6.2"]')) return "database";
   return "service";
 }

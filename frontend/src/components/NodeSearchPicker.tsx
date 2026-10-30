@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node } from "../types";
-import { nodeNesting } from "../types";
+import { treeNesting } from "../types";
 import { input } from "../ui/styles";
 import { CloseIcon } from "../ui/icons";
 import { ShapeGlyph } from "./nodeTree.shared";
@@ -81,7 +81,7 @@ export default function NodeSearchPicker({
               onMouseLeave={() => setHovered((h) => (h === n.id ? null : h))}
               style={{ ...dropdownItem, background: hovered === n.id ? "#eff6ff" : "#fff" }}
             >
-              <ShapeGlyph container={nodeNesting(n) === "group"} shape={n.shape} />
+              <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
               <span style={{ flex: 1, minWidth: 0 }}>{n.name}</span>
               {n.role && <span style={{ color: "#94a3b8", fontSize: 12 }}>({n.role})</span>}
             </div>

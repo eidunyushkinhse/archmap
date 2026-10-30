@@ -3,12 +3,15 @@
 // чтобы рендер был ОДИН И ТОТ ЖЕ в обоих местах, без копий. Доменный отсев
 // withoutPersons живёт в types (рядом с canHaveChildren/compareByRank).
 import type { ReactNode } from "react";
-import type { NodeShape } from "../types";
+import type { NodeShape, TreeNesting } from "../types";
 
-// Глиф формы узла в строке дерева (14×12, контурный, наследует цвет строки через
-// currentColor — серый в покое, синий на hover). Контейнер (узел с детьми) рисуется
-// «коробкой с крышкой» независимо от shape; листья — по своей форме.
-export function ShapeGlyph({ container, shape }: { container: boolean; shape: NodeShape }) {
+// Глиф узла в строке дерева (14×12, контурный, наследует цвет строки через currentColor —
+// серый в покое, синий на hover). Тип говорит глиф, чипов в строке нет (Р24 эпика
+// docs/plan-c4-elements.md): система и составной компонент — пунктирный скруглённый
+// прямоугольник (эхо пунктирной рамки на холсте), контейнер с компонентами — «коробка с
+// крышкой», объект без вложенных — глиф своей формы. Вид решает types/treeNesting;
+// data-nesting — хук для тестов.
+export function ShapeGlyph({ nesting, shape }: { nesting: TreeNesting; shape: NodeShape }) {
   const common = {
     fill: "none",
     stroke: "currentColor",
@@ -17,7 +20,9 @@ export function ShapeGlyph({ container, shape }: { container: boolean; shape: No
     strokeLinejoin: "round" as const,
   };
   let body: ReactNode;
-  if (container) {
+  if (nesting === "system" || nesting === "component") {
+    body = <rect x={1.5} y={1.5} width={11} height={9} rx={2.5} strokeDasharray="2.2 1.6" {...common} />;
+  } else if (nesting === "container") {
     body = (
       <>
         <rect x={1} y={3.5} width={12} height={7.5} rx={2} {...common} />
@@ -50,7 +55,7 @@ export function ShapeGlyph({ container, shape }: { container: boolean; shape: No
     body = <rect x={1.5} y={1.5} width={11} height={9} rx={2} {...common} />;
   }
   return (
-    <span className="nt-glyph">
+    <span className="nt-glyph" data-nesting={nesting}>
       <svg width={14} height={12} viewBox="0 0 14 12">{body}</svg>
     </span>
   );

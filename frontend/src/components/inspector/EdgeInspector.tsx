@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { BrokerChannel, DeletionSnapshot, Edge, EdgeUpdate, LevelEdge, Node } from "../../types";
-import { nodeNesting } from "../../types";
+import { treeNesting } from "../../types";
 import { brokerChannelsApi, edgesApi, nodesApi } from "../../api/nodes";
 import { ShapeGlyph } from "../nodeTree.shared";
 import { useEdgeEdit } from "./useEdgeEdit";
@@ -91,7 +91,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
   const endGlyph = (id: string): ReactNode => {
     const n = ends[id];
     if (!n) return null;
-    return <ShapeGlyph container={nodeNesting(n) === "group"} shape={n.shape} />;
+    return <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />;
   };
 
   async function handleDelete() {

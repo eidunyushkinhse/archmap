@@ -11,7 +11,8 @@
 // ТИП компонента).
 import type { CSSProperties, DragEvent } from "react";
 import type { Node } from "../types";
-import { nodeNesting } from "../types";
+import { nodeNesting, treeNesting } from "../types";
+import { childIsComponent } from "./element/elementView";
 import { ShapeGlyph, Chevron } from "./nodeTree.shared";
 import { PlaceIcon, PlusIcon } from "../ui/icons";
 import { placeable, treeRowTitle, type TreeMode } from "./nodeTree.mode";
@@ -152,16 +153,18 @@ export function TreeRow({ node, ctx }: { node: Node; ctx: TreeRowCtx }) {
             aria-label={`Перенести «${node.name}» в другой объект`}
           ><GripIcon /></span>
         )}
-        <ShapeGlyph container={isIntermediate} shape={node.shape} />
+        <ShapeGlyph nesting={treeNesting(node)} shape={node.shape} />
         <span className={isIntermediate ? "nt-name nt-name--container" : "nt-name"}>
           {node.name}
         </span>
-        {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы) */}
+        {/* «+» — создать дочерний объект (pages_pivot / редактор, архитектор, только сервисы).
+            Подсказка называет, кем станет новый объект: у контейнера и внутри контейнера —
+            компонентом. */}
         {ctx.isArchitect && ctx.onCreateChild && node.shape === "service" && (
           <button
             className="nt-add-child"
             onClick={(e) => { e.stopPropagation(); ctx.onCreateChild?.(node.id); }}
-            title={`Создать объект внутри «${node.name}»`}
+            title={childIsComponent(node) ? `Создать компонент внутри «${node.name}»` : `Создать объект внутри «${node.name}»`}
           >
             <PlusIcon />
           </button>

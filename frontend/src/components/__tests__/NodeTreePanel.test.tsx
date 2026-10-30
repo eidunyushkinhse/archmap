@@ -101,6 +101,23 @@ describe("NodeTreePanel (плоский режим)", () => {
     expect(onCreateChild).toHaveBeenCalledWith("svc");
   });
 
+  it("подсказка «+»: у контейнера и компонента — «Создать компонент», иначе «Создать объект»", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([
+      node("shop", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" }),
+      node("orders", { name: "orders", has_children: true, child_count: 1, element: "container", element_effective: "container" }),
+      node("leaf", { name: "Платежи", element_effective: "container" }),
+      node("api", { name: "api", element_effective: "component", container_name: "orders" }),
+    ]);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect onCreateChild={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Платежи")).toBeInTheDocument());
+    const plus = (name: string) =>
+      screen.getByText(name).closest(".nt-row")?.querySelector(".nt-add-child")?.getAttribute("title");
+    expect(plus("Торговля")).toBe("Создать объект внутри «Торговля»");
+    expect(plus("orders")).toBe("Создать компонент внутри «orders»");
+    expect(plus("Платежи")).toBe("Создать объект внутри «Платежи»");
+    expect(plus("api")).toBe("Создать компонент внутри «api»");
+  });
+
   it("персоны видны в плоском режиме (без отсева)", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue([
       node("user", { shape: "person", name: "Покупатель" }),
@@ -332,11 +349,13 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     expect(onOpenLevel).toHaveBeenCalledTimes(1);
   });
 
-  it("контейнер с компонентами: щелчок — показать на схеме, не уровень; у компонента булавки нет", async () => {
+  it("контейнер с компонентами: строка без шеврона, щелчок — показать на схеме; компонентов в дереве нет", async () => {
+    // Ф8 эпика «Элемент архитектуры» (Р24): на холсте «Развёртывание» компонентов нет —
+    // дерево совпадает с ним: ветка контейнера не раскрывается, дети не грузятся.
     const onOpenLevel = vi.fn();
     const onPickObject = vi.fn();
     vi.mocked(nodesApi.list).mockResolvedValue([
-      node("orders", { name: "orders", has_children: true, child_count: 1, element_effective: "container" }),
+      node("orders", { name: "orders", has_children: true, child_count: 1, element: "container", element_effective: "container" }),
     ]);
     vi.mocked(nodesApi.getChildren).mockResolvedValue([
       node("api", { name: "api", parent_id: "orders", element_effective: "component" }),
@@ -345,17 +364,42 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
     const row = (name: string) => screen.getByText(name).closest(".nt-row") as HTMLElement;
     expect(row("orders")).toHaveAttribute("title", "Показать на схеме: orders");
+    expect(row("orders").querySelector(".nt-chevzone")).toBeNull();
     expect(screen.getByLabelText("Указать размещение: «orders»")).toBeInTheDocument();
     await userEvent.click(screen.getByText("orders"));
     expect(onPickObject).toHaveBeenCalledWith(expect.objectContaining({ id: "orders" }));
     expect(onOpenLevel).not.toHaveBeenCalled();
-    // ветка раскрылась: компонент — без булавки, щелчок показывает его на схеме
+    expect(nodesApi.getChildren).not.toHaveBeenCalled();
+    expect(screen.queryByText("api")).toBeNull();
+  });
+
+  it("система раскрывается до своих контейнеров; контейнер внутри системы — без шеврона", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([
+      node("shop", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" }),
+    ]);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([
+      node("orders", { name: "orders", parent_id: "shop", has_children: true, child_count: 2, element: "container", element_effective: "container" }),
+    ]);
+    render(<NodeTreePanel mode="deploy" isArchitect onOpenLevel={vi.fn()} onPickObject={vi.fn()} onPlace={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Торговля")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть ветку"));
+    await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
+    expect(nodesApi.getChildren).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("orders").closest(".nt-row")?.querySelector(".nt-chevzone")).toBeNull();
+    expect(screen.getByLabelText("Указать размещение: «orders»")).toBeInTheDocument();
+  });
+
+  it("в режиме страниц контейнер раскрывается до компонентов, как раньше", async () => {
+    vi.mocked(nodesApi.list).mockResolvedValue([
+      node("orders", { name: "orders", has_children: true, child_count: 1, element: "container", element_effective: "container" }),
+    ]);
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([
+      node("api", { name: "api", parent_id: "orders", element_effective: "component" }),
+    ]);
+    render(<NodeTreePanel mode="pages" onNodePage={vi.fn()} isArchitect={false} />);
+    await waitFor(() => expect(screen.getByText("orders")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть ветку"));
     await waitFor(() => expect(screen.getByText("api")).toBeInTheDocument());
-    expect(row("api")).toHaveAttribute("title", "Показать на схеме: api");
-    expect(screen.queryByLabelText("Указать размещение: «api»")).toBeNull();
-    await userEvent.click(screen.getByText("api"));
-    expect(onPickObject).toHaveBeenLastCalledWith(expect.objectContaining({ id: "api" }));
-    expect(onOpenLevel).not.toHaveBeenCalled();
   });
 
   it("строка размещаемого объекта подсвечена", async () => {

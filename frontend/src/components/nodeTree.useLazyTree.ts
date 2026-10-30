@@ -15,8 +15,8 @@ export interface LazyTree {
   childrenById: Record<string, Node[]>;
   expanded: Set<string>;
   loadingId: Set<string>;
-  // Узлы с has_children, у которых детей не пришло, — показываем листьями, чтобы
-  // шеврон не раскрывался в пустоту.
+  // Узлы с has_children без видимых детей — показываем листьями: детей не пришло (шеврон
+  // не раскрывался бы в пустоту) или их дети в этом режиме скрыты (hideChildren).
   leaves: Set<string>;
   // Все загруженные узлы по id (корни + подгруженные дети). Чтобы узел был виден в
   // дереве, все его предки раскрыты — значит, их Node-объекты уже здесь.
@@ -34,13 +34,21 @@ export interface LazyTree {
 // Ленивое дерево объектов (аудит F-7): корни сразу, дети — по раскрытию ветки. Сигнал
 // reloadToken перечитывает корни и раскрытые ветки, не сворачивая их; смена
 // currentNodeId раскрывает ветку до этого узла и прокручивает к его строке.
-export function useLazyTree(reloadToken: number | undefined, currentNodeId: string | null | undefined): LazyTree {
+// hideChildren — у каких узлов детей в этом режиме не показывать («Развёртывание»
+// прячет компоненты, nodeTree NodeTreePanel): такие узлы — листья, их дети не грузятся.
+// Ссылка должна быть стабильной (функция модуля), иначе мемо листьев пересчитывается.
+export function useLazyTree(
+  reloadToken: number | undefined,
+  currentNodeId: string | null | undefined,
+  hideChildren?: (node: Node) => boolean,
+): LazyTree {
   const [roots, setRoots] = useState<Node[]>([]);
   const [loadingRoots, setLoadingRoots] = useState(true);
   const [childrenById, setChildrenById] = useState<Record<string, Node[]>>({});
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [loadingId, setLoadingId] = useState<Set<string>>(new Set());
-  const [leaves, setLeaves] = useState<Set<string>>(new Set());
+  // Листья по факту загрузки (детей не пришло); вместе со скрытыми режимом — leaves ниже.
+  const [emptyLeaves, setLeaves] = useState<Set<string>>(new Set());
 
   const allById = useMemo(() => {
     const m = new Map<string, Node>();
@@ -48,6 +56,14 @@ export function useLazyTree(reloadToken: number | undefined, currentNodeId: stri
     for (const kids of Object.values(childrenById)) for (const k of kids) m.set(k.id, k);
     return m;
   }, [roots, childrenById]);
+
+  // Листья для показа: пустые по загрузке и те, чьих детей режим не показывает.
+  const leaves = useMemo(() => {
+    if (!hideChildren) return emptyLeaves;
+    const out = new Set(emptyLeaves);
+    for (const n of allById.values()) if (hideChildren(n)) out.add(n.id);
+    return out;
+  }, [emptyLeaves, allById, hideChildren]);
 
   const pathTo = (node: Node): Node[] => {
     const path: Node[] = [];
@@ -118,9 +134,12 @@ export function useLazyTree(reloadToken: number | undefined, currentNodeId: stri
       if (!isAlive()) return;
       curId = n.parent_id;
     }
-    // 2. Предки (все, кроме самого узла) — раскрыть сверху вниз.
+    // 2. Предки (все, кроме самого узла) — раскрыть сверху вниз. Ветку, чьих детей режим
+    // не показывает, не раскрываем (и глубже не идём).
     for (const id of chain.slice(0, -1)) {
       if (!isAlive()) return;
+      const anc = allById.get(id);
+      if (anc && hideChildren?.(anc)) return;
       let kids = childrenById[id];
       if (kids === undefined) {
         // Фиксируем в const: TS не сужает let-переменную внутри замыкания
@@ -165,6 +184,8 @@ export function useLazyTree(reloadToken: number | undefined, currentNodeId: stri
   async function expandBranch(node: Node) {
     const id = node.id;
     if (expanded.has(id)) return;
+    // Дети скрыты режимом — ни загрузки, ни раскрытия.
+    if (hideChildren?.(node)) return;
     let kids = childrenById[id];
     if (kids === undefined) {
       setLoadingId((p) => new Set(p).add(id));

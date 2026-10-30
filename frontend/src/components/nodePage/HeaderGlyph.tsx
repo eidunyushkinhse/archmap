@@ -1,8 +1,10 @@
-// Глиф формы в шапке страницы объекта (аудит F-5: вынесен из NodePage).
-import type { NodeShape } from "../../types";
+// Глиф объекта в шапке страницы (аудит F-5: вынесен из NodePage).
+import type { NodeShape, TreeNesting } from "../../types";
 
-// Глиф формы для шапки страницы (20×20, белый на цветном фоне).
-export default function HeaderGlyph({ shape, container }: { shape: NodeShape; container: boolean }) {
+// Глиф для шапки страницы (20×20, белый на цветном фоне) — тот же словарь, что в строке
+// дерева (nodeTree.shared.ShapeGlyph): система и составной компонент — пунктирный
+// прямоугольник, контейнер с компонентами — «коробка с крышкой», остальное — форма.
+export default function HeaderGlyph({ shape, nesting }: { shape: NodeShape; nesting: TreeNesting }) {
   const c = {
     fill: "none",
     stroke: "#fff",
@@ -11,7 +13,9 @@ export default function HeaderGlyph({ shape, container }: { shape: NodeShape; co
     strokeLinejoin: "round" as const,
   };
   let body: React.ReactNode;
-  if (container) {
+  if (nesting === "system" || nesting === "component") {
+    body = <rect x={2.5} y={3} width={15} height={14} rx={3} strokeDasharray="3 2.2" {...c} />;
+  } else if (nesting === "container") {
     body = (
       <>
         <rect x={2} y={5} width={16} height={10} rx={2.5} {...c} />
@@ -42,5 +46,5 @@ export default function HeaderGlyph({ shape, container }: { shape: NodeShape; co
   } else {
     body = <rect x={2.5} y={3} width={15} height={14} rx={3} {...c} />;
   }
-  return <svg width={20} height={20} viewBox="0 0 20 20">{body}</svg>;
+  return <svg width={20} height={20} viewBox="0 0 20 20" data-nesting={nesting}>{body}</svg>;
 }

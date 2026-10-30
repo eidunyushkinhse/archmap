@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { nodesApi } from "../../api/nodes";
 import type { Node } from "../../types";
+import { treeNesting } from "../../types";
 import { Chevron, ShapeGlyph } from "../nodeTree.shared";
 import { IcoSearch } from "./icons";
 import { BPT } from "./tokens";
@@ -101,7 +102,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
             style={{ cursor: isAdded ? "default" : "pointer", flex: "none" }}
           />
           <span style={{ color: n.is_external ? BPT.mut : BPT.sec, display: "inline-flex", flex: "none" }}>
-            <ShapeGlyph container={hasKids} shape={n.shape} />
+            <ShapeGlyph nesting={hasKids ? treeNesting(n) : "leaf"} shape={n.shape} />
           </span>
           <span
             onClick={() => toggleSel(n.id)}
