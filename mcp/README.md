@@ -429,7 +429,8 @@ cp mcp/.env.example mcp/.env   # и впишите токен — или лог�
 ввоза) → компоненты внутри — `archmap_create_node` с `parent_id` контейнера →
 `archmap_docs_prompt` с `node_id` контейнера: схемы логики промпт адресует компонентам,
 спецификацию — одну, контейнеру → `archmap_docs_preview` / `archmap_docs_apply` →
-`archmap_facts_prompt` с `family=config` и адресом контейнера → `archmap_facts_preview` /
+`archmap_facts_prompt` с `family=config` → пакет параметров с адресом контейнера (или
+`node_id` контейнера у `archmap_facts_preview`) → `archmap_facts_preview` /
 `archmap_facts_apply`. `archmap_node` контейнера показывает статус страницы, размещение и
 конфигурацию, у компонента — «Элемент архитектуры: компонент контейнера «orders»»; пометка
 «зависит от:» в схеме компонента находит параметр контейнера. Если конфигурация или
