@@ -8,7 +8,7 @@
 // клик.
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { ComponentOut } from "../../../types";
-import { lastSegment } from "./questionText";
+import { lastSegment, nestedTag } from "./questionText";
 import { PathLabel } from "./Option";
 import { noAutofill } from "../../../ui/noAutofill";
 
@@ -134,7 +134,7 @@ export default function ObjectCombobox({ items, value, onChange, label }: Props)
                 onMouseEnter={() => setActive(i)}
               >
                 <span className="rq-cbo-name"><PathLabel path={x.path} /></span>
-                {x.has_children && <span className="rq-opt-tag">контейнер</span>}
+                {x.has_children && <span className="rq-opt-tag">{nestedTag(x)}</span>}
               </button>
             ))
           )}

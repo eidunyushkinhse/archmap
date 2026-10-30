@@ -16,7 +16,8 @@ import type {
 } from "../../../types";
 import type { QuestionMode } from "./questionText";
 import {
-  edgeTexts, familyTexts, fieldTexts, groupTexts, humanValue, lastSegment, pairTexts,
+  edgeTexts, endIsSystem, familyTexts, fieldTexts, groupTexts, humanValue, lastSegment,
+  pairTexts,
 } from "./questionText";
 
 export type QuestionKind = "family" | "field" | "edge" | "group" | "pair";
@@ -103,9 +104,14 @@ export function buildQuestions(input: {
     out.push({ kind: "edge", id: e.id, source: e, ...edgeTexts(e, mode) });
   }
   // Дерево для пикера концов новой связи собираем ОДИН раз на все группы: списки
-  // node_paths и node_has_children приезжают строка в строку.
+  // node_paths, node_has_children и node_elements приезжают строка в строку (у
+  // ответа прежнего сервера элементов нет — тег тогда по признаку «есть вложенные»).
   const дерево: ComponentOut[] = r.isolated_groups.length === 0 ? [] : r.node_paths.map(
-    (path, i) => ({ path, has_children: r.node_has_children[i] ?? false }),
+    (path, i) => ({
+      path,
+      has_children: r.node_has_children[i] ?? false,
+      element_effective: r.node_elements?.[i] ?? null,
+    }),
   );
   for (const g of r.isolated_groups) {
     out.push({ kind: "group", id: g.id, source: g, nodes: дерево, ...groupTexts(g) });
@@ -137,7 +143,8 @@ export function answerState(
 // Подписи сегментов полосы прогресса (§3 ТЗ) — единственное место, где названия
 // видов видны пользователю.
 const SEGMENT_LABEL: Record<QuestionKind, string> = {
-  family: "Содержимое", field: "Поля", edge: "В контейнер", group: "Связи", pair: "Имена",
+  family: "Содержимое", field: "Поля", edge: "В систему или контейнер", group: "Связи",
+  pair: "Имена",
 };
 
 export interface ProgressSegment {
@@ -319,7 +326,10 @@ export function answerLabel(
   if (a === undefined) return null;
   // «Как сейчас» — такой же ответ, как остальные (П8 приёмки): называем его
   // словами вида вопроса, а не общим «как сейчас».
-  if (a.kind === "keep") return q.kind === "edge" ? "на контейнере" : "как есть";
+  if (a.kind === "keep") {
+    if (q.kind !== "edge") return "как есть";
+    return endIsSystem(q.source) ? "на системе" : "на контейнере";
+  }
   if (a.kind === "diff") return "разные объекты";
   if (a.kind === "edge") return lastSegment(a.toPath);
   if (a.kind === "new_edges") {

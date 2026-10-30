@@ -1516,6 +1516,9 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert (вход.end, вход.container_path) == ("target", "Ярмарка / orders")
     assert [c.path for c in вход.components] == ["Ярмарка / orders / api"]
     assert [c.has_children for c in вход.components] == [False]
+    # Элемента в файлах нет: orders — система, её лист api — контейнер (слова и теги).
+    assert вход.container_element == "system"
+    assert [c.element_effective for c in вход.components] == ["container"]
     assert выход.id == "edge|Ярмарка / orders|Ярмарка / Каталог-БД|пишет|source"
     assert (выход.end, выход.label, выход.technology) == ("source", "пишет", None)
 
@@ -1534,6 +1537,28 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert остаток.node_paths == план.node_paths
     контейнер = dict(zip(остаток.node_paths, остаток.node_has_children, strict=True))
     assert контейнер["Ярмарка / orders"] and not контейнер["Ярмарка / Каталог-БД"]
+    элемент = dict(zip(остаток.node_paths, остаток.node_elements, strict=True))
+    assert (элемент["Ярмарка / orders"], элемент["Оператор"]) == ("system", None)
+
+
+def test_остаток_слова_по_элементу_конца_контейнер():
+    """Объявленный контейнер: замечание и вопрос — словами контейнера, вложенные — его
+    компоненты; замечание по-прежнему становится вопросом и прячется из списков."""
+    с_контейнером = _ОСТАТОК_1.replace(
+        "      - name: orders\n", "      - name: orders\n        element: container\n"
+    )
+    превью = preview_from_plan(build_unified_plan(
+        [("shop.yaml", с_контейнером.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    ))
+
+    вход, выход = превью.remainder.container_edges
+    assert (вход.container_element, выход.container_element) == ("container", "container")
+    assert [c.element_effective for c in вход.components] == ["component"]
+    скрыть = превью.remainder.converted_warnings
+    assert sum(
+        1 for w in скрыть if "конец в контейнере «orders», у которого есть компоненты" in w
+    ) == 2
+    assert not any("конец в системе" in w for w in превью.c4.warnings)
 
 
 def test_остаток_строки_остаются_на_месте():
@@ -1543,7 +1568,7 @@ def test_остаток_строки_остаются_на_месте():
     assert превью.c4 is not None
     assert any("description" in c for c in превью.c4.conflicts)
     assert any("похожи" in w for w in превью.c4.warnings)
-    assert any("конец в контейнере" in w for w in превью.c4.warnings)
+    assert any("конец в системе" in w for w in превью.c4.warnings)
 
 
 def test_остаток_id_детерминированы_между_сборками():
@@ -2179,7 +2204,7 @@ def test_остаток_называет_строки_ставшие_вопро�
     # Ровно четыре вопроса-из-строк: две связи в контейнер, группа, похожие имена.
     assert len(скрыть) == 4
     assert any("похожи" in w for w in скрыть)
-    assert sum(1 for w in скрыть if "конец в контейнере" in w) == 2
+    assert sum(1 for w in скрыть if "конец в системе" in w) == 2
     assert any("не связана с остальной схемой" in w for w in скрыть)
     # Замечание, вопросом не ставшее, прятать нельзя.
     assert not any("без единой связи" in w for w in скрыть)

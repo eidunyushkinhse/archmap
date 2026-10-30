@@ -6,7 +6,7 @@
 import type { Answer, Answers, NewEdgesAnswer, Question, Resolutions } from "./questions";
 import type { EdgesDraft, MergeDraft } from "./drafts";
 import { draftFromAnswer, mergeDraftFor } from "./drafts";
-import { humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
+import { endIsSystem, humanValue, lastSegment, pairEdges, VIEWER_TAG } from "./questionText";
 import DocViewer from "./DocViewer";
 import MergeNameStep from "./MergeNameStep";
 import NewEdgeForm from "./NewEdgeForm";
@@ -110,7 +110,7 @@ export default function QuestionBody(p: Props) {
         />
         <div className="rq-opts" style={{ marginTop: 6 }}>
           <Option
-            main={`Оставить на контейнере «${q.source.container_path}»`}
+            main={`Оставить на ${endIsSystem(q.source) ? "системе" : "контейнере"} «${q.source.container_path}»`}
             tag="как сейчас"
             keep
             selected={a?.kind === "keep"}

@@ -40,7 +40,7 @@ const c4 = (over: Partial<ImportPreviewOut> = {}): ImportPreviewOut => ({
 
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], ...over,
 });
 
 const превью = (over: Partial<UnifiedPreviewOut> = {}): UnifiedPreviewOut => ({
@@ -90,6 +90,7 @@ const В_КОНТЕЙНЕР: ContainerEdgeOut = {
   technology: "HTTP",
   end: "target",
   container_path: "Ярмарка",
+  container_element: "container",
   components: [
     { path: "Ярмарка / orders", has_children: false },
     { path: "Ярмарка / billing", has_children: false },

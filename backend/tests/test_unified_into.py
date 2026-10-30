@@ -1768,7 +1768,9 @@ def test_остаток_догрузки_только_с_участием_арх
     # Пикер концов видит всё дерево целиком — и живое, и приехавшее.
     assert "Ярмарка / orders / api" in остаток.node_paths and "Витрина" in остаток.node_paths
     # Строки замечаний на месте: структура их дополняет (Р1).
-    assert any("конец в контейнере" in w for w in превью.warnings)
+    assert any("конец в системе" in w for w in превью.warnings)
+    # Слова вопроса — по элементу конца: у orders элемента нет, это система.
+    assert остаток.container_edges[0].container_element == "system"
 
 
 def test_остаток_догрузки_дефолт_спора_поля_на_живом(db):
@@ -1971,7 +1973,7 @@ def test_остаток_догрузки_прячет_только_свои_ст
 
     скрыть = превью.remainder.converted_warnings
     assert any("похожи" in w for w in скрыть)  # «Оператор» и «Оператор смены»
-    assert any("Витрина" in w and "конец в контейнере" in w for w in скрыть)
+    assert any("Витрина" in w and "конец в системе" in w for w in скрыть)
     # Живая связь в контейнер и живой остров вопросами не стали — строки остаются.
     assert not any("Оператор → orders" in w for w in скрыть)
     assert not any("не связана с остальной схемой" in w for w in скрыть)

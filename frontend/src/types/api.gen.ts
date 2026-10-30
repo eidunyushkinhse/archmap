@@ -3958,13 +3958,16 @@ export interface components {
         };
         /**
          * ComponentOut
-         * @description Компонент контейнера — возможная цель конца связи.
+         * @description Объект внутри конца связи — возможная цель её конца (и строка пикера концов
+         *     новой связи).
          */
         ComponentOut: {
             /** Path */
             path: string;
             /** Has Children */
             has_children: boolean;
+            /** Element Effective */
+            element_effective?: ("system" | "container" | "component") | null;
         };
         /** ConfigImportIn */
         ConfigImportIn: {
@@ -4169,8 +4172,9 @@ export interface components {
         };
         /**
          * ContainerEdgeOut
-         * @description Конец связи, легший на контейнер целиком (§4.3 ТЗ). Оба конца в
-         *     контейнерах — ДВА элемента: у каждого свой ответ.
+         * @description Конец связи, легший на объект с вложенными целиком (§4.3 ТЗ). Оба конца в
+         *     таких объектах — ДВА элемента: у каждого свой ответ. Имя класса историческое:
+         *     конец бывает и системой.
          */
         ContainerEdgeOut: {
             /** Id */
@@ -4190,6 +4194,11 @@ export interface components {
             end: "source" | "target";
             /** Container Path */
             container_path: string;
+            /**
+             * Container Element
+             * @enum {string}
+             */
+            container_element: "system" | "container";
             /** Components */
             components: components["schemas"]["ComponentOut"][];
         };
@@ -5890,7 +5899,8 @@ export interface components {
              *       "unfixable": [],
              *       "converted_warnings": [],
              *       "node_paths": [],
-             *       "node_has_children": []
+             *       "node_has_children": [],
+             *       "node_elements": []
              *     }
              */
             remainder: components["schemas"]["RemainderOut"];
@@ -7286,6 +7296,11 @@ export interface components {
              * @default []
              */
             node_has_children: boolean[];
+            /**
+             * Node Elements
+             * @default []
+             */
+            node_elements: (("system" | "container" | "component") | null)[];
         };
         /** ReorderPayload */
         ReorderPayload: {
@@ -7927,7 +7942,8 @@ export interface components {
              *       "unfixable": [],
              *       "converted_warnings": [],
              *       "node_paths": [],
-             *       "node_has_children": []
+             *       "node_has_children": [],
+             *       "node_elements": []
              *     }
              */
             remainder: components["schemas"]["RemainderOut"];

@@ -63,6 +63,7 @@ function failedPreview(msg: string): IntoPreviewOut {
     remainder: {
       field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
       unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [],
+      node_elements: [],
     },
     warnings: [],
     base_graph_rev: 0,

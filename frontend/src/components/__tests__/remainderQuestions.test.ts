@@ -43,6 +43,7 @@ const поле = (over: Partial<FieldDisputeOut> = {}): FieldDisputeOut => ({
 const связь = (over: Partial<ContainerEdgeOut> = {}): ContainerEdgeOut => ({
   id: "edge|Плагин/Датасорс|Zabbix||target", from_path: "Плагин / Датасорс", to_path: "Zabbix",
   label: "запросы", technology: "HTTP", end: "target", container_path: "Zabbix",
+  container_element: "container",
   components: [
     { path: "Zabbix / server", has_children: true },
     { path: "Zabbix / server / Поллер", has_children: false },
@@ -63,7 +64,7 @@ const пара = (over: Partial<FuzzyPairOut> = {}): FuzzyPairOut => ({
 
 const остаток = (over: Partial<RemainderOut> = {}): RemainderOut => ({
   field_conflicts: [], container_edges: [], isolated_groups: [], fuzzy_pairs: [],
-  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], ...over,
+  unfixable: [], converted_warnings: [], node_paths: [], node_has_children: [], node_elements: [], ...over,
 });
 
 const всё = () => buildQuestions({
@@ -221,7 +222,35 @@ describe("тексты жестов (§4.3–4.5)", () => {
     })[0]!;
     expect(начало.title).toContain(
       "выходит из контейнера «Zabbix». С каким компонентом контейнера «Zabbix» связан объект «Zabbix»?");
-    expect(конец.why).toContain("Конец стрелки нужно перевесить с контейнера на его дочерний объект.");
+    expect(конец.why).toBe(
+      "В одном файле «Zabbix» описан одним объектом, а в другом у него есть компоненты."
+      + " После слияния он станет контейнером, а вызовы принимают его компоненты."
+      + " Конец связи нужно перевесить на один из них.");
+  });
+
+  it("связь в систему — словами системы: вложенные объекты, «оставить на системе»", () => {
+    const система = связь({ container_element: "system" });
+    const конец = buildQuestions({ family_conflicts: [], remainder: остаток({ container_edges: [система] }) })[0]!;
+    expect(конец.title).toBe(
+      "Связь «Датасорс → Zabbix» приходит в систему «Zabbix». "
+      + "С каким объектом внутри системы «Zabbix» связан объект «Датасорс»?");
+    expect(конец.context).toBe("внутри 2 объектов, считая вложенные");
+    expect(конец.why).toBe(
+      "В одном файле «Zabbix» описана одним объектом, а в другом у неё есть вложенные объекты."
+      + " После слияния она станет системой, а вызовы принимают объекты внутри неё."
+      + " Конец связи нужно перевесить на один из них.");
+    expect(конец.ifLeft).toBe(
+      "Если не отвечать, то связь останется на системе и после создания проекта"
+      + " будет ждать в панели «Рекомендации». Перевесить её можно будет там.");
+    const начало = buildQuestions({
+      family_conflicts: [], remainder: остаток({ container_edges: [{ ...система, end: "source" }] }),
+      mode: "into",
+    })[0]!;
+    expect(начало.title).toBe(
+      "Связь «Датасорс → Zabbix» выходит из системы «Zabbix». "
+      + "С каким объектом внутри системы «Zabbix» связан объект «Zabbix»?");
+    expect(начало.ifLeft).toContain("останется на системе и после догрузки");
+    expect(answerLabel(начало, { [начало.id]: { kind: "keep" } }, {})).toBe("на системе");
   });
 
   it("сноска связи называет момент своего окна: создание или догрузка", () => {
@@ -304,7 +333,7 @@ describe("прогресс", () => {
     };
     const s = segments(qs, answers, { "doc|Zabbix/server|Опрос": "cand:1" });
     expect(s.map((x) => x.caption)).toEqual([
-      "Содержимое · 1/1", "Поля · 0/1", "В контейнер · 1/1", "Связи · 1/1", "Имена · 0/1",
+      "Содержимое · 1/1", "Поля · 0/1", "В систему или контейнер · 1/1", "Связи · 1/1", "Имена · 0/1",
     ]);
     expect(s[3]!.kept).toBe(1);
     expect(s.map((x) => x.first)).toEqual([0, 1, 2, 3, 4]);

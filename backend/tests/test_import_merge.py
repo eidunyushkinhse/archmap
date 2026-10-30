@@ -538,6 +538,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
             "- name: Voting App\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: redis\n",
@@ -551,7 +552,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
         "уточните её до конкретного компонента: «vote / web-api»"
     ) in report.warnings
     # Ребро от компонента — законное, про него не предупреждаем.
-    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 1
+    assert len([w for w in report.warnings if "уточните её до" in w]) == 1
 
 
 def test_оба_конца_контейнеры_названы_оба():
@@ -560,9 +561,11 @@ def test_оба_конца_контейнеры_названы_оба():
             "- name: Voting App\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: worker\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: queue-reader\n",
             "edges:\n- from: vote\n  to: worker\n",
@@ -575,6 +578,45 @@ def test_оба_конца_контейнеры_названы_оба():
         "есть компоненты, — уточните её до конкретных компонентов: «vote / web-api»; "
         "«worker / queue-reader»"
     ) in report.warnings
+
+
+def test_слова_замечания_по_элементу_конца():
+    """Правило одно для любого объекта с вложенными (Р22), слова — по действующему
+    элементу конца в слитом дереве: у системы — «вложенные объекты» и «одного из
+    них», у контейнера — «компоненты»; оба конца — с согласованием. Перечень целей —
+    прежней формой «Объект / вложенный» (П5): агент вписывает её в YAML как есть."""
+    _merged, report, errors = parse_and_merge([
+        _doc(
+            "- name: Торговля\n"
+            "  children:\n"
+            "  - name: catalog\n"
+            "  - name: orders\n"
+            "    element: container\n"
+            "    children:\n"
+            "    - name: api\n"
+            "- name: Склад\n"
+            "  children:\n"
+            "  - name: worker\n"
+            "- name: Витрина\n",
+            "edges:\n- from: Витрина\n  to: Торговля\n- from: Витрина\n  to: orders\n"
+            "- from: Склад\n  to: orders\n- from: Склад\n  to: Торговля\n",
+        )
+    ])
+
+    assert errors == []
+    связи = [w for w in report.warnings if w.startswith("связь «")]
+    assert связи == [
+        "связь «Витрина → Торговля»: конец в системе «Торговля», у которой есть вложенные "
+        "объекты, — уточните её до одного из них: «Торговля / catalog», «Торговля / orders»",
+        "связь «Витрина → orders»: конец в контейнере «orders», у которого есть компоненты, "
+        "— уточните её до конкретного компонента: «orders / api»",
+        "связь «Склад → orders»: оба конца в системе «Склад» и контейнере «orders», у "
+        "которых есть вложенные объекты, — уточните её до вложенных объектов: "
+        "«Склад / worker»; «orders / api»",
+        "связь «Склад → Торговля»: оба конца в системах «Склад» и «Торговля», у которых "
+        "есть вложенные объекты, — уточните её до вложенных объектов: «Склад / worker»; "
+        "«Торговля / catalog», «Торговля / orders»",
+    ]
 
 
 # ── «цель с ответом»: перечень компонентов прямо в замечании (П5) ─────────────
@@ -593,6 +635,7 @@ def test_замечание_несёт_перечень_компонентов_�
             "- name: Zabbix\n"
             "  children:\n"
             "  - name: server\n"
+            "    element: container\n"
             "    children:\n"
             "    - name: poller\n"
             "    - name: trapper\n"
@@ -617,7 +660,8 @@ def test_перечень_компонентов_капится_хвостом()
     дети = "".join(f"    - name: c{i}\n" for i in range(1, 10))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Zabbix\n  children:\n  - name: server\n    children:\n"
+            "- name: Zabbix\n  children:\n  - name: server\n    element: container\n"
+            "    children:\n"
             + дети
             + "  - name: db\n",
             "edges:\n- from: db\n  to: server\n",
@@ -639,9 +683,10 @@ def test_при_двух_перечнях_кап_строже():
     правые = "".join(f"    - name: r{i}\n" for i in range(1, 7))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Voting App\n  children:\n  - name: vote\n    children:\n"
+            "- name: Voting App\n  children:\n  - name: vote\n    element: container\n"
+            "    children:\n"
             + левые
-            + "  - name: worker\n    children:\n"
+            + "  - name: worker\n    element: container\n    children:\n"
             + правые,
             "edges:\n- from: vote\n  to: worker\n",
         )
@@ -670,7 +715,7 @@ def test_связи_только_в_листья_молчат():
     ])
 
     assert errors == []
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
 
 
 def test_кап_на_связях_в_контейнер():
@@ -685,7 +730,7 @@ def test_кап_на_связях_в_контейнер():
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
 
     assert errors == []
-    assert len([w for w in report.warnings if "уточните её до конкретного" in w]) == 10
+    assert len([w for w in report.warnings if "уточните её до" in w]) == 10
     assert "…ещё 2 таких связей" in report.warnings
 
 
@@ -781,7 +826,7 @@ def test_на_связь_с_потомком_приходится_ровно_о�
 
     assert errors == []
     assert len([w for w in report.warnings if "background-workers → email-senders" in w]) == 1
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
 
 
 def test_связь_в_чужой_контейнер_остаётся_прежним_классом():
@@ -803,9 +848,9 @@ def test_связь_в_чужой_контейнер_остаётся_прежн
 
     assert errors == []
     assert (
-        "связь «background-workers → zulip-web»: оба конца в контейнерах "
-        "«background-workers» и «zulip-web», у которых есть компоненты, — уточните её "
-        "до конкретных компонентов: «background-workers / email-senders»; "
+        "связь «background-workers → zulip-web»: оба конца в системах "
+        "«background-workers» и «zulip-web», у которых есть вложенные объекты, — уточните "
+        "её до вложенных объектов: «background-workers / email-senders»; "
         "«zulip-web / django-app»"
     ) in report.warnings
     assert not any("иерархия уже выражает вложенность" in w for w in report.warnings)
@@ -1216,7 +1261,7 @@ def test_паритет_связь_в_коробку_соединяет_подд
     assert алерт.isolated_groups == []
     assert _группы(report) == []
     assert len(алерт.intermediate_edges) == 1
-    assert any("конец в контейнере «Grafana»" in w for w in report.warnings)
+    assert any("конец в системе «Grafana»" in w for w in report.warnings)
 
 
 def test_паритет_с_алертом_изолированных_групп(db):
@@ -1295,7 +1340,7 @@ def test_паритет_с_алертом_связи_в_собственного
     assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
     # И обе молчат об остальном: ни «уточните конец», ни «канал».
     assert алерт.intermediate_edges == [] and алерт.broker_edge_channels == []
-    assert not any("уточните её до конкретн" in w for w in report.warnings)
+    assert not any("уточните её до" in w for w in report.warnings)
     assert not any("а канал не указан" in w for w in report.warnings)
 
 
@@ -1635,8 +1680,8 @@ def test_контейнер_раскрытый_чужим_файлом_адре�
 
     assert файлы[0].file == 1
     assert файлы[0].warnings == [
-        "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
-        "уточните её до конкретного компонента: «redis / redis-core»"
+        "связь «vote → redis»: конец в системе «redis», у которой есть вложенные объекты, — "
+        "уточните её до одного из них: «redis / redis-core»"
     ]
     assert not any("контейнер" in w for w in схема)
 
@@ -1648,8 +1693,8 @@ def test_контейнер_с_вкладом_своего_файла_адрес
     файлы, _ошибки, схема = _корзины(_Ф7_СВОЙ_КОНТЕЙНЕР, _Ф7_КОМПОНЕНТЫ_REDIS)
 
     assert (
-        "связь «vote → redis»: конец в контейнере «redis», у которого есть компоненты, — "
-        "уточните её до конкретного компонента: «redis / redis-core»"
+        "связь «vote → redis»: конец в системе «redis», у которой есть вложенные объекты, — "
+        "уточните её до одного из них: «redis / redis-core»"
     ) in файлы[0].warnings
     assert not any("контейнер" in w for w in схема)
 
@@ -2263,14 +2308,14 @@ def test_снимок_одно_файлового_прогона_file_a():
     предупреждения = [
         "объектов без единой связи: 2 («api», «charge-worker») — проверьте, не "
         "потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
-        "связь «payments → payments-db»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «payments → payments-db»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
-        "связь «payments → Stripe»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «payments → Stripe»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
-        "связь «orders → payments»: конец в контейнере «payments», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «payments / api», "
+        "связь «orders → payments»: конец в системе «payments», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
     ]
     assert _снимок(FILE_A) == {
@@ -2365,8 +2410,8 @@ def test_снимок_одно_файлового_прогона_со_всеми
         "объектов без единой связи: 7 («сирота1», «сирота2», «сирота3», «сирота4», "
         "«сирота5», «сирота6» и ещё 1) — проверьте, не потерялись ли связи; такие "
         "объекты попадут в «Незавершённость схемы»",
-        "связь «orders → kafka»: конец в контейнере «orders», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «orders / api»",
+        "связь «orders → kafka»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api»",
         "связь «orders → kafka»: конец — брокер «kafka», а канал не указан — добавьте "
         "channel: имя топика/очереди",
         "связь «api → kafka»: в channel перечень «orders.created, orders.paid» — "
@@ -2654,7 +2699,7 @@ def test_остаток_связь_в_контейнер_обоими_конца
         ("source", "Grafana"), ("target", "Zabbix")
     ]
     assert len({r.warning_idx for r in оба}) == 1  # одна строка на связь
-    assert "оба конца в контейнерах" in report.warnings[оба[0].warning_idx]
+    assert "оба конца в системах" in report.warnings[оба[0].warning_idx]
     # Второй связи контейнером приходится только конец.
     [конец] = [r for r in report.container_edges if r.edge_idx == 1]
     assert (конец.end, paths[конец.container_idx]) == ("target", "Zabbix")
@@ -3054,7 +3099,8 @@ def test_спор_элемента_снимается_когда_ответил�
 
 def test_файлы_без_элемента_отчёт_прежний():
     """Слияние документов без поля element — тем же отчётом, что до эпика: эталон
-    снят с прежней версии слияния (git 4fe7d24c), строка в строку."""
+    снят с прежней версии слияния (git 4fe7d24c), строка в строку. Кроме слов замечаний
+    о связях в объект с вложенными (Ф6): без элемента такой объект — система."""
     а = """
 nodes:
   - name: Ярмарка
@@ -3101,10 +3147,10 @@ edges:
         "объекты попадут в «Незавершённость схемы»",
         "объектов без единой связи: 1 («worker») — проверьте, не потерялись ли связи; такие "
         "объекты попадут в «Незавершённость схемы»",
-        "связь «orders → Каталог-БД»: конец в контейнере «orders», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «orders / api», «orders / worker»",
-        "связь «Оператор → orders»: конец в контейнере «orders», у которого есть "
-        "компоненты, — уточните её до конкретного компонента: «orders / api», «orders / worker»",
+        "связь «orders → Каталог-БД»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api», «orders / worker»",
+        "связь «Оператор → orders»: конец в системе «orders», у которой есть "
+        "вложенные объекты, — уточните её до одного из них: «orders / api», «orders / worker»",
     ]
     assert report.warning_files == [1, 0, 1, 0, 1]
     assert [(d.node_idx, d.field, d.contributions) for d in report.field_disputes] == [

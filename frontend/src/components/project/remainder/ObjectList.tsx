@@ -1,4 +1,4 @@
-// Список объектов (§5.3 ТЗ): компоненты контейнера в вопросе о связи. Первые
+// Список объектов (§5.3 ТЗ): объекты внутри конца связи в вопросе о ней. Первые
 // четыре видны сразу, остальные — по ссылке «Показать
 // остальные N», и только там появляется фильтр: крупные системы дают сотни путей,
 // а решение почти всегда принимается по первым строкам.
@@ -10,6 +10,7 @@ import { useState } from "react";
 import type { ComponentOut } from "../../../types";
 import { plural } from "../../../ui/plural";
 import Option, { PathLabel } from "./Option";
+import { nestedTag } from "./questionText";
 import { noAutofill } from "../../../ui/noAutofill";
 
 interface Props {
@@ -39,7 +40,7 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
       key={`${x.path}#${i}`}
       main={<PathLabel path={x.path} base={base} />}
       title={x.path}
-      tag={x.has_children ? "контейнер" : undefined}
+      tag={nestedTag(x)}
       selected={value === x.path}
       onClick={() => onPick(x.path)}
     />

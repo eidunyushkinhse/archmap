@@ -53,7 +53,7 @@ import uuid
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
-from app.domain_types import NodeElement
+from app.domain_types import NodeElement, NodeElementEffective
 from app.element import CONTAINER, Elements
 from app.element_marks import ElementRow, build_elements
 
@@ -289,6 +289,14 @@ def _strip_components(
             n.sites = []
             notes.append(COMPONENT_SITES_NOTE.format(path=paths[i], container=name))
     return notes
+
+
+def effective_elements(nodes: Sequence[ElementNode]) -> list[NodeElementEffective | None]:
+    """Действующий элемент каждого узла разобранного (слитого) дерева по индексу — одна
+    сборка app/element на всё дерево. Ей говорят слова замечаний и вопросов превью ввоза:
+    конец связи в системе или в контейнере, тег объекта в списках разбора."""
+    elements = build_elements(_rows(nodes))
+    return [elements.effective(_key(i)) for i in range(len(nodes))]
 
 
 def tree_paths(nodes: Sequence[ElementNode]) -> list[str]:
