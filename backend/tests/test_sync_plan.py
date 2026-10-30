@@ -627,7 +627,10 @@ def test_элемент_отказ_правила_по_живому_дереву
     nodes, edges = _seed(_parse(RUN))
     by_name = {n.name: n for n in nodes}
     by_name["Система"].element = "container"
-    # orders — компонент живого контейнера: в зоне синка он только с галочкой.
+    # orders — сервис внутри живого контейнера, его компонент: без галочки синк его не
+    # трогает вовсе, отказ правила виден только с галочкой.
+    без_галочки = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+    assert "Система / orders" not in _пути(без_галочки) and без_галочки.conflicts == []
     plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ), SyncPolicies(sync_components=True))
     assert _узел_плана(plan, "Система / orders").fields == []
     assert plan.conflicts == [
@@ -682,18 +685,21 @@ def test_база_в_живом_контейнере_создаётся_уров
 
 
 def test_брокер_корневого_контейнера_создаётся_на_верхнем_уровне():
+    """Брокер компонентом не бывает (Р6): под живым контейнером он в зоне синка и без
+    галочки и выносится наверх, а сервисы-компоненты рядом с ним синк не трогает."""
     живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
     прогон = (
         "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "      - name: scheduler\n"
         "      - name: Kafka\n        shape: broker\n"
     )
     nodes, edges = _seed(_parse(живой))
-    # Без галочки брокер внутри живого контейнера вне зоны синка — как его компоненты.
-    assert build_sync_plan(nodes, edges, _parse(прогон)).nodes[1:] == []
-    plan = build_sync_plan(nodes, edges, _parse(прогон), С_КОМПОНЕНТАМИ)
+    plan = build_sync_plan(nodes, edges, _parse(прогон))
 
     kafka = _узел_плана(plan, "orders / Kafka")
     assert (kafka.action, kafka.parent_id, kafka.parent_path) == ("create", None, None)
+    # Компоненты без галочки вне зоны: ни живой api, ни новый scheduler.
+    assert _пути(plan) == ["orders", "orders / Kafka"]
     assert plan.conflicts == [
         "«Kafka»: брокер не может входить в состав контейнера «orders» — будет создан на "
         "верхнем уровне"
@@ -770,16 +776,37 @@ def test_база_уже_в_живом_контейнере_не_дублиру�
     assert plan.conflicts == []
 
 
-def test_зона_синка_по_глубине_прогона_прежняя():
-    """База, которую прогон кладёт внутрь живого контейнера, без галочки вне синка (как
-    и прежде, когда зона считалась по глубине), — ни действия, ни строки, хотя
-    вынесенной она легла бы выше."""
+def test_база_под_живым_контейнером_без_галочки_выносится():
+    """База компонентом не бывает (Р6): прогон кладёт её в живой контейнер на глубине,
+    где по прежнему правилу начинались компоненты, — без галочки она в зоне синка и
+    создаётся уровнем выше; сервис-компонент рядом с ней синк не трогает."""
     nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
     plan = build_sync_plan(nodes, edges, _parse(С_БАЗОЙ_В_КОНТЕЙНЕРЕ))
 
-    assert not any("orders-cache" in a.path for a in plan.nodes)
-    assert plan.conflicts == []
-    assert plan.is_noop
+    кэш = _узел_плана(plan, "Система / orders / orders-cache")
+    assert (кэш.action, кэш.parent_id, кэш.parent_path) == (
+        "create", _ids(nodes)["Система"], None
+    )
+    assert "Система / orders / api" not in _пути(plan)
+    assert plan.conflicts == [
+        "«orders-cache»: база данных не может входить в состав контейнера «orders» — будет "
+        "создана уровнем выше, в «Система»"
+    ]
+
+
+def test_живая_база_в_контейнере_пропавшая_без_галочки():
+    """База прямо в живом контейнере в зоне и на стороне живого дерева: прогон о ней
+    молчит — «пропавшая»; сервис-компонент рядом — нет."""
+    nodes, edges = _seed(_parse(RUN_ЭЛЕМЕНТ))
+    ids = _ids(nodes)
+    for name, shape in (("api", "service"), ("orders-cache", "database")):
+        nodes.append(Node(
+            id=uuid.uuid4(), project_id=nodes[0].project_id, name=name, shape=shape,
+            status="existing", parent_id=ids["orders"],
+        ))
+    plan = build_sync_plan(nodes, edges, _parse(RUN_ЭЛЕМЕНТ))
+
+    assert _by_action(plan, "missing") == ["Система / orders / orders-cache"]
 
 
 # ── Зона синка по элементу архитектуры, запасной путь — по глубине прогона (Ф6) ──

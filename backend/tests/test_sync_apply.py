@@ -431,14 +431,15 @@ def test_apply_брокер_корневого_контейнера_на_вер�
     живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
     прогон = (
         "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "      - name: scheduler\n"
         "      - name: Kafka\n        shape: broker\n"
     )
     p, _user = _project(db, живой)
-    # Без галочки всё, что прогон кладёт внутрь живого контейнера, вне зоны синка.
-    assert _plan(db, p, прогон).nodes[1:] == []
 
-    report = _apply(db, p, прогон, sync_components=True)
+    report = _apply(db, p, прогон)
 
+    # Брокер компонентом не бывает — выносится и без галочки; новый сервис-компонент
+    # scheduler без галочки не создаётся.
     assert report.created_nodes == ["orders / Kafka"]
     assert _node(db, p.id, "Kafka").parent_id is None
-    assert _plan(db, p, прогон, sync_components=True).is_noop
+    assert _plan(db, p, прогон).is_noop
