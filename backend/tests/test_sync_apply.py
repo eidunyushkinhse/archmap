@@ -492,3 +492,80 @@ def test_синк_создаёт_вложенного_пользователя_�
 
     again = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
     assert again.is_noop, again.summary
+
+
+# ── Смена типа живого узла — правилом API (Ф13а, находка Ф12б) ──────────────
+
+ЖИВОЙ_С_ДЕТЬМИ = (
+    "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+    "        source: {host: orders}\n        children:\n          - name: api\n"
+)
+
+
+def test_синк_не_меняет_тип_в_обход_правила(db):
+    """Прогон зовёт живой сервис с вложенными базой данных: правка в API отказала бы
+    («у узла есть вложенные объекты»), и синк тип не меняет — превью говорит причину
+    строкой расхождений, применение оставляет сервис."""
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: database\n        source: {host: orders}\n"
+    )
+    p, user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    [orders] = [a for a in превью.nodes if a.path == "Ярмарка / orders"]
+    assert "shape" not in orders.fields
+    assert [c for c in превью.conflicts if c.startswith("«orders»: в YAML другой тип")] == [
+        "«orders»: в YAML другой тип («База данных»), в схеме оставляем как есть. У узла есть "
+        "вложенные объекты — тип «Сервис» единственный, который может их иметь",
+    ]
+
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+    assert _node(db, p.id, "orders").shape == "service"
+
+
+def test_синк_не_делает_вложенный_сервис_пользователем(db):
+    """Полевой случай Ф12б: прогон называет живой вложенный сервис «Пользователем»
+    (разбор поднимает его в корень, а якорь находит живой узел внутри системы). Тип не
+    меняется: «Пользователь» живёт только на верхнем уровне."""
+    живой = "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n        source: {host: orders}\n"
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: person\n        source: {host: orders}\n"
+    )
+    p, user = _project(db, живой)
+
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+    orders = _node(db, p.id, "orders")
+    assert (orders.shape, orders.parent_id is not None) == ("service", True)
+
+
+def test_применение_само_проверяет_тип_по_плану_без_правила(db):
+    """План, построенный без правила формы (build_sync_plan без БД), несёт смену типа —
+    применение проверяет её само: тип остаётся, причина — строкой «пропущено»."""
+    from app.import_merge import parse_and_merge
+    from app.sync_apply import apply_sync_plan
+    from app.sync_plan import build_sync_plan
+
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: database\n        source: {host: orders}\n"
+    )
+    p, _user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
+    merged, _report, errors = parse_and_merge([прогон])
+    assert merged is not None, errors
+    nodes = db.query(Node).filter(Node.project_id == p.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == p.id).all()
+    plan = build_sync_plan(nodes, edges, merged)
+    [orders] = [a for a in plan.nodes if a.path == "Ярмарка / orders"]
+    assert "shape" in orders.fields
+
+    report = apply_sync_plan(db, p, merged, plan)
+
+    assert _node(db, p.id, "orders").shape == "service"
+    assert report.skipped == [
+        "Ярмарка / orders: тип не изменён. У узла есть вложенные объекты — тип «Сервис» "
+        "единственный, который может их иметь",
+    ]

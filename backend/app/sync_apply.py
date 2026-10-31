@@ -22,6 +22,7 @@ from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
+from app.reparent import validate_shape_change
 from app.sync_plan import SyncEdgeAction, SyncNodeAction, SyncPlan
 from app.view_state import bump_graph_rev
 
@@ -35,7 +36,8 @@ class SyncReport:
     deprecated_nodes: list[str] = field(default_factory=list)
     created_edges: list[str] = field(default_factory=list)
     updated_edges: list[str] = field(default_factory=list)  # заполнен канал или тип
-    skipped: list[str] = field(default_factory=list)  # действия, потерявшие цель
+    # действия, потерявшие цель, и отказ правила смены типа (тип тогда не меняется)
+    skipped: list[str] = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -89,7 +91,7 @@ def apply_sync_plan(
             continue
         by_path[act.path] = node
         if act.action != "unchanged" and act.fields:
-            _update_node(act, imp, node, report)
+            _update_node(db, act, imp, node, report)
 
     live_edges = {
         e.id: e for e in db.query(Edge).filter(Edge.project_id == project.id).all()
@@ -217,16 +219,29 @@ def _create_node(
 
 
 def _update_node(
-    act: SyncNodeAction, imp: _ImpNode | None, node: Node, report: SyncReport
+    db: Session, act: SyncNodeAction, imp: _ImpNode | None, node: Node, report: SyncReport
 ) -> None:
     if imp is None:
         report.skipped.append(f"{act.path}: нет данных в YAML")
         return
-    # Что менять — решено планом (список fields); здесь только присваивание.
+    # Что менять — решено планом (список fields); здесь присваивание и одна проверка:
+    # смена формы — тем же правилом, что правка в API (дети, таблицы, каналы, размещение,
+    # место). План, построенный над БД (plan_for), её уже отсеял; план без правила (или
+    # устаревший) сюда её донесёт — форма тогда остаётся, причина — строкой отчёта.
+    changed = False
     for fld in act.fields:
         if fld == "source_ref":
             node.source_ref = known_key(act.source_ref)
+        elif fld == "shape" and imp.shape != node.shape:
+            reason = validate_shape_change(db, node, imp.shape, parent_id=node.parent_id)
+            if reason:
+                report.skipped.append(f"{act.path}: тип не изменён. {reason}")
+                continue
+            node.shape = imp.shape
         elif fld in _FLAT_FIELDS:
             setattr(node, fld, getattr(imp, fld))
+        changed = True
+    if not changed:
+        return
     node.version += 1
     report.updated_nodes.append(act.path)
