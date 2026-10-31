@@ -289,6 +289,18 @@ describe("PlacementDialog", () => {
     expect(check("vm2").checked).toBe(true);
   });
 
+  it("отказ состава на нескольких объектах называет контейнеры систем, а не «вложенные объекты»", async () => {
+    vi.mocked(nodesApi.getAll).mockRejectedValue(new ApiError(500, "Сервер недоступен"));
+    setup([box("c1", "Заказы", []), box("c2", "Склад", []), obj("a", [])]);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить контейнеры систем. Сервер недоступен");
+  });
+
+  it("одна система среди нескольких объектов — «контейнеры системы»", async () => {
+    vi.mocked(nodesApi.getAll).mockRejectedValue(new ApiError(500, "Сервер недоступен"));
+    setup([box("c1", "Заказы", []), obj("a", [])]);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Не удалось загрузить контейнеры системы. Сервер недоступен");
+  });
+
   it("без систем состав проекта не грузится", () => {
     setup([obj("a", ["k8s"])]);
     expect(nodesApi.getAll).not.toHaveBeenCalled();

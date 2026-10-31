@@ -87,6 +87,13 @@ describe("подсказка строки дерева (treeRowTitle)", () => {
     expect(treeRowTitle("deploy", dbWithKids())).toBe("Открыть уровень: Склад");
     expect(treeRowTitle("pages", group())).toBe("Страница: Ядро");
   });
+
+  it("компонент в «Развёртывании» — подсказка называет контейнер, который покажет щелчок", () => {
+    const api = node("api", { element_effective: "component", container_name: "orders" });
+    expect(treeRowTitle("deploy", api)).toBe("Показать на схеме контейнер «orders»");
+    expect(treeRowTitle("deploy", { ...api, container_name: null })).toBe("Показать на схеме контейнер");
+    expect(treeRowTitle("editor", api)).toBe("Показать на схеме: api");
+  });
 });
 
 describe("порядок сиблингов (compareByRank)", () => {

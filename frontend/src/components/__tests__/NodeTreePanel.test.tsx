@@ -404,6 +404,24 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     await waitFor(() => expect(screen.getByText("api")).toBeInTheDocument());
   });
 
+  it("поиск находит компонент: строка говорит, чей контейнер покажет щелчок, и ведёт к нему", async () => {
+    const onPickObject = vi.fn();
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    vi.mocked(nodesApi.search).mockResolvedValue([
+      node("api", { name: "api", parent_id: "orders", element_effective: "component", container_name: "orders" }),
+    ]);
+    render(<NodeTreePanel mode="deploy" isArchitect onOpenLevel={vi.fn()} onPickObject={onPickObject} onPlace={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Платежи")).toBeInTheDocument());
+    await userEvent.type(screen.getByPlaceholderText(/поиск/i), "api");
+    await waitFor(() => expect(screen.getByText("api")).toBeInTheDocument(), { timeout: 1000 });
+    const row = screen.getByText("api").closest(".nt-row") as HTMLElement;
+    expect(row).toHaveAttribute("title", "Показать на схеме контейнер «orders»");
+    expect(row).toHaveTextContent("в «orders»");
+    expect(screen.queryByLabelText("Указать размещение: «api»")).toBeNull();
+    await userEvent.click(screen.getByText("api"));
+    expect(onPickObject).toHaveBeenCalledWith(expect.objectContaining({ id: "api" }));
+  });
+
   it("строка размещаемого объекта подсвечена", async () => {
     vi.mocked(nodesApi.list).mockResolvedValue(rows());
     render(<NodeTreePanel mode="deploy" isArchitect onOpenLevel={vi.fn()} onPickObject={vi.fn()} onPlace={vi.fn()} placingId="svc" />);

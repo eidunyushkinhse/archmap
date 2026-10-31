@@ -228,6 +228,11 @@ export default function NodeTreePanel(props: Props) {
                       <span className="nt-chevspacer" />
                       <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
                       <span className="nt-name">{n.name}</span>
+                      {/* Компонента на холсте «Развёртывание» нет: строка поиска говорит,
+                          чей контейнер покажет щелчок (D28) */}
+                      {props.mode === "deploy" && n.element_effective === "component" && n.container_name && (
+                        <span className="nt-note">в «{n.container_name}»</span>
+                      )}
                       {placeable(n, isArchitect, deploy?.onPlace) && <PlaceButton node={n} onPlace={deploy.onPlace} />}
                     </div>
                   ))

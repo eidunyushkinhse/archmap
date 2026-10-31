@@ -10,11 +10,17 @@ export type TreeMode = "pages" | "editor" | "deploy";
 
 // Подсказка строки: страница объекта; в редакторе узел с детьми — его слой, лист —
 // показать на схеме. В «Развёртывании» уровень есть только у системы (D24: у
-// контейнера он закрыт), остальные — показать на схеме.
+// контейнера он закрыт), остальные — показать на схеме; компонента на этом холсте нет
+// (его находит только поиск), щелчок показывает его контейнер (D28) — подсказка так и
+// говорит.
 export function treeRowTitle(mode: TreeMode, node: Node): string {
   if (mode === "pages") return `Страница: ${node.name}`;
   if (mode === "deploy") {
-    return node.element_effective === "system" ? `Открыть уровень: ${node.name}` : `Показать на схеме: ${node.name}`;
+    if (node.element_effective === "system") return `Открыть уровень: ${node.name}`;
+    if (node.element_effective === "component") {
+      return node.container_name ? `Показать на схеме контейнер «${node.container_name}»` : "Показать на схеме контейнер";
+    }
+    return `Показать на схеме: ${node.name}`;
   }
   if (nodeNesting(node) === "group") return `Открыть слой: ${node.name}`;
   return `Показать на схеме: ${node.name}`;
