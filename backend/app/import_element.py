@@ -340,6 +340,56 @@ def effective_elements(nodes: Sequence[ElementNode]) -> list[NodeElementEffectiv
     return [elements.effective(_key(i)) for i in range(len(nodes))]
 
 
+# Узел до санитизации слияния: родитель, элемент, площадки (MergeReport.pre_settle).
+NodeState = tuple[int | None, NodeElement | None, list[str]]
+
+
+def restore_settled(
+    nodes: Sequence[ElementNode], before: Sequence[NodeState], root: int
+) -> dict[int, set[str]]:
+    """Вернуть поддерево root к документу — каким оно было до санитизации слияния:
+    родителей, элементы и площадки всех узлов, что лежали в root. Зовётся, когда ответ
+    на спор элемента снял с root «контейнер» (Ф13а): санитизация слияния, решавшая по
+    «контейнеру», вынесла из него базы и брокеры и сняла элементы и площадки компонентов,
+    а ответ «Система» иначе оставил бы базу снаружи. Дальше санитизация применения
+    решает по ответу — по тем же правилам. Принадлежность — по дереву ДО санитизации,
+    подъём с ограничением шагов (данные бывают циклическими). before не той длины (дерево
+    менялось) — ничего не трогаем. Возвращает, что у какого узла вернулось («parent»,
+    «element», «sites»): замечания о том, что вернуть нечего (снято ещё разбором файла),
+    остаются в силе."""
+    changed: dict[int, set[str]] = {}
+    if len(before) != len(nodes):
+        return changed
+
+    def was_inside(idx: int) -> bool:
+        cur = before[idx][0]
+        for _ in range(len(nodes)):
+            if cur is None:
+                return False
+            if cur == root:
+                return True
+            cur = before[cur][0]
+        return False
+
+    for i, n in enumerate(nodes):
+        if i == root or not was_inside(i):
+            continue
+        parent, element, sites = before[i]
+        kinds = {
+            kind
+            for kind, now, then in (
+                ("parent", n.parent_idx, parent),
+                ("element", n.element, element),
+                ("sites", n.sites, sites),
+            )
+            if now != then
+        }
+        if kinds:
+            n.parent_idx, n.element, n.sites = parent, element, list(sites)
+            changed[i] = kinds
+    return changed
+
+
 def tree_paths(nodes: Sequence[ElementNode]) -> list[str]:
     """Полные пути «Корень / … / Имя» по текущим родителям (родители раньше детей) — после
     выноса пути вынесенных поддеревьев другие."""

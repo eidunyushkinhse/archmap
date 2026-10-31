@@ -26,7 +26,7 @@
 первый непустой; у склеенного узла sites — объединение в порядке первого появления.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import replace
 from difflib import SequenceMatcher
 
@@ -320,6 +320,9 @@ class _Merger:
         # Открытые споры полей (Ф-E): (узел, поле) → запись в report.field_disputes.
         # Копим в ОДНУ запись: третий файл добавляет кандидата, а не второй спор.
         self.disputes: dict[tuple[int, str], FieldDispute] = {}
+        # Рецепты строк report.conflicts (строка в строку): пересборка по путям после
+        # санитизации элемента (settle_elements).
+        self._conflict_lines: list[Callable[[], str]] = []
         # (merged-родитель, норм-имя) → кандидаты. Список, а не один idx: якорь
         # может РАЗВЕСТИ двух тёзок в одном родителе (разные репозитории), и оба
         # обязаны остаться адресуемыми для следующих файлов.
@@ -355,10 +358,17 @@ class _Merger:
         """Строка расхождения: номера файлов — источники ОСТАВЛЕННОГО и ОТБРОШЕННОГО
         значений (а не «первый вкладчик узла»: значение могло прийти не с созданием,
         а доливкой третьего файла, и победить тоже мог не первый — см. _decide)."""
-        self.report.conflicts.append(
-            f"{self.paths[idx]}: {fld}: оставлено «{kept}» (файл {keep_fi + 1}), "
+        self._add_conflict(
+            lambda: f"{self.paths[idx]}: {fld}: оставлено «{kept}» (файл {keep_fi + 1}), "
             f"отброшено «{dropped}» (файл {drop_fi + 1})"
         )
+
+    def _add_conflict(self, render: Callable[[], str]) -> None:
+        """Строка расхождения — текстом сейчас и рецептом на потом: пути узлов меняет
+        санитизация элемента (база выносится из контейнера), и settle_elements
+        пересобирает строки по дереву после неё."""
+        self._conflict_lines.append(render)
+        self.report.conflicts.append(render())
 
     def _decide(self, idx: int, fld: str, cur: str, new: str, fi: int, sub: bool) -> None:
         """Спор двух ЗАПОЛНЕННЫХ значений одного поля (П2): побеждает СОДЕРЖАТЕЛЬНЫЙ
@@ -638,9 +648,10 @@ class _Merger:
             else:
                 # Равные вклады: external ставят осознанно — решаем в пользу true.
                 winner = True
-            self.report.conflicts.append(
-                f"{self.paths[hit]}: external: файлы {keep_fi + 1} и {fi + 1} расходятся — "
-                f"оставлено {'true' if winner else 'false'}"
+            kept_fi, флаг = keep_fi, "true" if winner else "false"
+            self._add_conflict(
+                lambda: f"{self.paths[hit]}: external: файлы {kept_fi + 1} и {fi + 1} "
+                f"расходятся — оставлено {флаг}"
             )
             if winner != self.nodes[hit].is_external:
                 self.nodes[hit].is_external = winner
@@ -734,11 +745,10 @@ class _Merger:
         if not _fill(cur):
             self.edges[idx].channel = new
             return
-        a = self.paths[self.edges[idx].source_idx]
-        b = self.paths[self.edges[idx].target_idx]
-        self.report.conflicts.append(
-            f"связь «{a} → {b}»: канал: оставлено «{cur}» (файл {first + 1}), "
-            f"отброшено «{new}» (файл {fi + 1})"
+        edge = self.edges[idx]
+        self._add_conflict(
+            lambda: f"связь «{self.paths[edge.source_idx]} → {self.paths[edge.target_idx]}»: "
+            f"канал: оставлено «{cur}» (файл {first + 1}), отброшено «{new}» (файл {fi + 1})"
         )
 
     # ── предупреждения ────────────────────────────────────────────────────
@@ -849,12 +859,15 @@ class _Merger:
 
         База или брокер, вынесенные из контейнера, меняют пути своего поддерева: пути
         слитого дерева и строки склеек пересчитываются, чтобы следующие замечания и
-        превью называли объект там, где он окажется. Строки, записанные раньше (conflicts
-        и замечания о тёзках при склейке), остаются с путями документа. Объекты живого
+        превью называли объект там, где он окажется; строки conflicts пересобираются по
+        тем же путям (Ф13а), замечания о тёзках при склейке остаются с путями документа.
+        Состояние узлов до санитизации — в report.pre_settle: по нему применение
+        возвращает поддерево узла, с которого ответ на спор снял «контейнер». Объекты живого
         проекта (pinned_file) не переносятся: контейнер с живой базой внутри остаётся
         системой, а если и сам контейнер живой — место не трогается вовсе."""
         before = [n.element for n in self.nodes]
         parents = [n.parent_idx for n in self.nodes]
+        self.report.pre_settle = [(n.parent_idx, n.element, list(n.sites)) for n in self.nodes]
         pinned = self.pinned_file
 
         def is_pinned(idx: int) -> bool:
@@ -867,16 +880,21 @@ class _Merger:
                 for fi, ni, _keys in self.contribs[idx]
             )
 
+        first = len(self.report.warnings)
         for text in sanitize_elements(
             self.nodes, self.paths, pinned=is_pinned, live_element=live_element
         ):
             self.report.warn(text)
+        self.report.settle_warnings = range(first, len(self.report.warnings))
         for idx, was in enumerate(before):
             if self.nodes[idx].element != was:
                 self._drop_dispute(idx, "element")
         if any(n.parent_idx != p for n, p in zip(self.nodes, parents, strict=True)):
             self.paths = tree_paths(self.nodes)
             self.report.merged_paths = [self.paths[i] for i in self.merged_idxs]
+            # Строки расхождений записаны до выноса — путями документа; пересобираем их
+            # по дереву после санитизации, чтобы они называли объект там, где он ляжет.
+            self.report.conflicts = [render() for render in self._conflict_lines]
         self._warn_adopted_children(parts)
 
     def _warn_adopted_children(self, parts: list[ParsedImport]) -> None:

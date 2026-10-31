@@ -2567,6 +2567,92 @@ def test_выбранный_контейнер_выносит_базу_уров�
     assert строка in [u.text for u in отчёт.unfixable]
 
 
+_ПЛОЩАДКА_ВМ = "deployment:\n  sites:\n    - name: ВМ\n"
+
+
+def _с_базой(tech: str) -> str:
+    """orders — система: у api свои площадки, база внутри."""
+    return (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n"
+        "          - name: api\n            sites: [ВМ]\n"
+        f"          - name: orders-db\n            shape: database\n            technology: {tech}\n"
+    ) + _ПЛОЩАДКА_ВМ
+
+
+def _три_файла_спора(первый: str = _ЭЛЕМЕНТ_2):
+    return build_unified_plan([
+        ("billing.yaml", первый.encode()),
+        ("shop.yaml", _с_базой("PostgreSQL").encode()),
+        ("store.yaml", _с_базой("MySQL").encode()),
+    ])
+
+
+def _ответ_система(db, план, имя: str):
+    спор = next(c for c in preview_from_plan(план).remainder.field_conflicts if c.field == "element")
+    assert [c.value for c in спор.candidates] == ["container", "system"]
+    return apply_unified_plan(
+        db, план, {}, имя, None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: 1}})),
+    )
+
+
+def _про_вынос(отчёт) -> list[str]:
+    return [u.text for u in отчёт.unfixable if "вынесена" in u.text or "orders / api" in u.text]
+
+
+def test_ответ_система_возвращает_базу_внутрь_и_расхождения_по_путям_после_выноса(db):
+    """Ф13а: файл 1 зовёт orders контейнером, файлы 2 и 3 — системой с базой внутри и
+    площадками у api. Слияние оставляет «контейнер» (вопрос спора), выносит базу уровнем
+    выше и снимает площадки api как компонента; строка расхождения о базе называет её
+    там, где она ляжет, а не путём документа. Ответ «Система» возвращает базу внутрь
+    orders и площадки api — дерево как в файлах, где он система, — и оба пункта свёртки о
+    последствиях «контейнера» пропадают."""
+    план = _три_файла_спора()
+    assert план.ok, план.errors
+    про_базу = [c for c in план.report.conflicts if "technology" in c]
+    assert про_базу == [
+        "Ярмарка / orders-db: technology: оставлено «PostgreSQL» (файл 2), отброшено «MySQL» (файл 3)",
+    ]
+
+    без_ответа, отчёт = apply_unified_plan(db, план, {}, "Без ответа", None, ensure_architect(db).id)
+    db.commit()
+    assert "Ярмарка / orders-db" in _состав(db, без_ответа)[0]
+    assert len(_про_вынос(отчёт)) == 2, _про_вынос(отчёт)
+
+    проект, отчёт = _ответ_система(db, _три_файла_спора(), "Ответ система")
+    db.commit()
+    assert _элемент_в_проекте(db, проект.id, "orders") == "system"
+    пути, _ = _состав(db, проект)
+    assert "Ярмарка / orders / orders-db" in пути and "Ярмарка / orders-db" not in пути
+    api = db.query(Node).filter(Node.project_id == проект.id, Node.name == "api").one()
+    assert db.query(DeploymentInstance).filter_by(node_id=api.id).count() == 1
+    assert _про_вынос(отчёт) == []
+
+
+def test_ответ_система_не_прячет_снятое_разбором_файла(db):
+    """Пункт уходит, только если ответ вернул то, о чём он: файл-контейнер сам положил
+    площадку «Облако» своему компоненту api, разбор этого файла её снял — вернуть нечего,
+    и его пункт о площадках компонента остаётся, хотя пункт слияния с тем же текстом (о
+    площадке «ВМ» из файлов-систем) уходит вместе с выносом базы."""
+    сам_с_площадкой = (
+        _ЭЛЕМЕНТ_2 + "            sites: [Облако]\ndeployment:\n  sites:\n    - name: Облако\n"
+    )
+    проект, отчёт = _ответ_система(db, _три_файла_спора(сам_с_площадкой), "Снято разбором")
+    db.commit()
+    про_api = [t for t in _про_вынос(отчёт) if "orders / api" in t]
+    assert [t for t in _про_вынос(отчёт) if "вынесена" in t] == []
+    assert len(про_api) == 1, про_api
+    api = db.query(Node).filter(Node.project_id == проект.id, Node.name == "api").one()
+    площадки = {
+        site.name
+        for site in db.query(DeploymentSite)
+        .join(DeploymentInstance, DeploymentInstance.site_id == DeploymentSite.id)
+        .filter(DeploymentInstance.node_id == api.id)
+    }
+    assert площадки == {"ВМ"}
+
+
 def test_вынесенная_база_получает_таблицы_по_адресу_своего_архива(db):
     """Файл семьи архива адресует базу так, как её записал C4 этого архива — внутри
     контейнера. Разбор вынес базу, а таблицы всё равно доезжают до неё."""

@@ -45,7 +45,14 @@ from app.channels_import import (
 from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.element import CONTAINER
-from app.import_element import sanitize_elements, tree_paths
+from app.import_element import (
+    COMPONENT_NOTE,
+    COMPONENT_SITES_NOTE,
+    STORE_LIFTED_NOTE,
+    restore_settled,
+    sanitize_elements,
+    tree_paths,
+)
 from app.import_merge import union_sites
 from app.import_yaml import ParsedImport, _ImpEdge, seed_import
 from app.models.edge import Edge
@@ -343,6 +350,61 @@ def merge_chain(
     return out
 
 
+# Узел, чьё поддерево вернул ответ «Система», и что у каких узлов вернулось.
+Restored = list[tuple[int, dict[int, set[str]]]]
+
+
+def restore_answered_systems(
+    merged: ParsedImport, plan: UnifiedPlan, res: ResolvedDecisions
+) -> Restored:
+    """Ответ на спор элемента, снявший с узла «контейнер» (Ф13а): его поддерево — к
+    документу, каким оно было до санитизации слияния (import_element.restore_settled).
+    Иначе база, вынесенная из-за «контейнера», осталась бы вне выбранной системы, а
+    компоненты — без своих элементов и площадок. Санитизация применения потом решает по
+    ответу. Зовётся до остальных правок дерева. Общий у создания и догрузки. Возвращает
+    узлы, чьё поддерево вернулось, и что именно вернулось."""
+    before = plan.report.pre_settle
+    if not before:
+        return []
+    restored: Restored = []
+    for node_idx, fld, value in res.fields:
+        if fld == "element" and value != CONTAINER and merged.nodes[node_idx].element == CONTAINER:
+            restored.append((node_idx, restore_settled(merged.nodes, before, node_idx)))
+    return restored
+
+
+def settled_remark_ids(plan: UnifiedPlan, merged: ParsedImport, restored: Restored) -> set[str]:
+    """Пункты свёртки о последствиях «контейнера», которые ответ «Система» отменил
+    (restore_answered_systems): вынос базы или брокера из узла, снятые элементы и
+    площадки его компонентов — только то, что действительно вернулось, и только строки
+    санитизации слияния (MergeReport.settle_warnings). Снятое ещё разбором файла (файл
+    сам положил площадки компоненту своего контейнера) вернуть нечем, и его пункт
+    остаётся, даже если текст тот же. Строки — тексты app/import_element; пути узла и
+    его компонентов санитизация не меняет: выносятся базы и брокеры, а не контейнер."""
+    expected: set[str] = set()
+    lifted: list[str] = []
+    for root, changed in restored:
+        root_path, root_name = plan.node_paths[root], merged.nodes[root].name
+        for idx, kinds in changed.items():
+            node = merged.nodes[idx]
+            if "parent" in kinds and node.shape in STORE_LIFTED_NOTE:
+                note = STORE_LIFTED_NOTE[node.shape].format(path=root_path, name=node.name, where="")
+                lifted.append(note.rstrip())
+            if "element" in kinds:
+                expected.add(COMPONENT_NOTE.format(path=plan.node_paths[idx], container=root_name))
+            if "sites" in kinds:
+                expected.add(
+                    COMPONENT_SITES_NOTE.format(path=plan.node_paths[idx], container=root_name)
+                )
+    warnings = plan.report.warnings
+    return {
+        f"remark|{i}"
+        for i in plan.report.settle_warnings
+        if i < len(warnings)
+        and (warnings[i] in expected or any(warnings[i].startswith(f"{p} ") for p in lifted))
+    }
+
+
 def apply_container_hints(merged: ParsedImport, res: ResolvedDecisions) -> None:
     """Ответ «Контейнер» на вопрос «похоже на контейнер» (Р7): элемент слитому узлу ДО
     санитизации — дальше обычные правила ввоза (база внутри выносится, у компонентов
@@ -553,6 +615,11 @@ def apply_unified_plan(
     winners = _winners(plan, resolutions)
     # Сверка решений с планом — ДО любой записи, как и у резолюций.
     решения = resolve_decisions(plan, decisions, None)
+    # Ответ «Система» на спор элемента — поддерево узла к документу (база обратно внутрь);
+    # пункты свёртки о выносе из этого узла больше не правда.
+    if восстановлены := restore_answered_systems(merged, plan, решения):
+        лишние = settled_remark_ids(plan, merged, восстановлены)
+        unfixable = [u for u in unfixable if u.id not in лишние]
     # Поля, концы связей и дорисованные связи правим В ДЕРЕВЕ: оно ещё не в БД
     # (совпавшие после перевеса дубли оно же и выбрасывает). Склейки — после
     # посева: узлы уже созданы, а семьи адресованы индексами плана.

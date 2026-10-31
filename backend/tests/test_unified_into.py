@@ -2355,6 +2355,43 @@ def test_элемент_спор_с_живым_ответом_переписыв
     )
 
 
+def _донор_биллинга(db, имя: str, element: str, база: str | None = None) -> Project:
+    """Архив с новым объектом billing: контейнер с api либо система с базой внутри."""
+    донор = _проект(db, имя)
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    billing = _узел(db, донор, "billing", корень, element=element)
+    if база is None:
+        _узел(db, донор, "api", billing)
+    else:
+        _узел(db, донор, "billing-db", billing, shape="database", technology=база)
+    db.flush()
+    return донор
+
+
+def test_элемент_ответ_система_возвращает_базу_нового_объекта_внутрь(db):
+    """Ф13а, догрузка тем же путём, что создание: архивы спорят, контейнер новый billing
+    или система с базой. Слияние оставляет «контейнер» и выносит базу; ответ «Система»
+    кладёт базу обратно внутрь billing, пункт о выносе из свёртки уходит."""
+    проект, _ = _ярмарка(db)
+    архивы = [
+        build_archive(db, _донор_биллинга(db, "Донор 1", "container")),
+        build_archive(db, _донор_биллинга(db, "Донор 2", "system", "PostgreSQL")),
+        build_archive(db, _донор_биллинга(db, "Донор 3", "system", "MySQL")),
+    ]
+    db.commit()
+    план = build_into_plan(db, проект, [(f"a{i}.zip", a) for i, a in enumerate(архивы, 1)])
+    [спор] = [c for c in into_preview(план).remainder.field_conflicts if c.field == "element"]
+    assert [c.value for c in спор.candidates] == ["container", "system"]
+
+    _, отчёт = _догрузить(
+        db, проект, *архивы, решения=parse_decisions(json.dumps({"fields": {спор.id: 1}}))
+    )
+    billing = db.query(Node).filter(Node.project_id == проект.id, Node.name == "billing").one()
+    база = db.query(Node).filter(Node.project_id == проект.id, Node.name == "billing-db").one()
+    assert (billing.element, база.parent_id) == ("system", billing.id)
+    assert not [u.text for u in отчёт.unfixable if "вынесена" in u.text]
+
+
 def test_элемент_выбранный_контейнер_с_живой_базой_внутри_не_ложится(db):
     """Ответ «Контейнер» узлу, под которым живая база: применение снимает значение
     санитизацией слитого дерева, живое остаётся системой, пункт — в свёртке."""

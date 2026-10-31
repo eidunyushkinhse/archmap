@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import TypeGuard
 
+from app.domain_types import NodeElement
 from app.import_yaml import (
     ParsedImport,
 )
@@ -125,6 +126,17 @@ class MergeReport:
     container_edges: list[ContainerEdgeRec] = field(default_factory=list)
     isolated_groups: list[IsolatedGroupRec] = field(default_factory=list)
     fuzzy_pairs: list[FuzzyPairRec] = field(default_factory=list)
+    # Узлы слитого дерева ДО санитизации элемента (settle_elements): родитель, элемент,
+    # площадки — индексация по merged.nodes. Применение берёт их, когда ответ на спор
+    # элемента снял с узла «контейнер»: его поддерево возвращается к документу (базы и
+    # брокеры, вынесенные из-за «контейнера», — обратно), и санитизация применения решает
+    # уже по ответу (Ф13а). Пусто — слияния не было (один вход).
+    pre_settle: list[tuple[int | None, NodeElement | None, list[str]]] = field(
+        default_factory=list
+    )
+    # Номера строк warnings, которые написала сама санитизация слияния: только их может
+    # отменить ответ «Система» (замечания разбора отдельного файла остаются в силе).
+    settle_warnings: range = range(0)
 
     def forget_cut_warnings(self, kept: int) -> None:
         """Строк после kept больше нет (общий кап) — записи остаются, ссылка на
