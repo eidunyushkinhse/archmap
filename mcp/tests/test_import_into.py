@@ -230,9 +230,25 @@ async def test_превью_догрузки_печатает_вопросы_д�
 
     assert "archmap_import_into_apply аргументом decisions" in out
     assert '"pair|Ярмарка/billing|Ярмарка/biling"' in out and "Придётся подправить вручную (1):" in out
-    assert CONVERTED not in out and "Процесс «Оплата» уже есть в проекте" in out
+    # Замечания догрузки — только свёрткой остатка, сырых строк нет (как в окне).
+    assert CONVERTED not in out and "Процесс «Оплата» уже есть в проекте" not in out
+    assert "Предупреждения" not in out
     # Вопросы — до ревизий и «Ничего не записано»
     assert out.index("Вопросы разбора") < out.index("base_graph_rev=41")
+
+
+async def test_превью_догрузки_без_остатка_сырые_замечания_на_месте(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    старый = preview(warnings=["Процесс «Оплата» уже есть в проекте"])
+    старый.pop("remainder")
+    api.post(PREVIEW_PATH, старый)
+
+    out = await tools.call(
+        "archmap_import_into_preview", {"project": "Ярмарка", "paths": [str(archive(tmp_path))]}, client
+    )
+
+    assert "Предупреждения (1):" in out and "Процесс «Оплата» уже есть в проекте" in out
 
 
 async def test_применение_догрузки_шлёт_decisions(

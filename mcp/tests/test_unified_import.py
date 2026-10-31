@@ -77,6 +77,9 @@ async def test_старый_вызов_одним_yaml_даёт_прежнюю_�
     api.post(PREVIEW_PATH, dump(
         "unified_import", "UnifiedPreviewOut", ok=True,
         c4=c4(files=1, warnings=["актор внутри системы: Покупатель"]),
+        remainder=dump("unified_import", "RemainderOut", unfixable=[
+            {"id": "remark|0", "text": "актор внутри системы: Покупатель"},
+        ]),
     ))
 
     out = await tools.call(
@@ -84,7 +87,7 @@ async def test_старый_вызов_одним_yaml_даёт_прежнюю_�
     )
 
     assert "объектов 12, связей 9" in out
-    assert "актор внутри системы" in out
+    assert out.count("актор внутри системы") == 1  # пунктом свёртки, без сырого дубля
     assert "НЕ создан" in out or "Ничего не создано" in out
     assert all(c.url.path != "/api/v1/projects" or c.method != "POST" for c in api.calls)
 
@@ -430,11 +433,65 @@ async def test_превью_печатает_вопросы_разбора_с_id
     # Свёртка «Придётся подправить вручную» — текстом, без id
     assert "Придётся подправить вручную (1):" in lines
     assert "  • У связи «web → Kafka» с брокером «Kafka» не указан канал. Укажите его в свойствах связи." in lines
-    # Строка, ставшая вопросом, не повторяется замечанием — ни в общем списке, ни у входа.
-    assert CONVERTED not in out
-    assert f"  • {KEPT}" in lines
-    # Вопросы — после замечаний
-    assert out.index(KEPT) < out.index("Вопросы разбора")
+    # Каждое замечание — один раз, как в окне ввоза: ставшее вопросом — вопросом, прочее —
+    # пунктом свёртки. Сырых строк нет ни в общем списке, ни у входа.
+    assert CONVERTED not in out and KEPT not in out
+    assert out.count("web → Kafka") == 1
+    assert "Предупреждения" not in out and "замечание:" not in out and "Вход 1:" not in out
+
+
+async def test_превью_с_остатком_ошибки_входа_и_конфликты_одного_файла_на_месте(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Свёртка заменяет только замечания: ошибка входа в неё не попадает и печатается,
+    конфликты слияния одного файла — тоже (окно показывает их при одном входе). При
+    нескольких входах конфликт поля стал вопросом — сырой строки нет."""
+    одиночный = dump(
+        "unified_import", "UnifiedPreviewOut", ok=True,
+        c4=c4(files=1, conflicts=["orders.description: оставлено первое значение"],
+              file_remarks=[{"file": 1, "errors": ["строка 3: неизвестное поле"], "warnings": [KEPT]}]),
+        remainder=remainder(),
+    )
+    api.post(PREVIEW_PATH, одиночный)
+    out = await tools.call(
+        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "x"}]}, client
+    )
+    assert "Вход 1:" in out and "ошибка: строка 3: неизвестное поле" in out
+    assert "замечание:" not in out
+    assert "Конфликты слияния (1):" in out
+
+    api.post(PREVIEW_PATH, dump(
+        "unified_import", "UnifiedPreviewOut", ok=True,
+        c4=c4(files=2, conflicts=["orders.description: оставлено первое значение"]),
+        remainder=remainder(),
+    ))
+    out = await tools.call(
+        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "x"}]}, client
+    )
+    assert "Конфликты слияния" not in out
+
+
+async def test_сервер_без_остатка_сырые_замечания_на_месте(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Сервер до вопросов разбора остатка не присылает — тогда сырые строки остаются
+    единственным местом замечаний и печатаются, как раньше."""
+    старый = dump(
+        "unified_import", "UnifiedPreviewOut", ok=True,
+        c4=c4(warnings=[KEPT], file_remarks=[{"file": 1, "errors": [], "warnings": [KEPT]}]),
+        warnings=["процесс «Оплата» есть в двух входах"],
+    )
+    старый.pop("remainder")
+    api.post(PREVIEW_PATH, старый)
+
+    out = await tools.call(
+        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "x"}]}, client
+    )
+
+    assert f"  • {KEPT}" in out.splitlines()
+    assert f"замечание: {KEPT}" in out
+    assert "процесс «Оплата» есть в двух входах" in out
+    assert "Вопросы разбора" not in out and "подправить вручную" not in out
 
 
 async def test_пустой_остаток_раздела_не_даёт(client: ArchMapClient, api: FakeApi) -> None:

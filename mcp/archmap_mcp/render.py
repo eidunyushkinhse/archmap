@@ -1726,13 +1726,20 @@ FAMILY_COUNTS: list[tuple[str, str]] = [
 ]
 
 
-def c4_preview(c4: dict[str, Any], hide: frozenset[str] = frozenset()) -> list[str]:
+def c4_preview(c4: dict[str, Any], folded: bool = False) -> list[str]:
     """C4-часть превью — общая для старого одно-YAML пути и единого ввоза.
 
     Модель у них одна (ImportPreviewOut), и второй формат отчёта тут завести
     значило бы, что один и тот же разбор читается по-разному в зависимости от
-    того, каким инструментом его позвали. hide — строки замечаний, ставшие вопросами
-    разбора (RemainderOut.converted_warnings): их печатает раздел вопросов.
+    того, каким инструментом его позвали.
+
+    folded — сервер прислал остаток слияния (RemainderOut): каждое замечание уже
+    стало вопросом разбора или лежит в свёртке «Придётся подправить вручную», и
+    сырые строки (общий список и замечания входов) не печатаются — как в окне ввоза,
+    иначе одно и то же читалось бы дважды. Конфликты слияния при нескольких входах —
+    тоже: спор поля между файлами стал вопросом, окно их при нескольких входах не
+    показывает. Ошибки входов печатаются всегда. Сервер без остатка — сырые строки,
+    как раньше.
     """
     out = [
         f"Разбор прошёл: объектов {c4.get('node_count', 0)}, "
@@ -1757,11 +1764,13 @@ def c4_preview(c4: dict[str, Any], hide: frozenset[str] = frozenset()) -> list[s
             f"Без источника: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
             "будут опознаваться по имени"
         )
-    for key, title in (
-        ("warnings", "Предупреждения"),
-        ("conflicts", "Конфликты слияния"),
-    ):
-        items = [str(i) for i in (c4.get(key) or []) if str(i) not in hide]
+    sections: list[tuple[str, str]] = []
+    if not folded:
+        sections.append(("warnings", "Предупреждения"))
+    if not (folded and int(c4.get("files") or 0) > 1):
+        sections.append(("conflicts", "Конфликты слияния"))
+    for key, title in sections:
+        items = [str(i) for i in (c4.get(key) or [])]
         if items:
             out.append(f"{title} ({len(items)}):")
             out.extend(_capped(["  • " + i for i in items], C4_LIST_CAP, ("штука", "штуки", "штук")))
@@ -1772,7 +1781,8 @@ def c4_preview(c4: dict[str, Any], hide: frozenset[str] = frozenset()) -> list[s
     # агентов, и «чините вход 2» — единственная работающая адресация.
     for remark in c4.get("file_remarks") or []:
         rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
-        rows += [f"замечание: {w}" for w in remark.get("warnings") or [] if str(w) not in hide]
+        if not folded:
+            rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
         if rows:
             out.append(f"Вход {remark.get('file', '?')}:")
             out.extend("  • " + r for r in rows)
@@ -1821,8 +1831,9 @@ def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
 # То, что слияние не решило само, сервер отдаёт структурой; интерфейс задаёт по ней
 # вопросы, ответы уезжают применению JSON-полем decisions (app/unified_apply.
 # parse_decisions). Здесь — те же вопросы текстом: id, суть, дефолт без ответа и форма
-# ответа. Строки замечаний, ставшие вопросами (converted_warnings), из печатаемых
-# предупреждений убираются: иначе одно и то же читается дважды — вопросом и строкой.
+# ответа. Замечание печатается один раз, как в окне ввоза: ставшее вопросом — вопросом,
+# остальные — пунктом свёртки «Придётся подправить вручную»; сырые строки при
+# присланном остатке не печатаются (c4_preview, folded).
 
 REMAINDER_CAP = 30  # вопросов одного вида: больше тридцати разбирают в интерфейсе
 TARGETS_CAP = 10  # возможных целей связи и путей группы в одном вопросе
@@ -1972,17 +1983,18 @@ def unified_preview(data: dict[str, Any]) -> str:
         return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
 
     out: list[str] = []
+    # Остаток прислан — замечания печатает только он (вопросы и свёртка), см. c4_preview.
+    folded = isinstance(data.get("remainder"), dict)
     rest = _dict(data.get("remainder"))
-    hide = frozenset(str(w) for w in rest.get("converted_warnings") or [])
     c4 = data.get("c4")
     if isinstance(c4, dict):
-        out.extend(c4_preview(c4, hide))
+        out.extend(c4_preview(c4, folded))
     else:
         out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
 
-    warnings = [str(w) for w in (data.get("warnings") or []) if str(w) not in hide]
+    warnings = [] if folded else [str(w) for w in (data.get("warnings") or [])]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
@@ -2079,9 +2091,12 @@ def into_preview(data: dict[str, Any]) -> str:
         conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")
     )
 
+    # Остаток прислан — замечания догрузки (свои и слияния) печатает только его
+    # свёртка, как в окне; замечания живого проекта о самом себе туда не входят
+    # намеренно — это дело рекомендаций, а не догрузки. Без остатка — сырые строки.
+    folded = isinstance(data.get("remainder"), dict)
     rest = _dict(data.get("remainder"))
-    hide = frozenset(str(w) for w in rest.get("converted_warnings") or [])
-    warnings = [str(w) for w in (data.get("warnings") or []) if str(w) not in hide]
+    warnings = [] if folded else [str(w) for w in (data.get("warnings") or [])]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
