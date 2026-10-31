@@ -26,7 +26,7 @@ from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 SERVER_NAME = "archmap"
-VERSION = "0.11.2"
+VERSION = "0.12.0"
 
 
 def tool_defs(catalog: list[dict[str, Any]]) -> list[types.Tool]:
