@@ -119,7 +119,7 @@ export function enforceFramesKeepOut(params: {
   // модель нативной рамки не видит колец раскрытых локалов (refMaxDepth меньше → pad
   // меньше), а НАРИСОВАННАЯ граница (LevelBoundary с синтезом framedBlocks) видит —
   // гость держал зазор от модели и «чуть-чуть залезал» в видимую рамку (жалоба
-  // 2026-07-09, дрилл HelixMon: рамка Объектов мониторинга внутри нативной).
+  // 2026-07-09, дрилл warehouse: рамка Объектов мониторинга внутри нативной).
   localFrames?: { id: string; ancestors: AncestorRef[] }[];
 }): KeepOutResult | null {
   const { nodes, entities, ancestorIds, layoutEdges, positions, localFrames } = params;
@@ -222,7 +222,7 @@ export function keepOutOfExpandedFrames(params: {
   // ДЕРЕВО РАМОК по членству (parentFrameOf/deepestFrameContaining — единые хелперы
   // frames.ts). Инвариант проверяется РЕКУРСИВНО, в каждом контексте вложенности
   // (жалоба пользователя: раскрытие внутри раскрытого — сиблинги внутри рамки
-  // HelixMon лежали в рамке ObsCore, потому что прежняя top-only логика их не видела).
+  // warehouse лежали в рамке inventory, потому что прежняя top-only логика их не видела).
   const isSubset = (a: FrameRect, b: FrameRect): boolean =>
     [...a.memberIds].every((id) => b.memberIds.has(id));
   const parentOf = new Map<string, FrameRect | null>();
@@ -261,7 +261,7 @@ export function keepOutOfExpandedFrames(params: {
     // раздвигаются и соседи. Прежний попарный MTV «уступает меньшая» зацикливался,
     // когда рамка зажата между двумя крупными («сэндвич»: щель уже субъекта) —
     // её гоняло вверх-вниз с нулевой суммой, и наложение рамок переживало все
-    // итерации (Configuration Management лежал в ObsCore при полном раскрытии).
+    // итерации (Configuration Management лежал в inventory при полном раскрытии).
     if (forbidden.length > 1) {
       // Рамки раздуваются на полузазора: конфликтом считается и недобор KEEPOUT_GAP
       // между телами (как у прежнего MTV с pushOut по раздутой рамке), а не только
@@ -282,7 +282,7 @@ export function keepOutOfExpandedFrames(params: {
     // разведённых под-рамок (slideOutAll). Прежний попарный MTV «к ближайшему
     // краю» пинг-понгал в сэндвиче двух рамок (щель KEEPOUT_GAP уже субъекта):
     // выталкивание из одной заводило в другую, итерации выдыхались, и узел
-    // ОСТАВАЛСЯ внутри (Nucleus/IdHub/Cirrus в нижней полосе рамки HelixMon).
+    // ОСТАВАЛСЯ внутри (picking/accounts/returns в нижней полосе рамки warehouse).
     // Скольжение сразу считает суммарный выход за все рамки по каждой из четырёх
     // сторон и применяет минимальный — узел чист за один ход, каскад не нужен.
     const inflated = forbidden.map((f) => {

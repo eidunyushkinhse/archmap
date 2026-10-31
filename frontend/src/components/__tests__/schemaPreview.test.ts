@@ -60,7 +60,7 @@ describe("resolvePointsElk — раскладка превью движком х
     ];
     const pts = await resolvePointsElk(raw, edges);
     // ELK layered DOWN (Ф4 эпика «стрелки без жёстких хэндлов»): ранги сверху вниз →
-    // y растёт вдоль цепочки (кейс HelixMon: раньше при отсутствии позиций была
+    // y растёт вдоль цепочки (кейс warehouse: раньше при отсутствии позиций была
     // декоративная окружность).
     expect(pts[0].y).toBeLessThan(pts[1].y);
     expect(pts[1].y).toBeLessThan(pts[2].y);

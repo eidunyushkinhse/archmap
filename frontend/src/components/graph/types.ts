@@ -183,7 +183,7 @@ export interface GhostData extends Record<string, unknown> {
   onEnter?: () => void;
 }
 
-// Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
+// Свёрнутый узел-контейнер соседней ветки (напр. logistics) — с кнопкой-лупой.
 export interface ContainerData extends Record<string, unknown> {
   id: string;
   name: string;

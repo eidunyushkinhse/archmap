@@ -53,8 +53,8 @@ def _edge(db, src, tgt, label=None, technology=None, channel=None):
 
 def test_export_all_tree_and_edges(db):
     # Корень-сервис с двумя детьми, связь между детьми с label/technology.
-    root = _node(db, "ObsCore", shape="service", role="сервис", technology="Python")
-    a = _node(db, "HelixMon", root, shape="service", role="сборщик")
+    root = _node(db, "Ярмарка", shape="service", role="сервис", technology="Python")
+    a = _node(db, "Collector", root, shape="service", role="сборщик")
     b = _node(db, "Kafka", root, shape="broker")
     _edge(db, a, b, label="события", technology="Kafka")
     db.commit()
@@ -64,19 +64,19 @@ def test_export_all_tree_and_edges(db):
     doc = yaml.safe_load(res.content)
 
     # Дерево: один корень с детьми (дети отсортированы по имени).
-    assert [n["name"] for n in doc["nodes"]] == ["ObsCore"]
+    assert [n["name"] for n in doc["nodes"]] == ["Ярмарка"]
     mon = doc["nodes"][0]
     assert mon["shape"] == "service"
     assert mon["role"] == "сервис"
     assert mon["technology"] == "Python"
-    assert [c["name"] for c in mon["children"]] == ["HelixMon", "Kafka"]
+    assert [c["name"] for c in mon["children"]] == ["Collector", "Kafka"]
     # У ребёнка без role/technology лишних ключей нет.
     kafka = next(c for c in mon["children"] if c["name"] == "Kafka")
     assert "role" not in kafka and "technology" not in kafka
 
     # Связь — по именам узлов, с label/technology.
     assert doc["edges"] == [
-        {"from": "HelixMon", "to": "Kafka", "label": "события", "technology": "Kafka"}
+        {"from": "Collector", "to": "Kafka", "label": "события", "technology": "Kafka"}
     ]
 
 

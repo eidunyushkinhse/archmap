@@ -384,7 +384,7 @@ export function useLevelDrill({
   }, [childrenRev, childrenCache, isReadOnly, projectedChildren]);
 
   // Drill из узла, раскрытого ИНЛАЙН глубже текущего уровня (R5): в breadcrumb входят
-  // промежуточные контейнеры (фактическая архитектура: Контекст > HelixMon > ObsCore >
+  // промежуточные контейнеры (фактическая архитектура: Контекст > warehouse > inventory >
   // Zabbix Core), а не прыжок через слои. Цепочку восстанавливаем по parent_id из
   // локалов уровня + догруженных детей раскрытий; не восстановилась — прежнее поведение.
   const drillWithPath = useCallback(

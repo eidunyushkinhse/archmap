@@ -85,7 +85,7 @@ describe("ensureOutwardStubs — обязательный выход из хэн
   };
 
   it("реальный кейс: source-right уходит ВЛЕВО, target-bottom входит СВЕРХУ → оба стаба наружу", () => {
-    // геометрия как у ребра HelixMon после сдвига узла: оба конца упирались внутрь
+    // геометрия как у ребра warehouse после сдвига узла: оба конца упирались внутрь
     const pts = [P(350, 561), P(42, 561), P(42, 130), P(175, 130), P(175, 180)];
     const out = ensureOutwardStubs(pts, "right", "bottom");
     expect(leavesOutward(out, "right")).toBe(true);
