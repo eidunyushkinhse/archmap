@@ -516,14 +516,14 @@ def test_endpoint_prompt_target_focus(db):
         lang="ru", hints=None, target="OrderCreatedHandler",
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
-    assert "Фокус этого прогона" in focused.prompt
+    assert "Фокус этого запуска" in focused.prompt
     assert "OrderCreatedHandler" in focused.prompt
 
     broad = docs_prompt(
         lang="ru", hints=None, target=None,
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
-    assert "Фокус этого прогона" not in broad.prompt
+    assert "Фокус этого запуска" not in broad.prompt
 
 
 def test_endpoint_preview_does_not_write(db):
