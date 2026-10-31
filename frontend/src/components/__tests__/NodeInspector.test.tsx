@@ -449,6 +449,18 @@ describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
     expect(screen.getByText("Система")).toBeInTheDocument();
   });
 
+  it("технология системы: потомки не загрузились — «не загрузилась» и «Повторить», а не «не указана»", async () => {
+    vi.mocked(nodesApi.getDescendants)
+      .mockRejectedValueOnce(new ApiError(500, "Сервер недоступен"))
+      .mockResolvedValue([makeNode({ id: "k1", shape: "service", technology: "Go" })]);
+    setup(makeNode({ shape: "service", has_children: true, child_count: 1, element_effective: "system" }));
+    expect(await screen.findByText("не загрузилась")).toBeInTheDocument();
+    expect(screen.queryByText("не указана")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Повторить" }));
+    expect(await screen.findByText("Go")).toBeInTheDocument();
+    expect(screen.queryByText("не загрузилась")).not.toBeInTheDocument();
+  });
+
   it("технология: у контейнера с компонентами — своя полем, у системы — сводная", async () => {
     vi.mocked(nodesApi.getDescendants).mockResolvedValue([
       makeNode({ id: "k1", shape: "service", technology: "Go" }),

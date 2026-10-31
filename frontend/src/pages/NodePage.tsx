@@ -478,6 +478,12 @@ function NodePageInner({
             onRetry={componentContainer.reload}
           />
         )}
+        {/* Вложенные объекты не загрузились: статус системы, сводная технология и
+            документация потомков ниже без них — причина и «Повторить» здесь, а не
+            счётчик и группы, будто вложенных объектов нет. */}
+        {container.error !== null && (
+          <LoadError what="вложенные объекты" error={container.error} onRetry={container.reload} />
+        )}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
         <Fragment key={pageEpoch}>

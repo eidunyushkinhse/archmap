@@ -17,6 +17,7 @@ import { aggregateTech, useDescendants } from "../../pages/useContainerChildren"
 import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
+import { loadErrorText } from "../../ui/loadErrorText";
 import { SHAPE_LABEL, STATUS_ORDER } from "../nodeTerms";
 import { useTypePick } from "../element/useTypePick";
 import { typeView } from "../element/elementView";
@@ -68,9 +69,9 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
   // составного компонента технология своя и правится, как у листа. Не система — хук
   // ничего не фетчит.
   const isSystem = isGroup && node.element_effective === "system";
-  const { descendants } = useDescendants(node.id, isSystem);
+  const { descendants, error: techError, reload: reloadTech } = useDescendants(node.id, isSystem);
   const aggTech = useMemo(() => (descendants ? aggregateTech(descendants) : ""), [descendants]);
-  const techLoading = isSystem && descendants === null;
+  const techLoading = isSystem && descendants === null && techError === null;
 
   // Выпадашки закрываются сами; коммит — только при реальном изменении (хук не
   // плодит пустых записей истории).
@@ -222,10 +223,18 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
         {!isPerson && (
           <MetaRow icon={META_ICON.tech} label="Технология">
             {isSystem ? (
-              // Система: сводная технология потомков, только чтение.
-              <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
-                {techLoading ? "…" : aggTech || "не указана"}
-              </span>
+              // Система: сводная технология потомков, только чтение. Потомки не
+              // загрузились — так и сказано, с повтором: «не указана» было бы неправдой.
+              techError !== null ? (
+                <span className="insp-value" role="alert">
+                  <span className="insp-value--empty" title={loadErrorText(techError)}>не загрузилась</span>
+                  <button type="button" className="insp-retry" onClick={reloadTech}>Повторить</button>
+                </span>
+              ) : (
+                <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
+                  {techLoading ? "…" : aggTech || "не указана"}
+                </span>
+              )
             ) : isArchitect ? (
               <span className="insp-value">
                 <input

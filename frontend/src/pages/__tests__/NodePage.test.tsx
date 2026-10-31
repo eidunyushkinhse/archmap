@@ -1280,6 +1280,20 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
   });
 
+  it("система: вложенные объекты не загрузились — причина и «Повторить», а не «нечего согласовывать»", async () => {
+    // Отказ раньше глотался пустым списком: система выглядела пустой, а меню пилюли
+    // писало «Согласовывать пока нечего». Теперь — экран отказа с повтором.
+    const kids = [node("k1", { name: "Шлюз", parent_id: "c1" })];
+    setupPage(node("c1", { name: "Ядро", has_children: true, child_count: 1, element_effective: "system" }), kids);
+    // Потомков страница просит после загрузки самого объекта — первый запрос откажет.
+    vi.mocked(nodesApi.getDescendants).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен"));
+    const alert = await screen.findByText("Не удалось загрузить вложенные объекты", {}, ждать);
+    expect(screen.queryByRole("button", { name: /В работе · / })).not.toBeInTheDocument();
+    await userEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.queryByText("Не удалось загрузить вложенные объекты")).not.toBeInTheDocument());
+    await screen.findByRole("button", { name: /В работе · 0 из 1/ }, ждать);
+  });
+
   it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
     // Торговля → Заказы (контейнер) → Заказы-API (компонент); Торговля → Склад (система) →
     // Остатки. Вложенная система не позиция счётчика, её объекты — позиции.

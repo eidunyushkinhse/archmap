@@ -51,6 +51,9 @@ export interface ContainerChildrenState {
   units: Node[] | null;
   // true, пока потомки грузятся (только для контейнера)
   loading: boolean;
+  // Отказ загрузки потомков (null — отказа нет): страница показывает его с «Повторить»
+  // (reload), а не пустые группы и счётчик, будто вложенных объектов нет.
+  error: unknown;
   // Схемы логики потомков, сгруппированные по непосредственным детям
   docGroups: ContainerDocGroup[];
   // OpenAPI-спеки потомков, сгруппированные по непосредственным детям
@@ -61,29 +64,48 @@ export interface ContainerChildrenState {
   reload: () => void;
 }
 
+// Последний ответ загрузки потомков — с id узла, для которого он пришёл.
+type DescendantsResult = { nodeId: string } & ({ ok: true; data: Node[] } | { ok: false; error: unknown });
+
 // ВСЕ потомки узла (дети + внуки + глубже), без самого узла; null — ещё не загружены
 // (или загрузка выключена: узел не контейнер). Порядок как в дереве-навигаторе
 // (compareByRank) — стабильный порядок групп, записей внутри них и технологий.
+//
+// Отказ — error, а не пустой список: «вложенных объектов нет» было бы неправдой
+// (статус системы «согласовывать нечего», пустые группы). Перечитывание после правки
+// (reload) прежний список держит до ответа — счётчики не мигают; после отказа reload
+// сначала снимает его, и до ответа видна загрузка. Ответ для другого узла (быстро
+// сменили объект) не показывается.
 export function useDescendants(nodeId: string, enabled: boolean): {
   descendants: Node[] | null;
-  // Перезагрузить потомков (после переноса grandfather-доков/спеки модалкой)
+  error: unknown;
+  // Перезагрузить потомков (после переноса документации окном или «Повторить»)
   reload: () => void;
 } {
-  const [descendants, setDescendants] = useState<Node[] | null>(null);
+  const [result, setResult] = useState<DescendantsResult | null>(null);
   // Счётчик перезагрузок: reload() наращивает его, эффект рефетчит потомков.
   const [seq, setSeq] = useState(0);
 
   useEffect(() => {
     if (!enabled) return; // не контейнер — потомков не запрашиваем
     let alive = true;
-    nodesApi.getDescendants(nodeId)
-      .then((ds) => { if (alive) setDescendants([...ds].sort(compareByRank)); })
-      .catch(() => { if (alive) setDescendants([]); });
+    nodesApi.getDescendants(nodeId).then(
+      (ds) => { if (alive) setResult({ nodeId, ok: true, data: [...ds].sort(compareByRank) }); },
+      (error: unknown) => { if (alive) setResult({ nodeId, ok: false, error }); },
+    );
     return () => { alive = false; };
   }, [nodeId, enabled, seq]);
 
-  const reload = useCallback(() => setSeq((s) => s + 1), []);
-  return { descendants: enabled ? descendants : null, reload };
+  const reload = useCallback(() => {
+    setResult((r) => (r && !r.ok ? null : r));
+    setSeq((s) => s + 1);
+  }, []);
+  const fresh = enabled && result !== null && result.nodeId === nodeId ? result : null;
+  return {
+    descendants: fresh?.ok ? fresh.data : null,
+    error: fresh && !fresh.ok ? fresh.error : null,
+    reload,
+  };
 }
 
 // Группировка доков/спек по непосредственным детям. Якорь потомка d —
@@ -172,7 +194,7 @@ export interface ContainerChildrenScope {
 export function useContainerChildren(
   nodeId: string, isContainer: boolean, scope: ContainerChildrenScope,
 ): ContainerChildrenState {
-  const { descendants, reload } = useDescendants(nodeId, isContainer);
+  const { descendants, error, reload } = useDescendants(nodeId, isContainer);
 
   // Элемент каждого потомка сервер отдаёт готовым (element_effective): здесь только отбор.
   const units = useMemo<Node[] | null>(
@@ -190,7 +212,8 @@ export function useContainerChildren(
 
   return {
     units,
-    loading: isContainer && descendants === null,
+    loading: isContainer && descendants === null && error === null,
+    error,
     docGroups: groups.docGroups,
     specGroups: groups.specGroups,
     aggTech,
