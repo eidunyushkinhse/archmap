@@ -212,8 +212,8 @@ def validate_shape_change(
         has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
         if has_children:
             return (
-                "У узла есть вложенные объекты — тип «Сервис» единственный, "
-                "который может их иметь"
+                "У объекта есть вложенные объекты — базой данных, брокером или "
+                "«Пользователем» ему не стать"
             )
     if node.shape == "database" and new_shape != "database":
         has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None

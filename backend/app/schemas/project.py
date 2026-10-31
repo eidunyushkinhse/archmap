@@ -205,7 +205,7 @@ class SyncApplyOut(BaseModel):
     deprecated_nodes: list[str] = []
     created_edges: list[str] = []
     updated_edges: list[str] = []  # связи, у которых заполнен канал или тип канала
-    skipped: list[str] = []  # действия, потерявшие цель между расчётом и записью
+    skipped: list[str] = []  # действия, не применённые при записи; причина — в самой строке
     graph_rev: int = 0  # новый курсор схемы
 
 

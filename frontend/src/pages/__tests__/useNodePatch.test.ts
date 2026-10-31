@@ -198,7 +198,7 @@ describe("useNodePatch", () => {
 
   it("отказ 400: причина видна, показанный тип откатывается, гаснет при следующем успехе", async () => {
     // «Молча не сработало» — худший исход: текст сервера обязан доехать до глаз.
-    const причина = "У узла есть вложенные объекты — тип «Сервис» единственный, который может их иметь";
+    const причина = "У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
     const { result } = renderHook(() => useNodePatch(makeNode({ shape: "service" })));
     act(() => result.current.pickShape("database"));
