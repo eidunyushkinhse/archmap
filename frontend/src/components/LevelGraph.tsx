@@ -81,6 +81,8 @@ import { diag } from "./graph/layout/diag";
 // НОВЫЙ объект на каждый рендер, а он — зависимость async-эффекта раскладки → лишний
 // перезапуск ELK и мигание. Один модульный объект держит ссылку стабильной.
 const EMPTY_VIEW_LAYOUT: ViewLayout = {};
+// Внешность предков по умолчанию — общий пустой массив (стабильная ссылка для зависимостей).
+const NO_EXTERNALS: readonly boolean[] = [];
 
 // ПРЕДЕЛ ОТДАЛЕНИЯ (CV2 v2, решение пользователя 2026-10-12): дефолтные 0.5 React Flow
 // упирались на больших уровнях — ни колесом, ни «Центрировать» (fitView тоже не
@@ -129,6 +131,10 @@ interface LevelGraphProps {
       звена крошек) — вид нативных рамок (LevelBoundary, Р20) и звенья пути «Войти».
       Конвейеру раскладки не нужны: на геометрию элемент не влияет. */
   ancestorElements: AncestorRef["element_effective"][];
+  /** внешность тех же предков (параллельно ancestorIds; is_external звена крошек) —
+      заливка нативной рамки внешнего контейнера и звенья пути «Войти». Не задан —
+      предки свои (холсты без крошек: корень проекта, развёртывание, лендинг). */
+  ancestorExternals?: readonly boolean[];
   isArchitect: boolean;
   // Что открыто в правой панели — для устойчивой подсветки связанного (узел+его стрелки /
   // стрелка+оба узла). Гость сводится к kind:"node". Считается в MapEditorPage из selectedObject.
@@ -193,6 +199,7 @@ function LevelGraphInner({
   ancestorNames,
   ancestorIds,
   ancestorElements,
+  ancestorExternals = NO_EXTERNALS,
   isArchitect,
   linkedHighlight,
   childrenRev = 0,
@@ -419,7 +426,7 @@ function LevelGraphInner({
     expandLocalContainer: rawExpandLocalContainer, collapseContainer: rawCollapseContainer,
     expanded, relevantCounts, localChildren,
   } = useLevelDrill({
-    containerId, nodes, edges, endpoints, ancestorIds, ancestorNames, ancestorElements,
+    containerId, nodes, edges, endpoints, ancestorIds, ancestorNames, ancestorElements, ancestorExternals,
     onDrillDown, onEnterNode, viewLayout, ignorePersistedExpanded, isReadOnly,
     fitOnExpand, autoFitRef, childrenRev, commitLayout, noteExpand, noteCollapse,
     layoutLatestRef, projectedChildren,
@@ -1267,6 +1274,7 @@ function LevelGraphInner({
               ancestorIds={ancestorIds}
               ancestorNames={ancestorNames}
               ancestorElements={ancestorElements}
+              ancestorExternals={ancestorExternals}
             />
           </ViewportPortal>
         )}

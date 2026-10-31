@@ -24,11 +24,13 @@ import type { AncestorRef } from "../../types";
  * compound-узлы RF (type "frame", см. nodes.tsx), их rect задаёт раскладка.
  */
 export function LevelBoundary({
-  rfNodes, ancestorIds, ancestorNames, ancestorElements,
+  rfNodes, ancestorIds, ancestorNames, ancestorElements, ancestorExternals,
 }: {
   rfNodes: RFNode[]; ancestorIds: string[]; ancestorNames: string[];
   // элементы архитектуры предков (параллельно ancestorIds) — вид их рамок (Р20)
   ancestorElements: AncestorRef["element_effective"][];
+  // внешность тех же предков — палитра заливки рамки контейнера; нет — своя
+  ancestorExternals?: readonly boolean[];
 }) {
   if (ancestorIds.length === 0) return null;
   const blocks = rfNodes.filter((n) => n.type === "block");
@@ -65,7 +67,7 @@ export function LevelBoundary({
       const n = byId.get(id);
       return n ? absPositionOf(n, byId) : undefined;
     },
-    ancestorIds, ancestorNames, ancestorElements,
+    ancestorIds, ancestorNames, ancestorElements, ancestorExternals,
   }).filter((f) => f.native);
 
   return (

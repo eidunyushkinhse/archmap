@@ -759,3 +759,59 @@ describe("MapEditorPage: правка объекта в истории", () => {
     });
   });
 });
+
+// ── Крошки после правки без навигации (Ф13а) ─────────────────────────────────
+// Элемент и внешность звеньев меняются и без перехода: первый вложенный объект задаёт
+// элемент родителю уровня (Р38), предку меняют тип или внешность. Холст (рамки) и крошки
+// получают свежие звенья тем же сигналом, что дерево.
+describe("MapEditorPage: крошки перечитываются после правки", () => {
+  const a = node("a", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" });
+  const b = node("b", { name: "orders", parent_id: "a", element: null, element_effective: "container" });
+  const getBy = (map: Record<string, Node>) => async (id: string) => map[id] as never;
+  const onNodeSaved = () => inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([a, b]);
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b }));
+  });
+
+  it("первый вложенный объект задал элемент родителю уровня — холст получает его без навигации", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "container"]));
+    const callsBefore = vi.mocked(nodesApi.get).mock.calls.length;
+
+    // Сервер записал родителю элемент вместе с созданием: «orders» теперь система.
+    const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system", has_children: true });
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b: bSystem }));
+    act(() => { onNodeSaved()(node("c", { parent_id: "b" }), true); });
+
+    await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "system"]));
+    // Тот же сигнал перечитал и звено выше уровня — по запросу на звено.
+    const reread = vi.mocked(nodesApi.get).mock.calls.slice(callsBefore).map((c) => c[0]);
+    expect([...new Set(reread)].sort()).toEqual(["a", "b"]);
+  });
+
+  it("предку выше уровня сменили внешность — рамка и крошки по свежим звеньям", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([false, false]));
+
+    const aExternal = node("a", { name: "Торговля", is_external: true, has_children: true, element_effective: "system" });
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a: aExternal, b }));
+    act(() => { onNodeSaved()(node("x", { shape: "database" }), false, node("x")); });
+
+    await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([true, false]));
+    expect(screen.getByRole("button", { name: "Торговля" })).toBeInTheDocument();
+  });
+
+  it("до первой правки звенья выше уровня не запрашиваются", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(nodesApi.get).toHaveBeenCalledWith("b"));
+    expect(nodesApi.get).not.toHaveBeenCalledWith("a");
+  });
+});

@@ -156,6 +156,21 @@ describe("рамка контейнера (Р20) — пунктир и зали�
     expect(container.textContent).toBe("Торговляordersapi");
   });
 
+  it("нативная рамка внешнего контейнера — внешняя палитра, а не синяя (Ф13а)", () => {
+    const rfNodes: RFNode[] = [
+      { id: "b1", type: "block", position: { x: 0, y: 0 }, data: { appNode: appNode("b1") } as unknown as BlockData },
+    ];
+    const { container } = render(
+      <LevelBoundary
+        rfNodes={rfNodes} ancestorIds={["p0"]} ancestorNames={["payments"]}
+        ancestorElements={["container"]} ancestorExternals={[true]}
+      />,
+    );
+    const frame = container.querySelector(".lg-frame") as HTMLElement;
+    expect(frame.className).toBe("lg-frame lg-frame--container");
+    expect((frame.getAttribute("style") ?? "").endsWith(`${CONTAINER_EXT0} pointer-events: none;`)).toBe(true);
+  });
+
   it("система и составной компонент — прозрачные, строка прежняя байт-в-байт", () => {
     for (const element of ["system", "component"] as const) {
       const frame = renderFrame({ name: "Торговля", element, depth: 1, onCollapse: () => {} });

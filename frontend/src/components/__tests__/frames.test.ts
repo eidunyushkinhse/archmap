@@ -71,6 +71,23 @@ describe("computeFrames — вложенные родные рамки", () => {
   });
 });
 
+describe("computeFrames — внешность нативных рамок", () => {
+  // Нативная рамка внешнего предка красится его палитрой (Ф13а): внешность звеньев крошек
+  // приходит входом ancestorExternals, без него предки — свои, как раньше.
+  const pos = (id: string) => (id === "C" ? { x: 0, y: 0 } : undefined);
+  const base = { localIds: ["C"], externals: [], pos, ancestorIds: ["A", "B"], ancestorNames: ["A", "B"] };
+
+  it("внешность звена крошек доходит до рамки", () => {
+    const frames = computeFrames({ ...base, ancestorElements: ["system", "container"], ancestorExternals: [false, true] });
+    expect(frames.map((f) => [f.id, f.is_external])).toEqual([["A", false], ["B", true]]);
+  });
+
+  it("без входа внешности нативные рамки — свои", () => {
+    const frames = computeFrames(base);
+    expect(frames.every((f) => !f.is_external)).toBe(true);
+  });
+});
+
 describe("computeFrames — гостевая рамка (раскрытый промежуточный контейнер)", () => {
   it("промежуточный контейнер P — НЕ нативная рамка глубже общего предка", () => {
     // breadcrumb [IM]; локальный X; гость Zabbix с предками IM>logistics

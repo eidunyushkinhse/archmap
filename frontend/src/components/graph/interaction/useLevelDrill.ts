@@ -59,6 +59,9 @@ interface UseLevelDrillArgs {
   ancestorNames: string[];
   // элементы архитектуры тех же предков (параллельно ancestorIds) — звенья пути «Войти»
   ancestorElements: AncestorRef["element_effective"][];
+  // внешность тех же предков — звенья пути «Войти» (крошки следующего уровня красят
+  // рамку внешнего контейнера его палитрой)
+  ancestorExternals: readonly boolean[];
   onDrillDown: (node: AppNode) => void;
   // войти к компонентам гостя/контейнера — открыть слой-схему узла по полному пути
   onEnterNode?: (path: AncestorRef[]) => void;
@@ -120,6 +123,7 @@ export function useLevelDrill({
   ancestorIds,
   ancestorNames,
   ancestorElements,
+  ancestorExternals,
   onDrillDown,
   onEnterNode,
   viewLayout,
@@ -404,14 +408,15 @@ export function useLevelDrill({
       const ref = (x: AppNode): AncestorRef => ({
         id: x.id, name: x.name, is_external: x.is_external, element_effective: x.element_effective,
       });
-      // Звенья уровня — из пропа предков (id, имя, элемент): крошки следующего уровня
-      // рисуют по элементу их рамки. Внешность звена проп не несёт.
+      // Звенья уровня — из пропа предков (id, имя, элемент, внешность): крошки следующего
+      // уровня рисуют по ним рамки.
       const levelRefs: AncestorRef[] = ancestorIds.map((id, i) => ({
-        id, name: ancestorNames[i] ?? id, is_external: false, element_effective: ancestorElements[i] ?? null,
+        id, name: ancestorNames[i] ?? id, is_external: ancestorExternals[i] ?? false,
+        element_effective: ancestorElements[i] ?? null,
       }));
       onEnterNode([...levelRefs, ...chain.map(ref), ref(n)]);
     },
-    [nodes, childrenCache, containerId, ancestorIds, ancestorNames, ancestorElements, onDrillDown, onEnterNode],
+    [nodes, childrenCache, containerId, ancestorIds, ancestorNames, ancestorElements, ancestorExternals, onDrillDown, onEnterNode],
   );
 
   return {

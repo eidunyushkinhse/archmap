@@ -57,8 +57,8 @@ export interface FrameRect {
   // входа ancestorElements (элементы крошек). Нет значения — система (frameElement).
   element: FrameElement;
   // Внешний ли объект рамки — палитра заливки контейнера (своя или внешняя, getNodeColors).
-  // Гостевые — из звена цепочки; нативные — false: внешность предков крошек холст не
-  // получает (проп предков несёт имена, id и элементы).
+  // Гостевые — из звена цепочки; нативные — из входа ancestorExternals (внешность звеньев
+  // крошек); нет значения — своя.
   is_external: boolean;
   // bbox самих членов (без паддинга)
   content: { minX: number; minY: number; maxX: number; maxY: number };
@@ -92,8 +92,11 @@ export function computeFrames(params: {
   // нативных рамок (LevelBoundary). Конвейер и стадии геометрии вход не передают: на
   // членство и прямоугольники элемент не влияет, их нативные рамки — системы.
   ancestorElements?: readonly AncestorRef["element_effective"][];
+  // Внешность тех же предков (параллельно ancestorIds) — тоже только для вида нативных
+  // рамок: внешний контейнер заливается своей палитрой, а не синим своего.
+  ancestorExternals?: readonly boolean[];
 }): FrameRect[] {
-  const { localIds, externals, pos, ancestorIds, ancestorNames, ancestorElements } = params;
+  const { localIds, externals, pos, ancestorIds, ancestorNames, ancestorElements, ancestorExternals } = params;
   // На корне (breadcrumb пуст) нативных рамок нет, но гостевые строятся: рамки
   // раскрытых ЛОКАЛЬНЫХ контейнеров (R5) живут и на корневом уровне.
   if (localIds.length === 0) return [];
@@ -104,7 +107,7 @@ export function computeFrames(params: {
   ancestorIds.forEach((id, i) => {
     frames.set(id, {
       id, name: ancestorNames[i], depth: i, native: true, memberIds: new Set(localIds),
-      element: frameElement(ancestorElements?.[i]), is_external: false,
+      element: frameElement(ancestorElements?.[i]), is_external: ancestorExternals?.[i] ?? false,
     });
   });
 

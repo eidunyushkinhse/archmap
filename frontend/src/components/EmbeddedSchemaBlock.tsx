@@ -35,6 +35,8 @@ interface Props {
   ancestorIds: string[];
   // элементы архитектуры тех же предков (параллельно ancestorIds) — вид их рамок
   ancestorElements: AncestorRef["element_effective"][];
+  // внешность тех же предков — заливка рамки внешнего контейнера; не задана — свои
+  ancestorExternals?: readonly boolean[];
   depth: number;
   isArchitect: boolean;
   // Вид схемы (as-is/переход/to-be) — общий клиентский ключ localStorage
@@ -65,7 +67,7 @@ interface Props {
 
 export default function EmbeddedSchemaBlock({
   nodes, endpoints, edges, viewLayout, containerId, layoutViewId, persistence,
-  ancestorNames, ancestorIds, ancestorElements, depth, isArchitect,
+  ancestorNames, ancestorIds, ancestorElements, ancestorExternals, depth, isArchitect,
   schemaView, onSchemaViewChange, onNavigateNode, onEdit, onRelayout, relayoutToken, mutationToken,
   height, toolbarHint, showViewFilter, empty,
 }: Props) {
@@ -230,6 +232,7 @@ export default function EmbeddedSchemaBlock({
                 ancestorNames={ancestorNames}
                 ancestorIds={ancestorIds}
                 ancestorElements={ancestorElements}
+                ancestorExternals={ancestorExternals}
                 depth={depth}
                 isArchitect={isArchitect}
                 linkedHighlight={linkedHighlight}

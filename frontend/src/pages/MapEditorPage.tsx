@@ -163,6 +163,23 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     `level-parent:${currentParentId ?? ""}:${treeReload}`,
     async () => (currentParentId ? nodesApi.get(currentParentId) : null),
   );
+  // Крошки — путь навигации (id и порядок звеньев), а элемент и внешность звеньев
+  // меняются и без навигации: смена типа предка в свойствах, первый вложенный объект,
+  // задавший элемент родителю уровня (Р38). Звенья перечитываются тем же сигналом
+  // treeReload, что и дерево: родителя уровня даёт levelParent, звенья выше — по запросу
+  // на звено, и только после правки (до первой мутации запросов нет). Не перечитались —
+  // остаются звенья навигации, ошибку показывает палитра (levelParent).
+  const upperIds = breadcrumb.slice(0, -1).map((b) => b.id);
+  const upperCrumbs = useAsyncLoad<Node[] | null>(
+    `crumbs:${upperIds.join("/")}:${treeReload}`,
+    async () => (treeReload > 0 && upperIds.length > 0 ? Promise.all(upperIds.map((id) => nodesApi.get(id))) : null),
+  );
+  const crumbs = useMemo((): AncestorRef[] => {
+    const fresh = new Map<string, AncestorRef>();
+    for (const n of upperCrumbs.data ?? []) fresh.set(n.id, ancestorRef(n));
+    if (levelParent.data) fresh.set(levelParent.data.id, ancestorRef(levelParent.data));
+    return fresh.size === 0 ? breadcrumb : breadcrumb.map((b) => fresh.get(b.id) ?? b);
+  }, [breadcrumb, upperCrumbs.data, levelParent.data]);
   const levelOptions = useMemo(() => {
     if (currentParentId === null) return typeOptions({ mode: "create", parent: null });
     return levelParent.data ? typeOptions({ mode: "create", parent: levelParent.data }) : null;
@@ -765,9 +782,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // раскрытой рамке, её объект среди узлов уровня. Глубже (вторая раскрытая рамка)
   // цепочка обрывается — строка «Элемент архитектуры» тогда назовёт контейнер текстом.
   const selectedAncestors = useMemo((): AncestorRef[] => {
-    if (selectedObject?.kind !== "node") return breadcrumb;
-    return [...breadcrumb, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
-  }, [selectedObject, breadcrumb, nodes]);
+    if (selectedObject?.kind !== "node") return crumbs;
+    return [...crumbs, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
+  }, [selectedObject, crumbs, nodes]);
 
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
@@ -875,10 +892,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           <button className="crumb" style={crumbLink} data-tour="crumb-root" onClick={() => { void navigateToLevel(null); }}>
             {breadcrumb.length === 0 ? "Контекст" : "Проект"}
           </button>
-          {breadcrumb.map((n, i) => (
+          {crumbs.map((n, i) => (
             <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
               <span style={crumbSep}><ChevronIcon /></span>
-              {i < breadcrumb.length - 1 ? (
+              {i < crumbs.length - 1 ? (
                 <button className="crumb" style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</button>
               ) : (
                 <button style={crumbCurrent} disabled>{n.name}</button>
@@ -986,8 +1003,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
               depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
               mutationToken={mutationToken}
-              ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
-              ancestorElements={breadcrumb.map((b) => b.element_effective)}
+              ancestorNames={crumbs.map((b) => b.name)} ancestorIds={crumbs.map((b) => b.id)}
+              ancestorElements={crumbs.map((b) => b.element_effective)}
+              ancestorExternals={crumbs.map((b) => b.is_external)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
               childrenRev={childrenRev}
