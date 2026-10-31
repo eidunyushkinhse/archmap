@@ -430,7 +430,7 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
     plan.report.errors.append(
         "в пакете несколько перечней ("
         + ", ".join(sorted(n for n, _ in picked))
-        + f") — перечень принадлежит одному объекту, оставьте один файл: у оркестратора "
+        + f") — перечень принадлежит одному объекту, оставьте один файл: у промпта с аудитом "
         f"это объединённый «{RECON_FILE}» из корня репозитория, а не отдельные запуски разведки"
     )
     return None
