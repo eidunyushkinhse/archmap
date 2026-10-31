@@ -97,19 +97,25 @@ def element_line(node: dict[str, Any], container: str | None = None) -> str | No
     return f"Элемент архитектуры: {word}"
 
 
-def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
-    """Имя ближайшего предка с действующим элементом «контейнер» — по данным сервера,
-    обход с seen (данные бывают циклическими)."""
+def container_of(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Ближайший предок с действующим элементом «контейнер» — по данным сервера, обход с
+    seen (данные бывают циклическими)."""
     seen: set[str] = {str(node.get("id"))}
     parent = node.get("parent_id")
     cur = by_id.get(str(parent)) if parent else None
     while cur is not None and str(cur["id"]) not in seen:
         if cur.get("element_effective") == "container":
-            return str(cur.get("name", "?"))
+            return cur
         seen.add(str(cur["id"]))
         parent = cur.get("parent_id")
         cur = by_id.get(str(parent)) if parent else None
     return None
+
+
+def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
+    """Имя ближайшего контейнера среди предков (container_of)."""
+    holder = container_of(node, by_id)
+    return str(holder.get("name", "?")) if holder is not None else None
 
 
 # ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
@@ -255,11 +261,26 @@ def _site_name(s: dict[str, Any]) -> str:
     return f"{name} ({', '.join(notes)})" if notes else name
 
 
-def placement_line(node: dict[str, Any]) -> str | None:
+def placement_line(node: dict[str, Any], container: dict[str, Any] | None = None) -> str | None:
     """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
     (NodeResponse.sites); у системы — площадки её контейнеров, частичные помечены.
-    Пусто — строки нет: у компонента размещения не бывает, и строки «как у контейнера»
-    нарочно нет — она читалась бы наследованием (ошибка 2026-10)."""
+    Пусто — строки нет.
+
+    У компонента своего размещения не бывает: он стоит там же, где его контейнер, и
+    строка та же, что в свойствах интерфейса (решение архитектора 2026-10-31) —
+    «Размещение: Облако — как у контейнера «orders»», без площадок контейнера —
+    «Размещение: как у контейнера «orders»». container — узел контейнера, если он уже
+    загружен (карточка берёт его из /nodes/all, без своего запроса); имя — из
+    container_name ответа узла. Своих площадок компоненту не задать: в
+    archmap_deployment с node_id — «Размещения нет: это компонент — площадки задаются
+    контейнеру «orders»», по смыслу то же."""
+    if node.get("element_effective") == "component":
+        name = node.get("container_name") or (container or {}).get("name")
+        if not name:
+            return None
+        held = list((container or {}).get("sites") or [])
+        where = ", ".join(_site_name(s) for s in held) + " — " if held else ""
+        return f"Размещение: {where}как у контейнера «{name}»"
     sites = list(node.get("sites") or [])
     if not sites:
         return None

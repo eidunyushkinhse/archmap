@@ -558,12 +558,14 @@ async def test_карточка_компонента_называет_его_к�
     assert lines[i + 1].startswith("Источник:")
 
 
-async def test_карточка_компонента_без_строки_размещения(
+async def test_карточка_компонента_размещение_как_у_контейнера(
     client: ArchMapClient, api: FakeApi
 ) -> None:
-    # У компонента размещения нет (Р16): строки нет вовсе — ни «не указано», ни «как у
-    # контейнера» (такая строка читалась бы наследованием, ошибка 2026-10).
-    target = node(NODE, "api", u(2), element=None, element_effective="component", sites=[])
+    # Своего размещения у компонента нет (Р16), строка та же, что в свойствах интерфейса
+    # (решение архитектора 2026-10-31): площадки контейнера из того же /nodes/all — без
+    # своего запроса — и «как у контейнера «orders»».
+    target = node(NODE, "api", u(2), element=None, element_effective="component", sites=[],
+                  container_name="orders")
     element_routes(api, target, [
         node(u(2), "orders", element="container", element_effective="container",
              has_children=True, sites=check("node", "NodeSiteOut", [site_ref(u(70), "Облако")])),
@@ -571,8 +573,34 @@ async def test_карточка_компонента_без_строки_раз�
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Элемент архитектуры: компонент контейнера «orders»" in out.splitlines()
-    assert "Размещение" not in out
+    lines = out.splitlines()
+    assert "Элемент архитектуры: компонент контейнера «orders»" in lines
+    i = lines.index("Размещение: Облако — как у контейнера «orders»")
+    assert lines[i - 1].startswith("Источник:")
+    assert not any("/deployment" in c.url.path for c in api.calls)
+
+
+async def test_карточка_компонента_у_контейнера_без_площадок(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    target = node(NODE, "api", u(2), element=None, element_effective="component", sites=[],
+                  container_name="orders")
+    element_routes(api, target, [
+        node(u(2), "orders", element="container", element_effective="container",
+             has_children=True, sites=[]),
+    ])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    assert "Размещение: как у контейнера «orders»" in out.splitlines()
+
+
+def test_строка_размещения_компонента_по_ответу_узла() -> None:
+    # Без загруженного контейнера (ответ PATCH) — имя из container_name ответа узла;
+    # без имени (старый сервер) — строки нет.
+    comp = {"element_effective": "component", "container_name": "orders", "sites": []}
+    assert render.placement_line(comp) == "Размещение: как у контейнера «orders»"
+    assert render.placement_line({**comp, "container_name": None}) is None
 
 
 async def test_карточка_контейнера(client: ArchMapClient, api: FakeApi) -> None:
