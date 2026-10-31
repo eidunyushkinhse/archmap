@@ -2,7 +2,6 @@
 // Шапка: имя, описание, счётчики. Секция «Схема системы» = корневой уровень.
 // Секция «Бизнес-процессы» — список со счётчиком участников.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import { projectsApi } from "../api/projects";
 import { processesApi } from "../api/processes";
 import { nodesApi } from "../api/nodes";
@@ -14,6 +13,7 @@ import { usePersistenceHost } from "./usePersistenceHost";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import LoadError from "../ui/LoadError";
 import { useToast } from "./useToast";
+import { remoteToastStyle } from "../ui/remoteToast";
 import { useRemoteSync } from "./useRemoteSync";
 import { projectSchemaHeight } from "../components/pageSchema";
 import { plural } from "../ui/plural";
@@ -256,4 +256,3 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
 }
 
 // Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
-const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };

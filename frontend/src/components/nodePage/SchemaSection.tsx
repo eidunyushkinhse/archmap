@@ -1,6 +1,5 @@
 // Секция «Схема» страницы объекта (аудит F-5: вынесена из NodePage без изменений).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties } from "react";
 import type { AncestorRef, GraphResponse, Node, ViewLayoutPayload } from "../../types";
 import { canHaveChildren } from "../../types";
 import { nodesApi } from "../../api/nodes";
@@ -14,6 +13,7 @@ import { readSchemaView, showStatusControls, writeSchemaView, type SchemaView } 
 import type { LevelPersistenceProps, NavigateMap, ViewMetaRef } from "../graph/types";
 import { hasNoNeighbors, mergeViewLayout, schemaSectionHeight, toLevelEdges, visibleEntityGuess, withOwnEdits } from "../pageSchema";
 import "../../ui/smallButton.css";
+import { remoteToastStyle } from "../../ui/remoteToast";
 
 // ── Секция «Схема» (single-schema) ──────────────────────────────────
 // Контекст объекта как ВИРТУАЛЬНЫЙ КОРНЕВОЙ УРОВЕНЬ. Бэкенд (context-graph)
@@ -259,4 +259,3 @@ export default function SchemaSection({
 }
 
 // Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
-const remoteToastStyle: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)" };

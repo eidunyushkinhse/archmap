@@ -30,6 +30,7 @@ import type { DropFrameTarget, LayoutPatch, LevelDeleteCallbacks, LevelDrillCall
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
+import { remoteToastInRail } from "../ui/remoteToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
@@ -988,7 +989,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
                 onOpenProcess={openProcess}
               />
             )}
-            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            {remoteToast && <div style={remoteToastInRail}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
             {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
           </div>
@@ -1142,4 +1143,3 @@ const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", j
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
 const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
-const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
