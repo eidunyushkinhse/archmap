@@ -62,13 +62,17 @@ DIFF_LINES = 60
 
 # ── Фикстуры аргументов ──────────────────────────────────────────────────────
 # Фиксированные и маленькие: снапшот должен читаться человеком, а не быть дампом.
+# Срезы — в том виде, в каком их печатает роутер промпта документации (build_export
+# typed, Ф14): у каждого сервиса действующий тип, у базы ключа нет.
 SLICE = (
     "nodes:\n"
     "- name: Ярмарка\n"
     "  shape: service\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: orders\n"
     "    shape: service\n"
+    "    element: container\n"
     "  - name: Каталог-БД\n"
     "    shape: database\n"
     "edges: []\n"
@@ -78,6 +82,7 @@ COMPONENT_SLICE = (
     "nodes:\n"
     "- name: api\n"
     "  shape: service\n"
+    "  element: component\n"
     "edges: []\n"
 )
 DB_PATHS = ["Ярмарка / Каталог-БД", "Ярмарка / Учёт-БД"]

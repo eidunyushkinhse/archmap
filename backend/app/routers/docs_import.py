@@ -79,14 +79,16 @@ def docs_prompt(
     # docs/plan-c4-elements.md): у компонента — его контейнеру (путь от корня проекта:
     # контейнер лежит вне среза), у системы — никуда, своего API у неё нет; у внешней
     # системы без вложенных (Р42) — к ней самой: агент описывает чужое API. Элементы
-    # считаются по всем узлам проекта: элемент узла зависит от его предков. (Не в
+    # считаются по всем узлам проекта: элемент узла зависит от его предков. Те же
+    # элементы печатают тип каждого сервиса в выписке (build_export typed) — и у среза
+    # поддерева: контейнер над его корнем делает узлы среза компонентами. (Не в
     # докстринге: он уезжает в OpenAPI и в api.gen.ts.)
+    elements = build_elements(element_rows_of(nodes))
     spec_owner: tuple[Literal["component", "system"], str] | None = None
     if node_id is not None:
         by_id = {n.id: n for n in nodes}
         if node_id not in by_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
-        elements = build_elements(element_rows_of(nodes))
         element = elements.effective(node_id)
         holder = elements.container_of(node_id)
         if element == "system" and not elements.external_system(node_id):
@@ -99,7 +101,7 @@ def docs_prompt(
         sub_ids = tree.subtree_ids(by_id, node_id)
         nodes = [by_id[i] for i in sub_ids]
         edges = [e for e in edges if e.source_id in sub_ids and e.target_id in sub_ids]
-    export_slice = build_export(nodes, edges, root_id=node_id)
+    export_slice = build_export(nodes, edges, root_id=node_id, typed=elements)
     tables, channels, params = prompt_name_catalogs(db, project.id, {n.id for n in nodes})
     described, pending = entry_point_catalogs(db, nodes)
     return DocsPromptOut(

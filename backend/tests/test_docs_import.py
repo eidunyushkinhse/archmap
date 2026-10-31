@@ -1602,6 +1602,26 @@ def test_промпт_называет_владельца_спецификаци
     assert "Спецификация уезжает ГЛАВНОМУ узлу этого среза — первому в списке." in промпт(orders)
 
 
+def test_выписка_промпта_печатает_тип_объекта(db):
+    """Ф14: в выписке у каждого сервиса — действующий тип, как его читает ArchMap. Срез
+    окна компонента — его поддерево, контейнер вне среза, и тип считается по всему
+    проекту: api остаётся компонентом, а не «контейнером-листом» своего среза."""
+    *_, api = _контейнер(db)
+
+    def срез(узел=None):
+        prompt = docs_prompt(
+            node_id=узел.id if узел else None, lang="ru", hints=None, target=None,
+            db=db, project=ensure_project(db), _=ensure_architect(db),
+        ).prompt
+        return prompt.split("## Срез схемы")[1].split("## Что документировать")[0]
+
+    assert "- name: api\n  shape: service\n  element: component\n" in срез(api)
+    весь = срез()
+    assert "- name: shop\n  shape: service\n  element: system\n" in весь
+    assert "  - name: orders\n    shape: service\n    element: container\n" in весь
+    assert "      element: component\n" in весь
+
+
 # ── Спецификация — факт контейнера (эпик «Элемент архитектуры», Р12) ─────────────
 
 
