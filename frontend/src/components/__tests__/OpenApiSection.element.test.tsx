@@ -169,3 +169,27 @@ describe("OpenApiSection: компонент", () => {
     expect(screen.queryByRole("button", { name: "Собрать с компонентов" })).not.toBeInTheDocument();
   });
 });
+
+// Ф13а: одно правило с «Логикой» — форме без OpenAPI секции нет при любом элементе
+// (компонент-база и система-база — старые данные: Р6 базу в контейнер не пускает).
+describe("OpenApiSection: форма без OpenAPI", () => {
+  const renderShape = (element: PageElement, over: { legacy?: boolean; spec?: string | null } = {}) => render(
+    <OpenApiSection
+      spec={over.spec ?? null} docs={[]} element={element} containerHasSpec={null} isArchitect
+      allowed={false} legacy={over.legacy ?? false} groups={[]} loading={false}
+      onOpen={vi.fn()} onOpenChildSpec={vi.fn()} onNavigateNode={onNavigateNode}
+    />,
+  );
+
+  it("компонент и система формы без OpenAPI — секции нет", () => {
+    const { container: c1 } = renderShape({ kind: "component", container: ORDERS });
+    expect(c1.textContent).toBe("");
+    const { container: c2 } = renderShape({ kind: "system" });
+    expect(c2.textContent).toBe("");
+  });
+
+  it("старая спецификация у такого компонента остаётся видна", () => {
+    renderShape({ kind: "component", container: ORDERS }, { legacy: true, spec: "openapi: 3.0.0" });
+    expect(screen.getByText("OpenAPI")).toBeInTheDocument();
+  });
+});

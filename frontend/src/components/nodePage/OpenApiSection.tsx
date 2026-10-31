@@ -54,6 +54,9 @@ export default function OpenApiSection({
   onNavigateNode: (id: string) => void;
 }) {
   const kind = element.kind;
+  // Форме, у которой OpenAPI не бывает (база, брокер, «Пользователь»), секции нет — у
+  // любого элемента, как у «Логики»; старое содержимое и группы потомков её держат.
+  if (!(allowed || legacy || groups.length > 0)) return null;
 
   // Компонент: API отдаёт контейнер. Секция видна обеим ролям — она объясняет, где искать.
   if (kind === "component" || kind === "composite") {
@@ -115,7 +118,6 @@ export default function OpenApiSection({
   }
 
   // Контейнер (с компонентами и без) и прочие объекты без вложенных.
-  if (!(allowed || legacy || groups.length > 0)) return null;
   if (!(isArchitect || spec || groups.length > 0)) return null;
 
   // Меню «+ Добавить» (когда спеки нет): окно спеки сразу в нужном режиме — «Вручную»

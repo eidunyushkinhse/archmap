@@ -64,6 +64,9 @@ const nodeSig = (n: Node): string => JSON.stringify([
   [...(n.docs ?? [])].sort((a, b) => a.id.localeCompare(b.id)).map((d) => [d.id, d.name, d.kind, d.operation, d.version]),
 ]);
 
+// Единиц статуса нет (лист, пустая система) — общий пустой список, без «Загрузки…».
+const NO_UNITS: Node[] = [];
+
 // Тост «Данные изменены в другой сессии» — поверх страницы (fixed).
 const metaToastStyle: CSSProperties = {
   position: "fixed", top: 74, right: 24, zIndex: 60,
@@ -185,12 +188,16 @@ function NodePageInner({
   const isSystem = element.kind === "system";
   const descendantDocs = element.kind === "container" || element.kind === "composite";
   // Потомки узла с детьми (единицы статуса системы) и то, что над ними нужно странице.
-  // Лист — хук не фетчит.
-  const container = useContainerChildren(node.id, isContainer, { docs: descendantDocs, tech: isSystem });
+  // Грузятся у сервиса с детьми и у системы с детьми другой формы (база с детьми из
+  // старых данных — сервер читает её системой, и её пилюле нужны единицы). Лист, в том
+  // числе пустая система (Р39), — хук не фетчит: единиц у него нет.
+  const loadDescendants = isContainer || (isSystem && node.has_children);
+  const container = useContainerChildren(node.id, loadDescendants, { docs: descendantDocs, tech: isSystem });
   // Контейнер компонента — один запрос: его площадки (строка «Размещение») и есть ли у
   // него спецификация («OpenAPI»). Не компонент или контейнер не найден в крошках —
   // запроса нет.
-  const containerId = element.kind === "component" || element.kind === "composite" ? element.container.id : null;
+  const containerLink = element.kind === "component" || element.kind === "composite" ? element.container : null;
+  const containerId = containerLink?.id ?? null;
   const componentContainer = useAsyncLoad(
     `container:${containerId ?? "none"}`,
     () => (containerId ? nodesApi.get(containerId) : Promise.resolve(null)),
@@ -236,7 +243,7 @@ function NodePageInner({
     // Дети контейнера — точки и счётчик пилюли статуса (и объединение их доков):
     // чужая правка ребёнка двигает meta_rev, а сигнатура самого контейнера меняется
     // не всегда («2 из 5» → «3 из 5»). Перечитываем их на каждый чужой сдвиг курсора.
-    if (isContainer) reloadChildren();
+    if (loadDescendants) reloadChildren();
     nodesApi.get(node.id)
       .then((fresh) => {
         // Свежесть решает version строки, а не порядок прихода ответов (тот же
@@ -249,7 +256,7 @@ function NodePageInner({
         showMetaToast();
       })
       .catch(() => { /* узел могли удалить — догонит навигация */ });
-  }, [node.id, patch, showMetaToast, isContainer, reloadChildren]);
+  }, [node.id, patch, showMetaToast, loadDescendants, reloadChildren]);
 
   // Свежий узел целиком (после записи мимо onDocEvent: пакет агента, перенос).
   const refreshNode = useCallback(() => {
@@ -272,20 +279,20 @@ function NodePageInner({
   const [pageEpoch, setPageEpoch] = useState(0);
   const handleRestored = useCallback(() => {
     refreshNode();
-    if (isContainer) reloadChildren();
+    if (loadDescendants) reloadChildren();
     onEdgesReload();
     setPageEpoch((e) => e + 1);
-  }, [refreshNode, isContainer, reloadChildren, onEdgesReload]);
+  }, [refreshNode, loadDescendants, reloadChildren, onEdgesReload]);
 
   // «Перенести документацию» и «Собрать с компонентов» (Р19 эпика «Элемент архитектуры»):
   // запись меняет мету узла, его потомков и параметры — свежий узел, потомки, курсоры
   // (своя запись) и новая эпоха секций (секция конфигурации грузит себя при маунте).
   const handleFactsMoved = useCallback(() => {
     refreshNode();
-    if (isContainer) reloadChildren();
+    if (loadDescendants) reloadChildren();
     syncCursors();
     setPageEpoch((e) => e + 1);
-  }, [refreshNode, isContainer, reloadChildren, syncCursors]);
+  }, [refreshNode, loadDescendants, reloadChildren, syncCursors]);
   const facts = useFactsTransfer(node, isArchitect, pageEpoch, handleFactsMoved);
 
   // Мутация доков: применить к мете узла + тихо обновить курсоры (своя запись).
@@ -407,7 +414,7 @@ function NodePageInner({
               <ApprovalPill
                 node={node}
                 isArchitect={isArchitect}
-                units={container.units}
+                units={loadDescendants ? container.units : NO_UNITS}
                 onNavigateNode={onNavigateNode}
                 onPick={patch.pickApproval}
               />
@@ -462,6 +469,15 @@ function NodePageInner({
             быть видна, «молча не сработало» хуже любого текста. Гаснет при
             следующей успешной правке. */}
         {patch.error && <p className="np-conflict">{patch.error}</p>}
+        {/* Контейнер компонента не загрузился: его площадки («Размещение») и спецификация
+            («OpenAPI») ниже пусты — причина и «Повторить» здесь, а не молча пустые строки. */}
+        {containerLink !== null && componentContainer.error !== null && (
+          <LoadError
+            what={`контейнер «${containerLink.name}»`}
+            error={componentContainer.error}
+            onRetry={componentContainer.reload}
+          />
+        )}
 
         {/* ── Свойства ──────────────────────────────────────────── */}
         <Fragment key={pageEpoch}>

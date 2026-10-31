@@ -1388,3 +1388,60 @@ describe("NodePage: кнопка вложенного объекта в пуст
     expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
   });
 });
+
+// ── Хвосты страницы Ф13а ─────────────────────────────────────────────────────
+describe("NodePage: контейнер компонента и пилюля системы без единиц", { timeout: 15_000 }, () => {
+  beforeEach(() => vi.clearAllMocks());
+  const ждать = { timeout: 5000 };
+
+  function setupPage(n: Node, all: Node[], kids: Node[] = []) {
+    vi.mocked(nodesApi.getAll).mockResolvedValue(all);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
+    return render(<NodePage nodeId={n.id} isArchitect={false} {...nav} />);
+  }
+
+  it("контейнер компонента не загрузился — причина и «Повторить», а не молча пустые строки", async () => {
+    const orders = node("orders", { name: "orders", has_children: true, child_count: 1, element: "container" });
+    const api = node("api", { name: "api", parent_id: "orders", element_effective: "component", container_name: "orders" });
+    let ordersFails = true;
+    vi.mocked(nodesApi.get).mockImplementation(async (id: string) => {
+      if (id !== "orders") return api;
+      if (ordersFails) throw new ApiError(500, "Сервер недоступен");
+      return orders;
+    });
+    setupPage(api, [orders, api]);
+    const alert = await screen.findByText("Не удалось загрузить контейнер «orders»", undefined, ждать);
+    const box = alert.closest("[role=alert]") as HTMLElement;
+    expect(box).toHaveTextContent("Сервер недоступен");
+
+    ordersFails = false;
+    await userEvent.click(within(box).getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.queryByText("Не удалось загрузить контейнер «orders»")).toBeNull());
+  });
+
+  it("база с детьми (сервер читает её системой) — пилюля считает единицы, вечной загрузки нет", async () => {
+    const db = node("db", { name: "Склад", shape: "database", has_children: true, child_count: 1, element_effective: "system" });
+    const kids = [node("k1", { name: "Реплика", parent_id: "db", approval: "approved", approval_effective: "approved" })];
+    vi.mocked(nodesApi.get).mockResolvedValue(db);
+    setupPage(db, [db, ...kids], kids);
+    const pill = await screen.findByRole("button", { name: /В работе · 1 из 1/ }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовано 1 из 1")).toBeInTheDocument();
+    expect(screen.queryByText("Загрузка…")).toBeNull();
+  });
+
+  it("пустая система — «Согласовывать пока нечего», потомков не запрашивает", async () => {
+    const empty = node("s", { name: "Склад", element: "system", element_effective: "system" });
+    vi.mocked(nodesApi.get).mockResolvedValue(empty);
+    setupPage(empty, [empty]);
+    const pill = await screen.findByRole("button", { name: "В работе" }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовывать пока нечего")).toBeInTheDocument();
+    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+  });
+});
