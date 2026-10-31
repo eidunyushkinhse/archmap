@@ -245,7 +245,7 @@ def _tree(*spec: tuple) -> tuple[dict[str, uuid.UUID], dict, Elements[uuid.UUID]
     дети — по имени, поэтому порядок обхода задают имена)."""
     ids = {name: uuid.uuid4() for name, *_ in spec}
     rows = [
-        ElementRow(ids[name], ids[parent] if parent else None, shape, element, name)
+        ElementRow(ids[name], ids[parent] if parent else None, shape, element, name, False)
         for name, parent, shape, element in spec
     ]
     return ids, {r.id: r.parent_id for r in rows}, build_elements(rows)
@@ -255,7 +255,9 @@ def _null_tree(parent_of: dict, persons: tuple = ()) -> Elements[uuid.UUID]:
     """Элементы дерева без хранимых значений (сегодняшние проекты): узел с детьми —
     система, лист — контейнер. Имена — по порядку карты, он же порядок обхода."""
     return build_elements(
-        ElementRow(nid, pid, "person" if nid in persons else "service", None, str(i).zfill(3))
+        ElementRow(
+            nid, pid, "person" if nid in persons else "service", None, str(i).zfill(3), False
+        )
         for i, (nid, pid) in enumerate(parent_of.items())
     )
 

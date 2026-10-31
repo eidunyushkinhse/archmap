@@ -9,7 +9,7 @@
 // запрещён), поэтому ближайший предок-контейнер и есть контейнер компонента.
 import type { AncestorRef, Node } from "../../types";
 import { nodeNesting } from "../../types";
-import { typeOf, type NodeType } from "../nodeTerms";
+import { EXTERNAL_TYPE_LABEL, TYPE_LABEL, typeOf, type NodeType } from "../nodeTerms";
 
 // Ближайший (последний) предок с элементом «контейнер»; null — в цепочке его нет
 // (узел не компонент или цепочка неполная).
@@ -35,19 +35,23 @@ function componentContainer(
   return found ? { id: found.id, name: found.name } : { id: null, name: subject.container_name ?? "" };
 }
 
-// Строка «Тип»: значение из шести и, у компонента, его контейнер (ссылкой рядом).
+// Строка «Тип»: значение из шести, его подпись и, у компонента, его контейнер (ссылкой
+// рядом). Подпись у внешней системы и внешнего контейнера — «Внешняя система» / «Внешний
+// контейнер» (Р42): тип тот же, меняется только слово.
 export interface TypeView {
   value: NodeType;
+  label: string;
   container: ContainerLink | null;
 }
 
 // То, что строке нужно от объекта: у узла и у гостя эти поля есть (у гостя нет имени
 // контейнера — его даёт путь предков).
-export type TypeSubject = Pick<Node, "shape" | "element_effective"> & { container_name?: string | null };
+export type TypeSubject = Pick<Node, "shape" | "element_effective" | "is_external"> & { container_name?: string | null };
 
 export function typeView(subject: TypeSubject, ancestors: readonly AncestorRef[]): TypeView {
   const value = typeOf(subject);
-  return { value, container: value === "component" ? componentContainer(subject, ancestors) : null };
+  const label = (subject.is_external ? EXTERNAL_TYPE_LABEL[value] : undefined) ?? TYPE_LABEL[value];
+  return { value, label, container: value === "component" ? componentContainer(subject, ancestors) : null };
 }
 
 // ── Страница объекта по элементу (Ф8, Р34) ─────────────────────────────────────
@@ -57,23 +61,30 @@ export function typeView(subject: TypeSubject, ancestors: readonly AncestorRef[]
 //   база, брокер и «Пользователь» (их секции решает форма, types/shapeDocs);
 // • system — система, в том числе пустая (лист с хранимым «система», Р39): сама не
 //   запускается, документации потомков не собирает (Р34);
+// • external — внешняя система без вложенных (внешний лист, который сервер читает
+//   системой, Р42): чёрный ящик чужого продукта — его документация на месте, как у листа
+//   (спецификация описывает чужое API), а размещения и статуса у него не ведут;
 // • container — контейнер с компонентами: собирает схемы и спецификации компонентов;
 // • component — компонент без вложенных; composite — составной компонент (собирает
 //   документацию вложенных, как контейнер). У обоих контейнер — для текста и ссылки.
 export type PageElement =
-  | { kind: "leaf" | "system" | "container" }
+  | { kind: "leaf" | "system" | "external" | "container" }
   | { kind: "component" | "composite"; container: ContainerLink };
 
 export function pageElement(
-  node: Pick<Node, "shape" | "has_children" | "element_effective" | "container_name">,
+  node: Pick<Node, "shape" | "has_children" | "element_effective" | "container_name" | "is_external">,
   ancestors: readonly AncestorRef[],
 ): PageElement {
   const nested = nodeNesting(node) === "group";
   if (node.element_effective === "component") {
     return { kind: nested ? "composite" : "component", container: componentContainer(node, ancestors) };
   }
-  // Лист — «leaf», кроме пустой системы: она читается системой (Р39).
-  if (!nested) return { kind: node.element_effective === "system" ? "system" : "leaf" };
+  // Лист — «leaf», кроме пустой системы (Р39) и внешней системы (Р42): сервер читает их
+  // системами, но внешняя — чёрный ящик, а не группа, которую ещё наполнят.
+  if (!nested) {
+    if (node.element_effective !== "system") return { kind: "leaf" };
+    return { kind: node.is_external ? "external" : "system" };
+  }
   // Узел с детьми без явного значения — система (норма эпика).
   return { kind: node.element_effective === "container" ? "container" : "system" };
 }

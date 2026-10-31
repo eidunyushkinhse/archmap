@@ -119,12 +119,25 @@ describe("LogicSection: составной компонент", () => {
 });
 
 describe("LogicSection: объект без вложенных — как раньше", () => {
-  it("контейнер без компонентов и компонент: свои схемы, меню «+ Добавить»", () => {
-    for (const element of [{ kind: "leaf" }, { kind: "component", container: { id: "c", name: "orders" } }] as PageElement[]) {
+  it("контейнер без компонентов, компонент и внешняя система: свои схемы, меню «+ Добавить»", () => {
+    const elements = [
+      { kind: "leaf" }, { kind: "component", container: { id: "c", name: "orders" } }, { kind: "external" },
+    ] as PageElement[];
+    for (const element of elements) {
       const { unmount } = renderSection(element);
       expect(screen.getByText("Схемы логики не заданы")).toBeInTheDocument();
       expect(screen.getByText("+ Добавить")).toBeInTheDocument();
       unmount();
     }
+  });
+});
+
+describe("LogicSection: внешняя система (Р42)", () => {
+  it("свои схемы без предупреждения и без «Перенести документацию»: чёрный ящик описывают у него", () => {
+    renderSection({ kind: "external" }, { docs: [doc()] });
+    expect(screen.queryByText("Схемы логики не заданы")).toBeNull();
+    expect(screen.getByText("+ Добавить")).toBeInTheDocument();
+    expect(screen.queryByText(/остались собственные схемы/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Перенести документацию" })).toBeNull();
   });
 });

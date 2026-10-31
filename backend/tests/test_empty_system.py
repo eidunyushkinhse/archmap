@@ -7,6 +7,10 @@
 объекту-единице по правилу 5 D34), свои факты ловит AL24, а не AL36, контейнера и
 параметров для пометок у неё нет. Круг экспорта, архива, копии и версий — в тестах
 форматов рядом (test_import, test_archive_import, test_element_snapshots).
+
+Внешняя система (Р42, 2026-10-31) — внешний лист-сервис без хранимого элемента — живёт
+по тем же правилам размещения и статуса (раздел в конце файла), кроме фактов: её
+документация на месте, и отказы говорят «не ведётся», а не «пусто».
 """
 
 import uuid
@@ -17,11 +21,11 @@ from conftest import ensure_architect, make_project
 from fastapi.testclient import TestClient
 
 from app.alerts import compute_alerts
-from app.approval import SYSTEM_DETAIL
+from app.approval import EXTERNAL_DETAIL, SYSTEM_DETAIL
 from app.auth import create_access_token
 from app.data_refs import catalog_for_project
 from app.database import get_db
-from app.deployment import EMPTY_CONTAINER
+from app.deployment import EMPTY_CONTAINER, EXTERNAL_SYSTEM
 from app.element_marks import elements_for_project
 from app.main import app
 from app.models.config_param import ConfigParam
@@ -247,3 +251,56 @@ def test_у_пустой_системы_нет_параметров_для_по�
     catalog = catalog_for_project(db, s.project_id)
     assert catalog.elements.container_of(s.ids["orders"]) is None
     assert catalog.params_for(s.ids["orders"]) == {}
+
+
+# ── Внешняя система (Р42) ────────────────────────────────────────────────────
+
+
+def test_внешняя_система_в_выдаче_и_отказы_без_упрёка(client, db):
+    """Внешний лист без элемента — система без единиц: элемент не хранится, статус не
+    ведётся (ручной — отказ своим текстом), размещать нечего (отказ своим текстом)."""
+    s = Scene(db, client, [("Банк", None, {"is_external": True}, [])])
+    out = s.node("Банк")
+    assert (out["element"], out["element_effective"], out["approval_effective"]) == (
+        None, "system", "in_progress",
+    )
+    r = s.patch("Банк", {"approval": "approved"})
+    assert (r.status_code, r.json()["detail"]) == (422, EXTERNAL_DETAIL)
+    r = s.patch("Банк", {"site_ids": [str(s.sites["prod-eu"])]})
+    assert r.status_code == 422
+    assert r.json()["detail"] == EXTERNAL_SYSTEM.format(name="Банк")
+    assert r.json()["detail"] == "«Банк» — внешняя система, её размещение не ведётся"
+    assert s.own() == {}
+
+
+def test_площадки_внешней_системы_спят_и_просыпаются_со_снятием_внешности(client, db):
+    """Старые экземпляры внешнего листа не удаляются: спят, как у пустой системы.
+    Своим (или с хранимым «контейнер») лист снова единица — площадки его. Смена
+    внешности — мета, экземпляры не переписываются."""
+    s = Scene(db, client, [("Банк", None, {"is_external": True}, ["prod-eu"])])
+    assert s.node("Банк")["sites"] == []
+    assert s.own() == {"Банк": ["prod-eu"]}
+
+    g0, m0 = s.revs()
+    r = s.patch("Банк", {"is_external": False})
+    assert r.status_code == 200, r.text
+    assert r.json()["element_effective"] == "container"
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu"]
+    assert s.own() == {"Банк": ["prod-eu"]}
+    assert s.revs() == (g0, m0 + 1)
+
+
+def test_превью_внешнего_листа_в_систему_без_документации_к_переносу(client, db):
+    """Внешний лист с хранимым «контейнер» → «система»: вид empty_system, площадки
+    спят; своя документация внешней системы не замечание (AL24 внешних не судит) —
+    окно о ней молчит."""
+    s = Scene(db, client, [
+        ("Банк", None, {"is_external": True, "element": "container",
+                        "openapi_spec": "openapi: 3.0.0"}, ["prod-eu"]),
+    ])
+    r = s.call("GET", f"{URL}/{s.ids['Банк']}/element-preview", params={"element": "system"})
+    assert r.status_code == 200, r.text
+    p = r.json()
+    assert (p["kind"], p["docs_names"]) == ("empty_system", [])
+    assert [(row["name"], row["sites"]) for row in p["before"]] == [("Банк", ["prod-eu"])]
+    assert compute_alerts(db, s.project_id).container_own_docs == []

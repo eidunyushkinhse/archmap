@@ -193,8 +193,11 @@ def _spec_target(
     """Узел, которому достаётся спецификация записи (Р12 docs/plan-c4-elements.md):
     API отдаёт контейнер, поэтому спецификация компонента уезжает его ближайшему
     контейнеру — со строкой в превью. У системы контейнера нет: спецификация остаётся
-    у неё с предупреждением (её поймает замечание, как схемы у системы)."""
+    у неё с предупреждением (её поймает замечание, как схемы у системы). Внешней системе
+    (Р42) спецификация положена — агент описывает чужое API, — предупреждения нет."""
     node, path = flat[idx], fulls[idx]
+    if elements.external_system(node.id):
+        return idx
     if elements.effective(node.id) == "system":
         plan.warnings.append(
             f"{fname}: «{path}» — система; API отдают её контейнеры, опишите "
@@ -370,7 +373,9 @@ class _DataRefCheck:
         container = catalog.elements.container_of(owner_id)
 
         config_refs = [r for r in refs if r.mode in CONFIG_MODES]
-        if config_refs and not owner_params:
+        # Внешняя система (Р42) — чёрный ящик: её параметры ArchMap не ведёт, и AL33 её
+        # пометки не судит — превью молчит о них так же.
+        if config_refs and not owner_params and not catalog.elements.external_system(owner_id):
             # Каталог конфигурации у каждого контейнера СВОЙ, и пустой у контейнера
             # владельца — не «структуры ещё нет» (заметки flush — про проект целиком),
             # а промах адресата: после применения каждая такая пометка загорится AL33,

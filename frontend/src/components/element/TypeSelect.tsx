@@ -16,6 +16,9 @@ import "./element.css";
 interface Props {
   // Выбранный тип; null — ещё не выбран (окно создания без предвыбора).
   value: NodeType | null;
+  // Подпись выбранного типа, если она не совпадает с названием пункта: у внешнего
+  // объекта — «Внешняя система» (строка «Тип», Р42). Пункты меню — названия типов.
+  valueLabel?: string;
   options: readonly TypeOption[];
   onPick: (type: NodeType) => void;
   // Классы кнопки-значения в месте вызова: поле окна, инспектора или карточки страницы.
@@ -30,7 +33,7 @@ interface Props {
 }
 
 export default function TypeSelect({
-  value, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
+  value, valueLabel, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -83,7 +86,7 @@ export default function TypeSelect({
         aria-label={label}
       >
         <span className={value ? "ts-value" : "ts-value ts-placeholder"}>
-          {value ? TYPE_LABEL[value] : placeholder}
+          {value ? valueLabel ?? TYPE_LABEL[value] : placeholder}
         </span>
         {chevron}
       </button>

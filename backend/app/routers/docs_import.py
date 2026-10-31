@@ -77,7 +77,8 @@ def docs_prompt(
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     # Куда уезжает спецификация главного узла среза, если не к нему самому (Р12
     # docs/plan-c4-elements.md): у компонента — его контейнеру (путь от корня проекта:
-    # контейнер лежит вне среза), у системы — никуда, своего API у неё нет. Элементы
+    # контейнер лежит вне среза), у системы — никуда, своего API у неё нет; у внешней
+    # системы без вложенных (Р42) — к ней самой: агент описывает чужое API. Элементы
     # считаются по всем узлам проекта: элемент узла зависит от его предков. (Не в
     # докстринге: он уезжает в OpenAPI и в api.gen.ts.)
     spec_owner: tuple[Literal["component", "system"], str] | None = None
@@ -88,7 +89,7 @@ def docs_prompt(
         elements = build_elements(element_rows_of(nodes))
         element = elements.effective(node_id)
         holder = elements.container_of(node_id)
-        if element == "system":
+        if element == "system" and not elements.external_system(node_id):
             spec_owner = ("system", by_id[node_id].name)
         elif element == "component" and holder in by_id:
             # Узел в цикле родителей до корня не доходит, и полного пути у него нет —

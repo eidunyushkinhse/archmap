@@ -174,7 +174,8 @@ def element_change_refusal(
     # дописан под будущего родителя. Хранимый элемент самого узла здесь не важен:
     # «внутри контейнера» решают предки, а состав ниже считается с новым значением.
     after = [r for r in rows if r.id != key]
-    after.append(ElementRow(key, parent_id, shape, None, name))
+    # Внешность правимого узла здесь не важна: решает «внутри контейнера» и состав ниже.
+    after.append(ElementRow(key, parent_id, shape, None, name, False))
 
     by_id = {r.id: r for r in after}
     elements = build_elements(after)
@@ -222,7 +223,10 @@ def store_refusal(
     key = node_id if node_id is not None else uuid.uuid4()
     own = next((r for r in rows if r.id == key), None)
     after = [r for r in rows if r.id != key]
-    after.append(ElementRow(key, parent_id, shape, own.element if own else None, name))
+    after.append(ElementRow(
+        key, parent_id, shape, own.element if own else None, name,
+        own.is_external if own else False,
+    ))
     by_id = {r.id: r for r in after}
     elements = build_elements(after)
 

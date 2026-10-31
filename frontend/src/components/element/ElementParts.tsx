@@ -4,7 +4,7 @@
 // ссылкой на его контейнер. Один рендер на три места — без копий.
 import type { ReactNode } from "react";
 import InfoPopover from "../../ui/InfoPopover";
-import { TYPE_LABEL, type NodeType } from "../nodeTerms";
+import type { NodeType } from "../nodeTerms";
 import { ELEMENT_HELP, ELEMENT_HELP_LABEL } from "./elementText";
 import type { ContainerLink, TypeView } from "./elementView";
 import type { TypeOption } from "./typeOptions";
@@ -51,16 +51,17 @@ export function TypeValue({ view, options, onPick, onNavigateNode, trigger }: {
   onNavigateNode: (id: string) => void;
   trigger?: { className: string; chevron: ReactNode; inline?: boolean };
 }) {
-  const { value, container } = view;
+  const { value, label, container } = view;
   const named = container !== null && container.name !== "";
   if (options === null || !onPick || !trigger) {
-    if (!named) return <span>{TYPE_LABEL[value]}</span>;
+    if (!named) return <span>{label}</span>;
     return <ContainerRef lead="Компонент контейнера" container={container} onNavigateNode={onNavigateNode} />;
   }
   return (
     <span className={trigger.inline ? "ts-cell ts-cell--inline" : "ts-cell"}>
       <TypeSelect
         value={value}
+        valueLabel={label}
         options={options}
         onPick={onPick}
         triggerClass={trigger.className}

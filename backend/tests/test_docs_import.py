@@ -1726,6 +1726,20 @@ def test_спецификация_у_системы_предупреждает_�
     ) in plan.warnings
 
 
+def test_спецификация_внешней_системы_без_предупреждения(db):
+    """Р42: внешний лист без элемента — внешняя система; агент описывает чужое API её
+    спецификацией — это норма, предупреждения «API отдают её контейнеры» нет."""
+    банк = _node(db, "Банк")
+    банк.is_external = True
+    db.commit()
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("Банк"))], {"api.yaml": SPEC})
+
+    assert plan.errors == []
+    assert [s.node_id for s in plan.specs] == [банк.id]
+    assert [w for w in plan.warnings if "контейнер" in w or "систем" in w] == []
+
+
 def test_спецификация_листа_вне_контейнера_как_прежде(db):
     _root, orders, *_ = _tree(db)
 

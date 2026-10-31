@@ -1025,3 +1025,16 @@ async def test_дерево_помечает_пустую_систему(client:
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
     assert "  • warehouse (система без контейнеров) [сервис]  id=n2" in out.splitlines()
+
+
+async def test_дерево_не_помечает_внешнюю_систему(client: ArchMapClient, api: FakeApi) -> None:
+    # Внешняя система (Р42) — чёрный ящик: пометки «без контейнеров» нет, внешность
+    # видна в свойствах строки.
+    api.get("/nodes/all", [
+        node("n1", "Банк", has_children=False, is_external=True, element_effective="system"),
+    ])
+    api.get("/edges", [])
+
+    out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
+
+    assert "• Банк [сервис, внешний]  id=n1" in out.splitlines()

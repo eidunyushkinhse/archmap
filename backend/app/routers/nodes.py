@@ -552,6 +552,7 @@ def update_node(
             parent_id=data.get("parent_id", node.parent_id),
             shape=data.get("shape") or node.shape,
             element=data.get("element", node.element),
+            is_external=bool(data.get("is_external", node.is_external)),
         )
         if reason:
             raise HTTPException(status_code=422, detail=reason)

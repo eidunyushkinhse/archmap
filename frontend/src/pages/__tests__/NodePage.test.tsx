@@ -229,6 +229,16 @@ describe("NodePage", () => {
     expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
   });
 
+  it("внешняя система (Р42): своя технология полем, статуса страницы нет, размещение не ведётся", async () => {
+    setup({ node: { is_external: true, element_effective: "system" } });
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+    expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
+    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+    expect(screen.queryByText("В работе")).toBeNull();
+    expect(screen.getByText("не ведётся у внешней системы")).toBeInTheDocument();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+  });
+
   it("рендерит секцию связей с именем соседа", async () => {
     setup({ edges: [edgeInfo()] });
     await waitFor(() => expect(screen.getByText("Шлюз")).toBeInTheDocument());

@@ -270,6 +270,9 @@ def _docs_names(db: Session, change: Relocation, names: Mapping[uuid.UUID, str])
     системой, со своими схемами, спецификацией или конфигурацией (AL24)."""
     if change.former_container is not None:
         node_id = change.former_container
+        # Внешней системе (Р42) своя документация положена — AL24 её не отметит.
+        if db.query(Node.id).filter(Node.id == node_id, Node.is_external.is_(True)).first():
+            return []
         has = (
             db.query(Node.id).filter(Node.id == node_id, Node.openapi_spec.isnot(None),
                                       Node.openapi_spec != "").first() is not None

@@ -9,7 +9,9 @@
 - система (группа, сама не запускается) статус НЕ хранит, а складывает из единиц: всех
   потомков любой глубины, кроме вложенных систем, — контейнеров, компонентов (и их
   частей) и «Пользователей». «Согласовано», только когда согласованы все единицы.
-  Внешние объекты считаются наравне с прочими (решение Р1 page-status).
+  Внешние объекты считаются наравне с прочими (решение Р1 page-status), кроме внешней
+  системы — внешнего листа-сервиса без хранимого элемента (Р42, 2026-10-31): она
+  система без единиц, её статус не ведётся, ручная правка — отказ EXTERNAL_DETAIL.
 При элементе null в проекте (все узлы с детьми — системы, листья — контейнеры) это
 ровно прежнее «узел с детьми — по всем детям»: единицы системы — её листья. Узел,
 оставшийся без детей, снова контейнер и показывает своё хранимое значение (Р3).
@@ -108,6 +110,8 @@ def effective_approvals(
 
 # Отказ ручной правки статуса у системы (решение Р14 эпика, пересмотр Р4 page-status).
 SYSTEM_DETAIL = "Статус системы складывается из вложенных объектов"
+# У внешней системы (Р42) вложенных нет и не ждут: внешнее не согласуют — без упрёка.
+EXTERNAL_DETAIL = "Статус внешней системы не ведётся"
 
 
 def manual_approval_refusal(
@@ -118,21 +122,24 @@ def manual_approval_refusal(
     parent_id: uuid.UUID | None,
     shape: str,
     element: str | None,
+    is_external: bool,
 ) -> str | None:
     """Почему статус страницы узла нельзя поставить руками; None — можно.
 
     Система — нельзя: её статус складывается из единиц, хранимое значение она не
-    показывает. Контейнер (с компонентами или без), компонент и «Пользователь» — можно.
+    показывает; у внешней системы без вложенных (Р42) статус не ведётся вовсе.
+    Контейнер (с компонентами или без), компонент и «Пользователь» — можно.
     Элемент — по дереву ПОСЛЕ правки, как у проверки элемента (app/element_rules):
-    parent_id, shape и element — значения узла с учётом того же запроса (PATCH может
-    сделать систему контейнером и сразу согласовать её)."""
+    parent_id, shape, element и is_external — значения узла с учётом того же запроса
+    (PATCH может сделать систему контейнером и сразу согласовать её)."""
     after = [
-        ElementRow(r.id, parent_id, shape, element, r.name) if r.id == node.id else r
+        ElementRow(r.id, parent_id, shape, element, r.name, is_external) if r.id == node.id else r
         for r in project_element_rows(db, project_id)
     ]
-    if build_elements(after).effective(node.id) == "system":
-        return SYSTEM_DETAIL
-    return None
+    elements = build_elements(after)
+    if elements.effective(node.id) != "system":
+        return None
+    return EXTERNAL_DETAIL if elements.external_system(node.id) else SYSTEM_DETAIL
 
 
 def mark_approval(db: Session, project_id: uuid.UUID, nodes: list[Node]) -> None:
@@ -142,15 +149,19 @@ def mark_approval(db: Session, project_id: uuid.UUID, nodes: list[Node]) -> None
     if not nodes:
         return
     rows = (
-        db.query(Node.id, Node.parent_id, Node.approval, Node.shape, Node.element, Node.name)
+        db.query(
+            Node.id, Node.parent_id, Node.approval, Node.shape, Node.element, Node.name,
+            Node.is_external,
+        )
         .filter(Node.project_id == project_id)
         .all()
     )
     elements = build_elements(
-        ElementRow(nid, pid, shape, element, name) for nid, pid, _, shape, element, name in rows
+        ElementRow(nid, pid, shape, element, name, bool(external))
+        for nid, pid, _, shape, element, name, external in rows
     )
     effective = effective_approvals(
-        ((nid, pid, value) for nid, pid, value, _, _, _ in rows), elements
+        ((nid, pid, value) for nid, pid, value, _, _, _, _ in rows), elements
     )
     for n in nodes:
         n.approval_effective = effective.get(n.id, _stored(n.approval))

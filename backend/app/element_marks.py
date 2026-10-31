@@ -4,12 +4,13 @@ app/element.py — чистая модель над картами, без ORM; 
 простановка вычисляемого Node.element_effective перед отдачей (docs/plan-c4-elements.md,
 камни 2 и 14). Действующий элемент зависит от всех предков узла, поэтому Elements
 собирается по ВСЕМУ проекту, один раз на запрос:
-- роутер узлов (NodeResponse) — mark_element: одна выборка пяти колонок, как
+- роутер узлов (NodeResponse) — mark_element: одна выборка шести колонок, как
   app/approval.mark_approval;
 - граф уровня, контекст-схема, развёртывание — elements_from_nodes по карте узлов,
   которая у них уже в памяти (без нового SQL), как effective_approvals.
 Дети — все, включая «Пользователей», как считает has_children: узел, у которого внутри
-один «Пользователь», — узел с детьми, а не лист.
+один «Пользователь», — узел с детьми, а не лист. Внешность узла — тоже в записи: внешний
+лист-сервис без хранимого элемента — система (Р42, app/element).
 
 Дети в Elements идут по имени (затем по id): обход потомков в глубину (Elements.
 members_of) тогда детерминирован, и отказ «внутри лежит база данных …» называет одного и
@@ -27,21 +28,24 @@ from app.models.node import Node
 
 
 class ElementRow(NamedTuple):
-    """Лёгкая запись узла для элементов: ради пяти колонок ORM-объекты не нужны."""
+    """Лёгкая запись узла для элементов: ради шести колонок ORM-объекты не нужны."""
 
     id: uuid.UUID
     parent_id: uuid.UUID | None
     shape: str
     element: str | None
     name: str
+    is_external: bool
 
 
 def project_element_rows(db: Session, project_id: uuid.UUID) -> list[ElementRow]:
-    """Записи всех узлов проекта — одна выборка пяти колонок."""
+    """Записи всех узлов проекта — одна выборка шести колонок."""
     return [
-        ElementRow(nid, pid, shape, element, name)
-        for nid, pid, shape, element, name in (
-            db.query(Node.id, Node.parent_id, Node.shape, Node.element, Node.name)
+        ElementRow(nid, pid, shape, element, name, bool(external))
+        for nid, pid, shape, element, name, external in (
+            db.query(
+                Node.id, Node.parent_id, Node.shape, Node.element, Node.name, Node.is_external
+            )
             .filter(Node.project_id == project_id)
             .all()
         )
@@ -63,6 +67,7 @@ def build_elements(rows: Iterable[ElementRow]) -> Elements[uuid.UUID]:
             pid: [k.id for k in sorted(kids, key=lambda k: (k.name, str(k.id)))]
             for pid, kids in children.items()
         },
+        external=[r.id for r in rows if r.is_external],
     )
 
 
@@ -73,7 +78,10 @@ def elements_for_project(db: Session, project_id: uuid.UUID) -> Elements[uuid.UU
 
 def element_rows_of(nodes: Iterable[Node]) -> list[ElementRow]:
     """Записи из уже загруженных ORM-узлов — без запроса."""
-    return [ElementRow(n.id, n.parent_id, n.shape, n.element, n.name) for n in nodes]
+    return [
+        ElementRow(n.id, n.parent_id, n.shape, n.element, n.name, bool(n.is_external))
+        for n in nodes
+    ]
 
 
 def elements_from_nodes(all_nodes: Mapping[uuid.UUID, Node]) -> Elements[uuid.UUID]:

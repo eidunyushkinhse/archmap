@@ -77,6 +77,21 @@ describe("OpenApiSection: система", () => {
   });
 });
 
+describe("OpenApiSection: внешняя система (Р42)", () => {
+  it("своя спецификация — норма: строка без предупреждения и без «Перенести документацию»", () => {
+    renderSection({ kind: "external" }, { spec: "openapi: 3.0.0" });
+    expect(screen.getByText("Спецификация")).toBeInTheDocument();
+    expect(screen.queryByText(/У системы осталась собственная спецификация/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Перенести документацию" })).toBeNull();
+  });
+
+  it("пусто — меню «+ Добавить», как у объекта без вложенных", () => {
+    renderSection({ kind: "external" });
+    expect(screen.queryByText(/своего API у неё нет/)).toBeNull();
+    expect(screen.getByText("+ Добавить")).toBeInTheDocument();
+  });
+});
+
 describe("OpenApiSection: контейнер", () => {
   it("пусто — «Спецификация не задана» и меню «+ Добавить», как у объекта без вложенных", () => {
     renderSection({ kind: "container" });

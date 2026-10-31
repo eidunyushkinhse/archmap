@@ -365,6 +365,21 @@ describe("NodeInspector: тип система и контейнер", () => {
     expect(vi.mocked(nodesApi.update).mock.calls[0][1].element).toBe("system");
   });
 
+  it("внешний лист без элемента — «Внешняя система», «Контейнер» в списке — смена элемента (Р42)", async () => {
+    vi.mocked(nodesApi.elementPreview).mockResolvedValue({ ...quiet, kind: "none" });
+    vi.mocked(nodesApi.update).mockResolvedValue(
+      makeNode({ shape: "service", is_external: true, element: "container", element_effective: "container", version: 4 }),
+    );
+    setup(makeNode({ shape: "service", is_external: true, element: null, element_effective: "system" }));
+    expect(typeButton()).toHaveTextContent("Внешняя система");
+    await userEvent.click(typeButton());
+    // Пункты меню — названия типов, без слова «внешний».
+    expect(option("Система")).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(option("Контейнер"));
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1].element).toBe("container");
+  });
+
   it("читателю — текстом; у «Пользователя» тип тоже есть", () => {
     const { unmount } = setup(system({ element: "container", element_effective: "container" }), false);
     expect(screen.getByText("Контейнер")).toBeInTheDocument();

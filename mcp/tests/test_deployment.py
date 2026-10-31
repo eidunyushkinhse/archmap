@@ -292,3 +292,17 @@ async def test_размещение_пустой_системы(client: ArchMapC
     ]
     assert "Склад" not in tree
 
+
+
+async def test_размещение_внешней_системы(client: ArchMapClient, api: FakeApi) -> None:
+    # Внешняя система (Р42) не единица, как пустая, но и не ждёт контейнеров: строка
+    # говорит, что это внешняя система, без «площадки задаются её контейнерам».
+    ext = node(u(31), "Банк", element=None, element_effective="system", is_external=True,
+               has_children=False, sites=[])
+    routes(api, [SITES[1]], [*c4_nodes(), ext])
+
+    out = await tools.call("archmap_deployment", {"project": "Ярмарка", "node_id": u(31)}, client)
+    tree = await tools.call("archmap_deployment", {"project": "Ярмарка"}, client)
+
+    assert out.splitlines()[2:] == ["Размещения нет: внешняя система"]
+    assert "Банк" not in tree

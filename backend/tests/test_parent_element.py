@@ -179,6 +179,31 @@ def test_контейнер_оставляет_площадки_у_себя(clie
     assert s.revs() == (g0 + 1, m0)
 
 
+def test_внешний_лист_ждёт_первого_вложенного_как_свой(client, db):
+    """Р42: внешний лист без элемента читается внешней системой, но элемент у него не
+    хранится — правило первого вложенного объекта от внешности не зависит. Спящие
+    площадки внешней системы правило 5 D34 отдаёт ребёнку-единице, «Контейнер» с
+    компонентом делает внешний лист контейнером и будит их у него самого."""
+    s = Scene(db, client, [
+        ("Банк", None, {"is_external": True}, ["prod-eu"]),
+        ("Шлюз", None, {"is_external": True}, ["prod-ru"]),
+    ])
+    assert s.node("Банк")["element_effective"] == "system"
+    assert s.node("Банк")["sites"] == []
+
+    r = s.post("Банк-API", "Банк", parent_element="system", element="container")
+    assert r.status_code == 201, r.text
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu"]
+    assert (s.node("Банк")["element"], s.node("Банк")["element_effective"]) == ("system", "system")
+
+    r = s.post("Шлюз-SDK", "Шлюз", parent_element="container")
+    assert r.status_code == 201, r.text
+    шлюз = s.node("Шлюз")
+    assert (шлюз["element"], шлюз["element_effective"]) == ("container", "container")
+    assert [x["name"] for x in шлюз["sites"]] == ["prod-ru"]
+    assert s.own() == {"Банк-API": ["prod-eu"], "Шлюз": ["prod-ru"]}
+
+
 # ── Отказы ────────────────────────────────────────────────────────────────────
 
 

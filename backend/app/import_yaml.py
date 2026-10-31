@@ -894,7 +894,7 @@ def seed_placements(
         for n, node_id in zip(parsed.nodes, ids, strict=True)
     }
     elements = build_elements(
-        ElementRow(node_id, parent_of[node_id], n.shape, n.element, n.name)
+        ElementRow(node_id, parent_of[node_id], n.shape, n.element, n.name, n.is_external)
         for n, node_id in zip(parsed.nodes, ids, strict=True)
     )
     declared: dict[uuid.UUID, list[uuid.UUID]] = {}

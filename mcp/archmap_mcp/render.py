@@ -58,12 +58,26 @@ ELEMENT_WORD = {"system": "система", "container": "контейнер", "
 # Пустая система — объект без вложенных с элементом «система» (сервер с 0.11.1 читает его
 # системой, Р39): агенту важно знать, что внутри пока ничего нет.
 EMPTY_SYSTEM = "система без контейнеров"
+# Внешний объект без вложенных, который сервер читает системой (Р42, MCP 0.11.2), — чёрный
+# ящик чужого продукта, а не недоделанная система: «без контейнеров» про него не пишем.
+EXTERNAL_SYSTEM = "внешняя система"
+
+
+def _leaf_system(node: dict[str, Any]) -> bool:
+    """Действующий элемент «система» у объекта без вложенных (has_children из ответа
+    сервера; MCP элемент не вычисляет)."""
+    return node.get("element_effective") == "system" and node.get("has_children") is False
 
 
 def empty_system(node: dict[str, Any]) -> bool:
-    """Пустая система: действующий элемент «система» у объекта без вложенных. Признак
-    берётся из ответа сервера (has_children), MCP элемент не вычисляет."""
-    return node.get("element_effective") == "system" and node.get("has_children") is False
+    """Пустая система: своя система без вложенных. Внешняя — не пустая, а чёрный ящик
+    (external_system)."""
+    return _leaf_system(node) and not node.get("is_external")
+
+
+def external_system(node: dict[str, Any]) -> bool:
+    """Внешняя система без вложенных: внешний объект, который сервер читает системой."""
+    return _leaf_system(node) and bool(node.get("is_external"))
 
 
 def element_line(node: dict[str, Any], container: str | None = None) -> str | None:
@@ -197,6 +211,9 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
         )
     if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
+    if external_system(node):
+        # Внешнее не согласуют (Р42): «согласовывать пока нечего» звучало бы упрёком.
+        return f"Статус страницы: не ведётся — это {EXTERNAL_SYSTEM}"
     if not units:
         # Система без единиц (пустая или с одними вложенными системами) не согласована:
         # «0 из 0» читалось бы как «всё согласовано».
@@ -433,6 +450,9 @@ def node_placement(
         return out
     if empty_system(node):
         out.append(f"Размещения нет: это {EMPTY_SYSTEM} — площадки задаются её контейнерам")
+        return out
+    if external_system(node):
+        out.append(f"Размещения нет: {EXTERNAL_SYSTEM}")
         return out
     placed = list(node.get("sites") or [])
     if not placed:

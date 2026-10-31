@@ -119,13 +119,17 @@ COMPONENT_SITES_NOTE = (
 
 class ElementNode(Protocol):
     """Узел разобранного дерева, как его видит санитизация (_ImpNode ввоза): элемент,
-    родитель и площадки она меняет, имя и форму только читает."""
+    родитель и площадки она меняет, имя, форму и внешность только читает (внешний
+    лист-сервис без элемента — система, Р42)."""
 
     @property
     def name(self) -> str: ...
 
     @property
     def shape(self) -> str: ...
+
+    @property
+    def is_external(self) -> bool: ...
 
     parent_idx: int | None
     element: NodeElement | None
@@ -142,7 +146,7 @@ def _rows(nodes: Sequence[ElementNode]) -> list[ElementRow]:
     return [
         ElementRow(
             _key(i), None if n.parent_idx is None else _key(n.parent_idx), n.shape, n.element,
-            n.name,
+            n.name, n.is_external,
         )
         for i, n in enumerate(nodes)
     ]

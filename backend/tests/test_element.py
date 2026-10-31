@@ -105,6 +105,47 @@ def test_пустая_система_только_у_сервиса_и_не_вн
     assert el.effective("api") == "component"
 
 
+def test_внешний_лист_без_элемента_внешняя_система():
+    # Р42 (2026-10-31): внешний лист-сервис без хранимого элемента — система (чёрный
+    # ящик): единиц и состава нет, контейнера для фактов процесса тоже. Хранимое
+    # «контейнер» у внешнего листа — явное намерение; свой лист без элемента — контейнер.
+    parent_of = {"sys": None, "pay": "sys", "gw": "sys", "own": "sys", "bank": None}
+    el = Elements(
+        parent_of, {n: "service" for n in parent_of}, {"gw": "container"},
+        external={"pay", "gw", "bank"},
+    )
+    for node in ("pay", "bank"):
+        assert el.effective(node) == "system"
+        assert el.external_system(node)
+        assert el.container_of(node) is None
+        assert el.units_under(node) == []
+    assert el.effective("gw") == "container" and not el.external_system("gw")
+    assert el.effective("own") == "container" and not el.external_system("own")
+    # Система над внешней системой её единицей не считает.
+    assert el.units_under("sys") == ["gw", "own"]
+
+
+def test_внешний_с_детьми_по_общему_правилу_и_внешний_не_сервис_контейнер():
+    # Внешний узел с детьми — как прежде: система без хранимого, контейнер с хранимым;
+    # внешняя система с вложенными не «чёрный ящик» (external_system — только лист).
+    # Внешняя база или брокер — контейнер, единица: элемент задаётся только у сервиса.
+    # Внутри контейнера внешний лист — компонент.
+    parent_of = {
+        "ext": None, "ext_kid": "ext", "extc": None, "extc_kid": "extc",
+        "bankdb": None, "orders": None, "sdk": "orders",
+    }
+    shapes = {n: "service" for n in parent_of} | {"bankdb": "database"}
+    el = Elements(
+        parent_of, shapes, {"extc": "container", "orders": "container"},
+        external={"ext", "extc", "bankdb", "sdk", "ext_kid"},
+    )
+    assert el.effective("ext") == "system" and not el.external_system("ext")
+    assert el.effective("ext_kid") == "system" and el.external_system("ext_kid")
+    assert el.effective("extc") == "container"
+    assert el.effective("bankdb") == "container"
+    assert el.effective("sdk") == "component" and not el.external_system("sdk")
+
+
 def test_пользователь_снаружи_и_внутри_контейнера():
     parent_of = {"sys": None, "user": "sys", "svc": "sys", "admin": "svc", "part": "svc", "guest": None}
     el = _elements(parent_of, {"svc": "container"}, persons=("user", "admin", "guest"))

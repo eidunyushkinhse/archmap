@@ -1542,6 +1542,30 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert (элемент["Ярмарка / orders"], элемент["Оператор"]) == ("system", None)
 
 
+def test_остаток_внешний_лист_словами_системы():
+    """Р42: внешний лист без элемента — внешняя система: так его называют и вопрос о
+    связи в объект с вложенными (вложенный объект конца), и пикер концов новой связи.
+    Хранимое «контейнер» у внешнего листа — контейнер."""
+    с_внешним = _ОСТАТОК_1.replace(
+        "          - name: api\n", "          - name: api\n            external: true\n"
+    ).replace(
+        "      - name: Каталог-БД\n",
+        "      - name: Банк\n        external: true\n"
+        "      - name: Шлюз\n        external: true\n        element: container\n"
+        "      - name: Каталог-БД\n",
+    )
+    превью = preview_from_plan(build_unified_plan(
+        [("shop.yaml", с_внешним.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    ))
+
+    вход = превью.remainder.container_edges[0]
+    assert [(c.path, c.element_effective) for c in вход.components] == [
+        ("Ярмарка / orders / api", "system")
+    ]
+    элемент = dict(zip(превью.remainder.node_paths, превью.remainder.node_elements, strict=True))
+    assert (элемент["Ярмарка / Банк"], элемент["Ярмарка / Шлюз"]) == ("system", "container")
+
+
 def test_остаток_слова_по_элементу_конца_контейнер():
     """Объявленный контейнер: замечание и вопрос — словами контейнера, вложенные — его
     компоненты; замечание по-прежнему становится вопросом и прячется из списков."""

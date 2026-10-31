@@ -2437,7 +2437,7 @@ def test_элемент_доливка_проверяется_правилом_�
                      element="container", version=1)
     api = Node(id=uuid.uuid4(), project_id=pid, name="api", shape="service",
                parent_id=контейнер.id, version=1)
-    строки = {n.id: ElementRow(n.id, n.parent_id, n.shape, n.element, n.name)
+    строки = {n.id: ElementRow(n.id, n.parent_id, n.shape, n.element, n.name, bool(n.is_external))
               for n in (контейнер, api)}
     imp = _ImpNode(name="api", shape="service", status="existing", role=None, technology=None,
                    is_external=False, description=None, parent_idx=0, element="system")

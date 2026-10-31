@@ -80,6 +80,14 @@ describe("PlacementRow: элемент архитектуры", () => {
     expect(screen.queryByText(/как у контейнера/)).toBeNull();
   });
 
+  it("внешняя система (Р42) — размещение не ведётся, без «Изменить»", () => {
+    renderRow({ kind: "external" }, {
+      n: { name: "Банк", parent_id: null, is_external: true, element_effective: "system", container_name: null },
+    });
+    expect(screen.getByText("не ведётся у внешней системы")).toBeInTheDocument();
+    expect(editButton()).toBeNull();
+  });
+
   it("система — площадки её контейнеров, частичная — «часть контейнеров»", () => {
     renderRow({ kind: "system" }, {
       n: { name: "Торговля", has_children: true, child_count: 2, element_effective: "system", sites: [EU, { ...RU, partial: true }] },

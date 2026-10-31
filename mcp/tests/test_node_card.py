@@ -617,6 +617,24 @@ async def test_карточка_пустой_системы(client: ArchMapClien
     assert "Размещение" not in out
 
 
+async def test_карточка_внешней_системы(client: ArchMapClient, api: FakeApi) -> None:
+    # Р42 (0.11.2): внешний объект без вложенных сервер читает системой — это чёрный ящик
+    # чужого продукта, а не недоделанная система: ни «без контейнеров», ни упрёка
+    # «согласовывать пока нечего».
+    target = node(NODE, "Банк", element=None, element_effective="system", is_external=True,
+                  has_children=False, approval="in_progress", approval_effective="in_progress",
+                  sites=[])
+    element_routes(api, target, [])
+
+    out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
+
+    lines = out.splitlines()
+    assert "Элемент архитектуры: система" in lines
+    assert "Статус страницы: не ведётся — это внешняя система" in lines
+    assert "без контейнеров" not in out
+    assert "согласовывать" not in out
+
+
 def test_система_с_вложенными_не_пустая() -> None:
     # Признак пустой системы — только у объекта без вложенных; у системы с вложенными
     # строка прежняя, у старого сервера без has_children — тоже.

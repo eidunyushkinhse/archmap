@@ -401,14 +401,17 @@ function NodePageInner({
               <span className="np-name">{node.name}</span>
             )}
 
-            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор редактора */}
-            <ApprovalPill
-              node={node}
-              isArchitect={isArchitect}
-              units={container.units}
-              onNavigateNode={onNavigateNode}
-              onPick={patch.pickApproval}
-            />
+            {/* Статус страницы: у системы — из вложенных объектов, у остальных — выбор
+                редактора; у внешней системы (Р42) статус не ведётся — пилюли нет */}
+            {element.kind !== "external" && (
+              <ApprovalPill
+                node={node}
+                isArchitect={isArchitect}
+                units={container.units}
+                onNavigateNode={onNavigateNode}
+                onPick={patch.pickApproval}
+              />
+            )}
 
             {/* ⋯-меню: пункты просмотра — обеим ролям (история версий нужна и
                 читателю, docs/tasks/doc-versions.md §7), пункты правки — редактору */}

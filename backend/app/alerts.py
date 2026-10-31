@@ -291,7 +291,9 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
       его законные факты (пометки «зависит от:» компонентов ищут ручку именно у него).
     Составной компонент (узел с детьми внутри контейнера) сюда не попадает: схемы
     логики — факт кода компонента, а его спецификацию и конфигурацию ловит класс 15.
-    Не-service с детьми не алертится (элемент архитектуры — только у сервиса)."""
+    Не-service с детьми не алертится (элемент архитектуры — только у сервиса). Внешние
+    объекты не проверяются вовсе (Р42, 2026-10-31): внешняя система — чёрный ящик, и
+    агент описывает её API спецификацией — это норма, а не забытая документация."""
     elements = ctx.catalog.elements
     node_ids = [n.id for n in ctx.nodes]
     doc_owners: set[uuid.UUID] = set()
@@ -304,7 +306,7 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
     param_owners = set(ctx.catalog.params_by_node)
     out: list[ContainerOwnDocsAlert] = []
     for n in ctx.nodes:
-        if n.shape != "service":
+        if n.shape != "service" or n.is_external:
             continue
         has_docs = n.id in doc_owners
         has_spec = bool(n.openapi_spec)
@@ -563,6 +565,10 @@ def _unresolved_refs(
         #     резолв (ProjectCatalog.params_for): запись называет место починки.
         if ref.mode == "config":
             container = ctx.catalog.elements.container_of(hit.node_id)
+            # Внешняя система (Р42) — чёрный ящик: её параметры ArchMap не ведёт, и совет
+            # «перенесите схему контейнеру» ей не к месту — пометку не судим.
+            if ctx.catalog.elements.external_system(hit.node_id):
+                continue
             config.append(
                 UnresolvedConfigRefAlert(
                     **where,

@@ -115,15 +115,20 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(link.parentElement).toHaveTextContent("Компонент контейнера «orders»");
   });
 
-  it("лист — «Контейнер», внешний лист тоже, пустая система — «Система»", () => {
+  it("лист — «Контейнер», пустая система — «Система», внешние — «Внешняя система» / «Внешний контейнер»", () => {
     const { unmount } = setup({}, { isArchitect: false });
     expect(screen.getByText("Контейнер")).toBeInTheDocument();
     unmount();
-    const external = setup({ is_external: true }, { isArchitect: false });
-    expect(screen.getByText("Контейнер")).toBeInTheDocument();
-    external.unmount();
-    setup({ element: "system", element_effective: "system" }, { isArchitect: false });
+    const empty = setup({ element: "system", element_effective: "system" }, { isArchitect: false });
     expect(screen.getByText("Система")).toBeInTheDocument();
+    empty.unmount();
+    // Внешний лист без элемента сервер читает системой (Р42); с хранимым «контейнер» —
+    // контейнер. Тип тот же, подпись — со словом «внешний».
+    const external = setup({ is_external: true, element_effective: "system" }, { isArchitect: false });
+    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+    external.unmount();
+    setup({ is_external: true, element: "container" }, { isArchitect: true });
+    expect(typeButton()).toHaveTextContent("Внешний контейнер");
   });
 
   it("смена формы — PATCH формы; серый пункт объясняет причину и не выбирается", async () => {
