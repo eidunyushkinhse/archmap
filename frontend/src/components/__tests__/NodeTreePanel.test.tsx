@@ -270,7 +270,8 @@ describe("NodeTreePanel: цели переноса", () => {
 // ── Режим «Развёртывание» (Ф6, docs/specs/deployment.md D26) ─────────────────
 // Дерево слева от холста площадок: система — уровень, прочие — выделить карточки (у
 // компонента — его контейнера), иконка строки «Указать размещение» (архитектор, не у
-// «Пользователя» и не у компонента) — режим размещения. Элемент — из ответа сервера.
+// компонента) — режим размещения. «Пользователя» нет ни в дереве, ни в поиске: холст его
+// не рисует, щелчку нечего показать (D28). Элемент — из ответа сервера.
 // Объекты здесь не создаются и не переносятся: ни палитры, ни «+», ни ручки.
 describe("NodeTreePanel: режим «Развёртывание»", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -315,12 +316,35 @@ describe("NodeTreePanel: режим «Развёртывание»", () => {
     expect(screen.queryByTitle("Добавить объект")).toBeNull();
   });
 
-  it("иконка размещения — у сервиса, БД и системы архитектора, не у «Пользователя»", async () => {
+  it("иконка размещения — у сервиса, БД и системы архитектора; строки «Пользователя» нет", async () => {
     await scene();
     expect(screen.getByLabelText("Указать размещение: «Платежи»")).toBeInTheDocument();
     expect(screen.getByLabelText("Указать размещение: «БД заказов»")).toBeInTheDocument();
     expect(screen.getByLabelText("Указать размещение: «Витрина»")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Указать размещение: «Покупатель»")).toBeNull();
+    expect(screen.queryByText("Покупатель")).toBeNull();
+  });
+
+  it("«Пользователя» нет ни в поиске, ни в ветке системы (вложенный из старых данных)", async () => {
+    // Щелчок по нему на этом холсте ничего не показывал (D1: «Пользователей» здесь нет),
+    // а подсказка обещала «Показать на схеме» — строки нет совсем.
+    vi.mocked(nodesApi.list).mockResolvedValue(rows());
+    vi.mocked(nodesApi.getChildren).mockResolvedValue([
+      node("kid", { name: "Каталог", parent_id: "box", element_effective: "container" }),
+      node("op", { name: "Оператор", parent_id: "box", shape: "person", element_effective: null }),
+    ]);
+    vi.mocked(nodesApi.search).mockResolvedValue([
+      node("man", { name: "Покупатель", shape: "person", element_effective: null }),
+      node("svc", { name: "Платежи", element_effective: "container" }),
+    ]);
+    render(<NodeTreePanel mode="deploy" isArchitect onOpenLevel={vi.fn()} onPickObject={vi.fn()} onPlace={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText("Витрина")).toBeInTheDocument());
+    await userEvent.click(screen.getByLabelText("Развернуть ветку"));
+    await waitFor(() => expect(screen.getByText("Каталог")).toBeInTheDocument());
+    expect(screen.queryByText("Оператор")).toBeNull();
+    await userEvent.type(screen.getByPlaceholderText(/поиск/i), "п");
+    await waitFor(() => expect(nodesApi.search).toHaveBeenCalled(), { timeout: 1000 });
+    await waitFor(() => expect(screen.getByText("Платежи")).toBeInTheDocument());
+    expect(screen.queryByText("Покупатель")).toBeNull();
   });
 
   it("у читателя иконки размещения нет", async () => {

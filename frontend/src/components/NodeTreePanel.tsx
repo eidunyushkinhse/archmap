@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { nodeNesting, treeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
-import { placeable, treeRowTitle } from "./nodeTree.mode";
+import { offDeployCanvas, placeable, treeRowTitle } from "./nodeTree.mode";
 import { CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
@@ -116,7 +116,23 @@ export default function NodeTreePanel(props: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   // Дебаунс-поиск (общий с выбором конца связи), результат — плоский список совпадений.
   const { found: foundNodes, searching } = useNodeSearch(searchQuery, 250);
-  const searchResults = searchQuery.trim() ? foundNodes : null;
+  // «Развёртывание»: «Пользователя» нет ни в дереве, ни в поиске (offDeployCanvas, D28).
+  const isDeploy = props.mode === "deploy";
+  const searchResults = searchQuery.trim()
+    ? (isDeploy && foundNodes ? foundNodes.filter((n) => !offDeployCanvas(n)) : foundNodes)
+    : null;
+  const shownRoots = useMemo(
+    () => (isDeploy ? roots.filter((n) => !offDeployCanvas(n)) : roots),
+    [isDeploy, roots],
+  );
+  // Вложенный «Пользователь» бывает только в старых данных (AL25) — и его в этом режиме
+  // не показываем; у остальных режимов ветки как есть.
+  const shownChildren = useMemo(() => {
+    if (!isDeploy) return childrenById;
+    const out: Record<string, Node[]> = {};
+    for (const [id, kids] of Object.entries(childrenById)) out[id] = kids.filter((n) => !offDeployCanvas(n));
+    return out;
+  }, [isDeploy, childrenById]);
 
   // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
@@ -137,7 +153,7 @@ export default function NodeTreePanel(props: Props) {
   // объявленная ВНУТРИ панели, она ремаунтилась бы на каждый рендер и срывала бы
   // нативный драг. Ссылочная стабильность объекта не нужна — важен только тип.
   const rowCtx: TreeRowCtx = {
-    expanded, loadingId, childrenById, leaves, currentNodeId,
+    expanded, loadingId, childrenById: shownChildren, leaves, currentNodeId,
     mode: props.mode, isArchitect,
     // в «Развёртывании» объекты не создаются (решение §2а п. 10) — «+» нет и при переданном
     onCreateChild: deploy ? undefined : onCreateChild,
@@ -239,10 +255,10 @@ export default function NodeTreePanel(props: Props) {
                 )
               ) : loadingRoots ? (
                 <div style={hint}>Загрузка…</div>
-              ) : roots.length === 0 ? (
+              ) : shownRoots.length === 0 ? (
                 <div style={hint}>Нет объектов</div>
               ) : (
-                roots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
+                shownRoots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
               )}
             </div>
 
