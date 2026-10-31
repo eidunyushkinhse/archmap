@@ -541,6 +541,21 @@ def test_удаление_площадки_с_вложенными_отказ_а
     assert db.get(Project, scene["p"].id).meta_rev == rev + 1
 
 
+def test_число_экземпляров_площадки_без_спящих(client, db, scene):
+    """Ф13а: SiteOut.instance_count — экземпляры единиц. Спящие (у системы, у «Пользователя» —
+    прежние данные, правило 5 D34) не в счёт: окно удаления площадки называет только то,
+    что видно в строках «Размещение». Тот же счёт — в списке площадок и в графе."""
+    h, n, p = scene["h"], scene["n"], scene["p"]
+    site = _site(db, p.id, "Кластер")
+    for name in ("Платежи", "Витрина", "Покупатель"):
+        db.add(DeploymentInstance(id=uuid.uuid4(), project_id=p.id, node_id=n[name], site_id=site.id))
+    db.commit()
+    listed = {s["name"]: s for s in client.get(f"{API}/deployment/sites", headers=h).json()}
+    assert listed["Кластер"]["instance_count"] == 1
+    graph = client.get(f"{API}/deployment/graph", headers=h).json()
+    assert [s["instance_count"] for s in graph["sites"] if s["name"] == "Кластер"] == [1]
+
+
 def test_размещение_набором_целиком(client, db, scene):
     h, n = scene["h"], scene["n"]
     a = _post_site(client, h, "A")["id"]

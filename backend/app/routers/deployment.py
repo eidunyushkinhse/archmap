@@ -17,7 +17,6 @@ import uuid
 from collections import Counter
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app import tree
@@ -36,6 +35,7 @@ from app.deployment import (
     project_sites,
     set_placements,
     site_refs,
+    unit_instance_counts,
 )
 from app.deps import (
     check_cas,
@@ -48,7 +48,6 @@ from app.deps import (
 )
 from app.element_marks import elements_from_nodes, stamp_element
 from app.graph_queries import read_view_layout
-from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
 from app.models.node import Node
@@ -95,16 +94,6 @@ def _clean_name(name: str) -> str:
     return cleaned
 
 
-def _instance_counts(db: Session, project_id: uuid.UUID) -> dict[uuid.UUID, int]:
-    """Число своих экземпляров на каждой площадке проекта — одним запросом."""
-    return {
-        site_id: count
-        for site_id, count in db.query(DeploymentInstance.site_id, func.count(DeploymentInstance.id))
-        .filter(DeploymentInstance.project_id == project_id)
-        .group_by(DeploymentInstance.site_id)
-    }
-
-
 def _site_out(site: DeploymentSite, counts: dict[uuid.UUID, int]) -> SiteOut:
     out = SiteOut.model_validate(site)
     out.instance_count = counts.get(site.id, 0)
@@ -118,7 +107,7 @@ def list_sites(
     _: User = Depends(get_current_user),
 ) -> list[SiteOut]:
     """Площадки проекта плоским списком по имени; дерево фронт строит по parent_id."""
-    counts = _instance_counts(db, project.id)
+    counts = unit_instance_counts(db, project.id)
     return [_site_out(site, counts) for site in project_sites(db, project.id)]
 
 
@@ -170,7 +159,7 @@ def update_site(
             raise HTTPException(status_code=404, detail=reason)
         if reason:
             raise HTTPException(status_code=400, detail=reason)
-    counts = _instance_counts(db, project.id)
+    counts = unit_instance_counts(db, project.id)
     if data:
         for field, value in data.items():
             setattr(site, field, value)
@@ -307,7 +296,7 @@ def get_deployment_graph(
         for e in db.query(Edge).filter(Edge.project_id == project.id).order_by(Edge.id)
         if e.source_id in shown_ids and e.target_id in shown_ids
     ]
-    counts = _instance_counts(db, project.id)
+    counts = unit_instance_counts(db, project.id)
     return DeploymentGraph(
         sites=[_site_out(site, counts) for site in sites],
         nodes=nodes_out,

@@ -320,6 +320,27 @@ def own_by_node(pairs: Sequence[tuple[uuid.UUID, uuid.UUID]]) -> dict[uuid.UUID,
     return own
 
 
+def unit_instance_counts(db: Session, project_id: uuid.UUID) -> dict[uuid.UUID, int]:
+    """Число экземпляров ЕДИНИЦ на каждой площадке проекта (SiteOut.instance_count: окно
+    удаления площадки называет, чьё размещение снимется). Спящие экземпляры — у компонента,
+    системы, «Пользователя» (прежние данные, перенос узла, правило 5 D34) — не в счёт:
+    размещение их не считает, и ни одна строка «Размещение» их не показывает. Проект без
+    экземпляров платит одним лёгким запросом, как mark_sites."""
+    pairs = (
+        db.query(DeploymentInstance.node_id, DeploymentInstance.site_id)
+        .filter(DeploymentInstance.project_id == project_id)
+        .all()
+    )
+    if not pairs:
+        return {}
+    _parent_of, elements = project_tree(db, project_id)
+    counts: dict[uuid.UUID, int] = {}
+    for node_id, site_id in pairs:
+        if elements.effective(node_id) == "container":
+            counts[site_id] = counts.get(site_id, 0) + 1
+    return counts
+
+
 def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> None:
     """Проставляет вычисляемый Node.sites на экземплярах перед отдачей NodeResponse.
 
