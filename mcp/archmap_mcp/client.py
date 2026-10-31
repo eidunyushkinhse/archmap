@@ -179,12 +179,18 @@ class ArchMapClient:
         params: dict[str, Any] | None,
         files: list[tuple[str, tuple[str, bytes, str]]] | None,
         data: dict[str, Any] | None,
+        refusal_as_is: bool = False,
     ) -> httpx.Response:
         """Один запрос к /api/v1 с перелогином и переводом отказов в текст.
 
         Общий ствол для JSON-ответа и бинарного: различаются они только разбором
         УСПЕШНОГО тела, а протокол доступа и словарь отказов у них один — дублировать
         его значит однажды разойтись в формулировках.
+
+        refusal_as_is — 409 и 422 ручки отдают отказом домена, уже словами продукта
+        («У «api» уже есть схема «Старт заказа»», app/facts_transfer): текст идёт агенту
+        как есть, без общего совета «схему изменили — перечитайте», который здесь был бы
+        неправдой.
         """
         if self._token is None:
             self._token = await self._login()
@@ -235,6 +241,8 @@ class ArchMapClient:
             )
         if resp.status_code == 404:
             raise ArchMapError(f"Не найдено: {detail_text(resp)}")
+        if refusal_as_is and resp.status_code in (409, 422):
+            raise ArchMapError(detail_text(resp))
         if resp.status_code == 409:
             # Предел демо-стенда (code=demo_limit, backend app/demo_limits) — не гонка
             # правок: совет «перечитайте и повторите» здесь только водил бы агента по кругу.
@@ -259,9 +267,10 @@ class ArchMapClient:
         params: dict[str, Any] | None = None,
         files: list[tuple[str, tuple[str, bytes, str]]] | None = None,
         data: dict[str, Any] | None = None,
+        refusal_as_is: bool = False,
     ) -> Any:
         """Запрос к /api/v1. project_id уходит заголовком X-Project-Id — им
-        бэкенд скоупит все доменные сущности.
+        бэкенд скоупит все доменные сущности. refusal_as_is — см. _send.
 
         files/data — multipart (единый импорт и догрузка архивов принимают
         files[] + поля формы). Пустые поля формы отбрасываются: у бэка они
@@ -269,7 +278,8 @@ class ArchMapClient:
         проекта — не «возьми из манифеста»).
         """
         resp = await self._send(
-            method, path, project_id=project_id, json=json, params=params, files=files, data=data
+            method, path, project_id=project_id, json=json, params=params, files=files, data=data,
+            refusal_as_is=refusal_as_is,
         )
         if resp.status_code == 204 or not resp.content:
             return None

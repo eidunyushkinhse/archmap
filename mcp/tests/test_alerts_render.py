@@ -219,7 +219,10 @@ def test_причина_AL33_называет_место_поиска() -> None:
 
     assert render.config_reason(own) == render.CONFIG_REASON
     assert render.config_reason(base) == render.CONFIG_REASON
-    assert render.config_reason(system) == render.CONFIG_REASON_SYSTEM
+    # У системы схему переносят её вложенным объектам — совет называет инструмент.
+    assert render.config_reason(system) == (
+        render.CONFIG_REASON_SYSTEM + f" — archmap_transfer_docs_preview, node_id={u(7)}"
+    )
     line = render.alerts({"unresolved_config_refs": [component]})
     assert (
         "api · POST /orders: „TIMEOUT“ — параметра нет в конфигурации контейнера "
@@ -235,23 +238,31 @@ def test_совет_AL24_по_элементу_архитектуры() -> None:
     container = {**base, "element_effective": "container"}
     backend("schemas.alerts").ContainerOwnDocsAlert.model_validate(container)
     out = render.alerts({"container_own_docs": [container]})
+    # Хвост — чем закрыть рекомендацию: инструмент переноса и объект, с которого его звать.
     assert (
         "  • orders (схемы логики описывают код компонентов — перенесите их компонентам)"
+        f" — archmap_transfer_docs_preview, node_id={u(4)}"
         in out.splitlines()
     )
     out = render.alerts(validated_payload())
-    assert (
-        "  • Маркетплейс (спецификация, конфигурация и схемы логики описывают её контейнеры — "
-        "перенесите их вложенным объектам)"
-    ) in out.splitlines()
+    assert any(
+        line.startswith(
+            "  • Маркетплейс (спецификация, конфигурация и схемы логики описывают её контейнеры — "
+            "перенесите их вложенным объектам) — archmap_transfer_docs_preview, node_id="
+        )
+        for line in out.splitlines()
+    )
     assert "  • orders" in render.alerts({"container_own_docs": [base]}).splitlines()
 
 
 def test_факты_компонента_называют_контейнер() -> None:
     out = render.alerts(validated_payload())
-    assert (
-        "  • orders/api · конфигурация, спецификация, площадки (место — у контейнера «orders»)"
-        in out.splitlines()
+    assert any(
+        line.startswith(
+            "  • orders/api · конфигурация, спецификация, площадки (место — у контейнера «orders»)"
+            " — archmap_collect_facts_preview, node_id="
+        )
+        for line in out.splitlines()
     )
     one = {
         "node_id": u(17), "node_name": "orders/api", "container_id": u(18),
@@ -261,15 +272,17 @@ def test_факты_компонента_называют_контейнер() -
     out = render.alerts({"component_facts": [one]})
     assert out.startswith("Замечаний: 1\n")
     assert "Конфигурация и спецификации у компонентов (1):" in out
-    assert "  • orders/api · спецификация (место — у контейнера «orders»)" in out.splitlines()
-    # только площадки — одно слово; сервер без флага площадок — слова нет
+    collect = f" — archmap_collect_facts_preview, node_id={u(18)}"
+    assert "  • orders/api · спецификация (место — у контейнера «orders»)" + collect in out.splitlines()
+    # только площадки — одно слово и без хвоста: сбор площадки не переносит; сервер без
+    # флага площадок — слова нет
     sites_only = {**one, "has_spec": False, "has_sites": True}
     backend("schemas.alerts").ComponentFactsAlert.model_validate(sites_only)
     out = render.alerts({"component_facts": [sites_only]})
     assert "  • orders/api · площадки (место — у контейнера «orders»)" in out.splitlines()
     old = {k: v for k, v in one.items() if k != "has_sites"}
     out = render.alerts({"component_facts": [old]})
-    assert "  • orders/api · спецификация (место — у контейнера «orders»)" in out.splitlines()
+    assert "  • orders/api · спецификация (место — у контейнера «orders»)" + collect in out.splitlines()
 
 
 def test_строки_называют_имена_и_детали() -> None:

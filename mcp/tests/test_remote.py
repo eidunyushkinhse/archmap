@@ -64,14 +64,14 @@ def text(result: types.CallToolResult) -> str:
     return block.text
 
 
-async def test_список_34_а_только_чтение_17(api: FakeApi) -> None:
+async def test_список_38_а_только_чтение_17(api: FakeApi) -> None:
     async with connect(api, caller()) as s:
         full = (await s.list_tools()).tools
     async with connect(api, caller(read_only=True)) as s:
         reader = (await s.list_tools()).tools
     assert [t.name for t in full] == [t["name"] for t in tools.remote_catalog(False)]
     assert [t.name for t in reader] == [t["name"] for t in tools.remote_catalog(True)]
-    assert (len(full), len(reader)) == (34, 17)
+    assert (len(full), len(reader)) == (38, 17)
 
 
 async def test_вызов_идёт_с_токеном_вызывающего_и_без_логина(

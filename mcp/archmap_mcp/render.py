@@ -605,13 +605,19 @@ OWN_DOCS_HINT = {
     "container": "схемы логики описывают код компонентов — перенесите их компонентам",
 }
 COMPONENT_FACTS_HINT = "место — у контейнера «{name}»"
+# Чем закрыть рекомендацию (MCP 0.12.0): инструмент по имени и объект, с которого его
+# звать. Хвост — только у MCP, слова панели выше не меняются.
+TRANSFER_TAIL = " — archmap_transfer_docs_preview, node_id={node_id}"
+COLLECT_TAIL = " — archmap_collect_facts_preview, node_id={node_id}"
 
 
 def own_docs_line(record: dict[str, Any]) -> str:
-    """Строка AL24: имя и совет по элементу. Сервер без элементов архитектуры поля не
-    шлёт — тогда, как раньше, одно имя."""
+    """Строка AL24: имя, совет по элементу и инструмент переноса. Сервер без элементов
+    архитектуры поля не шлёт — тогда, как раньше, одно имя (и переноса у него нет)."""
     hint = OWN_DOCS_HINT.get(str(record.get("element_effective")))
-    return f"{record['node_name']} ({hint})" if hint else str(record["node_name"])
+    if not hint:
+        return str(record["node_name"])
+    return f"{record['node_name']} ({hint})" + TRANSFER_TAIL.format(node_id=record["node_id"])
 
 
 def component_facts_line(record: dict[str, Any]) -> str:
@@ -628,7 +634,10 @@ def component_facts_line(record: dict[str, Any]) -> str:
         if record.get(flag)
     )
     hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")
-    return f"{record['node_name']} · {facts} ({hint})"
+    # Сбор переносит конфигурацию и спецификацию; площадки компонента он не трогает.
+    collectable = (record.get("has_config") or record.get("has_spec")) and record.get("container_id")
+    tail = COLLECT_TAIL.format(node_id=record["container_id"]) if collectable else ""
+    return f"{record['node_name']} · {facts} ({hint}){tail}"
 
 
 def config_reason(record: dict[str, Any]) -> str:
@@ -638,7 +647,8 @@ def config_reason(record: dict[str, Any]) -> str:
     if "container_id" not in record or record["container_id"] == record.get("node_id"):
         return CONFIG_REASON
     if record["container_id"] is None:
-        return CONFIG_REASON_SYSTEM
+        # Схему переносят с системы её вложенным объектам — тем же инструментом, что AL24.
+        return CONFIG_REASON_SYSTEM + TRANSFER_TAIL.format(node_id=record.get("node_id"))
     return CONFIG_REASON_CONTAINER.format(name=record.get("container_name") or "")
 
 
@@ -1510,6 +1520,161 @@ def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: st
     else:
         out.append("Состав: пусто — в проекте нечего архивировать.")
     return "\n".join(out)
+
+
+# ── Перенос документации и сбор с компонентов (Р19 эпика элементов) ───────────
+#
+# Получателей и их флаги считает сервер (app/facts_transfer): здесь только слова — те же,
+# что в окнах «Перенести документацию» и «Собрать с компонентов». Перечни с node_id и
+# doc_id: агент передаёт их в применение.
+
+TRANSFER_CAP = 40  # получателей и компонентов в перечне: дальше — счётчиком
+# Что не на месте у объекта по его элементу — первая строка-подсказка превью переноса.
+TRANSFER_HINT = {
+    "system": (
+        "У системы своей документации нет: схемы логики отдают компонентам и объектам без "
+        "вложенных, спецификацию и конфигурацию — контейнерам."
+    ),
+    "container": (
+        "У контейнера с компонентами не на месте только схемы логики — их место у "
+        "компонентов; спецификация и конфигурация у контейнера свои."
+    ),
+    "component": (
+        "Схемы логики составного компонента отдают его вложенным компонентам; спецификацию "
+        "и конфигурацию компонента собирают в контейнер — archmap_collect_facts_preview."
+    ),
+}
+
+
+def _yes(flag: object) -> str:
+    return "да" if flag else "нет"
+
+
+def _receiver_line(r: dict[str, Any]) -> str:
+    """Получатель: путь от объекта, элемент и что примет; своя спецификация — пометкой
+    (спецификацию ему не перенести, сервер откажет)."""
+    takes: list[str] = []
+    if r.get("takes_docs"):
+        takes.append("схемы логики")
+    if r.get("takes_process_facts"):
+        takes.append(
+            "спецификация и конфигурация" + (" (своя спецификация уже есть)" if r.get("has_spec") else "")
+        )
+    word = ELEMENT_WORD.get(str(r.get("element_effective")), "объект")
+    return f"  • {r.get('path')} [{word}] — {'; '.join(takes)}  node_id={r.get('node_id')}"
+
+
+def transfer_preview(data: dict[str, Any]) -> str:
+    """Превью «Перенести документацию» (TransferDocsPreview): своё у объекта, получатели
+    с пометками, кто не принимает ничего, и как применить."""
+    element = data.get("element_effective")
+    word = ELEMENT_WORD.get(str(element), "объект")
+    out = [f"Объект «{data.get('name')}» — {word}. node_id={data.get('node_id')}"]
+    docs = list(data.get("docs") or [])
+    params = int(data.get("params") or 0)
+    if not docs and not data.get("has_spec") and not params:
+        out.append("Переносить нечего: своей документации у объекта нет.")
+        return "\n".join(out)
+    hint = TRANSFER_HINT.get(str(element))
+    if hint:
+        out.append(hint)
+    out += ["", "СВОЁ:"]
+    if docs:
+        out.append(f"  Схемы логики ({len(docs)}):")
+        for d in docs:
+            bits = [KIND_WORD.get(str(d.get("kind")), str(d.get("kind") or ""))]
+            if d.get("operation"):
+                bits.append(str(d["operation"]))
+            out.append(f"    • {d.get('name')} [{', '.join(b for b in bits if b)}]  doc_id={d.get('doc_id')}")
+    else:
+        out.append("  Схем логики нет")
+    out.append(f"  Спецификация: {'есть' if data.get('has_spec') else 'нет'}")
+    out.append(f"  Параметров конфигурации: {params}")
+
+    receivers = list(data.get("receivers") or [])
+    takers = [r for r in receivers if r.get("takes_docs") or r.get("takes_process_facts")]
+    others = [str(r.get("path")) for r in receivers if r not in takers]
+    out += ["", "КОМУ МОЖНО ОТДАТЬ (путь от объекта):"]
+    if takers:
+        out.extend(_capped([_receiver_line(r) for r in takers], TRANSFER_CAP, ("получатель", "получателя", "получателей")))
+    else:
+        out.append("  нет — внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров")
+    if others:
+        shown = ", ".join(others[:TRANSFER_CAP]) + (f" и ещё {len(others) - TRANSFER_CAP}" if len(others) > TRANSFER_CAP else "")
+        out.append(f"Не принимают ничего: {shown}.")
+    out.append(
+        "\nНичего не записано — для переноса вызовите archmap_transfer_docs_apply: docs — "
+        '{"<doc_id схемы>": "<node_id получателя со схемами логики>"}, spec_to и params_to — '
+        "node_id получателя со спецификацией и конфигурацией."
+    )
+    return "\n".join(out)
+
+
+def transfer_result(data: dict[str, Any]) -> str:
+    """Отчёт переноса (DistributeDocsOut)."""
+    return (
+        f"Переехало: схем логики {data.get('moved_docs', 0)}, спецификация — "
+        f"{_yes(data.get('spec_moved'))}, параметров конфигурации {data.get('moved_params', 0)}."
+    )
+
+
+def _component_facts(c: dict[str, Any]) -> str:
+    """Что у компонента собирается: «2 параметра, спецификация» (слова окна сбора)."""
+    n = int(c.get("params") or 0)
+    parts = [f"{n} {_plural(n, ('параметр', 'параметра', 'параметров'))}"] if n else []
+    if c.get("has_spec"):
+        parts.append("спецификация")
+    return ", ".join(parts)
+
+
+def collect_preview(data: dict[str, Any], container_id: str) -> str:
+    """Превью «Собрать с компонентов» (CollectFactsPreview): компоненты с фактами,
+    одноимённые параметры с кандидатами и держатели спецификации."""
+    components = list(data.get("components") or [])
+    if not components:
+        return "Собирать нечего: у компонентов нет ни параметров конфигурации, ни спецификации."
+    out = [f"Компоненты с конфигурацией или спецификацией ({len(components)}):"]
+    out.extend(_capped(
+        [f"  • {c.get('name')} · {_component_facts(c)}  node_id={c.get('node_id')}" for c in components],
+        TRANSFER_CAP, ("компонент", "компонента", "компонентов"),
+    ))
+    clashes = list(data.get("param_clashes") or [])
+    if clashes:
+        out += [
+            "",
+            f"Одноимённые параметры ({len(clashes)}) — это один параметр контейнера, останется "
+            "одно описание, остальные удалятся; выбор обязателен:",
+        ]
+        for cl in clashes:
+            out.append(f"  «{cl.get('name')}»:")
+            for cand in cl.get("candidates") or []:
+                desc = f"«{cand['description']}»" if cand.get("description") else "без описания"
+                out.append(f"      {cand.get('node_name')}: {desc}  node_id={cand.get('node_id')}")
+    specs = list(data.get("specs") or [])
+    if specs:
+        out += [
+            "",
+            f"Спецификации ({len(specs)}) — контейнеру переезжает одна, чей node_id передан в "
+            "spec_from; без spec_from спецификации остаются на месте:",
+        ]
+        for s in specs:
+            own = " — своя у контейнера, выбранная в spec_from её заменит" if str(s.get("node_id")) == container_id else ""
+            out.append(f"  • {s.get('name')}{own}  node_id={s.get('node_id')}")
+    out.append(
+        "\nНичего не записано — для сбора вызовите archmap_collect_facts_apply"
+        + (': param_choices {"<имя параметра>": "<node_id>"} для каждого одноимённого' if clashes else "")
+        + (", spec_from — node_id компонента" if specs else "")
+        + "."
+    )
+    return "\n".join(out)
+
+
+def collect_result(data: dict[str, Any]) -> str:
+    """Отчёт сбора (CollectFactsOut)."""
+    return (
+        f"Переехало параметров: {data.get('moved_params', 0)}, спецификация — "
+        f"{_yes(data.get('spec_moved'))}."
+    )
 
 
 # ── Единый импорт: N входов, споры содержимого, догрузка к живому ────────────
