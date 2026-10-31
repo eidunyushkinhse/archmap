@@ -487,8 +487,12 @@ describe("NodePage: правила контейнеров", () => {
       components: [{ node_id: "k1", name: "api", params: 2, has_spec: true }],
       param_clashes: [],
       specs: [{ node_id: "k1", name: "api" }],
+      container_has_spec: false,
+      single_spec_from: "k1",
     });
-    vi.mocked(nodesApi.collectFacts).mockResolvedValue({ moved_params: 2, spec_moved: true });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue({
+      moved_params: 2, spec_moved: true, dropped_params: 0, dropped_specs: 0, left_params: [], left_specs: 0,
+    });
     setupContainer({
       own: { element: "container", element_effective: "container", openapi_spec: "openapi: 3.0.0" },
       children: [node("k1", { name: "api", element_effective: "component", container_name: "Ядро" })],
@@ -508,7 +512,9 @@ describe("NodePage: правила контейнеров", () => {
     }));
     // Превью перечитано по новой эпохе страницы.
     await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
-    vi.mocked(nodesApi.collectPreview).mockResolvedValue({ components: [], param_clashes: [], specs: [] });
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({
+      components: [], param_clashes: [], specs: [], container_has_spec: false, single_spec_from: null,
+    });
   });
 });
 

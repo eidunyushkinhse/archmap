@@ -213,12 +213,15 @@ def collect_preview(**over: Any) -> dict[str, Any]:
                 {"node_id": u(21), "node_name": "api", "description": "включает новый расчёт корзины"},
                 {"node_id": u(22), "node_name": "checkout", "description": None},
             ],
+            "container_keeps": False,
         }],
         "specs": [
             {"node_id": ORDERS, "name": "orders"},
             {"node_id": u(21), "name": "api"},
             {"node_id": u(22), "name": "checkout"},
         ],
+        "container_has_spec": True,
+        "single_spec_from": None,
     }
     fields.update(over)
     return dump("CollectFactsPreview", **fields)
@@ -264,7 +267,10 @@ async def test_превью_сбора_у_не_контейнера_отказ_�
 
 
 async def test_применение_сбора_шлёт_выбор_и_отчитывается(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/nodes/{ORDERS}/facts/collect", dump("CollectFactsOut", moved_params=3, spec_moved=True))
+    api.post(f"/nodes/{ORDERS}/facts/collect", dump(
+        "CollectFactsOut", moved_params=3, spec_moved=True, dropped_params=0, dropped_specs=0,
+        left_params=[], left_specs=0,
+    ))
 
     out = await tools.call("archmap_collect_facts_apply", {
         "project": "Ярмарка", "node_id": ORDERS,
@@ -281,7 +287,10 @@ async def test_применение_сбора_шлёт_выбор_и_отчит
 
 
 async def test_применение_сбора_без_выбора_и_отказ_словами(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/nodes/{ORDERS}/facts/collect", dump("CollectFactsOut", moved_params=1, spec_moved=False))
+    api.post(f"/nodes/{ORDERS}/facts/collect", dump(
+        "CollectFactsOut", moved_params=1, spec_moved=False, dropped_params=0, dropped_specs=0,
+        left_params=[], left_specs=0,
+    ))
 
     out = await tools.call("archmap_collect_facts_apply", {"project": "Ярмарка", "node_id": ORDERS}, client)
 

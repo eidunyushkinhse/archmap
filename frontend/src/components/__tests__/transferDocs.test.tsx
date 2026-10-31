@@ -141,7 +141,9 @@ describe("окно «Перенести документацию»", () => {
 describe("окно «Собрать с компонентов»", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(nodesApi.collectFacts).mockResolvedValue({ moved_params: 3, spec_moved: true });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue({
+      moved_params: 3, spec_moved: true, dropped_params: 0, dropped_specs: 0, left_params: [], left_specs: 0,
+    });
   });
 
   const preview: CollectFactsPreview = {
@@ -155,8 +157,11 @@ describe("окно «Собрать с компонентов»", () => {
         { node_id: "api", node_name: "api", description: "включает новый расчёт корзины" },
         { node_id: "checkout", node_name: "checkout", description: null },
       ],
+      container_keeps: false,
     }],
     specs: [{ node_id: "api", name: "api" }, { node_id: "checkout", name: "checkout" }],
+    container_has_spec: false,
+    single_spec_from: null,
   };
 
   it("коллизия имён и несколько спецификаций — выбор уходит в запрос", async () => {
@@ -193,7 +198,10 @@ describe("окно «Собрать с компонентов»", () => {
     vi.mocked(nodesApi.collectFacts).mockClear();
     render(<CollectFactsModal
       nodeId="orders" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()}
-      preview={{ components: [preview.components[0]], param_clashes: [], specs: [preview.specs[0]] }}
+      preview={{
+        components: [preview.components[0]], param_clashes: [], specs: [preview.specs[0]],
+        container_has_spec: false, single_spec_from: "api",
+      }}
     />);
     expect(screen.queryByText(/Спецификаций несколько/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));

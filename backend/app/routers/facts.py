@@ -33,7 +33,8 @@ def collect_preview(
     _: User = Depends(require_project_editor),
 ) -> CollectFactsPreview:
     """Что соберёт «Собрать с компонентов», БЕЗ записи: компоненты с фактами процесса,
-    одноимённые параметры и держатели спецификации. 422 — не контейнер с компонентами."""
+    одноимённые параметры (у контейнера своя запись — вопроса нет) и держатели
+    спецификации. 422 — не контейнер с компонентами."""
     node = node_or_404(db, node_id, project)
     try:
         return facts_transfer.collect_preview(db, project, node)
@@ -49,8 +50,10 @@ def collect(
     project: Project = Depends(get_current_project),
     user: User = Depends(require_project_editor),
 ) -> CollectFactsOut:
-    """«Собрать с компонентов»: параметры (одноимённые — по выбору) и выбранная
-    спецификация — контейнеру. Всё проверяется до записи."""
+    """«Собрать с компонентов»: параметры и спецификация компонентов — контейнеру,
+    знание контейнера в приоритете; одноимённые параметры только у компонентов и
+    несколько спецификаций при пустом контейнере — по ответу, без ответа остаются у
+    компонентов. Всё проверяется до записи."""
     node = node_or_404(db, node_id, project)
     try:
         out = facts_transfer.collect_facts(db, project, node, payload)

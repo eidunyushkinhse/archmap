@@ -11,8 +11,10 @@
    объект без вложенных), спецификации — потомку-контейнеру, всех параметров
    конфигурации — одному потомку-контейнеру. Валидации: получатель вне поддерева, не
    того элемента, имя занято, спецификации нет / у получателя уже есть.
-3) «Собрать с компонентов» (app/facts_transfer.collect_*): параметры и выбранная
-   спецификация компонентов — контейнеру, одноимённые — по выбору.
+3) «Собрать с компонентов» (app/facts_transfer.collect_*): параметры и спецификация
+   компонентов — контейнеру, знание контейнера в приоритете; одноимённые параметры
+   только у компонентов и несколько спецификаций при пустом контейнере — по ответу,
+   без ответа остаются у компонентов (решения владельца 2026-10-31).
 """
 
 import uuid
@@ -619,75 +621,175 @@ def _orders(db):
     return orders, api, checkout, scheduler
 
 
+def _params(db):
+    """(имя, владелец, описание) всех параметров проекта по имени и владельцу."""
+    db.expire_all()
+    return sorted(
+        (p.name, db.get(Node, p.node_id).name, p.description) for p in db.query(ConfigParam).all()
+    )
+
+
+def _specs(db, *nodes):
+    db.expire_all()
+    return [db.get(Node, x.id).openapi_spec for x in nodes]
+
+
 def test_превью_сбора(db):
     orders, *_ = _orders(db)
+    _param(db, orders, "CRON", "свой")
+    db.commit()
     p = _collect_preview(db, orders)
     assert [(c.name, c.params, c.has_spec) for c in p.components] == [
         ("api", 2, True), ("checkout", 1, True), ("scheduler", 1, False),
     ]
-    assert [(c.name, [(x.node_name, x.description) for x in c.candidates]) for c in p.param_clashes] == [
-        ("FEATURE_NEW_CHECKOUT", [("api", "включает новый расчёт корзины"), ("checkout", "новая корзина")]),
+    assert [
+        (c.name, c.container_keeps, [(x.node_name, x.description) for x in c.candidates])
+        for c in p.param_clashes
+    ] == [
+        ("CRON", True, [("orders", "свой"), ("scheduler", None)]),
+        ("FEATURE_NEW_CHECKOUT", False, [
+            ("api", "включает новый расчёт корзины"), ("checkout", "новая корзина"),
+        ]),
     ]
     assert [s.name for s in p.specs] == ["api", "checkout"]
+    # Своей спецификации нет, держателей два — вопрос, единственного нет.
+    assert (p.container_has_spec, p.single_spec_from) == (False, None)
 
 
-def test_сбор_с_коллизией_и_выбором(db):
-    orders, api, checkout, scheduler = _orders(db)
-    code, text = _refusal(lambda: _collect(db, orders))
-    assert (code, text) == (422, (
-        "Параметр «FEATURE_NEW_CHECKOUT» есть у нескольких объектов. Выберите, какое описание оставить."
-    ))
-    code, _ = _refusal(lambda: _collect(db, orders, param_choices=[
-        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=scheduler.id),
+def test_превью_сбора_спецификация_одного_держателя_и_своя(db):
+    orders, api, checkout, _scheduler = _orders(db)
+    db.get(Node, checkout.id).openapi_spec = None
+    db.commit()
+    p = _collect_preview(db, orders)
+    assert (p.container_has_spec, p.single_spec_from) == (False, api.id)
+    db.get(Node, orders.id).openapi_spec = "openapi: own"
+    db.commit()
+    p = _collect_preview(db, orders)
+    assert (p.container_has_spec, p.single_spec_from) == (True, None)
+    assert [s.name for s in p.specs] == ["orders", "api"]
+
+
+def test_сбор_параметр_контейнера_в_приоритете(db):
+    """Одноимённый параметр есть у контейнера — остаётся его запись, записи компонентов
+    отбрасываются без вопроса."""
+    orders, _api, _checkout, scheduler = _orders(db)
+    _param(db, orders, "CRON", "свой")
+    db.commit()
+    code, text = _refusal(lambda: _collect(db, orders, param_choices=[
+        CollectParamChoice(name="CRON", node_id=scheduler.id),
     ]))
-    assert code == 422
+    assert (code, text) == (422, (
+        "У «orders» есть свой параметр «CRON» — одноимённые параметры компонентов при сборе "
+        "отбрасываются"
+    ))
+    # Ответ «контейнер» там, где вопроса нет, безвреден.
+    out = _collect(db, orders, param_choices=[CollectParamChoice(name="CRON", node_id=orders.id)])
+    assert (out.moved_params, out.dropped_params, out.left_params) == (1, 1, ["FEATURE_NEW_CHECKOUT"])
+    assert _params(db) == [
+        ("API_PORT", "orders", None),
+        ("CRON", "orders", "свой"),
+        ("FEATURE_NEW_CHECKOUT", "api", "включает новый расчёт корзины"),
+        ("FEATURE_NEW_CHECKOUT", "checkout", "новая корзина"),
+    ]
+
+
+def test_сбор_одноимённые_у_компонентов_по_ответу(db):
+    orders, _api, checkout, _scheduler = _orders(db)
     out = _collect(db, orders, param_choices=[
         CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=checkout.id),
     ])
-    assert (out.moved_params, out.spec_moved) == (3, False)
-    db.expire_all()
-    params = db.query(ConfigParam).order_by(ConfigParam.name).all()
-    assert [(p.name, p.node_id, p.description) for p in params] == [
-        ("API_PORT", orders.id, None),
-        ("CRON", orders.id, None),
-        ("FEATURE_NEW_CHECKOUT", orders.id, "новая корзина"),
+    assert (out.moved_params, out.dropped_params, out.left_params) == (3, 1, [])
+    assert _params(db) == [
+        ("API_PORT", "orders", None),
+        ("CRON", "orders", None),
+        ("FEATURE_NEW_CHECKOUT", "orders", "новая корзина"),
     ]
-    # Спецификации не тронуты (spec_from не передан) — их отметит AL36.
-    assert db.get(Node, api.id).openapi_spec == "openapi: api"
 
 
-def test_сбор_коллизии_с_параметром_контейнера(db):
-    orders, api, _checkout, _scheduler = _orders(db)
-    _param(db, orders, "CRON", "свой")
+def test_сбор_без_ответа_дефолт_а_не_отказ(db):
+    """Вопрос без ответа — «как сейчас»: одноимённые записи остаются у компонентов,
+    спецификации нескольких держателей тоже; прочее собирается."""
+    orders, api, checkout, _scheduler = _orders(db)
+    before = ensure_project(db).meta_rev
+    out = _collect(db, orders)
+    assert out.model_dump() == {
+        "moved_params": 2, "spec_moved": False, "dropped_params": 0, "dropped_specs": 0,
+        "left_params": ["FEATURE_NEW_CHECKOUT"], "left_specs": 2,
+    }
+    assert _params(db) == [
+        ("API_PORT", "orders", None),
+        ("CRON", "orders", None),
+        ("FEATURE_NEW_CHECKOUT", "api", "включает новый расчёт корзины"),
+        ("FEATURE_NEW_CHECKOUT", "checkout", "новая корзина"),
+    ]
+    assert _specs(db, orders, api, checkout) == [None, "openapi: api", "openapi: checkout"]
+    assert ensure_project(db).meta_rev == before + 1
+
+
+def test_сбор_только_оставленное_не_двигает_курсор(db):
+    orders, api, _checkout, scheduler = _orders(db)
+    for x in (api, scheduler):
+        db.query(ConfigParam).filter(
+            ConfigParam.node_id == x.id, ConfigParam.name != "FEATURE_NEW_CHECKOUT",
+        ).delete()
     db.commit()
-    p = _collect_preview(db, orders)
-    assert [c.name for c in p.param_clashes] == ["CRON", "FEATURE_NEW_CHECKOUT"]
-    assert [x.node_name for x in p.param_clashes[0].candidates] == ["orders", "scheduler"]
-    out = _collect(db, orders, param_choices=[
-        CollectParamChoice(name="CRON", node_id=orders.id),
-        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=api.id),
-    ])
-    assert out.moved_params == 2  # API_PORT и FEATURE_NEW_CHECKOUT; CRON остался свой
-    db.expire_all()
-    cron = db.query(ConfigParam).filter(ConfigParam.name == "CRON").one()
-    assert (cron.node_id, cron.description) == (orders.id, "свой")
+    before = ensure_project(db).meta_rev
+    out = _collect(db, orders)
+    assert (out.moved_params, out.left_params, out.left_specs) == (0, ["FEATURE_NEW_CHECKOUT"], 2)
+    assert ensure_project(db).meta_rev == before
 
 
-def test_сбор_спецификации_с_заменой(db):
+def test_сбор_чужой_ответ_422(db):
+    orders, _api, _checkout, scheduler = _orders(db)
+    code, text = _refusal(lambda: _collect(db, orders, param_choices=[
+        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=scheduler.id),
+    ]))
+    assert (code, text) == (422, "Для параметра «FEATURE_NEW_CHECKOUT» выбран объект, у которого его нет.")
+    code, text = _refusal(lambda: _collect(db, orders, spec_from=uuid.uuid4()))
+    assert (code, text) == (422, "Спецификацию можно взять только у компонента контейнера «orders»")
+    # Проверки до записи: ничего не переехало.
+    assert ("CRON", "scheduler", None) in _params(db)
+
+
+def test_сбор_своя_спецификация_контейнера_в_приоритете(db):
     orders, api, checkout, _scheduler = _orders(db)
     db.get(Node, orders.id).openapi_spec = "openapi: own"
     db.commit()
-    assert [s.name for s in _collect_preview(db, orders).specs] == ["orders", "api", "checkout"]
-    out = _collect(db, orders, spec_from=checkout.id, param_choices=[
-        CollectParamChoice(name="FEATURE_NEW_CHECKOUT", node_id=api.id),
-    ])
-    assert out.spec_moved is True
-    db.expire_all()
-    assert [db.get(Node, x.id).openapi_spec for x in (orders, api, checkout)] == [
-        "openapi: checkout", "openapi: api", None,
-    ]
     code, text = _refusal(lambda: _collect(db, orders, spec_from=checkout.id))
-    assert (code, text) == (422, "У «checkout» нет спецификации")
+    assert (code, text) == (
+        422, "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются",
+    )
+    versions = [db.get(Node, x.id).version for x in (orders, api, checkout)]
+    out = _collect(db, orders)
+    assert (out.spec_moved, out.dropped_specs, out.left_specs) == (False, 2, 0)
+    assert _specs(db, orders, api, checkout) == ["openapi: own", None, None]
+    assert [db.get(Node, x.id).version for x in (orders, api, checkout)] == [
+        versions[0], versions[1] + 1, versions[2] + 1,
+    ]
+
+
+def test_сбор_единственная_спецификация_переезжает_без_ответа(db):
+    orders, api, checkout, _scheduler = _orders(db)
+    db.get(Node, checkout.id).openapi_spec = None
+    db.commit()
+    out = _collect(db, orders)
+    assert (out.spec_moved, out.dropped_specs, out.left_specs) == (True, 0, 0)
+    assert _specs(db, orders, api, checkout) == ["openapi: api", None, None]
+
+
+def test_сбор_спецификация_по_ответу_остальные_отбрасываются(db):
+    orders, api, checkout, _scheduler = _orders(db)
+    out = _collect(db, orders, spec_from=checkout.id)
+    assert (out.spec_moved, out.dropped_specs, out.left_specs) == (True, 1, 0)
+    assert _specs(db, orders, api, checkout) == ["openapi: checkout", None, None]
+    code, text = _refusal(lambda: _collect(db, orders, spec_from=checkout.id))
+    assert (code, text) == (422, "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются")
+
+
+def test_сбор_ответ_спецификацией_без_неё_422(db):
+    orders, _api, _checkout, scheduler = _orders(db)
+    code, text = _refusal(lambda: _collect(db, orders, spec_from=scheduler.id))
+    assert (code, text) == (422, "У «scheduler» нет спецификации")
 
 
 def test_собирать_можно_только_контейнеру_с_компонентами(db):
@@ -730,7 +832,10 @@ def test_ручки_сбора_и_переноса_по_http(db):
         assert r.status_code == 200, r.text
         assert [c["name"] for c in r.json()["components"]] == ["api"]
         r = client.post(f"/api/v1/nodes/{orders_id}/facts/collect", headers=h, json={})
-        assert r.json() == {"moved_params": 1, "spec_moved": False}
+        assert r.json() == {
+            "moved_params": 1, "spec_moved": False, "dropped_params": 0, "dropped_specs": 0,
+            "left_params": [], "left_specs": 0,
+        }
         r = client.post(f"/api/v1/nodes/{api_id}/facts/collect", headers=h, json={})
         assert (r.status_code, r.json()) == (422, {"detail": "Собирать можно только контейнеру с компонентами"})
         # Превью переноса — путь до /{doc_id}: «transfer-preview» не принимается за id схемы.
