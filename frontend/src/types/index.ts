@@ -225,7 +225,7 @@ export type LevelPos = { pos_x: number; pos_y: number };
 // ── Схема развёртывания (docs/tasks/deployment-view.md) ──────────────────────
 // Вид площадки (облако, кластер, ВМ, физический сервер, другое) — Literal контракта.
 export type SiteKind = Schemas["SiteOut"]["kind"];
-// Площадка (плоско, дерево — по parent_id; instance_count — свои экземпляры на ней),
+// Площадка (плоско, дерево — по parent_id; instance_count — экземпляры контейнеров на ней),
 // создание и частичная правка с CAS.
 export type SiteOut = Schemas["SiteOut"];
 export type SiteCreate = Schemas["SiteCreate"];
