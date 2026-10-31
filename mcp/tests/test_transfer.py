@@ -201,33 +201,51 @@ async def test_отказ_переноса_текстом_сервера_без_
 # ── Собрать с компонентов ───────────────────────────────────────────────────
 
 def collect_preview(**over: Any) -> dict[str, Any]:
+    """Контейнер orders: у api и outbox одноимённый DATABASE_URL (у контейнера его нет —
+    вопрос), RETRY_TIMEOUT у контейнера и worker (приоритет контейнера — факт),
+    спецификации у api и outbox при пустом контейнере (вопрос)."""
     fields: dict[str, Any] = {
         "components": [
             {"node_id": u(21), "name": "api", "params": 2, "has_spec": True},
-            {"node_id": u(22), "name": "checkout", "params": 1, "has_spec": True},
-            {"node_id": u(23), "name": "scheduler", "params": 1, "has_spec": False},
+            {"node_id": u(22), "name": "outbox", "params": 1, "has_spec": True},
+            {"node_id": u(23), "name": "worker", "params": 1, "has_spec": False},
         ],
-        "param_clashes": [{
-            "name": "FEATURE_NEW_CHECKOUT",
-            "candidates": [
-                {"node_id": u(21), "node_name": "api", "description": "включает новый расчёт корзины"},
-                {"node_id": u(22), "node_name": "checkout", "description": None},
-            ],
-            "container_keeps": False,
-        }],
-        "specs": [
-            {"node_id": ORDERS, "name": "orders"},
-            {"node_id": u(21), "name": "api"},
-            {"node_id": u(22), "name": "checkout"},
+        "param_clashes": [
+            {
+                "name": "DATABASE_URL",
+                "candidates": [
+                    {"node_id": u(21), "node_name": "api", "description": "адрес базы для api"},
+                    {"node_id": u(22), "node_name": "outbox", "description": None},
+                ],
+                "container_keeps": False,
+            },
+            {
+                "name": "RETRY_TIMEOUT",
+                "candidates": [
+                    {"node_id": ORDERS, "node_name": "orders", "description": "таймаут повтора"},
+                    {"node_id": u(23), "node_name": "worker", "description": None},
+                ],
+                "container_keeps": True,
+            },
         ],
-        "container_has_spec": True,
+        "specs": [{"node_id": u(21), "name": "api"}, {"node_id": u(22), "name": "outbox"}],
+        "container_has_spec": False,
         "single_spec_from": None,
     }
     fields.update(over)
     return dump("CollectFactsPreview", **fields)
 
 
-async def test_превью_сбора_называет_компоненты_споры_и_спецификации(
+def collect_out(**over: Any) -> dict[str, Any]:
+    fields: dict[str, Any] = {
+        "moved_params": 3, "spec_moved": True, "dropped_params": 0, "dropped_specs": 0,
+        "left_params": [], "left_specs": 0,
+    }
+    fields.update(over)
+    return dump("CollectFactsOut", **fields)
+
+
+async def test_превью_сбора_печатает_факты_и_вопросы_с_дефолтом(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     api.get(f"/nodes/{ORDERS}/facts/collect-preview", collect_preview())
@@ -238,13 +256,63 @@ async def test_превью_сбора_называет_компоненты_с�
     assert api.calls[-1].method == "GET"
     assert "Компоненты с конфигурацией или спецификацией (3):" in lines
     assert f"  • api · 2 параметра, спецификация  node_id={u(21)}" in lines
-    assert f"  • scheduler · 1 параметр  node_id={u(23)}" in lines
-    assert "  «FEATURE_NEW_CHECKOUT»:" in lines
-    assert f"      api: «включает новый расчёт корзины»  node_id={u(21)}" in lines
-    assert f"      checkout: без описания  node_id={u(22)}" in lines
-    assert f"  • orders — своя у контейнера, выбранная в spec_from её заменит  node_id={ORDERS}" in lines
-    assert f"  • checkout  node_id={u(22)}" in lines
-    assert "param_choices" in out and "spec_from" in out and "Ничего не записано" in out
+    assert f"  • worker · 1 параметр  node_id={u(23)}" in lines
+    # Приоритет контейнера — строкой-фактом, вопроса по RETRY_TIMEOUT нет.
+    assert "Без вопросов — знание контейнера в приоритете:" in lines
+    assert (
+        "  • Параметр «RETRY_TIMEOUT» есть у контейнера — остаётся его описание, у компонента "
+        "«worker» параметр будет отброшен"
+    ) in lines
+    assert not any(line.startswith('  • "RETRY_TIMEOUT"') for line in lines)
+    assert (
+        "Вопросы (2) — у контейнера своей записи нет, приоритета нет. Ответы передают в "
+        "archmap_collect_facts_apply; вопрос без ответа получит дефолт «как сейчас»:"
+    ) in lines
+    assert (
+        '  • "DATABASE_URL" — параметр описан у компонентов «api» и «outbox», у контейнера его нет — '
+        "чьё описание переедет контейнеру:"
+    ) in lines
+    assert f"      api: «адрес базы для api»  node_id={u(21)}" in lines
+    assert f"      outbox: без описания  node_id={u(22)}" in lines
+    assert (
+        '    Без ответа — останется у компонентов. Ответ: param_choices["DATABASE_URL"] = node_id; '
+        "остальные записи будут отброшены."
+    ) in lines
+    assert (
+        "  • spec_from — спецификация есть у компонентов «api» и «outbox», у контейнера своей нет — "
+        "чью считать спецификацией контейнера:"
+    ) in lines
+    assert f"      outbox  node_id={u(22)}" in lines
+    assert "    Без ответа — останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены." in lines
+    assert lines[-1] == (
+        "Ничего не записано — для сбора вызовите archmap_collect_facts_apply (ответы — param_choices "
+        "и spec_from, оба необязательны)."
+    )
+
+
+async def test_превью_сбора_без_вопросов(client: ArchMapClient, api: FakeApi) -> None:
+    """Своя спецификация контейнера — фактом; единственный держатель — фактом;
+    раздела «Вопросы» нет."""
+    api.get(f"/nodes/{ORDERS}/facts/collect-preview", collect_preview(
+        param_clashes=[],
+        specs=[{"node_id": ORDERS, "name": "orders"}, {"node_id": u(21), "name": "api"}, {"node_id": u(22), "name": "outbox"}],
+        container_has_spec=True,
+    ))
+
+    out = await tools.call("archmap_collect_facts_preview", {"project": "Ярмарка", "node_id": ORDERS}, client)
+
+    assert (
+        "  • У контейнера есть своя спецификация — спецификации компонентов «api» и «outbox» будут отброшены"
+    ) in out.splitlines()
+    assert "Вопросы (" not in out
+    assert out.endswith("Ничего не записано — для сбора вызовите archmap_collect_facts_apply.")
+
+    api.get(f"/nodes/{ORDERS}/facts/collect-preview", collect_preview(
+        param_clashes=[], specs=[{"node_id": u(21), "name": "api"}], single_spec_from=u(21),
+    ))
+    out = await tools.call("archmap_collect_facts_preview", {"project": "Ярмарка", "node_id": ORDERS}, client)
+    assert "  • Спецификация компонента «api» переедет контейнеру" in out.splitlines()
+    assert "Вопросы (" not in out
 
 
 async def test_превью_сбора_пусто(client: ArchMapClient, api: FakeApi) -> None:
@@ -266,41 +334,45 @@ async def test_превью_сбора_у_не_контейнера_отказ_�
     assert str(exc.value) == "Собирать можно только контейнеру с компонентами"
 
 
-async def test_применение_сбора_шлёт_выбор_и_отчитывается(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/nodes/{ORDERS}/facts/collect", dump(
-        "CollectFactsOut", moved_params=3, spec_moved=True, dropped_params=0, dropped_specs=0,
-        left_params=[], left_specs=0,
-    ))
+async def test_применение_сбора_шлёт_ответы_и_называет_отброшенное(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(f"/nodes/{ORDERS}/facts/collect", collect_out(dropped_params=2, dropped_specs=1))
 
     out = await tools.call("archmap_collect_facts_apply", {
         "project": "Ярмарка", "node_id": ORDERS,
-        "param_choices": {"FEATURE_NEW_CHECKOUT": u(22)}, "spec_from": u(22),
+        "param_choices": {"DATABASE_URL": u(22)}, "spec_from": u(22),
     }, client)
 
     body = sent_json(api)
     backend("schemas.node").CollectFactsIn.model_validate(body)
     assert body == {
-        "param_choices": [{"name": "FEATURE_NEW_CHECKOUT", "node_id": u(22)}],
+        "param_choices": [{"name": "DATABASE_URL", "node_id": u(22)}],
         "spec_from": u(22),
     }
-    assert "Переехало параметров: 3, спецификация — да." in out
+    assert out.splitlines()[-2:] == [
+        "Собрано: параметров 3, спецификация — да.",
+        "Отброшено: параметров 2, спецификаций 1.",
+    ]
 
 
-async def test_применение_сбора_без_выбора_и_отказ_словами(client: ArchMapClient, api: FakeApi) -> None:
-    api.post(f"/nodes/{ORDERS}/facts/collect", dump(
-        "CollectFactsOut", moved_params=1, spec_moved=False, dropped_params=0, dropped_specs=0,
-        left_params=[], left_specs=0,
+async def test_применение_сбора_без_ответов_дефолт_и_отказ_словами(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(f"/nodes/{ORDERS}/facts/collect", collect_out(
+        moved_params=1, spec_moved=False, dropped_params=1, left_params=["DATABASE_URL"], left_specs=2,
     ))
 
     out = await tools.call("archmap_collect_facts_apply", {"project": "Ярмарка", "node_id": ORDERS}, client)
 
     assert sent_json(api) == {"param_choices": []}
-    assert "Переехало параметров: 1, спецификация — нет." in out
+    assert out.splitlines()[-3:] == [
+        "Собрано: параметров 1, спецификация — нет.",
+        "Отброшено: параметров 1, спецификаций 0.",
+        "Осталось у компонентов (вопросы без ответа): параметр «DATABASE_URL», спецификаций 2 — их "
+        "по-прежнему отмечает archmap_alerts.",
+    ]
 
-    text = "Параметр «FEATURE_NEW_CHECKOUT» есть у нескольких объектов. Выберите, какое описание оставить."
+    text = "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются"
     api.post(f"/nodes/{ORDERS}/facts/collect", refusal(422, text))
     with pytest.raises(ArchMapError) as exc:
-        await tools.call("archmap_collect_facts_apply", {"project": "Ярмарка", "node_id": ORDERS}, client)
+        await tools.call("archmap_collect_facts_apply", {"project": "Ярмарка", "node_id": ORDERS, "spec_from": u(22)}, client)
     assert str(exc.value) == text
 
 

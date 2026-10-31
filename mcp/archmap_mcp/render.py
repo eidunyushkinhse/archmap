@@ -1649,9 +1649,66 @@ def _component_facts(c: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def _names(names: list[str]) -> str:
+    """«api», «outbox» и «worker» — перечень имён словами окна сбора."""
+    quoted = [f"«{n}»" for n in names]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " и " + quoted[-1]
+
+
+def _collect_facts(data: dict[str, Any], container_id: str) -> list[str]:
+    """Что сбор решает без вопроса по приоритету контейнера — те же строки, что в окне."""
+    out: list[str] = []
+    for cl in data.get("param_clashes") or []:
+        if not cl.get("container_keeps"):
+            continue
+        others = [str(c.get("node_name")) for c in cl.get("candidates") or [] if str(c.get("node_id")) != container_id]
+        whose = f"у компонента «{others[0]}»" if len(others) == 1 else f"у компонентов {_names(others)}"
+        out.append(f"Параметр «{cl.get('name')}» есть у контейнера — остаётся его описание, {whose} параметр будет отброшен")
+    specs = list(data.get("specs") or [])
+    holders = [str(s.get("name")) for s in specs if str(s.get("node_id")) != container_id]
+    if data.get("container_has_spec") and holders:
+        out.append(
+            f"У контейнера есть своя спецификация — спецификация компонента «{holders[0]}» будет отброшена"
+            if len(holders) == 1
+            else f"У контейнера есть своя спецификация — спецификации компонентов {_names(holders)} будут отброшены"
+        )
+    single = next((s for s in specs if str(s.get("node_id")) == str(data.get("single_spec_from"))), None)
+    if data.get("single_spec_from") and single is not None:
+        out.append(f"Спецификация компонента «{single.get('name')}» переедет контейнеру")
+    return out
+
+
+def _collect_param_question(cl: dict[str, Any]) -> list[str]:
+    cands = list(cl.get("candidates") or [])
+    name = str(cl.get("name"))
+    out = [
+        f"  • {_ref(name)} — параметр описан у компонентов {_names([str(c.get('node_name')) for c in cands])}, "
+        "у контейнера его нет — чьё описание переедет контейнеру:"
+    ]
+    for c in cands:
+        desc = f"«{c['description']}»" if c.get("description") else "без описания"
+        out.append(f"      {c.get('node_name')}: {desc}  node_id={c.get('node_id')}")
+    out.append(
+        f"    Без ответа — останется у компонентов. Ответ: param_choices[{_ref(name)}] = node_id; "
+        "остальные записи будут отброшены."
+    )
+    return out
+
+
+def _collect_spec_question(holders: list[dict[str, Any]]) -> list[str]:
+    out = [
+        f"  • spec_from — спецификация есть у компонентов {_names([str(h.get('name')) for h in holders])}, "
+        "у контейнера своей нет — чью считать спецификацией контейнера:"
+    ]
+    out.extend(f"      {h.get('name')}  node_id={h.get('node_id')}" for h in holders)
+    out.append("    Без ответа — останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены.")
+    return out
+
+
 def collect_preview(data: dict[str, Any], container_id: str) -> str:
-    """Превью «Собрать с компонентов» (CollectFactsPreview): компоненты с фактами,
-    одноимённые параметры с кандидатами и держатели спецификации."""
+    """Превью «Собрать с компонентов» (CollectFactsPreview): компоненты с фактами, что
+    решено без вопроса по приоритету контейнера (строки окна) и вопросы краевых случаев
+    в формате вопросов разбора ввоза — суть, кандидаты, дефолт без ответа, форма ответа."""
     components = list(data.get("components") or [])
     if not components:
         return "Собирать нечего: у компонентов нет ни параметров конфигурации, ни спецификации."
@@ -1660,43 +1717,51 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
         [f"  • {c.get('name')} · {_component_facts(c)}  node_id={c.get('node_id')}" for c in components],
         TRANSFER_CAP, ("компонент", "компонента", "компонентов"),
     ))
-    clashes = list(data.get("param_clashes") or [])
-    if clashes:
+    facts = _collect_facts(data, container_id)
+    if facts:
+        out += ["", "Без вопросов — знание контейнера в приоритете:"]
+        out.extend("  • " + f for f in facts)
+    asked = [cl for cl in data.get("param_clashes") or [] if not cl.get("container_keeps")]
+    holders = [s for s in data.get("specs") or [] if str(s.get("node_id")) != container_id]
+    ask_spec = not data.get("container_has_spec") and len(holders) > 1
+    total = len(asked) + (1 if ask_spec else 0)
+    if total:
         out += [
             "",
-            f"Одноимённые параметры ({len(clashes)}) — это один параметр контейнера, останется "
-            "одно описание, остальные удалятся; выбор обязателен:",
+            f"Вопросы ({total}) — у контейнера своей записи нет, приоритета нет. Ответы передают "
+            "в archmap_collect_facts_apply; вопрос без ответа получит дефолт «как сейчас»:",
         ]
-        for cl in clashes:
-            out.append(f"  «{cl.get('name')}»:")
-            for cand in cl.get("candidates") or []:
-                desc = f"«{cand['description']}»" if cand.get("description") else "без описания"
-                out.append(f"      {cand.get('node_name')}: {desc}  node_id={cand.get('node_id')}")
-    specs = list(data.get("specs") or [])
-    if specs:
-        out += [
-            "",
-            f"Спецификации ({len(specs)}) — контейнеру переезжает одна, чей node_id передан в "
-            "spec_from; без spec_from спецификации остаются на месте:",
-        ]
-        for s in specs:
-            own = " — своя у контейнера, выбранная в spec_from её заменит" if str(s.get("node_id")) == container_id else ""
-            out.append(f"  • {s.get('name')}{own}  node_id={s.get('node_id')}")
+        for cl in asked:
+            out.extend(_collect_param_question(cl))
+        if ask_spec:
+            out.extend(_collect_spec_question(holders))
     out.append(
         "\nНичего не записано — для сбора вызовите archmap_collect_facts_apply"
-        + (': param_choices {"<имя параметра>": "<node_id>"} для каждого одноимённого' if clashes else "")
-        + (", spec_from — node_id компонента" if specs else "")
+        + (" (ответы — param_choices и spec_from, оба необязательны)" if total else "")
         + "."
     )
     return "\n".join(out)
 
 
 def collect_result(data: dict[str, Any]) -> str:
-    """Отчёт сбора (CollectFactsOut)."""
-    return (
-        f"Переехало параметров: {data.get('moved_params', 0)}, спецификация — "
-        f"{_yes(data.get('spec_moved'))}."
-    )
+    """Отчёт сбора (CollectFactsOut): собрано, отброшено, осталось у компонентов."""
+    out = [
+        f"Собрано: параметров {data.get('moved_params', 0)}, спецификация — {_yes(data.get('spec_moved'))}."
+    ]
+    dropped_params, dropped_specs = int(data.get("dropped_params") or 0), int(data.get("dropped_specs") or 0)
+    if dropped_params or dropped_specs:
+        out.append(f"Отброшено: параметров {dropped_params}, спецификаций {dropped_specs}.")
+    left = [str(n) for n in data.get("left_params") or []]
+    left_specs = int(data.get("left_specs") or 0)
+    if left or left_specs:
+        parts = [f"{'параметр' if len(left) == 1 else 'параметры'} {_names(left)}"] if left else []
+        if left_specs:
+            parts.append(f"спецификаций {left_specs}")
+        out.append(
+            f"Осталось у компонентов (вопросы без ответа): {', '.join(parts)} — их по-прежнему "
+            "отмечает archmap_alerts."
+        )
+    return "\n".join(out)
 
 
 # ── Единый импорт: N входов, споры содержимого, догрузка к живому ────────────
