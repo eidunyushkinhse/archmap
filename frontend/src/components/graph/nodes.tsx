@@ -18,7 +18,7 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
-import FramePlaque, { FrameLabel } from "./FramePlaque";
+import FramePlaque, { FrameLabel, COLLAPSE_MARK_STYLE } from "./FramePlaque";
 import { frameStyle, frameClass } from "./frameStyle";
 import { frameElement } from "./layout/frames";
 import { SiteKindIcon } from "../../ui/icons";
@@ -635,6 +635,8 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         // вид — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
         ...frameStyle(data),
         pointerEvents: picking ? "auto" : "none",
+        // на время драга ребёнка рамку и плашку рисует оверлей (useFrameFollowOverlay, C17)
+        opacity: data.dragHidden ? 0 : undefined,
       }}
     >
       <FrameHandles nodeId={id} />
@@ -648,6 +650,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         x={positionAbsoluteX}
         bottom={positionAbsoluteY + (height ?? 0)}
         interactive
+        hidden={data.dragHidden}
         onClick={data.onCollapse}
         title={data.onCollapse ? collapseTitle : undefined}
       >
@@ -657,10 +660,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
             title={collapseTitle}
-            style={{
-              border: "none", background: "transparent", cursor: "pointer",
-              padding: 0, fontSize: 12, lineHeight: 1, color: "#64748b", fontWeight: 700,
-            }}
+            style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, ...COLLAPSE_MARK_STYLE }}
           >✕</button>
         )}
       </FramePlaque>

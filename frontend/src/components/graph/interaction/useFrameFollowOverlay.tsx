@@ -7,7 +7,9 @@
 // компенсировал rel ВСЕХ её детей — (а) каскад ре-рендеров узлов ронял FPS драга,
 // (б) RF ведёт позицию таскаемого относительно ДВИЖУЩЕЙСЯ рамки — накапливался
 // дрейф и узел «телепортировался» на сотни px. Теперь на время жеста RF-рамки
-// предков скрываются (opacity 0, один setState), их живой прямоугольник рисуют
+// предков скрываются (FrameData.dragHidden, один setState: рамка прозрачна и скрыта её
+// плашка в слое подписей — прозрачность рамки до плашки не доходит, и без флага исходная
+// плашка оставалась на месте, а за рамкой ехала вторая), их живой прямоугольник рисуют
 // лёгкие div-ы в ViewportPortal, обновляемые ИМПЕРАТИВНО через ref (ноль рендеров
 // на тик), а финальная геометрия применяется одним setState на отпускании.
 // Паддинги рамки снимаются на старте жеста (рамка = bbox прямых детей + константные
@@ -18,7 +20,9 @@ import { NODE_W, NODE_H } from "../constants";
 import { absPositionOf } from "../absPos";
 import { mustGet } from "../../../lib/mustGet";
 import { frameStyle, type FrameLook } from "../frameStyle";
-import { FrameLabel } from "../FramePlaque";
+import {
+  FrameLabel, PLAQUE_STYLE, PLAQUE_INSET_X, PLAQUE_INSET_BOTTOM, COLLAPSE_MARK_STYLE,
+} from "../FramePlaque";
 import type { FrameData } from "../types";
 
 interface Params {
@@ -28,8 +32,11 @@ interface Params {
 }
 
 type Pad = { l: number; t: number; r: number; b: number };
-// Оверлей рамки: живой прямоугольник и вид подменяемой рамки (FrameLook из её FrameData).
-type OverlayFrame = FrameLook & { id: string; name: string; x: number; y: number; w: number; h: number };
+// Оверлей рамки: живой прямоугольник и вид подменяемой рамки (FrameLook из её FrameData);
+// collapsible — у подменяемой рамки есть крестик (onCollapse), отражение плашки рисует его тоже.
+type OverlayFrame = FrameLook & {
+  id: string; name: string; collapsible: boolean; x: number; y: number; w: number; h: number;
+};
 
 const rfSize = (n: RFNode): { w: number; h: number } => ({
   w: n.measured?.width ?? (typeof n.width === "number" ? n.width : NODE_W),
@@ -83,13 +90,13 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
       const { w, h } = rfSize(f);
       const data = f.data as Partial<FrameData>;
       return {
-        id, name: data.name ?? "",
+        id, name: data.name ?? "", collapsible: !!data.onCollapse,
         decor: data.decor, element: data.element, depth: data.depth, is_external: data.is_external,
         x: abs.x, y: abs.y, w, h,
       };
     }));
     setRfNodes((prev) => prev.map((n) =>
-      affected.has(n.id) ? { ...n, style: { ...n.style, opacity: 0 } } : n,
+      affected.has(n.id) ? { ...n, data: { ...n.data, dragHidden: true } } : n,
     ));
   }, [rfNodes, setRfNodes]);
 
@@ -165,10 +172,10 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
       const byId = new Map(prev.map((n) => [n.id, n]));
       const cur = (id: string): RFNode | undefined => patched.get(id) ?? byId.get(id);
       const unhide = (n: RFNode): RFNode => {
-        if (!affected.has(n.id) || !n.style || n.style.opacity === undefined) return n;
-        const rest = { ...n.style };
-        delete rest.opacity;
-        return { ...n, style: rest };
+        if (!affected.has(n.id) || !n.data.dragHidden) return n;
+        const rest = { ...n.data };
+        delete rest.dragHidden;
+        return { ...n, data: rest };
       };
       const depthOf = (n: RFNode): number => {
         let d = 0, pid = n.parentId;
@@ -244,15 +251,14 @@ export function useFrameFollowOverlay({ rfNodes, setRfNodes, getNodes }: Params)
             pointerEvents: "none",
           }}
         >
+          {/* Отражение плашки скрытой рамки (сама скрыта вместе с рамкой, FrameData.dragHidden):
+              тот же вид и тот же крестик, но неживое — на время жеста по плашке не щёлкают. */}
           <div
-            style={{
-              position: "absolute", left: 10, bottom: 8, fontSize: 12, fontWeight: 600,
-              color: "#64748b", background: "#fff", padding: "2px 8px", borderRadius: 5,
-              border: "1px solid #e5e7eb", whiteSpace: "nowrap", pointerEvents: "none",
-              display: "inline-flex", alignItems: "center", gap: 6,
-            }}
+            data-drag-plaque={f.id}
+            style={{ ...PLAQUE_STYLE, left: PLAQUE_INSET_X, bottom: PLAQUE_INSET_BOTTOM, pointerEvents: "none" }}
           >
             <FrameLabel decor={f.decor} name={f.name} />
+            {f.collapsible && <span style={COLLAPSE_MARK_STYLE} aria-hidden>✕</span>}
           </div>
         </div>
       ))}
