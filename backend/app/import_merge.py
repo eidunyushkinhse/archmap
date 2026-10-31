@@ -266,8 +266,8 @@ def _warn_shared_repo(nodes: list[_ImpNode], report: MergeReport) -> None:
         shown += 1
         report.warn(
             f"{_names_phrase(nodes[i].name for i in idxs)} указывают один источник "
-            f"({k}) — задайте каждому свой source.path, иначе следующий прогон "
-            f"агента свяжется только с одним из них",
+            f"({k}) — задайте каждому свой source.path, иначе следующее обновление "
+            f"из кода свяжется только с одним из них",
             report.owner_of_nodes(idxs),
         )
     if hidden:

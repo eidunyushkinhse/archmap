@@ -471,6 +471,7 @@ def test_несколько_перечней_без_канонического_�
     assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
     assert "archmap-orch/recon-1.yaml" in plan.report.errors[0]
     assert f"«{RECON_FILE}»" in plan.report.errors[0]
+    assert plan.report.errors[0].endswith("а не отдельные запуски разведки")
     assert plan.node is None
 
 
