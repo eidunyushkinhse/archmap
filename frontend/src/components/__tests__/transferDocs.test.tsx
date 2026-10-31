@@ -1,19 +1,21 @@
 // «Перенести документацию» и «Собрать с компонентов» (Р19 эпика «Элемент архитектуры»):
 // получатели по семьям фактов приходят превью сервера (флаги и путь от узла), окно их
-// только показывает; параметры одному контейнеру, сбор с одноимёнными параметрами и
-// несколькими спецификациями. Оба окна исполняются по-настоящему, подменён только транспорт.
+// только показывает; параметры одному контейнеру. Сбор (решения владельца 2026-10-31):
+// приоритет контейнера — строками-фактами, краевые случаи — вопросами в стиле разбора
+// ввоза, без ответа — дефолт. Оба окна исполняются по-настоящему, подменён только транспорт.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import TransferDocsModal from "../TransferDocsModal";
 import CollectFactsModal from "../CollectFactsModal";
-import { collectLine } from "../element/transferDocs";
 import { nodeDocsApi, nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
-import type { CollectFactsPreview, TransferDocsPreview, TransferReceiver } from "../../types";
+import type {
+  CollectFactsOut, CollectFactsPreview, Node, TransferDocsPreview, TransferReceiver,
+} from "../../types";
 
 vi.mock("../../api/nodes", () => ({
-  nodesApi: { transferPreview: vi.fn(), collectFacts: vi.fn() },
+  nodesApi: { transferPreview: vi.fn(), collectFacts: vi.fn(), get: vi.fn() },
   nodeDocsApi: { distribute: vi.fn() },
 }));
 // Нативный <dialog> в jsdom не открывается — та же замена, что в тестах других окон.
@@ -47,14 +49,6 @@ function preview(over: Partial<TransferDocsPreview> = {}): TransferDocsPreview {
     has_spec: true, params: 3, receivers, ...over,
   };
 }
-
-describe("строки окна сбора", () => {
-  it("строка компонента в окне сбора", () => {
-    expect(collectLine({ node_id: "a", name: "api", params: 2, has_spec: true })).toBe("api · 2 параметра, спецификация");
-    expect(collectLine({ node_id: "s", name: "scheduler", params: 1, has_spec: false })).toBe("scheduler · 1 параметр");
-    expect(collectLine({ node_id: "c", name: "checkout", params: 0, has_spec: true })).toBe("checkout · спецификация");
-  });
-});
 
 describe("окно «Перенести документацию»", () => {
   beforeEach(() => {
@@ -139,74 +133,147 @@ describe("окно «Перенести документацию»", () => {
 });
 
 describe("окно «Собрать с компонентов»", () => {
+  const out = (over: Partial<CollectFactsOut> = {}): CollectFactsOut => ({
+    moved_params: 3, spec_moved: false, dropped_params: 1, dropped_specs: 0,
+    left_params: ["DATABASE_URL"], left_specs: 2, ...over,
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(nodesApi.collectFacts).mockResolvedValue({
-      moved_params: 3, spec_moved: true, dropped_params: 0, dropped_specs: 0, left_params: [], left_specs: 0,
-    });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue(out());
   });
 
   const preview: CollectFactsPreview = {
     components: [
       { node_id: "api", name: "api", params: 2, has_spec: true },
-      { node_id: "checkout", name: "checkout", params: 1, has_spec: true },
+      { node_id: "outbox", name: "outbox", params: 1, has_spec: true },
+      { node_id: "worker", name: "worker", params: 1, has_spec: false },
     ],
-    param_clashes: [{
-      name: "FEATURE_NEW_CHECKOUT",
-      candidates: [
-        { node_id: "api", node_name: "api", description: "включает новый расчёт корзины" },
-        { node_id: "checkout", node_name: "checkout", description: null },
-      ],
-      container_keeps: false,
-    }],
-    specs: [{ node_id: "api", name: "api" }, { node_id: "checkout", name: "checkout" }],
+    param_clashes: [
+      {
+        name: "DATABASE_URL", container_keeps: false,
+        candidates: [
+          { node_id: "api", node_name: "api", description: "адрес базы для api" },
+          { node_id: "outbox", node_name: "outbox", description: null },
+        ],
+      },
+      {
+        name: "RETRY_TIMEOUT", container_keeps: true,
+        candidates: [
+          { node_id: "orders", node_name: "orders", description: "таймаут повтора" },
+          { node_id: "worker", node_name: "worker", description: null },
+        ],
+      },
+    ],
+    specs: [{ node_id: "api", name: "api" }, { node_id: "outbox", name: "outbox" }],
     container_has_spec: false,
     single_spec_from: null,
   };
 
-  it("коллизия имён и несколько спецификаций — выбор уходит в запрос", async () => {
+  const PARAM_Q = "Параметр «DATABASE_URL» описан у компонентов «api» и «outbox» по-разному. Чьё описание считаем верным?";
+  const SPEC_Q = "Спецификация есть у компонентов «api» и «outbox». Чью считаем спецификацией контейнера «orders»?";
+  // Блок вопроса по его заголовку: варианты ищутся внутри него.
+  const block = (title: string): HTMLElement => {
+    const el = screen.getByText(title).closest(".rq-block");
+    if (!(el instanceof HTMLElement)) throw new Error(`нет блока вопроса «${title}»`);
+    return el;
+  };
+
+  function open(p: CollectFactsPreview = preview) {
     const onApplied = vi.fn();
-    render(<CollectFactsModal nodeId="orders" nodeName="orders" preview={preview} onClose={vi.fn()} onApplied={onApplied} />);
-    expect(screen.getByText(/Параметры и спецификации компонентов переедут в «orders»\./)).toBeInTheDocument();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <CollectFactsModal nodeId="orders" nodeName="orders" preview={p} onClose={onClose} onApplied={onApplied} />,
+    );
+    return { onApplied, onClose, unmount };
+  }
+
+  it("факты строками, вопросы без предвыбора; «Собрать» без ответов — дефолт и итог", async () => {
+    const { onApplied, onClose } = open();
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
-    expect(screen.getByText("checkout · 1 параметр, спецификация")).toBeInTheDocument();
-    expect(screen.getByText("Одинаковые имена: FEATURE_NEW_CHECKOUT у api и checkout. Какое описание оставить?")).toBeInTheDocument();
-    expect(screen.getByLabelText("api: «включает новый расчёт корзины»")).toBeChecked();
-    await userEvent.click(screen.getByLabelText("checkout: без описания"));
-    expect(screen.getByText("Спецификаций несколько. Какую отдать «orders»?")).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText("checkout"));
+    expect(screen.getByText(
+      "Параметр «RETRY_TIMEOUT» есть у контейнера — остаётся его описание, у компонента «worker» параметр будет отброшен",
+    )).toBeInTheDocument();
+    // По параметру с записью контейнера вопроса нет.
+    expect(screen.queryByText(/Параметр «RETRY_TIMEOUT» описан/)).not.toBeInTheDocument();
+    expect(screen.getByText(PARAM_Q)).toBeInTheDocument();
+    expect(screen.getByText(SPEC_Q)).toBeInTheDocument();
+    expect(within(block(PARAM_Q)).getByText(
+      "Если не отвечать, то параметр останется у компонентов, рекомендация тоже останется.",
+    )).toBeInTheDocument();
+    expect(within(block(SPEC_Q)).getByText(
+      "Если не отвечать, то спецификации останутся у компонентов, рекомендация тоже останется.",
+    )).toBeInTheDocument();
+    expect(screen.queryAllByRole("button", { pressed: true })).toEqual([]);
 
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
-    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("orders", {
-      param_choices: [{ name: "FEATURE_NEW_CHECKOUT", node_id: "checkout" }],
-      spec_from: "checkout",
-    }));
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("orders", { param_choices: [] }));
+    expect(await screen.findByText("Собрано: 3 параметра.")).toBeInTheDocument();
+    expect(screen.getByText("Отброшено: 1 параметр.")).toBeInTheDocument();
+    expect(screen.getByText("Осталось у компонентов: параметр «DATABASE_URL», 2 спецификации.")).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("«Не переносить» спецификацию — без spec_from; одна спецификация компонента — без вопроса", async () => {
-    const { unmount } = render(
-      <CollectFactsModal nodeId="orders" nodeName="orders" preview={preview} onClose={vi.fn()} onApplied={vi.fn()} />,
-    );
-    await userEvent.click(screen.getByLabelText("Не переносить"));
+  it("ответ по параметру уходит в param_choices, «как сейчас» по спецификации — без spec_from", async () => {
+    open();
+    await userEvent.click(within(block(PARAM_Q)).getByRole("button", { name: /^outbox/ }));
+    expect(within(block(PARAM_Q)).getByRole("button", { name: /^outbox/ })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(block(SPEC_Q)).getByRole("button", { name: /Оставить у компонентов/ }));
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
     await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("orders", {
-      param_choices: [{ name: "FEATURE_NEW_CHECKOUT", node_id: "api" }],
+      param_choices: [{ name: "DATABASE_URL", node_id: "outbox" }],
     }));
+  });
+
+  it("«Открыть» показывает спецификацию держателя, выбор — прямо из вьюера", async () => {
+    vi.mocked(nodesApi.get).mockResolvedValue(node("outbox", "openapi: 3.0.0\ninfo: outbox"));
+    open();
+    await userEvent.click(within(block(PARAM_Q)).getByRole("button", { name: /Оставить у компонентов/ }));
+    await userEvent.click(within(block(SPEC_Q)).getAllByRole("button", { name: "Открыть" })[1]);
+    expect(nodesApi.get).toHaveBeenCalledWith("outbox");
+    expect(await screen.findByText(/info: outbox/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Выбрать этот вариант" }));
+    expect(screen.queryByText(/info: outbox/)).not.toBeInTheDocument();
+    expect(within(block(SPEC_Q)).getByRole("button", { name: "outbox" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("orders", {
+      param_choices: [], spec_from: "outbox",
+    }));
+  });
+
+  it("своя спецификация контейнера и единственный держатель — фактом, без вопроса; отказ — под формой", async () => {
+    vi.mocked(nodesApi.collectFacts).mockRejectedValue(
+      new ApiError(422, "Для параметра «DATABASE_URL» выбран объект, у которого его нет."),
+    );
+    const { onApplied, unmount } = open({
+      ...preview, param_clashes: [],
+      specs: [{ node_id: "orders", name: "orders" }, ...preview.specs], container_has_spec: true,
+    });
+    expect(screen.getByText(
+      "У контейнера есть своя спецификация — спецификации компонентов «api» и «outbox» будут отброшены",
+    )).toBeInTheDocument();
+    expect(screen.queryByText(SPEC_Q)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
+    expect(await screen.findByText("Для параметра «DATABASE_URL» выбран объект, у которого его нет.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Собрать" })).toBeInTheDocument();
+    expect(onApplied).not.toHaveBeenCalled();
     unmount();
 
-    vi.mocked(nodesApi.collectFacts).mockClear();
-    render(<CollectFactsModal
-      nodeId="orders" nodeName="orders" onClose={vi.fn()} onApplied={vi.fn()}
-      preview={{
-        components: [preview.components[0]], param_clashes: [], specs: [preview.specs[0]],
-        container_has_spec: false, single_spec_from: "api",
-      }}
-    />);
-    expect(screen.queryByText(/Спецификаций несколько/)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
-    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("orders", {
-      param_choices: [], spec_from: "api",
-    }));
+    open({ ...preview, param_clashes: [], specs: [preview.specs[0]], single_spec_from: "api" });
+    expect(screen.getByText("Спецификация компонента «api» переедет контейнеру")).toBeInTheDocument();
+    expect(screen.queryByText(/Чью считаем спецификацией/)).not.toBeInTheDocument();
   });
 });
+
+function node(id: string, openapi_spec: string | null): Node {
+  return {
+    id, name: id, description: null, role: null, technology: null, parent_id: "orders",
+    openapi_spec, docs: [], is_external: false, shape: "service", status: "existing",
+    child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
+    element: null, element_effective: "component", container_name: "orders",
+    version: 1, created_at: "2026-10-31T10:00:00Z", updated_at: "", sites: [],
+  };
+}

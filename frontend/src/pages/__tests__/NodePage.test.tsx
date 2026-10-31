@@ -486,12 +486,12 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.collectPreview).mockResolvedValue({
       components: [{ node_id: "k1", name: "api", params: 2, has_spec: true }],
       param_clashes: [],
-      specs: [{ node_id: "k1", name: "api" }],
-      container_has_spec: false,
-      single_spec_from: "k1",
+      specs: [{ node_id: "c1", name: "Ядро" }, { node_id: "k1", name: "api" }],
+      container_has_spec: true,
+      single_spec_from: null,
     });
     vi.mocked(nodesApi.collectFacts).mockResolvedValue({
-      moved_params: 2, spec_moved: true, dropped_params: 0, dropped_specs: 0, left_params: [], left_specs: 0,
+      moved_params: 2, spec_moved: false, dropped_params: 0, dropped_specs: 1, left_params: [], left_specs: 0,
     });
     setupContainer({
       own: { element: "container", element_effective: "container", openapi_spec: "openapi: 3.0.0" },
@@ -506,12 +506,18 @@ describe("NodePage: правила контейнеров", () => {
 
     await userEvent.click(buttons[0]);
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    // Своя спецификация контейнера в приоритете — фактом, без вопроса.
+    expect(screen.getByText(
+      "У контейнера есть своя спецификация — спецификация компонента «api» будет отброшена",
+    )).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
-    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", {
-      param_choices: [], spec_from: "k1",
-    }));
-    // Превью перечитано по новой эпохе страницы.
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", { param_choices: [] }));
+    // Итог — в том же окне, пока страница перечитывает превью по новой эпохе.
+    expect(await screen.findByText("Собрано: 2 параметра.")).toBeInTheDocument();
+    expect(screen.getByText("Отброшено: 1 спецификация.")).toBeInTheDocument();
     await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(screen.queryByText("Собрано: 2 параметра.")).not.toBeInTheDocument();
     vi.mocked(nodesApi.collectPreview).mockResolvedValue({
       components: [], param_clashes: [], specs: [], container_has_spec: false, single_spec_from: null,
     });

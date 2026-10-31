@@ -2,7 +2,9 @@
 // «Перенести документацию» и «Собрать с компонентов» и превью сбора, по которому
 // страница решает, показывать ли кнопку сбора. Превью запрашивается один раз у
 // контейнера с компонентами (и заново после записи — по эпохе страницы); у системы и
-// листа сбора нет, запроса тоже.
+// листа сбора нет, запроса тоже. Окно сбора получает превью, снятое в момент открытия:
+// после записи оно показывает итог, а превью страницы тем временем перечитывается и
+// может опустеть — окно с итогом от этого не закрывается.
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { CollectFactsPreview, Node } from "../../types";
@@ -23,7 +25,8 @@ export function useFactsTransfer(
   node: Node, isArchitect: boolean, epoch: number, onApplied: () => void,
 ): FactsTransfer {
   const [transferOpen, setTransferOpen] = useState(false);
-  const [collectOpen, setCollectOpen] = useState(false);
+  // Превью, с которым открыто окно сбора; null — окно закрыто.
+  const [collecting, setCollecting] = useState<CollectFactsPreview | null>(null);
   const [preview, setPreview] = useState<CollectFactsPreview | null>(null);
   const collectable = isArchitect && node.element_effective === "container" && node.has_children;
 
@@ -39,7 +42,7 @@ export function useFactsTransfer(
 
   const live = collectable && preview !== null && preview.components.length > 0 ? preview : null;
   const openTransfer = useCallback(() => setTransferOpen(true), []);
-  const openCollect = useCallback(() => setCollectOpen(true), []);
+  const openCollect = useCallback(() => setCollecting(live), [live]);
 
   return {
     openTransfer,
@@ -50,12 +53,12 @@ export function useFactsTransfer(
         {transferOpen && (
           <TransferDocsModal nodeId={node.id} onClose={() => setTransferOpen(false)} onApplied={onApplied} />
         )}
-        {collectOpen && live && (
+        {collecting && (
           <CollectFactsModal
             nodeId={node.id}
             nodeName={node.name}
-            preview={live}
-            onClose={() => setCollectOpen(false)}
+            preview={collecting}
+            onClose={() => setCollecting(null)}
             onApplied={onApplied}
           />
         )}
