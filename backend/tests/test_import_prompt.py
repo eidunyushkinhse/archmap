@@ -92,10 +92,14 @@ def test_связь_с_брокером_называет_канал():
             for e in parsed.edges
             if e.channel
         }
-        # Правка №4: на depth=3 публикует компонент api, на depth=2 (компоненты
-        # вырезаны) конец ребра свёрнут на контейнер orders.
-        ожидаемый_источник = "api" if depth == 3 else "orders"
-        assert каналы == {(ожидаемый_источник, "events"): "orders.created"}
+        # Правка №4: на depth=3 публикует компонент outbox, на depth=2 (компоненты
+        # вырезаны) конец ребра свёрнут на контейнер orders. Доставку подписчику
+        # billing-worker (контейнер, Ф13а) пример показывает тем же каналом.
+        ожидаемый_источник = "outbox" if depth == 3 else "orders"
+        assert каналы == {
+            (ожидаемый_источник, "events"): "orders.created",
+            ("events", "billing-worker"): "orders.created",
+        }
 
 
 def test_висячие_лечатся_связями_а_не_удалением():
@@ -173,9 +177,10 @@ def test_правило_кавычек_безусловно_и_повторен�
 def test_prompt_depth_and_lang_and_hints():
     p2 = build_import_prompt("X", depth=2)
     assert "НЕ строй" in p2 and "компонентов ≤ 10" not in p2
-    assert "billing-worker" not in p2  # компоненты вырезаны и из примера
+    assert "outbox" not in p2  # компоненты вырезаны и из примера
+    assert "billing-worker" in p2  # отдельный процесс — контейнер, он остаётся (Ф13а)
     p3 = build_import_prompt("X", depth=3)
-    assert "3–5 ключевых" in p3 and "billing-worker" in p3
+    assert "3–5 ключевых" in p3 and "outbox" in p3
     pen = build_import_prompt("X", lang="en")
     assert "английский" in pen and "в своём выводе используй выбранный язык" in pen
     ph = build_import_prompt("X", hints="монорепо: смотри только services/*")
@@ -301,11 +306,12 @@ def test_example_carries_source_anchors():
         keys = {n.name: n.source_keys for n in parsed.nodes if n.source_keys}
         assert keys["orders"] == ["git:github.com/org/yarmarka#services/orders", "host:orders"]
         assert keys["storefront"] == ["git:github.com/org/yarmarka#frontend"]
+        assert keys["billing-worker"] == ["git:github.com/org/yarmarka#services/billing-worker"]
         if depth == 3:
             assert keys["api"] == ["git:github.com/org/yarmarka#services/orders/api"]
-            assert keys["billing-worker"] == ["git:github.com/org/yarmarka#services/orders/worker"]
+            assert keys["outbox"] == ["git:github.com/org/yarmarka#services/orders/outbox"]
         else:
-            assert "api" not in keys and "billing-worker" not in keys
+            assert "api" not in keys and "outbox" not in keys
         # Сервис из чужого репозитория — только сетевое имя, ничего выдуманного.
         assert keys["payments"] == ["host:payments"]
         # Корню-системе и людям-акторам якорь не нужен.
@@ -333,7 +339,10 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
     parsed, errors = parse_import(example_yaml(3))
     assert errors == [] and parsed is not None
     пары = {(parsed.nodes[e.source_idx].name, parsed.nodes[e.target_idx].name) for e in parsed.edges}
-    assert {("storefront", "api"), ("api", "orders-db"), ("api", "events"), ("billing-worker", "payments")} <= пары
+    assert {
+        ("storefront", "api"), ("api", "orders-db"), ("outbox", "events"),
+        ("events", "billing-worker"), ("billing-worker", "payments"),
+    } <= пары
     с_детьми: set[str] = set()
 
     def собрать(nodes: list[dict]) -> None:
@@ -348,7 +357,10 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
     parsed2, errors2 = parse_import(example_yaml(2))
     assert errors2 == [] and parsed2 is not None
     пары2 = {(parsed2.nodes[e.source_idx].name, parsed2.nodes[e.target_idx].name) for e in parsed2.edges}
-    assert {("storefront", "orders"), ("orders", "orders-db"), ("orders", "events"), ("orders", "payments")} <= пары2
+    assert {
+        ("storefront", "orders"), ("orders", "orders-db"), ("orders", "events"),
+        ("events", "billing-worker"), ("billing-worker", "payments"),
+    } <= пары2
     p3 = build_import_prompt("X", depth=3)
     assert "ОТ КОМПОНЕНТА, НЕ ОТ КОНТЕЙНЕРА С CHILDREN" in p3 and "vote" not in p3
     assert "не «orders → orders-db», а «orders / api → orders-db»" in p3
@@ -494,9 +506,24 @@ def test_замечание_об_элементе_лечится_правкой_
 def test_слой_компонентов_словами_элемента():
     """Решения 0а плана: «коробка» и «модуль» в продукт не идут; «подсистема» в
     промпте значила часть кода, а в документации — вложенную систему (лексикон §6
-    п.11). Правило о связях слоя 3 прежнее — поменялись только слова."""
+    п.11). Правило о связях слоя 3 прежнее — поменялись только слова (Ф13а: компоненты —
+    части кода одной запускаемой программы)."""
     p3 = build_import_prompt("Ярмарка")
-    assert "children контейнера — крупные части его кода" in p3
+    assert "children контейнера — крупные части кода ОДНОЙ запускаемой" in p3
     assert "Вызовы делает не контейнер, а лежащие в нём компоненты" in p3
     for p in (p3, build_import_prompt("Ярмарка", depth=2)):
         assert not re.search(r"коробк|модул|подсистем", p, re.IGNORECASE)
+
+
+def test_процесс_из_перечня_контейнер_а_не_компонент():
+    """Ф13а (2026-10-31): по элементу архитектуры отдельно запускаемый процесс — контейнер
+    рядом с другими, а компоненты — части кода одной программы. Пример держит это
+    устройство (billing-worker — контейнер системы, у orders — части его процесса),
+    слой 3 называет правило словами."""
+    doc = yaml.safe_load(example_yaml(3))
+    containers = {c["name"]: c for c in doc["nodes"][0]["children"]}
+    assert "billing-worker" in containers and "children" not in containers["billing-worker"]
+    assert [c["name"] for c in containers["orders"]["children"]] == ["api", "outbox"]
+    p3 = build_import_prompt("X", depth=3)
+    assert "не компонент, а контейнер" in p3 and "billing-worker рядом с orders" in p3
+    assert "воркеры, планировщик" not in p3

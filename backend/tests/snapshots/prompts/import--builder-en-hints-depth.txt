@@ -65,6 +65,13 @@ nodes:
       repo: github.com/org/yarmarka
       path: services/orders
       host: orders
+  - name: billing-worker
+    role: воркер
+    technology: Python
+    description: Выставляет счета по новым заказам.
+    source:
+      repo: github.com/org/yarmarka
+      path: services/billing-worker
   - name: orders-db
     shape: database
     role: БД
@@ -104,7 +111,12 @@ edges:
   label: публикует события
   technology: Kafka
   channel: orders.created
-- from: orders
+- from: events
+  to: billing-worker
+  label: доставляет новые заказы
+  technology: Kafka
+  channel: orders.created
+- from: billing-worker
   to: payments
   label: инициирует оплату
   technology: gRPC
