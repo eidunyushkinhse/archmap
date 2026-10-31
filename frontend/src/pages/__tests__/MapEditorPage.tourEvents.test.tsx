@@ -20,7 +20,7 @@ function render(ui: ReactElement) {
 }
 vi.mock("../../api/nodes", () => ({
   nodesApi: {
-    getGraph: vi.fn(), getAll: vi.fn(), deletionSnapshot: vi.fn(), moveSnapshot: vi.fn(),
+    get: vi.fn(), getGraph: vi.fn(), getAll: vi.fn(), deletionSnapshot: vi.fn(), moveSnapshot: vi.fn(),
     delete: vi.fn(), restore: vi.fn(), update: vi.fn(), getDescendants: vi.fn(),
   },
   nodeDocsApi: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },

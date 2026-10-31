@@ -26,7 +26,7 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
-import type { LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
+import type { DropFrameTarget, LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
@@ -54,6 +54,9 @@ import { useFirstChild } from "../components/element/useFirstChild";
 import type { NodeType } from "../components/nodeTerms";
 import { useConsequences } from "../components/element/useConsequences";
 import { hasConsequences } from "../components/element/elementChange";
+import { useAsyncLoad } from "../lib/useAsyncLoad";
+import { typeOptions } from "../components/element/typeOptions";
+import { dropEligibility, dropRefusal, paletteTiles } from "../components/element/paletteTiles";
 
 interface Props {
   projectId: string;
@@ -148,6 +151,43 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const isArchitect = canEditProject(useProjectRole());
   const currentParent = breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
+
+  // ── Палитра и бросок по месту назначения (приёмка Ф12 2026-10-31) ──
+  // Цель броска проверяет тип: те же правила поля «Тип», что у окна «Новый объект»
+  // (element/typeOptions), для родителя уровня и для раскрытых рамок холста. Родитель
+  // уровня нужен целиком (в крошках нет формы, хранимого элемента и «есть ли вложенные»):
+  // один GET на уровень и мутацию — treeReload дёргают создание, удаление, перенос,
+  // undo/redo и смена типа в свойствах; верхний уровень — без запроса. Пока родитель не
+  // загружен или не загрузился — null: палитра ничего не гасит, бросок проверит окно.
+  const levelParent = useAsyncLoad<Node | null>(
+    `level-parent:${currentParentId ?? ""}:${treeReload}`,
+    async () => (currentParentId ? nodesApi.get(currentParentId) : null),
+  );
+  const levelOptions = useMemo(() => {
+    if (currentParentId === null) return typeOptions({ mode: "create", parent: null });
+    return levelParent.data ? typeOptions({ mode: "create", parent: levelParent.data }) : null;
+  }, [currentParentId, levelParent.data]);
+  // Ошибку не глотаем: работа не блокируется (палитра как без сведений), причина — тостом,
+  // один раз на отказ.
+  const levelParentName = currentParent?.name ?? "";
+  useEffect(() => {
+    if (!levelParent.error) return;
+    showErrorToast(`Не удалось проверить, какие объекты можно добавить в «${levelParentName}»: ${loadErrorText(levelParent.error)}`);
+  }, [levelParent.error, levelParentName, showErrorToast]);
+  // Раскрытые рамки холста — цели броска (их сообщает LevelGraph). Помечены уровнем: после
+  // перехода и пока холста нет на экране (загрузка, ошибка) прежние рамки не действуют.
+  const [dropFramesAt, setDropFramesAt] = useState<{ level: string | null; frames: DropFrameTarget[] }>(
+    { level: null, frames: NO_DROP_FRAMES },
+  );
+  const dropFrames = !loading && !loadError && dropFramesAt.level === currentParentId
+    ? dropFramesAt.frames
+    : NO_DROP_FRAMES;
+  // Плитки палитры и цели броска для типа, который тянут сейчас.
+  const tiles = useMemo(() => paletteTiles(levelOptions, dropFrames), [levelOptions, dropFrames]);
+  const dropEligible = useMemo(
+    () => dropEligibility(dragType, levelOptions, dropFrames),
+    [dragType, levelOptions, dropFrames],
+  );
 
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
   // Номер последнего начатого чтения уровня и признак «идёт переход» (см. load).
@@ -563,6 +603,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     }
     setNodeModal({ open: false, node: null });
     setSelectedObject((sel) => sel?.kind === "node" && sel.node.id === saved.id ? { kind: "node", node: saved } : sel);
+    // Сменился тип (элемент или форма; правка без «до» — смена элемента с последствиями) —
+    // дерево перечитывается: глиф строки, а если правили родителя уровня — и палитра.
+    if (!isCreate && (!before || before.element !== saved.element || before.shape !== saved.shape)) {
+      setTreeReload((t) => t + 1);
+    }
     if (!isArchitect) return;
     if (isCreate) {
       noteMutation();
@@ -784,14 +829,19 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   const drop = useMemo<LevelDropProps>(() => ({
     onDropNode: (type, pos, dropParentId) => {
-      // Тип плитки палитры — предвыбор поля «Тип», если он возможен в этом месте (Р41).
-      // В раскрытую рамку — родитель рамки, позиция в виде текущего уровня; на уровень —
-      // родитель уровня. Если он лист, окно само скажет, кем он станет (Р38).
+      // Тип плитки палитры — предвыбор поля «Тип» (Р41): сюда доходит только бросок в место,
+      // где тип возможен (или сведений о месте нет). В раскрытую рамку — родитель рамки,
+      // позиция в виде текущего уровня; на уровень — родитель уровня. Если он лист, окно
+      // само скажет, кем он станет (Р38).
       if (dropParentId) setNodeModal({ open: true, node: null, type, pos, parentId: dropParentId, posView: currentParentId });
       else setNodeModal({ open: true, node: null, type, pos });
     },
     dragType,
-  }), [currentParentId, dragType]);
+    onDropFrames: (frames) => setDropFramesAt({ level: currentParentId, frames }),
+    dropEligible,
+    // Бросок туда, где тип невозможен: объекта нет, окна нет — причина тостом.
+    onDropRefused: (type, dropParentId) => showErrorToast(dropRefusal(type, dropParentId, levelOptions, dropFrames)),
+  }), [currentParentId, dragType, dropEligible, levelOptions, dropFrames, showErrorToast]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -900,6 +950,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
           onTemplateDrag={setDragType}
+          paletteTiles={tiles}
         />
 
         {/* Холст */}
@@ -1049,6 +1100,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     </div>
   );
 }
+
+// Пустой набор рамок-целей — одна ссылка: мемо палитры и броска не пересчитываются зря.
+const NO_DROP_FRAMES: DropFrameTarget[] = [];
 
 // ── Стили ───────────────────────────────────────────────────────────
 

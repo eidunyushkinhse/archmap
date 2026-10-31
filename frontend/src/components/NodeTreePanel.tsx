@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { CSSProperties } from "react";
 import type { Node } from "../types";
 import { nodeNesting, treeNesting } from "../types";
@@ -14,7 +14,7 @@ import { useLazyTree } from "./nodeTree.useLazyTree";
 import { useTreeReparent } from "./nodeTree.useReparent";
 import { useNodeSearch } from "./useNodeSearch";
 import type { NodeType } from "./nodeTerms";
-import { typeOptions } from "./element/typeOptions";
+import type { PaletteTile } from "./element/paletteTiles";
 
 
 /**
@@ -46,6 +46,10 @@ type ModeProps =
       // начало/конец перетаскивания шаблона из палитры: тип объекта при старте, null при
       // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
       onTemplateDrag?: (type: NodeType | null) => void;
+      // Плитки палитры: какие типы можно тянуть и почему нет (считает страница по
+      // родителю уровня и раскрытым рамкам холста, element/paletteTiles); null или не
+      // передано — палитра ничего не гасит (тип проверит окно «Новый объект»).
+      paletteTiles?: readonly PaletteTile[] | null;
     }
   | {
       // «Развёртывание» (docs/specs/deployment.md): объекты здесь не создаются и не
@@ -97,18 +101,6 @@ export default function NodeTreePanel(props: Props) {
   const [collapsed, setCollapsed] = useState(false); // свёрнута ли вся панель
   // Драг шаблона из палитры: на это время панель накрывается «корзиной».
   const paletteDrag = usePaletteDrag(editor?.onTemplateDrag);
-  // Варианты палитры на текущем уровне (Р41 раздела 13 docs/plan-c4-elements.md) — тот же
-  // расчёт, что у окна «Новый объект». Родитель уровня — строка уже загруженного дерева:
-  // ветку до текущего уровня дерево раскрывает само и перечитывает после создания,
-  // удаления и переноса (reloadToken). Пока строки нет, палитра ничего не гасит — тип
-  // проверит окно; своего запроса ради палитры нет.
-  const isEditor = props.mode === "editor";
-  const paletteOptions = useMemo(() => {
-    if (!isEditor || currentNodeId === undefined) return null;
-    if (currentNodeId === null) return typeOptions({ mode: "create", parent: null });
-    const parent = allById.get(currentNodeId);
-    return parent ? typeOptions({ mode: "create", parent }) : null;
-  }, [isEditor, currentNodeId, allById]);
   // открытые секции аккордеона (по умолчанию: дерево + палитра добавления)
   const [openSections, setOpenSections] = useState<Set<string>>(
     () => new Set(["tree", "add"]),
@@ -256,7 +248,7 @@ export default function NodeTreePanel(props: Props) {
                 open={openSections.has("add")}
                 onToggle={() => toggleSection("add")}
                 drag={paletteDrag}
-                options={paletteOptions}
+                tiles={editor.paletteTiles ?? null}
               />
             )}
           </>

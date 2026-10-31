@@ -6,6 +6,7 @@ import type {
   SiteKind, ViewLayoutPayload,
 } from "../../types";
 import type { NodeType } from "../nodeTerms";
+import type { TypeSubject } from "../element/typeOptions";
 import type { EdgeSide } from "./edgePath";
 import type { SchemaView } from "../schemaView";
 import type { History } from "./interaction/useHistory";
@@ -434,6 +435,22 @@ export interface LevelDeleteCallbacks {
   onRequestDeleteNodes?: (nodes: AppNode[]) => void;
 }
 
+// Раскрытая рамка холста как цель броска плитки палитры (приёмка Ф12 2026-10-31): id —
+// будущий parent_id, subject — объект рамки в виде, который понимают правила поля «Тип»
+// (element/typeOptions; собирает graph/dropFrameTargets).
+export interface DropFrameTarget {
+  id: string;
+  name: string;
+  subject: TypeSubject;
+}
+
+// Куда можно бросить тип, который сейчас тянут (цель броска проверяет тип): levelOk — на
+// текущий уровень, frameIds — в какие раскрытые рамки.
+export interface DropEligible {
+  levelOk: boolean;
+  frameIds: ReadonlySet<string>;
+}
+
 // Дроп шаблона узла из боковой палитры на схему.
 export interface LevelDropProps {
   // Отпускание перетянутого шаблона: type — тип объекта (Р41), pos — координаты в системе
@@ -442,6 +459,16 @@ export interface LevelDropProps {
   onDropNode?: (type: NodeType, pos: { x: number; y: number }, parentId: string | null) => void;
   // Тип шаблона, который СЕЙЧАС перетаскивают (null — драга нет) — для превью-рамки в dragover.
   dragType?: NodeType | null;
+  // Раскрытые рамки холста как цели броска: холст сообщает их при каждой смене набора
+  // (раскрыли, свернули, переименовали), по ним страница решает, какие плитки палитры
+  // активны и куда тип можно бросить.
+  onDropFrames?: (frames: DropFrameTarget[]) => void;
+  // Куда можно бросить dragType; null — сведений нет (родитель уровня не загружен):
+  // бросок проверит окно «Новый объект», как до приёмки.
+  dropEligible?: DropEligible | null;
+  // Бросок туда, где тип невозможен: объект не создаётся, страница объясняет причину.
+  // parentId — раскрытая рамка под курсором или null (уровень).
+  onDropRefused?: (type: NodeType, parentId: string | null) => void;
 }
 
 // Undo/Redo: общая история + дисптчеры из страницы-хозяина (кросс-уровневый редирект).

@@ -1,15 +1,16 @@
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronIcon } from "../ui/icons";
 import { TYPE_LABEL, TYPE_ORDER, type NodeType } from "./nodeTerms";
-import type { TypeOption } from "./element/typeOptions";
+import type { PaletteTile } from "./element/paletteTiles";
 import type { PaletteDrag } from "./nodeTree.usePaletteDrag";
 import "./NodeTreePanel.css";
 
 // Палитра «Добавить объект» дерева редактора-карты (аудит F-7): шесть типов объекта
 // (Р41 раздела 13 docs/plan-c4-elements.md), которые тянут на схему, и «корзина» поверх
-// панели на время драга — дроп на неё ничего не создаёт. Тип, невозможный на текущем
-// уровне, — серая плитка с тем же объяснением, что в окне «Новый объект»; тянуть её можно:
-// бросок в раскрытую рамку контейнера проверяет окно.
+// панели на время драга — дроп на неё ничего не создаёт. Активность плиток решает
+// страница по правилу «цель броска проверяет тип» (element/paletteTiles, приёмка Ф12
+// 2026-10-31): тип, невозможный ни на уровне, ни в одной раскрытой рамке, — серая плитка
+// с тем же объяснением, что в окне «Новый объект», и её не тянут.
 // Сама плитка-источник и секция объявлены на уровне модуля: компонент, объявленный
 // внутри другого, ремаунтится на каждый рендер и срывает нативный драг.
 
@@ -113,11 +114,11 @@ function Section({ open, grow, title, onToggle, children }: {
   );
 }
 
-// Секция палитры: шесть типов в сетке, каждый — источник нативного драга. options —
-// варианты поля «Тип» на текущем уровне (element/typeOptions); null — родитель уровня
-// не загружен, палитра ничего не гасит (тип проверит окно «Новый объект»).
-export function PaletteSection({ open, onToggle, drag, options }: {
-  open: boolean; onToggle: () => void; drag: PaletteDrag; options: readonly TypeOption[] | null;
+// Секция палитры: шесть типов в сетке, активные — источники нативного драга. tiles —
+// плитки от страницы (element/paletteTiles); null — родитель уровня не загружен, палитра
+// ничего не гасит (тип проверит окно «Новый объект»).
+export function PaletteSection({ open, onToggle, drag, tiles }: {
+  open: boolean; onToggle: () => void; drag: PaletteDrag; tiles: readonly PaletteTile[] | null;
 }) {
   return (
     <Section title="Добавить объект" open={open} onToggle={onToggle}>
@@ -125,20 +126,35 @@ export function PaletteSection({ open, onToggle, drag, options }: {
       <div style={palette} data-tour="palette">
         {TYPE_ORDER.map((type) => {
           const label = TYPE_LABEL[type];
-          // Серая плитка остаётся источником драга: серость — про текущий уровень, а
-          // бросок в раскрытую рамку контейнера бывает законным («Компонент» с уровня
-          // системы в рамку её контейнера) — проверит окно «Новый объект».
-          const off = options?.find((o) => o.type === type && o.disabled);
+          const tile = tiles?.find((t) => t.type === type);
+          // Серая плитка не тянется: этот тип некуда положить ни на уровне, ни в раскрытые
+          // рамки; объяснение — в подсказке.
+          if (tile && !tile.enabled) {
+            return (
+              <div
+                key={type}
+                data-tour={`palette:${type}`}
+                className="template-card template-card--off"
+                aria-disabled="true"
+                style={templateCard}
+                title={tile.reason}
+              >
+                <TypeIcon type={type} />
+                <span style={templateLabel}>{label}</span>
+              </div>
+            );
+          }
           return (
             <div
               key={type}
               data-tour={`palette:${type}`}
-              className={off ? "template-card template-card--off" : "template-card"}
+              className="template-card"
               draggable
               onDragStart={(e) => drag.onTemplateDragStart(e, type)}
               onDragEnd={drag.onTemplateDragEnd}
               style={templateCard}
-              title={off ? off.reason : `Перетащить «${label}» на схему`}
+              // Активная только благодаря рамкам — подсказка, куда положить.
+              title={tile?.reason ?? `Перетащить «${label}» на схему`}
             >
               <TypeIcon type={type} />
               <span style={templateLabel}>{label}</span>

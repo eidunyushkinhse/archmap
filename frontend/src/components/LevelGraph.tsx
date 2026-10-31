@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useCallback, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent } from "react";
 import {
   ReactFlow,
@@ -49,6 +49,7 @@ import { useAlignmentGuides } from "./graph/interaction/useAlignmentGuides";
 import { useSnapAlignment } from "./graph/interaction/useSnapAlignment";
 import { useLevelMeasure } from "./graph/interaction/useLevelMeasure";
 import { useTemplateDrop, type DropFrame } from "./graph/interaction/useTemplateDrop";
+import { dropFrameTargets } from "./graph/dropFrameTargets";
 import { useLevelHistory } from "./graph/interaction/useLevelHistory";
 import { useLevelDragLifecycle } from "./graph/interaction/useLevelDragLifecycle";
 import { useLevelRehang } from "./graph/interaction/useLevelRehang";
@@ -239,7 +240,7 @@ function LevelGraphInner({
   );
   const { onCreateEdge, onConnectInto, onExitUp, onEdgesChoice, onReconnectFrameEnd } = edgeCallbacks;
   const { onRequestDeleteNode, onRequestDeleteNodes } = deleteCallbacks ?? {};
-  const { onDropNode, dragType } = drop ?? {};
+  const { onDropNode, dragType, onDropFrames, dropEligible, onDropRefused } = drop ?? {};
   const { history: historyProp, onUndo, onRedo } = undo ?? {};
   // readOnly гейтит все жесты правки, но не влияет на рендер уровня
   const isReadOnly = readOnly;
@@ -893,10 +894,26 @@ function LevelGraphInner({
     [layout],
   );
 
+  // Те же рамки — странице как цели броска плитки палитры (приёмка Ф12 2026-10-31): по ним
+  // она решает, какие плитки активны и куда тип можно бросить. Сообщаем только при смене
+  // набора (подпись — id, имя и элемент), а не на каждую раскладку: геометрия странице не
+  // нужна, а её setState перерисовывал бы холст. Эффект — синхронизация с внешним
+  // событием (смена раскладки), свежий колбэк — через useEffectEvent.
+  const dropTargets = useMemo(
+    () => dropFrameTargets(layout?.guestFrames ?? [], { names: ancestorNames, elements: ancestorElements }),
+    [layout, ancestorNames, ancestorElements],
+  );
+  const dropTargetsSig = dropTargets
+    .map((t) => `${t.id}:${t.name}:${t.subject.element_effective}:${t.subject.container_name ?? ""}`)
+    .join("|");
+  const reportDropTargets = useEffectEvent(() => { onDropFrames?.(dropTargets); });
+  useEffect(() => { reportDropTargets(); }, [dropTargetsSig]);
+
   // Перетаскивание шаблона узла из палитры: превью-рамка + создание узла на drop.
   const { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop } = useTemplateDrop({
     rfNodes, screenToFlowPosition, setGuides, clearGuides,
     isArchitect, disabled: !canStructure, onDropNode, dragType, expandedFrames,
+    eligible: dropEligible, onDropRefused,
   });
 
   // Рамка уровня, когда слой пуст: приглашение «первый узел кладут сюда» (CV20a).
@@ -1261,8 +1278,12 @@ function LevelGraphInner({
         {/* Живой оверлей рамок на время драга: RF-рамки предков скрыты, их bbox рисуют
             div-ы хука useFrameFollowOverlay (императивно, без setState на тик). */}
         {frameFollow.overlay && <ViewportPortal>{frameFollow.overlay}</ViewportPortal>}
-        {/* Подсказки дропа шаблона: превью узла, приглашение пустого слоя, рамка-цель. */}
-        <DropOverlays preview={dropPreview} targetFrame={dropTargetFrame} emptyFrame={emptyLevelFrame?.rect} />
+        {/* Подсказки дропа шаблона: превью узла (запретное там, где тип невозможен),
+            приглашение пустого слоя, рамка-цель, зелёные рамки-цели типа (CV20c). */}
+        <DropOverlays
+          preview={dropPreview} targetFrame={dropTargetFrame} emptyFrame={emptyLevelFrame?.rect}
+          frames={expandedFrames} eligible={dropEligible ?? null} dragging={!!dragType}
+        />
         {/* Превью «быстрой связи»: автоопределённая стрелка от хэндла к соседу. Гасим во
             время ручного протягивания (connecting), чтобы превью не накладывались. */}
         {qcCandidate && !connecting && (

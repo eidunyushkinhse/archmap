@@ -396,6 +396,105 @@ describe("MapEditorPage: создание объекта", () => {
   });
 });
 
+// ── Палитра и бросок по месту назначения (приёмка Ф12 2026-10-31) ─────────────
+// Цель броска проверяет тип: родителя уровня страница грузит сама (один GET на уровень и
+// мутацию), раскрытые рамки сообщает холст. Бросок туда, где тип невозможен, — тост с
+// причиной, окна нет; в принимающую рамку — окно с этим типом.
+describe("MapEditorPage: палитра и бросок по месту назначения", () => {
+  const sys = node("s1", { has_children: true, child_count: 1, element: null, element_effective: "system" });
+  const ordersFrame = {
+    id: "orders", name: "orders",
+    subject: { name: "orders", shape: "service", element: "container", element_effective: "container", has_children: true, container_name: null },
+  };
+  type Tile = { type: string; enabled: boolean; reason?: string };
+  const tileOf = (type: string) => (treeProps.current.paletteTiles as Tile[] | null)?.find((t) => t.type === type);
+  type Drop = {
+    onDropNode: (t: string, p: { x: number; y: number }, d: string | null) => void;
+    onDropFrames: (frames: unknown[]) => void;
+    onDropRefused: (t: string, d: string | null) => void;
+    dropEligible: { levelOk: boolean; frameIds: ReadonlySet<string> } | null;
+  };
+  const drop = () => levelGraphProps.current!.drop as Drop;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([sys]);
+    vi.mocked(nodesApi.get).mockResolvedValue(sys as never);
+  });
+
+  async function openSystemLevel() {
+    render(<MapEditorPage {...props} nodeId="s1" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(tileOf("component")?.enabled).toBe(false));
+  }
+
+  it("уровень системы: родитель — одним запросом, «Компонент» серый с причиной", async () => {
+    await openSystemLevel();
+    expect(nodesApi.get).toHaveBeenCalledTimes(1);
+    expect(nodesApi.get).toHaveBeenCalledWith("s1");
+    expect(tileOf("component")?.reason).toBe(
+      "Компонентом объект бывает только внутри контейнера. Чтобы вложить компонент, сделайте «S1» контейнером в его свойствах.",
+    );
+    expect(tileOf("container")).toEqual({ type: "container", enabled: true });
+  });
+
+  it("раскрытая рамка контейнера делает «Компонент» активным; бросок мимо рамок — тост, окна нет", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    expect(tileOf("component")).toEqual({
+      type: "component", enabled: true, reason: "Положите «Компонент» в раскрытую рамку: «orders»",
+    });
+    const onTemplateDrag = treeProps.current.onTemplateDrag as (type: string | null) => void;
+    act(() => { onTemplateDrag("component"); });
+    expect(drop().dropEligible?.levelOk).toBe(false);
+    expect([...drop().dropEligible!.frameIds]).toEqual(["orders"]);
+
+    act(() => { drop().onDropRefused("component", null); });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Компонентом объект бывает только внутри контейнера. Чтобы вложить компонент, сделайте «S1» контейнером "
+      + "в его свойствах. Положите «Компонент» в раскрытую рамку: «orders».",
+    );
+    expect(screen.queryByTestId("node-modal")).toBeNull();
+  });
+
+  it("бросок «Компонента» в рамку контейнера — окно «Новый объект» с «Компонентом»", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    act(() => { drop().onDropNode("component", { x: 10, y: 20 }, "orders"); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "orders");
+    expect(modal).toHaveAttribute("data-type", "component");
+  });
+
+  it("«База данных» в рамку контейнера — причина этой рамки", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    act(() => { drop().onDropRefused("database", "orders"); });
+    expect(screen.getByRole("alert")).toHaveTextContent("База данных не входит в состав контейнера, создайте её рядом с «orders».");
+  });
+
+  it("смена типа в свойствах перечитывает дерево и родителя уровня", async () => {
+    await openSystemLevel();
+    const reloadBefore = treeProps.current.reloadToken;
+    const onNodeSaved = inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
+    act(() => { onNodeSaved(node("a", { element: "system" }), false, node("a", { element: null })); });
+    expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
+    await waitFor(() => expect(nodesApi.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("родитель уровня не загрузился — тост с причиной, палитра ничего не гасит", async () => {
+    vi.mocked(nodesApi.get).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<MapEditorPage {...props} nodeId="s1" />);
+    await screen.findByTestId("level-graph");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить, какие объекты можно добавить в «S1»: Нет связи с сервером",
+    );
+    expect(treeProps.current.paletteTiles).toBeNull();
+    expect(drop().dropEligible ?? null).toBeNull();
+  });
+});
+
 // ── Перенос объекта на другой уровень (Ф4) ───────────────────────────────────
 // Сам жест живёт в дереве (его тесты — NodeTreePanel.test.tsx); здесь оркестрация:
 // снимок раскладки берётся ДО правки, иначе Undo вернул бы родителя без геометрии.
