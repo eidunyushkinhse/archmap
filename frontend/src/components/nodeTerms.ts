@@ -1,6 +1,7 @@
 // Подписи и порядок терминов узла и схемы — одним местом (аудит F-22). Копии жили на
 // странице объекта, в панели свойств, в окне узла и в вопросах ввоза и уже разошлись
-// («Брокер» в вопросах против «Брокер сообщений» везде остальном).
+// («Брокер» в вопросах против «Брокер сообщений» везде остальном). С 2026-10-31 — одним
+// словом «Брокер» везде, как в строке «Тип» (решение владельца).
 import type {
   Node, NodeApproval, NodeDocKind, NodeElement, NodeShape, NodeStatus, SiteKind, VersionCategory,
   VersionItemStatus,
@@ -9,7 +10,7 @@ import type {
 export const SHAPE_LABEL: Record<NodeShape, string> = {
   service: "Сервис",
   database: "База данных",
-  broker: "Брокер сообщений",
+  broker: "Брокер",
   person: "Пользователь",
 };
 

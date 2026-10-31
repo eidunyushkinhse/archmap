@@ -98,7 +98,7 @@ SITE_KINDS: tuple[SiteKind, ...] = get_args(SiteKind)
 NODE_SHAPE_LABELS: dict[NodeShape, str] = {
     "service": "Сервис",
     "database": "База данных",
-    "broker": "Брокер сообщений",
+    "broker": "Брокер",
     "person": "Пользователь",
 }
 NODE_STATUS_LABELS: dict[NodeStatus, str] = {
