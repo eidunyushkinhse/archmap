@@ -1688,17 +1688,6 @@ _ВРУЧНУЮ: list[tuple[str, list[str], str, str]] = [
         "перенести в один корень вручную.",
     ),
     (
-        "actors",
-        [
-            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
-            "        shape: person\n      - name: orders\n"
-            "edges:\n  - {from: Покупатель, to: orders}\n",
-        ],
-        "внутри системы оказались люди",
-        "Внутри системы оказались люди («Покупатель»). Человек пользуется системой, а не "
-        "входит в неё, поэтому их нужно будет перенести в корень схемы вручную.",
-    ),
-    (
         "lonely",  # один объект — «У 1 объекта»
         [
             "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
@@ -1763,6 +1752,62 @@ def test_вручную_сырая_строка_становится_пункт�
     assert friendly_remark(сырая) == пункт
     # Пункт доехал до свёртки — и схемный, и пофайловый (Ф2г).
     assert пункт in [u.text for u in remainder_from_plan(план, None).unfixable]
+
+
+def test_вручную_пользователь_поднят_разбором_а_не_строкой_слияния():
+    """«Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31):
+    разбор каждого входа поднимает вложенного туда сам, и в свёртку едет его замечание
+    как есть — строки слияния «внутри системы оказались люди» больше нет."""
+    план = build_unified_plan([
+        ("shop.yaml", (
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+            "        shape: person\n      - name: orders\n"
+            "edges:\n  - {from: Покупатель, to: orders}\n"
+        ).encode()),
+        ("orders.yaml", (
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+            "        element: container\n        children:\n          - name: api\n"
+            "          - name: Оператор\n            shape: person\n"
+            "edges:\n  - {from: Оператор, to: api}\n"
+        ).encode()),
+    ])
+    assert план.ok and план.merged is not None
+    assert {
+        n.name: n.parent_idx for n in план.merged.nodes if n.shape == "person"
+    } == {"Покупатель": None, "Оператор": None}
+    пункты = [(u.text, u.file) for u in remainder_from_plan(план, None).unfixable]
+    assert (
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "уровень", 0,
+    ) in пункты
+    assert (
+        "Ярмарка / orders: пользователь «Оператор» живёт вне границ системы — поднят на "
+        "верхний уровень", 1,
+    ) in пункты
+    assert not any("оказались люди" in w for w in план.report.warnings)
+
+
+def test_применение_кладёт_вложенного_пользователя_в_корень(db):
+    """Сквозь создание проекта единым ввозом: «Пользователь», вложенный в файле в систему
+    и в контейнер, ложится на верхний уровень, связи с ним целы."""
+    план = build_unified_plan([("shop.yaml", (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+        "        shape: person\n      - name: orders\n        element: container\n"
+        "        children:\n          - name: api\n          - name: Оператор\n"
+        "            shape: person\n"
+        "edges:\n  - {from: Покупатель, to: orders}\n  - {from: Оператор, to: api}\n"
+    ).encode())])
+    проект, _отчёт = apply_unified_plan(db, план, {}, "Ярмарка", None, ensure_architect(db).id)
+    db.commit()
+
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == проект.id)}
+    assert узлы["Покупатель"].parent_id is None and узлы["Оператор"].parent_id is None
+    assert узлы["orders"].element == "container"
+    связи = {
+        (e.source_id, e.target_id) for e in db.query(Edge).filter(Edge.project_id == проект.id)
+    }
+    assert (узлы["Покупатель"].id, узлы["orders"].id) in связи
+    assert (узлы["Оператор"].id, узлы["api"].id) in связи
 
 
 def test_вручную_незнакомая_строка_как_есть():

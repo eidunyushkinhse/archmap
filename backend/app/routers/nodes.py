@@ -168,6 +168,13 @@ def create_node(
         # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
         if parent.shape not in reparent.CONTAINER_SHAPES:
             raise HTTPException(status_code=422, detail=reparent.NO_CHILDREN)
+        # «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31) —
+        # до правила первого вложенного объекта: человек не задаёт родителю элемент.
+        reason = reparent.person_refusal(
+            shape=payload.shape, parent_id=parent.id, name=payload.name, action="create"
+        )
+        if reason:
+            raise HTTPException(status_code=422, detail=reason)
         # Первый вложенный объект задаёт элемент родителя (Р38): правило — в домене,
         # дальше проверки ребёнка видят дерево уже с этим элементом.
         if payload.parent_element is not None:

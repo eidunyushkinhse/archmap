@@ -22,6 +22,7 @@ from app.import_element import (
     CHILDLESS_LIFTED_NOTE,
     COMPONENT_NOTE,
     ONLY_SERVICE_NOTE,
+    PERSON_LIFTED_NOTE,
     STORE_KEPT_NOTE,
     STORE_LIFTED_NOTE,
     sanitize_elements,
@@ -766,14 +767,16 @@ def test_preview_splits_remarks_by_file_and_schema(db):
         "        technology: Go\n"
         "      - name: Оператор\n"
         "        shape: person\n"
+        "      - name: Забытый\n"
     )
     out = _preview(_MULTI_A, b)
 
     assert out.ok and out.files == 2
     assert [f.file for f in out.file_remarks] == [1, 2]
-    # Человек внутри системы и объект без связей — содержимое файла 2, его агенту.
+    # Человек внутри системы (разбор поднял его на верхний уровень) и объект без связей —
+    # содержимое файла 2, его агенту.
     assert out.file_remarks[0].warnings == []
-    assert any("человек" in w for w in out.file_remarks[1].warnings)
+    assert any("пользователь «Оператор»" in w for w in out.file_remarks[1].warnings)
     assert any("без единой связи" in w for w in out.file_remarks[1].warnings)
     # Расхождение technology между файлами — только пользователю.
     assert any("оставлено «Python»" in w for w in out.schema_warnings)
@@ -1380,17 +1383,17 @@ def test_чужой_элемент_ошибка_как_у_формы():
 
 
 def test_элемент_у_не_сервиса_снят_с_замечанием():
-    parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+    parsed, errors = parse_import(_yaml([
+        {"name": "Ярмарка", "children": [
             {"name": "orders-db", "shape": "database", "element": "container"},
-            {"name": "Покупатель", "shape": "person", "element": "system"},
-        ],
-    }]))
+        ]},
+        {"name": "Покупатель", "shape": "person", "element": "system"},
+    ]))
     assert errors == [] and parsed is not None
     assert [n.element for n in parsed.nodes] == [None, None, None]
     assert parsed.warnings == [
         "Ярмарка / orders-db: элемент архитектуры задаётся только у сервиса — значение пропущено",
-        "Ярмарка / Покупатель: элемент архитектуры задаётся только у сервиса — значение пропущено",
+        "Покупатель: элемент архитектуры задаётся только у сервиса — значение пропущено",
     ]
 
 
@@ -1493,12 +1496,12 @@ def test_база_глубже_в_составном_компоненте_тож
 
 @pytest.mark.parametrize(("shape", "holder", "word"), [
     ("database", "orders-db", "у базы данных"), ("broker", "Kafka", "у брокера"),
-    ("person", "Покупатель", "у пользователя"),
 ])
-def test_у_базы_брокера_и_пользователя_вложенный_объект_поднят_с_поддеревом(shape, holder, word):
-    """Вложенных объектов у базы, брокера и «Пользователя» не бывает (API отказывает, N4):
-    ввоз файла не отвергается — ребёнок с поддеревом поднимается к родителю такого
-    объекта и становится его соседом, с замечанием."""
+def test_у_базы_и_брокера_вложенный_объект_поднят_с_поддеревом(shape, holder, word):
+    """Вложенных объектов у базы и брокера не бывает (API отказывает, N4): ввоз файла не
+    отвергается — ребёнок с поддеревом поднимается к родителю такого объекта и
+    становится его соседом, с замечанием. «Пользователь» — следующий тест: он сам
+    поднимается на верхний уровень."""
     parsed, errors = parse_import(_yaml([{
         "name": "Ярмарка", "children": [
             {"name": holder, "shape": shape, "children": [
@@ -1516,6 +1519,129 @@ def test_у_базы_брокера_и_пользователя_вложенны
         f"Ярмарка / {holder}: {word} «{holder}» вложенных объектов не бывает — "
         "«orders-schema» поднят на уровень выше, в «Ярмарка»",
     ]
+
+
+def test_дети_пользователя_остаются_у_его_родителя_а_он_поднят_на_верхний_уровень():
+    """Правило 0 идёт первым: дети «Пользователя» с поддеревьями — к его родителю (у
+    пользователя вложенных объектов не бывает), затем правило 0а поднимает самого
+    пользователя на верхний уровень (решение владельца 2026-10-31). Наоборот дети
+    уехали бы в корень вместе с ним."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "Покупатель", "shape": "person", "children": [
+                {"name": "orders-schema", "children": [{"name": "tables"}]},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {
+        "Ярмарка": None, "Покупатель": None, "orders-schema": "Ярмарка",
+        "tables": "orders-schema",
+    }
+    assert parsed.roots == ["Ярмарка", "Покупатель"]
+    assert parsed.warnings == [
+        "Ярмарка / Покупатель: у пользователя «Покупатель» вложенных объектов не бывает — "
+        "«orders-schema» поднят на уровень выше, в «Ярмарка»",
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "уровень",
+    ]
+
+
+@pytest.mark.parametrize("place", ["system", "container", "component"])
+def test_пользователь_внутри_объекта_поднят_на_верхний_уровень(place):
+    """«Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31, API
+    отказывает в создании внутри объекта): где бы он ни лежал — в системе, в контейнере
+    или глубже, в его компоненте, — разбор поднимает его в корень, одним замечанием с
+    путём прежнего родителя. Контейнер остаётся контейнером."""
+    человек = {"name": "Покупатель", "shape": "person"}
+    if place == "system":
+        дерево = {"name": "Ярмарка", "children": [{"name": "orders"}, человек]}
+        откуда = "Ярмарка"
+    elif place == "container":
+        дерево = {"name": "orders", "element": "container", "children": [{"name": "api"}, человек]}
+        откуда = "orders"
+    else:
+        дерево = {"name": "orders", "element": "container", "children": [
+            {"name": "api", "children": [{"name": "handler"}, человек]},
+        ]}
+        откуда = "orders / api"
+    parsed, errors = parse_import(_yaml([дерево]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed)["Покупатель"] is None
+    assert parsed.roots[-1] == "Покупатель"
+    assert parsed.warnings == [PERSON_LIFTED_NOTE.format(path=откуда, name="Покупатель")]
+    assert parsed.warnings[0] == (
+        f"{откуда}: пользователь «Покупатель» живёт вне границ системы — поднят на "
+        "верхний уровень"
+    )
+    if place != "system":
+        assert parsed.nodes[0].element == "container"
+
+
+def test_пользователь_в_базе_поднят_одним_замечанием():
+    """Человек внутри базы: правило 0 его не трогает (иначе он поднялся бы к родителю
+    базы и вторым замечанием — в корень), правило 0а поднимает сразу на верхний
+    уровень. Замечание — одно, с путём базы."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [
+            {"name": "orders-db", "shape": "database", "children": [
+                {"name": "Администратор БД", "shape": "person"},
+            ]},
+        ],
+    }]))
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {"Ярмарка": None, "orders-db": "Ярмарка", "Администратор БД": None}
+    assert parsed.warnings == [
+        PERSON_LIFTED_NOTE.format(path="Ярмарка / orders-db", name="Администратор БД"),
+    ]
+
+
+def test_закреплённый_пользователь_не_поднимается():
+    """Живое дерево догрузка не перестраивает: закреплённый (живой) вложенный
+    «Пользователь» из старых данных остаётся на месте без замечания — его отмечает
+    панель проекта (AL25); новый вложенный — поднимается."""
+    parsed, _ = parse_import(_yaml([{"name": "Ярмарка"}, {"name": "Оператор", "shape": "person"},
+                                    {"name": "Покупатель", "shape": "person"}]))
+    assert parsed is not None
+    parsed.nodes[1].parent_idx = 0
+    parsed.nodes[2].parent_idx = 0
+    заметки = sanitize_elements(
+        parsed.nodes, ["Ярмарка", "Ярмарка / Оператор", "Ярмарка / Покупатель"],
+        pinned=lambda i: i in (0, 1), live_element=lambda _i: False,
+    )
+    assert _родители(parsed) == {"Ярмарка": None, "Оператор": "Ярмарка", "Покупатель": None}
+    assert заметки == [PERSON_LIFTED_NOTE.format(path="Ярмарка", name="Покупатель")]
+
+
+def test_живой_разбор_вложенного_пользователя_не_трогает():
+    """Вход №0 догрузки — снимок живого проекта: вложенный «Пользователь» из старых
+    данных остаётся на месте, замечания нет."""
+    parsed, errors = parse_import(_yaml([{
+        "name": "Ярмарка", "children": [{"name": "Оператор", "shape": "person"}],
+    }]), live=True)
+    assert errors == [] and parsed is not None
+    assert _родители(parsed) == {"Ярмарка": None, "Оператор": "Ярмарка"}
+    assert parsed.warnings == []
+
+
+def test_ввезённый_проект_держит_пользователя_в_корне(db):
+    """Сквозь создание проекта: вложенный в файле «Пользователь» ложится в корень, связь
+    с ним цела."""
+    p = _project(db)
+    parsed, _ = parse_import(yaml.safe_dump({
+        "nodes": [{"name": "Ярмарка", "children": [
+            {"name": "orders"}, {"name": "Покупатель", "shape": "person"},
+        ]}],
+        "edges": [{"from": "Покупатель", "to": "orders"}],
+    }, allow_unicode=True, sort_keys=False))
+    assert parsed is not None
+    seed_import(db, p.id, parsed)
+    db.flush()
+    человек = db.query(Node).filter(Node.project_id == p.id, Node.name == "Покупатель").one()
+    orders = db.query(Node).filter(Node.project_id == p.id, Node.name == "orders").one()
+    assert человек.parent_id is None
+    [связь] = db.query(Edge).filter(Edge.project_id == p.id).all()
+    assert (связь.source_id, связь.target_id) == (человек.id, orders.id)
 
 
 def test_корневой_брокер_отдаёт_вложенный_объект_на_верхний_уровень():
@@ -1765,6 +1891,7 @@ def test_замечания_элемента_не_попадают_в_чужой
         STORE_KEPT_NOTE["database"].format(path="Ярмарка / orders", name="orders-db"),
         STORE_KEPT_NOTE["broker"].format(path="Ярмарка / events", name="Kafka"),
         COMPONENT_NOTE.format(path="orders / api", container="orders"),
+        PERSON_LIFTED_NOTE.format(path="Ярмарка", name="Покупатель"),
         *(
             CHILDLESS_LIFTED_NOTE[shape].format(
                 path="Ярмарка / orders-db", name="orders-db", child="orders-schema",

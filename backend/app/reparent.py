@@ -21,6 +21,7 @@
 """
 
 import uuid
+from typing import Literal
 
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -43,6 +44,38 @@ from app.view_state import bump_view_version
 CONTAINER_SHAPES = {"service"}
 # Отказ «внутрь формы без детей» — общий у переноса и создания (routers/nodes.create_node).
 NO_CHILDREN = "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"
+# «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31): по C4
+# человек пользуется системой, а не входит в неё, и Structurizr DSL не допускает person
+# нигде, кроме модели. Одна семья текстов на три жеста — перенос внутрь объекта, создание
+# внутри него и смену формы у вложенного объекта. Вынести в корень можно всегда.
+PERSON_MOVE = "Пользователь живёт вне границ системы — его нельзя вложить в объект"
+PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его на верхнем уровне"
+PERSON_SHAPE = (
+    "Пользователь живёт вне границ системы, сначала перенесите «{name}» на верхний уровень"
+)
+
+
+def person_refusal(
+    *,
+    shape: str,
+    parent_id: uuid.UUID | None,
+    name: str,
+    action: Literal["create", "move", "shape"],
+) -> str | None:
+    """Почему объект формы shape не может оказаться под parent_id; None — может. shape,
+    parent_id и name — ПОСЛЕ правки (тот же запрос может и переносить, и менять форму);
+    action выбирает текст. Чистая проверка, без HTTP: статус ставит роутер.
+
+    Вложенные «Пользователи» из старых данных (до 2026-10-31 создание внутри объекта
+    проходило) правило не трогает: их отмечает AL25 (app/alerts), а копия проекта, Undo
+    удаления и откат версии переносят их как есть."""
+    if shape != "person" or parent_id is None:
+        return None
+    if action == "move":
+        return PERSON_MOVE
+    if action == "create":
+        return PERSON_CREATE
+    return PERSON_SHAPE.format(name=name)
 
 
 def validate_reparent(
@@ -56,13 +89,16 @@ def validate_reparent(
     """Причина, по которой переносить нельзя, либо None. Чистая проверка, без HTTP.
 
     shape — форма узла после правки, если тот же запрос её меняет (иначе текущая): база
-    или брокер внутри контейнера (Р6 эпика элементов) проверяются по дереву после
-    переноса."""
+    или брокер внутри контейнера (Р6 эпика элементов) и «Пользователь» проверяются по
+    дереву после правки."""
     # Человек по C4 живёт на контекстном уровне, ЗА границей системы — именно это
     # нарушение и ловит алерт AL25. Запрет односторонний: вынести человека НАРУЖУ
     # (parent_id = None) можно всегда, иначе алерт снова стал бы тупиком.
-    if node.shape == "person" and new_parent_id is not None:
-        return "Пользователь живёт вне границ системы — его нельзя вложить в объект"
+    person = person_refusal(
+        shape=shape or node.shape, parent_id=new_parent_id, name=node.name, action="move"
+    )
+    if person:
+        return person
     if new_parent_id is None:
         return None
     if new_parent_id == node.id:
@@ -165,9 +201,12 @@ def validate_shape_change(
     показывает «неположенное» содержимое legacy-механикой (legacyLogic/legacySpec) —
     с предупреждением и без кнопок добавления, то есть унести его есть чем.
 
-    И запрет по месту, а не по владению: база или брокер не входят в контейнер (Р6 эпика
-    элементов). Объект внутри контейнера — его компонент, и стать базой или брокером он
-    не может. parent_id — родитель после правки (тот же запрос может и переносить).
+    И запреты по месту, а не по владению: база или брокер не входят в контейнер (Р6 эпика
+    элементов) — объект внутри контейнера его компонент, и стать базой или брокером он
+    не может; «Пользователь» живёт только на верхнем уровне (решение владельца
+    2026-10-31) — вложенный объект им не становится, пока его не вынесли в корень.
+    parent_id — родитель после правки (тот же запрос может и переносить): «вынести в
+    корень и стать пользователем» одним запросом проходит.
     """
     if new_shape not in CONTAINER_SHAPES:
         has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
@@ -194,6 +233,9 @@ def validate_shape_change(
         )
         if placed:
             return "У объекта указано размещение — у пользователя его нет, сначала снимите его"
+    person = person_refusal(shape=new_shape, parent_id=parent_id, name=node.name, action="shape")
+    if person:
+        return person
     return store_refusal(
         project_element_rows(db, node.project_id),
         node_id=node.id,

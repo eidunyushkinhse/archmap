@@ -385,19 +385,28 @@ def test_создание_под_листом_с_площадками_отдаё
     assert s.own() == {"api": ["prod-eu", "prod-ru"]}
 
 
-@pytest.mark.parametrize(
-    ("fields", "child"),
-    [
-        ({"element": "container"}, {}),  # лист-контейнер: ребёнок — его компонент
-        ({}, {"shape": "person"}),  # «Пользователь» площадок не принимает
-    ],
-)
-def test_создание_ничего_не_переносит(client, db, fields, child):
-    s = Scene(db, client, [("orders", None, fields, ["prod-eu"])])
+def test_создание_компонента_ничего_не_переносит(client, db):
+    # Лист-контейнер: ребёнок — его компонент, площадки остаются у контейнера.
+    s = Scene(db, client, [("orders", None, {"element": "container"}, ["prod-eu"])])
     g0, m0 = s.revs()
-    s.create("api", "orders", **child)
+    s.create("api", "orders")
     assert s.own() == {"orders": ["prod-eu"]}
     assert s.revs() == (g0 + 1, m0)
+
+
+def test_пользователь_внутри_листа_не_создаётся_и_площадки_не_трогает(client, db):
+    # «Пользователь» живёт только на верхнем уровне (2026-10-31): первым вложенным
+    # объектом он не бывает, отказ создания ничего не переносит.
+    s = Scene(db, client, [("orders", None, {}, ["prod-eu"])])
+    g0, m0 = s.revs()
+    s.db.expunge_all()
+    r = s.client.post(URL, headers=s.h, json={
+        "name": "Покупатель", "parent_id": str(s.ids["orders"]), "shape": "person",
+    })
+    assert r.status_code == 422
+    db.rollback()
+    assert s.own() == {"orders": ["prod-eu"]}
+    assert s.revs() == (g0, m0)
 
 
 def test_перенос_поддерева_в_лист_с_площадками(client, db):

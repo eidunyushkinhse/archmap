@@ -26,7 +26,6 @@ from app.element_rules import (
     PARENT_ELEMENT_ROOT,
     PARENT_ELEMENT_SET,
     PARENT_HAS_CHILDREN,
-    PERSON_CREATE,
     STORE_CREATE,
     first_child_refusal,
 )
@@ -35,7 +34,7 @@ from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
 from app.models.project import Project
-from app.reparent import NO_CHILDREN
+from app.reparent import NO_CHILDREN, PERSON_CREATE
 
 URL = "/api/v1/nodes"
 
@@ -133,12 +132,27 @@ def test_другой_тип_делает_лист_системой(client, db):
     assert (parent["element"], parent["element_effective"]) == ("system", "system")
 
 
-@pytest.mark.parametrize("shape", ["database", "broker", "person"])
-def test_база_брокер_пользователь_делают_лист_системой(client, db, shape):
+@pytest.mark.parametrize("shape", ["database", "broker"])
+def test_база_и_брокер_делают_лист_системой(client, db, shape):
     s = Scene(db, client, [("orders", None, {}, [])])
     r = s.post("child", "orders", shape=shape, parent_element="system")
     assert r.status_code == 201, r.text
     assert s.node("orders")["element"] == "system"
+
+
+@pytest.mark.parametrize("value", ["system", "container"])
+def test_пользователь_не_создаётся_внутри_листа_и_не_задаёт_родителя(client, db, value):
+    """«Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31): отказ
+    создания раньше правила первого вложенного объекта, элемент родителя не записан."""
+    s = Scene(db, client, [("orders", None, {}, [])])
+    g0, m0 = s.revs()
+    r = s.post("Покупатель", "orders", shape="person", parent_element=value)
+    assert r.status_code == 422
+    assert r.json()["detail"] == PERSON_CREATE
+    assert r.json()["detail"] == "Пользователь живёт вне границ системы, создайте его на верхнем уровне"
+    db.rollback()
+    assert s.node("orders")["element"] is None
+    assert s.revs() == (g0, m0)
 
 
 # ── Площадки: правило 5 D34 в той же транзакции ───────────────────────────────
@@ -222,7 +236,6 @@ def test_на_верхнем_уровне_отказ(client, db):
 @pytest.mark.parametrize(("shape", "template"), [
     ("database", STORE_CREATE["database"]),
     ("broker", STORE_CREATE["broker"]),
-    ("person", PERSON_CREATE),
 ])
 def test_контейнер_только_с_компонентом(client, db, shape, template):
     s = Scene(db, client, [("orders", None, {}, [])])

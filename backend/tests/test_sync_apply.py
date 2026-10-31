@@ -443,3 +443,52 @@ def test_apply_брокер_корневого_контейнера_на_вер�
     assert report.created_nodes == ["orders / Kafka"]
     assert _node(db, p.id, "Kafka").parent_id is None
     assert _plan(db, p, прогон).is_noop
+
+
+# ── «Пользователь» из прогона — только на верхнем уровне (2026-10-31) ─────────
+
+
+def test_синк_создаёт_вложенного_пользователя_на_верхнем_уровне_фикспойнт(db):
+    """Прогон кладёт людей внутрь системы и внутрь живого контейнера: разбор прогона
+    поднимает их на верхний уровень (та же санитизация, что у ввоза), синк создаёт их в
+    корне, связи находят концы, повторный прогон пуст."""
+    живой = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+    )
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+        "        shape: person\n      - name: orders\n        element: container\n"
+        "        children:\n          - name: api\n          - name: Оператор\n"
+        "            shape: person\n"
+        "edges:\n  - {from: Покупатель, to: orders, label: заказывает}\n"
+        "  - {from: Оператор, to: orders, label: смотрит}\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.ok
+    assert [(a.path, a.action) for a in превью.nodes if a.action == "create"] == [
+        ("Покупатель", "create"), ("Оператор", "create"),
+    ]
+    assert [w for w in превью.warnings if "пользователь «" in w] == [
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "уровень",
+        "Ярмарка / orders: пользователь «Оператор» живёт вне границ системы — поднят на "
+        "верхний уровень",
+    ]
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+
+    assert out.created_nodes == ["Покупатель", "Оператор"]
+    assert _node(db, p.id, "Покупатель").parent_id is None
+    assert _node(db, p.id, "Оператор").parent_id is None
+    orders = _node(db, p.id, "orders")
+    концы = {
+        (e.source_id, e.target_id) for e in db.query(Edge).filter(Edge.project_id == p.id)
+    }
+    assert (_node(db, p.id, "Покупатель").id, orders.id) in концы
+    assert (_node(db, p.id, "Оператор").id, orders.id) in концы
+
+    again = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert again.is_noop, again.summary

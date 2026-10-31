@@ -202,9 +202,15 @@ def test_спящие_площадки_получает_первый_перен�
     assert s.own() == {"billing": ["prod-eu", "prod-ru"]}
 
 
-def test_первый_вложенный_пользователь_площадки_не_будит(client, db):
+def test_пользователь_в_пустой_системе_не_создаётся_и_площадки_не_будит(client, db):
+    # «Пользователь» живёт только на верхнем уровне (2026-10-31): в пустую систему он не
+    # создаётся, спящие площадки остаются ждать первого объекта-единицы.
     s = Scene(db, client, [("orders", None, {"element": "system"}, ["prod-eu"])])
-    s.create("Покупатель", "orders", shape="person")
+    r = s.call("POST", URL, json={
+        "name": "Покупатель", "parent_id": str(s.ids["orders"]), "shape": "person",
+    })
+    assert r.status_code == 422
+    db.rollback()
     assert s.own() == {"orders": ["prod-eu"]}
 
 
