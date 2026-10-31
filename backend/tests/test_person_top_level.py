@@ -9,21 +9,34 @@
 формы у вложенного объекта (400, как прочие отказы смены формы). Родитель и форма
 проверяются ПОСЛЕ правки: «вынести в корень и стать пользователем» одним PATCH проходит.
 Вложенный человек из старых данных правкам не мешает — его отмечает AL25.
+
+Второе правило того же решения (N4): вложенных объектов у «Пользователя» не бывает —
+как у базы и брокера. Его держат все пути записи: создание внутри (422) и перенос
+внутрь (400) отвечают общим отказом формы без детей, смена формы узла с вложенными на
+«Пользователя» — отказом смены формы, ввоз файла и архива поднимает детей человека к
+его родителю (у корневого — на верхний уровень) с замечанием. Синк — в
+test_sync_apply (раздел N4): вложенные прогона создаются там, где сам человек.
 """
 
+import io
 import uuid
+import zipfile
 from typing import Any
 
 import pytest
+import yaml
 from conftest import ensure_architect, make_project
 from fastapi.testclient import TestClient
 
 from app.auth import create_access_token
 from app.database import get_db
+from app.import_yaml import parse_import
 from app.main import app
 from app.models.node import Node
 from app.models.project import Project
-from app.reparent import PERSON_CREATE, PERSON_MOVE, PERSON_SHAPE
+from app.reparent import NO_CHILDREN, PERSON_CREATE, PERSON_MOVE, PERSON_SHAPE
+from app.unified_apply import apply_unified_plan
+from app.unified_import import build_unified_plan
 
 URL = "/api/v1/nodes"
 
@@ -206,3 +219,93 @@ def test_вложенный_пользователь_из_старых_данн�
     r = s.patch("Оператор", parent=None)
     assert r.status_code == 200, r.text
     assert r.json()["parent_id"] is None
+
+
+# ── N4: вложенных объектов у «Пользователя» не бывает ─────────────────────────
+
+ЛЮДИ: list[tuple[str, str | None, dict[str, Any]]] = [
+    ("Покупатель", None, {"shape": "person"}),
+    ("Ярмарка", None, {}),
+    ("orders", "Ярмарка", {}),
+]
+
+
+def test_внутри_пользователя_не_создаётся_ничего(client, db):
+    """Создание внутри «Пользователя» — тот же отказ, что внутри базы и брокера: форма без
+    детей проверяется раньше правила первого вложенного объекта."""
+    s = Scene(db, client, ЛЮДИ)
+    g0, m0 = s.revs()
+    for shape in ("service", "database", "person"):
+        r = s.post("кабинет", "Покупатель", shape=shape)
+        assert (r.status_code, r.json()["detail"]) == (422, NO_CHILDREN)
+    db.rollback()
+    assert s.revs() == (g0, m0)
+    assert db.query(Node).filter(Node.parent_id == s.ids["Покупатель"]).count() == 0
+
+
+def test_внутрь_пользователя_не_переносится(client, db):
+    s = Scene(db, client, ЛЮДИ)
+    r = s.patch("orders", parent="Покупатель")
+    assert (r.status_code, r.json()["detail"]) == (400, NO_CHILDREN)
+    preview = s.client.get(
+        f"{URL}/{s.ids['orders']}/move-preview", headers=s.h,
+        params={"parent_id": str(s.ids["Покупатель"])},
+    )
+    assert (preview.status_code, preview.json()["detail"]) == (400, NO_CHILDREN)
+    assert s.node("orders")["parent_id"] == str(s.ids["Ярмарка"])
+
+
+def test_объект_с_вложенными_не_становится_пользователем(client, db):
+    """Корневой объект пользователем стать может (выше), но не с вложенными: отказ смены
+    формы называет все три формы без детей."""
+    s = Scene(db, client, ЛЮДИ)
+    r = s.patch("Ярмарка", shape="person")
+    assert r.status_code == 400
+    assert r.json()["detail"] == (
+        "У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не "
+        "стать"
+    )
+    assert s.node("Ярмарка")["shape"] == "service"
+
+
+def test_ввоз_файла_поднимает_детей_корневого_пользователя_на_верхний_уровень():
+    """Правило 0 ввоза (app/import_element): дети «Пользователя» — к его родителю, у
+    корневого — на верхний уровень, с поддеревом и одним замечанием на ребёнка. Вложенный
+    человек — test_import (его дети остаются у его родителя, сам он уходит в корень)."""
+    parsed, errors = parse_import(
+        "nodes:\n  - name: Покупатель\n    shape: person\n    children:\n"
+        "      - name: кабинет\n        children:\n          - name: профиль\n"
+    )
+    assert errors == [] and parsed is not None
+    родители = {
+        n.name: (parsed.nodes[n.parent_idx].name if n.parent_idx is not None else None)
+        for n in parsed.nodes
+    }
+    assert родители == {"Покупатель": None, "кабинет": None, "профиль": "кабинет"}
+    assert parsed.warnings == [
+        "Покупатель: у пользователя «Покупатель» вложенных объектов не бывает — «кабинет» "
+        "поднят на верхний уровень",
+    ]
+
+
+def test_ввоз_архива_не_кладёт_детей_в_пользователя(db):
+    """Архив знания проходит тот же разбор C4 (unified_import → parse_import): после
+    применения у «Пользователя» нет вложенных, его бывший ребёнок — на верхнем уровне."""
+    c4 = (
+        "nodes:\n  - name: Покупатель\n    shape: person\n    children:\n"
+        "      - name: кабинет\n  - name: Ярмарка\n"
+    )
+    manifest = {"archmap-archive": 1, "project": {"name": "Архив"}, "contents": {"c4": "c4.yaml"}}
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("manifest.yaml", yaml.safe_dump(manifest, allow_unicode=True))
+        zf.writestr("c4.yaml", c4)
+    план = build_unified_plan([("project.zip", buf.getvalue())])
+    assert план.ok and план.merged is not None
+    проект, _отчёт = apply_unified_plan(db, план, {}, "Архив", None, ensure_architect(db).id)
+    db.commit()
+
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == проект.id)}
+    assert узлы["Покупатель"].shape == "person"
+    assert узлы["кабинет"].parent_id is None
+    assert db.query(Node).filter(Node.parent_id == узлы["Покупатель"].id).count() == 0

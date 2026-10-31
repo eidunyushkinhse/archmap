@@ -22,7 +22,7 @@ from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
 from app.models.project import Project
-from app.reparent import validate_shape_change
+from app.reparent import CONTAINER_SHAPES, validate_shape_change
 from app.sync_plan import SyncEdgeAction, SyncNodeAction, SyncPlan
 from app.view_state import bump_graph_rev
 
@@ -195,6 +195,14 @@ def _create_node(
         # Родитель не создался (например, был пропущен как компонент) — ребёнка в
         # корень не выносим, это исказило бы иерархию.
         report.skipped.append(f"{act.path}: родитель не найден")
+        return
+    if parent is not None and parent.shape not in CONTAINER_SHAPES:
+        # N4: у базы, брокера и «Пользователя» вложенных объектов не бывает. План кладёт
+        # таких детей уровнем выше (sync_plan._walk_from_childless); план без этого
+        # правила сюда их донесёт — объект не создаётся, причина — строкой отчёта.
+        report.skipped.append(
+            f"{act.path}: не создан — у «{parent.name}» вложенных объектов не бывает"
+        )
         return
     node = Node(
         id=uuid.uuid4(),

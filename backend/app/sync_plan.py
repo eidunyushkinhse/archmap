@@ -196,6 +196,9 @@ _ANCHOR_BASIS = frozenset({"code", "dependency"})
 
 # Формы, которые не входят в состав контейнера (Р6), — с родом для строк плана.
 _STORE_WORDS = {"database": ("база данных", "создана", "она"), "broker": ("брокер", "создан", "он")}
+# Формы без вложенных объектов (N4): у базы, брокера и «Пользователя» детей не бывает.
+# Слово — для строки плана «у пользователя вложенных объектов не бывает».
+_CHILDLESS_WORDS = {"person": "пользователя", "database": "базы данных", "broker": "брокера"}
 
 
 def _human_source(ref: str | None) -> str:
@@ -460,6 +463,9 @@ class _Matcher:
                 self.skipped.add(i)
                 continue
             parent_live = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+            if parent_live is not None and parent_live.shape in _CHILDLESS_WORDS:
+                self._walk_from_childless(i, imp, parent_idx, parent_live)
+                continue
             lift = self._lift_target(parsed, i)
             if lift is not None:
                 self._walk_lifted(i, imp, parent_idx, lift)
@@ -528,6 +534,43 @@ class _Matcher:
             # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
             # «показан в другом месте».
             self.plan.conflicts.append(self._lift_note(imp, container, parent, found=True))
+        self._take(i, imp, parent_idx, live, how, want_parent)
+
+    def _walk_from_childless(
+        self, i: int, imp: _ImpNode, parent_idx: int | None, holder: Node
+    ) -> None:
+        """Прогон кладёт объект внутрь живой базы, брокера или «Пользователя»: в прогоне
+        тот — сервис с вложенными, но сервис в YAML — значение по умолчанию, и форму
+        живого синк не меняет, а вложенных объектов у этих форм не бывает (N4). Как
+        правило 0 ввоза (app/import_element): матчинг и создание — у родителя такого
+        объекта, у корневого — на верхнем уровне. Строка conflicts объясняет, почему
+        объект в схеме не там, где его показал прогон."""
+        parent = self.by_id.get(holder.parent_id) if holder.parent_id else None
+        want_parent = parent.id if parent else None
+        where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
+        head = (
+            f"«{holder.name}»: у {_CHILDLESS_WORDS[holder.shape]} вложенных объектов не "
+            f"бывает — «{imp.name}»"
+        )
+        live, how = self._match(imp, parent)
+        if live is None:
+            self.plan.conflicts.append(f"{head} будет создан {where}")
+            self.plan.nodes.append(
+                SyncNodeAction(
+                    path=self.imp_paths[i],
+                    action="create",
+                    node_id=None,
+                    source_ref=imp.source_keys[0] if imp.source_keys else None,
+                    imp_idx=i,
+                    parent_id=want_parent,
+                )
+            )
+            return
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if live_parent == want_parent:
+            # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
+            # «показан в другом месте».
+            self.plan.conflicts.append(f"{head} в схеме лежит {where}")
         self._take(i, imp, parent_idx, live, how, want_parent)
 
     def _take(

@@ -100,8 +100,8 @@ function createOptions(parent: TypeSubject | null): TypeOption[] {
       return enabled(type);
     });
   }
-  // Верхний уровень и система (с вложенными или пустая); база, брокер и «Пользователь» с
-  // детьми из старых данных — как система.
+  // Верхний уровень и система (с вложенными или пустая); база и брокер с детьми из старых
+  // данных — как система. У «Пользователя» вложенных объектов не бывает (N4).
   const reason = parent && parent.shape === "service" && parent.has_children
     ? componentInSystem(parent.name)
     : COMPONENT_ONLY;

@@ -569,3 +569,97 @@ def test_применение_само_проверяет_тип_по_плану
         "Ярмарка / orders: тип не изменён. У объекта есть вложенные объекты — базой данных, "
         "брокером или «Пользователем» ему не стать",
     ]
+
+
+# ── N4: у «Пользователя», базы и брокера вложенных объектов не бывает ─────────
+
+
+def test_синк_не_кладёт_детей_в_живого_пользователя(db):
+    """Живой «Покупатель» — пользователь, а прогон показывает его сервисом с вложенным.
+    Форму синк не меняет (сервис в YAML — значение по умолчанию, живое оно не бьёт), а
+    внутрь человека дети лечь не могут (N4): до 2026-10-31 синк создавал их под ним.
+    Теперь вложенный создаётся там, где сам человек, — у корневого на верхнем уровне,
+    со строкой плана, как правило 0 ввоза."""
+    живой = "nodes:\n  - name: Покупатель\n    shape: person\n  - name: Ярмарка\n"
+    прогон = (
+        "nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"
+        "  - name: Ярмарка\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» будет "
+        "создан на верхнем уровне",
+    ]
+    out = sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+
+    покупатель = _node(db, p.id, "Покупатель")
+    assert покупатель.shape == "person"
+    assert db.query(Node).filter(Node.parent_id == покупатель.id).count() == 0
+    assert _node(db, p.id, "кабинет").parent_id is None
+    assert (out.created_nodes, out.skipped) == (["Покупатель / кабинет"], [])
+
+    # Повторный синк того же прогона находит «кабинет» на верхнем уровне и не дублирует.
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» в схеме "
+        "лежит на верхнем уровне",
+    ]
+    assert превью.is_noop
+
+
+@pytest.mark.parametrize(("shape", "word"), [("database", "базы данных"), ("broker", "брокера")])
+def test_синк_не_кладёт_детей_во_вложенную_базу_и_брокер(db, shape, word):
+    """То же у базы и брокера внутри системы: прогон назвал объект сервисом с вложенным,
+    форму синк не меняет — вложенный создаётся уровнем выше, в системе."""
+    живой = (
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        f"      - name: orders-store\n        shape: {shape}\n"
+    )
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: orders-store\n        children:\n          - name: схема заказов\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        f"«orders-store»: у {word} вложенных объектов не бывает — «схема заказов» будет "
+        "создан уровнем выше, в «Ярмарка»",
+    ]
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+
+    assert _node(db, p.id, "схема заказов").parent_id == _node(db, p.id, "Ярмарка").id
+    assert db.query(Node).filter(Node.parent_id == _node(db, p.id, "orders-store").id).count() == 0
+
+
+def test_применение_не_создаёт_ребёнка_пользователю_по_плану_без_правила(db):
+    """План, собранный мимо правила N4 (устаревший или чужой), несёт создание внутри
+    «Пользователя» — применение не создаёт объект, причина — строкой «пропущено»."""
+    from app.import_merge import parse_and_merge
+    from app.sync_apply import apply_sync_plan
+    from app.sync_plan import SyncNodeAction, SyncPlan
+
+    p, _user = _project(db, "nodes:\n  - name: Покупатель\n    shape: person\n")
+    merged, _report, errors = parse_and_merge(
+        ["nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"]
+    )
+    assert merged is not None, errors
+    покупатель = _node(db, p.id, "Покупатель")
+    plan = SyncPlan()
+    plan.nodes = [
+        SyncNodeAction(path="Покупатель", action="unchanged", node_id=покупатель.id,
+                       source_ref=None, imp_idx=0),
+        SyncNodeAction(path="Покупатель / кабинет", action="create", node_id=None,
+                       source_ref=None, imp_idx=1, parent_path="Покупатель"),
+    ]
+
+    report = apply_sync_plan(db, p, merged, plan)
+
+    assert report.skipped == [
+        "Покупатель / кабинет: не создан — у «Покупатель» вложенных объектов не бывает",
+    ]
+    assert db.query(Node).filter(Node.name == "кабинет").count() == 0
