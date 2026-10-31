@@ -273,6 +273,36 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(page.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("2 из 4");
   });
 
+  // Пустая система (node.md N4в, решение владельца 2026-10-31 по прототипу): дерево в углу без
+  // числа; контейнер без компонентов — без знака; у базы знака нет при любом элементе.
+  it("пустая система — дерево в углу без числа и без зоны входа; контейнер без компонентов — чистый", () => {
+    const el = renderBlock(blockData({ element_effective: "system", element: "system" }, { onDrillDown: vi.fn() }));
+    const svg = el.querySelector("svg[data-glyph]");
+    expect(svg?.getAttribute("data-glyph")).toBe("tree");
+    expect(svg?.parentElement?.textContent).toBe("");
+    expect(el.querySelector("[data-into]")).toBeNull();
+    expect(el.querySelector(".lg-into-cue")).toBeNull();
+    expect(el.querySelector('button[title="Раскрыть содержимое"]')).toBeNull();
+    const leaf = renderBlock(blockData({ element_effective: "container" }, { onDrillDown: vi.fn() }));
+    expect(leaf.querySelector("svg[data-glyph]")).toBeNull();
+    // пометка проекции занимает тот же угол и старше знака
+    const marked = renderBlock(blockData({ element_effective: "system" }, { mark: "1/2" }));
+    expect(marked.querySelector("svg[data-glyph]")).toBeNull();
+    expect(marked.textContent).toContain("1/2");
+  });
+
+  it("гость — пустая система: дерево без числа, кнопки нет", () => {
+    const ghost = {
+      id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
+      status: "existing", node_depth: 1, has_children: false, child_count: 0, ancestors: [], is_ghost: true,
+      element_effective: "system",
+    } as unknown as GhostNode;
+    const el = render(<ReactFlowProvider><Ghost id="g" data={{ appNode: ghost, colors, onEnter: vi.fn() }} /></ReactFlowProvider>).container;
+    expect(el.querySelector("svg[data-glyph]")?.getAttribute("data-glyph")).toBe("tree");
+    expect(el.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("");
+    expect(el.querySelector("button")).toBeNull();
+  });
+
   it("лупа на пределе глубины — неактивна, подсказка про предел словами продукта", () => {
     const el = renderBlock(blockData({ has_children: true, child_count: 2 }, { expandLimited: true }));
     const lens = el.querySelector('button[aria-disabled="true"]') as HTMLElement;
@@ -321,8 +351,11 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.querySelector('button[title="Войти"]')).not.toBeNull();
     expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
     expect(el.textContent).toContain("4");
-    // гость-лист — ни кнопки, ни бейджа
-    const leaf: GhostData = { appNode: { ...ghost, has_children: false, child_count: 0 }, colors, onEnter: vi.fn() };
+    // гость-лист — ни кнопки, ни бейджа (лист без детей сервер читает контейнером; лист с
+    // действующей системой — пустая система со своим знаком, отдельный тест)
+    const leaf: GhostData = {
+      appNode: { ...ghost, has_children: false, child_count: 0, element_effective: "container" }, colors, onEnter: vi.fn(),
+    };
     const el2 = render(<ReactFlowProvider><Ghost id="g2" data={leaf} /></ReactFlowProvider>).container;
     expect(el2.querySelector("button")).toBeNull();
     expect(el2.querySelectorAll('circle[r="2.3"]')).toHaveLength(0);

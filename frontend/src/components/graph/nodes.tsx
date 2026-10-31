@@ -57,11 +57,14 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
 // компоненты). Признак в DOM — data-glyph="tree" | "grid". Цвет наследует text-цвет узла.
 // child_count считает бэкенд. На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2),
 // total — все дети по БД: при расхождении бейдж показывает «N из M» (сколько на схеме из
-// скольких всего).
+// скольких всего). count = 0 — ПУСТАЯ СИСТЕМА (node.md N4в): то же дерево без числа — знак
+// типа, иначе пустая система и контейнер без компонентов на холсте неотличимы (решение
+// владельца 2026-10-31 по прототипу, приёмка Ф12).
 function ChildrenBadge({ count, total, color, element }: {
   count: number; total?: number; color: string; element: FrameElement;
 }) {
   const grid = element !== "system";
+  const label = count === 0 ? null : total !== undefined && total > count ? `${count} из ${total}` : count;
   return (
     <span style={{
       position: "absolute", right: 12, bottom: 12, zIndex: 1,
@@ -90,7 +93,7 @@ function ChildrenBadge({ count, total, color, element }: {
           </>
         )}
       </svg>
-      {total !== undefined && total > count ? `${count} из ${total}` : count}
+      {label}
     </span>
   );
 }
@@ -408,6 +411,9 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
   // редактор — все (badgeCount == child_count по построению assembleRf).
   const childCount = data.badgeCount;
   const intoZone = drillable && childCount > 0;
+  // Пустая система (N4в): дерево в углу без числа — иначе она неотличима от контейнера без
+  // компонентов. Пометка проекции («1/2») занимает тот же угол и старше.
+  const emptySystem = drillable && childCount === 0 && data.appNode.element_effective === "system" && !data.mark;
   // Кнопки действий: «Войти» (onDrillDown) — только в редакторе, лупа (onExpand) —
   // и на странице объекта (инлайн-раскрытие — просмотрная механика).
   const hasActions = !data.hideActions && drillable
@@ -446,8 +452,9 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
-      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && (
+      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой; у пустой системы —
+          дерево без числа. */}
+      {(intoZone || emptySystem) && (
         <ChildrenBadge
           count={childCount} total={data.appNode.child_count} color={c.text}
           element={frameElement(data.appNode.element_effective)}
@@ -479,7 +486,7 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, hasActions) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || data.mark ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || emptySystem || data.mark ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -496,6 +503,8 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   const onEnter = data.onEnter;
   const hasChildren = data.appNode.has_children;
   const canEnter = hasChildren && onEnter != null;
+  // Гость — пустая система: тот же знак, что у локала (N4в).
+  const emptySystem = !hasChildren && data.appNode.element_effective === "system";
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -518,13 +527,17 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
           ><DrillInIcon /></button>
         </div>
       )}
-      {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter. */}
-      {hasChildren && (
-        <ChildrenBadge count={data.appNode.child_count} color={c.text} element={frameElement(data.appNode.element_effective)} />
+      {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter;
+          у гостя — пустой системы дерево без числа. */}
+      {(hasChildren || emptySystem) && (
+        <ChildrenBadge
+          count={hasChildren ? data.appNode.child_count : 0} color={c.text}
+          element={frameElement(data.appNode.element_effective)}
+        />
       )}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren || emptySystem ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
