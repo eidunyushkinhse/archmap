@@ -14,6 +14,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from conftest import PROJECT_ID, FakeApi, backend
 
@@ -336,3 +337,168 @@ async def test_входы_больше_предела_не_читаются(
         await tools.call("archmap_import_preview", {"paths": [str(small), str(other)]}, client)
 
     assert len(api.calls) == calls  # до сервера не дошло
+
+
+# ── Вопросы разбора остатка и ответы decisions (MCP 0.12.0) ──────────────────
+
+CONVERTED = "Похожие имена: «Ярмарка / billing» (a.yaml) и «Ярмарка / biling» (b.yaml)"
+KEPT = "Связь «web → Kafka» с брокером без канала"
+
+
+def remainder(**over: Any) -> dict[str, Any]:
+    """Остаток всех классов глазами бэкенда (RemainderOut)."""
+    fields: dict[str, Any] = {
+        "field_conflicts": [{
+            "id": "field|Ярмарка/orders|description", "node_path": "Ярмарка / orders",
+            "field": "description", "default": 0,
+            "candidates": [
+                {"origin": 0, "origin_label": "1 · a.yaml", "source_label": "Из файла a.yaml", "value": "Принимает заказы"},
+                {"origin": 1, "origin_label": "2 · b.yaml", "source_label": "Из файла b.yaml", "value": "Заказы и корзина"},
+            ],
+        }, {
+            "id": "field|Ярмарка/orders|element", "node_path": "Ярмарка / orders",
+            "field": "element", "default": 1,
+            "candidates": [
+                {"origin": 0, "origin_label": "1 · a.yaml", "source_label": "Из файла a.yaml", "value": "system"},
+                {"origin": 1, "origin_label": "2 · b.yaml", "source_label": "Из файла b.yaml", "value": "container"},
+            ],
+        }],
+        "container_hints": [{
+            "id": "hint|Ярмарка/payments", "node_path": "Ярмарка / payments",
+            "children": ["api", "worker"], "folder": "src/payments", "repo": "github.com/org/shop",
+        }],
+        "container_edges": [{
+            "id": "edge|Ярмарка/web|Ярмарка/orders|создать заказ|target",
+            "from_path": "Ярмарка / web", "to_path": "Ярмарка / orders", "label": "создать заказ",
+            "end": "target", "container_path": "Ярмарка / orders", "container_element": "container",
+            "components": [
+                {"path": "Ярмарка / orders / api", "has_children": False, "element_effective": "component"},
+                {"path": "Ярмарка / orders / jobs", "has_children": True, "element_effective": "component"},
+            ],
+        }],
+        "isolated_groups": [{"id": "group|Ярмарка/mailer", "node_paths": ["Ярмарка / mailer", "Ярмарка / smtp"]}],
+        "fuzzy_pairs": [{
+            "id": "pair|Ярмарка/billing|Ярмарка/biling", "a_path": "Ярмарка / billing",
+            "b_path": "Ярмарка / biling", "a_source": "Из файла a.yaml", "b_source": "Из файла b.yaml",
+            "a_edges": 3, "b_edges": 1, "where": "внутри «Ярмарка»",
+        }],
+        "unfixable": [{"id": "u1", "text": "У связи «web → Kafka» с брокером «Kafka» не указан канал. Укажите его в свойствах связи."}],
+        "converted_warnings": [CONVERTED],
+    }
+    fields.update(over)
+    return dump("unified_import", "RemainderOut", **fields)
+
+
+async def test_превью_печатает_вопросы_разбора_с_id_и_ответами(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    api.post(PREVIEW_PATH, dump(
+        "unified_import", "UnifiedPreviewOut", ok=True,
+        c4=c4(
+            warnings=[CONVERTED, KEPT],
+            file_remarks=[{"file": 1, "errors": [], "warnings": [CONVERTED]}],
+        ),
+        remainder=remainder(),
+    ))
+
+    out = await tools.call(
+        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "x"}]}, client
+    )
+
+    lines = out.splitlines()
+    assert any(line.startswith("Вопросы разбора (6) — ") and "archmap_import_apply аргументом decisions" in line for line in lines)
+    # Спор поля: кандидаты с номерами и источниками, значения элемента — словами.
+    assert '  • "field|Ярмарка/orders|description" — описание у «Ярмарка / orders» задано по-разному в 2 файлах:' in lines
+    assert "      0 — «Принимает заказы» (из файла a.yaml)" in lines
+    assert '    Без ответа — 0. Ответ: decisions.fields["field|Ярмарка/orders|description"] = номер.' in lines
+    assert '  • "field|Ярмарка/orders|element" — элемент архитектуры у «Ярмарка / orders» задан по-разному в 2 файлах:' in lines
+    assert "      1 — «контейнер» (из файла b.yaml)" in lines
+    # «Похоже на контейнер»
+    assert any("«Ярмарка / payments» — контейнер с компонентами: api, worker лежат в src/payments репозитория github.com/org/shop" in line for line in lines)
+    assert '    Без ответа останется системой. Ответ: decisions.container_hints["hint|Ярмарка/payments"] = "container".' in lines
+    # Связь в контейнер: цели путями, вложенный объект помечен
+    assert any(
+        "связь «Ярмарка / web → Ярмарка / orders» («создать заказ») приходит в контейнер «Ярмарка / orders» целиком; "
+        "цели внутри: Ярмарка / orders / api, Ярмарка / orders / jobs (контейнер)." in line
+        for line in lines
+    )
+    assert any('decisions.edges["edge|Ярмарка/web|Ярмарка/orders|создать заказ|target"] = {"to_path": ' in line for line in lines)
+    # Похожие имена и группа без связей
+    assert any('decisions.merges["pair|Ярмарка/billing|Ярмарка/biling"] = {"name": ' in line for line in lines)
+    assert any("нет связей с остальной схемой у 2 объектов: Ярмарка / mailer, Ярмарка / smtp." in line for line in lines)
+    assert any('decisions.new_edges = [{"group_id": "group|Ярмарка/mailer", "from_path": ' in line for line in lines)
+    # Свёртка «Придётся подправить вручную» — текстом, без id
+    assert "Придётся подправить вручную (1):" in lines
+    assert "  • У связи «web → Kafka» с брокером «Kafka» не указан канал. Укажите его в свойствах связи." in lines
+    # Строка, ставшая вопросом, не повторяется замечанием — ни в общем списке, ни у входа.
+    assert CONVERTED not in out
+    assert f"  • {KEPT}" in lines
+    # Вопросы — после замечаний
+    assert out.index(KEPT) < out.index("Вопросы разбора")
+
+
+async def test_пустой_остаток_раздела_не_даёт(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(PREVIEW_PATH, dump("unified_import", "UnifiedPreviewOut", ok=True, c4=c4()))
+
+    out = await tools.call(
+        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "x"}]}, client
+    )
+
+    assert "Вопросы разбора" not in out and "подправить вручную" not in out
+
+
+async def test_применение_шлёт_decisions_строкой_формы(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(APPLY_PATH, result())
+    decisions = {
+        "fields": {"field|Ярмарка/orders|description": 1},
+        "container_hints": {"hint|Ярмарка/payments": "container"},
+        "edges": {"edge|Ярмарка/web|Ярмарка/orders|создать заказ|target": {"to_path": "Ярмарка / orders / api"}},
+        "merges": {"pair|Ярмарка/billing|Ярмарка/biling": {"name": "billing"}},
+        "new_edges": [{"group_id": "group|Ярмарка/mailer", "from_path": "Ярмарка / mailer", "to_path": "Ярмарка / orders"}],
+    }
+
+    await tools.call(
+        "archmap_import_apply",
+        {"name": "Z", "files": [{"name": "a.yaml", "content": "x"}], "decisions": decisions},
+        client,
+    )
+
+    body = api.calls[-1].content
+    assert b'name="decisions"' in body
+    assert json.dumps(decisions, ensure_ascii=False).encode() in body
+
+
+async def test_без_decisions_поля_формы_нет(client: ArchMapClient, api: FakeApi) -> None:
+    api.post(APPLY_PATH, result())
+
+    await tools.call("archmap_import_apply", {"name": "Z", "files": [{"name": "a.yaml", "content": "x"}]}, client)
+
+    assert b'name="decisions"' not in api.calls[-1].content
+
+
+async def test_кривой_decisions_отказ_словами_сервера(client: ArchMapClient, api: FakeApi) -> None:
+    detail = "Поле decisions: неизвестный раздел «answers»"
+    api.post(APPLY_PATH, httpx.Response(400, json={"detail": detail}))
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_import_apply",
+            {"name": "Z", "files": [{"name": "a.yaml", "content": "x"}], "decisions": {"answers": {}}},
+            client,
+        )
+
+    assert detail in str(exc.value)
+    with pytest.raises(ArchMapError, match="decisions — объект"):
+        await tools.call(
+            "archmap_import_apply",
+            {"name": "Z", "files": [{"name": "a.yaml", "content": "x"}], "decisions": ["fields"]},
+            client,
+        )
+
+
+def test_описания_ввоза_говорят_о_вопросах_и_decisions() -> None:
+    for catalog in (tools.BY_NAME, tools.REMOTE_BY_NAME):
+        assert "ВОПРОСЫ РАЗБОРА" in catalog["archmap_import_preview"]["description"]
+        assert "MCP не задаёт" not in catalog["archmap_import_preview"]["description"]
+        apply = catalog["archmap_import_apply"]
+        assert "decisions" in apply["description"] and "decisions" in apply["schema"]["properties"]

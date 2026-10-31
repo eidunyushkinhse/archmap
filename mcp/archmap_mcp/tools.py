@@ -606,6 +606,23 @@ def _resolutions(args: dict[str, Any]) -> str | None:
     return jsonlib.dumps(chosen, ensure_ascii=False)
 
 
+def _decisions(args: dict[str, Any]) -> str | None:
+    """Ответы на вопросы разбора → поле формы decisions. ⚠️ Тоже СТРОКОЙ JSON, как
+    resolutions: бэкенд разбирает словарь из текста (unified_apply.parse_decisions) и
+    кривую форму отвергает 400 своими словами — здесь она не проверяется, чтобы правило
+    формы жило в одном месте. Строку (клиент уже сериализовал) отдаём как есть."""
+    chosen = args.get("decisions")
+    if not chosen:
+        return None
+    if isinstance(chosen, str):
+        return chosen
+    if not isinstance(chosen, dict):
+        raise ArchMapError(
+            "decisions — объект с разделами fields, container_hints, edges, merges, new_edges."
+        )
+    return jsonlib.dumps(chosen, ensure_ascii=False)
+
+
 async def t_upload_url(client: ArchMapClient, args: dict[str, Any]) -> str:
     """Одноразовая ссылка на загрузку файла с машины агента (docs/plan-mcp-upload.md):
     модель не перепечатывает содержимое, а кладёт файл curl без токена в команде."""
@@ -643,6 +660,7 @@ async def t_import_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
             "name": args.get("name"),
             "description": args.get("description"),
             "resolutions": _resolutions(args),
+            "decisions": _decisions(args),
         },
     )
     return render.unified_result(data)
@@ -668,6 +686,7 @@ async def t_import_into_apply(client: ArchMapClient, args: dict[str, Any]) -> st
         files=_archives(args),
         data={
             "resolutions": _resolutions(args),
+            "decisions": _decisions(args),
             # ⚠️ Обе ревизии инструмент требует, хотя на бэке они опциональны:
             # без fence это слепая запись поверх чужой параллельной правки.
             "base_graph_rev": str(args["base_graph_rev"]),
@@ -1512,6 +1531,67 @@ RESOLUTIONS_ARG = {
     "additionalProperties": {"type": "string"},
 }
 
+# Ответы на вопросы разбора остатка слияния (RemainderOut, MCP 0.12.0). Формы значений —
+# те, что разбирает unified_apply.parse_decisions; схема нарочно мягкая: кривую форму
+# отвергает сервер своими словами (400), правило формы живёт в одном месте.
+DECISIONS_ARG = {
+    "type": "object",
+    "description": (
+        "Ответы на вопросы разбора из превью (раздел «Вопросы разбора», id вопроса — оттуда). "
+        "Каждый раздел необязателен, вопрос без ответа получает свой дефолт. fields — спор "
+        "значения поля: «id» → номер кандидата (0, 1 и так далее). container_hints — «похоже "
+        "на контейнер»: «id» → \"container\" (отметить контейнером) или \"system\" (оставить "
+        "системой). edges — связь, легшая на систему или контейнер целиком: «id» → "
+        "{\"to_path\": \"<полный путь цели из вопроса>\"} или \"keep\" (оставить как есть). "
+        "merges — похожие имена: «id» → {\"name\": \"<имя склеенного объекта>\"} или \"diff\" "
+        "(разные объекты). new_edges — связи, которые провести (ответ на группу без связей): "
+        "список {\"group_id\": \"<id группы>\", \"from_path\" и \"to_path\" — полные пути "
+        "объектов, необязательны \"label\", \"technology\" и \"channel\": \"sync\" или "
+        "\"async\"}. Ответ, не нашедший своего вопроса, сервер отвергнет: превью устарело, "
+        "его надо перечитать."
+    ),
+    "properties": {
+        "fields": {
+            "type": "object",
+            "description": "Спор значения поля: «id» → номер кандидата.",
+            "additionalProperties": {"type": "integer", "minimum": 0},
+        },
+        "container_hints": {
+            "type": "object",
+            "description": "«Похоже на контейнер»: «id» → \"container\" или \"system\".",
+            "additionalProperties": {"type": "string", "enum": ["container", "system"]},
+        },
+        "edges": {
+            "type": "object",
+            "description": "Связь на систему или контейнер целиком: «id» → {\"to_path\": \"<путь цели>\"} или \"keep\".",
+        },
+        "merges": {
+            "type": "object",
+            "description": "Похожие имена: «id» → {\"name\": \"<имя склеенного>\"} или \"diff\".",
+        },
+        "new_edges": {
+            "type": "array",
+            "description": "Связи, которые провести: [{\"group_id\", \"from_path\", \"to_path\", \"label\", \"technology\", \"channel\"}].",
+            "items": {"type": "object", "description": "Новая связь: полные пути концов, остальное необязательно."},
+        },
+    },
+}
+
+# Общие слова описаний ввоза о вопросах разбора: превью и применение говорят одно и то же
+# в локальном и удалённом наборе.
+_QUESTIONS_PREVIEW = (
+    "ВОПРОСЫ РАЗБОРА — то, что слияние не решило само: спор значения поля, связь, легшая на "
+    "систему или контейнер целиком, похожие имена из разных файлов, группа без связей, "
+    "«похоже на контейнер»; у каждого id, дефолт без ответа и форма ответа для decisions. "
+    "Строки замечаний, ставшие вопросами, среди замечаний не повторяются, а то, что выбором "
+    "не закрыть, — в «Придётся подправить вручную»."
+)
+_QUESTIONS_APPLY = (
+    "decisions — ответы на вопросы разбора из превью (формы — в описании аргумента). Без "
+    "resolutions и decisions применяется дефолт каждого спора и вопроса: объект с вложенными "
+    "без element остаётся системой."
+)
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_projects",
@@ -1800,7 +1880,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_import_preview",
         "writes": True,
-        "description": "Проверить входы будущего проекта БЕЗ записи: N входов вперемешку — YAML архитектуры (files, текстом) и zip-архивы знания (paths, файлы с диска). Показывает разбор и слияние C4, что приедет по семьям фактов, СПОРЫ содержимого (один факт описан по-разному) и откуда возьмётся имя проекта. Замечания об элементе архитектуры (снятый элемент, база или брокер, вынесенные из контейнера) — среди замечаний превью. Вопросов разбора, которые задаёт интерфейс (связь в систему или контейнер, похожие имена, «похоже на контейнер»), MCP не задаёт: применение берёт их дефолты, и объект с вложенными без element остаётся системой. Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»): сначала files, потом paths.",
+        "description": "Проверить входы будущего проекта БЕЗ записи: N входов вперемешку — YAML архитектуры (files, текстом) и zip-архивы знания (paths, файлы с диска). Показывает разбор и слияние C4, что приедет по семьям фактов, СПОРЫ содержимого (один факт описан по-разному) и откуда возьмётся имя проекта. "
+        + _QUESTIONS_PREVIEW
+        + " Замечания об элементе архитектуры (снятый элемент, база или брокер, вынесенные из контейнера) — среди замечаний превью. Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»): сначала files, потом paths.",
         "schema": {
             "type": "object",
             "properties": {"files": FILES_ARG, "paths": PATHS_ARG},
@@ -1810,7 +1892,8 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_import_apply",
         "writes": True,
-        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из тех же входов, что проверял archmap_import_preview (порядок входов тот же). name обязателен ВСЕГДА, кроме одного случая: единственный вход — zip-архив, тогда имя и описание приедут из его манифеста. resolutions — решения по спорам содержимого из превью: объект «id спора» → «cand:<номер кандидата>» либо «all» (взять все — только там, где превью пометило allow_all). Без resolutions применяется дефолт каждого спора.",
+        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из тех же входов, что проверял archmap_import_preview (порядок входов тот же). name обязателен ВСЕГДА, кроме одного случая: единственный вход — zip-архив, тогда имя и описание приедут из его манифеста. resolutions — решения по спорам содержимого из превью: объект «id спора» → «cand:<номер кандидата>» либо «all» (взять все — только там, где превью пометило allow_all). "
+        + _QUESTIONS_APPLY,
         "schema": {
             "type": "object",
             "properties": {
@@ -1819,6 +1902,7 @@ TOOLS: list[dict[str, Any]] = [
                 "files": FILES_ARG,
                 "paths": PATHS_ARG,
                 "resolutions": RESOLUTIONS_ARG,
+                "decisions": DECISIONS_ARG,
             },
         },
         "handler": t_import_apply,
@@ -1826,7 +1910,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_import_into_preview",
         "writes": True,
-        "description": "План ДОГРУЗКИ архивов знания к СУЩЕСТВУЮЩЕМУ проекту, без записи: что появится нового (объекты, связи, содержимое семей) и о чём придётся выбрать. Входы — ТОЛЬКО .zip-архивы путями с диска (paths); YAML схемы в живой проект заливают синком (archmap_sync_preview / archmap_sync_apply), это другая механика. Догрузка аддитивна: дефолт каждого спора с живым — «оставить моё», ничего не удаляется. Печатает base_graph_rev/base_meta_rev — их передают в применение.",
+        "description": "План ДОГРУЗКИ архивов знания к СУЩЕСТВУЮЩЕМУ проекту, без записи: что появится нового (объекты, связи, содержимое семей) и о чём придётся выбрать — споры содержимого с живым и вопросы разбора с участием архива (те же виды, что у archmap_import_preview, с id, дефолтом и формой ответа для decisions у archmap_import_into_apply). Входы — ТОЛЬКО .zip-архивы путями с диска (paths); YAML схемы в живой проект заливают синком (archmap_sync_preview / archmap_sync_apply), это другая механика. Догрузка аддитивна: дефолт каждого спора с живым — «оставить моё», ничего не удаляется. Печатает base_graph_rev/base_meta_rev — их передают в применение.",
         "schema": {
             "type": "object",
             "properties": {"project": PROJECT_ARG, "paths": ARCHIVE_PATHS_ARG},
@@ -1837,13 +1921,14 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_import_into_apply",
         "writes": True,
-        "description": "ДОГРУЖАЕТ архивы (.zip путями с диска) к существующему проекту. Вызывать после archmap_import_into_preview с теми же входами. YAML схемы сюда не подают — для него archmap_sync_apply. base_graph_rev и base_meta_rev — из превью: они защищают от параллельной правки проекта, при расхождении будет конфликт версий (тогда перечитайте превью). resolutions — как у archmap_import_apply; живое перетирается ТОЛЬКО там, где выбран кандидат из архива.",
+        "description": "ДОГРУЖАЕТ архивы (.zip путями с диска) к существующему проекту. Вызывать после archmap_import_into_preview с теми же входами. YAML схемы сюда не подают — для него archmap_sync_apply. base_graph_rev и base_meta_rev — из превью: они защищают от параллельной правки проекта, при расхождении будет конфликт версий (тогда перечитайте превью). resolutions — как у archmap_import_apply; живое перетирается ТОЛЬКО там, где выбран кандидат из архива. decisions — ответы на вопросы разбора из превью догрузки, формы те же, что у archmap_import_apply; склейка привозного объекта с живым оставляет живой. Без decisions у каждого вопроса — его дефолт.",
         "schema": {
             "type": "object",
             "properties": {
                 "project": PROJECT_ARG,
                 "paths": ARCHIVE_PATHS_ARG,
                 "resolutions": RESOLUTIONS_ARG,
+                "decisions": DECISIONS_ARG,
                 "base_graph_rev": {"type": "integer", "description": "Из превью догрузки."},
                 "base_meta_rev": {"type": "integer", "description": "Из превью догрузки."},
             },
@@ -2394,12 +2479,15 @@ REMOTE_OVERRIDES: dict[str, dict[str, Any]] = {
         "description": "Схема проекта в YAML формата ArchMap (семантика без раскладки) — то, что подают обратно на импорт и синк. node_id — только поддерево. Это СРЕЗ для чтения: схемы логики, спецификации, таблицы, каналы, конфигурация и процессы в него не входят — полный архив знания проекта выгружают в интерфейсе ArchMap.",
     },
     "archmap_import_preview": {
-        "description": "Проверить входы будущего проекта БЕЗ записи: YAML архитектуры текстом (files) — один или несколько прогонов. Показывает разбор и слияние C4 и замечания по входам, в том числе об элементе архитектуры (снятый элемент, база или брокер, вынесенные из контейнера). Вопросов разбора, которые задаёт интерфейс (связь в систему или контейнер, похожие имена, «похоже на контейнер»), MCP не задаёт: применение берёт их дефолты, и объект с вложенными без element остаётся системой. Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»)."
+        "description": "Проверить входы будущего проекта БЕЗ записи: YAML архитектуры текстом (files) — один или несколько прогонов. Показывает разбор и слияние C4 и замечания по входам, в том числе об элементе архитектуры (снятый элемент, база или брокер, вынесенные из контейнера). "
+        + _QUESTIONS_PREVIEW
+        + " Проект не создаётся. Порядок входов = порядок нумерации в замечаниях («вход 2»)."
         + _REMOTE_IMPORT_TAIL,
         "schema": {"type": "object", "properties": {"files": FILES_ARG}, "required": ["files"]},
     },
     "archmap_import_apply": {
-        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из тех же входов, что проверял archmap_import_preview (порядок входов тот же). name обязателен. resolutions — решения по спорам содержимого из превью: объект «id спора» → «cand:<номер кандидата>» либо «all» (взять все — только там, где превью пометило allow_all). Без resolutions применяется дефолт каждого спора."
+        "description": "СОЗДАЁТ НОВЫЙ ПРОЕКТ из тех же входов, что проверял archmap_import_preview (порядок входов тот же). name обязателен. resolutions — решения по спорам содержимого из превью: объект «id спора» → «cand:<номер кандидата>» либо «all» (взять все — только там, где превью пометило allow_all). "
+        + _QUESTIONS_APPLY
         + _REMOTE_IMPORT_TAIL,
         "schema": {
             "type": "object",
@@ -2408,6 +2496,7 @@ REMOTE_OVERRIDES: dict[str, dict[str, Any]] = {
                 "description": {"type": "string", "description": "Описание нового проекта."},
                 "files": FILES_ARG,
                 "resolutions": RESOLUTIONS_ARG,
+                "decisions": DECISIONS_ARG,
             },
             "required": ["name", "files"],
         },

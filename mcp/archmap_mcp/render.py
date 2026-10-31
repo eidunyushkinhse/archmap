@@ -13,6 +13,7 @@ Uuid остаются там, где агент обязан ими оперир
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -1704,12 +1705,13 @@ FAMILY_COUNTS: list[tuple[str, str]] = [
 ]
 
 
-def c4_preview(c4: dict[str, Any]) -> list[str]:
+def c4_preview(c4: dict[str, Any], hide: frozenset[str] = frozenset()) -> list[str]:
     """C4-часть превью — общая для старого одно-YAML пути и единого ввоза.
 
     Модель у них одна (ImportPreviewOut), и второй формат отчёта тут завести
     значило бы, что один и тот же разбор читается по-разному в зависимости от
-    того, каким инструментом его позвали.
+    того, каким инструментом его позвали. hide — строки замечаний, ставшие вопросами
+    разбора (RemainderOut.converted_warnings): их печатает раздел вопросов.
     """
     out = [
         f"Разбор прошёл: объектов {c4.get('node_count', 0)}, "
@@ -1738,7 +1740,7 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
         ("warnings", "Предупреждения"),
         ("conflicts", "Конфликты слияния"),
     ):
-        items = [str(i) for i in (c4.get(key) or [])]
+        items = [str(i) for i in (c4.get(key) or []) if str(i) not in hide]
         if items:
             out.append(f"{title} ({len(items)}):")
             out.extend(_capped(["  • " + i for i in items], C4_LIST_CAP, ("штука", "штуки", "штук")))
@@ -1749,7 +1751,7 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
     # агентов, и «чините вход 2» — единственная работающая адресация.
     for remark in c4.get("file_remarks") or []:
         rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
-        rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
+        rows += [f"замечание: {w}" for w in remark.get("warnings") or [] if str(w) not in hide]
         if rows:
             out.append(f"Вход {remark.get('file', '?')}:")
             out.extend("  • " + r for r in rows)
@@ -1793,6 +1795,155 @@ def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
     return out
 
 
+# ── Вопросы остатка слияния (RemainderOut, MCP 0.12.0) ───────────────────────
+#
+# То, что слияние не решило само, сервер отдаёт структурой; интерфейс задаёт по ней
+# вопросы, ответы уезжают применению JSON-полем decisions (app/unified_apply.
+# parse_decisions). Здесь — те же вопросы текстом: id, суть, дефолт без ответа и форма
+# ответа. Строки замечаний, ставшие вопросами (converted_warnings), из печатаемых
+# предупреждений убираются: иначе одно и то же читается дважды — вопросом и строкой.
+
+REMAINDER_CAP = 30  # вопросов одного вида: больше тридцати разбирают в интерфейсе
+TARGETS_CAP = 10  # возможных целей связи и путей группы в одном вопросе
+
+# Поле спора словами (FieldDisputeOut.field) — как в вопросах интерфейса, с причастием по
+# роду: «описание задано», «технология задана», «статус задан».
+FIELD_WORD = {
+    "description": ("описание", "задано"),
+    "technology": ("технология", "задана"),
+    "role": ("роль", "задана"),
+    "shape": ("форма", "задана"),
+    "status": ("статус", "задан"),
+    "element": ("элемент архитектуры", "задан"),
+}
+LIFECYCLE_WORD = {"existing": "есть", "planned": "запланирован", "deprecated": "выводится"}
+ELEMENT_END_WORD = {"system": "систему", "container": "контейнер"}
+ELEMENT_FROM_WORD = {"system": "системы", "container": "контейнера"}
+
+
+def _field_value(field: str, value: str) -> str:
+    """Значение спора словами: форма, статус и элемент приходят кодами контракта."""
+    words = {"shape": SHAPE_WORD, "status": LIFECYCLE_WORD, "element": ELEMENT_WORD}.get(field, {})
+    return words.get(value, value)
+
+
+def _source(label: object) -> str:
+    """«Из файла a.yaml» → «из файла a.yaml» внутри скобок."""
+    text = str(label or "")
+    return text[:1].lower() + text[1:]
+
+
+def _ref(qid: object) -> str:
+    """id вопроса в ответе — JSON-строкой: в id бывают «|», «/» и кавычки-ёлочки."""
+    return json.dumps(str(qid), ensure_ascii=False)
+
+
+def _paths(items: list[str], cap: int = TARGETS_CAP) -> str:
+    shown = ", ".join(items[:cap])
+    return shown + (f" и ещё {len(items) - cap}" if len(items) > cap else "")
+
+
+def _field_question(d: dict[str, Any]) -> list[str]:
+    field = str(d.get("field"))
+    cands = list(d.get("candidates") or [])
+    word, given = FIELD_WORD.get(field, (field, "задано"))
+    out = [f"  • {_ref(d.get('id'))} — {word} у «{d.get('node_path')}» {given} по-разному в "
+           f"{len(cands)} файлах:"]
+    for i, c in enumerate(cands):
+        mark = " [текущее в проекте]" if c.get("current") else ""
+        out.append(f"      {i} — «{_field_value(field, str(c.get('value')))}» ({_source(c.get('source_label'))}){mark}")
+    out.append(f"    Без ответа — {d.get('default')}. Ответ: decisions.fields[{_ref(d.get('id'))}] = номер.")
+    return out
+
+
+def _hint_question(h: dict[str, Any]) -> list[str]:
+    kids = [str(k) for k in h.get("children") or []]
+    lies = "лежит" if len(kids) == 1 else "лежат"
+    return [
+        f"  • {_ref(h.get('id'))} — похоже, «{h.get('node_path')}» — контейнер с компонентами: "
+        f"{_paths(kids)} {lies} в {h.get('folder')} репозитория {h.get('repo')}.",
+        f"    Без ответа останется системой. Ответ: decisions.container_hints[{_ref(h.get('id'))}] = "
+        '"container".',
+    ]
+
+
+def _edge_question(e: dict[str, Any]) -> list[str]:
+    element = str(e.get("container_element"))
+    pair = f"«{e.get('from_path')} → {e.get('to_path')}»" + (f" («{e['label']}»)" if e.get("label") else "")
+    where = (
+        f"приходит в {ELEMENT_END_WORD.get(element, element)}"
+        if e.get("end") == "target"
+        else f"выходит из {ELEMENT_FROM_WORD.get(element, element)}"
+    )
+    targets = []
+    for c in e.get("components") or []:
+        tag = ""
+        if c.get("has_children"):
+            tag = " (контейнер)" if c.get("element_effective") in ("container", "component") else " (система)"
+        targets.append(f"{c.get('path')}{tag}")
+    kept = "системе" if element == "system" else "контейнере"
+    return [
+        f"  • {_ref(e.get('id'))} — связь {pair} {where} «{e.get('container_path')}» целиком; "
+        f"цели внутри: {_paths(targets)}.",
+        f"    Без ответа связь останется на {kept}. Ответ: decisions.edges[{_ref(e.get('id'))}] = "
+        '{"to_path": "<полный путь цели>"}.',
+    ]
+
+
+def _pair_question(p: dict[str, Any]) -> list[str]:
+    return [
+        f"  • {_ref(p.get('id'))} — «{p.get('a_path')}» и «{p.get('b_path')}» — похожие имена из "
+        f"разных файлов ({_source(p.get('a_source'))} и {_source(p.get('b_source'))}, оба "
+        f"{p.get('where')}); связей {p.get('a_edges', 0)} и {p.get('b_edges', 0)}.",
+        f"    Без ответа останутся два объекта. Ответ, если это один объект: "
+        f"decisions.merges[{_ref(p.get('id'))}] = " + '{"name": "<имя склеенного>"}.',
+    ]
+
+
+def _group_question(g: dict[str, Any]) -> list[str]:
+    paths = [str(p) for p in g.get("node_paths") or []]
+    return [
+        f"  • {_ref(g.get('id'))} — нет связей с остальной схемой у {len(paths)} "
+        f"{_plural(len(paths), ('объекта', 'объектов', 'объектов'))}: {_paths(paths)}.",
+        "    Без ответа группа останется без связей. Ответ — провести связь: decisions.new_edges = "
+        f'[{{"group_id": {_ref(g.get("id"))}, "from_path": "<путь>", "to_path": "<путь>"}}].',
+    ]
+
+
+# Виды вопросов в порядке окна интерфейса: ключ RemainderOut и сборщик строк пункта.
+REMAINDER_KINDS: list[tuple[str, Callable[[dict[str, Any]], list[str]]]] = [
+    ("field_conflicts", _field_question),
+    ("container_hints", _hint_question),
+    ("container_edges", _edge_question),
+    ("fuzzy_pairs", _pair_question),
+    ("isolated_groups", _group_question),
+]
+
+
+def remainder(data: dict[str, Any], *, apply_tool: str) -> list[str]:
+    """Раздел «Вопросы разбора (N)» и свёртка «Придётся подправить вручную» превью ввоза.
+    Пустой остаток — раздела нет."""
+    out: list[str] = []
+    total = sum(len(data.get(key) or []) for key, _ in REMAINDER_KINDS)
+    if total:
+        out += [
+            "",
+            f"Вопросы разбора ({total}) — то, что слияние не решило само. Ответы передают в "
+            f"{apply_tool} аргументом decisions; вопрос без ответа получит свой дефолт:",
+        ]
+        for key, build in REMAINDER_KINDS:
+            items = list(data.get(key) or [])
+            for item in items[:REMAINDER_CAP]:
+                out.extend(build(item))
+            if len(items) > REMAINDER_CAP:
+                out.append(f"  … и ещё {len(items) - REMAINDER_CAP} таких же вопросов — их удобнее разобрать в интерфейсе")
+    manual = [str(u.get("text")) for u in data.get("unfixable") or []]
+    if manual:
+        out += ["", f"Придётся подправить вручную ({len(manual)}):"]
+        out.extend("  • " + m for m in manual)
+    return out
+
+
 def unified_preview(data: dict[str, Any]) -> str:
     """Сводка dry-run единого ввоза (UnifiedPreviewOut): N входов любого типа."""
     if not data.get("ok"):
@@ -1800,19 +1951,22 @@ def unified_preview(data: dict[str, Any]) -> str:
         return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
 
     out: list[str] = []
+    rest = _dict(data.get("remainder"))
+    hide = frozenset(str(w) for w in rest.get("converted_warnings") or [])
     c4 = data.get("c4")
     if isinstance(c4, dict):
-        out.extend(c4_preview(c4))
+        out.extend(c4_preview(c4, hide))
     else:
         out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
 
-    warnings = [str(w) for w in (data.get("warnings") or [])]
+    warnings = [str(w) for w in (data.get("warnings") or []) if str(w) not in hide]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
         out.extend("  • " + w for w in warnings)
+    out.extend(remainder(rest, apply_tool="archmap_import_apply"))
 
     # Имя проекта: у одного архива оно приедет из манифеста, во всех остальных
     # случаях его обязан задать вызывающий — иначе применение откажет.
@@ -1904,11 +2058,14 @@ def into_preview(data: dict[str, Any]) -> str:
         conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")
     )
 
-    warnings = [str(w) for w in (data.get("warnings") or [])]
+    rest = _dict(data.get("remainder"))
+    hide = frozenset(str(w) for w in rest.get("converted_warnings") or [])
+    warnings = [str(w) for w in (data.get("warnings") or []) if str(w) not in hide]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
         out.extend("  • " + w for w in warnings)
+    out.extend(remainder(rest, apply_tool="archmap_import_into_apply"))
 
     out.append("")
     out.append(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,7 @@ from typing import Any
 import httpx
 import pytest
 from conftest import PROJECT_ID, FakeApi
-from test_unified_import import conflict, dump
+from test_unified_import import CONVERTED, conflict, dump, remainder
 
 from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError
@@ -211,3 +212,40 @@ async def test_превью_называет_найденные_объекты_�
     assert "… и ещё 1" in out  # список короче счётчика — обрыв назван вслух
     assert "• Ярмарка / Оплата — источник: код github.com/y/pay, путь svc" in out
     assert "• Ярмарка / Ручной (без источника)" in out
+
+
+# ── Вопросы разбора и decisions у догрузки (MCP 0.12.0) ──────────────────────
+
+async def test_превью_догрузки_печатает_вопросы_для_into_apply(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    api.post(PREVIEW_PATH, preview(
+        warnings=[CONVERTED, "Процесс «Оплата» уже есть в проекте"],
+        remainder=remainder(),
+    ))
+
+    out = await tools.call(
+        "archmap_import_into_preview", {"project": "Ярмарка", "paths": [str(archive(tmp_path))]}, client
+    )
+
+    assert "archmap_import_into_apply аргументом decisions" in out
+    assert '"pair|Ярмарка/billing|Ярмарка/biling"' in out and "Придётся подправить вручную (1):" in out
+    assert CONVERTED not in out and "Процесс «Оплата» уже есть в проекте" in out
+    # Вопросы — до ревизий и «Ничего не записано»
+    assert out.index("Вопросы разбора") < out.index("base_graph_rev=41")
+
+
+async def test_применение_догрузки_шлёт_decisions(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    api.post(APPLY_PATH, dump("unified_import", "IntoApplyOut", project_id=PROJECT_ID))
+    decisions = {"merges": {"pair|Ярмарка/billing|Ярмарка/biling": {"name": "billing"}}}
+
+    await tools.call("archmap_import_into_apply", {
+        "project": "Ярмарка", "paths": [str(archive(tmp_path))],
+        "base_graph_rev": 41, "base_meta_rev": 17, "decisions": decisions,
+    }, client)
+
+    body = api.calls[-1].content
+    assert b'name="decisions"' in body and json.dumps(decisions, ensure_ascii=False).encode() in body
+    assert "decisions" in tools.BY_NAME["archmap_import_into_apply"]["schema"]["properties"]
