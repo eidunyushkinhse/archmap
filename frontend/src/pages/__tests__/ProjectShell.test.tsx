@@ -1,6 +1,6 @@
-// Рендер/поведенческие тесты ProjectShell: свитч «Объекты/Процессы» (с сохранением
-// режима в localStorage), «Развёртывание» из адреса (уровень, переходы туда и обратно
-// навигацией), открытие экспорта (схема/поддерево/процесс), навигация
+// Рендер/поведенческие тесты ProjectShell: свитч «Объекты/Процессы» (проект всегда
+// открывается в «Объектах» — памяти режима нет с приёмки 2026-10-31), «Развёртывание» из
+// адреса (уровень, переходы туда и обратно навигацией), открытие экспорта (схема/поддерево/процесс), навигация
 // (переход в процессы со страницы узла, удаление узла), locate из алертов шапки,
 // право правки по роли в проекте (my_role через контекст гейта), а не по глобальной.
 // Тяжёлые потомки (дерево, страницы, ProcessWorkspace, модалки) замоканы —
@@ -191,14 +191,26 @@ describe("ProjectShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
     expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
     expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("proc");
   });
 
-  it("режим восстанавливается из localStorage при монтировании", () => {
+  // Приёмка 2026-10-31: памяти режима нет — прежний ключ archmap_mode ничего не значит.
+  it("проект открывается в «Объектах», даже если в localStorage лежит прежний режим", () => {
     localStorage.setItem("archmap_mode", "proc");
+    const view = setup(null);
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
+    view.unmount();
+    localStorage.setItem("archmap_mode", "deploy");
+    setup("n1");
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("node-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("deployment-page")).toBeNull();
+  });
+
+  it("переключение режима ничего не запоминает", async () => {
     setup(null);
-    expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
-    expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Процессы" }));
+    expect(localStorage.getItem("archmap_mode")).toBeNull();
   });
 
   it("возврат в «Объекты» снова показывает дерево", async () => {
@@ -207,7 +219,6 @@ describe("ProjectShell", () => {
     await userEvent.click(screen.getByRole("button", { name: "Объекты" }));
     expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("schema");
   });
 
   it("экспорт из корня: заголовок «Экспорт схемы», load зовёт exportApi.all", async () => {
@@ -240,12 +251,11 @@ describe("ProjectShell", () => {
     expect(document.querySelector('[data-tour="mode-deploy"]')).not.toBeNull();
   });
 
-  it("режим «Развёртывание» — из адреса: страница уровня без дерева, режим запоминается, экспорт погашен", async () => {
+  it("режим «Развёртывание» — из адреса: страница уровня без дерева, экспорт погашен", async () => {
     setup(null, "owner", { level: "c1" });
     expect(screen.getByTestId("deployment-page")).toHaveAttribute("data-level", "c1");
     expect(screen.queryByTestId("tree-panel")).not.toBeInTheDocument();
     expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("deploy");
     // вкладка уже активна — повторный клик адрес не трогает
     await userEvent.click(screen.getByRole("button", { name: "Развёртывание" }));
     expect(nav.onNavigateDeploy).not.toHaveBeenCalled();
@@ -262,14 +272,13 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("deployment-page")).toHaveAttribute("data-level", "c2");
   });
 
-  it("из «Развёртывания» в «Объекты» — на страницу проекта, там «Объекты» и режим запомнен", async () => {
+  it("из «Развёртывания» в «Объекты» — на страницу проекта, там «Объекты»", async () => {
     const view = setup(null, "owner", { level: "c1" });
     await userEvent.click(screen.getByRole("button", { name: "Объекты" }));
     expect(nav.onNavigateProject).toHaveBeenCalledOnce();
     view.rerender(shell(null, "owner"));
     expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
     expect(screen.getByTestId("project-home")).toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("schema");
   });
 
   it("из «Развёртывания» в «Процессы» — на страницу проекта в режиме «Процессы»", async () => {
@@ -278,7 +287,6 @@ describe("ProjectShell", () => {
     expect(nav.onNavigateProject).toHaveBeenCalledOnce();
     view.rerender(shell(null, "owner"));
     expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("proc");
   });
 
   it("«назад» из «Развёртывания» на адрес проекта возвращает прежний режим", async () => {
@@ -290,7 +298,6 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("deployment-page")).toBeInTheDocument();
     view.rerender(shell(null, "owner"));
     expect(screen.getByTestId("process-workspace")).toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("proc");
   });
 
   it("из «Развёртывания» карточка ведёт на страницу объекта в режиме «Объекты»", async () => {
@@ -302,21 +309,6 @@ describe("ProjectShell", () => {
     view.rerender(shell("n7", "owner"));
     expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
     expect(screen.getByTestId("node-page")).toBeInTheDocument();
-    expect(localStorage.getItem("archmap_mode")).toBe("schema");
-  });
-
-  it("запомненное «Развёртывание» без адреса режима — «Объекты» (адрес выправляет App)", () => {
-    localStorage.setItem("archmap_mode", "deploy");
-    setup("n1");
-    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
-    expect(screen.getByTestId("node-page")).toBeInTheDocument();
-    expect(screen.queryByTestId("deployment-page")).toBeNull();
-  });
-
-  it("неизвестный сохранённый режим — «Объекты»", () => {
-    localStorage.setItem("archmap_mode", "nonsense");
-    setup(null);
-    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
   });
 
   it("в «Процессы» без выбранного процесса пункт экспорта заблокирован", async () => {
@@ -360,17 +352,17 @@ describe("ProjectShell", () => {
     expect(screen.getByTestId("proc-initial")).toHaveTextContent("p9");
   });
 
-  it("ключ прихода одноразовый: следующий маунт не подставляет тот же процесс", () => {
-    // Режим при этом остаётся «Процессы» — он живёт в localStorage и помнит, где
-    // пользователь был в последний раз (приход алертом от переключения вкладки не
-    // отличается). Одноразов именно ВЫБОР процесса: иначе оболочка возвращала бы в
-    // него после каждой перезагрузки.
+  it("ключ прихода одноразовый: следующий маунт открывает «Объекты»", () => {
+    // Иначе оболочка возвращала бы в процесс после каждой перезагрузки; памяти режима
+    // нет, поэтому следующий заход — снова «Объекты».
     sessionStorage.setItem("archmap.pendingProcess", "p9");
     setup(null).unmount();
+    expect(sessionStorage.getItem("archmap.pendingProcess")).toBeNull();
 
     setup(null);
 
-    expect(screen.getByTestId("proc-initial")).toHaveTextContent("none");
+    expect(screen.getByTestId("tree-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("process-workspace")).not.toBeInTheDocument();
   });
 
   it("удаление узла без родителя ведёт на страницу проекта", async () => {

@@ -61,7 +61,7 @@ archmap/
 │   │   │                  # (холст «Развёртывание»: дерево слева, режим размещения — useDeploymentPlacing), MapEditorPage
 │   │   │                  # (редактор-карта), ProjectsPage, UsersPage, LoginPage, DemoLoginPage; хуки страниц:
 │   │   │                  # useLevelSchema, useRemoteSync (поллинг и startPollLoop), useNodePatch, useToast;
-│   │   │                  # workMode — режим оболочки «Объекты · Процессы · Развёртывание» и его память (archmap_mode)
+│   │   │                  # workMode — режим оболочки «Объекты · Процессы · Развёртывание» (памяти нет: проект открывается в «Объектах»)
 │   │   ├── types/         # api.gen.ts (генерат из OpenAPI), index.ts (фасад алиасов)
 │   │   └── embed/         # живая схема для лендинга: холст на снимке демо-проекта без бэкенда (embed.html, npm run build:embed)
 │   ├── scripts/           # replay-prof.ts, route-quality.ts — замеры роутера (npm run replay-prof / route-quality)

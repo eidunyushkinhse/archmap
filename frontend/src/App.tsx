@@ -1,10 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import {
   clearToken, fetchAuthConfig, fetchMe, getAuthConfig, getIsGuest, getMe, getToken, subscribeMe,
 } from "./api/auth";
 import { onAccountBlocked, onUnauthorized } from "./api/client";
 import { setCurrentProjectId } from "./api/projectScope";
-import { deployRemembered } from "./pages/workMode";
 import type { AuthConfig } from "./types";
 import DemoLoginPage from "./pages/DemoLoginPage";
 import LoginPage from "./pages/LoginPage";
@@ -63,28 +62,14 @@ function parseHash(): Route {
   return { name: "projects" };
 }
 
-// Маршруты, которые рисует оболочка проекта (ProjectShell): между ними она не перемонтируется.
-const inShell = (r: Route | null, projectId: string): boolean =>
-  r !== null && (r.name === "project-home" || r.name === "node" || r.name === "deploy") && r.projectId === projectId;
-
 // Скоуп проекта (X-Project-Id) обязан быть выставлен ДО маунта страниц: их
 // mount-эффект грузит уровень РАНЬШЕ эффектов App (эффекты родителя исполняются
 // после эффектов ребёнка), и установка скоупа эффектом опаздывала — первые
 // запросы уровня уходили со старым/пустым заголовком (гонка X-Project-Id,
 // баг prod-сборки 2026-07-14, починен 2026-07-16). Поэтому скоуп ставится
 // СИНХРОННО при каждом разборе маршрута; setCurrentProjectId идемпотентен.
-// prev — маршрут, показанный до этого (null — первый разбор при загрузке).
-function routeFromHash(prev: Route | null): Route {
-  let route = parseHash();
-  // Запомненный режим «Развёртывание» живёт в адресе: ОТКРЫТИЕ страницы проекта (загрузка,
-  // переход из списка, другого проекта или редактора-карты) ведёт сразу на
-  // #/p/<pid>/deploy. Адрес ЗАМЕНЯЕТСЯ (replaceState, без hashchange), а не добавляется:
-  // иначе «назад» вёл бы на #/p/<pid> и тут же обратно сюда. Внутри открытой оболочки
-  // #/p/<pid> — это «Объекты»/«Процессы»: так «назад» из «Развёртывания» возвращает режим.
-  if (route.name === "project-home" && !inShell(prev, route.projectId) && deployRemembered()) {
-    route = { name: "deploy", projectId: route.projectId, nodeId: null };
-    window.history.replaceState(window.history.state, "", `#${deployHash(route.projectId, null)}`);
-  }
+function routeFromHash(): Route {
+  const route = parseHash();
   // Скоуп проекта нужен всем маршрутам внутри проекта (node, project-home, deploy, map)
   const pid = "projectId" in route ? route.projectId : null;
   setCurrentProjectId(pid);
@@ -96,10 +81,7 @@ export const SESSION_EXPIRED_NOTICE = "Сессия истекла — войд�
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());
-  const [route, setRoute] = useState<Route>(() => routeFromHash(null));
-  // Показанный маршрут для разбора следующего адреса (редирект «Развёртывания» — только
-  // при открытии проекта, см. routeFromHash).
-  const shownRoute = useRef(route);
+  const [route, setRoute] = useState<Route>(routeFromHash);
   // Почему выкинули на экран входа (блокировка, удалённая песочница) — текст плашки.
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   // Публичные настройки входа: демо-стенд показывает свой экран входа
@@ -112,11 +94,7 @@ export default function App() {
   useSyncExternalStore(subscribeMe, getMe);
 
   useEffect(() => {
-    const onHash = () => {
-      const next = routeFromHash(shownRoute.current);
-      shownRoute.current = next;
-      setRoute(next);
-    };
+    const onHash = () => { setRoute(routeFromHash()); };
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
