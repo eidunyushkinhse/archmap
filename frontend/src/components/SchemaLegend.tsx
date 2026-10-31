@@ -11,8 +11,8 @@
 // указано», пунктирная карточка системы целиком на площадке и пометка «1/2».
 // Рамки — по элементу архитектуры (Р20, Р24 эпика docs/plan-c4-elements.md): обе
 // пунктиром, у контейнера заливка цветом глубины (graph/frameStyle.ts). Знаки в углу блока
-// (ChildrenBadge, node.md N17 и N4в): дерево — система, у пустой без числа; сетка —
-// контейнер с компонентами.
+// (ChildrenBadge, node.md N17 и N4в): дерево — система, сетка — контейнер; число рядом —
+// сколько внутри, у листа знак без числа.
 
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
@@ -96,8 +96,8 @@ function SwatchWholeSystem() {
     </svg>
   );
 }
-/* Знак в правом нижнем углу блока (ChildrenBadge): дерево у системы, сетка у контейнера с
-   компонентами — тот же глиф в масштабе свотча на блоке сервиса. */
+/* Знак в правом нижнем углу блока (ChildrenBadge): дерево у системы, сетка у контейнера —
+   тот же глиф в масштабе свотча на блоке сервиса. */
 function SwatchCornerBadge({ glyph }: { glyph: "tree" | "grid" }) {
   const stroke = { fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
   return (
@@ -216,7 +216,7 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
               <Row swatch={<SwatchFrame />} label="Рамка системы" />
               <Row swatch={<SwatchContainerFrame />} label="Рамка контейнера" />
               <Row swatch={<SwatchCornerBadge glyph="tree" />} label="Система, рядом число вложенных объектов" />
-              <Row swatch={<SwatchCornerBadge glyph="grid" />} label="Контейнер с компонентами, рядом их число" />
+              <Row swatch={<SwatchCornerBadge glyph="grid" />} label="Контейнер, рядом число компонентов" />
             </Section>
           )}
         </div>

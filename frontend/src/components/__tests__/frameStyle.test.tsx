@@ -273,9 +273,10 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(page.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("2 из 4");
   });
 
-  // Пустая система (node.md N4в, решение владельца 2026-10-31 по прототипу): дерево в углу без
-  // числа; контейнер без компонентов — без знака; у базы знака нет при любом элементе.
-  it("пустая система — дерево в углу без числа и без зоны входа; контейнер без компонентов — чистый", () => {
+  // Знак типа у листа (node.md N4в, решение владельца 2026-10-31 по прототипу): дерево у
+  // пустой системы и сетка у контейнера без компонентов, без числа; компонент внутри
+  // контейнера и база без знака при любом элементе.
+  it("лист: система — дерево, контейнер — сетка, оба без числа и без зоны входа; компонент и база — чистые", () => {
     const el = renderBlock(blockData({ element_effective: "system", element: "system" }, { onDrillDown: vi.fn() }));
     const svg = el.querySelector("svg[data-glyph]");
     expect(svg?.getAttribute("data-glyph")).toBe("tree");
@@ -284,14 +285,20 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.querySelector(".lg-into-cue")).toBeNull();
     expect(el.querySelector('button[title="Раскрыть содержимое"]')).toBeNull();
     const leaf = renderBlock(blockData({ element_effective: "container" }, { onDrillDown: vi.fn() }));
-    expect(leaf.querySelector("svg[data-glyph]")).toBeNull();
+    expect(leaf.querySelector("svg[data-glyph]")?.getAttribute("data-glyph")).toBe("grid");
+    expect(leaf.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("");
+    expect(leaf.querySelector("[data-into]")).toBeNull();
+    const component = renderBlock(blockData({ element_effective: "component", container_name: "orders" }, { onDrillDown: vi.fn() }));
+    expect(component.querySelector("svg[data-glyph]")).toBeNull();
+    const db = renderBlock(blockData({ shape: "database", element_effective: "container" }, {}));
+    expect(db.querySelector("svg[data-glyph]")).toBeNull();
     // пометка проекции занимает тот же угол и старше знака
     const marked = renderBlock(blockData({ element_effective: "system" }, { mark: "1/2" }));
     expect(marked.querySelector("svg[data-glyph]")).toBeNull();
     expect(marked.textContent).toContain("1/2");
   });
 
-  it("гость — пустая система: дерево без числа, кнопки нет", () => {
+  it("гость — пустая система: дерево без числа, кнопки нет; гость-база — без знака", () => {
     const ghost = {
       id: "g", name: "Гость", role: null, technology: null, is_external: false, shape: "service",
       status: "existing", node_depth: 1, has_children: false, child_count: 0, ancestors: [], is_ghost: true,
@@ -301,6 +308,9 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.querySelector("svg[data-glyph]")?.getAttribute("data-glyph")).toBe("tree");
     expect(el.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("");
     expect(el.querySelector("button")).toBeNull();
+    const db = { ...ghost, shape: "database", element_effective: "container" } as unknown as GhostNode;
+    const el2 = render(<ReactFlowProvider><Ghost id="g2" data={{ appNode: db, colors }} /></ReactFlowProvider>).container;
+    expect(el2.querySelector("svg[data-glyph]")).toBeNull();
   });
 
   it("лупа на пределе глубины — неактивна, подсказка про предел словами продукта", () => {
@@ -351,14 +361,16 @@ describe("блок и свёрнутый гостевой контейнер —
     expect(el.querySelector('button[title="Войти"]')).not.toBeNull();
     expect(el.querySelectorAll('circle[r="2.3"]')).toHaveLength(3);
     expect(el.textContent).toContain("4");
-    // гость-лист — ни кнопки, ни бейджа (лист без детей сервер читает контейнером; лист с
-    // действующей системой — пустая система со своим знаком, отдельный тест)
+    // гость-лист — ни кнопки, ни числа; знак типа без числа (лист без детей сервер читает
+    // контейнером — сетка; пустая система — дерево, отдельный тест)
     const leaf: GhostData = {
       appNode: { ...ghost, has_children: false, child_count: 0, element_effective: "container" }, colors, onEnter: vi.fn(),
     };
     const el2 = render(<ReactFlowProvider><Ghost id="g2" data={leaf} /></ReactFlowProvider>).container;
     expect(el2.querySelector("button")).toBeNull();
     expect(el2.querySelectorAll('circle[r="2.3"]')).toHaveLength(0);
+    expect(el2.querySelector("svg[data-glyph]")?.getAttribute("data-glyph")).toBe("grid");
+    expect(el2.querySelector("svg[data-glyph]")?.parentElement?.textContent).toBe("");
   });
 
   it("база с детьми и лист — не зона входа, без бейджа и лупы", () => {
