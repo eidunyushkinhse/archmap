@@ -32,6 +32,22 @@ function renderModal() {
 
 const del = () => screen.getByRole("button", { name: "Удалить" });
 
+// Окно сначала грузит связь, список связей и имена концов, потом показывает форму. Форма —
+// другой <dialog>, чем окно «Загрузка…», и открывается он эффектом Modal уже после того,
+// как текст формы появился в DOM; закрытый диалог прячет свои роли. Поэтому ждём дешёвый
+// признак — диалог с заголовком формы открыт, — а роли ищем уже синхронно. Прежде тесты
+// ждали findByRole: каждый опрос строит дерево доступности, и под нагрузкой (полный
+// прогон в хуке) первый тест файла не укладывался в секунду ожидания по умолчанию. Запас
+// ожидания — на холодный старт, а не на расчёт ролей.
+async function openModal() {
+  const handlers = renderModal();
+  await waitFor(
+    () => expect(screen.getByText("Редактирование связи").closest("dialog")?.open).toBe(true),
+    { timeout: 5000 },
+  );
+  return handlers;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(edgesApi.get).mockResolvedValue(EDGE as never);
@@ -42,14 +58,13 @@ beforeEach(() => {
 
 describe("EdgeEditModal: удаление связи", () => {
   it("кнопка «Удалить» есть в модалке страницы", async () => {
-    renderModal();
+    await openModal();
 
-    expect(await screen.findByRole("button", { name: "Удалить" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Удалить" })).toBeTruthy();
   });
 
   it("первый клик только спрашивает — связь не трогаем", async () => {
-    renderModal();
-    await screen.findByRole("button", { name: "Удалить" });
+    await openModal();
 
     await userEvent.click(del());
 
@@ -58,8 +73,7 @@ describe("EdgeEditModal: удаление связи", () => {
   });
 
   it("подтверждение удаляет, обновляет страницу и закрывает", async () => {
-    const { onClose, onChanged } = renderModal();
-    await screen.findByRole("button", { name: "Удалить" });
+    const { onClose, onChanged } = await openModal();
 
     await userEvent.click(del());
     await userEvent.click(del()); // тот же ярлык — уже в подтверждении
@@ -70,8 +84,7 @@ describe("EdgeEditModal: удаление связи", () => {
   });
 
   it("«Отмена» возвращает к правке, связь цела", async () => {
-    renderModal();
-    await screen.findByRole("button", { name: "Удалить" });
+    await openModal();
     await userEvent.click(del());
 
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
@@ -82,8 +95,7 @@ describe("EdgeEditModal: удаление связи", () => {
 
   it("отказ бэка показан, модалка не закрывается", async () => {
     vi.mocked(edgesApi.delete).mockRejectedValue(new Error("Связь занята"));
-    const { onClose } = renderModal();
-    await screen.findByRole("button", { name: "Удалить" });
+    const { onClose } = await openModal();
 
     await userEvent.click(del());
     await userEvent.click(del());
@@ -96,8 +108,8 @@ describe("EdgeEditModal: удаление связи", () => {
 describe("EdgeEditModal: подтверждение по Enter", () => {
   it("Enter в поле технологии — как «Готово»: коммит и закрытие", async () => {
     vi.mocked(edgesApi.update).mockResolvedValue({ ...EDGE, technology: "gRPC", version: 2 } as never);
-    const { onClose, onChanged } = renderModal();
-    const tech = await screen.findByPlaceholderText("REST, gRPC, Kafka…");
+    const { onClose, onChanged } = await openModal();
+    const tech = screen.getByPlaceholderText("REST, gRPC, Kafka…");
 
     await userEvent.clear(tech);
     await userEvent.type(tech, "gRPC{Enter}");
@@ -108,8 +120,7 @@ describe("EdgeEditModal: подтверждение по Enter", () => {
   });
 
   it("пока окно спрашивает об удалении, Enter молчит", async () => {
-    const { onClose } = renderModal();
-    await screen.findByRole("button", { name: "Удалить" });
+    const { onClose } = await openModal();
     await userEvent.click(del());
 
     await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka…"), "{Enter}");
