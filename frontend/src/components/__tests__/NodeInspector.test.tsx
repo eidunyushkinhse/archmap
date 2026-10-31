@@ -115,6 +115,21 @@ describe("NodeInspector: смена типа формой", () => {
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });
 
+  it("вложенный объект: «Пользователь» серый с причиной, запроса нет", async () => {
+    // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
+    const system: AncestorRef = { id: "s1", name: "Ярмарка", is_external: false, element_effective: "system" };
+    render(<NodeInspector node={makeNode({ shape: "service", element_effective: "container", parent_id: "s1" })}
+      isArchitect {...cb} ancestors={[system]} />);
+    await userEvent.click(typeButton());
+    const person = option("Пользователь");
+    expect(person).toHaveAttribute("aria-disabled", "true");
+    expect(person).toHaveTextContent(
+      "Пользователь живёт вне границ системы, сначала перенесите объект на верхний уровень.",
+    );
+    await userEvent.click(person);
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
   it("наблюдателю тип показан текстом, выпадашки нет", async () => {
     setup(makeNode({ shape: "person", element_effective: null }), false);
     await waitFor(() => expect(screen.getAllByText("Пользователь").length).toBeGreaterThan(0));

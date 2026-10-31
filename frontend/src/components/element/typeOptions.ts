@@ -52,6 +52,11 @@ const storeChange: Record<"database" | "broker", (container: string) => string> 
   database: (c) => `База данных не входит в состав контейнера, перенесите объект из «${c}».`,
   broker: (c) => `Брокер не входит в состав контейнера, перенесите объект из «${c}».`,
 };
+// «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31,
+// app/reparent.person_refusal): внутри объекта его не создают, а вложенный объект им не
+// становится, пока его не вынесли наверх.
+const PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его на верхнем уровне.";
+const PERSON_CHANGE = "Пользователь живёт вне границ системы, сначала перенесите объект на верхний уровень.";
 // Вложенные объекты бывают только у сервиса (app/reparent.validate_shape_change).
 const WITH_CHILDREN: Record<"database" | "broker" | "person", string> = {
   database: "Объект с вложенными объектами не может стать базой данных.",
@@ -75,21 +80,23 @@ function holderName(node: TypeSubject, ancestors: readonly AncestorRef[] = []): 
 }
 
 function createOptions(parent: TypeSubject | null): TypeOption[] {
+  // Внутри любого объекта «Пользователь» серый: он живёт только на верхнем уровне.
   // Лист-сервис без элемента ждёт первого вложенного объекта: выбор задаёт и его (Р38).
   if (parent && awaitsFirstChild(parent)) {
-    return TYPE_ORDER.map((type) => ({
+    return TYPE_ORDER.map((type) => type === "person" ? grey(type, PERSON_CREATE) : {
       type,
       disabled: false,
       note: type === "component" ? becomesContainer(parent.name) : becomesSystem(parent.name),
-    }));
+    });
   }
   // Внутри контейнера (и его компонента) всё — компоненты; база и брокер в контейнер не
-  // входят, «Пользователь» сервером не запрещён.
+  // входят.
   if (parent && parent.shape === "service" && childIsComponent(parent)) {
     const container = holderName(parent);
     return TYPE_ORDER.map((type) => {
       if (type === "system" || type === "container") return grey(type, insideContainerCreate(container));
       if (type === "database" || type === "broker") return grey(type, storeCreate[type](container));
+      if (type === "person") return grey(type, PERSON_CREATE);
       return enabled(type);
     });
   }
@@ -98,7 +105,11 @@ function createOptions(parent: TypeSubject | null): TypeOption[] {
   const reason = parent && parent.shape === "service" && parent.has_children
     ? componentInSystem(parent.name)
     : COMPONENT_ONLY;
-  return TYPE_ORDER.map((type) => (type === "component" ? grey(type, reason) : enabled(type)));
+  return TYPE_ORDER.map((type) => {
+    if (type === "component") return grey(type, reason);
+    if (type === "person" && parent) return grey(type, PERSON_CREATE);
+    return enabled(type);
+  });
 }
 
 function changeOptions(node: TypeSubject, ancestors: readonly AncestorRef[]): TypeOption[] {
@@ -106,6 +117,8 @@ function changeOptions(node: TypeSubject, ancestors: readonly AncestorRef[]): Ty
   // Внутри контейнера: компонент — по ответу сервера; у «Пользователя» элемента нет, его
   // место видно по цепочке предков.
   const inside = node.element_effective === "component" || containerOf(ancestors) !== null;
+  // Вложен ли объект вообще: предки от корня — крошки уровня и раскрытая рамка.
+  const nested = inside || ancestors.length > 0;
   const container = holderName(node, ancestors);
   return TYPE_ORDER.map((type) => {
     if (type === current) return enabled(type);
@@ -115,7 +128,8 @@ function changeOptions(node: TypeSubject, ancestors: readonly AncestorRef[]): Ty
     if (type === "component") return inside ? enabled(type) : grey(type, componentMove(node.name));
     // Форма без вложенных объектов: у объекта с детьми — отказ сервера.
     if (node.has_children) return grey(type, WITH_CHILDREN[type]);
-    if (inside && (type === "database" || type === "broker")) return grey(type, storeChange[type](container));
+    if (type === "person") return nested ? grey(type, PERSON_CHANGE) : enabled(type);
+    if (inside) return grey(type, storeChange[type](container));
     return enabled(type);
   });
 }

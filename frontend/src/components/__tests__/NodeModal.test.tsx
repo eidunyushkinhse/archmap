@@ -124,6 +124,21 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(body()).not.toHaveProperty("parent_element");
   });
 
+  it("внутри системы «Пользователь» серый с причиной и шаблоном не предвыбирается", async () => {
+    // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
+    const system = node({ id: "s1", name: "Ярмарка", element_effective: "system", has_children: true, child_count: 1 });
+    place(system, [node({ id: "k1", element_effective: "container", parent_id: "s1" })]);
+    render(<NodeModal parentId="s1" type="person" onClose={vi.fn()} onSaved={vi.fn()} />);
+    await ready();
+    // Шаблон здесь невозможен — предвыбор по соседу.
+    expect(typeField()!.textContent).toContain("Контейнер");
+    fireEvent.click(typeField()!);
+    expect(option("Пользователь")).toHaveAttribute("aria-disabled", "true");
+    expect(option("Пользователь").textContent).toContain(
+      "Пользователь живёт вне границ системы, создайте его на верхнем уровне.",
+    );
+  });
+
   it("лист без элемента: компонент делает его контейнером — одним запросом (Р38)", async () => {
     place(node({ id: "l1", name: "billing" }));
     render(<NodeModal parentId="l1" onClose={vi.fn()} onSaved={vi.fn()} />);

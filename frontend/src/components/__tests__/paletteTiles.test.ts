@@ -97,3 +97,24 @@ describe("dropRefusal: почему объект не создан", () => {
       .toBe("Брокер не входит в состав контейнера, создайте его рядом с «orders».");
   });
 });
+
+// «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31): рамки его
+// не принимают, на любом уровне, кроме верхнего, плитка серая.
+describe("«Пользователь» в палитре и при броске", () => {
+  const PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его на верхнем уровне.";
+  const root = typeOptions({ mode: "create", parent: null });
+
+  it("уровень системы: плитка серая с причиной, рамки её не спасают", () => {
+    const tiles = paletteTiles(systemLevel, [containerFrame("orders"), frame("billing")]);
+    expect(tileOf(tiles, "person")).toEqual({ type: "person", enabled: false, reason: PERSON_CREATE });
+  });
+
+  it("верхний уровень с раскрытой рамкой системы: плитка активна, рамка не принимает", () => {
+    const frames = [frame("shop")];
+    expect(tileOf(paletteTiles(root, frames), "person")).toEqual({ type: "person", enabled: true });
+    const person = dropEligibility("person", root, frames);
+    expect(person?.levelOk).toBe(true);
+    expect([...person!.frameIds]).toEqual([]);
+    expect(dropRefusal("person", "shop", root, frames)).toBe(PERSON_CREATE);
+  });
+});
