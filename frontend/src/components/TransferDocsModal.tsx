@@ -8,10 +8,11 @@
 // «спецификация и конфигурация», подпись — путь от узла («orders / api»). Окно правил
 // элемента не знает и получателей не отбирает. Узел без вложенных — отказ превью (422)
 // его текстом. Применение — POST /nodes/{id}/docs/distribute; отказ сервера (занято имя,
-// уже есть спецификация) — текстом под формой, окно открыто.
+// уже есть спецификация) — текстом под формой, окно открыто. После записи окно
+// показывает итог (что перенесено) до «Закрыть», как окно «Собрать с компонентов».
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { TransferDocsPreview } from "../types";
+import type { DistributeDocsOut, TransferDocsPreview } from "../types";
 import { nodesApi, nodeDocsApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
@@ -30,7 +31,7 @@ interface Props {
   nodeId: string;
   onClose: () => void;
   // Перенос применён — страница перечитывает узел, потомков и параметры (окно
-  // закрывается само).
+  // остаётся открытым с итогом).
   onApplied: () => void;
 }
 
@@ -62,7 +63,7 @@ export default function TransferDocsModal({ nodeId, onClose, onApplied }: Props)
   if (!data) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <div style={muted}>Загрузка…</div>
+        <div style={muted}>Загружаем данные объекта</div>
       </Modal>
     );
   }
@@ -91,6 +92,7 @@ function TransferForm({ data, onClose, onApplied }: {
   const [paramsTo, setParamsTo] = useState(() => (params > 0 ? processTo[0]?.node_id ?? "" : ""));
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<DistributeDocsOut | null>(null);
 
   const apply = () => {
     setSending(true);
@@ -103,15 +105,27 @@ function TransferForm({ data, onClose, onApplied }: {
         ...(specTo !== "" ? { spec_child_id: specTo } : {}),
         ...(paramsTo !== "" ? { params_target_id: paramsTo } : {}),
       })
-      .then(() => {
+      .then((out) => {
+        setResult(out);
         onApplied();
-        onClose();
       })
       .catch((e: unknown) => {
         setError(e instanceof ApiError ? e.message : "Не удалось перенести документацию");
         setSending(false);
       });
   };
+
+  if (result !== null) {
+    return (
+      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
+        <DialogTitle>{TITLE}</DialogTitle>
+        <p style={resultLine}>{transferResult(result)}</p>
+        <div style={footRow}>
+          <button type="button" onClick={onClose} style={primaryBtn}>Закрыть</button>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal onClose={onClose} boxStyle={{ width: 560 }}>
@@ -194,7 +208,7 @@ function TransferForm({ data, onClose, onApplied }: {
           disabled={sending}
           style={{ ...primaryBtn, ...(sending ? { opacity: 0.6, cursor: "default" } : {}) }}
         >
-          {sending ? "Перенос…" : "Перенести"}
+          {sending ? "Переносим" : "Перенести"}
         </button>
         <button type="button" onClick={onClose} style={secondaryBtn}>Отмена</button>
       </div>
@@ -202,7 +216,22 @@ function TransferForm({ data, onClose, onApplied }: {
   );
 }
 
+// Итог переноса: перенесённые части по порядку окна, пустые не называются —
+// «Перенесено: 2 схемы логики, спецификация, 3 параметра.»
+function transferResult(out: DistributeDocsOut): string {
+  const parts: string[] = [];
+  if (out.moved_docs > 0) {
+    parts.push(`${out.moved_docs} ${plural(out.moved_docs, ["схема логики", "схемы логики", "схем логики"])}`);
+  }
+  if (out.spec_moved) parts.push("спецификация");
+  if (out.moved_params > 0) {
+    parts.push(`${out.moved_params} ${plural(out.moved_params, ["параметр", "параметра", "параметров"])}`);
+  }
+  return parts.length > 0 ? `Перенесено: ${parts.join(", ")}.` : "Ничего не перенесено.";
+}
+
 /* --------------------------------- стили --------------------------------- */
+const resultLine: CSSProperties = { margin: "0 0 6px", fontSize: 14, color: "#1e293b", lineHeight: 1.5 };
 const muted: CSSProperties = { color: "#475569", margin: "4px 0 0", fontSize: 13.5 };
 const groupLabel: CSSProperties = {
   fontSize: 10.5,

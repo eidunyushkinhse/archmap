@@ -23,7 +23,7 @@ import { primaryBtn, secondaryBtn } from "../ui/styles";
 import { DocViewer, Option, PathLabel, SplitOption } from "./project/remainder";
 import "./project/remainder/remainder.css";
 import {
-  asksSpec, candidateSub, collectFacts, collectLine, collectResult, isParamQuestion,
+  asksSpec, candidateSub, collectFacts, collectLine, collectResult, droppedParams, isParamQuestion,
   paramQuestion, specHolders, specQuestion,
 } from "./element/collectTexts";
 import type { CollectQuestionTexts } from "./element/collectTexts";
@@ -51,6 +51,7 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
   const [result, setResult] = useState<CollectFactsOut | null>(null);
 
   const facts = collectFacts(preview, nodeId);
+  const dropped = droppedParams(preview, nodeId);
   const asked = preview.param_clashes.filter(isParamQuestion);
   const holders = specHolders(preview, nodeId);
   const askSpec = asksSpec(preview, nodeId);
@@ -105,7 +106,7 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
       </DialogTitle>
 
       <ul style={list}>
-        {preview.components.map((c) => <li key={c.node_id}>{collectLine(c)}</li>)}
+        {preview.components.map((c) => <li key={c.node_id}>{collectLine(c, dropped[c.node_id])}</li>)}
       </ul>
       {facts.length > 0 && (
         <ul style={factList}>
@@ -180,7 +181,7 @@ export default function CollectFactsModal({ nodeId, nodeName, preview, onClose, 
           disabled={sending}
           style={{ ...primaryBtn, ...(sending ? { opacity: 0.6, cursor: "default" } : {}) }}
         >
-          {sending ? "Сбор…" : "Собрать"}
+          {sending ? "Собираем" : "Собрать"}
         </button>
         <button type="button" onClick={onClose} style={secondaryBtn}>Отмена</button>
       </div>

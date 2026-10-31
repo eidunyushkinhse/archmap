@@ -20,6 +20,7 @@ export interface CollectQuestionTexts {
 
 const PARAM: [string, string, string] = ["параметр", "параметра", "параметров"];
 const SPEC: [string, string, string] = ["спецификация", "спецификации", "спецификаций"];
+const DROPPED: [string, string, string] = ["будет отброшен", "будут отброшены", "будут отброшены"];
 // Сколько имён параметров называть в итоге: дальше — счётчиком.
 const NAMES_CAP = 5;
 
@@ -30,10 +31,34 @@ const quoted = (names: string[]): string => joinNames(names.map((n) => `«${n}»
 // случай, и множественное число в нём звучит как «их много» (то же, что у вопросов ввоза).
 const rest = (n: number): string => (n === 2 ? "вторая будет отброшена" : "остальные будут отброшены");
 
-// Строка компонента в окне сбора: «api · 2 параметра, спецификация».
-export function collectLine(c: CollectFactsPreview["components"][number]): string {
+/**
+ * Сколько параметров каждого компонента сбор отбросит: одноимённые с записью
+ * контейнера (container_keeps). Компонент → число; нет ключа — ноль.
+ */
+export function droppedParams(p: CollectFactsPreview, containerId: string): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of p.param_clashes) {
+    if (!c.container_keeps) continue;
+    for (const k of c.candidates) {
+      if (k.node_id !== containerId) out[k.node_id] = (out[k.node_id] ?? 0) + 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Строка компонента в окне сбора: «api · 2 параметра, спецификация». Отбрасываемые
+ * параметры названы честно: «worker · 1 параметр, будет отброшен», «api · 2 параметра,
+ * 1 будет отброшен, спецификация».
+ */
+export function collectLine(c: CollectFactsPreview["components"][number], dropped = 0): string {
   const parts: string[] = [];
-  if (c.params > 0) parts.push(count(c.params, PARAM));
+  if (c.params > 0) {
+    const gone = Math.min(dropped, c.params);
+    const verb = plural(gone, DROPPED);
+    const tail = gone === 0 ? "" : gone === c.params ? `, ${verb}` : `, ${gone} ${verb}`;
+    parts.push(count(c.params, PARAM) + tail);
+  }
   if (c.has_spec) parts.push("спецификация");
   return `${c.name} · ${parts.join(", ")}`;
 }

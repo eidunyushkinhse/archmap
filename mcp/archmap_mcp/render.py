@@ -1640,10 +1640,31 @@ def transfer_result(data: dict[str, Any]) -> str:
     )
 
 
-def _component_facts(c: dict[str, Any]) -> str:
-    """Что у компонента собирается: «2 параметра, спецификация» (слова окна сбора)."""
+def _dropped_params(data: dict[str, Any], container_id: str) -> dict[str, int]:
+    """Сколько параметров каждого компонента сбор отбросит: одноимённые с записью
+    контейнера (container_keeps)."""
+    out: dict[str, int] = {}
+    for cl in data.get("param_clashes") or []:
+        if not cl.get("container_keeps"):
+            continue
+        for c in cl.get("candidates") or []:
+            node_id = str(c.get("node_id"))
+            if node_id != container_id:
+                out[node_id] = out.get(node_id, 0) + 1
+    return out
+
+
+def _component_facts(c: dict[str, Any], dropped: int = 0) -> str:
+    """Что у компонента собирается, словами окна сбора: «2 параметра, спецификация»;
+    отбрасываемые названы честно — «1 параметр, будет отброшен», «2 параметра, 1 будет
+    отброшен»."""
     n = int(c.get("params") or 0)
-    parts = [f"{n} {_plural(n, ('параметр', 'параметра', 'параметров'))}"] if n else []
+    parts: list[str] = []
+    if n:
+        gone = min(dropped, n)
+        verb = _plural(gone, ("будет отброшен", "будут отброшены", "будут отброшены"))
+        tail = "" if not gone else f", {verb}" if gone == n else f", {gone} {verb}"
+        parts.append(f"{n} {_plural(n, ('параметр', 'параметра', 'параметров'))}{tail}")
     if c.get("has_spec"):
         parts.append("спецификация")
     return ", ".join(parts)
@@ -1712,9 +1733,14 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
     components = list(data.get("components") or [])
     if not components:
         return "Собирать нечего: у компонентов нет ни параметров конфигурации, ни спецификации."
+    dropped = _dropped_params(data, container_id)
     out = [f"Компоненты с конфигурацией или спецификацией ({len(components)}):"]
     out.extend(_capped(
-        [f"  • {c.get('name')} · {_component_facts(c)}  node_id={c.get('node_id')}" for c in components],
+        [
+            f"  • {c.get('name')} · {_component_facts(c, dropped.get(str(c.get('node_id')), 0))}"
+            f"  node_id={c.get('node_id')}"
+            for c in components
+        ],
         TRANSFER_CAP, ("компонент", "компонента", "компонентов"),
     ))
     facts = _collect_facts(data, container_id)

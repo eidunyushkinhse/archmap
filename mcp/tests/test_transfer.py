@@ -256,7 +256,8 @@ async def test_превью_сбора_печатает_факты_и_вопро
     assert api.calls[-1].method == "GET"
     assert "Компоненты с конфигурацией или спецификацией (3):" in lines
     assert f"  • api · 2 параметра, спецификация  node_id={u(21)}" in lines
-    assert f"  • worker · 1 параметр  node_id={u(23)}" in lines
+    # Отбрасываемое по приоритету контейнера названо в строке компонента.
+    assert f"  • worker · 1 параметр, будет отброшен  node_id={u(23)}" in lines
     # Приоритет контейнера — строкой-фактом, вопроса по RETRY_TIMEOUT нет.
     assert "Без вопросов — знание контейнера в приоритете:" in lines
     assert (

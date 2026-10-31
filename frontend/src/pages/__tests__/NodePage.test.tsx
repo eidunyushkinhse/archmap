@@ -448,7 +448,9 @@ describe("NodePage: правила контейнеров", () => {
         doc_assignments: [{ doc_id: "d1", child_id: "k1" }],
       }),
     );
-    // Модалка закрылась после успеха
+    // После успеха — итог в том же окне, «Закрыть» его закрывает.
+    expect(await screen.findByText("Перенесено: 1 схема логики.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 

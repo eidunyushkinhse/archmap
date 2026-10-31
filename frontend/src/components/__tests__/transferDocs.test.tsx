@@ -91,8 +91,19 @@ describe("окно «Перенести документацию»", () => {
       spec_child_id: "orders",
       params_target_id: "billing",
     }));
+    // Итог — в том же окне до «Закрыть».
+    expect(await screen.findByText("Перенесено: 1 схема логики, спецификация, 3 параметра.")).toBeInTheDocument();
     expect(onApplied).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("итог переноса называет только перенесённое", async () => {
+    vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 2, spec_moved: false, moved_params: 0 });
+    open(preview({ has_spec: false, params: 0 }));
+    await userEvent.click(await screen.findByRole("button", { name: "Перенести" }));
+    expect(await screen.findByText("Перенесено: 2 схемы логики.")).toBeInTheDocument();
   });
 
   it("у контейнера с компонентами — только схемы логики", async () => {
@@ -191,6 +202,7 @@ describe("окно «Собрать с компонентов»", () => {
   it("факты строками, вопросы без предвыбора; «Собрать» без ответов — дефолт и итог", async () => {
     const { onApplied, onClose } = open();
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    expect(screen.getByText("worker · 1 параметр, будет отброшен")).toBeInTheDocument();
     expect(screen.getByText(
       "Параметр «RETRY_TIMEOUT» есть у контейнера — остаётся его описание, у компонента «worker» параметр будет отброшен",
     )).toBeInTheDocument();

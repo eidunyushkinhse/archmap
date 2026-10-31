@@ -3,7 +3,7 @@
 // ввоза и итог сбора. Чистые функции — без окна.
 import { describe, it, expect } from "vitest";
 import {
-  asksSpec, candidateSub, collectFacts, collectLine, collectResult, paramQuestion, specQuestion,
+  asksSpec, candidateSub, collectFacts, collectLine, collectResult, droppedParams, paramQuestion, specQuestion,
 } from "../element/collectTexts";
 import type { CollectFactsOut, CollectFactsPreview } from "../../types";
 
@@ -22,6 +22,36 @@ describe("строки окна сбора", () => {
     expect(collectLine({ node_id: "a", name: "api", params: 2, has_spec: true })).toBe("api · 2 параметра, спецификация");
     expect(collectLine({ node_id: "s", name: "scheduler", params: 1, has_spec: false })).toBe("scheduler · 1 параметр");
     expect(collectLine({ node_id: "c", name: "checkout", params: 0, has_spec: true })).toBe("checkout · спецификация");
+  });
+
+  it("строка компонента честно называет отбрасываемые параметры", () => {
+    const p = preview({
+      param_clashes: [
+        { name: "RETRY_TIMEOUT", container_keeps: true, candidates: [
+          { node_id: "orders", node_name: "orders", description: null },
+          { node_id: "worker", node_name: "worker", description: null },
+          { node_id: "api", node_name: "api", description: null },
+        ] },
+        { name: "LOG_LEVEL", container_keeps: true, candidates: [
+          { node_id: "orders", node_name: "orders", description: null },
+          { node_id: "worker", node_name: "worker", description: null },
+        ] },
+        { name: "DATABASE_URL", container_keeps: false, candidates: [
+          { node_id: "api", node_name: "api", description: null },
+          { node_id: "outbox", node_name: "outbox", description: null },
+        ] },
+      ],
+    });
+    const dropped = droppedParams(p, "orders");
+    expect(dropped).toEqual({ worker: 2, api: 1 });
+    expect(collectLine({ node_id: "worker", name: "worker", params: 1, has_spec: false }, 1))
+      .toBe("worker · 1 параметр, будет отброшен");
+    expect(collectLine({ node_id: "worker", name: "worker", params: 2, has_spec: false }, dropped.worker))
+      .toBe("worker · 2 параметра, будут отброшены");
+    expect(collectLine({ node_id: "api", name: "api", params: 2, has_spec: true }, dropped.api))
+      .toBe("api · 2 параметра, 1 будет отброшен, спецификация");
+    expect(collectLine({ node_id: "api", name: "api", params: 5, has_spec: false }, 2))
+      .toBe("api · 5 параметров, 2 будут отброшены");
   });
 
   it("факты: параметр контейнера, своя спецификация контейнера, единственный держатель", () => {
