@@ -11,6 +11,9 @@
   «контейнер»; все собственные параметры конфигурации — одному потомку-контейнеру.
   Получатели — сервисы в поддереве узла на любой глубине; система и контейнер с
   компонентами схемы логики не принимают, база, брокер и «Пользователь» — ничего.
+- Превью переноса (transfer_preview): что у узла своего и кому в его составе это можно
+  отдать — флаги получателей по тем же правилам, что проверяет перенос. Окно интерфейса и
+  MCP получателей не отбирают сами: третья копия правил разошлась бы с первой.
 - Собрать с компонентов (вверх): параметры и спецификация компонентов переезжают их
   контейнеру. Одноимённые параметры — один и тот же параметр контейнера: остаётся
   выбранный, остальные удаляются. Спецификация переезжает только выбранная; прочие
@@ -24,6 +27,7 @@
 
 import uuid
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.element_marks import ElementRow, build_elements, project_element_rows
@@ -41,6 +45,9 @@ from app.schemas.node import (
     CollectSpecOut,
     DistributeDocsIn,
     DistributeDocsOut,
+    TransferDocOut,
+    TransferDocsPreview,
+    TransferReceiverOut,
 )
 from app.view_state import bump_meta_rev
 
@@ -82,7 +89,20 @@ class _Tree:
         rows: list[ElementRow] = project_element_rows(db, project_id)
         self.names = {r.id: r.name for r in rows}
         self.shapes = {r.id: r.shape for r in rows}
+        self.parents = {r.id: r.parent_id for r in rows}
         self.elements = build_elements(rows)
+
+    def path_from(self, root: uuid.UUID, node_id: uuid.UUID) -> str:
+        """Путь потомка от узла root, без него самого: «orders / api». Подъём с seen —
+        данные бывают циклическими."""
+        parts: list[str] = []
+        seen: set[uuid.UUID] = set()
+        cur: uuid.UUID | None = node_id
+        while cur is not None and cur != root and cur not in seen:
+            seen.add(cur)
+            parts.append(self.names[cur])
+            cur = self.parents.get(cur)
+        return " / ".join(reversed(parts))
 
 
 # Формы, у которых документации процесса и кода не бывает: лист базы или брокера по
@@ -222,6 +242,52 @@ def transfer_docs(
         bump_meta_rev(db, project)
     return DistributeDocsOut(
         moved_docs=len(moves), spec_moved=spec_target is not None, moved_params=len(params)
+    )
+
+
+def transfer_preview(db: Session, project: Project, node: Node) -> TransferDocsPreview:
+    """«Перенести документацию» без записи: своя документация узла (схемы логики,
+    спецификация, число параметров) и все потомки в обходе в глубину с флагами — что
+    каждый примет. Флаги — те же _docs_place и _process_place, что проверяет
+    transfer_docs. Узел без вложенных — 422 тем же текстом, что у переноса."""
+    tree = _Tree(db, project.id)
+    inside = tree.elements.descendants(node.id)
+    if not inside:
+        raise FactsTransferError(NOTHING_INSIDE.format(name=node.name), 422)
+    process = [m for m in inside if _process_place(tree, m)]
+    # Спецификации — только у контейнеров (остальным она не переносится): тексты не
+    # тянем ради всего поддерева. «Есть» — по тому же правилу, что отказ SPEC_TAKEN.
+    with_spec = {
+        nid
+        for nid, spec in (
+            db.query(Node.id, Node.openapi_spec).filter(Node.id.in_(process)).all()
+            if process else []
+        )
+        if (spec or "").strip()
+    }
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == node.id).order_by(NodeDoc.name).all()
+    params = db.query(func.count(ConfigParam.id)).filter(ConfigParam.node_id == node.id).scalar()
+    return TransferDocsPreview(
+        node_id=node.id,
+        name=node.name,
+        element_effective=tree.elements.effective(node.id),
+        docs=[
+            TransferDocOut(doc_id=d.id, name=d.name, kind=d.kind, operation=d.operation)
+            for d in docs
+        ],
+        has_spec=_has_spec(node),
+        params=params or 0,
+        receivers=[
+            TransferReceiverOut(
+                node_id=m,
+                path=tree.path_from(node.id, m),
+                element_effective=tree.elements.effective(m),
+                takes_docs=_docs_place(tree, m),
+                takes_process_facts=m in process,
+                has_spec=m in with_spec,
+            )
+            for m in inside
+        ],
     )
 
 

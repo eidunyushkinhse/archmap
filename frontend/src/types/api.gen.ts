@@ -1150,6 +1150,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/transfer-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transfer Preview
+         * @description Что отдаст «Перенести документацию» (POST /distribute ниже), БЕЗ записи: своя
+         *     документация узла и потомки с флагами — кто что примет (app/facts_transfer). Окно
+         *     интерфейса и MCP получателей не отбирают сами. Редактору, как превью сбора. 422 —
+         *     внутри нет объектов. Объявлен ДО /{doc_id}: иначе «transfer-preview» попал бы туда
+         *     как doc_id и получил 422.
+         */
+        get: operations["transfer_preview_api_v1_nodes__node_id__docs_transfer_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/docs": {
         parameters: {
             query?: never;
@@ -7752,6 +7776,77 @@ export interface components {
             token_type: string;
         };
         /**
+         * TransferDocOut
+         * @description Собственная схема логики узла — то, что «Перенести документацию» может отдать.
+         */
+        TransferDocOut: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+        };
+        /**
+         * TransferDocsPreview
+         * @description «Перенести документацию» без записи (GET /nodes/{id}/docs/transfer-preview):
+         *     своя документация узла и получатели в его составе. Получатели — все потомки в обходе
+         *     в глубину (дети по имени), в том числе те, кто ничего не принимает (база, брокер,
+         *     «Пользователь», система): у них оба флага false. Узел без вложенных — 422.
+         */
+        TransferDocsPreview: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Docs */
+            docs: components["schemas"]["TransferDocOut"][];
+            /** Has Spec */
+            has_spec: boolean;
+            /** Params */
+            params: number;
+            /** Receivers */
+            receivers: components["schemas"]["TransferReceiverOut"][];
+        };
+        /**
+         * TransferReceiverOut
+         * @description Потомок узла — возможный получатель переноса. Флаги считает домен
+         *     (app/facts_transfer), окно и MCP их только показывают: takes_docs — схемы логики на
+         *     месте (компонент или объект без вложенных вне контейнера), takes_process_facts —
+         *     спецификация и конфигурация на месте (контейнер). has_spec — у получателя уже есть
+         *     своя спецификация: перенести ему спецификацию нельзя (409).
+         */
+        TransferReceiverOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Path */
+            path: string;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Takes Docs */
+            takes_docs: boolean;
+            /** Takes Process Facts */
+            takes_process_facts: boolean;
+            /** Has Spec */
+            has_spec: boolean;
+        };
+        /**
          * TransitionApplyIn
          * @description Курсор схемы, увиденный в превью: если схему успели изменить, применение
          *     отклоняется, а не выполняет вслепую не то, что человек видел.
@@ -10387,6 +10482,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeDocUsage"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_preview_api_v1_nodes__node_id__docs_transfer_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferDocsPreview"];
                 };
             };
             /** @description Validation Error */

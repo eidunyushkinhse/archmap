@@ -1,68 +1,54 @@
 // «Перенести документацию» и «Собрать с компонентов» (Р19 эпика «Элемент архитектуры»):
-// получатели по семьям фактов, подписи путём от узла, параметры одному контейнеру,
-// сбор с одноимёнными параметрами и несколькими спецификациями. Чистые функции отбора
-// и оба окна исполняются по-настоящему, подменён только транспорт.
+// получатели по семьям фактов приходят превью сервера (флаги и путь от узла), окно их
+// только показывает; параметры одному контейнеру, сбор с одноимёнными параметрами и
+// несколькими спецификациями. Оба окна исполняются по-настоящему, подменён только транспорт.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import TransferDocsModal from "../TransferDocsModal";
 import CollectFactsModal from "../CollectFactsModal";
-import { collectLine, subtreeRows, takesLogic, takesProcessFacts } from "../element/transferDocs";
-import { configParamsApi, nodeDocsApi, nodesApi } from "../../api/nodes";
+import { collectLine } from "../element/transferDocs";
+import { nodeDocsApi, nodesApi } from "../../api/nodes";
 import { ApiError } from "../../api/client";
-import type { CollectFactsPreview, ConfigParam, Node, NodeDocMeta } from "../../types";
+import type { CollectFactsPreview, TransferDocsPreview, TransferReceiver } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
-  nodesApi: { get: vi.fn(), getDescendants: vi.fn(), collectFacts: vi.fn() },
+  nodesApi: { transferPreview: vi.fn(), collectFacts: vi.fn() },
   nodeDocsApi: { distribute: vi.fn() },
-  configParamsApi: { list: vi.fn() },
 }));
 // Нативный <dialog> в jsdom не открывается — та же замена, что в тестах других окон.
 vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-function n(id: string, over: Partial<Node> = {}): Node {
+function receiver(path: string, over: Partial<TransferReceiver> = {}): TransferReceiver {
   return {
-    id, name: id, description: null, role: null, technology: null, parent_id: null,
-    shape: "service", is_external: false, status: "existing", openapi_spec: null, version: 1,
-    docs: [], has_children: false, child_count: 0, approval: "in_progress",
-    approval_effective: "in_progress", element: null, element_effective: "container",
-    container_name: null, sites: [], created_at: "", updated_at: "", ...over,
-  } as Node;
+    node_id: path.split(" / ").pop() ?? path, path, element_effective: "container",
+    takes_docs: false, takes_process_facts: false, has_spec: false, ...over,
+  };
 }
 
-const doc = (id: string, name: string): NodeDocMeta =>
-  ({ id, name, kind: "operation", operation: null, version: 1, described: true });
-
-// Ярмарка (система) → orders (контейнер с компонентами: api, worker), billing (лист),
-// orders-db (лист-база), Покупатель.
+// Ярмарка (система) → orders (контейнер с компонентами: api, worker), billing (лист со
+// своей спецификацией), orders-db (лист-база), Покупатель. Флаги — как их считает сервер.
 const ROOT = "shop";
-const tree = [
-  n("orders", { parent_id: ROOT, has_children: true, element: "container" }),
-  n("api", { parent_id: "orders", element_effective: "component", container_name: "orders" }),
-  n("worker", { parent_id: "orders", element_effective: "component", container_name: "orders" }),
-  n("billing", { parent_id: ROOT, openapi_spec: "openapi: 3.0.0" }),
-  n("orders-db", { parent_id: ROOT, shape: "database" }),
-  n("Покупатель", { parent_id: ROOT, shape: "person", element_effective: null }),
+const receivers = [
+  receiver("orders", { takes_process_facts: true }),
+  receiver("orders / api", { element_effective: "component", takes_docs: true }),
+  receiver("orders / worker", { element_effective: "component", takes_docs: true }),
+  receiver("billing", { takes_docs: true, takes_process_facts: true, has_spec: true }),
+  receiver("orders-db"),
+  receiver("Покупатель", { element_effective: null }),
 ];
 
-describe("отбор получателей", () => {
-  it("путь от узла и порядок дерева", () => {
-    const rows = subtreeRows(ROOT, tree);
-    expect(rows.map((r) => r.label)).toEqual([
-      "orders", "orders / api", "orders / worker", "billing", "orders-db", "Покупатель",
-    ]);
-  });
+function preview(over: Partial<TransferDocsPreview> = {}): TransferDocsPreview {
+  return {
+    node_id: ROOT, name: "Ярмарка", element_effective: "system",
+    docs: [{ doc_id: "d1", name: "Старт заказа", kind: "operation", operation: null }],
+    has_spec: true, params: 3, receivers, ...over,
+  };
+}
 
-  it("схемы логики — компонентам и сервисам без вложенных; спецификация и конфигурация — контейнерам", () => {
-    const rows = subtreeRows(ROOT, tree);
-    expect(rows.filter((r) => takesLogic(r.node)).map((r) => r.label))
-      .toEqual(["orders / api", "orders / worker", "billing"]);
-    expect(rows.filter((r) => takesProcessFacts(r.node)).map((r) => r.label))
-      .toEqual(["orders", "billing"]);
-  });
-
+describe("строки окна сбора", () => {
   it("строка компонента в окне сбора", () => {
     expect(collectLine({ node_id: "a", name: "api", params: 2, has_spec: true })).toBe("api · 2 параметра, спецификация");
     expect(collectLine({ node_id: "s", name: "scheduler", params: 1, has_spec: false })).toBe("scheduler · 1 параметр");
@@ -73,25 +59,22 @@ describe("отбор получателей", () => {
 describe("окно «Перенести документацию»", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(nodesApi.getDescendants).mockResolvedValue(tree);
-    vi.mocked(configParamsApi.list).mockResolvedValue([{ id: "p1" }, { id: "p2" }, { id: "p3" }] as ConfigParam[]);
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: true, moved_params: 3 });
   });
 
-  function open(root: Node) {
-    vi.mocked(nodesApi.get).mockResolvedValue(root);
+  function open(data: TransferDocsPreview | Error) {
+    if (data instanceof Error) vi.mocked(nodesApi.transferPreview).mockRejectedValue(data);
+    else vi.mocked(nodesApi.transferPreview).mockResolvedValue(data);
     const onApplied = vi.fn();
     const onClose = vi.fn();
     render(<TransferDocsModal nodeId={ROOT} onClose={onClose} onApplied={onApplied} />);
     return { onApplied, onClose };
   }
 
-  it("у системы — три части, получатели по семьям, параметры одному контейнеру", async () => {
-    const { onApplied, onClose } = open(n(ROOT, {
-      name: "Ярмарка", has_children: true, element_effective: "system",
-      docs: [doc("d1", "Старт заказа")], openapi_spec: "openapi: 3.0.0",
-    }));
+  it("у системы — три части, получатели по флагам превью в его порядке, параметры одному контейнеру", async () => {
+    const { onApplied, onClose } = open(preview());
     expect(await screen.findByText("У системы своей документации нет. Выберите, куда перенести каждую часть.")).toBeInTheDocument();
+    expect(nodesApi.transferPreview).toHaveBeenCalledWith(ROOT);
 
     const logic = screen.getByLabelText("Куда перенести схему «Старт заказа»");
     expect(within(logic).getAllByRole("option").map((o) => o.textContent))
@@ -119,9 +102,9 @@ describe("окно «Перенести документацию»", () => {
   });
 
   it("у контейнера с компонентами — только схемы логики", async () => {
-    open(n(ROOT, {
-      name: "orders", has_children: true, element: "container", element_effective: "container",
-      docs: [doc("d1", "Старт заказа")], openapi_spec: "openapi: 3.0.0",
+    open(preview({
+      name: "orders", element_effective: "container",
+      receivers: [receivers[1], receivers[2]],
     }));
     expect(await screen.findByText("Схемы логики описывают код, и их место у компонентов.")).toBeInTheDocument();
     expect(screen.getByText("Схемы логики")).toBeInTheDocument();
@@ -129,11 +112,26 @@ describe("окно «Перенести документацию»", () => {
     expect(screen.queryByText("Конфигурация")).not.toBeInTheDocument();
   });
 
-  it("отказ сервера — текстом под формой, окно открыто", async () => {
+  it("никто не берёт схемы логики — «Внутри нет подходящего объекта»", async () => {
+    open(preview({ has_spec: false, params: 0, receivers: [receivers[0], receivers[4]] }));
+    expect(await screen.findByText("Внутри нет подходящего объекта.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Куда перенести схему «Старт заказа»")).not.toBeInTheDocument();
+  });
+
+  it("отказ превью 422 — текстом сервера, формы нет", async () => {
+    open(new ApiError(422, "Внутри «billing» нет объектов, поэтому переносить документацию некуда."));
+    expect(await screen.findByText("Внутри «billing» нет объектов, поэтому переносить документацию некуда.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Перенести" })).not.toBeInTheDocument();
+  });
+
+  it("сбой загрузки превью — общий текст", async () => {
+    open(new ApiError(500, "Internal Server Error"));
+    expect(await screen.findByText("Не удалось загрузить данные объекта.")).toBeInTheDocument();
+  });
+
+  it("отказ сервера при переносе — текстом под формой, окно открыто", async () => {
     vi.mocked(nodeDocsApi.distribute).mockRejectedValue(new ApiError(409, "У «orders / api» уже есть схема «Старт заказа»"));
-    const { onApplied } = open(n(ROOT, {
-      name: "Ярмарка", has_children: true, element_effective: "system", docs: [doc("d1", "Старт заказа")],
-    }));
+    const { onApplied } = open(preview({ has_spec: false, params: 0 }));
     await userEvent.click(await screen.findByRole("button", { name: "Перенести" }));
     expect(await screen.findByText("У «orders / api» уже есть схема «Старт заказа»")).toBeInTheDocument();
     expect(onApplied).not.toHaveBeenCalled();

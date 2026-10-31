@@ -21,6 +21,7 @@ import pytest
 from conftest import ensure_architect, ensure_project
 from fastapi import HTTPException
 
+from app import facts_transfer
 from app.alerts import compute_alerts
 from app.models.config_param import ConfigParam
 from app.models.deployment_instance import DeploymentInstance
@@ -28,7 +29,7 @@ from app.models.deployment_site import DeploymentSite
 from app.models.node import Node
 from app.models.node_doc import NodeDoc
 from app.routers.facts import collect, collect_preview
-from app.routers.node_docs import distribute_docs
+from app.routers.node_docs import distribute_docs, transfer_preview
 from app.schemas.node import (
     CollectFactsIn,
     CollectParamChoice,
@@ -510,6 +511,87 @@ def test_отказы_словами_продукта(db):
     assert code == 422  # компонент спецификацию не принимает
 
 
+# ── Превью «Перенести документацию» (получатели считает сервер) ─────────────
+
+def _transfer_preview(db, node):
+    return transfer_preview(node.id, db=db, project=ensure_project(db), _=ensure_architect(db))
+
+
+def _shop_with_stores(db):
+    """_shop плюс база, брокер и «Пользователь» внутри системы, спецификация у billing и
+    своя документация shop: схема, спецификация и два параметра."""
+    n = _shop(db)
+    for name, shape in (("orders-db", "database"), ("Kafka", "broker"), ("Покупатель", "person")):
+        n[name] = _node(db, name, parent=n["shop"], shape=shape)
+    n["billing"].openapi_spec = "openapi: billing"
+    n["doc"] = _doc(db, n["shop"], name="Старт заказа")
+    _param(db, n["shop"], "LOG_LEVEL")
+    _param(db, n["shop"], "FEATURE_X")
+    db.commit()
+    return n
+
+
+def test_превью_переноса_у_системы_получатели_по_элементу(db):
+    n = _shop_with_stores(db)
+    p = _transfer_preview(db, n["shop"])
+    assert (p.name, p.element_effective, p.has_spec, p.params) == ("shop", "system", True, 2)
+    assert [(d.doc_id, d.name, d.kind) for d in p.docs] == [(n["doc"].id, "Старт заказа", "operation")]
+    # Обход в глубину, дети по имени; путь — от узла.
+    rows = [(r.path, r.element_effective, r.takes_docs, r.takes_process_facts, r.has_spec) for r in p.receivers]
+    assert rows == [
+        ("Kafka", "container", False, False, False),             # брокер — ничего
+        ("billing", "container", True, True, True),              # лист вне контейнера — всё
+        ("inner", "system", False, False, False),                # система — ничего
+        ("inner / ledger", "container", True, True, False),      # лист вложенной системы
+        ("orders", "container", False, True, False),             # контейнер с компонентами
+        ("orders / api", "component", True, False, False),
+        ("orders / jobs", "component", True, False, False),      # составной компонент
+        ("orders / jobs / nightly", "component", True, False, False),
+        ("orders-db", "container", False, False, False),         # база — ничего
+        ("Покупатель", None, False, False, False),               # «Пользователь» — ничего
+    ]
+
+
+def test_флаги_превью_совпадают_с_отказами_переноса(db):
+    """Одно правило на двоих: кто по превью не берёт схемы (спецификацию), тому перенос
+    отказывает 422; кто берёт — проходит проверку получателя."""
+    n = _shop_with_stores(db)
+    p = _transfer_preview(db, n["shop"])
+    check = facts_transfer._Transfer(db, ensure_project(db), n["shop"])
+    for r in p.receivers:
+        assignment = DistributeDocsIn(doc_assignments=[
+            DistributeDocAssignment(doc_id=n["doc"].id, child_id=r.node_id),
+        ])
+        if r.takes_docs:
+            assert check.docs(assignment)[0][1] == r.node_id
+        else:
+            assert _refusal(lambda a=assignment: _distribute(db, n["shop"], **a.model_dump()))[0] == 422
+        if not r.takes_process_facts:
+            assert _refusal(lambda r=r: _distribute(db, n["shop"], spec_child_id=r.node_id))[0] == 422
+            assert _refusal(lambda r=r: _distribute(db, n["shop"], params_target_id=r.node_id))[0] == 422
+
+
+def test_превью_переноса_у_контейнера_с_компонентами(db):
+    n = _shop(db)
+    _doc(db, n["orders"], name="Старт заказа")
+    db.commit()
+    p = _transfer_preview(db, n["orders"])
+    assert (p.element_effective, p.has_spec, p.params, [d.name for d in p.docs]) == (
+        "container", False, 0, ["Старт заказа"],
+    )
+    assert [(r.path, r.takes_docs, r.takes_process_facts) for r in p.receivers] == [
+        ("api", True, False), ("jobs", True, False), ("jobs / nightly", True, False),
+    ]
+
+
+def test_превью_переноса_у_листа_422(db):
+    leaf = _node(db, "billing", openapi_spec="openapi: billing")
+    db.commit()
+    assert _refusal(lambda: _transfer_preview(db, leaf)) == (
+        422, "Внутри «billing» нет объектов, поэтому переносить документацию некуда.",
+    )
+
+
 # ── «Собрать с компонентов» (Р19) ──────────────────────────────────────────
 
 def _collect_preview(db, node):
@@ -621,8 +703,8 @@ def test_собирать_можно_только_контейнеру_с_ком
 
 
 def test_ручки_сбора_и_переноса_по_http(db):
-    """Пути контракта: /nodes/{id}/facts/collect-preview, /facts/collect и
-    /docs/distribute с новым полем params_target_id."""
+    """Пути контракта: /nodes/{id}/facts/collect-preview, /facts/collect,
+    /docs/transfer-preview и /docs/distribute с новым полем params_target_id."""
     from conftest import make_project
     from fastapi.testclient import TestClient
 
@@ -651,6 +733,14 @@ def test_ручки_сбора_и_переноса_по_http(db):
         assert r.json() == {"moved_params": 1, "spec_moved": False}
         r = client.post(f"/api/v1/nodes/{api_id}/facts/collect", headers=h, json={})
         assert (r.status_code, r.json()) == (422, {"detail": "Собирать можно только контейнеру с компонентами"})
+        # Превью переноса — путь до /{doc_id}: «transfer-preview» не принимается за id схемы.
+        r = client.get(f"/api/v1/nodes/{orders_id}/docs/transfer-preview", headers=h)
+        assert r.status_code == 200, r.text
+        assert [(x["path"], x["takes_docs"]) for x in r.json()["receivers"]] == [("api", True)]
+        r = client.get(f"/api/v1/nodes/{api_id}/docs/transfer-preview", headers=h)
+        assert (r.status_code, r.json()) == (
+            422, {"detail": "Внутри «api» нет объектов, поэтому переносить документацию некуда."},
+        )
         r = client.post(f"/api/v1/nodes/{orders_id}/docs/distribute", headers=h,
                         json={"params_target_id": str(api_id)})
         assert r.status_code == 422

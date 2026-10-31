@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from app.domain_types import (
     ElementChangeKind,
     NodeApproval,
+    NodeDocKind,
     NodeElement,
     NodeElementEffective,
     NodeShape,
@@ -361,6 +362,42 @@ class DistributeDocsOut(BaseModel):
     moved_docs: int
     spec_moved: bool
     moved_params: int
+
+
+class TransferDocOut(BaseModel):
+    """Собственная схема логики узла — то, что «Перенести документацию» может отдать."""
+    doc_id: uuid.UUID
+    name: str
+    kind: NodeDocKind
+    operation: str | None
+
+
+class TransferReceiverOut(BaseModel):
+    """Потомок узла — возможный получатель переноса. Флаги считает домен
+    (app/facts_transfer), окно и MCP их только показывают: takes_docs — схемы логики на
+    месте (компонент или объект без вложенных вне контейнера), takes_process_facts —
+    спецификация и конфигурация на месте (контейнер). has_spec — у получателя уже есть
+    своя спецификация: перенести ему спецификацию нельзя (409)."""
+    node_id: uuid.UUID
+    path: str  # путь от узла, без него самого: «orders / api»
+    element_effective: NodeElementEffective | None
+    takes_docs: bool
+    takes_process_facts: bool
+    has_spec: bool
+
+
+class TransferDocsPreview(BaseModel):
+    """«Перенести документацию» без записи (GET /nodes/{id}/docs/transfer-preview):
+    своя документация узла и получатели в его составе. Получатели — все потомки в обходе
+    в глубину (дети по имени), в том числе те, кто ничего не принимает (база, брокер,
+    «Пользователь», система): у них оба флага false. Узел без вложенных — 422."""
+    node_id: uuid.UUID
+    name: str
+    element_effective: NodeElementEffective | None
+    docs: list[TransferDocOut]
+    has_spec: bool
+    params: int
+    receivers: list[TransferReceiverOut]
 
 
 class CollectComponentOut(BaseModel):

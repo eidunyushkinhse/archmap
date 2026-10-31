@@ -30,6 +30,8 @@ vi.mock("../../api/nodes", () => ({
     // при маунте, чтобы решить, показывать ли кнопку сбора.
     collectPreview: vi.fn(() => Promise.resolve({ components: [], param_clashes: [], specs: [] })),
     collectFacts: vi.fn(),
+    // Превью «Перенести документацию»: окно получателей не отбирает, берёт их у сервера.
+    transferPreview: vi.fn(),
   },
   // usage — обратный индекс «используется в процессах» (Ф8): страница тянет его
   // эффектом при маунте, без мока эффект падает на «не функция».
@@ -290,8 +292,8 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
-    // getDescendants — для хука агрегации контейнера и окна «Перенести документацию»
-    // (оно само фетчит узел и потомков).
+    // getDescendants — для хука агрегации контейнера (окно «Перенести документацию» берёт
+    // получателей превью сервера — transferPreview).
     vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
     vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
     // Перенос документации — своя запись: страница сверяет курсоры (syncCursors).
@@ -425,6 +427,15 @@ describe("NodePage: правила контейнеров", () => {
 
   it("окно «Перенести документацию»: переносит схему выбранному получателю", async () => {
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false, moved_params: 0 });
+    vi.mocked(nodesApi.transferPreview).mockResolvedValue({
+      node_id: "c1", name: "Ядро", element_effective: "container",
+      docs: [{ doc_id: "d1", name: "Схема оплаты", kind: "operation", operation: null }],
+      has_spec: false, params: 0,
+      receivers: [{
+        node_id: "k1", path: "Шлюз", element_effective: "component",
+        takes_docs: true, takes_process_facts: false, has_spec: false,
+      }],
+    });
     setupContainer({
       own: { docs: [docMeta()] },
       children: [node("k1", { name: "Шлюз" })],
@@ -445,6 +456,13 @@ describe("NodePage: правила контейнеров", () => {
     const params = [{ id: "p1" }, { id: "p2" }] as ConfigParam[];
     vi.mocked(configParamsApi.list).mockImplementation((id) => Promise.resolve(id === "c1" ? params : []));
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 0, spec_moved: false, moved_params: 2 });
+    vi.mocked(nodesApi.transferPreview).mockResolvedValue({
+      node_id: "c1", name: "Ядро", element_effective: "system", docs: [], has_spec: false, params: 2,
+      receivers: [{
+        node_id: "k1", path: "Шлюз", element_effective: "container",
+        takes_docs: true, takes_process_facts: true, has_spec: false,
+      }],
+    });
     setupContainer({
       own: { element_effective: "system" },
       children: [node("k1", { name: "Шлюз" })],

@@ -188,6 +188,10 @@ export type NodeDocUpdate = Schemas["NodeDocUpdate"];
 
 export type DistributeDocsIn = Schemas["DistributeDocsIn"];
 export type DistributeDocsOut = Schemas["DistributeDocsOut"];
+// Превью «Перенести документацию»: своя документация узла и получатели с флагами по
+// семьям фактов — отбор считает сервер (app/facts_transfer).
+export type TransferDocsPreview = Schemas["TransferDocsPreview"];
+export type TransferReceiver = Schemas["TransferReceiverOut"];
 // «Собрать с компонентов» (Р19 эпика элементов): превью, вход и отчёт.
 export type CollectFactsPreview = Schemas["CollectFactsPreview"];
 export type CollectFactsIn = Schemas["CollectFactsIn"];
