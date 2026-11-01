@@ -780,6 +780,23 @@ describe("SchemaAlerts: документация не на своём месте
     expect(screen.getAllByText("можно собрать у контейнера «orders»")).toHaveLength(3);
   });
 
+  it("у компонента только площадки — их задают контейнеру, а не собирают", async () => {
+    render(
+      <SchemaAlerts
+        alerts={{
+          ...EMPTY,
+          component_facts: [{ ...COMPONENT_FACTS, has_spec: false, has_config: false, has_sites: true }],
+        }}
+      />,
+    );
+    await openPanel();
+
+    expect(screen.getByText("orders/api · площадки").nextElementSibling?.textContent).toBe(
+      "площадки можно задать контейнеру «orders»",
+    );
+    expect(screen.queryByText("можно собрать у контейнера «orders»")).toBeNull();
+  });
+
   it("факты компонента зажигают точку и ведут к компоненту", async () => {
     const onLocate = vi.fn();
     render(<SchemaAlerts alerts={{ ...EMPTY, component_facts: [COMPONENT_FACTS] }} onLocate={onLocate} />);

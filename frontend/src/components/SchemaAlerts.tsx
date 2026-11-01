@@ -124,6 +124,15 @@ function componentFacts(c: Alerts["component_facts"][number]): string {
     .filter(Boolean).join(", ");
 }
 
+// Куда девать факты компонента. Сбор с компонентов переносит спецификацию и
+// конфигурацию; площадки он не трогает — их задают контейнеру. Те же слова печатает MCP
+// (render.COMPONENT_FACTS_HINT и COMPONENT_SITES_HINT) — сверяет mcp/tests/test_alerts_render.
+function componentFactsHint(c: Alerts["component_facts"][number]): string {
+  return c.has_spec || c.has_config
+    ? `можно собрать у контейнера «${c.container_name}»`
+    : `площадки можно задать контейнеру «${c.container_name}»`;
+}
+
 const CHANNEL_REASON: Record<UnresolvedChannelRefAlert["reason"], string> = {
   unknown_channel: "канал не найден у брокеров проекта",
   ambiguous: "имя неоднозначно, укажите „Брокер / канал“",
@@ -283,7 +292,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (c) => (
       <>
         <span className="sa-line">{c.node_name} · {componentFacts(c)}</span>
-        <span className="sa-hint">можно собрать у контейнера «{c.container_name}»</span>
+        <span className="sa-hint">{componentFactsHint(c)}</span>
       </>
     ),
   }),

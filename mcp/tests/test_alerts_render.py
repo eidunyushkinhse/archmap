@@ -196,8 +196,10 @@ def test_тексты_причин_те_же_что_в_панели() -> None:
     assert set(render.OWN_DOCS_HINT) == set(
         get_args(schemas.ContainerOwnDocsAlert.model_fields["element_effective"].annotation)
     )
-    head, tail = render.COMPONENT_FACTS_HINT.split("{name}")
-    assert f"{head}{{c.container_name}}{tail}" in panel
+    # Подсказка факта компонента — два текста: сбор и «только площадки» (шаблон в панели).
+    for hint in (render.COMPONENT_FACTS_HINT, render.COMPONENT_SITES_HINT):
+        head, tail = hint.split("{name}")
+        assert f"`{head}${{c.container_name}}{tail}`" in panel
     assert render.CONFIG_REASON_SYSTEM in panel
     head, tail = render.CONFIG_REASON_CONTAINER.split("{name}")
     assert head in panel and tail in panel
@@ -279,7 +281,7 @@ def test_факты_компонента_называют_контейнер() -
     sites_only = {**one, "has_spec": False, "has_sites": True}
     backend("schemas.alerts").ComponentFactsAlert.model_validate(sites_only)
     out = render.alerts({"component_facts": [sites_only]})
-    assert "  • orders/api · площадки (можно собрать у контейнера «orders»)" in out.splitlines()
+    assert "  • orders/api · площадки (площадки можно задать контейнеру «orders»)" in out.splitlines()
     old = {k: v for k, v in one.items() if k != "has_sites"}
     out = render.alerts({"component_facts": [old]})
     assert "  • orders/api · спецификация (можно собрать у контейнера «orders»)" + collect in out.splitlines()

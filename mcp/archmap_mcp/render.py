@@ -627,6 +627,8 @@ OWN_DOCS_HINT = {
     "container": "схемы логики описывают код компонентов — перенесите их компонентам",
 }
 COMPONENT_FACTS_HINT = "можно собрать у контейнера «{name}»"
+# Только площадки: сбор их не переносит, площадки задают контейнеру.
+COMPONENT_SITES_HINT = "площадки можно задать контейнеру «{name}»"
 # Чем закрыть рекомендацию (MCP 0.12.0): инструмент по имени и объект, с которого его
 # звать. Хвост — только у MCP, слова панели выше не меняются.
 TRANSFER_TAIL = " — archmap_transfer_docs_preview, node_id={node_id}"
@@ -655,9 +657,13 @@ def component_facts_line(record: dict[str, Any]) -> str:
         )
         if record.get(flag)
     )
-    hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")
-    # Сбор переносит конфигурацию и спецификацию; площадки компонента он не трогает.
-    collectable = (record.get("has_config") or record.get("has_spec")) and record.get("container_id")
+    # Сбор переносит конфигурацию и спецификацию; площадки компонента он не трогает —
+    # у строки только с площадками другая подсказка и нет хвоста сбора.
+    has_facts = bool(record.get("has_config") or record.get("has_spec"))
+    hint = (COMPONENT_FACTS_HINT if has_facts else COMPONENT_SITES_HINT).format(
+        name=record.get("container_name") or ""
+    )
+    collectable = has_facts and record.get("container_id")
     tail = COLLECT_TAIL.format(node_id=record["container_id"]) if collectable else ""
     return f"{record['node_name']} · {facts} ({hint}){tail}"
 
