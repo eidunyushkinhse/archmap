@@ -131,13 +131,13 @@ describe("NodeProperties: строка «Тип»", () => {
     expect(typeButton()).toHaveTextContent("Внешний контейнер");
   });
 
-  it("смена формы — PATCH формы; серый пункт объясняет причину и не выбирается", async () => {
+  it("смена формы — PATCH формы; серый пункт без причины в меню и не выбирается", async () => {
     vi.mocked(nodesApi.update).mockResolvedValue(node({ shape: "broker", version: 2 }));
     setup();
     await userEvent.click(typeButton());
     const component = option("Компонент");
     expect(component).toHaveAttribute("aria-disabled", "true");
-    expect(component).toHaveTextContent("Компонентом объект бывает только внутри контейнера.");
+    expect(component.textContent).toBe("Компонент");
     await userEvent.click(component);
     expect(nodesApi.update).not.toHaveBeenCalled();
     await userEvent.click(option("Брокер"));

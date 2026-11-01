@@ -58,7 +58,7 @@ describe("NodeModal — событие тура", () => {
     ]);
   });
 
-  it("тур на шаге создания с плитки — тип задаёт плитка: поле заблокировано, объект создаётся её типа", async () => {
+  it("тур на шаге создания с плитки — тип задаёт плитка: поле заблокировано без пояснения, объект создаётся её типа", async () => {
     setTourTypeLock(true);
     vi.mocked(nodesApi.create).mockResolvedValue({ id: "c1", name: "Касса", shape: "service", element: "container", parent_id: "s1" } as Node);
     render(<NodeModal parentId="s1" type="container" onClose={vi.fn()} onSaved={vi.fn()} />);
@@ -66,7 +66,8 @@ describe("NodeModal — событие тура", () => {
     const trigger = document.querySelector<HTMLButtonElement>("dialog .ts-trigger")!;
     expect(trigger).toBeDisabled();
     expect(trigger).toHaveTextContent("Контейнер");
-    expect(screen.getByText("Во время обучения тип задаёт плитка.")).toBeInTheDocument();
+    // строки-пояснения под полем нет (решение владельца 2026-11-01)
+    expect(screen.queryByText(/тип задаёт плитка/)).toBeNull();
     fireEvent.click(trigger);
     expect(document.querySelector("dialog .ts-menu")).toBeNull();
     await fillAndSave("Касса");
@@ -85,7 +86,7 @@ describe("NodeModal — событие тура", () => {
     render(<NodeModal parentId="s1" type="container" onClose={vi.fn()} onSaved={vi.fn()} />);
     await waitFor(() => expect(document.querySelector("dialog .ts-trigger")).not.toBeNull());
     expect(document.querySelector("dialog .ts-trigger")).not.toBeDisabled();
-    expect(screen.queryByText("Во время обучения тип задаёт плитка.")).toBeNull();
+    expect(screen.queryByText(/тип задаёт плитка/)).toBeNull();
   });
 
   it("сервер отказал — события нет", async () => {

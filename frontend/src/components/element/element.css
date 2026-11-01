@@ -89,26 +89,17 @@
   grid-column: 1;
   font-size: 13.5px;
 }
-.ts-hint {
-  grid-column: 1;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: #64748b;
-}
 .ts-check {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1;
   display: flex;
   color: #2563eb;
 }
-/* Серый пункт: читается, но не выбирается — причина вместо подсказки. */
+/* Серый пункт: читается, но не выбирается. */
 .ts-option[aria-disabled="true"] {
   cursor: default;
 }
 .ts-option[aria-disabled="true"] .ts-label {
-  color: #94a3b8;
-}
-.ts-option[aria-disabled="true"] .ts-hint {
   color: #94a3b8;
 }
 .ts-backdrop {

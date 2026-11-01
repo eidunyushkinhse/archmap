@@ -2,7 +2,7 @@
 // доступны в каждом месте и почему серые остальные. Чистая модель — без DOM.
 import { describe, it, expect } from "vitest";
 import type { AncestorRef } from "../../types";
-import { TYPE_HINT, TYPE_LABEL, TYPE_ORDER, shapeOfType, typeOf } from "../nodeTerms";
+import { TYPE_LABEL, TYPE_ORDER, shapeOfType, typeOf } from "../nodeTerms";
 import { preselectType, typeOptions, type TypeOption, type TypeSubject } from "../element/typeOptions";
 
 function subject(over: Partial<TypeSubject> = {}): TypeSubject {
@@ -26,16 +26,6 @@ describe("словарь типов", () => {
     expect(TYPE_ORDER).toEqual(["system", "container", "component", "database", "broker", "person"]);
     expect(TYPE_ORDER.map((t) => TYPE_LABEL[t])).toEqual([
       "Система", "Контейнер", "Компонент", "База данных", "Брокер", "Пользователь",
-    ]);
-  });
-  it("подсказка у каждого типа — простыми словами, одной строкой", () => {
-    expect(TYPE_ORDER.map((t) => TYPE_HINT[t])).toEqual([
-      "Группа контейнеров: сама не запускается",
-      "Одно приложение, которое запускается целиком",
-      "Часть кода контейнера, отдельно не запускается",
-      "Хранилище: таблицы и колонки",
-      "Очереди и каналы сообщений",
-      "Человек или внешняя роль",
     ]);
   });
   it("тип — проекция формы и действующего элемента", () => {

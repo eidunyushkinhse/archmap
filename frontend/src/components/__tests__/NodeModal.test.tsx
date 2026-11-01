@@ -61,7 +61,7 @@ function save(name: string) {
 const body = () => vi.mocked(nodesApi.create).mock.calls[0][0];
 
 describe("NodeModal — поле «Тип» по месту создания", () => {
-  it("верхний уровень: без предвыбора «Создать» неактивна, компонент серый с причиной", async () => {
+  it("верхний уровень: без предвыбора «Создать» неактивна, компонент серый и не выбирается", async () => {
     place(null);
     render(<NodeModal parentId={null} onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
@@ -70,12 +70,14 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(createBtn()).toBeDisabled();
 
     fireEvent.click(typeField()!);
-    expect(options().map((b) => b.querySelector(".ts-label")!.textContent)).toEqual([
+    // Пункт — только название типа: подсказок под названием нет, у серых — и причины.
+    expect(options().map((b) => b.textContent)).toEqual([
       "Система", "Контейнер", "Компонент", "База данных", "Брокер", "Пользователь",
     ]);
+    expect(options().filter((b) => b.getAttribute("aria-disabled") === "true").map((b) => b.textContent))
+      .toEqual(["Компонент"]);
     const component = option("Компонент");
     expect(component).toHaveAttribute("aria-disabled", "true");
-    expect(component.textContent).toContain("Компонентом объект бывает только внутри контейнера.");
     // Серый пункт не выбирается: меню остаётся открытым, тип не выбран.
     fireEvent.click(component);
     expect(typeField()!.textContent).toContain("Выберите тип");
@@ -99,7 +101,8 @@ describe("NodeModal — поле «Тип» по месту создания", (
     // Предвыбор — тип последнего созданного соседа.
     expect(typeField()!.textContent).toContain("Контейнер");
     fireEvent.click(typeField()!);
-    expect(option("Компонент").textContent).toContain("сделайте «Ярмарка» контейнером в его свойствах");
+    expect(option("Компонент")).toHaveAttribute("aria-disabled", "true");
+    expect(option("Компонент").textContent).toBe("Компонент");
     fireEvent.click(typeField()!);
     save("orders");
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
@@ -115,7 +118,7 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(typeField()!.textContent).toContain("Компонент");
     fireEvent.click(typeField()!);
     expect(option("База данных")).toHaveAttribute("aria-disabled", "true");
-    expect(option("База данных").textContent).toContain("создайте её рядом с «orders»");
+    expect(option("База данных").textContent).toBe("База данных");
     fireEvent.click(typeField()!);
     save("api");
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
@@ -124,7 +127,7 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(body()).not.toHaveProperty("parent_element");
   });
 
-  it("внутри системы «Пользователь» серый с причиной и шаблоном не предвыбирается", async () => {
+  it("внутри системы «Пользователь» серый и шаблоном не предвыбирается", async () => {
     // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
     const system = node({ id: "s1", name: "Ярмарка", element_effective: "system", has_children: true, child_count: 1 });
     place(system, [node({ id: "k1", element_effective: "container", parent_id: "s1" })]);
@@ -134,9 +137,7 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(typeField()!.textContent).toContain("Контейнер");
     fireEvent.click(typeField()!);
     expect(option("Пользователь")).toHaveAttribute("aria-disabled", "true");
-    expect(option("Пользователь").textContent).toContain(
-      "Пользователь живёт вне границ системы, создайте его на верхнем уровне.",
-    );
+    expect(option("Пользователь").textContent).toBe("Пользователь");
   });
 
   it("лист без элемента: компонент делает его контейнером — одним запросом (Р38)", async () => {
