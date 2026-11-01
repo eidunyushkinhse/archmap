@@ -403,8 +403,8 @@ export const SCENE: LandingScene = {
       }
     },
     "version": 15,
-    "graph_rev": 763,
-    "meta_rev": 52,
+    "graph_rev": 764,
+    "meta_rev": 53,
     "has_status_info": true
   },
   "containerId": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
@@ -695,6 +695,14 @@ export const SCENE: LandingScene = {
         "source": null,
         "sites": [
           {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Managed PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
             "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
             "name": "Кластер prod",
             "kind": "kubernetes",
@@ -706,14 +714,6 @@ export const SCENE: LandingScene = {
             "id": "f94fed40-757c-4524-953b-8104eaaafad7",
             "name": "Кластер резерв",
             "kind": "kubernetes",
-            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
-            "parent_name": "Облако",
-            "partial": true
-          },
-          {
-            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
-            "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
             "partial": true
@@ -824,17 +824,17 @@ export const SCENE: LandingScene = {
         "source": null,
         "sites": [
           {
-            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
-            "name": "Кластер prod",
-            "kind": "kubernetes",
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Managed PostgreSQL",
+            "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
             "partial": true
           },
           {
-            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
-            "kind": "other",
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
             "partial": true
@@ -867,6 +867,14 @@ export const SCENE: LandingScene = {
         "source": null,
         "sites": [
           {
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Managed PostgreSQL",
+            "kind": "other",
+            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
+            "parent_name": "Облако",
+            "partial": true
+          },
+          {
             "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
             "name": "Кластер prod",
             "kind": "kubernetes",
@@ -880,14 +888,6 @@ export const SCENE: LandingScene = {
             "kind": "physical",
             "parent_id": null,
             "parent_name": null,
-            "partial": true
-          },
-          {
-            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
-            "kind": "other",
-            "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
-            "parent_name": "Облако",
             "partial": true
           }
         ],
@@ -944,17 +944,17 @@ export const SCENE: LandingScene = {
         "source": null,
         "sites": [
           {
-            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
-            "name": "Кластер prod",
-            "kind": "kubernetes",
+            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
+            "name": "Managed PostgreSQL",
+            "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
             "partial": true
           },
           {
-            "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
-            "kind": "other",
+            "id": "dd73b0b6-f494-4512-8076-c94237e3dc9e",
+            "name": "Кластер prod",
+            "kind": "kubernetes",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
             "partial": true
@@ -1029,7 +1029,7 @@ export const SCENE: LandingScene = {
         "sites": [
           {
             "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
+            "name": "Managed PostgreSQL",
             "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
@@ -1444,7 +1444,7 @@ export const SCENE: LandingScene = {
         "sites": [
           {
             "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
+            "name": "Managed PostgreSQL",
             "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
@@ -1593,7 +1593,7 @@ export const SCENE: LandingScene = {
         "sites": [
           {
             "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
+            "name": "Managed PostgreSQL",
             "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
@@ -1678,7 +1678,7 @@ export const SCENE: LandingScene = {
         "sites": [
           {
             "id": "3bfdc7f1-5616-4322-ab40-968f29a15d64",
-            "name": "Управляемая PostgreSQL",
+            "name": "Managed PostgreSQL",
             "kind": "other",
             "parent_id": "0189d9bb-d809-460b-a71a-9c423c86a6e4",
             "parent_name": "Облако",
