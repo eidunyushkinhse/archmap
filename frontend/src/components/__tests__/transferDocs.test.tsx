@@ -111,7 +111,7 @@ describe("окно «Перенести документацию»", () => {
       name: "orders", element_effective: "container",
       receivers: [receivers[1], receivers[2]],
     }));
-    expect(await screen.findByText("Схемы логики описывают код, и их место у компонентов.")).toBeInTheDocument();
+    expect(await screen.findByText("Схемы логики описывают код, и их можно перенести компонентам.")).toBeInTheDocument();
     expect(screen.getByText("Схемы логики")).toBeInTheDocument();
     expect(screen.queryByText("Спецификация")).not.toBeInTheDocument();
     expect(screen.queryByText("Конфигурация")).not.toBeInTheDocument();

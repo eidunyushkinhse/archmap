@@ -259,7 +259,7 @@ def test_факты_компонента_называют_контейнер() -
     out = render.alerts(validated_payload())
     assert any(
         line.startswith(
-            "  • orders/api · конфигурация, спецификация, площадки (место — у контейнера «orders»)"
+            "  • orders/api · конфигурация, спецификация, площадки (можно собрать у контейнера «orders»)"
             " — archmap_collect_facts_preview, node_id="
         )
         for line in out.splitlines()
@@ -273,16 +273,16 @@ def test_факты_компонента_называют_контейнер() -
     assert out.startswith("Замечаний: 1\n")
     assert "Конфигурация и спецификации у компонентов (1):" in out
     collect = f" — archmap_collect_facts_preview, node_id={u(18)}"
-    assert "  • orders/api · спецификация (место — у контейнера «orders»)" + collect in out.splitlines()
+    assert "  • orders/api · спецификация (можно собрать у контейнера «orders»)" + collect in out.splitlines()
     # только площадки — одно слово и без хвоста: сбор площадки не переносит; сервер без
     # флага площадок — слова нет
     sites_only = {**one, "has_spec": False, "has_sites": True}
     backend("schemas.alerts").ComponentFactsAlert.model_validate(sites_only)
     out = render.alerts({"component_facts": [sites_only]})
-    assert "  • orders/api · площадки (место — у контейнера «orders»)" in out.splitlines()
+    assert "  • orders/api · площадки (можно собрать у контейнера «orders»)" in out.splitlines()
     old = {k: v for k, v in one.items() if k != "has_sites"}
     out = render.alerts({"component_facts": [old]})
-    assert "  • orders/api · спецификация (место — у контейнера «orders»)" + collect in out.splitlines()
+    assert "  • orders/api · спецификация (можно собрать у контейнера «orders»)" + collect in out.splitlines()
 
 
 def test_строки_называют_имена_и_детали() -> None:

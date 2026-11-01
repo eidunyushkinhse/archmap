@@ -67,7 +67,7 @@ describe("LogicSection: система", () => {
   it("свои схемы — предупреждение, список и «Перенести документацию»", () => {
     renderSection(SYSTEM, { docs: [doc()] });
     expect(screen.getByText(
-      "У системы остались собственные схемы логики. Схемы описывают код, их место у контейнеров и компонентов",
+      "У системы остались собственные схемы логики. Схемы описывают код, их можно перенести контейнерам и компонентам",
     )).toBeInTheDocument();
     expect(screen.getByText("Оформление заказа")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
@@ -88,10 +88,10 @@ describe("LogicSection: контейнер с компонентами", () => {
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
-  it("свои схемы — предупреждение «их место у компонентов» и «Перенести документацию»", () => {
+  it("свои схемы — предупреждение «их можно перенести компонентам» и «Перенести документацию»", () => {
     renderSection(CONTAINER, { docs: [doc()], groups });
     expect(screen.getByText(
-      "У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов",
+      "У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам",
     )).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
     expect(screen.getByText("Схемы компонентов")).toBeInTheDocument();
@@ -112,7 +112,7 @@ describe("LogicSection: составной компонент", () => {
     unmount();
     renderSection(COMPOSITE, { docs: [doc()], groups });
     expect(screen.getByText(
-      "У компонента есть свои схемы логики. Схемы описывают код, их место у вложенных компонентов",
+      "У компонента есть свои схемы логики. Схемы описывают код, их можно перенести вложенным компонентам",
     )).toBeInTheDocument();
     expect(screen.getByText("Схема api")).toBeInTheDocument();
   });

@@ -104,7 +104,7 @@ function configReason(r: UnresolvedConfigRefAlert): string {
     return "параметра нет в конфигурации объекта: опишите его или, если это обычная фраза, уберите двоеточие";
   }
   if (r.container_id === null) {
-    return "схема у системы, а параметры живут у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие";
+    return "схема у системы, а параметры хранятся у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие";
   }
   return `параметра нет в конфигурации контейнера «${r.container_name ?? ""}»: опишите его там или, если это обычная фраза, уберите двоеточие`;
 }
@@ -283,7 +283,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (c) => (
       <>
         <span className="sa-line">{c.node_name} · {componentFacts(c)}</span>
-        <span className="sa-hint">место — у контейнера «{c.container_name}»</span>
+        <span className="sa-hint">можно собрать у контейнера «{c.container_name}»</span>
       </>
     ),
   }),

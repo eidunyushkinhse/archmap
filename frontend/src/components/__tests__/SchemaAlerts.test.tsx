@@ -678,7 +678,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
 
     expect(
       screen.getByText(
-        /схема у системы, а параметры живут у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие/,
+        /схема у системы, а параметры хранятся у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие/,
       ),
     ).toBeTruthy();
   });
@@ -777,7 +777,7 @@ describe("SchemaAlerts: документация не на своём месте
     expect(screen.getByText("worker · спецификация")).toBeTruthy();
     // порядок слов: конфигурация, спецификация, площадки
     expect(screen.getByText("handlers · конфигурация, площадки")).toBeTruthy();
-    expect(screen.getAllByText("место — у контейнера «orders»")).toHaveLength(3);
+    expect(screen.getAllByText("можно собрать у контейнера «orders»")).toHaveLength(3);
   });
 
   it("факты компонента зажигают точку и ведут к компоненту", async () => {
