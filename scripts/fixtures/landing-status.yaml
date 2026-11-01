@@ -1,0 +1,55 @@
+# Мок лендинга для раздела «As-is и to-be на одной схеме»: ролик vid-status и его постер
+# shot-status.png (сцена status в scripts/landing-videos.mjs и scripts/landing-shots.mjs с
+# --project "Уведомления заказов"). Придуманный продукт, где один модуль заменяется другим:
+# прямую SMS-рассылку (выводится) сменяет центр уведомлений (проектируется). Четыре объекта
+# на корневом уровне, вложенных нет — на кадре читаются все сразу.
+#
+# Пересоздать проект (dev-стек поднят): «Новый проект» → «Импорт» → этот файл, имя
+# «Уведомления заказов», описание «Переход с прямой SMS-рассылки на центр уведомлений»;
+# или POST /api/v1/projects/import-unified (files, name, description). Раскладку построит
+# движок; перед съёмкой — «Переразложить уровень» на корне (порядок — docs/plan-landing-docs-2026-11.md §2.4).
+nodes:
+  - name: Заказы
+    shape: service
+    element: container
+    role: сервис
+    technology: Python/FastAPI
+    description: Принимает заказы и запрашивает подтверждение по SMS.
+    source: {repo: github.com/notify-demo/orders}
+  - name: SMS-рассыльщик
+    shape: service
+    element: container
+    status: deprecated
+    role: воркер
+    technology: Python, cron
+    description: Шлёт коды подтверждения напрямую через провайдера. Его заменяет центр уведомлений.
+  - name: Центр уведомлений
+    shape: service
+    element: container
+    status: planned
+    role: воркер
+    technology: Python, Kafka
+    description: Принимает события заказа и рассылает SMS и push.
+  - name: SMS-провайдер
+    shape: service
+    role: внешняя система
+    technology: HTTPS API
+    external: true
+edges:
+  - from: Заказы
+    to: SMS-рассыльщик
+    label: Код подтверждения
+    technology: REST
+  - from: Заказы
+    to: Центр уведомлений
+    label: Событие «заказ создан»
+    technology: Kafka
+    sync: false
+  - from: SMS-рассыльщик
+    to: SMS-провайдер
+    label: Отправка SMS
+    technology: HTTPS
+  - from: Центр уведомлений
+    to: SMS-провайдер
+    label: Отправка SMS
+    technology: HTTPS

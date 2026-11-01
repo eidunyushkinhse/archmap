@@ -1,0 +1,90 @@
+# Мок лендинга для раздела «Где что крутится»: врезка crop-deploy-canvas.png (сцена
+# deploy-canvas в scripts/landing-shots.mjs с --project "Онлайн-касса"). Небольшая система
+# из шести объектов на своих площадках: облако с двумя кластерами, управляемой базой и ВМ
+# брокера; «API кассы» стоит в обоих кластерах (на схеме «1/2» и «2/2»). Внешний оператор
+# фискальных данных площадок не имеет и холстом «Развёртывание» не рисуется (внешняя система
+# не размещается), он нужен самой схеме объектов.
+#
+# Пересоздать проект (dev-стек поднят): «Новый проект» → «Импорт» → этот файл, имя
+# «Онлайн-касса», описание «Приём платежей и фискализация чеков»; или POST
+# /api/v1/projects/import-unified (files, name, description). Канал receipts.new у брокера
+# ввоз заводит заготовкой по связям; вид, гарантию и описание канала формат YAML не несёт —
+# их дописывает PATCH /api/v1/nodes/{id}/channels/{channel_id} (порядок —
+# docs/plan-landing-docs-2026-11.md §2.4).
+nodes:
+  - name: Веб-кабинет
+    shape: service
+    element: container
+    role: веб-приложение
+    technology: React
+    sites: [Кластер A]
+  - name: API кассы
+    shape: service
+    element: container
+    role: сервис
+    technology: Go
+    sites: [Кластер A, Кластер B]
+  - name: Фискализатор
+    shape: service
+    element: container
+    role: воркер
+    technology: Go
+    description: Формирует чеки и передаёт их оператору фискальных данных.
+    sites: [Кластер B]
+  - name: БД чеков
+    shape: database
+    technology: PostgreSQL
+    sites: [Управляемая PostgreSQL]
+  - name: RabbitMQ
+    shape: broker
+    technology: RabbitMQ
+    sites: [ВМ брокера]
+  - name: Оператор фискальных данных
+    shape: service
+    role: внешняя система
+    technology: HTTPS API
+    external: true
+edges:
+  - from: Веб-кабинет
+    to: API кассы
+    label: Операции кассира
+    technology: REST
+  - from: API кассы
+    to: БД чеков
+    label: Чеки и смены
+    technology: SQL
+  - from: API кассы
+    to: RabbitMQ
+    label: Чек к фискализации
+    technology: AMQP
+    channel: receipts.new
+    sync: false
+  - from: RabbitMQ
+    to: Фискализатор
+    label: Чек к фискализации
+    technology: AMQP
+    channel: receipts.new
+    sync: false
+  - from: Фискализатор
+    to: БД чеков
+    label: Статус фискализации
+    technology: SQL
+  - from: Фискализатор
+    to: Оператор фискальных данных
+    label: Передача чека
+    technology: HTTPS
+deployment:
+  sites:
+    - name: Облако
+      kind: cloud
+    - name: Кластер A
+      kind: kubernetes
+      parent: Облако
+    - name: Кластер B
+      kind: kubernetes
+      parent: Облако
+    - name: Управляемая PostgreSQL
+      parent: Облако
+    - name: ВМ брокера
+      kind: vm
+      parent: Облако

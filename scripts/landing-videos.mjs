@@ -1,7 +1,14 @@
 // Видео РЕАЛЬНОГО интерфейса ArchMap для анимированных вставок лендинга. Сценарии
 // повторяют нынешние покадровые анимации (hero / process / status), но снимаются с
-// живого UI: раскрытие контейнера, переход на страницу объекта, фильтры статусов —
+// живого UI: раскрытие системы, переход на страницу объекта, фильтры статусов —
 // с настоящими переходами продукта, а не подменой кадров.
+//
+// Ролики hero и process снимаются на копии эталона «Ярмарки» (имя демо «Маркетплейс
+// «Ярмарка»»), ролик status — на моке «Уведомления заказов» (scripts/fixtures/
+// landing-status.yaml, MOCKS ниже): на большой схеме смена статусов тонет в объектах.
+// Сцена мока снимается только на своём моке, прогон по «Ярмарке» её пропускает, а прогон
+// по моку — все остальные. Пересоздание мока и его расстановка —
+// docs/plan-landing-docs-2026-11.md §2.4.
 //
 // Захват — три режима (--capture; по умолчанию первый доступный):
 //   x11 — headed Chromium на виртуальном экране Xvfb, ffmpeg пишет прямоугольник
@@ -14,8 +21,9 @@
 //         <div data-video> на лендинге.
 //
 // Запуск (dev-стек поднят через ./dev.sh):
-//   node scripts/landing-videos.mjs                       # все → landing-shots/vid-*.mp4 + .webm
-//   node scripts/landing-videos.mjs --only hero,status
+//   node scripts/landing-videos.mjs                       # все ролики «Ярмарки» → landing-shots/vid-*.mp4 + .webm
+//   node scripts/landing-videos.mjs --only hero
+//   node scripts/landing-videos.mjs --only status --project "Уведомления заказов"   # ролик статусов — на моке
 //   node scripts/landing-videos.mjs --out DIR --project "Имя" --capture cdp --trace --keep-raw
 //   --capture x11|cdp|pw   режим захвата
 //   --scale N      DSF съёмки: по умолчанию 1,18 в x11 (кадр 1888 px — рамка лендинга
@@ -108,14 +116,19 @@ const CRF_WEBM = Number(argOf("--crf-webm") ?? (CAPTURE === "x11" ? 31 : 34));
 const N = {
   orders: "Заказы",
   orderApi: "Order API",
-  kafka: "Kafka",
-  recs: "Сервис рекомендаций",
-  sms: "SMS-рассыльщик",
-  notifWorker: "Notification worker",
-  notifDb: "БД уведомлений",
 };
 const DOC_LOGIC = "Создание заказа";
 const PROCESS = "Оформление заказа";
+
+// ── Моки лендинга: ролик раздела снимается на своём маленьком проекте ──────────
+// scenes — ролики мока; frame — объекты, по которым кадрируется холст (сцена status).
+// Имена «Ярмарки» (N) в моке не ищутся.
+const MOCKS = {
+  "Уведомления заказов": { scenes: ["status"], frame: ["Заказы", "SMS-рассыльщик", "Центр уведомлений", "SMS-провайдер"] },
+};
+const MOCK = MOCKS[PROJECT_NAME] ?? null;
+// Ролик → мок, на котором он снимается; ролики без мока — на «Ярмарке» или её копии
+const MOCK_OF = Object.fromEntries(Object.entries(MOCKS).flatMap(([p, m]) => m.scenes.map((sc) => [sc, p])));
 
 const HIDE_CSS = `
 vite-error-overlay, .lg-overload-toast, .lg-budget-toast, .lg-dirty-toast { display: none !important; }
@@ -191,12 +204,14 @@ async function resolveScene(token) {
   if (!project) throw new Error(`Проект «${PROJECT_NAME}» не найден`);
   const pid = project.id;
   const nodes = await api(token, "/nodes/all", pid);
-  const ids = {};
-  for (const [key, name] of Object.entries(N)) {
+  const idOf = (name) => {
     const hits = nodes.filter((n) => n.name === name);
     if (hits.length !== 1) throw new Error(`Объект «${name}»: найдено ${hits.length}`);
-    ids[key] = hits[0].id;
-  }
+    return hits[0].id;
+  };
+  if (MOCK) return { pid, frame: MOCK.frame.map(idOf) };
+  const ids = {};
+  for (const [key, name] of Object.entries(N)) ids[key] = idOf(name);
   const processes = await api(token, "/processes", pid);
   const proc = processes.find((p) => p.name === PROCESS);
   if (!proc) throw new Error(`Процесс «${PROCESS}» не найден`);
@@ -559,11 +574,12 @@ const VIDEOS = {
     await page.getByRole("button", { name: "Отмена" }).click().catch(() => {});
   } },
 
-  // Статусы: корень карты, вид «Переход». Бесшовная петля (без белого края): курсор с
-  // первого кадра стоит на «Переходе», уходит на «Как будет» (выводимый «SMS-рассыльщик»
-  // уходит), затем на «Как есть» (новый «Сервис рекомендаций» уходит) и возвращается на
-  // «Переход» — последний кадр совпадает с первым (та же точка курсора, тот же вид, рябь
-  // клика погасла), и ролик крутится по кругу без шва.
+  // Статусы — на моке «Уведомления заказов»: корень карты, вид «Переход», в кадре все четыре
+  // объекта (расстановка ручная, сохранена в виде корня мока). Бесшовная петля (без белого
+  // края): курсор с первого кадра стоит на «Переходе», уходит на «Как будет» (выводимый
+  // «SMS-рассыльщик» уходит), затем на «Как есть» (проектируемый «Центр уведомлений»
+  // уходит) и возвращается на «Переход» — последний кадр совпадает с первым (та же точка
+  // курсора, тот же вид, рябь клика погасла), и ролик крутится по кругу без шва.
   status: { size: [2100, 900], async setup(page, s) {
     await go(page, `/p/${s.pid}/map`);
     await page.getByRole("button", { name: "Свернуть панель" }).last().click();
@@ -572,7 +588,7 @@ const VIDEOS = {
     await settle(page);
     await page.locator(".react-flow__controls-fitview").click();
     await settle(page);
-    await frameNodes(page, [s.ids.recs, s.ids.orders, s.ids.sms, s.ids.notifWorker, s.ids.notifDb], 0.8);
+    await frameNodes(page, s.frame, 0.8);
     await park(page);
     // Стартовая точка петли — центр «Перехода»: ховер настоящий и одинаковый на обоих краях
     const c = await center(page.getByRole("radio", { name: "Переход", exact: true }));
@@ -814,7 +830,18 @@ const { chromium } = pw.default;
 const token = await login();
 const scene = await resolveScene(token);
 mkdirSync(OUT, { recursive: true });
-const picked = Object.entries(VIDEOS).filter(([name]) => !ONLY || ONLY.includes(name));
+const picked = Object.entries(VIDEOS).filter(([name]) => {
+  if (ONLY && !ONLY.includes(name)) return false;
+  // Ролик мока — только на своём моке; на моке — только его ролики
+  const owner = MOCK_OF[name] ?? null;
+  if (owner === (MOCK ? PROJECT_NAME : null)) return true;
+  console.log(`• ${name}: пропуск — ${owner ? `снимается на моке «${owner}» (--project "${owner}")` : `на моке «${PROJECT_NAME}» этого ролика нет`}`);
+  return false;
+});
+if (!picked.length) {
+  console.log("✗ снимать нечего: ролики не выбраны или все пропущены");
+  process.exit(1);
+}
 // Экран Xvfb: самое большое окно из выбранных видео плюс полоса вкладок и адреса
 const SCREEN = [
   Math.ceil(Math.max(...picked.map(([, v]) => v.size[0])) * SCALE) + 64,
