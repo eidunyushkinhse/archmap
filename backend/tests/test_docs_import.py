@@ -422,9 +422,9 @@ def test_plan_схемы_системе_предупреждают_а_не_бл�
     assert plan.errors == []
     assert [a.action for a in plan.logic] == ["create", "create"]  # пакет не заблокирован
     # У листа orders предупреждения нет; billing с вложенными без элемента — система.
-    assert [w for w in plan.warnings if "Рекомендации" in w] == [
+    assert [w for w in plan.warnings if "рекомендации проекта" in w] == [
         "a.mmd: «Ярмарка / billing» — система; схемы логики описывают код и хранятся у "
-        "контейнеров и компонентов, у системы они попадут в «Рекомендации»"
+        "контейнеров и компонентов, у системы они попадут в рекомендации проекта"
     ]
 
 
@@ -436,10 +436,10 @@ def test_plan_схемы_контейнеру_с_компонентами_сов
     plan = _plan(db, [("a.mmd", _mmd("Обзор", node="billing"))])
 
     assert plan.errors == [] and [a.action for a in plan.logic] == ["create"]
-    assert [w for w in plan.warnings if "Рекомендации" in w] == [
+    assert [w for w in plan.warnings if "рекомендации проекта" in w] == [
         "a.mmd: «Ярмарка / billing» — контейнер с компонентами; схемы логики описывают "
         "код компонентов — лучше адресовать их компонентам, у контейнера они попадут "
-        "в «Рекомендации»"
+        "в рекомендации проекта"
     ]
 
 

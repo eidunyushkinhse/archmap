@@ -540,7 +540,7 @@ def test_контейнер_адресат_предупреждает(db):
     assert not plan.report.errors
     assert (
         "«Zulip / backend» — контейнер с компонентами; собственные схемы контейнера "
-        "попадут в «Рекомендации» — перечень лучше адресовать компонентам"
+        "попадут в рекомендации проекта — перечень лучше адресовать компонентам"
     ) in plan.report.warnings
     assert [s.name for s in plan.creates] == ["GET /a"]
     assert plan.node is backend
