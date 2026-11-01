@@ -25,13 +25,15 @@ vi.mock("../../../api/nodes", () => ({
   nodesApi: {
     getAll: vi.fn(async () => [
       { id: "c0de-01", name: "Продавец" }, { id: "c0de-03", name: "Заказы" },
-      { id: "c0de-07", name: "Оркестратор заказа" },
+      { id: "c0de-07", name: "Оркестратор заказа" }, { id: "c0de-08", name: "Приём событий" },
+      { id: "c0de-09", name: "Шаги саги" },
     ]),
   },
 }));
 
 import DemoTour from "../DemoTour";
 import { emitTourEvent, onTourFocusRequest, type TourFocus } from "../tourBus";
+import { stepTotal } from "../tourMachine";
 import { tourKey } from "../tourPersist";
 import { getTourPaused, requestTourRestart, requestTourResume } from "../tourStore";
 
@@ -118,7 +120,7 @@ describe("DemoTour", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Начать" }));
     await waitFor(() => expect(window.location.hash).toBe("#/projects"));
     expect(await screen.findByRole("dialog", { name: "Откройте «Ярмарку»" })).toBeInTheDocument();
-    expect(screen.getByText("Шаг 1 из 25")).toBeInTheDocument();
+    expect(screen.getByText(`Шаг 1 из ${stepTotal("full")}`)).toBeInTheDocument();
     target("schema-block");
     act(() => goHash(`/p/${YAR}`));
     expect(await screen.findByRole("dialog", { name: "Главная страница проекта" })).toBeInTheDocument();
@@ -132,7 +134,7 @@ describe("DemoTour", () => {
     auth.canCreate = false;
     act(() => requestTourRestart());
     fireEvent.click(await screen.findByRole("button", { name: "Начать" }));
-    expect(await screen.findByText("Шаг 1 из 12")).toBeInTheDocument();
+    expect(await screen.findByText(`Шаг 1 из ${stepTotal("short")}`)).toBeInTheDocument();
   });
 
   it("событие шины продвигает шаг: система создана — дальше второй объект", async () => {
@@ -182,7 +184,7 @@ describe("DemoTour", () => {
     chev.setAttribute("aria-expanded", "false");
     render(<DemoTour />);
     expect(await screen.findByRole("dialog", { name: "Дерево системы" })).toBeInTheDocument();
-    expect(screen.getByText("Шаг 8 из 25")).toBeInTheDocument();
+    expect(screen.getByText(`Шаг 8 из ${stepTotal("full")}`)).toBeInTheDocument();
     chev.setAttribute("aria-expanded", "true");
     await waitFor(() => expect(stored()).toMatchObject({ step: "tree-open" }));
     target("tree-row:c0de-07", { x: 10, y: 330, w: 240, h: 28 });
@@ -204,6 +206,41 @@ describe("DemoTour", () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     chev.setAttribute("aria-expanded", "true");
     await waitFor(() => expect(stored()).toMatchObject({ step: "tree-open" }));
+  });
+
+  it("компоненты: тур сам раскрывает ветку «Оркестратора заказа» в дереве, вырез — строки компонентов", async () => {
+    window.location.hash = `/p/${YAR}/nodes/c0de-07`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "components", variant: "full", dir: 1, vars: {} }));
+    const chev = target("tree-chev:c0de-07", { x: 10, y: 300, w: 26, h: 28 });
+    chev.setAttribute("aria-expanded", "false");
+    // нажатие шеврона раскрывает ветку: под строкой контейнера — строки компонентов
+    const open = vi.fn(() => {
+      chev.setAttribute("aria-expanded", "true");
+      target("tree-row:c0de-08", { x: 30, y: 330, w: 220, h: 28 });
+      target("tree-row:c0de-09", { x: 30, y: 358, w: 220, h: 28 });
+    });
+    chev.addEventListener("click", open);
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Контейнер и его компоненты" })).toBeInTheDocument();
+    const ring = () => document.querySelector<HTMLElement>("[data-tour-layer] .tour-ring");
+    await waitFor(() => expect(ring()?.style.top).toBe("324px"));
+    expect(ring()?.style.height).toBe("68px");
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(open).toHaveBeenCalledOnce();
+  });
+
+  it("компоненты: ветка уже раскрыта — тур её не сворачивает", async () => {
+    window.location.hash = `/p/${YAR}/nodes/c0de-07`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "components", variant: "full", dir: 1, vars: {} }));
+    const chev = target("tree-chev:c0de-07", { x: 10, y: 300, w: 26, h: 28 });
+    chev.setAttribute("aria-expanded", "true");
+    target("tree-row:c0de-08", { x: 30, y: 330, w: 220, h: 28 });
+    target("tree-row:c0de-09", { x: 30, y: 358, w: 220, h: 28 });
+    const click = vi.fn();
+    chev.addEventListener("click", click);
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Контейнер и его компоненты" })).toBeInTheDocument();
+    expect(click).not.toHaveBeenCalled();
   });
 
   it("шаг перевеса связи: плашки подписей пропускают нажатия к ручке конца", async () => {

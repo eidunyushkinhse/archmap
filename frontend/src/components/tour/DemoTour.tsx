@@ -18,7 +18,7 @@ import {
 } from "./tourBus";
 import {
   availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
-  stepTotal, treeExpandTarget,
+  stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
@@ -283,9 +283,11 @@ function TourRuntime({ userId }: { userId: string }) {
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
   // раскрытый узел засчитан, камера отведена ко всему слою (fit) и подведена к цели
-  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге.
+  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге; treeOpened — ветку,
+  // на чьи вложенные строки смотрит шаг, тур раскрыл сам (или она уже была раскрыта).
   const freshEntry = () => ({
-    mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0, fit: false, focus: false,
+    mode: false, scroll: false, expanded: false, treeClosed: false, treeOpened: false, reveals: 0, revealAt: 0,
+    fit: false, focus: false,
   });
   const doneForRef = useRef(freshEntry());
   useLayoutEffect(() => {
@@ -434,6 +436,14 @@ function TourRuntime({ userId }: { userId: string }) {
         else if (st.dir === 1 || doneForRef.current.treeClosed) {
           send({ action: { type: "signal", signal: { kind: "dom", key: "tree-expanded" } }, env: en });
         }
+      }
+      // Шаг смотрит на вложенные строки ветки (treeOpen): страница объекта раскрывает
+      // дерево только до него самого — ветку раскрываем сами, один раз на вход в шаг.
+      const openId = screenOk && !doneForRef.current.treeOpened ? treeOpenTarget(st, en) : null;
+      const openChev = openId ? document.querySelector<HTMLElement>(`[data-tour="tree-chev:${openId}"]`) : null;
+      if (openChev) {
+        doneForRef.current.treeOpened = true;
+        if (openChev.getAttribute("aria-expanded") !== "true") openChev.click();
       }
       // «Новый проект»: окно открылось — шаг сделан; кнопка погашена — проект уже есть.
       if (st.step === "new-project") {

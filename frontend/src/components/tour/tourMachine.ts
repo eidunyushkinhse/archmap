@@ -306,6 +306,12 @@ export function treeExpandTarget(state: TourState, env: TourEnv): string | null 
   return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;
 }
 
+/** Чью ветку дерева слева шаг раскрывает сам на входе (treeOpen; null — не раскрывает). */
+export function treeOpenTarget(state: TourState, env: TourEnv): string | null {
+  const name = STEPS[state.step].treeOpen;
+  return name ? env.yarObjects?.get(name) ?? null : null;
+}
+
 /** Тексты шага с подставленными именами созданных объектов. */
 export function stepTexts(step: TourStep, vars: TourVars): { title: string; body: string; action?: string } {
   const sub = (s: string) => s

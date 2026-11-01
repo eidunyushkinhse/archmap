@@ -4,13 +4,13 @@
 import { describe, it, expect } from "vitest";
 import {
   availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
-  stepTexts, stepTotal, treeExpandTarget,
+  stepTexts, stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
 import { parseTourState } from "../tourPersist";
 import { parseTourRoute } from "../tourRoute";
 import {
-  FULL_SEQUENCE, STEPS, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_SELLER, YAR_SYSTEM,
+  FULL_SEQUENCE, STEPS, YAR_INTAKE, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_SAGA_STEPS, YAR_SELLER, YAR_SYSTEM,
   type StepId,
 } from "../tourSteps";
 
@@ -22,6 +22,8 @@ const OBJECTS = new Map<string, string>([
   [YAR_ORDERS, "c0de-03"],
   [YAR_ORDER_API, "c0de-04"],
   [YAR_ORCH, "c0de-07"],
+  [YAR_INTAKE, "c0de-08"],
+  [YAR_SAGA_STEPS, "c0de-09"],
 ]);
 const ENV: TourEnv = { yarProjectId: YAR, yarObjects: OBJECTS };
 
@@ -96,9 +98,25 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(screenHash(STEPS.docs.screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
   });
 
-  it("документация — один ознакомительный шаг: «Далее» ведёт к процессам", () => {
-    expect(run(at("docs"), [NEXT]).step).toBe("processes");
-    expect(run(at("processes"), [BACK]).step).toBe("docs");
+  it("документация, затем компоненты «Оркестратора заказа» — ознакомительные шаги перед процессами", () => {
+    expect(run(at("docs"), [NEXT]).step).toBe("components");
+    expect(run(at("components"), [NEXT]).step).toBe("processes");
+    expect(run(at("processes"), [BACK]).step).toBe("components");
+    expect(run(at("components"), [BACK]).step).toBe("docs");
+  });
+
+  it("компоненты: та же страница «Оркестратора заказа», ветку в дереве тур раскрывает сам", () => {
+    const s = at("components");
+    expect(screenHash(STEPS.components.screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
+    expect(treeOpenTarget(s, ENV)).toBe("c0de-07");
+    expect(treeOpenTarget(at("docs"), ENV)).toBeNull();
+    expect(STEPS.components.target).toEqual({ kind: "yar-tree-rows", names: [YAR_INTAKE, YAR_SAGA_STEPS] });
+  });
+
+  it("гость удалил компонент: после документации — сразу процессы", () => {
+    const objects = new Map(OBJECTS);
+    objects.delete(YAR_SAGA_STEPS);
+    expect(run(at("docs"), [NEXT], { ...ENV, yarObjects: objects }).step).toBe("processes");
   });
 
   it("нет «Оркестратора заказа»: после раскрытия ветки — сразу процессы", () => {
@@ -280,8 +298,8 @@ describe("тур — свой проект", () => {
 
 describe("тур — повторный запуск при своём проекте", () => {
   it("короткий проход: «Ярмарка» до логотипа и короткий финал", () => {
-    expect(stepTotal("full")).toBe(25);
-    expect(stepTotal("short")).toBe(12);
+    expect(stepTotal("full")).toBe(26);
+    expect(stepTotal("short")).toBe(13);
     const s = run({ ...startState("short"), step: "leave-yar" }, [route("#/projects")]);
     expect(s.step).toBe("final-short");
     expect(stepTexts(STEPS[s.step], s.vars).body).toBe("Свой проект у вас уже есть. Продолжайте в нём.");

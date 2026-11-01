@@ -110,6 +110,19 @@ describe("составные цели", () => {
     expect(resolveTarget({ kind: "yar-tree", name: "Продавец", part: "row" }, CTX)).toBeNull();
   });
 
+  it("строки компонентов в дереве — один вырез на все; нет хоть одной строки — цели нет", () => {
+    const ctx = { ...CTX, yarObjects: new Map([["Приём событий", "c0de-08"], ["Шаги саги", "c0de-09"]]) };
+    const target = { kind: "yar-tree-rows", names: ["Приём событий", "Шаги саги"] } as const;
+    const host = el('<div data-tour="tree-row:c0de-08"></div><div data-tour="tree-row:c0de-09"></div>');
+    withRect(host.children[0], { x: 30, y: 330, w: 220, h: 28 });
+    expect(resolveTarget(target, ctx)).toBeNull();
+    withRect(host.children[1], { x: 30, y: 358, w: 220, h: 28 });
+    const res = resolveTarget(target, ctx)!;
+    expect(res.elements).toEqual([host.children[0], host.children[1]]);
+    expect(res.holes).toEqual([{ x: 24, y: 324, w: 232, h: 68, shape: "rect" }]);
+    expect(res.anchor).toEqual(res.holes[0]);
+  });
+
   it("прямая связь — отрезок нулевой ширины (роутер ведёт линии прямо): цель находится, вырез с толщиной", () => {
     const host = el(
       '<div class="react-flow"><svg><g class="react-flow__edge" data-id="e1" aria-label="Edge from p1 to s1"></g></svg>'

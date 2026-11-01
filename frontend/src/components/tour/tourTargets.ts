@@ -157,6 +157,23 @@ function resolveTreeRow(hit: { el: Element; rect: Rect }, id: string): Resolved 
   };
 }
 
+/** Несколько строк дерева одним вырезом (вложенные объекты раскрытой ветки стоят
+ *  подряд): все должны быть на экране; карточка, как у одной строки, — мимо дерева. */
+function resolveTreeRows(names: readonly string[], ctx: TargetCtx): Resolved | null {
+  const hits: { el: Element; rect: Rect }[] = [];
+  for (const name of names) {
+    const id = ctx.yarObjects?.get(name);
+    const hit = id ? firstVisible(byTour(treeKey("row", id))) : null;
+    if (!hit) return null;
+    hits.push(hit);
+  }
+  const box = union(hits.map((h) => h.rect));
+  if (!box) return null;
+  const hole = padHole(box, "rect");
+  const tree = firstVisible(byTour("tree"));
+  return { elements: hits.map((h) => h.el), holes: [hole], anchor: hole, avoid: [hole], soft: tree ? [tree.rect] : [] };
+}
+
 /** Окно «Новый проект»: левая колонка и кнопка «Создать проект» — без неё действие
  *  шага не выполнить, поэтому у неё свой вырез. */
 function resolveCreateProject(): Resolved | null {
@@ -190,6 +207,8 @@ export function resolveTarget(target: Target, ctx: TargetCtx): Resolved | null {
       const hit = id ? firstVisible(byTour(treeKey(target.part, id))) : null;
       return hit && id ? resolveTreeRow(hit, id) : null;
     }
+    case "yar-tree-rows":
+      return resolveTreeRows(target.names, ctx);
     case "pair":
       return resolvePair(target.main, target.zone, vars.systemId);
     case "system-part": {
@@ -238,6 +257,12 @@ export function hiddenTarget(target: Target, ctx: TargetCtx): Element | null {
       // строка дерева ниже края его прокрутки
       const id = ctx.yarObjects?.get(target.name);
       selector = id ? byTour(treeKey(target.part, id)) : null;
+      break;
+    }
+    case "yar-tree-rows": {
+      // первая строка ниже края прокрутки дерева
+      const id = ctx.yarObjects?.get(target.names[0]);
+      selector = id ? byTour(treeKey("row", id)) : null;
       break;
     }
     case "pair":
