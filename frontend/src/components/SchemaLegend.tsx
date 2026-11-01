@@ -2,10 +2,13 @@
 // «Легенда» в правом нижнем углу холста + всплывающая панель-справочник по визуальным
 // кодировкам схемы (фигуры объектов, статусы, пунктир гостя, рамки системы и контейнера).
 //
-// Механика панели — по образцу SchemaAlerts: relative-якорь + absolute-панель,
-// useState(open), закрытие по клику вне и Escape. Отличие: кнопка стоит ВНИЗУ справа,
-// поэтому панель раскрывается ВВЕРХ (bottom: calc(100% + 8px)). Видна всегда (обе
-// роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
+// Механика панели — по образцу SchemaAlerts: useState(open), закрытие по клику вне и
+// Escape. Кнопка стоит ВНИЗУ справа, поэтому панель раскрывается ВВЕРХ. Кнопка видна
+// всегда (обе роли, в т.ч. неактивный блок) — z-index выше оверлея активации.
+// Панель — в портале на body с position: fixed у кнопки (ui/popoverPlace): встроенный
+// холст на главной проекта и странице объекта обрезает содержимое (.esb-wrap, overflow:
+// hidden, высота от ширины), и панель выше холста резалась сверху. Вид панели прежний;
+// не помещается над кнопкой — открывается под ней, не помещается в окне — прокручивается.
 // variant="deployment" — холст «Развёртывание»: пользователей и гостей там нет, зато
 // есть площадки (зона с заливкой, свёрнутая — белая карточка), группа «Размещение не
 // указано», пунктирная карточка системы целиком на площадке и пометка «1/2».
@@ -14,10 +17,12 @@
 // (ChildrenBadge, node.md N17 и N4в): дерево — система, сетка — контейнер; число рядом —
 // сколько внутри, у листа знак без числа.
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import "./SchemaLegend.css";
 import { useDismiss } from "../ui/useDismiss";
+import { placeAboveButton, type PopoverPlace } from "../ui/popoverPlace";
 import { getNodeColors, hexToRgba } from "./graph/colors";
 
 /* ── Мини-свотчи фигур (в тех же цветах, что узлы на схеме) ────────── */
@@ -169,9 +174,40 @@ const Chevron = ({ open }: { open: boolean }) => (
 export default function SchemaLegend({ variant = "schema" }: { variant?: "schema" | "deployment" }) {
   const deployment = variant === "deployment";
   const [open, setOpen] = useState(false);
+  // Якорь с кнопкой: от его рамки панель отмеряет место, как прежде от absolute-якоря.
   const ref = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Место панели в окне; null — ещё не измерена (первое открытие). Место прошлого
+  // открытия на экран не попадает: замер ниже идёт до отрисовки и сразу его заменяет.
+  const [place, setPlace] = useState<PopoverPlace | null>(null);
 
-  useDismiss(open, ref, setOpen);
+  useDismiss(open, ref, setOpen, panelRef);
+
+  // Замер до отрисовки: панель уже в DOM (невидимая), её высота и место якоря известны.
+  // Прокрутка любой области страницы и смена размера окна двигают кнопку — панель следом.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const anchor = ref.current;
+      const panelEl = panelRef.current;
+      if (!anchor || !panelEl) return;
+      // Полная высота панели — и тогда, когда она уже прижата maxHeight: содержимое
+      // (scrollHeight) плюс рамка (offsetHeight − clientHeight).
+      const height = panelEl.scrollHeight + panelEl.offsetHeight - panelEl.clientHeight;
+      setPlace(placeAboveButton(
+        anchor.getBoundingClientRect(),
+        { width: panelEl.offsetWidth, height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ));
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open]);
 
   return (
     <div ref={ref} style={wrap}>
@@ -185,8 +221,14 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
         <Chevron open={open} />
       </button>
 
-      {open && (
-        <div className="sleg-panel" style={panel}>
+      {open && createPortal(
+        <div
+          ref={panelRef}
+          className="sleg-panel"
+          style={place
+            ? { ...panel, top: place.top, right: place.right, maxHeight: place.maxHeight, transformOrigin: place.origin }
+            : { ...panel, top: 0, right: 0, visibility: "hidden" }}
+        >
           <div style={head}>Легенда</div>
 
           <Section title="Типы объектов">
@@ -219,7 +261,8 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
               <Row swatch={<SwatchCornerBadge glyph="grid" />} label="Контейнер, рядом число компонентов" />
             </Section>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -247,9 +290,11 @@ function Row({ swatch, label }: { swatch: React.ReactNode; label: string }) {
 // Якорь — в правом нижнем углу холста; z-index выше оверлея активации (4) и
 // контролов расстановки (5), чтобы легенда была доступна и в неактивном блоке.
 const wrap: CSSProperties = { position: "absolute", bottom: 10, right: 10, zIndex: 6 };
-// Панель раскрывается ВВЕРХ от кнопки (кнопка внизу холста).
+// Панель в окне (портал, position: fixed): место — от кнопки (placeAboveButton), над
+// шапкой страницы (её плоскость — 50), под слоем обучения (2000). Вид прежний: 234 с
+// рамкой — те же 232 содержимого; border-box — чтобы maxHeight считал и рамку.
 const panel: CSSProperties = {
-  position: "absolute", bottom: "calc(100% + 8px)", right: 0, width: 232,
+  position: "fixed", width: 234, zIndex: 60, overflowY: "auto", boxSizing: "border-box",
   background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12,
   boxShadow: "0 12px 32px rgba(17,24,39,.16)", padding: "0 0 6px",
 };
