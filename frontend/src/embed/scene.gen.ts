@@ -208,11 +208,11 @@ export const SCENE: LandingScene = {
       {
         "id": "157fc36d-15c2-471e-a0e2-02c1077f818b",
         "label": "Передаёт событие заказа",
-        "technology": null,
+        "technology": "вызов в одном процессе",
         "source_id": "76e8f3f2-5892-4fd1-a496-c22dee208dcf",
         "target_id": "58c68793-ffed-42ee-b871-b65576fc72c2",
         "channel": null,
-        "version": 1
+        "version": 2
       }
     ],
     "endpoints": [
@@ -403,7 +403,7 @@ export const SCENE: LandingScene = {
       }
     },
     "version": 15,
-    "graph_rev": 762,
+    "graph_rev": 763,
     "meta_rev": 43,
     "has_status_info": true
   },
