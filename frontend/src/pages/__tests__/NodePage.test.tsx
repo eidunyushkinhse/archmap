@@ -844,7 +844,7 @@ describe("NodePage: документация по форме узла", () => {
     const док: NodeDocMeta = { id: "d1", name: "Схема оплаты", kind: "operation", operation: null, version: 1, described: true };
     setupShape({ shape: "database", name: "Хранилище", docs: [док], openapi_spec: "openapi: 3.0.0" });
     await waitFor(() => expect(screen.getByText("Логика")).toBeInTheDocument());
-    expect(screen.getByText(/у этого объекта его нет — перенесите/)).toBeInTheDocument();
+    expect(screen.getByText(/у этого объекта его нет\. Перенесите их объекту, который с ним работает\./)).toBeInTheDocument();
     expect(screen.getByText(/OpenAPI описывает HTTP-API/)).toBeInTheDocument();
     // Заводить новое всё равно нельзя — только унести существующее.
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();

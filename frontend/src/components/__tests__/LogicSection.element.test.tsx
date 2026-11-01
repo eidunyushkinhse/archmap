@@ -132,6 +132,31 @@ describe("LogicSection: объект без вложенных — как ран
   });
 });
 
+describe("LogicSection: схемы у формы без кода", () => {
+  it("база данных со схемами — предупреждение словами типов, без «сервиса»", () => {
+    render(
+      <LogicSection
+        node={node({ docs: [doc()], shape: "database", has_children: false, child_count: 0, element_effective: null })}
+        element={{ kind: "leaf" }}
+        isArchitect
+        allowed={false}
+        legacy
+        groups={[]}
+        loading={false}
+        onOpen={vi.fn()}
+        onTransfer={vi.fn()}
+        onDocsAgent={vi.fn()}
+        onReconAgent={vi.fn()}
+        onNavigateNode={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(
+      "Схемы логики описывают код контейнера или компонента, а у этого объекта его нет. Перенесите их объекту, который с ним работает.",
+    )).toBeInTheDocument();
+    expect(screen.queryByText("+ Добавить")).toBeNull();
+  });
+});
+
 describe("LogicSection: внешняя система (Р42)", () => {
   it("свои схемы без предупреждения и без «Перенести документацию»: чёрный ящик описывают у него", () => {
     renderSection({ kind: "external" }, { docs: [doc()] });

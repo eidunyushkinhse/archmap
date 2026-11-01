@@ -105,7 +105,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
           <div style={{ fontWeight: 600, color: BPT.head, marginBottom: 8 }}>Процесс создан</div>
           <div>Участников: {result.participants}
             {result.unbound > 0 && (
-              <span style={{ color: BROKEN.ink }}> · без узла схемы: {result.unbound}</span>
+              <span style={{ color: BROKEN.ink }}> · без объекта схемы: {result.unbound}</span>
             )}
           </div>
           <div>Шагов: {result.messages} · на каналах схемы: {result.attached}
@@ -183,7 +183,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
                         setMapping((m) => ({ ...m, [p.alias]: e.target.value }))
                       }
                     >
-                      <option value="">— без узла схемы —</option>
+                      <option value="">— без объекта схемы —</option>
                       {p.candidates.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}{c.parent_name ? ` (в ${c.parent_name})` : ""}
@@ -197,8 +197,8 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
                 Шагов: {preview.message_count} · фрагментов: {preview.fragment_count}
                 {unbound > 0 && (
                   <span style={{ color: BROKEN.ink }}>
-                    {" "}· без узла останется участников: {unbound} (они попадут в
-                    «Рекомендации», привязать можно потом)
+                    {" "}· без объекта останется участников: {unbound} (они попадут в
+                    рекомендации проекта, привязать можно потом)
                   </span>
                 )}
               </div>

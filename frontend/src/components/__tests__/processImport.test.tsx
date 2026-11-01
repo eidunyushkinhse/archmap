@@ -91,15 +91,15 @@ describe("импорт процесса: превью", () => {
 
     const selects = screen.getAllByRole("combobox") as HTMLSelectElement[];
     expect(selects[0].value).toBe("n1");
-    expect(selects[1].value).toBe(""); // «без узла схемы» — кандидатов не нашлось
+    expect(selects[1].value).toBe(""); // «без объекта схемы» — кандидатов не нашлось
   });
 
-  it("предупреждает, сколько участников останется без узла", async () => {
+  it("предупреждает, сколько участников останется без объекта", async () => {
     renderModal();
 
     await toPreview();
 
-    expect(screen.getByText(/без узла останется участников: 1/)).toBeTruthy();
+    expect(screen.getByText(/без объекта останется участников: 1 \(они попадут в рекомендации проекта, привязать можно потом\)/)).toBeTruthy();
   });
 
   it("непонятые строки показаны, а не выпали молча", async () => {
@@ -156,7 +156,7 @@ describe("импорт процесса: применение", () => {
     await userEvent.click(screen.getByRole("button", { name: "Импортировать" }));
 
     await screen.findByText("Процесс создан");
-    expect(screen.getByText(/без узла схемы: 1/)).toBeTruthy();
+    expect(screen.getByText(/без объекта схемы: 1/)).toBeTruthy();
     expect(screen.getByText(/без связи: 1/)).toBeTruthy();
   });
 
