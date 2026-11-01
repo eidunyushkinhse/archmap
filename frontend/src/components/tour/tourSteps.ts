@@ -312,7 +312,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   "add-peer": {
     id: "add-peer", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
     title: "Добавьте ещё один объект",
-    body: "Например, внешний сервис, который обменивается данными с вашей системой, или пользователя.",
+    body: "Например, внешнюю систему, которая обменивается данными с вашей системой, или пользователя.",
     action: "Перетащите объект на схему.",
   },
   connect: {
