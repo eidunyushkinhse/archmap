@@ -34,7 +34,7 @@ nodes:
   - name: БД чеков
     shape: database
     technology: PostgreSQL
-    sites: [Управляемая PostgreSQL]
+    sites: [Managed PostgreSQL]
   - name: RabbitMQ
     shape: broker
     technology: RabbitMQ
@@ -83,7 +83,7 @@ deployment:
     - name: Кластер B
       kind: kubernetes
       parent: Облако
-    - name: Управляемая PostgreSQL
+    - name: Managed PostgreSQL
       parent: Облако
     - name: ВМ брокера
       kind: vm
