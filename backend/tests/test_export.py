@@ -11,7 +11,7 @@ import zipfile
 
 import pytest
 import yaml
-from conftest import ensure_project
+from conftest import ensure_project, typed
 from fastapi import HTTPException
 
 from app.archive_export import build_archive, build_archive_ordered
@@ -176,6 +176,7 @@ def test_группе_тёзок_без_якоря_у_всех_пишется_п
     _edge(db, orders, шоп, label="a")
     _edge(db, orders, сток, label="b")
     _edge(db, orders, голый, label="c")
+    typed(db)
     db.commit()
 
     текст = export_all(db=db, project=ensure_project(db)).content
@@ -210,6 +211,7 @@ def test_дети_тёзок_адресуются_уточнителем_на_с
     py = _node(db, "api", корень, technology="Python")
     for родитель, метка in ((шоп, "a"), (сток, "b"), (go, "c"), (py, "d")):
         _edge(db, orders, _node(db, "reader", родитель), label=метка)
+    typed(db)
     db.commit()
 
     текст = export_all(db=db, project=ensure_project(db)).content
@@ -330,6 +332,7 @@ def test_порядок_id_экспорта_совпадает_с_нумерац
     _node(db, "Каталог-БД", корень, shape="database")
     другой = _node(db, "Внешний", shape="service")
     _edge(db, другой, корень)
+    typed(db)
     db.commit()
 
     узлы = db.query(Node).filter(Node.project_id == ensure_project(db).id).all()
@@ -356,6 +359,7 @@ def test_архив_отдаёт_порядок_узлов_своего_c4(db):
     """build_archive_ordered — тот же архив плюс порядок; байты не меняются."""
     корень = _node(db, "Ярмарка")
     _node(db, "orders", корень)
+    typed(db)
     db.commit()
     проект = ensure_project(db)
 
@@ -572,8 +576,8 @@ def test_без_площадок_документ_байт_в_байт_преж�
 
 
 def test_элемент_пишется_сразу_после_формы_и_только_заданный(db):
-    """element — после shape и до status: порядок ключей узла осознанный. Не заданный
-    (null, «не сказано») не пишется вовсе."""
+    """element — после shape и до status: порядок ключей узла осознанный. У компонента
+    элемента нет — ключ не пишется вовсе."""
     корень = _node(db, "Ярмарка", shape="service", element="system")
     orders = _node(db, "orders", корень, shape="service", element="container",
                    status="planned", role="сервис")
@@ -592,14 +596,16 @@ def test_элемент_пишется_сразу_после_формы_и_то�
     assert "    shape: service\n    element: container\n    status: planned\n" in текст
 
 
-def test_без_элементов_документ_байт_в_байт_прежний(db):
-    """Проект, где элемент не задан ни у кого, экспортируется теми же байтами, что до
-    эпика: эталонный текст снят с прежнего сериализатора."""
+def test_документ_проекта_прежний_плюс_тип(db):
+    """Тип выбран всегда: проект после миграции экспортируется теми же байтами, что до
+    эпика (эталонный текст снят с прежнего сериализатора), плюс ключ element после shape
+    у каждого сервиса вне контейнера."""
     корень = _node(db, "Ярмарка", shape="service", role="система")
     orders = _node(db, "orders", корень, shape="service", technology="Python",
                    status="planned")
     db_ = _node(db, "orders-db", корень, shape="database")
     _edge(db, orders, db_, label="пишет", technology="SQL")
+    typed(db)
     db.commit()
 
     текст = export_all(db=db, project=ensure_project(db)).content
@@ -608,10 +614,12 @@ def test_без_элементов_документ_байт_в_байт_пре�
         "nodes:\n"
         "- name: Ярмарка\n"
         "  shape: service\n"
+        "  element: system\n"
         "  role: система\n"
         "  children:\n"
         "  - name: orders\n"
         "    shape: service\n"
+        "    element: container\n"
         "    status: planned\n"
         "    technology: Python\n"
         "  - name: orders-db\n"

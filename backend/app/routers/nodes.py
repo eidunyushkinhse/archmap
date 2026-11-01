@@ -21,12 +21,17 @@ from app.deps import (
     touch_project,
 )
 from app.domain_types import NodeElement
-from app.element_marks import ElementRow, mark_element, project_element_rows
+from app.element import stored_element
+from app.element_marks import (
+    ElementRow,
+    element_for,
+    mark_element,
+    normalized_rows,
+    project_element_rows,
+)
 from app.element_rules import (
-    PARENT_ELEMENT_ROOT,
     STORE_CREATE,
     element_change_refusal,
-    first_child_refusal,
     store_refusal,
 )
 from app.graph_queries import build_graph, external_edges, project_has_status_info
@@ -133,6 +138,51 @@ def _refuse_element(
         raise HTTPException(status_code=422, detail=reason)
 
 
+def _settle_element(db: Session, project: Project, node: Node, data: dict) -> None:
+    """Тип выбран всегда (решение владельца 2026-11-01): элемент узла после PATCH без
+    присланного значения — по функции записи app/element.stored_elements, в
+    data["element"], если он меняется. Перенос внутрь контейнера снимает его (компонент),
+    перенос наружу и смена формы на «Сервис» дают «контейнер» (внешнему листу —
+    «система», Р42), уход из сервиса снимает. Присланный null у сервиса вне контейнера не
+    очищает: тип у него есть всегда, и значение остаётся прежним. Присланное значение не
+    трогается — его судят правила записи (app/element_rules), а остаток выровняет
+    store_elements. Правка без родителя, формы и элемента не платит запросом."""
+    asked = data.get("element")
+    if asked is not None:
+        # Запреты (форма, «внутри контейнера», состав контейнера) — по дереву после правки:
+        # форма и родитель из того же запроса. Проверяется СМЕНА значения или формы, как у
+        # формы выше: полный набор полей (Undo/Redo правки) повторяет прежний элемент и не
+        # должен падать от состояния, к этой правке не относящегося.
+        if asked != node.element or data.get("shape", node.shape) != node.shape:
+            _refuse_element(
+                db, project, node_id=node.id, name=data.get("name") or node.name,
+                parent_id=data.get("parent_id", node.parent_id),
+                shape=data.get("shape") or node.shape, value=asked,
+            )
+        return
+    if not data.keys() & {"parent_id", "shape", "element"}:
+        return
+    target = _element_after(db, project, node, data)
+    if "element" in data or target != node.element:
+        data["element"] = target
+
+
+def _element_after(db: Session, project: Project, node: Node, data: dict) -> NodeElement | None:
+    """Хранимый элемент узла после PATCH (родитель и форма из запроса, элемент прежний)."""
+    rows = [
+        r._replace(
+            parent_id=data.get("parent_id", node.parent_id),
+            shape=data.get("shape") or node.shape,
+            element=node.element,
+        )
+        if r.id == node.id
+        else r
+        for r in project_element_rows(db, project.id)
+    ]
+    value = next(r.element for r in normalized_rows(rows) if r.id == node.id)
+    return "system" if value == "system" else "container" if value == "container" else None
+
+
 @router.get("", response_model=list[NodeResponse])
 def list_nodes(
     parent_id: uuid.UUID | None = None,
@@ -157,8 +207,7 @@ def create_node(
     user: User = Depends(require_project_editor),
 ) -> Node:
     parent: Node | None = None
-    # Узлы проекта — только когда они нужны правилам: создание без элемента родителя,
-    # базы и брокера лишнего запроса не платит.
+    # Узлы проекта выбираются один раз и только когда они нужны правилам.
     rows: list[ElementRow] | None = None
     if payload.parent_id:
         parent = scoped_node(db, payload.parent_id, project)
@@ -168,38 +217,23 @@ def create_node(
         # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
         if parent.shape not in reparent.CONTAINER_SHAPES:
             raise HTTPException(status_code=422, detail=reparent.NO_CHILDREN)
-        # «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31) —
-        # до правила первого вложенного объекта: человек не задаёт родителю элемент.
+        # «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
         reason = reparent.person_refusal(
             shape=payload.shape, parent_id=parent.id, name=payload.name, action="create"
         )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
-        # Первый вложенный объект задаёт элемент родителя (Р38): правило — в домене,
-        # дальше проверки ребёнка видят дерево уже с этим элементом.
-        if payload.parent_element is not None:
-            rows = project_element_rows(db, project.id)
-            reason = first_child_refusal(
-                rows, parent_id=parent.id, value=payload.parent_element,
-                child_name=payload.name, child_shape=payload.shape, child_element=payload.element,
-            )
-            if reason:
-                raise HTTPException(status_code=422, detail=reason)
-            rows = [
-                r._replace(element=payload.parent_element) if r.id == parent.id else r
-                for r in rows
-            ]
         # Узлы проекта выбираются только для базы и брокера: прочим формам Р6 не грозит.
+        # Лист-контейнер базу и брокер не принимает: его тип выбран всегда (решение
+        # владельца 2026-11-01), первый вложенный объект его не меняет.
         if payload.shape in STORE_CREATE:
+            rows = project_element_rows(db, project.id)
             reason = store_refusal(
-                rows if rows is not None else project_element_rows(db, project.id),
-                node_id=None, name=payload.name,
+                rows, node_id=None, name=payload.name,
                 parent_id=payload.parent_id, shape=payload.shape, action="create",
             )
             if reason:
                 raise HTTPException(status_code=422, detail=reason)
-    elif payload.parent_element is not None:
-        raise HTTPException(status_code=422, detail=PARENT_ELEMENT_ROOT)
     # Элемент архитектуры — с запретами (app/element_rules): форма и «внутри контейнера»
     # по цепочке предков будущего родителя.
     if payload.element is not None:
@@ -207,26 +241,36 @@ def create_node(
             db, project, node_id=None, name=payload.name, parent_id=payload.parent_id,
             shape=payload.shape, value=payload.element, rows=rows,
         )
-    # Элемент родителя пишется в той же транзакции до ребёнка: отказ ребёнка (длина имени
-    # при flush, предел демо) не оставляет его записанным. Это правка схемы (graph_rev
-    # ниже двигается созданием) и колонка узла — его CAS-версия растёт, как у PATCH.
-    if parent is not None and payload.parent_element is not None:
-        parent.element = payload.parent_element
-        parent.version += 1
+    # Тип выбран всегда (решение владельца 2026-11-01): сервис без присланного элемента
+    # получает его функцией записи — «контейнер», внешний — «система» (Р42), внутри
+    # контейнера — ничего (компонент). Узлы проекта нужны только вложенному сервису.
+    element = payload.element
+    if element is None and payload.shape == "service":
+        element = (
+            element_for(
+                rows if rows is not None else project_element_rows(db, project.id),
+                parent_id=parent.id, shape=payload.shape, element=None,
+                is_external=payload.is_external,
+            )
+            if parent is not None
+            else stored_element(
+                payload.shape, None, inside=False, leaf=True, external=payload.is_external
+            )
+        )
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
     # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
     node = Node(
-        **payload.model_dump(exclude={"pos_x", "pos_y", "source", "parent_element"}),
+        **payload.model_dump(exclude={"pos_x", "pos_y", "source", "element"}),
+        element=element,
         source_ref=_source_ref_of(payload.source.model_dump() if payload.source else None),
         project_id=project.id,
     )
     db.add(node)
     db.flush()
-    # Лист с площадками, получивший первого ребёнка и ставший системой (в том числе
-    # элементом родителя из этого же запроса), отдаёт их ребёнку в той же транзакции
-    # (D34, правило 5): иначе экземпляры листа уснули бы, а новый объект остался бы без
-    # площадок. Курсор меты — если экземпляры изменились.
+    # Пустая система с площадками, получившая первого ребёнка, отдаёт их ребёнку в той же
+    # транзакции (D34, правило 5): иначе экземпляры уснули бы, а новый объект остался бы
+    # без площадок. Курсор меты — если экземпляры изменились.
     relocated = element_change.apply_created(db, project, node)
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
     # хранилище; в колонках узла позиций больше нет). Без координат — авто (ELK).
@@ -580,17 +624,9 @@ def update_node(
             )
             if reason:
                 raise HTTPException(status_code=400, detail=reason)
-        # Элемент архитектуры — третья правка с запретами (app/element_rules): форма,
-        # «внутри контейнера», состав контейнера. Дерево — уже после правки: форма и
-        # родитель из того же запроса. Проверяется только СМЕНА значения, как форма выше:
-        # полный набор полей (Undo/Redo правки) повторяет прежний элемент и не должен
-        # падать от состояния, к этой правке не относящегося. Очистка (null) — всегда.
-        if data.get("element") is not None and data["element"] != node.element:
-            _refuse_element(
-                db, project, node_id=node.id, name=data.get("name") or node.name,
-                parent_id=data.get("parent_id", node.parent_id),
-                shape=data.get("shape") or node.shape, value=data["element"],
-            )
+        # Элемент архитектуры — третья правка с запретами (app/element_rules), и тип выбран
+        # всегда: без присланного значения элемент даёт функция записи.
+        _settle_element(db, project, node, data)
         # Курсоры — по ФАКТИЧЕСКИМУ изменению значений, не по наличию ключей:
         # клиент шлёт полный payload (name/shape присутствуют всегда), и бамп
         # «по ключам» двигал бы graph_rev на каждую мета-правку (ложный тост

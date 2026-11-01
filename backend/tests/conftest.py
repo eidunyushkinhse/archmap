@@ -24,7 +24,7 @@ from app.models.deployment_site import DeploymentSite  # noqa: F401
 from app.models.edge import Edge  # noqa: F401
 
 # Импортируем все модели, чтобы они зарегистрировались в Base.metadata до create_all.
-from app.models.node import Node  # noqa: F401
+from app.models.node import Node  # используется и в typed()
 from app.models.node_doc import NodeDoc  # noqa: F401
 from app.models.node_version import NodeVersion  # noqa: F401
 from app.models.personal_token import PersonalToken  # noqa: F401
@@ -140,3 +140,26 @@ def seed_project_from_yaml(
     seed_import(db, p.id, merged)
     db.commit()
     return p
+
+
+def typed(db, project_id=None) -> None:
+    """Узлы теста — как после миграции «тип выбран всегда» (решение владельца 2026-11-01,
+    alembic 50fc1576936a): сервису вне контейнера без элемента записывается его
+    сегодняшнее прочтение — система у узла с вложенными и у внешнего листа, контейнер у
+    своего листа. Фикстуры, которые строят дерево строками ORM без элементов, зовут это в
+    конце: в живой базе таких данных больше нет. project_id — один проект, без него — все."""
+    from app.element_marks import build_elements, project_element_rows
+
+    db.flush()
+    pids = [project_id] if project_id is not None else [
+        pid for (pid,) in db.query(Node.project_id).distinct()
+    ]
+    for pid in pids:
+        rows = project_element_rows(db, pid)
+        elements = build_elements(rows)
+        for r in rows:
+            effective = elements.effective(r.id)
+            if r.shape == "service" and r.element is None and effective in ("system", "container"):
+                db.get(Node, r.id).element = effective
+    db.flush()
+

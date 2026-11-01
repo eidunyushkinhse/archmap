@@ -1,12 +1,10 @@
 // Строка «Тип» и чтение объекта страницей — чистая часть (components/element/elementView.ts,
 // Ф8 и Р40 эпика docs/plan-c4-elements.md): тип — проекция формы и элемента с сервера,
 // контейнер компонента — ближайший предок-контейнер из цепочки; пустая система (Р39)
-// читается системой и не ждёт первого вложенного объекта. Справка «?» (elementText.ts) —
-// четыре абзаца лексикона без внутренних слов.
+// читается системой. Справка «?» (elementText.ts) — четыре абзаца лексикона без внутренних
+// слов и без объекта «без типа»: тип выбран всегда (решение владельца 2026-11-01).
 import { describe, expect, it } from "vitest";
-import {
-  awaitsFirstChild, childIsComponent, containerOf, pageElement, typeView, type TypeSubject,
-} from "../element/elementView";
+import { childIsComponent, containerOf, pageElement, typeView, type TypeSubject } from "../element/elementView";
 import { ELEMENT_HELP, ELEMENT_HELP_LABEL } from "../element/elementText";
 import type { AncestorRef, Node } from "../../types";
 
@@ -63,25 +61,24 @@ describe("пустая система (Р39)", () => {
     is_external: false,
   };
 
-  // Тот же лист без хранимого элемента — обычный контейнер.
-  const leaf = { ...empty, element: null, element_effective: "container" as const };
+  // Тот же лист с хранимым «контейнер» — обычный контейнер.
+  const leaf = { ...empty, element: "container" as const, element_effective: "container" as const };
 
   it("страница читает её системой, обычный лист — листом", () => {
     expect(pageElement(empty, [])).toEqual({ kind: "system" });
     expect(pageElement(leaf, [])).toEqual({ kind: "leaf" });
   });
 
-  it("первого вложенного объекта не ждёт, и он у неё не компонент", () => {
-    expect(awaitsFirstChild(empty)).toBe(false);
+  it("вложенный объект у неё не компонент, у листа-контейнера — компонент", () => {
     expect(childIsComponent(empty)).toBe(false);
-    expect(awaitsFirstChild(leaf)).toBe(true);
+    expect(childIsComponent(leaf)).toBe(true);
   });
 });
 
 describe("внешняя система (Р42)", () => {
-  // Внешний лист без хранимого элемента сервер читает системой.
+  // Внешний лист хранит «система» (Р42 — правило записи).
   const ext: Pick<Node, "shape" | "element" | "has_children" | "element_effective" | "container_name" | "is_external"> = {
-    shape: "service", element: null, has_children: false, element_effective: "system", container_name: null,
+    shape: "service", element: "system", has_children: false, element_effective: "system", container_name: null,
     is_external: true,
   };
 
@@ -92,8 +89,7 @@ describe("внешняя система (Р42)", () => {
     expect(pageElement({ ...ext, element_effective: "container" }, [])).toEqual({ kind: "leaf" });
   });
 
-  it("первого вложенного объекта ждёт, как свой лист без элемента", () => {
-    expect(awaitsFirstChild(ext)).toBe(true);
+  it("вложенный объект у неё не компонент", () => {
     expect(childIsComponent(ext)).toBe(false);
   });
 });
@@ -107,12 +103,10 @@ describe("справка «?»", () => {
     expect(text).not.toMatch(/[Сс]пек[^т]|модул|коробк/);
   });
 
-  it("«Как выбрать» — тип при создании и чтение объекта без типа", () => {
+  it("«Как выбрать» — тип при создании, без объекта «без типа»", () => {
     expect(ELEMENT_HELP[3].body).toBe(
-      "Тип выбирается при создании и меняется в свойствах. Объект без типа из старого проекта "
-      + "или файла агента ArchMap читает так: без вложенных — контейнер, а внешний — внешняя "
-      + "система, с вложенными — система, внутри контейнера — компонент. Поле «Роль» — свободная "
-      + "подпись на схеме, на это не влияет.",
+      "Тип выбирается при создании и меняется в свойствах. Внутри контейнера каждый объект — "
+      + "компонент. Поле «Роль» — свободная подпись на схеме, на тип оно не влияет.",
     );
   });
 });

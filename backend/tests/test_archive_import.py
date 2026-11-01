@@ -17,7 +17,7 @@ import uuid
 import zipfile
 
 import pytest
-from conftest import ensure_architect, ensure_project
+from conftest import ensure_architect, ensure_project, typed
 
 from app.archive_export import build_archive
 from app.models.broker_channel import BrokerChannel
@@ -90,6 +90,7 @@ def _полигон(db) -> Project:
                           edge_id=None, leg="forward", doc_id=схема.id,
                           from_participant_id=участник.id, to_participant_id=участник.id,
                           caption="оформить"))
+    typed(db, проект.id)
     db.commit()
     return проект
 
@@ -257,6 +258,7 @@ def test_архив_с_площадками_применяется(db):
     db.add_all([кластер, стойка])
     db.flush()
     db.add(DeploymentInstance(project_id=проект.id, node_id=api.id, site_id=кластер.id))
+    typed(db, проект.id)
     db.commit()
 
     план, новый, _ = _ввоз(db, build_archive(db, проект), "Копия")

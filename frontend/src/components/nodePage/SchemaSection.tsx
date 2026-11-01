@@ -195,9 +195,8 @@ export default function SchemaSection({
         <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
         {isArchitect && onNavigateMap && (
           <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
-            {/* Подпись называет, кем станет новый объект: компонентом — у контейнера и
-                внутри контейнера, иначе вложенным объектом (системой или контейнером он
-                станет по ответу в окне первого вложенного объекта). */}
+            {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
+                том числе листа) и внутри контейнера, у системы — вложенным объектом. */}
             {canHaveChildren(node.shape) && (
               <button className="btn-sm-primary" onClick={() => onNavigateMap(node.id)}>
                 {childIsComponent(node) ? "Добавить компонент" : "Добавить вложенный объект"}

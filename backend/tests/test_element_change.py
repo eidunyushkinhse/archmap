@@ -2,8 +2,8 @@
 docs/plan-c4-elements.md, app/element_change.py).
 
 Сторожим пять видов переноса площадок (система → контейнер объединением, контейнер →
-система раздачей единицам — и листьям бывшего составного компонента, вход в контейнер,
-выход из него, первый вложенный объект у листа с площадками — при создании и переносе),
+система раздачей вложенным — они становятся контейнерами, вход в контейнер, выход из него,
+первый вложенный объект у пустой системы с площадками — при создании и переносе),
 отсутствие спящих экземпляров после операции, «ничего не переезжает»
 (none), явные site_ids поверх переноса, элемент и родителя в одном PATCH, превью = итог,
 отказы превью теми же текстами, что у PATCH, и курсоры.
@@ -13,7 +13,7 @@ import uuid
 from typing import Any
 
 import pytest
-from conftest import ensure_architect, make_project
+from conftest import ensure_architect, make_project, typed
 from fastapi.testclient import TestClient
 
 from app.auth import create_access_token
@@ -69,6 +69,7 @@ class Scene:
             for site in sites:
                 db.add(DeploymentInstance(project_id=self.project.id, node_id=node_id,
                                           site_id=self.sites[site]))
+        typed(db, self.project.id)
         db.commit()
 
     def get(self, path: str, **params: Any):
@@ -160,7 +161,7 @@ def test_система_в_контейнер_объединяет_площад�
     assert s.revs() == (g0 + 1, m0 + 1)
 
 
-def test_контейнер_в_систему_раздаёт_площадки_и_листьям_составного(client, db):
+def test_контейнер_в_систему_раздаёт_площадки_вложенным_контейнерам(client, db):
     s = Scene(db, client, [
         ("shop", None, {}, []),
         ("orders", "shop", {"element": "container"}, ["prod-eu"]),
@@ -176,15 +177,19 @@ def test_контейнер_в_систему_раздаёт_площадки_и
     p = s.preview_element("orders", "system")
     assert p["kind"] == "container_to_system"
     assert _rows(p, "before") == [("orders", ["prod-eu"])]
-    # Составной jobs стал системой: площадки получают его листья, «Пользователь» — нет.
-    assert _rows(p, "after") == [
-        ("api", ["prod-eu"]), ("cron", ["prod-eu"]), ("nightly", ["prod-eu"]),
-    ]
+    # Тип выбран всегда: вложенные бывшего контейнера становятся контейнерами (составной
+    # jobs — контейнером с компонентами nightly и cron) и получают его площадки;
+    # «Пользователь» — нет.
+    assert _rows(p, "after") == [("api", ["prod-eu"]), ("jobs", ["prod-eu"])]
     assert p["docs_names"] == ["orders"]
 
     assert s.patch("orders", {"element": "system"}).status_code == 200
-    assert s.own() == {"api": ["prod-eu"], "cron": ["prod-eu"], "nightly": ["prod-eu"]}
+    assert s.own() == {"api": ["prod-eu"], "jobs": ["prod-eu"]}
     s.shown(p["after"])
+    db.expunge_all()
+    assert [db.get(Node, s.ids[n]).element for n in ("api", "jobs", "nightly", "cron")] == [
+        "container", "container", None, None,
+    ]
 
 
 def test_вход_в_контейнер_добавляет_площадки_переносимого(client, db):
@@ -224,15 +229,20 @@ def test_выход_из_контейнера_даёт_площадки_преж
     assert p["kind"] == "leave_container"
     assert p["container_name"] == "orders"
     assert _rows(p, "before") == [("orders", ["prod-eu", "prod-ru"])]
-    # Составной worker вне контейнера — система: площадки получает его лист.
+    # Составной worker вне контейнера — контейнер с компонентом handler (тип выбран
+    # всегда): площадки прежнего контейнера получает он сам.
     assert _rows(p, "after") == [
-        ("orders", ["prod-eu", "prod-ru"]), ("handler", ["prod-eu", "prod-ru"]),
+        ("orders", ["prod-eu", "prod-ru"]), ("worker", ["prod-eu", "prod-ru"]),
     ]
     assert p["docs_names"] == []
 
     assert s.patch("worker", {"parent_id": str(s.ids["shop"])}).status_code == 200
-    assert s.own() == {"handler": ["prod-eu", "prod-ru"], "orders": ["prod-eu", "prod-ru"]}
+    assert s.own() == {"orders": ["prod-eu", "prod-ru"], "worker": ["prod-eu", "prod-ru"]}
     s.shown(p["after"])
+    db.expunge_all()
+    assert (db.get(Node, s.ids["worker"]).element, db.get(Node, s.ids["handler"]).element) == (
+        "container", None,
+    )
     # Лист наружу — в корень: площадки получает он сам.
     p = s.preview_move("api", None)
     assert _rows(p, "after")[-1] == ("api", ["prod-eu", "prod-ru"])
@@ -254,7 +264,7 @@ def test_выход_из_контейнера_даёт_площадки_преж
 def test_ничего_не_переезжает(client, db, name, op, target):
     s = Scene(db, client, [
         ("shop", None, {}, []),
-        ("shop2", None, {}, []),
+        ("shop2", None, {"element": "system"}, []),
         ("orders", "shop", {"element": "container"}, ["prod-eu"]),
         ("api", "orders", {}, []),
         ("jobs", "orders", {}, []),
@@ -370,11 +380,10 @@ def test_превью_только_редактору(client, db):
 
 # --- Правило 5: первый вложенный объект у листа с площадками ---
 
-@pytest.mark.parametrize("element", [None, "system"])
-def test_создание_под_листом_с_площадками_отдаёт_их_ребёнку(client, db, element):
-    """Лист-единица, получивший первого ребёнка, — система: его площадки получает ребёнок,
-    у самого листа экземпляров больше нет (спящих остатков нет)."""
-    s = Scene(db, client, [("orders", None, {"element": element}, ["prod-eu", "prod-ru"])])
+def test_создание_под_пустой_системой_с_площадками_отдаёт_их_ребёнку(client, db):
+    """Пустая система со спящими площадками, получившая первого ребёнка: её площадки
+    получает ребёнок, у самой системы экземпляров больше нет (спящих остатков нет)."""
+    s = Scene(db, client, [("orders", None, {"element": "system"}, ["prod-eu", "prod-ru"])])
     g0, m0 = s.revs()
     r = s.create("api", "orders")
     assert [x["name"] for x in r.json()["sites"]] == ["prod-eu", "prod-ru"]
@@ -409,12 +418,12 @@ def test_пользователь_внутри_листа_не_создаётс�
     assert s.revs() == (g0, m0)
 
 
-def test_перенос_поддерева_в_лист_с_площадками(client, db):
+def test_перенос_поддерева_в_пустую_систему_с_площадками(client, db):
     """Переносимая система с единицами: каждая единица добавляет к своим площадкам
-    площадки листа, лист становится системой без экземпляров; превью = итог."""
+    спящие площадки пустой системы, у неё экземпляров не остаётся; превью = итог."""
     s = Scene(db, client, [
         ("shop", None, {}, []),
-        ("orders", "shop", {}, ["prod-eu"]),
+        ("orders", "shop", {"element": "system"}, ["prod-eu"]),
         ("billing", "shop", {}, []),
         ("gateway", "billing", {"openapi_spec": "openapi: 3.0.0"}, ["prod-ru"]),
         ("ledger", "billing", {}, []),
@@ -455,13 +464,13 @@ def test_выход_из_контейнера_в_лист_с_площадкам�
 @pytest.mark.parametrize(
     ("target", "kind"),
     [
-        ("orders", "none"),  # лист без площадок
+        ("orders", "none"),  # пустая система без площадок
         ("payments", "join_container"),  # лист-контейнер: переносимое — его компонент
     ],
 )
 def test_перенос_в_лист_без_пятого_правила(client, db, target, kind):
     s = Scene(db, client, [
-        ("orders", None, {}, []),
+        ("orders", None, {"element": "system"}, []),
         ("payments", None, {"element": "container"}, ["prod-eu"]),
         ("billing", None, {}, []),
     ])

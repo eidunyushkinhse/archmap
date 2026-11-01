@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 import yaml
-from conftest import seed_project_from_yaml
+from conftest import seed_project_from_yaml, typed
 
 from app.deployment import ordered_instances, project_sites
 from app.element_marks import elements_for_project as build_elements_of
@@ -119,6 +119,7 @@ def test_roundtrip_export_import_same_semantics(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=svc.id, target_id=sdb.id))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=platform.id, target_id=pdb.id,
                 label="хранит"))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -142,7 +143,7 @@ def test_import_seeds_project_schema(db):
     content = yaml.dump(
         {
             "nodes": [
-                {"name": "Ядро", "shape": "service",
+                {"name": "Ядро", "shape": "service", "element": "system",
                  "children": [{"name": "БД", "shape": "database"}]},
                 {"name": "Клиент", "shape": "person", "external": True},
             ],
@@ -189,9 +190,11 @@ def test_подсказка_находит_тот_же_компонент_в_д�
     doc = (
         "nodes:\n"
         "  - name: zabbix-ui\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: web-api\n"
         "  - name: zabbix-server\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: poller\n"
         "edges:\n"
@@ -215,6 +218,7 @@ def test_подсказка_на_опечатку_и_молчание_на_да�
     doc = (
         "nodes:\n"
         "  - name: zabbix-server\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api-gateway\n"
         "  - name: gate\n"
@@ -241,9 +245,11 @@ def test_подсказка_детерминирована_при_несколь
     doc = (
         "nodes:\n"
         "  - name: bbb\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         "  - name: aaa\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         "  - name: x\n"
@@ -263,10 +269,12 @@ def test_qualified_path_resolves_and_bare_duplicate_is_ambiguous(db):
     content = (
         "nodes:\n"
         "  - name: A\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: БД\n"
         "        shape: database\n"
         "  - name: B\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: БД\n"
         "        shape: database\n"
@@ -291,9 +299,11 @@ def _dup_doc(first: str, second: str, ref: str) -> str:
     return (
         "nodes:\n"
         f"  - name: {first}\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         f"  - name: {second}\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         "  - name: x\n"
@@ -352,6 +362,7 @@ def _тёзки_doc(*refs: str, name: str = "Каталог-БД") -> str:
     return (
         "nodes:\n"
         "  - name: Ярмарка\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: orders\n"
         f"      - name: {name}\n"
@@ -397,7 +408,8 @@ def test_имя_с_собакой_по_прежнему_находится_то�
     принимается за уточнитель, даже если хвост похож на ключ."""
     имя = "Каталог @ host:catalog"
     doc = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: orders\n"
         f"      - name: '{имя}'\n"
         f"edges:\n  - from: orders\n    to: 'Ярмарка / {имя}'\n  - from: orders\n    to: '{имя}'\n"
     )
@@ -435,6 +447,7 @@ def _безъякорные_doc(*refs: str) -> str:
     return (
         "nodes:\n"
         "  - name: Ярмарка\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: orders\n"
         "      - name: api\n"
@@ -481,16 +494,19 @@ def _дети_тёзок_doc(*refs: str, anchors: bool = True) -> str:
     return (
         "nodes:\n"
         "  - name: Ярмарка\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: orders\n"
         "      - name: Каталог-БД\n"
         "        technology: MySQL\n"
+        "        element: system\n"
         + шоп
         + "        children:\n"
         "          - name: reader\n"
         "            technology: Go\n"
         "      - name: Каталог-БД\n"
         "        technology: Postgres\n"
+        "        element: system\n"
         + сток
         + "        children:\n"
         "          - name: reader\n"
@@ -549,7 +565,8 @@ def test_перечень_кандидатов_обрезан_с_честным_
     узлов список вытеснил бы остальные замечания. Хвост считаем, а не молчим о нём."""
     doc = (
         "nodes:\n"
-        + "".join(f"  - name: c{i}\n    children:\n      - name: api\n" for i in range(8))
+        + "".join(f"  - name: c{i}\n    element: system\n    children:\n      - name: api\n"
+                  for i in range(8))
         + "  - name: x\nedges:\n  - from: x\n    to: api\n"
     )
     parsed, errors = parse_import(doc)
@@ -564,6 +581,7 @@ def test_invalid_shape_and_type_errors_carry_paths():
     parsed, errors = parse_import(
         "nodes:\n"
         "  - name: A\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: B\n"
         "        shape: circle\n"
@@ -603,8 +621,10 @@ def test_edge_ref_resolves_by_path_suffix():
     content = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: svc\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: api\n"
         "      - name: gate\n"
@@ -619,13 +639,17 @@ def test_edge_ref_resolves_by_path_suffix():
     dup = (
         "nodes:\n"
         "  - name: A\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: svc\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: api\n"
         "  - name: B\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: svc\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: api\n"
         "  - name: x\n"
@@ -679,8 +703,10 @@ def test_preview_lists_all_node_names(db):
     content = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: orders\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: api\n"
         "      - name: orders-db\n"
@@ -710,6 +736,7 @@ def test_preview_roots_capped_at_8(db):
 _MULTI_A = (
     "nodes:\n"
     "  - name: Система\n"
+    "    element: system\n"
     "    children:\n"
     "      - name: payments\n"
     "        technology: Python\n"
@@ -720,7 +747,7 @@ _MULTI_A = (
     "    label: REST\n"
 )
 def test_preview_multi_contents_merges(db):
-    b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
+    b = "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: orders\n        technology: Go\n"
     out = _preview(_MULTI_A, b)
     assert out.ok and out.files == 2
     assert out.node_count == 3  # Система + payments + orders (склеены)
@@ -733,8 +760,10 @@ def test_preview_node_names_include_merged_children(db):
     b = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: orders\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: worker\n"
     )
@@ -762,6 +791,7 @@ def test_preview_splits_remarks_by_file_and_schema(db):
     b = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        technology: Go\n"
@@ -793,6 +823,7 @@ def test_preview_single_file_keeps_everything_in_one_bucket(db):
     content = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: vote\n"
         "      - name: redis\n"
@@ -828,7 +859,7 @@ def test_preview_requires_some_content():
 
 def test_seed_project_from_multiple_yamls(db):
     """Полный цикл мульти-репо: два YAML сливаются в одну схему проекта."""
-    b = "nodes:\n  - name: Система\n    children:\n      - name: orders\n        technology: Go\n"
+    b = "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: orders\n        technology: Go\n"
     p = seed_project_from_yaml(db, [_MULTI_A, b], name="Мульти")
     assert db.query(Node).filter(Node.project_id == p.id).count() == 3
     assert db.query(Edge).filter(Edge.project_id == p.id).count() == 1
@@ -840,7 +871,7 @@ def test_seed_project_from_multiple_yamls(db):
 def test_preview_many_files_merges(db):
     """Лимит поднят под крупные мульти-репо: десятки файлов (здесь 20) сливаются."""
     files = [
-        f"nodes:\n  - name: Система\n    children:\n      - name: svc{i}\n"
+        f"nodes:\n  - name: Система\n    element: system\n    children:\n      - name: svc{i}\n"
         for i in range(20)
     ]
     out = _preview(*files)
@@ -920,6 +951,7 @@ def test_source_ref_persisted_on_import(db):
     content = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        source: {repo: git@github.com:Org/Payments.git, host: payments}\n"
@@ -941,8 +973,10 @@ def test_связь_путём_со_слэшем_без_пробелов_нах�
     parsed, errors = parse_import(
         "nodes:\n"
         "- name: Система\n"
+        "  element: system\n"
         "  children:\n"
         "  - name: worker\n"
+        "    element: system\n"
         "    children:\n"
         "    - name: queue-reader\n"
         "  - name: redis\n"
@@ -967,6 +1001,7 @@ def test_roundtrip_канала_связи(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
                 label="событие", channel="orders.created"))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=kafka.id, target_id=orders.id))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -1020,6 +1055,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=витрина.id, target_id=orders.id,
                 label="создать заказ", is_synchronous=True))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=ярмарка.id, target_id=kafka.id))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -1072,6 +1108,7 @@ def test_preview_называет_основание_каждой_склейки
     a = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        source: {repo: github.com/org/payments}\n"
@@ -1082,6 +1119,7 @@ def test_preview_называет_основание_каждой_склейки
     b = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        technology: Go\n"
@@ -1108,6 +1146,7 @@ def test_preview_считает_узлы_без_якоря(db):
     один = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        source: {repo: github.com/org/payments}\n"
@@ -1125,6 +1164,7 @@ def test_preview_считает_узлы_без_якоря(db):
 РАЗМЕЩЕНИЕ = """
 nodes:
   - name: Витрина
+    element: system
     sites: [Облако]
     children:
       - name: API
@@ -1261,6 +1301,7 @@ def test_посев_создаёт_площадки_и_экземпляры(db):
 РАЗМЕЩЕНИЕ_C4 = """
 nodes:
   - name: shop
+    element: system
     sites: [ВМ]
     children:
       - name: orders
@@ -1384,13 +1425,13 @@ def test_чужой_элемент_ошибка_как_у_формы():
 
 def test_элемент_у_не_сервиса_снят_с_замечанием():
     parsed, errors = parse_import(_yaml([
-        {"name": "Ярмарка", "children": [
+        {"name": "Ярмарка", "element": "system", "children": [
             {"name": "orders-db", "shape": "database", "element": "container"},
         ]},
         {"name": "Покупатель", "shape": "person", "element": "system"},
     ]))
     assert errors == [] and parsed is not None
-    assert [n.element for n in parsed.nodes] == [None, None, None]
+    assert [n.element for n in parsed.nodes] == ["system", None, None]
     assert parsed.warnings == [
         "Ярмарка / orders-db: элемент архитектуры задаётся только у сервиса — значение пропущено",
         "Покупатель: элемент архитектуры задаётся только у сервиса — значение пропущено",
@@ -1408,7 +1449,7 @@ def test_база_и_брокер_из_контейнера_вынесены_у�
     """Решение владельца Р6: база и брокер внутри контейнера выносятся к его родителю,
     контейнер остаётся контейнером; замечание — адресом контейнера и новым местом."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders", "element": "container", "children": [
                 {"name": "api"}, {"name": "orders-db", "shape": "database"},
             ]},
@@ -1419,7 +1460,7 @@ def test_база_и_брокер_из_контейнера_вынесены_у�
     }]))
     assert errors == [] and parsed is not None
     assert {n.name: n.element for n in parsed.nodes} == {
-        "Ярмарка": None, "orders": "container", "api": None, "orders-db": None,
+        "Ярмарка": "system", "orders": "container", "api": None, "orders-db": None,
         "events": "container", "relay": None, "Kafka": None,
     }
     assert _родители(parsed) == {
@@ -1468,7 +1509,7 @@ def test_база_глубже_в_составном_компоненте_тож
     объектов не бывает) — к её родителю «api» — и дальше судится по новому месту: он
     компонент «orders» и остаётся в контейнере."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders", "element": "container", "children": [
                 {"name": "api", "children": [
                     {"name": "handlers"},
@@ -1503,9 +1544,9 @@ def test_у_базы_и_брокера_вложенный_объект_подн�
     становится его соседом, с замечанием. «Пользователь» — следующий тест: он сам
     поднимается на верхний уровень."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": holder, "shape": shape, "children": [
-                {"name": "orders-schema", "children": [{"name": "tables"}]},
+                {"name": "orders-schema", "element": "system", "children": [{"name": "tables"}]},
             ]},
         ],
     }]))
@@ -1527,9 +1568,9 @@ def test_дети_пользователя_остаются_у_его_родит
     пользователя на верхний уровень (решение владельца 2026-10-31). Наоборот дети
     уехали бы в корень вместе с ним."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "Покупатель", "shape": "person", "children": [
-                {"name": "orders-schema", "children": [{"name": "tables"}]},
+                {"name": "orders-schema", "element": "system", "children": [{"name": "tables"}]},
             ]},
         ],
     }]))
@@ -1555,7 +1596,7 @@ def test_пользователь_внутри_объекта_поднят_на_
     путём прежнего родителя. Контейнер остаётся контейнером."""
     человек = {"name": "Покупатель", "shape": "person"}
     if place == "system":
-        дерево = {"name": "Ярмарка", "children": [{"name": "orders"}, человек]}
+        дерево = {"name": "Ярмарка", "element": "system", "children": [{"name": "orders"}, человек]}
         откуда = "Ярмарка"
     elif place == "container":
         дерево = {"name": "orders", "element": "container", "children": [{"name": "api"}, человек]}
@@ -1583,7 +1624,7 @@ def test_пользователь_в_базе_поднят_одним_замеч
     базы и вторым замечанием — в корень), правило 0а поднимает сразу на верхний
     уровень. Замечание — одно, с путём базы."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders-db", "shape": "database", "children": [
                 {"name": "Администратор БД", "shape": "person"},
             ]},
@@ -1617,7 +1658,7 @@ def test_живой_разбор_вложенного_пользователя_�
     """Вход №0 догрузки — снимок живого проекта: вложенный «Пользователь» из старых
     данных остаётся на месте, замечания нет."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [{"name": "Оператор", "shape": "person"}],
+        "name": "Ярмарка", "element": "system", "children": [{"name": "Оператор", "shape": "person"}],
     }]), live=True)
     assert errors == [] and parsed is not None
     assert _родители(parsed) == {"Ярмарка": None, "Оператор": "Ярмарка"}
@@ -1629,7 +1670,7 @@ def test_ввезённый_проект_держит_пользователя_�
     с ним цела."""
     p = _project(db)
     parsed, _ = parse_import(yaml.safe_dump({
-        "nodes": [{"name": "Ярмарка", "children": [
+        "nodes": [{"name": "Ярмарка", "element": "system", "children": [
             {"name": "orders"}, {"name": "Покупатель", "shape": "person"},
         ]}],
         "edges": [{"from": "Покупатель", "to": "orders"}],
@@ -1692,7 +1733,7 @@ def test_поднятый_из_базы_берёт_её_размещение_н�
     (unit_placements): поднятый без своих площадок берёт объявление базы, своё не трогается.
     Внутри контейнера размещения не было ни у базы, ни у её детей — брать нечего."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders-db", "shape": "database", "sites": ["prod"], "children": [
                 {"name": "migrator"}, {"name": "backup", "sites": ["dr"]},
             ]},
@@ -1740,7 +1781,7 @@ def test_вынесенная_база_наследует_размещение_�
     от прежнего родителя до контейнера: иначе потеряла бы площадки, которые получала
     через предка (unit_placements). Своё объявление не трогается."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders", "element": "container", "sites": ["prod"], "children": [
                 {"name": "api", "sites": ["stage"], "children": [
                     {"name": "cache", "shape": "database"},
@@ -1773,7 +1814,14 @@ def test_виновник_замечания_тот_же_что_у_отказа_
 
     # Тот же проект живым: отказ API называет того же виновника.
     p = _project(db)
-    живой, _ = parse_import(_yaml([дерево]))
+    живой, _ = parse_import(_yaml([{
+        "name": "orders", "element": "system", "children": [
+            {"name": "z-db", "shape": "database"},
+            {"name": "api", "element": "system", "children": [
+                {"name": "a-broker", "shape": "broker"},
+            ]},
+        ],
+    }]))
     assert живой is not None
     ids = seed_import(db, p.id, живой)
     db.flush()
@@ -1850,9 +1898,10 @@ def test_живой_разбор_живое_место_не_трогает():
 
 def test_закреплённая_база_снимает_ввезённый_контейнер():
     """Закреплённую (живую) базу вынести нельзя, а элемент контейнера пришёл из ввоза:
-    контейнер снимается, узел остаётся системой — замечание это и говорит."""
+    узел становится системой — явной, тип выбран всегда, — замечание это и говорит."""
     parsed, _ = parse_import(_yaml([{
-        "name": "orders", "children": [{"name": "api"}, {"name": "orders-db", "shape": "database"}],
+        "name": "orders", "element": "system",
+        "children": [{"name": "api"}, {"name": "orders-db", "shape": "database"}],
     }]))
     assert parsed is not None
     parsed.nodes[0].element = "container"
@@ -1860,21 +1909,77 @@ def test_закреплённая_база_снимает_ввезённый_к�
         parsed.nodes, ["orders", "orders / api", "orders / orders-db"],
         pinned=lambda i: i == 2, live_element=lambda _i: False,
     )
-    assert parsed.nodes[0].element is None
+    assert parsed.nodes[0].element == "system"
     assert _родители(parsed)["orders-db"] == "orders"
     assert заметки == [STORE_KEPT_NOTE["database"].format(path="orders", name="orders-db")]
 
 
-def test_файл_без_элемента_разбирается_как_прежде():
-    parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+def test_тип_объекта_с_вложенными_обязателен_одним_списком():
+    """Тип выбран всегда (решение владельца 2026-11-01, docs/tasks/type-always.md): у
+    сервиса вне контейнера с вложенными объектами element обязателен — документ
+    отвергается целиком, все такие объекты одним списком в порядке документа. Лист без
+    element — не ошибка (он станет контейнером), составной компонент внутри контейнера и
+    сервис, внутри которого только «Пользователь», — тоже."""
+    parsed, errors = parse_import(_yaml([
+        {"name": "Заказы", "children": [
             {"name": "orders", "children": [{"name": "api"}]},
+            {"name": "billing", "element": "container", "children": [
+                {"name": "ledger", "children": [{"name": "handler"}]},
+            ]},
             {"name": "orders-db", "shape": "database"},
-        ],
-    }]))
+        ]},
+        {"name": "Сервис каталога", "children": [{"name": "reader"}]},
+        {"name": "Витрина", "children": [{"name": "Покупатель", "shape": "person"}]},
+        {"name": "lonely"},
+    ]))
+    assert parsed is None
+    assert errors == [
+        "У объектов с вложенными объектами не указан тип: «Заказы», «Заказы / orders», "
+        "«Сервис каталога». Укажите element: system или element: container."
+    ]
+
+
+def test_тип_объекта_с_вложенными_вместе_с_другими_ошибками():
+    """Отказ о типе приходит тем же списком, что и прочие ошибки разбора: автор файла
+    исправляет всё за один раз. Один объект — единственным числом."""
+    parsed, errors = parse_import(
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "edges:\n  - from: orders\n    to: склад\n"
+    )
+    assert parsed is None
+    assert errors == [
+        'edges[0]: узел "склад" не найден',
+        "У объекта с вложенными объектами не указан тип: «Ярмарка». Укажите element: system "
+        "или element: container.",
+    ]
+
+
+def test_тип_объекта_с_вложенными_перечень_с_хвостом():
+    parsed, errors = parse_import(_yaml([
+        {"name": f"s{i}", "children": [{"name": f"c{i}"}]} for i in range(23)
+    ]))
+    assert parsed is None
+    shown = ", ".join(f"«s{i}»" for i in range(20))
+    assert errors == [
+        f"У объектов с вложенными объектами не указан тип: {shown} и ещё 3. Укажите "
+        "element: system или element: container."
+    ]
+
+
+def test_лист_без_типа_разбирается_и_становится_контейнером(db):
+    parsed, errors = parse_import(_yaml([
+        {"name": "Ярмарка", "element": "system", "children": [{"name": "orders"}]},
+        {"name": "Stripe", "external": True},
+    ]))
     assert errors == [] and parsed is not None
     assert parsed.warnings == []
-    assert all(n.element is None for n in parsed.nodes)
+    assert [n.element for n in parsed.nodes] == ["system", None, None]
+    dst = _project(db, "Листья")
+    seed_import(db, dst.id, parsed)
+    db.commit()
+    элементы = {n.name: n.element for n in db.query(Node).filter(Node.project_id == dst.id)}
+    # Свой лист — контейнер, внешний — система (Р42 как правило записи).
+    assert элементы == {"Ярмарка": "system", "orders": "container", "Stripe": "system"}
 
 
 def test_замечания_элемента_не_попадают_в_чужой_класс_остатка():
@@ -1906,7 +2011,7 @@ def test_замечания_элемента_не_попадают_в_чужой
 
     # И сквозь превью: строка разбора — пунктом свёртки своего файла, дословно.
     plan = build_unified_plan([("shop.yaml", _yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders-db", "shape": "database", "element": "container"},
         ],
     }]).encode())])
@@ -1917,7 +2022,7 @@ def test_замечания_элемента_не_попадают_в_чужой
     # Подъём из базы — тем же разбором единого ввоза (архив идёт им же): дерево плана
     # уже поднятое, замечание — пунктом свёртки дословно.
     plan = build_unified_plan([("shop.yaml", _yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders-db", "shape": "database", "children": [{"name": "orders-schema"}]},
         ],
     }]).encode())])
@@ -1957,7 +2062,7 @@ def test_круг_экспорта_с_пустой_системой(db):
     src = _project(db, "Источник")
     корень = _node(db, src.id, "Ярмарка", element="system")
     _node(db, src.id, "Склад", корень, element="system")
-    _node(db, src.id, "billing", корень)
+    _node(db, src.id, "billing", корень, element="container")
     db.commit()
 
     def экспорт(project_id) -> str:

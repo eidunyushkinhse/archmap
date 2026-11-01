@@ -472,14 +472,39 @@ async def test_негодный_прогон_называет_ошибки_а_н
         nodes=[], summary={},
     ))
 
-    out = await tools.call(
-        "archmap_sync_preview",
-        {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "мусор"}]},
-        client,
-    )
+    # Плана нет — отказ (isError): агент исправляет прогон, а не читает пустой план.
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_sync_preview",
+            {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "мусор"}]},
+            client,
+        )
 
-    assert "корень документа должен быть словарём" in out
-    assert "Будет сделано" not in out
+    assert "корень документа должен быть словарём" in str(exc.value)
+    assert "Будет сделано" not in str(exc.value)
+
+
+async def test_прогон_без_типа_у_объекта_с_вложенными_отказ(
+    client: ArchMapClient, api: FakeApi
+) -> None:
+    """Тип выбран всегда: прогон без element у объекта с вложенными плана не получает —
+    причина словами продукта в отказе."""
+    отказ = (
+        "У объекта с вложенными объектами не указан тип: «Система». Укажите element: system "
+        "или element: container."
+    )
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(
+        ok=False, errors=[отказ], nodes=[], summary={},
+    ))
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_sync_preview",
+            {"project": "Ярмарка", "files": [{"name": "r.yaml", "content": "nodes: []"}]},
+            client,
+        )
+
+    assert отказ in str(exc.value)
 
 
 async def test_применение_синка_шлёт_contents_текстами(
@@ -929,10 +954,6 @@ async def test_создание_объекта_шлёт_элемент(client: A
     assert body["element"] == "container"
     check_node_contract("NodeCreate", body)
     assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
-    # Элемент родителя (NodeCreate.parent_element, Р38) инструмент не выставляет и
-    # аргументом не принимает: агент задаёт element родителю заранее.
-    assert "parent_element" not in body
-    assert "parent_element" not in tools.BY_NAME["archmap_create_node"]["schema"]["properties"]
 
 
 async def test_создание_без_элемента_поля_не_шлёт(client: ArchMapClient, api: FakeApi) -> None:
@@ -959,17 +980,17 @@ async def test_правка_объекта_шлёт_элемент(client: ArchM
     assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
 
 
-async def test_пустая_строка_элемента_снимает_значение(client: ArchMapClient, api: FakeApi) -> None:
-    """⚠️ Фильтр «не None» отбросил бы снятие: пустая строка — синоним null, как у
-    doc_id в archmap_bind_step. Действующий элемент после снятия — от сервера."""
-    api.patch("/nodes/n2", node("n2", "orders", element=None, element_effective="system"))
+async def test_элемент_правки_уходит_только_значением(client: ArchMapClient, api: FakeApi) -> None:
+    """Тип выбран всегда (решение владельца 2026-11-01): снять элемент нельзя, правка
+    шлёт только значение; действующий элемент после правки — от сервера."""
+    api.patch("/nodes/n2", node("n2", "orders", element="system", element_effective="system"))
 
     out = await tools.call(
-        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "element": ""}, client
+        "archmap_update_node", {"project": "Ярмарка", "node_id": "n2", "element": "system"}, client
     )
 
     body = json.loads(api.calls[-1].content)
-    assert body == {"element": None}
+    assert body == {"element": "system"}
     check_node_contract("NodeUpdate", body)
     assert "Элемент архитектуры: система" in out
 
@@ -988,12 +1009,11 @@ async def test_старый_сервер_без_элемента_строки_н
 
 
 async def test_элемент_в_каталоге_тот_же_что_у_бэкенда() -> None:
-    # Пустая строка — синоним снятия (клиенты выбрасывают настоящий null), остальное —
-    # ровно словарь сервера: лишнее значение было бы 422 на живом сервере.
+    # Ровно словарь сервера: лишнее значение было бы 422 на живом сервере, а пустой строки
+    # (прежнего синонима снятия) нет — у сервиса вне контейнера тип есть всегда.
     for name in ("archmap_create_node", "archmap_update_node"):
         arg = tools.BY_NAME[name]["schema"]["properties"]["element"]
-        assert [v for v in arg["enum"] if v] == list(get_args(backend("domain_types").NodeElement))
-        assert "" in arg["enum"]
+        assert arg["enum"] == list(get_args(backend("domain_types").NodeElement))
 
 
 async def test_дерево_помечает_контейнер_с_компонентами(

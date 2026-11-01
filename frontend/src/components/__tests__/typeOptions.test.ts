@@ -7,7 +7,8 @@ import { preselectType, typeOptions, type TypeOption, type TypeSubject } from ".
 
 function subject(over: Partial<TypeSubject> = {}): TypeSubject {
   return {
-    name: "orders", shape: "service", element: null, element_effective: "container",
+    // Тип выбран всегда (решение владельца 2026-11-01): лист-сервис хранит «контейнер».
+    name: "orders", shape: "service", element: "container", element_effective: "container",
     has_children: false, container_name: null, ...over,
   };
 }
@@ -43,11 +44,10 @@ describe("окно «Новый объект»", () => {
     const opts = typeOptions({ mode: "create", parent: null });
     expect(free(opts)).toEqual(["system", "container", "database", "broker", "person"]);
     expect(reasonOf(opts, "component")).toBe("Компонентом объект бывает только внутри контейнера.");
-    expect(opts.every((o) => o.note === undefined)).toBe(true);
   });
 
   it("система с вложенными: компонент серый с советом сделать её контейнером, пользователь серый", () => {
-    const parent = subject({ name: "Ярмарка", element_effective: "system", has_children: true });
+    const parent = subject({ name: "Ярмарка", element: "system", element_effective: "system", has_children: true });
     const opts = typeOptions({ mode: "create", parent });
     expect(free(opts)).toEqual(["system", "container", "database", "broker"]);
     expect(reasonOf(opts, "person")).toBe(PERSON_CREATE);
@@ -57,12 +57,11 @@ describe("окно «Новый объект»", () => {
     );
   });
 
-  it("пустая система (Р39) — как система, без ожидания первого вложенного", () => {
+  it("пустая система (Р39) — как система", () => {
     const parent = subject({ name: "Ярмарка", element: "system", element_effective: "system" });
     const opts = typeOptions({ mode: "create", parent });
     expect(free(opts)).toEqual(["system", "container", "database", "broker"]);
     expect(reasonOf(opts, "person")).toBe(PERSON_CREATE);
-    expect(opts.every((o) => o.note === undefined)).toBe(true);
   });
 
   it("контейнер: только компонент, остальное серое с причиной", () => {
@@ -79,9 +78,10 @@ describe("окно «Новый объект»", () => {
     expect(reasonOf(opts, "broker")).toBe("Брокер не входит в состав контейнера, создайте его рядом с «orders».");
   });
 
-  it("лист с хранимым «контейнер» — уже контейнер: только компонент", () => {
-    const opts = typeOptions({ mode: "create", parent: subject({ element: "container" }) });
+  it("лист-контейнер: только компонент, тип родителя первый вложенный объект не меняет", () => {
+    const opts = typeOptions({ mode: "create", parent: subject() });
     expect(free(opts)).toEqual(["component"]);
+    expect(reasonOf(opts, "database")).toBe("База данных не входит в состав контейнера, создайте её рядом с «orders».");
   });
 
   it("компонент: причины называют его контейнер", () => {
@@ -92,18 +92,8 @@ describe("окно «Новый объект»", () => {
     expect(reasonOf(opts, "database")).toBe("База данных не входит в состав контейнера, создайте её рядом с «orders».");
   });
 
-  it("лист без элемента: все, кроме пользователя, строка под полем говорит, кем станет родитель (Р38)", () => {
-    const opts = typeOptions({ mode: "create", parent: subject() });
-    expect(free(opts)).toEqual(["system", "container", "component", "database", "broker"]);
-    expect(opts.map((o) => o.note)).toEqual([
-      "«orders» станет системой.", "«orders» станет системой.", "«orders» станет контейнером.",
-      "«orders» станет системой.", "«orders» станет системой.", undefined,
-    ]);
-    expect(reasonOf(opts, "person")).toBe(PERSON_CREATE);
-  });
-
   it("база с детьми из старых данных — как система", () => {
-    const parent = subject({ shape: "database", has_children: true, element_effective: "system" });
+    const parent = subject({ shape: "database", element: null, has_children: true, element_effective: "system" });
     const opts = typeOptions({ mode: "create", parent });
     expect(free(opts)).toEqual(["system", "container", "database", "broker"]);
     expect(reasonOf(opts, "component")).toBe("Компонентом объект бывает только внутри контейнера.");
@@ -132,7 +122,7 @@ describe("строка «Тип» в свойствах", () => {
   });
 
   it("с вложенными вне контейнера: система и контейнер, остальное серое", () => {
-    const node = subject({ name: "Ярмарка", element_effective: "system", has_children: true });
+    const node = subject({ name: "Ярмарка", element: "system", element_effective: "system", has_children: true });
     const opts = typeOptions({ mode: "change", node, ancestors: [] });
     expect(free(opts)).toEqual(["system", "container"]);
     expect(reasonOf(opts, "component")).toBe(
@@ -156,7 +146,7 @@ describe("строка «Тип» в свойствах", () => {
 
   it("составной компонент и объект с вложенными — прежняя причина про вложенные", () => {
     // Обе причины верны; первой называется та, что держит форму (вложенные объекты).
-    const node = subject({ name: "orders", element_effective: "system", has_children: true });
+    const node = subject({ name: "orders", element: "system", element_effective: "system", has_children: true });
     expect(reasonOf(typeOptions({ mode: "change", node, ancestors: [chain[0]] }), "person")).toBe(
       "Объект с вложенными объектами не может стать пользователем.",
     );
@@ -169,7 +159,7 @@ describe("строка «Тип» в свойствах", () => {
   });
 
   it("база без детей: система и контейнер доступны сменой формы, компонент — нет", () => {
-    const node = subject({ shape: "database" });
+    const node = subject({ shape: "database", element: null });
     const opts = typeOptions({ mode: "change", node, ancestors: [] });
     expect(free(opts)).toEqual(["system", "container", "database", "broker", "person"]);
   });
@@ -177,7 +167,7 @@ describe("строка «Тип» в свойствах", () => {
   it("пользователь внутри контейнера может стать только компонентом", () => {
     // Элемента у «Пользователя» нет и внутри контейнера (element_effective null), поэтому
     // место видно по цепочке предков.
-    const node = subject({ name: "Оператор", shape: "person", element_effective: null });
+    const node = subject({ name: "Оператор", shape: "person", element: null, element_effective: null });
     expect(free(typeOptions({ mode: "change", node, ancestors: [chain[0]] }))).toEqual(
       ["system", "container", "database", "broker", "person"],
     );
@@ -223,20 +213,21 @@ describe("предвыбор окна «Новый объект» (Р36)", () =>
     expect(preselectType(typeOptions({ mode: "create", parent: null }), null, [], "broker")).toBe("broker");
   });
 
-  it("лист без элемента: без соседей ничего, шаблон — предвыбран", () => {
+  it("лист-контейнер — «Компонент», и без соседей", () => {
     const parent = subject();
     const opts = typeOptions({ mode: "create", parent });
-    expect(preselectType(opts, parent, [], null)).toBeNull();
-    expect(preselectType(opts, parent, [], "component")).toBe("component");
+    expect(preselectType(opts, parent, [], null)).toBe("component");
+    expect(preselectType(opts, parent, [], "database")).toBe("component");
   });
 
   it("серый «Пользователь» в предвыбор не попадает — ни шаблоном, ни соседом", () => {
-    const system = subject({ name: "Ярмарка", element_effective: "system", has_children: true });
+    const system = subject({ name: "Ярмарка", element: "system", element_effective: "system", has_children: true });
     const opts = typeOptions({ mode: "create", parent: system });
     expect(preselectType(opts, system, [], "person")).toBeNull();
     const сосед = at("2026-10-30T12:00:00Z", { shape: "person", element_effective: null });
     expect(preselectType(opts, system, [сосед], null)).toBeNull();
+    // Лист-контейнер вместо серого «Пользователя» предвыбирает «Компонент».
     const leaf = subject();
-    expect(preselectType(typeOptions({ mode: "create", parent: leaf }), leaf, [], "person")).toBeNull();
+    expect(preselectType(typeOptions({ mode: "create", parent: leaf }), leaf, [], "person")).toBe("component");
   });
 });

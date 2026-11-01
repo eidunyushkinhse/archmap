@@ -18,15 +18,36 @@ from app.import_yaml import parse_import
 from app.routers.projects import import_prompt
 
 
-def test_example_is_valid_import_both_depths():
+def _пример(depth: int) -> str:
+    """Пример промпта с типом у корня-системы. Тип выбран всегда (решение владельца
+    2026-11-01, docs/tasks/type-always.md): объект с вложенными без element ввоз отвергает,
+    а пример промпта (промпты в эпике не правятся — правка с замером за владельцем) у корня
+    «Ярмарка» поля ещё не несёт. Остальные проверки примера идут на этом виде; пробел
+    сторожит test_пример_промпта_без_типа_у_корня_отвергается."""
+    text = example_yaml(depth)
+    assert text.startswith("nodes:\n- name: Ярмарка\n")
+    return text.replace("- name: Ярмарка\n", "- name: Ярмарка\n  element: system\n", 1)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="пример промпта не указывает тип у корня с вложенными — ждёт правки промпта",
+)
+def test_пример_промпта_без_типа_у_корня_отвергается():
     for depth in (2, 3):
         parsed, errors = parse_import(example_yaml(depth))
+        assert errors == [] and parsed is not None
+
+
+def test_example_is_valid_import_both_depths():
+    for depth in (2, 3):
+        parsed, errors = parse_import(_пример(depth))
         assert errors == [], (depth, errors)
         assert parsed is not None and len(parsed.nodes) > 5 and len(parsed.edges) >= 5
 
 
 def test_example_depth2_has_no_components():
-    parsed, _ = parse_import(example_yaml(2))
+    parsed, _ = parse_import(_пример(2))
     assert parsed is not None
     # максимум два уровня: у детей корня своих детей нет
     depth_of: dict[int, int] = {}
@@ -34,7 +55,7 @@ def test_example_depth2_has_no_components():
         depth_of[i] = 1 if n.parent_idx is None else depth_of[n.parent_idx] + 1
     assert max(depth_of.values()) == 2
     # а на глубине 3 компоненты есть
-    parsed3, _ = parse_import(example_yaml(3))
+    parsed3, _ = parse_import(_пример(3))
     assert parsed3 is not None
     assert any(
         n.parent_idx is not None and parsed3.nodes[n.parent_idx].parent_idx is not None
@@ -85,7 +106,7 @@ def test_связь_с_брокером_называет_канал():
     assert "У связей с брокерами указан channel" in p
 
     for depth in (2, 3):
-        parsed, errors = parse_import(example_yaml(depth))
+        parsed, errors = parse_import(_пример(depth))
         assert errors == [] and parsed is not None
         каналы = {
             (parsed.nodes[e.source_idx].name, parsed.nodes[e.target_idx].name): e.channel
@@ -322,7 +343,7 @@ def test_example_carries_source_anchors():
     и (на depth=3) у компонентов. До правки пример нёс source у одного контейнера
     и ни одного path, и Haiku оставлял компоненты без якоря."""
     for depth in (2, 3):
-        parsed, errors = parse_import(example_yaml(depth))
+        parsed, errors = parse_import(_пример(depth))
         assert errors == [] and parsed is not None
         keys = {n.name: n.source_keys for n in parsed.nodes if n.source_keys}
         assert keys["orders"] == ["git:github.com/org/yarmarka#services/orders", "host:orders"]
@@ -357,7 +378,7 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
     На depth=3 ни одно ребро примера не выходит из узла с children; на depth=2
     концы свёрнуты на контейнеры и пример остаётся валидным. Текст правила —
     именами примера, чужой иллюстрации «vote» больше нет."""
-    parsed, errors = parse_import(example_yaml(3))
+    parsed, errors = parse_import(_пример(3))
     assert errors == [] and parsed is not None
     пары = {(parsed.nodes[e.source_idx].name, parsed.nodes[e.target_idx].name) for e in parsed.edges}
     assert {
@@ -375,7 +396,7 @@ def test_рёбра_примера_от_компонентов_не_от_кор�
     собрать(yaml.safe_load(example_yaml(3))["nodes"])
     assert с_детьми == {"Ярмарка", "orders"}
     assert not any(parsed.nodes[e.source_idx].name in с_детьми for e in parsed.edges)
-    parsed2, errors2 = parse_import(example_yaml(2))
+    parsed2, errors2 = parse_import(_пример(2))
     assert errors2 == [] and parsed2 is not None
     пары2 = {(parsed2.nodes[e.source_idx].name, parsed2.nodes[e.target_idx].name) for e in parsed2.edges}
     assert {
@@ -441,7 +462,7 @@ def test_правило_path_называет_последствие_правд�
 def test_пример_помечает_контейнер_с_компонентами():
     """Пример сильнее правила: узел с компонентами показан с element: container, и
     пример по-прежнему валидный ввоз — без единого замечания санитизации элементов."""
-    parsed, errors = parse_import(example_yaml(3))
+    parsed, errors = parse_import(_пример(3))
     assert errors == [] and parsed is not None
     элементы = {n.name: n.element for n in parsed.nodes}
     assert элементы["orders"] == "container"
@@ -450,7 +471,8 @@ def test_пример_помечает_контейнер_с_компонент�
 
 def test_на_глубине_2_элемента_в_примере_нет():
     """Слоя компонентов нет — лист с element: container спорил бы с правилом
-    «children только у корня-системы»: ключ вырезается вместе с children."""
+    «children только у корня-системы»: ключ вырезается вместе с children. (Тип у самого
+    корня пример не несёт — см. _пример.)"""
     assert "element" not in example_yaml(2)
 
 

@@ -49,7 +49,7 @@ from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.deployment import project_sites, project_tree, unit_placements
 from app.domain_types import NodeElement
-from app.element_marks import ElementRow, project_element_rows
+from app.element_marks import ElementRow, project_element_rows, store_elements
 from app.element_rules import element_change_refusal
 from app.identity import known_key, source_ref_dict
 from app.import_element import as_clause, sanitize_elements, tree_paths
@@ -98,7 +98,6 @@ from app.unified_apply import (
     _synthetic_files,
     _Winner,
     _winners,
-    apply_container_hints,
     decisions_note,
     merge_chain,
     resolve_decisions,
@@ -709,9 +708,6 @@ def apply_into_plan(
         лишние = settled_remark_ids(plan, merged, восстановлены)
         unfixable = [u for u in unfixable if u.id not in лишние]
     forced = _forced_fields(merged, решения)
-    # «Похоже на контейнер» — вопрос только о новых узлах: ответ «Контейнер» ставит им
-    # элемент до санитизации, как у создания (Р7).
-    apply_container_hints(merged, решения)
     склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
     # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
     # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель
@@ -811,8 +807,7 @@ def apply_into_plan(
             shape=imp.shape,
             status=imp.status,
             is_external=imp.is_external,
-            # Как есть: слитое дерево уже санитизировано. Под живым контейнером значение
-            # спит — действующий элемент компонента его не читает (переносы — Ф5).
+            # Слитое дерево уже санитизировано; значение приводит функция записи ниже.
             element=imp.element,
             source_ref=known_key(imp.source_keys[0]) if imp.source_keys else None,
             parent_id=parent.id if parent else None,
@@ -820,6 +815,10 @@ def apply_into_plan(
         db.add(node)
         node_of.append(node)
     db.flush()
+    # Тип выбран всегда (решение владельца 2026-11-01): новый лист без элемента —
+    # контейнер (внешний — система), новый объект под живым контейнером — компонент без
+    # элемента (app/element_marks.store_elements).
+    store_elements(db, project.id)
 
     new_edges: list[Edge] = []
     # Подписи живых связей нужны только там, где решение изменило концы: без

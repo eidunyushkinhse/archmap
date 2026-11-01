@@ -10,7 +10,7 @@ import types
 import uuid
 
 import pytest
-from conftest import ensure_architect, make_project
+from conftest import ensure_architect, make_project, typed
 
 from app import versions
 from app.models.broker_channel import BrokerChannel
@@ -109,6 +109,7 @@ def _scene(db) -> types.SimpleNamespace:
     db.flush()
     s.i_orders = _place(db, s.orders, s.prod)
     s.i_db = _place(db, s.db_node, s.rack)
+    typed(db, pid)
     db.commit()
     # id строк сцены — отдельно: удалённую строку сессия отвязывает, и её id после
     # коммита уже не прочитать.

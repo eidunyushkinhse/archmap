@@ -17,6 +17,7 @@ import uuid
 from sqlalchemy.orm import Session, undefer
 
 from app.copy_plan import copy_row
+from app.element_marks import store_elements
 from app.identity import known_key
 from app.models.broker_channel import BrokerChannel
 from app.models.business_process import BusinessProcess
@@ -75,6 +76,8 @@ def copy_project_schema(db: Session, src_id: uuid.UUID, dst_id: uuid.UUID) -> No
         copy.source_ref = known_key(copy.source_ref)
         db.add(copy)
     db.flush()
+    # Тип выбран всегда: копия держит инвариант элементов, даже если источник его нарушал.
+    store_elements(db, dst_id)
 
     if nmap:
         _copy_node_docs(db, nmap, dmap)

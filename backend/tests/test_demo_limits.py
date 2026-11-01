@@ -47,6 +47,7 @@ API = "/api/v1"
 SCENE = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
       - name: orders-db
@@ -62,6 +63,7 @@ edges:
 GROWN = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
       - name: orders-db
@@ -319,7 +321,7 @@ def test_синк(client, db, small):
 def _donor_archive(db) -> bytes:
     """Архив другого проекта с двумя объектами — догрузка даст 6 при пределе 4."""
     donor = seed_project_from_yaml(
-        db, ["nodes:\n  - name: Склад\n    children:\n      - name: receiving\n"], name="Донор"
+        db, ["nodes:\n  - name: Склад\n    element: system\n    children:\n      - name: receiving\n"], name="Донор"
     )
     return build_archive(db, donor)
 

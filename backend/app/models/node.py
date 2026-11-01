@@ -68,11 +68,11 @@ class Node(Base):
     approval: Mapped[NodeApproval] = mapped_column(
         String(16), default="in_progress", server_default="in_progress"
     )
-    # Элемент архитектуры (docs/plan-c4-elements.md, Р1–Р7): system | container | NULL.
-    # NULL — «не сказано», читается как сегодня (узел с детьми — система), поэтому без
-    # server_default: мердж, синк и догрузка отличают молчание от явной «системы».
-    # Задаётся только у формы service, у листа хранится как намерение (Р3) и срабатывает
-    # с первым ребёнком; внутри контейнера не задаётся — там всё компоненты (Р5).
+    # Элемент архитектуры (docs/plan-c4-elements.md): system | container | NULL. Тип выбран
+    # всегда (решение владельца 2026-11-01, docs/tasks/type-always.md): у сервиса вне
+    # контейнера значение есть всегда, NULL — у компонента (внутри контейнера, Р5), базы
+    # данных, брокера и «Пользователя». Это инвариант приложения, а не NOT NULL колонки:
+    # его держит функция записи app/element.stored_elements на всех путях записи узлов.
     # Действующий элемент хранимым не является — его считает app/element.py
     # (element_effective ниже).
     element: Mapped[NodeElement | None] = mapped_column(String(16), nullable=True)

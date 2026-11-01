@@ -131,9 +131,9 @@ def test_неизвестный_пакет_не_сеется_и_сирот_не�
     assert db.query(BusinessProcess).count() == 0
 
 
-def test_вопроса_похоже_на_контейнер_на_демо_нет():
-    """Признак «похоже на контейнер» строгий: у групп демо своего пути в репозитории
-    нет, и превью единого ввоза пакета такого вопроса не задаёт."""
+def test_пакет_демо_ввозится_без_вопросов_о_типе():
+    """Тип выбран всегда (docs/tasks/type-always.md): у каждого объекта пакета с вложенными
+    тип записан — разбор не отказывает, и спора о типе превью не задаёт."""
     план = build_unified_plan([(f"{ДЕМО}.zip", _package_zip(ДЕМО))])
     assert план.ok, план.errors
-    assert remainder_from_plan(план).container_hints == []
+    assert [c for c in remainder_from_plan(план).field_conflicts if c.field == "element"] == []

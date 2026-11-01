@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from typing import Any
 
 import pytest
-from conftest import ensure_architect, make_project
+from conftest import ensure_architect, make_project, typed
 from fastapi.testclient import TestClient
 
 from app.auth import create_access_token
@@ -68,6 +68,7 @@ def _shop(db, orders_element: str | None) -> tuple[Project, dict[str, uuid.UUID]
     buyer = node("Покупатель", shape="person")
     for src, dst in ((buyer, billing), (billing, api), (api, orders_db), (nightly, billing)):
         db.add(Edge(id=uuid.uuid4(), project_id=p.id, source_id=src.id, target_id=dst.id))
+    typed(db, p.id)
     db.commit()
     ids = {n.name: n.id for n in (shop, orders, api, jobs, nightly, billing, orders_db, buyer)}
     return p, ids
@@ -127,8 +128,8 @@ WITH_CONTAINER: dict[str, str | None] = {
     "orders-db": "container",
     "Покупатель": None,
 }
-# Сегодняшняя картина (element = null у всех): узел с детьми — система, лист — контейнер.
-LEGACY: dict[str, str | None] = {
+# orders — система: её вложенные — контейнер api и система jobs с контейнером nightly.
+WITH_SYSTEM: dict[str, str | None] = {
     "shop": "system",
     "orders": "system",
     "api": "container",
@@ -143,8 +144,8 @@ LEGACY: dict[str, str | None] = {
 
 @pytest.mark.parametrize(
     ("orders_element", "expected"),
-    [("container", WITH_CONTAINER), (None, LEGACY)],
-    ids=["контейнер", "всё-null"],
+    [("container", WITH_CONTAINER), ("system", WITH_SYSTEM)],
+    ids=["контейнер", "система"],
 )
 def test_действующий_элемент_во_всех_выдачах(client, db, orders_element, expected):
     owner = ensure_architect(db)
@@ -188,9 +189,12 @@ def test_действующий_элемент_во_всех_выдачах(clie
 
     assert seen.names == set(expected)
     assert seen.container_names == set(expected)
-    # Хранимое значение отдаётся как есть: null — «не сказано».
+    # Хранимое значение отдаётся как есть: тип выбран всегда — у сервиса вне контейнера
+    # он есть, у компонента, базы и «Пользователя» его нет.
     stored = {item["name"]: item["element"] for item in every}
-    assert stored == {name: (orders_element if name == "orders" else None) for name in expected}
+    want = {name: (e if e in ("system", "container") else None) for name, e in expected.items()}
+    want["orders-db"] = None
+    assert stored == want
 
 
 def test_гости_и_предки_на_графе_уровня(client, db):
@@ -221,6 +225,7 @@ def _tree(db, spec: list[tuple[str, str | None, dict[str, Any]]]) -> tuple[Proje
         db.add(Node(id=node_id, project_id=p.id, name=name,
                     parent_id=ids[parent] if parent else None, **fields))
         ids[name] = node_id
+    typed(db, p.id)
     db.commit()
     return p, ids
 
@@ -232,7 +237,7 @@ def _patch(client: TestClient, db, h: dict[str, str], node_id: uuid.UUID, body: 
 
 def test_post_и_patch_принимают_и_возвращают_элемент(client, db):
     owner = ensure_architect(db)
-    p, ids = _tree(db, [("shop", None, {})])
+    p, ids = _tree(db, [("shop", None, {"element": "system"})])
     h = _h(owner, p)
 
     created = _call(client, db, "POST", URL, headers=h,
@@ -247,23 +252,22 @@ def test_post_и_patch_принимают_и_возвращают_элемент
     # Без ключа — не трогаем: фронт и MCP шлют только то, что правят.
     r = _patch(client, db, h, orders, {"description": "Заказы покупателей"})
     assert r.json()["element"] == "system"
-    # Явный null — «не сказано»: очистка разрешена всегда.
+    # Явный null тип не очищает: у сервиса вне контейнера он выбран всегда.
     r = _patch(client, db, h, orders, {"element": None})
     assert r.status_code == 200, r.text
-    assert r.json()["element"] is None
+    assert r.json()["element"] == "system"
     # Значение вне словаря — отказ контракта.
     assert _patch(client, db, h, orders, {"element": "component"}).status_code == 422
 
 
-def test_р3_у_листа_элемент_хранится_как_намерение(client, db):
+def test_вложенный_объект_листа_контейнера_компонент(client, db):
     owner = ensure_architect(db)
     p, ids = _tree(db, [("shop", None, {}), ("billing", "shop", {})])
     h = _h(owner, p)
 
-    r = _patch(client, db, h, ids["billing"], {"element": "container"})
-    assert r.status_code == 200, r.text
-    # Лист — контейнер при любом хранимом; намерение срабатывает с первым ребёнком.
-    assert (r.json()["element"], r.json()["element_effective"]) == ("container", "container")
+    r = _call(client, db, "GET", f"{URL}/{ids['billing']}", headers=h)
+    # Лист-сервис хранит тип явно — контейнер без компонентов.
+    assert (r["element"], r["element_effective"]) == ("container", "container")
     kid = _call(client, db, "POST", URL, headers=h,
                 json={"name": "payments-worker", "parent_id": str(ids["billing"])})
     assert kid["element_effective"] == "component"
@@ -295,7 +299,7 @@ def test_элемент_задаётся_только_у_сервиса(client, 
     # Отказ ничего не записал.
     db.expunge_all()
     billing = db.get(Node, ids["billing"])
-    assert (billing.shape, billing.element, billing.version) == ("service", None, 1)
+    assert (billing.shape, billing.element, billing.version) == ("service", "container", 1)
 
 
 def test_внутри_контейнера_элемент_не_задаётся(client, db):
@@ -322,7 +326,7 @@ def test_внутри_контейнера_элемент_не_задаётся(
     r = client.post(URL, headers=h,
                     json={"name": "cron", "parent_id": str(ids["jobs"]), "element": "system"})
     assert (r.status_code, r.json()) == (422, {"detail": inside.format(name="cron")})
-    # Очистка — всегда можно.
+    # null у компонента — то же «элемента нет».
     assert _patch(client, db, h, ids["api"], {"element": None}).status_code == 200
     # Перенос в том же запросе: узел, выносимый из контейнера, уже не компонент.
     r = _patch(client, db, h, ids["jobs"], {"parent_id": str(ids["shop"]), "element": "container"})
@@ -380,6 +384,25 @@ def test_р5_контейнер_не_входит_в_контейнер(client, 
     assert _patch(client, db, h, ids["shop"], {"element": "system"}).status_code == 200
 
 
+def test_листья_контейнеры_системы_становятся_компонентами(client, db):
+    """Тип выбран всегда: «контейнер» хранится у каждого листа-сервиса системы, поэтому
+    запрет «контейнер внутри контейнера» касается только контейнера с компонентами, а лист
+    при смене системы на контейнер становится компонентом — его элемент снимается."""
+    owner = ensure_architect(db)
+    p, ids = _tree(db, [("shop", None, {}), ("api", "shop", {}), ("worker", "shop", {})])
+    h = _h(owner, p)
+    db.expunge_all()
+    assert db.get(Node, ids["api"]).element == "container"
+    r = _patch(client, db, h, ids["shop"], {"element": "container"})
+    assert r.status_code == 200, r.text
+    db.expunge_all()
+    assert [db.get(Node, ids[n]).element for n in ("shop", "api", "worker")] == ["container", None, None]
+    # Обратно: вложенные выходят из контейнера и получают «контейнер».
+    assert _patch(client, db, h, ids["shop"], {"element": "system"}).status_code == 200
+    db.expunge_all()
+    assert [db.get(Node, ids[n]).element for n in ("shop", "api", "worker")] == ["system", "container", "container"]
+
+
 def test_вложенный_пользователь_не_мешает_смене_элемента(client, db):
     """«Пользователь» внутри объекта — старые данные: с 2026-10-31 сервер не создаёт его
     там и не делает пользователем вложенный объект (test_person_top_level), а смене
@@ -424,7 +447,10 @@ def test_смена_элемента_двигает_схему_а_не_мету(
     # То же значение повторно — не изменение: курсоры стоят.
     assert _patch(client, db, h, ids["orders"], {"element": "container"}).status_code == 200
     assert revs() == (g0 + 1, m0)
+    # null тип не очищает — изменения нет, курсоры стоят.
     assert _patch(client, db, h, ids["orders"], {"element": None}).status_code == 200
+    assert revs() == (g0 + 1, m0)
+    assert _patch(client, db, h, ids["orders"], {"element": "system"}).status_code == 200
     assert revs() == (g0 + 2, m0)
 
 
@@ -484,7 +510,7 @@ def test_база_и_брокер_не_создаются_в_контейнер�
         "Брокер «events» не может входить в состав контейнера «orders». "
         "Создайте его на уровне выше."
     ))
-    # Лист с намерением «контейнер» им станет с первым ребёнком — тот же отказ.
+    # Лист-контейнер — тот же отказ.
     assert post("billing-db", "billing", "database").status_code == 422
     # В систему — можно, сервис в контейнер — тоже.
     assert post("orders-db", "shop", "database").status_code == 201

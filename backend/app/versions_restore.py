@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session, undefer
 
 from app import processes, reparent, restore, versions
 from app.database import Base
+from app.element_marks import store_elements
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
@@ -244,6 +245,9 @@ class _Apply:
         self.db.flush()
         self._fence_views(missing[Node])
         self._delete_nodes()
+        # Тип выбран всегда: элементы среза — по функции записи (снимок мог быть снят,
+        # когда родитель среза был другого типа).
+        store_elements(self.db, self.project.id)
 
     # ── Связи ──
 

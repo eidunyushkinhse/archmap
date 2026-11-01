@@ -15,6 +15,11 @@ app/element.py — чистая модель над картами, без ORM; 
 Дети в Elements идут по имени (затем по id): обход потомков в глубину (Elements.
 members_of) тогда детерминирован, и отказ «внутри лежит база данных …» называет одного и
 того же первого виновника при любом порядке выдачи БД (app/element_rules).
+
+Здесь же — запись по инварианту «тип выбран всегда» (решение владельца 2026-11-01,
+app/element.stored_elements): normalized_rows — дерево записей после неё (превью
+последствий считает то, что запишется), element_for — элемент нового узла, store_elements —
+привести хранимые элементы проекта после правки дерева.
 """
 
 import uuid
@@ -23,7 +28,8 @@ from typing import NamedTuple
 
 from sqlalchemy.orm import Session
 
-from app.element import Elements
+from app.domain_types import NodeElement
+from app.element import Elements, stored_elements
 from app.models.node import Node
 
 
@@ -111,3 +117,54 @@ def mark_element(db: Session, project_id: uuid.UUID, nodes: list[Node]) -> None:
     names = {r.id: r.name for r in rows}
     for n in nodes:
         stamp_element(n, elements, names)
+
+
+def _wanted(rows: list[ElementRow]) -> dict[uuid.UUID, NodeElement | None]:
+    """Хранимые элементы записей по инварианту (app/element.stored_elements)."""
+    return stored_elements(
+        {r.id: r.parent_id for r in rows},
+        {r.id: r.shape for r in rows},
+        {r.id: r.element for r in rows},
+        external=[r.id for r in rows if r.is_external],
+    )
+
+
+def normalized_rows(rows: Iterable[ElementRow]) -> list[ElementRow]:
+    """Записи дерева с хранимыми элементами по инварианту: так дерево будет выглядеть
+    после записи."""
+    rows = list(rows)
+    want = _wanted(rows)
+    return [r if want[r.id] == r.element else r._replace(element=want[r.id]) for r in rows]
+
+
+def element_for(
+    rows: Iterable[ElementRow],
+    *,
+    parent_id: uuid.UUID | None,
+    shape: str,
+    element: str | None,
+    is_external: bool,
+) -> NodeElement | None:
+    """Хранимый элемент нового узла (листа) под parent_id по инварианту: внутри
+    контейнера и у не-сервиса — None, у сервиса — присланный или «контейнер» (у внешнего —
+    «система», Р42). rows — узлы проекта до создания."""
+    key = uuid.uuid4()
+    return _wanted([*rows, ElementRow(key, parent_id, shape, element, "", is_external)])[key]
+
+
+def store_elements(db: Session, project_id: uuid.UUID) -> int:
+    """Привести хранимые элементы проекта к инварианту после правки дерева (перенос,
+    смена формы или элемента, ввоз, восстановление): одна выборка, запись только
+    расходящихся узлов. Это следствие уже сделанной правки, а не новая: CAS-версии
+    задетых узлов не двигаются, курсор схемы двигает сама правка. Возвращает число
+    поправленных узлов. Коммит — на вызывающей стороне."""
+    db.flush()
+    rows = project_element_rows(db, project_id)
+    want = _wanted(rows)
+    changed = {r.id: want[r.id] for r in rows if want[r.id] != r.element}
+    if not changed:
+        return 0
+    for node in db.query(Node).filter(Node.id.in_(list(changed))):
+        node.element = changed[node.id]
+    db.flush()
+    return len(changed)

@@ -4,7 +4,7 @@
 // подсчёты, здесь — только текст, формы по родам и склонения. Тексты ФИНАЛЬНЫЕ:
 // правятся вместе с ТЗ, а не по вкусу.
 import type {
-  ComponentOut, ContainerEdgeOut, ContainerHintOut, FamilyConflictOut, FieldDisputeOut,
+  ComponentOut, ContainerEdgeOut, FamilyConflictOut, FieldDisputeOut,
   FuzzyPairOut, IsolatedGroupOut, NodeElement, NodeShape, NodeStatus,
 } from "../../../types";
 import { plural } from "../../../ui/plural";
@@ -148,32 +148,6 @@ export function fieldTexts(d: FieldDisputeOut): { title: string; why: string; if
   };
 }
 
-// Сколько имён вложенных объектов называть в вопросе «похоже на контейнер»: дальше —
-// счётчиком, как у перечней в замечаниях ввоза.
-const HINT_NAMES = 6;
-
-/**
- * Вопрос «похоже на контейнер» (Р7, лексикон эпика элементов §3.5): у узла нет
- * элемента во входе, а дети лежат в его каталоге того же репозитория.
- */
-export function hintTexts(h: ContainerHintOut): {
-  title: string; context: string; why: string; ifLeft: string;
-} {
-  const имя = lastSegment(h.node_path);
-  const n = h.children.length;
-  const имена = h.children.slice(0, HINT_NAMES).join(", ")
-    + (n > HINT_NAMES ? ` …ещё ${n - HINT_NAMES}` : "");
-  return {
-    title: `Похоже, «${имя}» — контейнер с компонентами. Отметить его контейнером?`,
-    context: `${имена} ${n === 1 ? "лежит" : "лежат"} в ${h.folder} того же репозитория`,
-    why: "Части одной программы обычно лежат в её каталоге. Если вложенный объект"
-      + " запускается отдельно, например воркер из того же кода, то это система из"
-      + " нескольких контейнеров.",
-    ifLeft: `Если не отвечать, то «${имя}» останется системой. Отметить его контейнером`
-      + " можно и потом, в свойствах объекта.",
-  };
-}
-
 /** Окно, в котором идёт разбор: от него зависит одна сноска (4.3). */
 export type QuestionMode = "create" | "into";
 
@@ -181,7 +155,7 @@ export type QuestionMode = "create" | "into";
  * Тег объекта с вложенными в списках разбора: «система» или «контейнер» по
  * действующему элементу из ответа сервера (составной компонент — редкость — зовётся
  * контейнером, как в словах вопроса о связи). Без элемента (ответ прежнего сервера) —
- * «система», как читается узел с детьми без элемента. У листа тега нет.
+ * «система». У листа тега нет.
  */
 export function nestedTag(x: ComponentOut): string | undefined {
   if (!x.has_children) return undefined;

@@ -18,7 +18,8 @@ from app.schemas.node_doc import NodeDocCreate, NodeDocUpdate
 
 
 def _node(db, name):
-    n = Node(id=uuid.uuid4(), name=name, project_id=ensure_project(db).id)
+    # Тип выбран всегда: лист-сервис — контейнер (решение владельца 2026-11-01).
+    n = Node(id=uuid.uuid4(), name=name, project_id=ensure_project(db).id, element="container")
     db.add(n)
     return n
 

@@ -26,7 +26,7 @@ from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 SERVER_NAME = "archmap"
-VERSION = "0.12.1"
+VERSION = "0.13.0"
 
 
 def tool_defs(catalog: list[dict[str, Any]]) -> list[types.Tool]:
@@ -48,9 +48,10 @@ def build_server(client: ArchMapClient) -> Server:
     return server
 
 
-# Итог вызова: ok — ответ на вопрос (и «Проектов нет», и план превью «не пройдёт» —
-# тоже ответ); refused — отказ, который агент может исправить (права, «не найдено»,
-# конфликт версий, неверные данные, «не настроен»); failed — сбой самого сервера.
+# Итог вызова: ok — ответ на вопрос (и «Проектов нет» — тоже ответ); refused — отказ,
+# который агент может исправить (права, «не найдено», конфликт версий, неверные данные —
+# в том числе превью ввоза, догрузки и обновления из кода, по которому применить нельзя,
+# «не настроен»); failed — сбой самого сервера.
 Outcome = Literal["ok", "refused", "failed"]
 
 

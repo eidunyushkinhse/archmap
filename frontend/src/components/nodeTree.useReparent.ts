@@ -26,10 +26,10 @@ export interface TreeReparent {
 }
 
 // Окажется ли ребёнок цели частью контейнера: элемент считает сервер, здесь только
-// чтение его ответа (element_effective) и намерения листа (element).
+// чтение его ответа (element_effective). Лист-сервис — контейнер, пока его не сделали
+// пустой системой: тип выбран всегда (решение владельца 2026-11-01).
 function joinsContainer(target: Node): boolean {
-  if (target.element_effective === "component") return true;
-  return target.element_effective === "container" && (target.has_children || target.element === "container");
+  return target.element_effective === "component" || target.element_effective === "container";
 }
 
 // Перенос узла на другой уровень перетаскиванием строки дерева (аудит F-7): драг
@@ -71,9 +71,8 @@ export function useTreeReparent(
     const target = allById.get(targetId);
     if (!target || !canHaveChildren(target.shape)) return false;
     // База и брокер не входят в состав контейнера (Р6 эпика элементов): цель —
-    // контейнер с компонентами, лист с намерением «контейнер» или компонент. Лист без
-    // элемента — можно: окно первого вложенного объекта сделает его системой. Поддерево
-    // с базой внутри здесь не обходим — его отказывает сервер, текст приходит тостом.
+    // контейнер (с компонентами или лист) или компонент. Поддерево с базой внутри здесь
+    // не обходим — его отказывает сервер, текст приходит тостом.
     if ((node.shape === "database" || node.shape === "broker") && joinsContainer(target)) return false;
     // Собственный потомок (цикл): путь до цели строится по ЗАГРУЖЕННЫМ предкам, и
     // этого достаточно — чтобы строка была видна, все её предки раскрыты.

@@ -274,7 +274,7 @@ def test_ввоз_файла_поднимает_детей_корневого_п
     человек — test_import (его дети остаются у его родителя, сам он уходит в корень)."""
     parsed, errors = parse_import(
         "nodes:\n  - name: Покупатель\n    shape: person\n    children:\n"
-        "      - name: кабинет\n        children:\n          - name: профиль\n"
+        "      - name: кабинет\n        element: system\n        children:\n          - name: профиль\n"
     )
     assert errors == [] and parsed is not None
     родители = {

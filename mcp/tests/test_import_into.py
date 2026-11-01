@@ -38,6 +38,27 @@ def preview(**over: Any) -> dict[str, Any]:
     return dump("unified_import", "IntoPreviewOut", **fields)
 
 
+async def test_архив_без_типа_у_объекта_с_вложенными_отказ(
+    client: ArchMapClient, api: FakeApi, tmp_path: Path
+) -> None:
+    """Тип выбран всегда (решение владельца 2026-11-01): архив, где у объекта с вложенными
+    нет element, догрузка не планирует — отказ словами продукта, с адресом архива."""
+    отказ = (
+        "arch.zip: У объекта с вложенными объектами не указан тип: «Склад». Укажите "
+        "element: system или element: container."
+    )
+    api.post(PREVIEW_PATH, preview(ok=False, errors=[отказ]))
+
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_import_into_preview",
+            {"project": "Ярмарка", "paths": [str(archive(tmp_path))]},
+            client,
+        )
+
+    assert "Догрузка НЕ пройдёт" in str(exc.value) and отказ in str(exc.value)
+
+
 async def test_превью_догрузки_печатает_дифф_и_обе_ревизии(
     client: ArchMapClient, api: FakeApi, tmp_path: Path
 ) -> None:

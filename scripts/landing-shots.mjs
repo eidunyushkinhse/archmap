@@ -94,15 +94,18 @@ const MOCK = MOCKS[PROJECT_NAME] ?? null;
 const MOCK_OF = Object.fromEntries(Object.entries(MOCKS).flatMap(([p, m]) => m.scenes.map((sc) => [sc, p])));
 
 // Вторая «пара» к scripts/fixtures/mock-import.yaml для кадра импорта: прогон агента в другом
-// репозитории той же демо-системы «Плёнка» (мульти-репо сценарий «Из репозитория»).
+// репозитории той же демо-системы «Плёнка» (мульти-репо сценарий «Из репозитория»). У объектов с
+// вложенными тип указан: без него ввоз файл не принимает (решение владельца 2026-11-01).
 const SECOND_YAML = `# Прогон агента в репозитории биллинга «Плёнки»
 nodes:
   - name: Плёнка
     shape: service
+    element: system
     role: система
     children:
       - name: Сервис биллинга
         shape: service
+        element: system
         role: сервис
         technology: Java
         source: {repo: github.com/plenka/billing}
