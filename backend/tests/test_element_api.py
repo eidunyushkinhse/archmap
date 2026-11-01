@@ -242,7 +242,8 @@ def test_post_и_patch_принимают_и_возвращают_элемент
 
     r = _patch(client, db, h, orders, {"element": "system"})
     assert r.status_code == 200, r.text
-    assert (r.json()["element"], r.json()["element_effective"]) == ("system", "container")
+    # Лист с «система» — пустая система (Р39), а не контейнер.
+    assert (r.json()["element"], r.json()["element_effective"]) == ("system", "system")
     # Без ключа — не трогаем: фронт и MCP шлют только то, что правят.
     r = _patch(client, db, h, orders, {"description": "Заказы покупателей"})
     assert r.json()["element"] == "system"
@@ -379,8 +380,10 @@ def test_р5_контейнер_не_входит_в_контейнер(client, 
     assert _patch(client, db, h, ids["shop"], {"element": "system"}).status_code == 200
 
 
-def test_пользователь_внутри_контейнера_не_отказ(client, db):
-    """«Пользователь» внутри контейнера — замечание панели (AL25), а не отказ правки."""
+def test_вложенный_пользователь_не_мешает_смене_элемента(client, db):
+    """«Пользователь» внутри объекта — старые данные: с 2026-10-31 сервер не создаёт его
+    там и не делает пользователем вложенный объект (test_person_top_level), а смене
+    элемента родителя такой не мешает — его отмечает AL25."""
     owner = ensure_architect(db)
     p, ids = _tree(db, [
         ("orders", None, {}),

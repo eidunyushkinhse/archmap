@@ -102,7 +102,9 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
             style={{ cursor: isAdded ? "default" : "pointer", flex: "none" }}
           />
           <span style={{ color: n.is_external ? BPT.mut : BPT.sec, display: "inline-flex", flex: "none" }}>
-            <ShapeGlyph nesting={hasKids ? treeNesting(n) : "leaf"} shape={n.shape} />
+            {/* Глиф — как в дереве объектов: пустая система (лист с элементом «система»,
+                Р39) и внешняя система (Р42) рисуются системой, а не листом */}
+            <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
           </span>
           <span
             onClick={() => toggleSel(n.id)}

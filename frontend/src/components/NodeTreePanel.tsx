@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Node, NodeShape } from "../types";
+import type { Node } from "../types";
 import { nodeNesting, treeNesting } from "../types";
 import { ShapeGlyph } from "./nodeTree.shared";
 import { PlaceButton, TreeRow, type TreeRowCtx } from "./nodeTree.Row";
-import { placeable, treeRowTitle } from "./nodeTree.mode";
+import { offDeployCanvas, placeable, treeRowTitle } from "./nodeTree.mode";
 import { CollapseIcon, TreeIcon, PlusIcon } from "../ui/icons";
 import "./NodeTreePanel.css";
 import { noAutofill } from "../ui/noAutofill";
@@ -13,6 +13,8 @@ import { usePaletteDrag } from "./nodeTree.usePaletteDrag";
 import { useLazyTree } from "./nodeTree.useLazyTree";
 import { useTreeReparent } from "./nodeTree.useReparent";
 import { useNodeSearch } from "./useNodeSearch";
+import type { NodeType } from "./nodeTerms";
+import type { PaletteTile } from "./element/paletteTiles";
 
 
 /**
@@ -41,9 +43,13 @@ type ModeProps =
       onPickLeaf: (node: Node) => void;
       // Перенос узла на другой уровень перетаскиванием строки (ручка — у архитектора).
       onReparent?: (node: Node, newParentId: string | null) => void;
-      // начало/конец перетаскивания шаблона из палитры: shape при старте, null при
+      // начало/конец перетаскивания шаблона из палитры: тип объекта при старте, null при
       // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
-      onTemplateDrag?: (shape: NodeShape | null) => void;
+      onTemplateDrag?: (type: NodeType | null) => void;
+      // Плитки палитры: какие типы можно тянуть и почему нет (считает страница по
+      // родителю уровня и раскрытым рамкам холста, element/paletteTiles); null или не
+      // передано — палитра ничего не гасит (тип проверит окно «Новый объект»).
+      paletteTiles?: readonly PaletteTile[] | null;
     }
   | {
       // «Развёртывание» (docs/specs/deployment.md): объекты здесь не создаются и не
@@ -110,7 +116,23 @@ export default function NodeTreePanel(props: Props) {
   const [searchQuery, setSearchQuery] = useState("");
   // Дебаунс-поиск (общий с выбором конца связи), результат — плоский список совпадений.
   const { found: foundNodes, searching } = useNodeSearch(searchQuery, 250);
-  const searchResults = searchQuery.trim() ? foundNodes : null;
+  // «Развёртывание»: «Пользователя» нет ни в дереве, ни в поиске (offDeployCanvas, D28).
+  const isDeploy = props.mode === "deploy";
+  const searchResults = searchQuery.trim()
+    ? (isDeploy && foundNodes ? foundNodes.filter((n) => !offDeployCanvas(n)) : foundNodes)
+    : null;
+  const shownRoots = useMemo(
+    () => (isDeploy ? roots.filter((n) => !offDeployCanvas(n)) : roots),
+    [isDeploy, roots],
+  );
+  // Вложенный «Пользователь» бывает только в старых данных (AL25) — и его в этом режиме
+  // не показываем; у остальных режимов ветки как есть.
+  const shownChildren = useMemo(() => {
+    if (!isDeploy) return childrenById;
+    const out: Record<string, Node[]> = {};
+    for (const [id, kids] of Object.entries(childrenById)) out[id] = kids.filter((n) => !offDeployCanvas(n));
+    return out;
+  }, [isDeploy, childrenById]);
 
   // Единый клик строки в плоском дизайне: страница → переход на страницу объекта;
   // редактор → контейнер дрилнится на свой слой, лист показывается на холсте.
@@ -131,7 +153,7 @@ export default function NodeTreePanel(props: Props) {
   // объявленная ВНУТРИ панели, она ремаунтилась бы на каждый рендер и срывала бы
   // нативный драг. Ссылочная стабильность объекта не нужна — важен только тип.
   const rowCtx: TreeRowCtx = {
-    expanded, loadingId, childrenById, leaves, currentNodeId,
+    expanded, loadingId, childrenById: shownChildren, leaves, currentNodeId,
     mode: props.mode, isArchitect,
     // в «Развёртывании» объекты не создаются (решение §2а п. 10) — «+» нет и при переданном
     onCreateChild: deploy ? undefined : onCreateChild,
@@ -222,16 +244,21 @@ export default function NodeTreePanel(props: Props) {
                       <span className="nt-chevspacer" />
                       <ShapeGlyph nesting={treeNesting(n)} shape={n.shape} />
                       <span className="nt-name">{n.name}</span>
+                      {/* Компонента на холсте «Развёртывание» нет: строка поиска говорит,
+                          чей контейнер покажет щелчок (D28) */}
+                      {props.mode === "deploy" && n.element_effective === "component" && n.container_name && (
+                        <span className="nt-note">в «{n.container_name}»</span>
+                      )}
                       {placeable(n, isArchitect, deploy?.onPlace) && <PlaceButton node={n} onPlace={deploy.onPlace} />}
                     </div>
                   ))
                 )
               ) : loadingRoots ? (
                 <div style={hint}>Загрузка…</div>
-              ) : roots.length === 0 ? (
+              ) : shownRoots.length === 0 ? (
                 <div style={hint}>Нет объектов</div>
               ) : (
-                roots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
+                shownRoots.map((n) => <TreeRow key={n.id} node={n} ctx={rowCtx} />)
               )}
             </div>
 
@@ -242,6 +269,7 @@ export default function NodeTreePanel(props: Props) {
                 open={openSections.has("add")}
                 onToggle={() => toggleSection("add")}
                 drag={paletteDrag}
+                tiles={editor.paletteTiles ?? null}
               />
             )}
           </>

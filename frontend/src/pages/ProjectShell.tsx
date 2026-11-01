@@ -28,9 +28,7 @@ import "../components/NodeTreePanel.css";
 import { safeSession } from "../lib/safeStorage";
 import type { NavigateMap } from "../components/graph/types";
 import DialogTitle from "../ui/DialogTitle";
-import { storedMode, storeMode, type WorkMode } from "./workMode";
-import { useMessageToast } from "./useToast";
-import { useFirstChild } from "../components/element/useFirstChild";
+import type { WorkMode } from "./workMode";
 
 interface Props {
   projectId: string;
@@ -74,22 +72,19 @@ export default function ProjectShell({
   // процесс на втором проходе.
   const [pendingProc] = useState<string | null>(() => safeSession.getItem(PENDING_PROCESS_KEY));
   useEffect(() => { safeSession.removeItem(PENDING_PROCESS_KEY); }, []);
-  // «Объекты» и «Процессы» — состояние оболочки, «Развёртывание» задаёт адрес. Режим
-  // запоминается (archmap_mode): App по запомненному «Развёртыванию» открывает страницу
-  // проекта сразу на #/p/<pid>/deploy.
-  const [shellMode, setShellMode] = useState<"schema" | "proc">(
-    () => (pendingProc || storedMode() === "proc" ? "proc" : "schema"),
-  );
+  // «Объекты» и «Процессы» — состояние оболочки, «Развёртывание» задаёт адрес
+  // (#/p/<pid>/deploy — перезагрузка страницы его сохраняет). Памяти режима между заходами
+  // нет (приёмка 2026-10-31): проект открывается в «Объектах», в «Процессах» — только когда
+  // из редактора-карты пришли с процессом.
+  const [shellMode, setShellMode] = useState<"schema" | "proc">(() => (pendingProc ? "proc" : "schema"));
   const mode: WorkMode = deploy ? "deploy" : shellMode;
-  useEffect(() => { storeMode(mode); }, [mode]);
 
   const [procSelection, setProcSelection] = useState<{ id: string; name: string } | null>(null);
   // Процесс, выбранный извне (клик по процессу на странице узла либо по строке
   // процессного алерта в редакторе-карте) — стартовый выбор ProcessWorkspace.
   const [procInitial, setProcInitial] = useState<string | null>(pendingProc);
   // Перейти в «Объекты» или «Процессы». Из «Развёртывания» уходим на страницу проекта,
-  // если go не ведёт в другое место (#/p/<pid> внутри открытой оболочки App не
-  // перенаправляет обратно в «Развёртывание»).
+  // если go не ведёт в другое место.
   function leaveTo(next: "schema" | "proc", go?: () => void) {
     setShellMode(next);
     if (go) go();
@@ -109,12 +104,9 @@ export default function ProjectShell({
   // Счётчик применений синка: перемонтирует страницу — схема грузится свежей, не
   // ждём поллинга. Само окно и тост-итог живут в SchemaActions.
   const [syncToken, setSyncToken] = useState(0);
-  // Модалка создания дочернего объекта («+» в дереве)
+  // Модалка создания дочернего объекта («+» в дереве). Если родитель — лист, окно само
+  // скажет, кем он станет, и задаст его тем же запросом (Р38 docs/plan-c4-elements.md).
   const [createFor, setCreateFor] = useState<string | null>(null);
-  // Первый вложенный объект у листа (Р4 эпика элементов): окно выбора элемента — ДО окна
-  // «Новый объект»; отказ записи — тостом, объект тогда не создаётся.
-  const [createError, showCreateError] = useMessageToast();
-  const firstChild = useFirstChild(showCreateError);
 
   // Алерты схемы — в интерфейсе «Рекомендации»: кнопка в шапке (глобальная
   // видимость, архитектор). In-context рейл с locate живёт в редакторе-карте (MapEditorPage).
@@ -252,11 +244,7 @@ export default function ProjectShell({
               reloadToken={treeReload}
               currentNodeId={nodeId}
               onNodePage={(node: Node) => onNavigateNode(node.id)}
-              onCreateChild={(parentId) => {
-                void firstChild.ensure(parentId, "service").then((go) => {
-                  if (go) setCreateFor(parentId);
-                });
-              }}
+              onCreateChild={setCreateFor}
             />
             {nodeId ? (
               <NodePage
@@ -294,8 +282,6 @@ export default function ProjectShell({
         )}
       </div>
 
-      {firstChild.dialog}
-      {createError && <div role="alert" style={errorToast}>{createError}</div>}
       {createFor && (
         <NodeModal
           parentId={createFor}
@@ -400,10 +386,3 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
 const topBar: CSSProperties = { ...workTopBar, position: "relative", zIndex: 50 };
 // Стиль иконочных кнопок шапки и тост синка переехали в SchemaActions вместе с
 // самими кнопками — здесь их больше нет намеренно.
-// Тост отказа создания (запись элемента родителю не прошла) — как тост редактора-карты.
-const errorToast: CSSProperties = {
-  position: "fixed", top: 74, right: 24, zIndex: 60,
-  background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b",
-  borderRadius: 10, padding: "7px 12px", fontSize: 13,
-  boxShadow: "0 4px 12px rgba(30,41,59,.10)",
-};

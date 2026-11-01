@@ -13,6 +13,7 @@ Uuid остаются там, где агент обязан ими оперир
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -55,34 +56,66 @@ def node_line(node: dict[str, Any], *, with_id: bool = True, marker: str | None 
 # отдаёт готовым: MCP его не вычисляет, только называет словом и ищет имя контейнера
 # среди предков, которые уже пришли в /nodes/all.
 ELEMENT_WORD = {"system": "система", "container": "контейнер", "component": "компонент"}
+# Пустая система — объект без вложенных с элементом «система» (сервер с 0.11.1 читает его
+# системой, Р39): агенту важно знать, что внутри пока ничего нет.
+EMPTY_SYSTEM = "система без контейнеров"
+# Внешний объект без вложенных, который сервер читает системой (Р42, MCP 0.11.2), — чёрный
+# ящик чужого продукта, а не недоделанная система: «без контейнеров» про него не пишем.
+EXTERNAL_SYSTEM = "внешняя система"
+
+
+def _leaf_system(node: dict[str, Any]) -> bool:
+    """Действующий элемент «система» у объекта без вложенных (has_children из ответа
+    сервера; MCP элемент не вычисляет)."""
+    return node.get("element_effective") == "system" and node.get("has_children") is False
+
+
+def empty_system(node: dict[str, Any]) -> bool:
+    """Пустая система: своя система без вложенных. Внешняя — не пустая, а чёрный ящик
+    (external_system)."""
+    return _leaf_system(node) and not node.get("is_external")
+
+
+def external_system(node: dict[str, Any]) -> bool:
+    """Внешняя система без вложенных: внешний объект, который сервер читает системой."""
+    return _leaf_system(node) and bool(node.get("is_external"))
 
 
 def element_line(node: dict[str, Any], container: str | None = None) -> str | None:
     """Строка «Элемент архитектуры: …» по действующему элементу; у компонента — с
-    именем его контейнера, если оно известно. Сервер, который элемента не знает, поля
-    не отдаёт — тогда строки нет; у «Пользователя» элемента нет — строки нет тоже."""
+    именем его контейнера, если оно известно; у пустой системы — «система без
+    контейнеров». Сервер, который элемента не знает, поля не отдаёт — тогда строки нет;
+    у «Пользователя» элемента нет — строки нет тоже."""
     value = node.get("element_effective")
     if value is None:
         return None
     word = ELEMENT_WORD.get(str(value), str(value))
+    if empty_system(node):
+        word = EMPTY_SYSTEM
     if value == "component" and container:
         word += f" контейнера «{container}»"
     return f"Элемент архитектуры: {word}"
 
 
-def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
-    """Имя ближайшего предка с действующим элементом «контейнер» — по данным сервера,
-    обход с seen (данные бывают циклическими)."""
+def container_of(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """Ближайший предок с действующим элементом «контейнер» — по данным сервера, обход с
+    seen (данные бывают циклическими)."""
     seen: set[str] = {str(node.get("id"))}
     parent = node.get("parent_id")
     cur = by_id.get(str(parent)) if parent else None
     while cur is not None and str(cur["id"]) not in seen:
         if cur.get("element_effective") == "container":
-            return str(cur.get("name", "?"))
+            return cur
         seen.add(str(cur["id"]))
         parent = cur.get("parent_id")
         cur = by_id.get(str(parent)) if parent else None
     return None
+
+
+def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> str | None:
+    """Имя ближайшего контейнера среди предков (container_of)."""
+    holder = container_of(node, by_id)
+    return str(holder.get("name", "?")) if holder is not None else None
 
 
 # ── Якорь объекта (docs/plan-anchor-ux.md) ───────────────────────────────────
@@ -185,6 +218,13 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
         )
     if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
+    if external_system(node):
+        # Внешнее не согласуют (Р42): «согласовывать пока нечего» звучало бы упрёком.
+        return f"Статус страницы: не ведётся — это {EXTERNAL_SYSTEM}"
+    if not units:
+        # Система без единиц (пустая или с одними вложенными системами) не согласована:
+        # «0 из 0» читалось бы как «всё согласовано».
+        return f"Статус страницы: {word} — складывается из вложенных объектов, согласовывать пока нечего"
     return (
         f"Статус страницы: {word} — складывается из вложенных объектов, "
         f"согласовано {done} из {len(units)}"
@@ -221,11 +261,26 @@ def _site_name(s: dict[str, Any]) -> str:
     return f"{name} ({', '.join(notes)})" if notes else name
 
 
-def placement_line(node: dict[str, Any]) -> str | None:
+def placement_line(node: dict[str, Any], container: dict[str, Any] | None = None) -> str | None:
     """Строка карточки «Размещение: Кластер prod (в Облако), ВМ-2» — площадки объекта
     (NodeResponse.sites); у системы — площадки её контейнеров, частичные помечены.
-    Пусто — строки нет: у компонента размещения не бывает, и строки «как у контейнера»
-    нарочно нет — она читалась бы наследованием (ошибка 2026-10)."""
+    Пусто — строки нет.
+
+    У компонента своего размещения не бывает: он стоит там же, где его контейнер, и
+    строка та же, что в свойствах интерфейса (решение архитектора 2026-10-31) —
+    «Размещение: Облако — как у контейнера «orders»», без площадок контейнера —
+    «Размещение: как у контейнера «orders»». container — узел контейнера, если он уже
+    загружен (карточка берёт его из /nodes/all, без своего запроса); имя — из
+    container_name ответа узла. Своих площадок компоненту не задать: в
+    archmap_deployment с node_id — «Размещения нет: это компонент — площадки задаются
+    контейнеру «orders»», по смыслу то же."""
+    if node.get("element_effective") == "component":
+        name = node.get("container_name") or (container or {}).get("name")
+        if not name:
+            return None
+        held = list((container or {}).get("sites") or [])
+        where = ", ".join(_site_name(s) for s in held) + " — " if held else ""
+        return f"Размещение: {where}как у контейнера «{name}»"
     sites = list(node.get("sites") or [])
     if not sites:
         return None
@@ -415,6 +470,12 @@ def node_placement(
             else "Размещения нет: это компонент — площадки задаются его контейнеру"
         )
         return out
+    if empty_system(node):
+        out.append(f"Размещения нет: это {EMPTY_SYSTEM} — площадки задаются её контейнерам")
+        return out
+    if external_system(node):
+        out.append(f"Размещения нет: {EXTERNAL_SYSTEM}")
+        return out
     placed = list(node.get("sites") or [])
     if not placed:
         out.append("Размещение: не указано")
@@ -463,10 +524,13 @@ def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
 
     def walk(parent: str | None, depth: int) -> None:
         for n in kids.get(parent, []):
-            # Маркер — только у контейнера с компонентами: лист-контейнер и система —
-            # сегодняшняя картина, и дерево проекта без контейнеров не меняется.
+            # Маркер — у контейнера с компонентами и у пустой системы: лист-контейнер и
+            # система с вложенными — сегодняшняя картина, и дерево проекта без
+            # контейнеров не меняется; пустая система без маркера читалась бы листом.
             container = n.get("element_effective") == "container" and n.get("has_children")
             marker = ELEMENT_WORD["container"] if container else None
+            if empty_system(n):
+                marker = EMPTY_SYSTEM
             lines.append("  " * depth + "• " + node_line(n, with_id=with_ids, marker=marker))
             walk(str(n["id"]), depth + 1)
 
@@ -543,7 +607,7 @@ CONFIG_REASON = (
     "если это обычная фраза, уберите двоеточие"
 )
 CONFIG_REASON_SYSTEM = (
-    "схема у системы, а параметры живут у контейнера: перенесите схему "
+    "схема у системы, а параметры хранятся у контейнера: перенесите схему "
     "контейнеру или компоненту либо уберите двоеточие"
 )
 CONFIG_REASON_CONTAINER = (
@@ -562,14 +626,22 @@ OWN_DOCS_HINT = {
     ),
     "container": "схемы логики описывают код компонентов — перенесите их компонентам",
 }
-COMPONENT_FACTS_HINT = "место — у контейнера «{name}»"
+COMPONENT_FACTS_HINT = "можно собрать у контейнера «{name}»"
+# Только площадки: сбор их не переносит, площадки задают контейнеру.
+COMPONENT_SITES_HINT = "площадки можно задать контейнеру «{name}»"
+# Чем закрыть рекомендацию (MCP 0.12.0): инструмент по имени и объект, с которого его
+# звать. Хвост — только у MCP, слова панели выше не меняются.
+TRANSFER_TAIL = " — archmap_transfer_docs_preview, node_id={node_id}"
+COLLECT_TAIL = " — archmap_collect_facts_preview, node_id={node_id}"
 
 
 def own_docs_line(record: dict[str, Any]) -> str:
-    """Строка AL24: имя и совет по элементу. Сервер без элементов архитектуры поля не
-    шлёт — тогда, как раньше, одно имя."""
+    """Строка AL24: имя, совет по элементу и инструмент переноса. Сервер без элементов
+    архитектуры поля не шлёт — тогда, как раньше, одно имя (и переноса у него нет)."""
     hint = OWN_DOCS_HINT.get(str(record.get("element_effective")))
-    return f"{record['node_name']} ({hint})" if hint else str(record["node_name"])
+    if not hint:
+        return str(record["node_name"])
+    return f"{record['node_name']} ({hint})" + TRANSFER_TAIL.format(node_id=record["node_id"])
 
 
 def component_facts_line(record: dict[str, Any]) -> str:
@@ -585,8 +657,15 @@ def component_facts_line(record: dict[str, Any]) -> str:
         )
         if record.get(flag)
     )
-    hint = COMPONENT_FACTS_HINT.format(name=record.get("container_name") or "")
-    return f"{record['node_name']} · {facts} ({hint})"
+    # Сбор переносит конфигурацию и спецификацию; площадки компонента он не трогает —
+    # у строки только с площадками другая подсказка и нет хвоста сбора.
+    has_facts = bool(record.get("has_config") or record.get("has_spec"))
+    hint = (COMPONENT_FACTS_HINT if has_facts else COMPONENT_SITES_HINT).format(
+        name=record.get("container_name") or ""
+    )
+    collectable = has_facts and record.get("container_id")
+    tail = COLLECT_TAIL.format(node_id=record["container_id"]) if collectable else ""
+    return f"{record['node_name']} · {facts} ({hint}){tail}"
 
 
 def config_reason(record: dict[str, Any]) -> str:
@@ -596,7 +675,8 @@ def config_reason(record: dict[str, Any]) -> str:
     if "container_id" not in record or record["container_id"] == record.get("node_id"):
         return CONFIG_REASON
     if record["container_id"] is None:
-        return CONFIG_REASON_SYSTEM
+        # Схему переносят с системы её вложенным объектам — тем же инструментом, что AL24.
+        return CONFIG_REASON_SYSTEM + TRANSFER_TAIL.format(node_id=record.get("node_id"))
     return CONFIG_REASON_CONTAINER.format(name=record.get("container_name") or "")
 
 
@@ -1470,6 +1550,252 @@ def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: st
     return "\n".join(out)
 
 
+# ── Перенос документации и сбор с компонентов (Р19 эпика элементов) ───────────
+#
+# Получателей и их флаги считает сервер (app/facts_transfer): здесь только слова — те же,
+# что в окнах «Перенести документацию» и «Собрать с компонентов». Перечни с node_id и
+# doc_id: агент передаёт их в применение.
+
+TRANSFER_CAP = 40  # получателей и компонентов в перечне: дальше — счётчиком
+# Что не на месте у объекта по его элементу — первая строка-подсказка превью переноса.
+TRANSFER_HINT = {
+    "system": (
+        "У системы своей документации нет: схемы логики отдают компонентам и объектам без "
+        "вложенных, спецификацию и конфигурацию — контейнерам."
+    ),
+    "container": (
+        "У контейнера с компонентами переносят только схемы логики — их можно перенести "
+        "компонентам; спецификация и конфигурация у контейнера свои."
+    ),
+    "component": (
+        "Схемы логики составного компонента отдают его вложенным компонентам; спецификацию "
+        "и конфигурацию компонента собирают в контейнер — archmap_collect_facts_preview."
+    ),
+}
+
+
+def _yes(flag: object) -> str:
+    return "да" if flag else "нет"
+
+
+def _receiver_line(r: dict[str, Any]) -> str:
+    """Получатель: путь от объекта, элемент и что примет; своя спецификация — пометкой
+    (спецификацию ему не перенести, сервер откажет)."""
+    takes: list[str] = []
+    if r.get("takes_docs"):
+        takes.append("схемы логики")
+    if r.get("takes_process_facts"):
+        takes.append(
+            "спецификация и конфигурация" + (" (своя спецификация уже есть)" if r.get("has_spec") else "")
+        )
+    word = ELEMENT_WORD.get(str(r.get("element_effective")), "объект")
+    return f"  • {r.get('path')} [{word}] — {'; '.join(takes)}  node_id={r.get('node_id')}"
+
+
+def transfer_preview(data: dict[str, Any]) -> str:
+    """Превью «Перенести документацию» (TransferDocsPreview): своё у объекта, получатели
+    с пометками, кто не принимает ничего, и как применить."""
+    element = data.get("element_effective")
+    word = ELEMENT_WORD.get(str(element), "объект")
+    out = [f"Объект «{data.get('name')}» — {word}. node_id={data.get('node_id')}"]
+    docs = list(data.get("docs") or [])
+    params = int(data.get("params") or 0)
+    if not docs and not data.get("has_spec") and not params:
+        out.append("Переносить нечего: своей документации у объекта нет.")
+        return "\n".join(out)
+    hint = TRANSFER_HINT.get(str(element))
+    if hint:
+        out.append(hint)
+    out += ["", "СВОЁ:"]
+    if docs:
+        out.append(f"  Схемы логики ({len(docs)}):")
+        for d in docs:
+            bits = [KIND_WORD.get(str(d.get("kind")), str(d.get("kind") or ""))]
+            if d.get("operation"):
+                bits.append(str(d["operation"]))
+            out.append(f"    • {d.get('name')} [{', '.join(b for b in bits if b)}]  doc_id={d.get('doc_id')}")
+    else:
+        out.append("  Схем логики нет")
+    out.append(f"  Спецификация: {'есть' if data.get('has_spec') else 'нет'}")
+    out.append(f"  Параметров конфигурации: {params}")
+
+    receivers = list(data.get("receivers") or [])
+    takers = [r for r in receivers if r.get("takes_docs") or r.get("takes_process_facts")]
+    others = [str(r.get("path")) for r in receivers if r not in takers]
+    out += ["", "КОМУ МОЖНО ОТДАТЬ (путь от объекта):"]
+    if takers:
+        out.extend(_capped([_receiver_line(r) for r in takers], TRANSFER_CAP, ("получатель", "получателя", "получателей")))
+    else:
+        out.append("  нет — внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров")
+    if others:
+        shown = ", ".join(others[:TRANSFER_CAP]) + (f" и ещё {len(others) - TRANSFER_CAP}" if len(others) > TRANSFER_CAP else "")
+        out.append(f"Не принимают ничего: {shown}.")
+    out.append(
+        "\nНичего не записано — для переноса вызовите archmap_transfer_docs_apply: docs — "
+        '{"<doc_id схемы>": "<node_id получателя со схемами логики>"}, spec_to и params_to — '
+        "node_id получателя со спецификацией и конфигурацией."
+    )
+    return "\n".join(out)
+
+
+def transfer_result(data: dict[str, Any]) -> str:
+    """Отчёт переноса (DistributeDocsOut)."""
+    return (
+        f"Переехало: схем логики {data.get('moved_docs', 0)}, спецификация — "
+        f"{_yes(data.get('spec_moved'))}, параметров конфигурации {data.get('moved_params', 0)}."
+    )
+
+
+def _dropped_params(data: dict[str, Any], container_id: str) -> dict[str, int]:
+    """Сколько параметров каждого компонента сбор отбросит: одноимённые с записью
+    контейнера (container_keeps)."""
+    out: dict[str, int] = {}
+    for cl in data.get("param_clashes") or []:
+        if not cl.get("container_keeps"):
+            continue
+        for c in cl.get("candidates") or []:
+            node_id = str(c.get("node_id"))
+            if node_id != container_id:
+                out[node_id] = out.get(node_id, 0) + 1
+    return out
+
+
+def _component_facts(c: dict[str, Any], dropped: int = 0) -> str:
+    """Что у компонента собирается, словами окна сбора: «2 параметра, спецификация»;
+    отбрасываемые названы честно — «1 параметр, будет отброшен», «2 параметра, 1 будет
+    отброшен»."""
+    n = int(c.get("params") or 0)
+    parts: list[str] = []
+    if n:
+        gone = min(dropped, n)
+        verb = _plural(gone, ("будет отброшен", "будут отброшены", "будут отброшены"))
+        tail = "" if not gone else f", {verb}" if gone == n else f", {gone} {verb}"
+        parts.append(f"{n} {_plural(n, ('параметр', 'параметра', 'параметров'))}{tail}")
+    if c.get("has_spec"):
+        parts.append("спецификация")
+    return ", ".join(parts)
+
+
+def _names(names: list[str]) -> str:
+    """«api», «outbox» и «worker» — перечень имён словами окна сбора."""
+    quoted = [f"«{n}»" for n in names]
+    return quoted[0] if len(quoted) == 1 else ", ".join(quoted[:-1]) + " и " + quoted[-1]
+
+
+def _collect_facts(data: dict[str, Any], container_id: str) -> list[str]:
+    """Что сбор решает без вопроса по приоритету контейнера — те же строки, что в окне."""
+    out: list[str] = []
+    for cl in data.get("param_clashes") or []:
+        if not cl.get("container_keeps"):
+            continue
+        others = [str(c.get("node_name")) for c in cl.get("candidates") or [] if str(c.get("node_id")) != container_id]
+        whose = f"у компонента «{others[0]}»" if len(others) == 1 else f"у компонентов {_names(others)}"
+        out.append(f"Параметр «{cl.get('name')}» есть у контейнера — остаётся его описание, {whose} параметр будет отброшен")
+    specs = list(data.get("specs") or [])
+    holders = [str(s.get("name")) for s in specs if str(s.get("node_id")) != container_id]
+    if data.get("container_has_spec") and holders:
+        out.append(
+            f"У контейнера есть своя спецификация — спецификация компонента «{holders[0]}» будет отброшена"
+            if len(holders) == 1
+            else f"У контейнера есть своя спецификация — спецификации компонентов {_names(holders)} будут отброшены"
+        )
+    single = next((s for s in specs if str(s.get("node_id")) == str(data.get("single_spec_from"))), None)
+    if data.get("single_spec_from") and single is not None:
+        out.append(f"Спецификация компонента «{single.get('name')}» переедет контейнеру")
+    return out
+
+
+def _collect_param_question(cl: dict[str, Any]) -> list[str]:
+    cands = list(cl.get("candidates") or [])
+    name = str(cl.get("name"))
+    out = [
+        f"  • {_ref(name)} — параметр описан у компонентов {_names([str(c.get('node_name')) for c in cands])}, "
+        "у контейнера его нет — чьё описание переедет контейнеру:"
+    ]
+    for c in cands:
+        desc = f"«{c['description']}»" if c.get("description") else "без описания"
+        out.append(f"      {c.get('node_name')}: {desc}  node_id={c.get('node_id')}")
+    out.append(
+        f"    Без ответа — останется у компонентов. Ответ: param_choices[{_ref(name)}] = node_id; "
+        "остальные записи будут отброшены."
+    )
+    return out
+
+
+def _collect_spec_question(holders: list[dict[str, Any]]) -> list[str]:
+    out = [
+        f"  • spec_from — спецификация есть у компонентов {_names([str(h.get('name')) for h in holders])}, "
+        "у контейнера своей нет — чью считать спецификацией контейнера:"
+    ]
+    out.extend(f"      {h.get('name')}  node_id={h.get('node_id')}" for h in holders)
+    out.append("    Без ответа — останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены.")
+    return out
+
+
+def collect_preview(data: dict[str, Any], container_id: str) -> str:
+    """Превью «Собрать с компонентов» (CollectFactsPreview): компоненты с фактами, что
+    решено без вопроса по приоритету контейнера (строки окна) и вопросы краевых случаев
+    в формате вопросов разбора ввоза — суть, кандидаты, дефолт без ответа, форма ответа."""
+    components = list(data.get("components") or [])
+    if not components:
+        return "Собирать нечего: у компонентов нет ни параметров конфигурации, ни спецификации."
+    dropped = _dropped_params(data, container_id)
+    out = [f"Компоненты с конфигурацией или спецификацией ({len(components)}):"]
+    out.extend(_capped(
+        [
+            f"  • {c.get('name')} · {_component_facts(c, dropped.get(str(c.get('node_id')), 0))}"
+            f"  node_id={c.get('node_id')}"
+            for c in components
+        ],
+        TRANSFER_CAP, ("компонент", "компонента", "компонентов"),
+    ))
+    facts = _collect_facts(data, container_id)
+    if facts:
+        out += ["", "Без вопросов — знание контейнера в приоритете:"]
+        out.extend("  • " + f for f in facts)
+    asked = [cl for cl in data.get("param_clashes") or [] if not cl.get("container_keeps")]
+    holders = [s for s in data.get("specs") or [] if str(s.get("node_id")) != container_id]
+    ask_spec = not data.get("container_has_spec") and len(holders) > 1
+    total = len(asked) + (1 if ask_spec else 0)
+    if total:
+        out += [
+            "",
+            f"Вопросы ({total}) — у контейнера своей записи нет, приоритета нет. Ответы передают "
+            "в archmap_collect_facts_apply; вопрос без ответа получит дефолт «как сейчас»:",
+        ]
+        for cl in asked:
+            out.extend(_collect_param_question(cl))
+        if ask_spec:
+            out.extend(_collect_spec_question(holders))
+    out.append(
+        "\nНичего не записано — для сбора вызовите archmap_collect_facts_apply"
+        + (" (ответы — param_choices и spec_from, оба необязательны)" if total else "")
+        + "."
+    )
+    return "\n".join(out)
+
+
+def collect_result(data: dict[str, Any]) -> str:
+    """Отчёт сбора (CollectFactsOut): собрано, отброшено, осталось у компонентов."""
+    out = [
+        f"Собрано: параметров {data.get('moved_params', 0)}, спецификация — {_yes(data.get('spec_moved'))}."
+    ]
+    dropped_params, dropped_specs = int(data.get("dropped_params") or 0), int(data.get("dropped_specs") or 0)
+    if dropped_params or dropped_specs:
+        out.append(f"Отброшено: параметров {dropped_params}, спецификаций {dropped_specs}.")
+    left = [str(n) for n in data.get("left_params") or []]
+    left_specs = int(data.get("left_specs") or 0)
+    if left or left_specs:
+        parts = [f"{'параметр' if len(left) == 1 else 'параметры'} {_names(left)}"] if left else []
+        if left_specs:
+            parts.append(f"спецификаций {left_specs}")
+        out.append(
+            f"Осталось у компонентов (вопросы без ответа): {', '.join(parts)} — их по-прежнему "
+            "отмечает archmap_alerts."
+        )
+    return "\n".join(out)
+
+
 # ── Единый импорт: N входов, споры содержимого, догрузка к живому ────────────
 
 C4_LIST_CAP = 20  # списки замечаний C4-части
@@ -1497,12 +1823,20 @@ FAMILY_COUNTS: list[tuple[str, str]] = [
 ]
 
 
-def c4_preview(c4: dict[str, Any]) -> list[str]:
+def c4_preview(c4: dict[str, Any], folded: bool = False) -> list[str]:
     """C4-часть превью — общая для старого одно-YAML пути и единого ввоза.
 
     Модель у них одна (ImportPreviewOut), и второй формат отчёта тут завести
     значило бы, что один и тот же разбор читается по-разному в зависимости от
     того, каким инструментом его позвали.
+
+    folded — сервер прислал остаток слияния (RemainderOut): каждое замечание уже
+    стало вопросом разбора или лежит в свёртке «Придётся подправить вручную», и
+    сырые строки (общий список и замечания входов) не печатаются — как в окне ввоза,
+    иначе одно и то же читалось бы дважды. Конфликты слияния при нескольких входах —
+    тоже: спор поля между файлами стал вопросом, окно их при нескольких входах не
+    показывает. Ошибки входов печатаются всегда. Сервер без остатка — сырые строки,
+    как раньше.
     """
     out = [
         f"Разбор прошёл: объектов {c4.get('node_count', 0)}, "
@@ -1527,10 +1861,12 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
             f"Без источника: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
             "будут опознаваться по имени"
         )
-    for key, title in (
-        ("warnings", "Предупреждения"),
-        ("conflicts", "Конфликты слияния"),
-    ):
+    sections: list[tuple[str, str]] = []
+    if not folded:
+        sections.append(("warnings", "Предупреждения"))
+    if not (folded and int(c4.get("files") or 0) > 1):
+        sections.append(("conflicts", "Конфликты слияния"))
+    for key, title in sections:
         items = [str(i) for i in (c4.get(key) or [])]
         if items:
             out.append(f"{title} ({len(items)}):")
@@ -1542,7 +1878,8 @@ def c4_preview(c4: dict[str, Any]) -> list[str]:
     # агентов, и «чините вход 2» — единственная работающая адресация.
     for remark in c4.get("file_remarks") or []:
         rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
-        rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
+        if not folded:
+            rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
         if rows:
             out.append(f"Вход {remark.get('file', '?')}:")
             out.extend("  • " + r for r in rows)
@@ -1586,6 +1923,156 @@ def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
     return out
 
 
+# ── Вопросы остатка слияния (RemainderOut, MCP 0.12.0) ───────────────────────
+#
+# То, что слияние не решило само, сервер отдаёт структурой; интерфейс задаёт по ней
+# вопросы, ответы уезжают применению JSON-полем decisions (app/unified_apply.
+# parse_decisions). Здесь — те же вопросы текстом: id, суть, дефолт без ответа и форма
+# ответа. Замечание печатается один раз, как в окне ввоза: ставшее вопросом — вопросом,
+# остальные — пунктом свёртки «Придётся подправить вручную»; сырые строки при
+# присланном остатке не печатаются (c4_preview, folded).
+
+REMAINDER_CAP = 30  # вопросов одного вида: больше тридцати разбирают в интерфейсе
+TARGETS_CAP = 10  # возможных целей связи и путей группы в одном вопросе
+
+# Поле спора словами (FieldDisputeOut.field) — как в вопросах интерфейса, с причастием по
+# роду: «описание задано», «технология задана», «статус задан».
+FIELD_WORD = {
+    "description": ("описание", "задано"),
+    "technology": ("технология", "задана"),
+    "role": ("роль", "задана"),
+    "shape": ("форма", "задана"),
+    "status": ("статус", "задан"),
+    "element": ("элемент архитектуры", "задан"),
+}
+LIFECYCLE_WORD = {"existing": "есть", "planned": "запланирован", "deprecated": "выводится"}
+ELEMENT_END_WORD = {"system": "систему", "container": "контейнер"}
+ELEMENT_FROM_WORD = {"system": "системы", "container": "контейнера"}
+
+
+def _field_value(field: str, value: str) -> str:
+    """Значение спора словами: форма, статус и элемент приходят кодами контракта."""
+    words = {"shape": SHAPE_WORD, "status": LIFECYCLE_WORD, "element": ELEMENT_WORD}.get(field, {})
+    return words.get(value, value)
+
+
+def _source(label: object) -> str:
+    """«Из файла a.yaml» → «из файла a.yaml» внутри скобок."""
+    text = str(label or "")
+    return text[:1].lower() + text[1:]
+
+
+def _ref(qid: object) -> str:
+    """id вопроса в ответе — JSON-строкой: в id бывают «|», «/» и кавычки-ёлочки."""
+    return json.dumps(str(qid), ensure_ascii=False)
+
+
+def _paths(items: list[str], cap: int = TARGETS_CAP) -> str:
+    shown = ", ".join(items[:cap])
+    return shown + (f" и ещё {len(items) - cap}" if len(items) > cap else "")
+
+
+def _field_question(d: dict[str, Any]) -> list[str]:
+    field = str(d.get("field"))
+    cands = list(d.get("candidates") or [])
+    word, given = FIELD_WORD.get(field, (field, "задано"))
+    out = [f"  • {_ref(d.get('id'))} — {word} у «{d.get('node_path')}» {given} по-разному в "
+           f"{len(cands)} файлах:"]
+    for i, c in enumerate(cands):
+        mark = " [текущее в проекте]" if c.get("current") else ""
+        out.append(f"      {i} — «{_field_value(field, str(c.get('value')))}» ({_source(c.get('source_label'))}){mark}")
+    out.append(f"    Без ответа — {d.get('default')}. Ответ: decisions.fields[{_ref(d.get('id'))}] = номер.")
+    return out
+
+
+def _hint_question(h: dict[str, Any]) -> list[str]:
+    kids = [str(k) for k in h.get("children") or []]
+    lies = "лежит" if len(kids) == 1 else "лежат"
+    return [
+        f"  • {_ref(h.get('id'))} — похоже, «{h.get('node_path')}» — контейнер с компонентами: "
+        f"{_paths(kids)} {lies} в {h.get('folder')} репозитория {h.get('repo')}.",
+        f"    Без ответа останется системой. Ответ: decisions.container_hints[{_ref(h.get('id'))}] = "
+        '"container".',
+    ]
+
+
+def _edge_question(e: dict[str, Any]) -> list[str]:
+    element = str(e.get("container_element"))
+    pair = f"«{e.get('from_path')} → {e.get('to_path')}»" + (f" («{e['label']}»)" if e.get("label") else "")
+    where = (
+        f"приходит в {ELEMENT_END_WORD.get(element, element)}"
+        if e.get("end") == "target"
+        else f"выходит из {ELEMENT_FROM_WORD.get(element, element)}"
+    )
+    targets = []
+    for c in e.get("components") or []:
+        tag = ""
+        if c.get("has_children"):
+            tag = " (контейнер)" if c.get("element_effective") in ("container", "component") else " (система)"
+        targets.append(f"{c.get('path')}{tag}")
+    kept = "системе" if element == "system" else "контейнере"
+    return [
+        f"  • {_ref(e.get('id'))} — связь {pair} {where} «{e.get('container_path')}» целиком; "
+        f"цели внутри: {_paths(targets)}.",
+        f"    Без ответа связь останется на {kept}. Ответ: decisions.edges[{_ref(e.get('id'))}] = "
+        '{"to_path": "<полный путь цели>"}.',
+    ]
+
+
+def _pair_question(p: dict[str, Any]) -> list[str]:
+    return [
+        f"  • {_ref(p.get('id'))} — «{p.get('a_path')}» и «{p.get('b_path')}» — похожие имена из "
+        f"разных файлов ({_source(p.get('a_source'))} и {_source(p.get('b_source'))}, оба "
+        f"{p.get('where')}); связей {p.get('a_edges', 0)} и {p.get('b_edges', 0)}.",
+        f"    Без ответа останутся два объекта. Ответ, если это один объект: "
+        f"decisions.merges[{_ref(p.get('id'))}] = " + '{"name": "<имя склеенного>"}.',
+    ]
+
+
+def _group_question(g: dict[str, Any]) -> list[str]:
+    paths = [str(p) for p in g.get("node_paths") or []]
+    return [
+        f"  • {_ref(g.get('id'))} — нет связей с остальной схемой у {len(paths)} "
+        f"{_plural(len(paths), ('объекта', 'объектов', 'объектов'))}: {_paths(paths)}.",
+        "    Без ответа группа останется без связей. Ответ — провести связь: decisions.new_edges = "
+        f'[{{"group_id": {_ref(g.get("id"))}, "from_path": "<путь>", "to_path": "<путь>"}}].',
+    ]
+
+
+# Виды вопросов в порядке окна интерфейса: ключ RemainderOut и сборщик строк пункта.
+REMAINDER_KINDS: list[tuple[str, Callable[[dict[str, Any]], list[str]]]] = [
+    ("field_conflicts", _field_question),
+    ("container_hints", _hint_question),
+    ("container_edges", _edge_question),
+    ("fuzzy_pairs", _pair_question),
+    ("isolated_groups", _group_question),
+]
+
+
+def remainder(data: dict[str, Any], *, apply_tool: str) -> list[str]:
+    """Раздел «Вопросы разбора (N)» и свёртка «Придётся подправить вручную» превью ввоза.
+    Пустой остаток — раздела нет."""
+    out: list[str] = []
+    total = sum(len(data.get(key) or []) for key, _ in REMAINDER_KINDS)
+    if total:
+        out += [
+            "",
+            f"Вопросы разбора ({total}) — то, что слияние не решило само. Ответы передают в "
+            f"{apply_tool} аргументом decisions; вопрос без ответа получит свой дефолт:",
+        ]
+        for key, build in REMAINDER_KINDS:
+            items = list(data.get(key) or [])
+            for item in items[:REMAINDER_CAP]:
+                out.extend(build(item))
+            if len(items) > REMAINDER_CAP:
+                out.append(f"  … и ещё {len(items) - REMAINDER_CAP} таких же вопросов — их удобнее разобрать в интерфейсе")
+    manual = [str(u.get("text")) for u in data.get("unfixable") or []]
+    if manual:
+        out += ["", f"Придётся подправить вручную ({len(manual)}):"]
+        out.extend("  • " + m for m in manual)
+    return out
+
+
 def unified_preview(data: dict[str, Any]) -> str:
     """Сводка dry-run единого ввоза (UnifiedPreviewOut): N входов любого типа."""
     if not data.get("ok"):
@@ -1593,19 +2080,23 @@ def unified_preview(data: dict[str, Any]) -> str:
         return "Импорт НЕ пройдёт. Ошибки:\n" + "\n".join("  • " + e for e in rows)
 
     out: list[str] = []
+    # Остаток прислан — замечания печатает только он (вопросы и свёртка), см. c4_preview.
+    folded = isinstance(data.get("remainder"), dict)
+    rest = _dict(data.get("remainder"))
     c4 = data.get("c4")
     if isinstance(c4, dict):
-        out.extend(c4_preview(c4))
+        out.extend(c4_preview(c4, folded))
     else:
         out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
 
-    warnings = [str(w) for w in (data.get("warnings") or [])]
+    warnings = [] if folded else [str(w) for w in (data.get("warnings") or [])]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
         out.extend("  • " + w for w in warnings)
+    out.extend(remainder(rest, apply_tool="archmap_import_apply"))
 
     # Имя проекта: у одного архива оно приедет из манифеста, во всех остальных
     # случаях его обязан задать вызывающий — иначе применение откажет.
@@ -1697,11 +2188,17 @@ def into_preview(data: dict[str, Any]) -> str:
         conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_into_apply")
     )
 
-    warnings = [str(w) for w in (data.get("warnings") or [])]
+    # Остаток прислан — замечания догрузки (свои и слияния) печатает только его
+    # свёртка, как в окне; замечания живого проекта о самом себе туда не входят
+    # намеренно — это дело рекомендаций, а не догрузки. Без остатка — сырые строки.
+    folded = isinstance(data.get("remainder"), dict)
+    rest = _dict(data.get("remainder"))
+    warnings = [] if folded else [str(w) for w in (data.get("warnings") or [])]
     if warnings:
         out.append("")
         out.append(f"Предупреждения ({len(warnings)}):")
         out.extend("  • " + w for w in warnings)
+    out.extend(remainder(rest, apply_tool="archmap_import_into_apply"))
 
     out.append("")
     out.append(

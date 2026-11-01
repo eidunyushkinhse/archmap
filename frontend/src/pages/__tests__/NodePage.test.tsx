@@ -30,6 +30,8 @@ vi.mock("../../api/nodes", () => ({
     // при маунте, чтобы решить, показывать ли кнопку сбора.
     collectPreview: vi.fn(() => Promise.resolve({ components: [], param_clashes: [], specs: [] })),
     collectFacts: vi.fn(),
+    // Превью «Перенести документацию»: окно получателей не отбирает, берёт их у сервера.
+    transferPreview: vi.fn(),
   },
   // usage — обратный индекс «используется в процессах» (Ф8): страница тянет его
   // эффектом при маунте, без мока эффект падает на «не функция».
@@ -229,6 +231,16 @@ describe("NodePage", () => {
     expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
   });
 
+  it("внешняя система (Р42): своя технология полем, статуса страницы нет, размещение не ведётся", async () => {
+    setup({ node: { is_external: true, element_effective: "system" } });
+    await waitFor(() => expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument());
+    expect(screen.getByDisplayValue("Python")).toBeInTheDocument();
+    expect(screen.getByText("Внешняя система")).toBeInTheDocument();
+    expect(screen.queryByText("В работе")).toBeNull();
+    expect(screen.getByText("не ведётся у внешней системы")).toBeInTheDocument();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
+  });
+
   it("рендерит секцию связей с именем соседа", async () => {
     setup({ edges: [edgeInfo()] });
     await waitFor(() => expect(screen.getByText("Шлюз")).toBeInTheDocument());
@@ -280,8 +292,8 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
-    // getDescendants — для хука агрегации контейнера и окна «Перенести документацию»
-    // (оно само фетчит узел и потомков).
+    // getDescendants — для хука агрегации контейнера (окно «Перенести документацию» берёт
+    // получателей превью сервера — transferPreview).
     vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
     vi.mocked(nodesApi.getChildren).mockResolvedValue(kids);
     // Перенос документации — своя запись: страница сверяет курсоры (syncCursors).
@@ -367,7 +379,7 @@ describe("NodePage: правила контейнеров", () => {
 
   it("свои схемы: предупреждение и «Перенести документацию», создание скрыто", async () => {
     setupContainer({ own: { docs: [docMeta()] } });
-    await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов");
+    await screen.findByText("У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам");
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
     // Создания схем в «Логике» нет; «+ Добавить» в «OpenAPI» у контейнера есть — его
     // спецификация своя (Ф8).
@@ -415,6 +427,15 @@ describe("NodePage: правила контейнеров", () => {
 
   it("окно «Перенести документацию»: переносит схему выбранному получателю", async () => {
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 1, spec_moved: false, moved_params: 0 });
+    vi.mocked(nodesApi.transferPreview).mockResolvedValue({
+      node_id: "c1", name: "Ядро", element_effective: "container",
+      docs: [{ doc_id: "d1", name: "Схема оплаты", kind: "operation", operation: null }],
+      has_spec: false, params: 0,
+      receivers: [{
+        node_id: "k1", path: "Шлюз", element_effective: "component",
+        takes_docs: true, takes_process_facts: false, has_spec: false,
+      }],
+    });
     setupContainer({
       own: { docs: [docMeta()] },
       children: [node("k1", { name: "Шлюз" })],
@@ -427,7 +448,9 @@ describe("NodePage: правила контейнеров", () => {
         doc_assignments: [{ doc_id: "d1", child_id: "k1" }],
       }),
     );
-    // Модалка закрылась после успеха
+    // После успеха — итог в том же окне, «Закрыть» его закрывает.
+    expect(await screen.findByText("Перенесено: 1 схема логики.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
     await waitFor(() => expect(screen.queryByTestId("modal")).toBeNull());
   });
 
@@ -435,6 +458,13 @@ describe("NodePage: правила контейнеров", () => {
     const params = [{ id: "p1" }, { id: "p2" }] as ConfigParam[];
     vi.mocked(configParamsApi.list).mockImplementation((id) => Promise.resolve(id === "c1" ? params : []));
     vi.mocked(nodeDocsApi.distribute).mockResolvedValue({ moved_docs: 0, spec_moved: false, moved_params: 2 });
+    vi.mocked(nodesApi.transferPreview).mockResolvedValue({
+      node_id: "c1", name: "Ядро", element_effective: "system", docs: [], has_spec: false, params: 2,
+      receivers: [{
+        node_id: "k1", path: "Шлюз", element_effective: "container",
+        takes_docs: true, takes_process_facts: true, has_spec: false,
+      }],
+    });
     setupContainer({
       own: { element_effective: "system" },
       children: [node("k1", { name: "Шлюз" })],
@@ -458,9 +488,13 @@ describe("NodePage: правила контейнеров", () => {
     vi.mocked(nodesApi.collectPreview).mockResolvedValue({
       components: [{ node_id: "k1", name: "api", params: 2, has_spec: true }],
       param_clashes: [],
-      specs: [{ node_id: "k1", name: "api" }],
+      specs: [{ node_id: "c1", name: "Ядро" }, { node_id: "k1", name: "api" }],
+      container_has_spec: true,
+      single_spec_from: null,
     });
-    vi.mocked(nodesApi.collectFacts).mockResolvedValue({ moved_params: 2, spec_moved: true });
+    vi.mocked(nodesApi.collectFacts).mockResolvedValue({
+      moved_params: 2, spec_moved: false, dropped_params: 0, dropped_specs: 1, left_params: [], left_specs: 0,
+    });
     setupContainer({
       own: { element: "container", element_effective: "container", openapi_spec: "openapi: 3.0.0" },
       children: [node("k1", { name: "api", element_effective: "component", container_name: "Ядро" })],
@@ -474,21 +508,33 @@ describe("NodePage: правила контейнеров", () => {
 
     await userEvent.click(buttons[0]);
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
+    // Своя спецификация контейнера в приоритете — фактом, без вопроса.
+    expect(screen.getByText(
+      "У контейнера есть своя спецификация — спецификация компонента «api» будет отброшена",
+    )).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
-    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", {
-      param_choices: [], spec_from: "k1",
-    }));
-    // Превью перечитано по новой эпохе страницы.
+    await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", { param_choices: [] }));
+    // Итог — в том же окне, пока страница перечитывает превью по новой эпохе.
+    expect(await screen.findByText("Собрано: 2 параметра.")).toBeInTheDocument();
+    expect(screen.getByText("Отброшено: 1 спецификация.")).toBeInTheDocument();
     await waitFor(() => expect(nodesApi.collectPreview).toHaveBeenCalledTimes(2));
-    vi.mocked(nodesApi.collectPreview).mockResolvedValue({ components: [], param_clashes: [], specs: [] });
+    await userEvent.click(screen.getByRole("button", { name: "Закрыть" }));
+    expect(screen.queryByText("Собрано: 2 параметра.")).not.toBeInTheDocument();
+    vi.mocked(nodesApi.collectPreview).mockResolvedValue({
+      components: [], param_clashes: [], specs: [], container_has_spec: false, single_spec_from: null,
+    });
   });
 });
 
+// Строка «Тип» (Р40): выпадашка с подписью «Тип» для скринридера, значение — текстом
+// кнопки; пункты меню — по подписи типа.
+const typeButton = () => screen.getByRole("button", { name: "Тип" });
+const typeOption = (label: string) => screen.getByRole("option", { name: new RegExp(`^${label}`) });
+
 // ── Смена типа узла ─────────────────────────────────────────────────────────
-// Тип (форма C4) правится с самой страницы: импорт мог ошибиться («Monitored
-// Hosts» приехал «Пользователем»), и раньше починить это можно было только
-// пересозданием объекта. Запреты держит сервер — страница обязана показать его
-// причину, а не проглотить отказ.
+// Тип правится с самой страницы: импорт мог ошибиться («Monitored Hosts» приехал
+// «Пользователем»), и раньше починить это можно было только пересозданием объекта.
+// Запреты держит сервер — страница обязана показать его причину, а не проглотить отказ.
 describe("NodePage: смена типа", () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -502,37 +548,37 @@ describe("NodePage: смена типа", () => {
     return render(<NodePage nodeId="n1" isArchitect={isArchitect} {...nav} />);
   }
 
-  it("архитектор меняет тип из выпадашки — PATCH с новой формой", async () => {
-    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
-    setupType({ shape: "person" });
-    const кнопка = await screen.findByRole("button", { name: "Пользователь" });
+  it("архитектор меняет тип из выпадашки — PATCH с новой формой и элементом", async () => {
+    vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "service", element: "container", version: 2 }));
+    setupType({ shape: "person", element_effective: null });
+    const кнопка = await screen.findByRole("button", { name: "Тип" });
+    expect(кнопка).toHaveTextContent("Пользователь");
     await userEvent.click(кнопка);
-    await userEvent.click(screen.getByText("Сервис"));
+    await userEvent.click(typeOption("Контейнер"));
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
-    expect(vi.mocked(nodesApi.update).mock.calls[0][1].shape).toBe("service");
+    expect(vi.mocked(nodesApi.update).mock.calls[0][1]).toMatchObject({ shape: "service", element: "container" });
   });
 
   it("наблюдателю тип показан текстом, редактора нет", async () => {
-    setupType({ shape: "person" }, false);
+    setupType({ shape: "person", element_effective: null }, false);
     await waitFor(() => expect(screen.getByText("Пользователь")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Пользователь" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Тип" })).toBeNull();
   });
 
   it("отказ сервера виден на странице, а не проглатывается", async () => {
-    // У узла с детьми строки «Тип» нет (Р24 эпика «Элемент архитектуры»): отказ — на базе
-    // с описанной структурой.
+    // Отказ — на базе с описанной структурой.
     const причина = "У узла описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
     setupType({ shape: "database" });
-    await userEvent.click(await screen.findByRole("button", { name: "База данных" }));
-    await userEvent.click(screen.getByText("Брокер сообщений"));
+    await userEvent.click(await screen.findByRole("button", { name: "Тип" }));
+    await userEvent.click(typeOption("Брокер"));
     expect(await screen.findByText(причина)).toBeInTheDocument();
   });
 
-  it("у узла с детьми строки «Тип» нет — тип говорит элемент архитектуры", async () => {
+  it("у узла с детьми — та же строка «Тип», отдельной строки элемента нет (Р40)", async () => {
     setupType({ shape: "service", has_children: true, child_count: 1, element_effective: "system" });
-    await screen.findByText("Элемент архитектуры");
-    expect(screen.queryByText("Тип")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Тип" })).toHaveTextContent("Система");
+    expect(screen.queryByText("Элемент архитектуры")).not.toBeInTheDocument();
   });
 });
 
@@ -561,8 +607,8 @@ describe("NodePage: правки меты и схема страницы", () =>
     setupSchema({ shape: "service" });
     await waitFor(() => expect(схема()).toContain("n1:service"));
 
-    await userEvent.click(screen.getByRole("button", { name: "Сервис" }));
-    await userEvent.click(screen.getByText("База данных"));
+    await userEvent.click(typeButton());
+    await userEvent.click(typeOption("База данных"));
 
     await waitFor(() => expect(схема()).toContain("n1:database"));
     // Сосед не пострадал, и контекст не перезапрашивался — данные уже были на руках
@@ -623,7 +669,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
 
   it("чужая смена ТИПА (graph_rev) освежает «Свойства», а не только схему", async () => {
     setupPoll({ shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("Контейнер"), ждать);
 
     // Другая сессия сменила тип: структурная правка двигает graph_rev, meta_rev
     // стоит на месте. Форма — единственное отличие, поэтому тест ловит и «слушаем
@@ -632,7 +678,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("База данных"), ждать);
     expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
   });
 
@@ -675,7 +721,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     // Тик застал СВОЮ правку: сервер отдаёт ровно то, что уже показано, —
     // ни подмены полей, ни тоста «Данные обновлены» быть не должно.
     setupPoll({ name: "Сервис оплаты", shape: "service" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Сервис" })).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(typeButton()).toHaveTextContent("Контейнер"), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { name: "Сервис оплаты", shape: "service", version: 5 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
@@ -692,15 +738,15 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     vi.mocked(nodesApi.update).mockResolvedValue(node("n1", { shape: "database", version: 5 }));
     setupPoll({ shape: "service" });
     // findBy* ждёт тем же дефолтом в 1000 мс — болезнь та же, лечим заодно.
-    await userEvent.click(await screen.findByRole("button", { name: "Сервис" }, ждать));
-    await userEvent.click(screen.getByText("База данных"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument(), ждать);
+    await userEvent.click(await screen.findByRole("button", { name: "Тип" }, ждать));
+    await userEvent.click(typeOption("База данных"));
+    await waitFor(() => expect(typeButton()).toHaveTextContent("База данных"), ждать);
 
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", { shape: "service", version: 2 }));
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    expect(screen.getByRole("button", { name: "База данных" })).toBeInTheDocument();
+    expect(typeButton()).toHaveTextContent("База данных");
     expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
   });
 
@@ -1248,6 +1294,20 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
     await screen.findByRole("button", { name: /В работе · 1 из 2/ }, ждать);
   });
 
+  it("система: вложенные объекты не загрузились — причина и «Повторить», а не «нечего согласовывать»", async () => {
+    // Отказ раньше глотался пустым списком: система выглядела пустой, а меню пилюли
+    // писало «Согласовывать пока нечего». Теперь — экран отказа с повтором.
+    const kids = [node("k1", { name: "Шлюз", parent_id: "c1" })];
+    setupPage(node("c1", { name: "Ядро", has_children: true, child_count: 1, element_effective: "system" }), kids);
+    // Потомков страница просит после загрузки самого объекта — первый запрос откажет.
+    vi.mocked(nodesApi.getDescendants).mockRejectedValueOnce(new ApiError(500, "Сервер недоступен"));
+    const alert = await screen.findByText("Не удалось загрузить вложенные объекты", {}, ждать);
+    expect(screen.queryByRole("button", { name: /В работе · / })).not.toBeInTheDocument();
+    await userEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.queryByText("Не удалось загрузить вложенные объекты")).not.toBeInTheDocument());
+    await screen.findByRole("button", { name: /В работе · 0 из 1/ }, ждать);
+  });
+
   it("система: единицы — все вложенные объекты, кроме систем, в том числе компоненты контейнера", async () => {
     // Торговля → Заказы (контейнер) → Заказы-API (компонент); Торговля → Склад (система) →
     // Остатки. Вложенная система не позиция счётчика, её объекты — позиции.
@@ -1372,5 +1432,62 @@ describe("NodePage: кнопка вложенного объекта в пуст
     unmount();
     setupLonely({ element_effective: "component", container_name: "orders" });
     expect(await screen.findByRole("button", { name: "Добавить компонент" })).toBeInTheDocument();
+  });
+});
+
+// ── Хвосты страницы Ф13а ─────────────────────────────────────────────────────
+describe("NodePage: контейнер компонента и пилюля системы без единиц", { timeout: 15_000 }, () => {
+  beforeEach(() => vi.clearAllMocks());
+  const ждать = { timeout: 5000 };
+
+  function setupPage(n: Node, all: Node[], kids: Node[] = []) {
+    vi.mocked(nodesApi.getAll).mockResolvedValue(all);
+    vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
+    vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
+    vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue([]);
+    vi.mocked(nodesApi.getDescendants).mockResolvedValue(kids);
+    vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 1, meta_rev: 1, process_rev: 0 });
+    return render(<NodePage nodeId={n.id} isArchitect={false} {...nav} />);
+  }
+
+  it("контейнер компонента не загрузился — причина и «Повторить», а не молча пустые строки", async () => {
+    const orders = node("orders", { name: "orders", has_children: true, child_count: 1, element: "container" });
+    const api = node("api", { name: "api", parent_id: "orders", element_effective: "component", container_name: "orders" });
+    let ordersFails = true;
+    vi.mocked(nodesApi.get).mockImplementation(async (id: string) => {
+      if (id !== "orders") return api;
+      if (ordersFails) throw new ApiError(500, "Сервер недоступен");
+      return orders;
+    });
+    setupPage(api, [orders, api]);
+    const alert = await screen.findByText("Не удалось загрузить контейнер «orders»", undefined, ждать);
+    const box = alert.closest("[role=alert]") as HTMLElement;
+    expect(box).toHaveTextContent("Сервер недоступен");
+
+    ordersFails = false;
+    await userEvent.click(within(box).getByRole("button", { name: "Повторить" }));
+    await waitFor(() => expect(screen.queryByText("Не удалось загрузить контейнер «orders»")).toBeNull());
+  });
+
+  it("база с детьми (сервер читает её системой) — пилюля считает единицы, вечной загрузки нет", async () => {
+    const db = node("db", { name: "Склад", shape: "database", has_children: true, child_count: 1, element_effective: "system" });
+    const kids = [node("k1", { name: "Реплика", parent_id: "db", approval: "approved", approval_effective: "approved" })];
+    vi.mocked(nodesApi.get).mockResolvedValue(db);
+    setupPage(db, [db, ...kids], kids);
+    const pill = await screen.findByRole("button", { name: /В работе · 1 из 1/ }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовано 1 из 1")).toBeInTheDocument();
+    expect(screen.queryByText("Загрузка…")).toBeNull();
+  });
+
+  it("пустая система — «Согласовывать пока нечего», потомков не запрашивает", async () => {
+    const empty = node("s", { name: "Склад", element: "system", element_effective: "system" });
+    vi.mocked(nodesApi.get).mockResolvedValue(empty);
+    setupPage(empty, [empty]);
+    const pill = await screen.findByRole("button", { name: "В работе" }, ждать);
+    await userEvent.click(pill);
+    expect(screen.getByText("Согласовывать пока нечего")).toBeInTheDocument();
+    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(nodesApi.getDescendants).not.toHaveBeenCalled();
   });
 });

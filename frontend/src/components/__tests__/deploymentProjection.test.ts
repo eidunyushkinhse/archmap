@@ -238,6 +238,16 @@ describe("projectDeployment", () => {
     expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);
   });
 
+  it("пустая система (лист с элементом «система», Р39) не единица и не рисуется", () => {
+    const p = projectDeployment(graph([site("s1")], [
+      tnode("empty", null, [], 0, "system"),
+      tnode("x", null, ["s1"]),
+    ]));
+    expect(ids(p.children[siteKey("s1")])).toEqual([instanceKey("x", "s1")]);
+    // В «Размещение не указано» её тоже нет: размещать в ней нечего.
+    expect(p.children[siteKey(UNPLACED)]).toBeUndefined();
+  });
+
   it("связи поднимаются к представителям: внутри цельной — скрыта, наружу — от карточки системы", () => {
     const p = projectDeployment(graph([site("s1"), site("t")], [
       tnode("c", null, ["s1"], 2),

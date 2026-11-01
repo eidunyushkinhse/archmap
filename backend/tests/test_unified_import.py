@@ -1542,6 +1542,30 @@ def test_остаток_все_четыре_вопроса_в_превью():
     assert (элемент["Ярмарка / orders"], элемент["Оператор"]) == ("system", None)
 
 
+def test_остаток_внешний_лист_словами_системы():
+    """Р42: внешний лист без элемента — внешняя система: так его называют и вопрос о
+    связи в объект с вложенными (вложенный объект конца), и пикер концов новой связи.
+    Хранимое «контейнер» у внешнего листа — контейнер."""
+    с_внешним = _ОСТАТОК_1.replace(
+        "          - name: api\n", "          - name: api\n            external: true\n"
+    ).replace(
+        "      - name: Каталог-БД\n",
+        "      - name: Банк\n        external: true\n"
+        "      - name: Шлюз\n        external: true\n        element: container\n"
+        "      - name: Каталог-БД\n",
+    )
+    превью = preview_from_plan(build_unified_plan(
+        [("shop.yaml", с_внешним.encode()), ("billing.yaml", _ОСТАТОК_2.encode())]
+    ))
+
+    вход = превью.remainder.container_edges[0]
+    assert [(c.path, c.element_effective) for c in вход.components] == [
+        ("Ярмарка / orders / api", "system")
+    ]
+    элемент = dict(zip(превью.remainder.node_paths, превью.remainder.node_elements, strict=True))
+    assert (элемент["Ярмарка / Банк"], элемент["Ярмарка / Шлюз"]) == ("system", "container")
+
+
 def test_остаток_слова_по_элементу_конца_контейнер():
     """Объявленный контейнер: замечание и вопрос — словами контейнера, вложенные — его
     компоненты; замечание по-прежнему становится вопросом и прячется из списков."""
@@ -1688,17 +1712,6 @@ _ВРУЧНУЮ: list[tuple[str, list[str], str, str]] = [
         "перенести в один корень вручную.",
     ),
     (
-        "actors",
-        [
-            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
-            "        shape: person\n      - name: orders\n"
-            "edges:\n  - {from: Покупатель, to: orders}\n",
-        ],
-        "внутри системы оказались люди",
-        "Внутри системы оказались люди («Покупатель»). Человек пользуется системой, а не "
-        "входит в неё, поэтому их нужно будет перенести в корень схемы вручную.",
-    ),
-    (
         "lonely",  # один объект — «У 1 объекта»
         [
             "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
@@ -1750,6 +1763,18 @@ _ВРУЧНУЮ: list[tuple[str, list[str], str, str]] = [
         "У связи «A → Kafka» с брокером «Kafka» не указан канал. Его нужно будет вписать в "
         "карточке связи вручную.",
     ),
+    (
+        "component_sites",  # Ф13а: площадки компонента сняты — указать их контейнеру руками
+        [
+            "nodes:\n  - name: orders\n    element: container\n    children:\n"
+            "      - name: api\n        sites: [ВМ]\n"
+            "deployment:\n  sites:\n    - name: ВМ\n",
+        ],
+        "площадки у компонента пропущены",
+        "«orders / api» — компонент контейнера «orders», а площадки задаются контейнеру, "
+        "поэтому площадки компонента не перенесены. Если они нужны, укажите их самому "
+        "контейнеру.",
+    ),
 ]
 
 
@@ -1763,6 +1788,62 @@ def test_вручную_сырая_строка_становится_пункт�
     assert friendly_remark(сырая) == пункт
     # Пункт доехал до свёртки — и схемный, и пофайловый (Ф2г).
     assert пункт in [u.text for u in remainder_from_plan(план, None).unfixable]
+
+
+def test_вручную_пользователь_поднят_разбором_а_не_строкой_слияния():
+    """«Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31):
+    разбор каждого входа поднимает вложенного туда сам, и в свёртку едет его замечание
+    как есть — строки слияния «внутри системы оказались люди» больше нет."""
+    план = build_unified_plan([
+        ("shop.yaml", (
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+            "        shape: person\n      - name: orders\n"
+            "edges:\n  - {from: Покупатель, to: orders}\n"
+        ).encode()),
+        ("orders.yaml", (
+            "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+            "        element: container\n        children:\n          - name: api\n"
+            "          - name: Оператор\n            shape: person\n"
+            "edges:\n  - {from: Оператор, to: api}\n"
+        ).encode()),
+    ])
+    assert план.ok and план.merged is not None
+    assert {
+        n.name: n.parent_idx for n in план.merged.nodes if n.shape == "person"
+    } == {"Покупатель": None, "Оператор": None}
+    пункты = [(u.text, u.file) for u in remainder_from_plan(план, None).unfixable]
+    assert (
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "уровень", 0,
+    ) in пункты
+    assert (
+        "Ярмарка / orders: пользователь «Оператор» живёт вне границ системы — поднят на "
+        "верхний уровень", 1,
+    ) in пункты
+    assert not any("оказались люди" in w for w in план.report.warnings)
+
+
+def test_применение_кладёт_вложенного_пользователя_в_корень(db):
+    """Сквозь создание проекта единым ввозом: «Пользователь», вложенный в файле в систему
+    и в контейнер, ложится на верхний уровень, связи с ним целы."""
+    план = build_unified_plan([("shop.yaml", (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+        "        shape: person\n      - name: orders\n        element: container\n"
+        "        children:\n          - name: api\n          - name: Оператор\n"
+        "            shape: person\n"
+        "edges:\n  - {from: Покупатель, to: orders}\n  - {from: Оператор, to: api}\n"
+    ).encode())])
+    проект, _отчёт = apply_unified_plan(db, план, {}, "Ярмарка", None, ensure_architect(db).id)
+    db.commit()
+
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == проект.id)}
+    assert узлы["Покупатель"].parent_id is None and узлы["Оператор"].parent_id is None
+    assert узлы["orders"].element == "container"
+    связи = {
+        (e.source_id, e.target_id) for e in db.query(Edge).filter(Edge.project_id == проект.id)
+    }
+    assert (узлы["Покупатель"].id, узлы["orders"].id) in связи
+    assert (узлы["Оператор"].id, узлы["api"].id) in связи
 
 
 def test_вручную_незнакомая_строка_как_есть():
@@ -2484,6 +2565,92 @@ def test_выбранный_контейнер_выносит_базу_уров�
     )
     assert строка in отчёт.warnings
     assert строка in [u.text for u in отчёт.unfixable]
+
+
+_ПЛОЩАДКА_ВМ = "deployment:\n  sites:\n    - name: ВМ\n"
+
+
+def _с_базой(tech: str) -> str:
+    """orders — система: у api свои площадки, база внутри."""
+    return (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n"
+        "          - name: api\n            sites: [ВМ]\n"
+        f"          - name: orders-db\n            shape: database\n            technology: {tech}\n"
+    ) + _ПЛОЩАДКА_ВМ
+
+
+def _три_файла_спора(первый: str = _ЭЛЕМЕНТ_2):
+    return build_unified_plan([
+        ("billing.yaml", первый.encode()),
+        ("shop.yaml", _с_базой("PostgreSQL").encode()),
+        ("store.yaml", _с_базой("MySQL").encode()),
+    ])
+
+
+def _ответ_система(db, план, имя: str):
+    спор = next(c for c in preview_from_plan(план).remainder.field_conflicts if c.field == "element")
+    assert [c.value for c in спор.candidates] == ["container", "system"]
+    return apply_unified_plan(
+        db, план, {}, имя, None, ensure_architect(db).id,
+        decisions=parse_decisions(json.dumps({"fields": {спор.id: 1}})),
+    )
+
+
+def _про_вынос(отчёт) -> list[str]:
+    return [u.text for u in отчёт.unfixable if "вынесена" in u.text or "orders / api" in u.text]
+
+
+def test_ответ_система_возвращает_базу_внутрь_и_расхождения_по_путям_после_выноса(db):
+    """Ф13а: файл 1 зовёт orders контейнером, файлы 2 и 3 — системой с базой внутри и
+    площадками у api. Слияние оставляет «контейнер» (вопрос спора), выносит базу уровнем
+    выше и снимает площадки api как компонента; строка расхождения о базе называет её
+    там, где она ляжет, а не путём документа. Ответ «Система» возвращает базу внутрь
+    orders и площадки api — дерево как в файлах, где он система, — и оба пункта свёртки о
+    последствиях «контейнера» пропадают."""
+    план = _три_файла_спора()
+    assert план.ok, план.errors
+    про_базу = [c for c in план.report.conflicts if "technology" in c]
+    assert про_базу == [
+        "Ярмарка / orders-db: technology: оставлено «PostgreSQL» (файл 2), отброшено «MySQL» (файл 3)",
+    ]
+
+    без_ответа, отчёт = apply_unified_plan(db, план, {}, "Без ответа", None, ensure_architect(db).id)
+    db.commit()
+    assert "Ярмарка / orders-db" in _состав(db, без_ответа)[0]
+    assert len(_про_вынос(отчёт)) == 2, _про_вынос(отчёт)
+
+    проект, отчёт = _ответ_система(db, _три_файла_спора(), "Ответ система")
+    db.commit()
+    assert _элемент_в_проекте(db, проект.id, "orders") == "system"
+    пути, _ = _состав(db, проект)
+    assert "Ярмарка / orders / orders-db" in пути and "Ярмарка / orders-db" not in пути
+    api = db.query(Node).filter(Node.project_id == проект.id, Node.name == "api").one()
+    assert db.query(DeploymentInstance).filter_by(node_id=api.id).count() == 1
+    assert _про_вынос(отчёт) == []
+
+
+def test_ответ_система_не_прячет_снятое_разбором_файла(db):
+    """Пункт уходит, только если ответ вернул то, о чём он: файл-контейнер сам положил
+    площадку «Облако» своему компоненту api, разбор этого файла её снял — вернуть нечего,
+    и его пункт о площадках компонента остаётся, хотя пункт слияния с тем же текстом (о
+    площадке «ВМ» из файлов-систем) уходит вместе с выносом базы."""
+    сам_с_площадкой = (
+        _ЭЛЕМЕНТ_2 + "            sites: [Облако]\ndeployment:\n  sites:\n    - name: Облако\n"
+    )
+    проект, отчёт = _ответ_система(db, _три_файла_спора(сам_с_площадкой), "Снято разбором")
+    db.commit()
+    про_api = [t for t in _про_вынос(отчёт) if "orders / api" in t]
+    assert [t for t in _про_вынос(отчёт) if "вынесена" in t] == []
+    assert len(про_api) == 1, про_api
+    api = db.query(Node).filter(Node.project_id == проект.id, Node.name == "api").one()
+    площадки = {
+        site.name
+        for site in db.query(DeploymentSite)
+        .join(DeploymentInstance, DeploymentInstance.site_id == DeploymentSite.id)
+        .filter(DeploymentInstance.node_id == api.id)
+    }
+    assert площадки == {"ВМ"}
 
 
 def test_вынесенная_база_получает_таблицы_по_адресу_своего_архива(db):

@@ -367,6 +367,32 @@ def test_непересекающееся_дерево_доливается_це
     assert {p[0] for p in стало["процессы"]} == {"Оформление", "Приёмка"}
 
 
+def test_новый_пользователь_внутри_живой_системы_ложится_в_корень(db):
+    """«Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31):
+    новый человек, которого архив кладёт внутрь живой системы, создаётся в корне с
+    замечанием разбора; вложенный человек живого проекта (старые данные) не трогается —
+    догрузка живое дерево не перестраивает, его отмечает AL25."""
+    проект, у = _ярмарка(db)
+    оператор = _узел(db, проект, "Оператор", у["корень"], shape="person")
+    db.commit()
+    донор = _проект(db, "Донор")
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    orders = _узел(db, донор, "orders", корень)
+    покупатель = _узел(db, донор, "Покупатель", корень, shape="person")
+    _ребро(db, донор, покупатель, orders, label="заказывает")
+    db.commit()
+
+    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
+
+    assert превью.ok and отчёт.nodes_created == 1
+    новый = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Покупатель").one()
+    assert новый.parent_id is None
+    db.refresh(оператор)
+    assert оператор.parent_id == у["корень"].id
+    [связь] = db.query(Edge).filter(Edge.project_id == проект.id, Edge.source_id == новый.id).all()
+    assert связь.target_id == у["orders"].id
+
+
 # ── 3. Пересечение узла: fill-only ───────────────────────────────────────────
 
 
@@ -2329,6 +2355,43 @@ def test_элемент_спор_с_живым_ответом_переписыв
     )
 
 
+def _донор_биллинга(db, имя: str, element: str, база: str | None = None) -> Project:
+    """Архив с новым объектом billing: контейнер с api либо система с базой внутри."""
+    донор = _проект(db, имя)
+    корень = _узел(db, донор, "Ярмарка", role="система")
+    billing = _узел(db, донор, "billing", корень, element=element)
+    if база is None:
+        _узел(db, донор, "api", billing)
+    else:
+        _узел(db, донор, "billing-db", billing, shape="database", technology=база)
+    db.flush()
+    return донор
+
+
+def test_элемент_ответ_система_возвращает_базу_нового_объекта_внутрь(db):
+    """Ф13а, догрузка тем же путём, что создание: архивы спорят, контейнер новый billing
+    или система с базой. Слияние оставляет «контейнер» и выносит базу; ответ «Система»
+    кладёт базу обратно внутрь billing, пункт о выносе из свёртки уходит."""
+    проект, _ = _ярмарка(db)
+    архивы = [
+        build_archive(db, _донор_биллинга(db, "Донор 1", "container")),
+        build_archive(db, _донор_биллинга(db, "Донор 2", "system", "PostgreSQL")),
+        build_archive(db, _донор_биллинга(db, "Донор 3", "system", "MySQL")),
+    ]
+    db.commit()
+    план = build_into_plan(db, проект, [(f"a{i}.zip", a) for i, a in enumerate(архивы, 1)])
+    [спор] = [c for c in into_preview(план).remainder.field_conflicts if c.field == "element"]
+    assert [c.value for c in спор.candidates] == ["container", "system"]
+
+    _, отчёт = _догрузить(
+        db, проект, *архивы, решения=parse_decisions(json.dumps({"fields": {спор.id: 1}}))
+    )
+    billing = db.query(Node).filter(Node.project_id == проект.id, Node.name == "billing").one()
+    база = db.query(Node).filter(Node.project_id == проект.id, Node.name == "billing-db").one()
+    assert (billing.element, база.parent_id) == ("system", billing.id)
+    assert not [u.text for u in отчёт.unfixable if "вынесена" in u.text]
+
+
 def test_элемент_выбранный_контейнер_с_живой_базой_внутри_не_ложится(db):
     """Ответ «Контейнер» узлу, под которым живая база: применение снимает значение
     санитизацией слитого дерева, живое остаётся системой, пункт — в свёртке."""
@@ -2411,7 +2474,7 @@ def test_элемент_доливка_проверяется_правилом_�
                      element="container", version=1)
     api = Node(id=uuid.uuid4(), project_id=pid, name="api", shape="service",
                parent_id=контейнер.id, version=1)
-    строки = {n.id: ElementRow(n.id, n.parent_id, n.shape, n.element, n.name)
+    строки = {n.id: ElementRow(n.id, n.parent_id, n.shape, n.element, n.name, bool(n.is_external))
               for n in (контейнер, api)}
     imp = _ImpNode(name="api", shape="service", status="existing", role=None, technology=None,
                    is_external=False, description=None, parent_idx=0, element="system")

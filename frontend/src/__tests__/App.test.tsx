@@ -1,6 +1,7 @@
 // App: источник роли (/auth/me при старте перерисовывает страницы свежей ролью),
 // выход на экран входа при блокировке, маршрут экрана «Пользователи» и маршрут режима
-// «Развёртывание» (#/p/<pid>/deploy/<уровень?>, перенаправление по запомненному режиму).
+// «Развёртывание» (#/p/<pid>/deploy/<уровень?>; памяти режима нет — #/p/<pid> открывает
+// «Объекты», приёмка 2026-10-31).
 // Страницы — заглушки: проверяем оркестрацию App, настоящие api/auth и client
 // работают поверх подменённого fetch.
 import { render, screen, waitFor } from "@testing-library/react";
@@ -96,40 +97,21 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
   });
 
-  it("запомненное «Развёртывание»: открытие #/p/<pid> ведёт на #/p/<pid>/deploy (замена адреса)", async () => {
+  // Приёмка 2026-10-31: проект открывается в «Объектах» — прежний ключ archmap_mode
+  // (память режима) адрес больше не переписывает.
+  it("#/p/<pid> открывает страницу проекта, даже если в localStorage лежит archmap_mode=deploy", async () => {
     saveToken(jwt("architect"));
     stubFetch(200, ME_AND_PROJECT);
     localStorage.setItem("archmap_mode", "deploy");
-    window.location.hash = `/p/${PID}`;
-    const before = window.history.length;
-    render(<App />);
-    expect(await screen.findByTestId("shell")).toHaveAttribute("data-deploy", "root");
-    expect(window.location.hash).toBe(`#/p/${PID}/deploy`);
-    expect(window.history.length).toBe(before);
-    // внутри открытой оболочки #/p/<pid> — «Объекты»/«Процессы» («назад» из «Развёртывания»)
-    window.location.hash = `/p/${PID}`;
-    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
-    expect(window.location.hash).toBe(`#/p/${PID}`);
-    // страница объекта по прямому адресу — не перенаправляется
-    window.location.hash = `/p/${PID}/nodes/${LEVEL}`;
-    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-node", LEVEL));
-    expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none");
-    // новое открытие проекта (из списка) — снова в «Развёртывание»
-    window.location.hash = "/projects";
-    await screen.findByTestId("projects");
-    window.location.hash = `/p/${PID}`;
-    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "root"));
-    expect(window.location.hash).toBe(`#/p/${PID}/deploy`);
-  });
-
-  it("запомненное «Развёртывание», но из редактора пришли с процессом — страница проекта", async () => {
-    saveToken(jwt("architect"));
-    stubFetch(200, ME_AND_PROJECT);
-    localStorage.setItem("archmap_mode", "deploy");
-    sessionStorage.setItem("archmap.pendingProcess", "p9");
     window.location.hash = `/p/${PID}`;
     render(<App />);
     expect(await screen.findByTestId("shell")).toHaveAttribute("data-deploy", "none");
+    expect(window.location.hash).toBe(`#/p/${PID}`);
+    // новое открытие проекта из списка — тоже «Объекты»
+    window.location.hash = "/projects";
+    await screen.findByTestId("projects");
+    window.location.hash = `/p/${PID}`;
+    await waitFor(() => expect(screen.getByTestId("shell")).toHaveAttribute("data-deploy", "none"));
     expect(window.location.hash).toBe(`#/p/${PID}`);
   });
 

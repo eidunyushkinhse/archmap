@@ -22,6 +22,12 @@ describe("treeNesting", () => {
     // база с детьми — по-прежнему своя форма (types/nodeNesting)
     expect(treeNesting(subject({ shape: "database", has_children: true, element_effective: "system" }))).toBe("leaf");
   });
+
+  it("пустая система (лист, который сервер читает системой, Р39) — глиф системы", () => {
+    expect(treeNesting(subject({ element_effective: "system" }))).toBe("system");
+    // элемент задаётся только у сервиса: у другой формы лист — своя форма
+    expect(treeNesting(subject({ shape: "database", element_effective: "system" }))).toBe("leaf");
+  });
 });
 
 // Что нарисовано: пунктирная рамка, коробка с крышкой или форма.

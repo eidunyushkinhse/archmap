@@ -21,7 +21,7 @@ import { ApiError, DEMO_LIMIT_CODE, isConflict, isDemoLimit } from "../../api/cl
 import type { NodeDoc } from "../../types";
 
 vi.mock("../../api/nodes", () => ({
-  nodesApi: { create: vi.fn(), get: vi.fn() },
+  nodesApi: { create: vi.fn(), get: vi.fn(), list: vi.fn(() => Promise.resolve([])) },
   viewsApi: { saveLayout: vi.fn() },
   edgesApi: { create: vi.fn() },
   nodeDocsApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), usage: vi.fn() },
@@ -88,7 +88,9 @@ describe("экран 4 · предел при правке схемы", () => {
   it("окно «Новый объект»: тот же текст, что в тосте, окно не закрывается", async () => {
     vi.mocked(nodesApi.create).mockRejectedValue(limit(NODES));
     const onSaved = vi.fn();
-    render(<NodeModal parentId={null} onClose={vi.fn()} onSaved={onSaved} />);
+    render(<NodeModal parentId={null} type="container" onClose={vi.fn()} onSaved={onSaved} />);
+    // Поле «Тип» появляется, когда окно загрузило место создания.
+    await screen.findByRole("button", { name: "Тип" });
     await userEvent.type(screen.getAllByRole("textbox")[0], "Сервис доставки");
     await userEvent.click(screen.getByRole("button", { name: "Создать" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(`Не получилось добавить объект. ${NODES}`);

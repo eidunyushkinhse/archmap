@@ -92,7 +92,8 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
   const [error, setError] = useState<ReactNode>(null);
   // Среди объектов есть система — набор пишется её единицам, нужен состав проекта
   // (один запрос при открытии; галочки им не блокируются, ждут только записи).
-  const needAll = objects.some((o) => o.element_effective === "system");
+  const systemCount = objects.filter((o) => o.element_effective === "system").length;
+  const needAll = systemCount > 0;
   const all = useAsyncLoad(needAll ? "placement-nodes" : "placement-none", () => (needAll ? nodesApi.getAll() : Promise.resolve(NO_NODES)));
   // Второй шаг: подтверждение снятия размещения у единиц системы.
   const [clearing, setClearing] = useState<PlacementConflict[] | null>(null);
@@ -238,7 +239,8 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
       {error && <p style={errText} role="alert">{error}</p>}
       {needAll && all.error !== null && (
         <p style={errText} role="alert">
-          {singleSystem ? "Не удалось загрузить контейнеры системы." : "Не удалось загрузить вложенные объекты."}{" "}
+          {/* Состав грузится только ради систем — отказ называет их контейнеры. */}
+          {systemCount === 1 ? "Не удалось загрузить контейнеры системы." : "Не удалось загрузить контейнеры систем."}{" "}
           {loadErrorText(all.error)}{" "}
           <button type="button" className="site-row-link" onClick={all.reload}>Повторить</button>
         </p>

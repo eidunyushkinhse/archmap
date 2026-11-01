@@ -1150,6 +1150,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/nodes/{node_id}/docs/transfer-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Transfer Preview
+         * @description Что отдаст «Перенести документацию» (POST /distribute ниже), БЕЗ записи: своя
+         *     документация узла и потомки с флагами — кто что примет (app/facts_transfer). Окно
+         *     интерфейса и MCP получателей не отбирают сами. Редактору, как превью сбора. 422 —
+         *     внутри нет объектов. Объявлен ДО /{doc_id}: иначе «transfer-preview» попал бы туда
+         *     как doc_id и получил 422.
+         */
+        get: operations["transfer_preview_api_v1_nodes__node_id__docs_transfer_preview_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/docs": {
         parameters: {
             query?: never;
@@ -1227,7 +1251,8 @@ export interface paths {
         /**
          * Collect Preview
          * @description Что соберёт «Собрать с компонентов», БЕЗ записи: компоненты с фактами процесса,
-         *     одноимённые параметры и держатели спецификации. 422 — не контейнер с компонентами.
+         *     одноимённые параметры (у контейнера своя запись — вопроса нет) и держатели
+         *     спецификации. 422 — не контейнер с компонентами.
          */
         get: operations["collect_preview_api_v1_nodes__node_id__facts_collect_preview_get"];
         put?: never;
@@ -1249,8 +1274,10 @@ export interface paths {
         put?: never;
         /**
          * Collect
-         * @description «Собрать с компонентов»: параметры (одноимённые — по выбору) и выбранная
-         *     спецификация — контейнеру. Всё проверяется до записи.
+         * @description «Собрать с компонентов»: параметры и спецификация компонентов — контейнеру,
+         *     знание контейнера в приоритете; одноимённые параметры только у компонентов и
+         *     несколько спецификаций при пустом контейнере — по ответу, без ответа остаются у
+         *     компонентов. Всё проверяется до записи.
          */
         post: operations["collect_api_v1_nodes__node_id__facts_collect_post"];
         delete?: never;
@@ -3830,14 +3857,21 @@ export interface components {
         };
         /**
          * CollectClashOut
-         * @description Одноимённый параметр у нескольких объектов: это один и тот же параметр
-         *     контейнера, остаётся одно описание — какое, выбирает пользователь.
+         * @description Одноимённый параметр у нескольких объектов — это один и тот же параметр
+         *     контейнера, после сбора у него одно описание (решение владельца 2026-10-31).
+         *
+         *     container_keeps — среди держателей сам контейнер: его знание полнее, остаётся его
+         *     запись, одноимённые записи компонентов при сборе отбрасываются; вопроса нет. Иначе
+         *     параметр описан только у компонентов и приоритета нет — это вопрос пользователю:
+         *     чьё описание переедет контейнеру. Без ответа записи остаются у компонентов.
          */
         CollectClashOut: {
             /** Name */
             name: string;
             /** Candidates */
             candidates: components["schemas"]["CollectCandidateOut"][];
+            /** Container Keeps */
+            container_keeps: boolean;
         };
         /**
          * CollectComponentOut
@@ -3858,10 +3892,15 @@ export interface components {
         };
         /**
          * CollectFactsIn
-         * @description «Собрать с компонентов»: все параметры компонентов переезжают контейнеру; для
-         *     одноимённых обязателен выбор (param_choices). spec_from — компонент, чья
-         *     спецификация переезжает контейнеру (заменяя его прежнюю); null — спецификации не
-         *     трогать.
+         * @description «Собрать с компонентов»: параметры компонентов переезжают контейнеру,
+         *     спецификация — по правилу приоритета контейнера (решение владельца 2026-10-31).
+         *
+         *     param_choices — ответы на вопросы об одноимённых параметрах, которых у контейнера
+         *     нет: чьё описание переедет, остальные записи отбрасываются. Ответ необязателен — без
+         *     него записи остаются у компонентов. spec_from — ответ на вопрос о спецификации,
+         *     когда у контейнера своей нет, а у компонентов их несколько: чья переедет, остальные
+         *     отбрасываются; без него спецификации остаются у компонентов. При своей спецификации
+         *     контейнера spec_from — 422: спецификации компонентов при сборе отбрасываются.
          */
         CollectFactsIn: {
             /**
@@ -3875,19 +3914,36 @@ export interface components {
         /**
          * CollectFactsOut
          * @description Отчёт сбора: сколько параметров переехало контейнеру и переехала ли
-         *     спецификация.
+         *     спецификация; dropped_params и dropped_specs — сколько записей компонентов
+         *     отброшено по приоритету контейнера или по ответу; left_params — имена параметров,
+         *     оставшихся у компонентов без ответа, left_specs — сколько спецификаций осталось у
+         *     компонентов без ответа.
          */
         CollectFactsOut: {
             /** Moved Params */
             moved_params: number;
             /** Spec Moved */
             spec_moved: boolean;
+            /** Dropped Params */
+            dropped_params: number;
+            /** Dropped Specs */
+            dropped_specs: number;
+            /** Left Params */
+            left_params: string[];
+            /** Left Specs */
+            left_specs: number;
         };
         /**
          * CollectFactsPreview
          * @description «Собрать с компонентов» без записи (GET /nodes/{id}/facts/collect-preview):
          *     компоненты с фактами процесса, одноимённые параметры и держатели спецификации.
          *     Пустые components — собирать нечего.
+         *
+         *     Спецификация (решение владельца 2026-10-31): container_has_spec — у контейнера
+         *     своя, приоритетная, спецификации компонентов при сборе отбрасываются, вопроса нет;
+         *     single_spec_from — своей нет, а держатель среди компонентов один: его спецификация
+         *     переедет без вопроса. Своей нет и держателей несколько — вопрос, чью перенести;
+         *     без ответа спецификации остаются у компонентов.
          */
         CollectFactsPreview: {
             /** Components */
@@ -3896,10 +3952,15 @@ export interface components {
             param_clashes: components["schemas"]["CollectClashOut"][];
             /** Specs */
             specs: components["schemas"]["CollectSpecOut"][];
+            /** Container Has Spec */
+            container_has_spec: boolean;
+            /** Single Spec From */
+            single_spec_from: string | null;
         };
         /**
          * CollectParamChoice
-         * @description Выбор при одноимённых параметрах: чьё описание остаётся.
+         * @description Ответ на вопрос об одноимённом параметре без записи контейнера: чьё описание
+         *     переезжает контейнеру.
          */
         CollectParamChoice: {
             /** Name */
@@ -5259,8 +5320,10 @@ export interface components {
          *     kind — что переезжает: система → контейнер (узел займёт площадки своих частей),
          *     контейнер → система (площадки контейнера получит каждый объект внутри), вход в
          *     контейнер (контейнер займёт и площадки переносимого), выход из него (переносимое
-         *     получит площадки контейнера) и первый вложенный объект у листа с площадками (лист
-         *     станет системой, его площадки получат объекты внутри); none — площадки на месте.
+         *     получит площадки контейнера), первый вложенный объект у листа с площадками (лист
+         *     станет системой, его площадки получат объекты внутри) и лист, ставший пустой
+         *     системой (empty_system: площадки остаются у него и перейдут первому вложенному
+         *     контейнеру, в after его строки нет); none — площадки на месте.
          *     before и after — строки с непустыми площадками до и после. docs_names — объекты, чья
          *     документация останется на месте и будет отмечена рекомендацией. container_name —
          *     контейнер-участник переноса (цель или прежний), у первого вложенного объекта — лист,
@@ -5272,7 +5335,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "none" | "system_to_container" | "container_to_system" | "join_container" | "leave_container" | "first_child";
+            kind: "none" | "system_to_container" | "container_to_system" | "join_container" | "leave_container" | "first_child" | "empty_system";
             /** Before */
             before: components["schemas"]["PlacementRowOut"][];
             /** After */
@@ -6191,6 +6254,8 @@ export interface components {
             status: "existing" | "planned" | "deprecated";
             /** Element */
             element?: ("system" | "container") | null;
+            /** Parent Element */
+            parent_element?: ("system" | "container") | null;
             source?: components["schemas"]["NodeSource"] | null;
             /** Pos X */
             pos_x?: number | null;
@@ -6530,8 +6595,8 @@ export interface components {
          *
          *     id — площадка; parent_id и parent_name — площадка, в которую она вложена («в
          *     Облако»); имя — в ответе, чтобы строке «Размещение» и карточке MCP не ходить за
-         *     списком площадок. partial — только у контейнера: на площадке стоит часть его
-         *     объектов, а не все (у объекта всегда False).
+         *     списком площадок. partial — только у системы: на площадке стоит часть её
+         *     контейнеров, а не все (у контейнера всегда False).
          */
         NodeSiteOut: {
             /**
@@ -7746,6 +7811,77 @@ export interface components {
              * @default bearer
              */
             token_type: string;
+        };
+        /**
+         * TransferDocOut
+         * @description Собственная схема логики узла — то, что «Перенести документацию» может отдать.
+         */
+        TransferDocOut: {
+            /**
+             * Doc Id
+             * Format: uuid
+             */
+            doc_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "operation" | "worker";
+            /** Operation */
+            operation: string | null;
+        };
+        /**
+         * TransferDocsPreview
+         * @description «Перенести документацию» без записи (GET /nodes/{id}/docs/transfer-preview):
+         *     своя документация узла и получатели в его составе. Получатели — все потомки в обходе
+         *     в глубину (дети по имени), в том числе те, кто ничего не принимает (база, брокер,
+         *     «Пользователь», система): у них оба флага false. Узел без вложенных — 422.
+         */
+        TransferDocsPreview: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Name */
+            name: string;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Docs */
+            docs: components["schemas"]["TransferDocOut"][];
+            /** Has Spec */
+            has_spec: boolean;
+            /** Params */
+            params: number;
+            /** Receivers */
+            receivers: components["schemas"]["TransferReceiverOut"][];
+        };
+        /**
+         * TransferReceiverOut
+         * @description Потомок узла — возможный получатель переноса. Флаги считает домен
+         *     (app/facts_transfer), окно и MCP их только показывают: takes_docs — схемы логики на
+         *     месте (компонент или объект без вложенных вне контейнера), takes_process_facts —
+         *     спецификация и конфигурация на месте (контейнер). has_spec — у получателя уже есть
+         *     своя спецификация: перенести ему спецификацию нельзя (409).
+         */
+        TransferReceiverOut: {
+            /**
+             * Node Id
+             * Format: uuid
+             */
+            node_id: string;
+            /** Path */
+            path: string;
+            /** Element Effective */
+            element_effective: ("system" | "container" | "component") | null;
+            /** Takes Docs */
+            takes_docs: boolean;
+            /** Takes Process Facts */
+            takes_process_facts: boolean;
+            /** Has Spec */
+            has_spec: boolean;
         };
         /**
          * TransitionApplyIn
@@ -10383,6 +10519,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NodeDocUsage"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    transfer_preview_api_v1_nodes__node_id__docs_transfer_preview_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Project-Id"?: string | null;
+            };
+            path: {
+                node_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferDocsPreview"];
                 };
             };
             /** @description Validation Error */

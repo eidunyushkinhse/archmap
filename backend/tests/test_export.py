@@ -15,6 +15,7 @@ from conftest import ensure_project
 from fastapi import HTTPException
 
 from app.archive_export import build_archive, build_archive_ordered
+from app.element_marks import build_elements, element_rows_of
 from app.export import build_export, build_export_ordered
 from app.import_yaml import parse_import
 from app.models.deployment_instance import DeploymentInstance
@@ -53,8 +54,8 @@ def _edge(db, src, tgt, label=None, technology=None, channel=None):
 
 def test_export_all_tree_and_edges(db):
     # Корень-сервис с двумя детьми, связь между детьми с label/technology.
-    root = _node(db, "ObsCore", shape="service", role="сервис", technology="Python")
-    a = _node(db, "HelixMon", root, shape="service", role="сборщик")
+    root = _node(db, "Ярмарка", shape="service", role="сервис", technology="Python")
+    a = _node(db, "Collector", root, shape="service", role="сборщик")
     b = _node(db, "Kafka", root, shape="broker")
     _edge(db, a, b, label="события", technology="Kafka")
     db.commit()
@@ -64,19 +65,19 @@ def test_export_all_tree_and_edges(db):
     doc = yaml.safe_load(res.content)
 
     # Дерево: один корень с детьми (дети отсортированы по имени).
-    assert [n["name"] for n in doc["nodes"]] == ["ObsCore"]
+    assert [n["name"] for n in doc["nodes"]] == ["Ярмарка"]
     mon = doc["nodes"][0]
     assert mon["shape"] == "service"
     assert mon["role"] == "сервис"
     assert mon["technology"] == "Python"
-    assert [c["name"] for c in mon["children"]] == ["HelixMon", "Kafka"]
+    assert [c["name"] for c in mon["children"]] == ["Collector", "Kafka"]
     # У ребёнка без role/technology лишних ключей нет.
     kafka = next(c for c in mon["children"] if c["name"] == "Kafka")
     assert "role" not in kafka and "technology" not in kafka
 
     # Связь — по именам узлов, с label/technology.
     assert doc["edges"] == [
-        {"from": "HelixMon", "to": "Kafka", "label": "события", "technology": "Kafka"}
+        {"from": "Collector", "to": "Kafka", "label": "события", "technology": "Kafka"}
     ]
 
 
@@ -655,3 +656,84 @@ def test_тёзки_различающиеся_элементом_идут_в_д
         ("Ярмарка / api @ #1", "к голому"),
         ("Ярмарка / api @ #2", "к контейнеру"),
     ]
+
+
+# --- Выписка промпта документации: действующий тип (Ф14, решение владельца 2026-10-31) ---
+
+
+def _типовой_проект(db) -> tuple[list[Node], list[Edge]]:
+    """Все случаи типа разом: система без хранимого элемента, контейнер-лист, контейнер
+    с компонентом, внешний лист без элемента (Р42), пустая система (Р39), база, брокер
+    и «Пользователь»."""
+    корень = _node(db, "Ярмарка", shape="service")
+    _node(db, "orders", корень, shape="service")
+    billing = _node(db, "billing", корень, shape="service", element="container")
+    _node(db, "api", billing, shape="service")
+    _node(db, "склад", корень, shape="service", element="system")
+    _node(db, "orders-db", корень, shape="database")
+    _node(db, "events", корень, shape="broker")
+    _node(db, "Stripe", shape="service", is_external=True)
+    _node(db, "Покупатель", shape="person")
+    db.commit()
+    pid = ensure_project(db).id
+    return (
+        db.query(Node).filter(Node.project_id == pid).all(),
+        db.query(Edge).filter(Edge.project_id == pid).all(),
+    )
+
+
+def _типы(doc: dict) -> dict[str, str | None]:
+    """Имя узла → ключ element (None — ключа нет) по всему дереву документа."""
+    out: dict[str, str | None] = {}
+
+    def обход(узлы: list[dict]) -> None:
+        for d in узлы:
+            out[d["name"]] = d.get("element")
+            обход(d.get("children", []))
+
+    обход(doc["nodes"])
+    return out
+
+
+def test_выписка_с_типами_пишет_действующий_элемент_каждого_сервиса(db):
+    узлы, рёбра = _типовой_проект(db)
+    текст = build_export(узлы, рёбра, typed=build_elements(element_rows_of(узлы)))
+
+    assert _типы(yaml.safe_load(текст)) == {
+        "Ярмарка": "system",  # узел с детьми без хранимого элемента
+        "orders": "container",  # свой лист
+        "billing": "container",
+        "api": "component",  # ребёнок контейнера
+        "склад": "system",  # пустая система (Р39)
+        "orders-db": None,
+        "events": None,
+        "Stripe": "system",  # внешний лист без элемента (Р42)
+        "Покупатель": None,
+    }
+    # Место ключа то же, что у хранимого: сразу после формы.
+    assert "  shape: service\n  element: system\n" in текст
+
+
+def test_выписка_без_типов_прежняя_только_хранимый_элемент(db):
+    узлы, рёбра = _типовой_проект(db)
+
+    текст = build_export(узлы, рёбра)
+
+    assert _типы(yaml.safe_load(текст)) == {
+        "Ярмарка": None, "orders": None, "billing": "container", "api": None,
+        "склад": "system", "orders-db": None, "events": None, "Stripe": None,
+        "Покупатель": None,
+    }
+    assert текст == build_export(узлы, рёбра, typed=None)
+    assert текст == export_all(db=db, project=ensure_project(db)).content
+
+
+def test_выписка_поддерева_берёт_типы_проекта(db):
+    """Срез поддерева компонента: контейнер над его корнем лежит вне набора, и тип
+    считается по элементам ВСЕГО проекта — корень среза остаётся компонентом."""
+    узлы, _ = _типовой_проект(db)
+    api = next(n for n in узлы if n.name == "api")
+
+    текст = build_export([api], [], root_id=api.id, typed=build_elements(element_rows_of(узлы)))
+
+    assert "- name: api\n  shape: service\n  element: component\n" in текст

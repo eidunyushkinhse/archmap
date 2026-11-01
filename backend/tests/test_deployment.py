@@ -245,7 +245,7 @@ def _tree(*spec: tuple) -> tuple[dict[str, uuid.UUID], dict, Elements[uuid.UUID]
     дети — по имени, поэтому порядок обхода задают имена)."""
     ids = {name: uuid.uuid4() for name, *_ in spec}
     rows = [
-        ElementRow(ids[name], ids[parent] if parent else None, shape, element, name)
+        ElementRow(ids[name], ids[parent] if parent else None, shape, element, name, False)
         for name, parent, shape, element in spec
     ]
     return ids, {r.id: r.parent_id for r in rows}, build_elements(rows)
@@ -255,7 +255,9 @@ def _null_tree(parent_of: dict, persons: tuple = ()) -> Elements[uuid.UUID]:
     """Элементы дерева без хранимых значений (сегодняшние проекты): узел с детьми —
     система, лист — контейнер. Имена — по порядку карты, он же порядок обхода."""
     return build_elements(
-        ElementRow(nid, pid, "person" if nid in persons else "service", None, str(i).zfill(3))
+        ElementRow(
+            nid, pid, "person" if nid in persons else "service", None, str(i).zfill(3), False
+        )
         for i, (nid, pid) in enumerate(parent_of.items())
     )
 
@@ -537,6 +539,21 @@ def test_удаление_площадки_с_вложенными_отказ_а
     # Раскладка развёртывания площадки снята, позиция на холсте объектов — нет.
     assert [r.item_id for r in db.query(ViewLayoutItem)] == [str(n["API"])]
     assert db.get(Project, scene["p"].id).meta_rev == rev + 1
+
+
+def test_число_экземпляров_площадки_без_спящих(client, db, scene):
+    """Ф13а: SiteOut.instance_count — экземпляры единиц. Спящие (у системы, у «Пользователя» —
+    прежние данные, правило 5 D34) не в счёт: окно удаления площадки называет только то,
+    что видно в строках «Размещение». Тот же счёт — в списке площадок и в графе."""
+    h, n, p = scene["h"], scene["n"], scene["p"]
+    site = _site(db, p.id, "Кластер")
+    for name in ("Платежи", "Витрина", "Покупатель"):
+        db.add(DeploymentInstance(id=uuid.uuid4(), project_id=p.id, node_id=n[name], site_id=site.id))
+    db.commit()
+    listed = {s["name"]: s for s in client.get(f"{API}/deployment/sites", headers=h).json()}
+    assert listed["Кластер"]["instance_count"] == 1
+    graph = client.get(f"{API}/deployment/graph", headers=h).json()
+    assert [s["instance_count"] for s in graph["sites"] if s["name"] == "Кластер"] == [1]
 
 
 def test_размещение_набором_целиком(client, db, scene):

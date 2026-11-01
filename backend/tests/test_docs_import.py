@@ -423,7 +423,7 @@ def test_plan_схемы_системе_предупреждают_а_не_бл�
     assert [a.action for a in plan.logic] == ["create", "create"]  # пакет не заблокирован
     # У листа orders предупреждения нет; billing с вложенными без элемента — система.
     assert [w for w in plan.warnings if "Рекомендации" in w] == [
-        "a.mmd: «Ярмарка / billing» — система; схемы логики описывают код и живут у "
+        "a.mmd: «Ярмарка / billing» — система; схемы логики описывают код и хранятся у "
         "контейнеров и компонентов, у системы они попадут в «Рекомендации»"
     ]
 
@@ -516,14 +516,14 @@ def test_endpoint_prompt_target_focus(db):
         lang="ru", hints=None, target="OrderCreatedHandler",
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
-    assert "Фокус этого прогона" in focused.prompt
+    assert "Фокус этого запуска" in focused.prompt
     assert "OrderCreatedHandler" in focused.prompt
 
     broad = docs_prompt(
         lang="ru", hints=None, target=None,
         db=db, project=ensure_project(db), _=ensure_architect(db),
     )
-    assert "Фокус этого прогона" not in broad.prompt
+    assert "Фокус этого запуска" not in broad.prompt
 
 
 def test_endpoint_preview_does_not_write(db):
@@ -1602,6 +1602,26 @@ def test_промпт_называет_владельца_спецификаци
     assert "Спецификация уезжает ГЛАВНОМУ узлу этого среза — первому в списке." in промпт(orders)
 
 
+def test_выписка_промпта_печатает_тип_объекта(db):
+    """Ф14: в выписке у каждого сервиса — действующий тип, как его читает ArchMap. Срез
+    окна компонента — его поддерево, контейнер вне среза, и тип считается по всему
+    проекту: api остаётся компонентом, а не «контейнером-листом» своего среза."""
+    *_, api = _контейнер(db)
+
+    def срез(узел=None):
+        prompt = docs_prompt(
+            node_id=узел.id if узел else None, lang="ru", hints=None, target=None,
+            db=db, project=ensure_project(db), _=ensure_architect(db),
+        ).prompt
+        return prompt.split("## Срез схемы")[1].split("## Что документировать")[0]
+
+    assert "- name: api\n  shape: service\n  element: component\n" in срез(api)
+    весь = срез()
+    assert "- name: shop\n  shape: service\n  element: system\n" in весь
+    assert "  - name: orders\n    shape: service\n    element: container\n" in весь
+    assert "      element: component\n" in весь
+
+
 # ── Спецификация — факт контейнера (эпик «Элемент архитектуры», Р12) ─────────────
 
 
@@ -1724,6 +1744,20 @@ def test_спецификация_у_системы_предупреждает_�
         "a.yaml: «shop» — система; API отдают её контейнеры, опишите спецификацию у "
         "одного из них"
     ) in plan.warnings
+
+
+def test_спецификация_внешней_системы_без_предупреждения(db):
+    """Р42: внешний лист без элемента — внешняя система; агент описывает чужое API её
+    спецификацией — это норма, предупреждения «API отдают её контейнеры» нет."""
+    банк = _node(db, "Банк")
+    банк.is_external = True
+    db.commit()
+
+    plan = _spec_plan(db, [("a.yaml", _spec_pkg("Банк"))], {"api.yaml": SPEC})
+
+    assert plan.errors == []
+    assert [s.node_id for s in plan.specs] == [банк.id]
+    assert [w for w in plan.warnings if "контейнер" in w or "систем" in w] == []
 
 
 def test_спецификация_листа_вне_контейнера_как_прежде(db):

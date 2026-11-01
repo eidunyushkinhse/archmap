@@ -42,11 +42,12 @@ build_sync_plan — чистая функция (БД не трогает, уз�
 """
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from app.domain_types import NODE_ELEMENT_LABELS
+from app.domain_types import NODE_ELEMENT_LABELS, NODE_SHAPE_LABELS, NodeShape
 from app.element import CONTAINER, Elements
 from app.element_marks import build_elements, element_rows_of
 from app.element_rules import element_change_refusal
@@ -55,6 +56,7 @@ from app.import_element import as_clause
 from app.import_yaml import ParsedImport, _ImpEdge, _ImpNode
 from app.models.edge import Edge
 from app.models.node import Node
+from app.reparent import validate_shape_change
 from app.text import identity_name
 
 # Запасной путь зоны синка, когда элемент архитектуры не задан нигде (старые проекты и
@@ -194,6 +196,9 @@ _ANCHOR_BASIS = frozenset({"code", "dependency"})
 
 # Формы, которые не входят в состав контейнера (Р6), — с родом для строк плана.
 _STORE_WORDS = {"database": ("база данных", "создана", "она"), "broker": ("брокер", "создан", "он")}
+# Формы без вложенных объектов (N4): у базы, брокера и «Пользователя» детей не бывает.
+# Слово — для строки плана «у пользователя вложенных объектов не бывает».
+_CHILDLESS_WORDS = {"person": "пользователя", "database": "базы данных", "broker": "брокера"}
 
 
 def _human_source(ref: str | None) -> str:
@@ -203,12 +208,27 @@ def _human_source(ref: str | None) -> str:
     return f"{_SOURCE_KIND.get(kind, 'источнику')} {value}" if value else "источнику"
 
 
+# Почему форму живого узла сменить нельзя (None — можно): reparent.validate_shape_change
+# над БД проекта, которую план сам не читает.
+ShapeRefusal = Callable[[Node, NodeShape], str | None]
+
+
 class _Matcher:
     """Состояние одного построения плана (класс вместо связки словарей — тот же
     приём, что в _Merger)."""
 
-    def __init__(self, nodes: list[Node], edges: list[Edge], policies: SyncPolicies):
+    def __init__(
+        self,
+        nodes: list[Node],
+        edges: list[Edge],
+        policies: SyncPolicies,
+        shape_refusal: ShapeRefusal | None = None,
+    ):
         self.policies = policies
+        # Правило смены формы живого узла (reparent.validate_shape_change): дети, таблицы,
+        # каналы, размещение, место. Без него план формы не проверяет — так строят план
+        # тесты сопоставления без БД; применение проверяет форму само.
+        self.shape_refusal = shape_refusal
         self.plan = SyncPlan()
         self.by_id = {n.id: n for n in nodes}
         self.children: dict[uuid.UUID | None, list[Node]] = {}
@@ -294,7 +314,7 @@ class _Matcher:
             if new and new != (live.description or "").strip():
                 fields.append("description")
         if imp.shape != "service" and live.shape != imp.shape:
-            fields.append("shape")
+            self._diff_shape(live, imp, fields)
         if (imp.status != "existing" and live.status != imp.status) or (self.policies.restore_returned and _is_return(live, imp)):
             fields.append("status")
         self._diff_element(live, imp, fields)
@@ -303,6 +323,20 @@ class _Matcher:
         if new_ref and new_ref != live.source_ref:
             fields.append("source_ref")
         return fields
+
+    def _diff_shape(self, live: Node, imp: _ImpNode, fields: list[str]) -> None:
+        """Смена формы живого узла — тем же правилом, что правка в API (находка Ф12б):
+        форма решает, чем узел владеет и где ему место, и синк не меняет её в обход
+        запретов — вложенному сервису «Пользователем» не стать, узлу с детьми — базой.
+        Отказ — строкой conflicts, форма остаётся."""
+        reason = self.shape_refusal(live, imp.shape) if self.shape_refusal else None
+        if reason is None:
+            fields.append("shape")
+            return
+        self.plan.conflicts.append(
+            f"«{live.name}»: в YAML другой тип («{NODE_SHAPE_LABELS[imp.shape]}»), в схеме "
+            f"оставляем как есть. {reason}"
+        )
 
     def _diff_element(self, live: Node, imp: _ImpNode, fields: list[str]) -> None:
         """Элемент архитектуры (Р30) — fill-only: «не сказано» в YAML ничего не меняет,
@@ -429,6 +463,9 @@ class _Matcher:
                 self.skipped.add(i)
                 continue
             parent_live = self.imp_to_live.get(parent_idx) if parent_idx is not None else None
+            if parent_live is not None and parent_live.shape in _CHILDLESS_WORDS:
+                self._walk_from_childless(i, imp, parent_idx, parent_live)
+                continue
             lift = self._lift_target(parsed, i)
             if lift is not None:
                 self._walk_lifted(i, imp, parent_idx, lift)
@@ -497,6 +534,43 @@ class _Matcher:
             # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
             # «показан в другом месте».
             self.plan.conflicts.append(self._lift_note(imp, container, parent, found=True))
+        self._take(i, imp, parent_idx, live, how, want_parent)
+
+    def _walk_from_childless(
+        self, i: int, imp: _ImpNode, parent_idx: int | None, holder: Node
+    ) -> None:
+        """Прогон кладёт объект внутрь живой базы, брокера или «Пользователя»: в прогоне
+        тот — сервис с вложенными, но сервис в YAML — значение по умолчанию, и форму
+        живого синк не меняет, а вложенных объектов у этих форм не бывает (N4). Как
+        правило 0 ввоза (app/import_element): матчинг и создание — у родителя такого
+        объекта, у корневого — на верхнем уровне. Строка conflicts объясняет, почему
+        объект в схеме не там, где его показал прогон."""
+        parent = self.by_id.get(holder.parent_id) if holder.parent_id else None
+        want_parent = parent.id if parent else None
+        where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
+        head = (
+            f"«{holder.name}»: у {_CHILDLESS_WORDS[holder.shape]} вложенных объектов не "
+            f"бывает — «{imp.name}»"
+        )
+        live, how = self._match(imp, parent)
+        if live is None:
+            self.plan.conflicts.append(f"{head} будет создан {where}")
+            self.plan.nodes.append(
+                SyncNodeAction(
+                    path=self.imp_paths[i],
+                    action="create",
+                    node_id=None,
+                    source_ref=imp.source_keys[0] if imp.source_keys else None,
+                    imp_idx=i,
+                    parent_id=want_parent,
+                )
+            )
+            return
+        live_parent = live.parent_id if live.parent_id in self.by_id else None
+        if live_parent == want_parent:
+            # Иначе объект нашёлся по источнику в третьем месте — об этом скажет строка
+            # «показан в другом месте».
+            self.plan.conflicts.append(f"{head} в схеме лежит {where}")
         self._take(i, imp, parent_idx, live, how, want_parent)
 
     def _take(
@@ -694,9 +768,11 @@ def build_sync_plan(
     edges: list[Edge],
     parsed: ParsedImport,
     policies: SyncPolicies | None = None,
+    shape_refusal: ShapeRefusal | None = None,
 ) -> SyncPlan:
-    """Свежий прогон агента × живая схема → что изменится. БД не трогает."""
-    m = _Matcher(nodes, edges, policies or SyncPolicies())
+    """Свежий прогон агента × живая схема → что изменится. БД не трогает сам: правило
+    смены формы, которому нужны таблицы, каналы и размещение, приходит снаружи."""
+    m = _Matcher(nodes, edges, policies or SyncPolicies(), shape_refusal)
     m.plan.policies = m.policies
     m.walk_import(parsed)
     m.collect_missing()
@@ -712,4 +788,9 @@ def plan_for(
     берёт клиентский."""
     nodes = db.query(Node).filter(Node.project_id == project_id).all()
     edges = db.query(Edge).filter(Edge.project_id == project_id).all()
-    return build_sync_plan(nodes, edges, parsed, policies)
+
+    def shape_refusal(live: Node, shape: NodeShape) -> str | None:
+        # Синк живые узлы не переносит: место после правки — нынешнее.
+        return validate_shape_change(db, live, shape, parent_id=live.parent_id)
+
+    return build_sync_plan(nodes, edges, parsed, policies, shape_refusal)

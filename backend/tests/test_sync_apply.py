@@ -443,3 +443,223 @@ def test_apply_брокер_корневого_контейнера_на_вер�
     assert report.created_nodes == ["orders / Kafka"]
     assert _node(db, p.id, "Kafka").parent_id is None
     assert _plan(db, p, прогон).is_noop
+
+
+# ── «Пользователь» из прогона — только на верхнем уровне (2026-10-31) ─────────
+
+
+def test_синк_создаёт_вложенного_пользователя_на_верхнем_уровне_фикспойнт(db):
+    """Прогон кладёт людей внутрь системы и внутрь живого контейнера: разбор прогона
+    поднимает их на верхний уровень (та же санитизация, что у ввоза), синк создаёт их в
+    корне, связи находят концы, повторный прогон пуст."""
+    живой = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: api\n"
+    )
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+        "        shape: person\n      - name: orders\n        element: container\n"
+        "        children:\n          - name: api\n          - name: Оператор\n"
+        "            shape: person\n"
+        "edges:\n  - {from: Покупатель, to: orders, label: заказывает}\n"
+        "  - {from: Оператор, to: orders, label: смотрит}\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.ok
+    assert [(a.path, a.action) for a in превью.nodes if a.action == "create"] == [
+        ("Покупатель", "create"), ("Оператор", "create"),
+    ]
+    assert [w for w in превью.warnings if "пользователь «" in w] == [
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "уровень",
+        "Ярмарка / orders: пользователь «Оператор» живёт вне границ системы — поднят на "
+        "верхний уровень",
+    ]
+
+    out = sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+
+    assert out.created_nodes == ["Покупатель", "Оператор"]
+    assert _node(db, p.id, "Покупатель").parent_id is None
+    assert _node(db, p.id, "Оператор").parent_id is None
+    orders = _node(db, p.id, "orders")
+    концы = {
+        (e.source_id, e.target_id) for e in db.query(Edge).filter(Edge.project_id == p.id)
+    }
+    assert (_node(db, p.id, "Покупатель").id, orders.id) in концы
+    assert (_node(db, p.id, "Оператор").id, orders.id) in концы
+
+    again = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert again.is_noop, again.summary
+
+
+# ── Смена типа живого узла — правилом API (Ф13а, находка Ф12б) ──────────────
+
+ЖИВОЙ_С_ДЕТЬМИ = (
+    "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+    "        source: {host: orders}\n        children:\n          - name: api\n"
+)
+
+
+def test_синк_не_меняет_тип_в_обход_правила(db):
+    """Прогон зовёт живой сервис с вложенными базой данных: правка в API отказала бы
+    («у узла есть вложенные объекты»), и синк тип не меняет — превью говорит причину
+    строкой расхождений, применение оставляет сервис."""
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: database\n        source: {host: orders}\n"
+    )
+    p, user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    [orders] = [a for a in превью.nodes if a.path == "Ярмарка / orders"]
+    assert "shape" not in orders.fields
+    assert [c for c in превью.conflicts if c.startswith("«orders»: в YAML другой тип")] == [
+        "«orders»: в YAML другой тип («База данных»), в схеме оставляем как есть. У объекта "
+        "есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать",
+    ]
+
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+    assert _node(db, p.id, "orders").shape == "service"
+
+
+def test_синк_не_делает_вложенный_сервис_пользователем(db):
+    """Полевой случай Ф12б: прогон называет живой вложенный сервис «Пользователем»
+    (разбор поднимает его в корень, а якорь находит живой узел внутри системы). Тип не
+    меняется: «Пользователь» живёт только на верхнем уровне."""
+    живой = "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n        source: {host: orders}\n"
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: person\n        source: {host: orders}\n"
+    )
+    p, user = _project(db, живой)
+
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+    orders = _node(db, p.id, "orders")
+    assert (orders.shape, orders.parent_id is not None) == ("service", True)
+
+
+def test_применение_само_проверяет_тип_по_плану_без_правила(db):
+    """План, построенный без правила формы (build_sync_plan без БД), несёт смену типа —
+    применение проверяет её само: тип остаётся, причина — строкой «пропущено»."""
+    from app.import_merge import parse_and_merge
+    from app.sync_apply import apply_sync_plan
+    from app.sync_plan import build_sync_plan
+
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "        shape: database\n        source: {host: orders}\n"
+    )
+    p, _user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
+    merged, _report, errors = parse_and_merge([прогон])
+    assert merged is not None, errors
+    nodes = db.query(Node).filter(Node.project_id == p.id).all()
+    edges = db.query(Edge).filter(Edge.project_id == p.id).all()
+    plan = build_sync_plan(nodes, edges, merged)
+    [orders] = [a for a in plan.nodes if a.path == "Ярмарка / orders"]
+    assert "shape" in orders.fields
+
+    report = apply_sync_plan(db, p, merged, plan)
+
+    assert _node(db, p.id, "orders").shape == "service"
+    assert report.skipped == [
+        "Ярмарка / orders: тип не изменён. У объекта есть вложенные объекты — базой данных, "
+        "брокером или «Пользователем» ему не стать",
+    ]
+
+
+# ── N4: у «Пользователя», базы и брокера вложенных объектов не бывает ─────────
+
+
+def test_синк_не_кладёт_детей_в_живого_пользователя(db):
+    """Живой «Покупатель» — пользователь, а прогон показывает его сервисом с вложенным.
+    Форму синк не меняет (сервис в YAML — значение по умолчанию, живое оно не бьёт), а
+    внутрь человека дети лечь не могут (N4): до 2026-10-31 синк создавал их под ним.
+    Теперь вложенный создаётся там, где сам человек, — у корневого на верхнем уровне,
+    со строкой плана, как правило 0 ввоза."""
+    живой = "nodes:\n  - name: Покупатель\n    shape: person\n  - name: Ярмарка\n"
+    прогон = (
+        "nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"
+        "  - name: Ярмарка\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» будет "
+        "создан на верхнем уровне",
+    ]
+    out = sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+
+    покупатель = _node(db, p.id, "Покупатель")
+    assert покупатель.shape == "person"
+    assert db.query(Node).filter(Node.parent_id == покупатель.id).count() == 0
+    assert _node(db, p.id, "кабинет").parent_id is None
+    assert (out.created_nodes, out.skipped) == (["Покупатель / кабинет"], [])
+
+    # Повторный синк того же прогона находит «кабинет» на верхнем уровне и не дублирует.
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» в схеме "
+        "лежит на верхнем уровне",
+    ]
+    assert превью.is_noop
+
+
+@pytest.mark.parametrize(("shape", "word"), [("database", "базы данных"), ("broker", "брокера")])
+def test_синк_не_кладёт_детей_во_вложенную_базу_и_брокер(db, shape, word):
+    """То же у базы и брокера внутри системы: прогон назвал объект сервисом с вложенным,
+    форму синк не меняет — вложенный создаётся уровнем выше, в системе."""
+    живой = (
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        f"      - name: orders-store\n        shape: {shape}\n"
+    )
+    прогон = (
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: orders-store\n        children:\n          - name: схема заказов\n"
+    )
+    p, user = _project(db, живой)
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert превью.conflicts == [
+        f"«orders-store»: у {word} вложенных объектов не бывает — «схема заказов» будет "
+        "создан уровнем выше, в «Ярмарка»",
+    ]
+    sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    db.expire_all()
+
+    assert _node(db, p.id, "схема заказов").parent_id == _node(db, p.id, "Ярмарка").id
+    assert db.query(Node).filter(Node.parent_id == _node(db, p.id, "orders-store").id).count() == 0
+
+
+def test_применение_не_создаёт_ребёнка_пользователю_по_плану_без_правила(db):
+    """План, собранный мимо правила N4 (устаревший или чужой), несёт создание внутри
+    «Пользователя» — применение не создаёт объект, причина — строкой «пропущено»."""
+    from app.import_merge import parse_and_merge
+    from app.sync_apply import apply_sync_plan
+    from app.sync_plan import SyncNodeAction, SyncPlan
+
+    p, _user = _project(db, "nodes:\n  - name: Покупатель\n    shape: person\n")
+    merged, _report, errors = parse_and_merge(
+        ["nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"]
+    )
+    assert merged is not None, errors
+    покупатель = _node(db, p.id, "Покупатель")
+    plan = SyncPlan()
+    plan.nodes = [
+        SyncNodeAction(path="Покупатель", action="unchanged", node_id=покупатель.id,
+                       source_ref=None, imp_idx=0),
+        SyncNodeAction(path="Покупатель / кабинет", action="create", node_id=None,
+                       source_ref=None, imp_idx=1, parent_path="Покупатель"),
+    ]
+
+    report = apply_sync_plan(db, p, merged, plan)
+
+    assert report.skipped == [
+        "Покупатель / кабинет: не создан — у «Покупатель» вложенных объектов не бывает",
+    ]
+    assert db.query(Node).filter(Node.name == "кабинет").count() == 0

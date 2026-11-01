@@ -461,7 +461,7 @@ async def test_план_синка_без_изменений_говорит_эт
     )
 
     assert "без изменений: 1" in out
-    assert "Схема уже соответствует прогону" in out
+    assert "Схема уже соответствует присланному YAML" in out
 
 
 async def test_негодный_прогон_называет_ошибки_а_не_нули(
@@ -493,7 +493,7 @@ async def test_применение_синка_шлёт_contents_текстам�
         deprecated_nodes=[],
         created_edges=["Маркетплейс / Новый → Маркетплейс / Kafka"],
         updated_edges=["Маркетплейс / Заказы → Маркетплейс / Kafka"],
-        skipped=[],
+        skipped=["Маркетплейс / Склад: тип не изменён. У объекта есть вложенные объекты — базой данных, брокером или «Пользователем» ему не стать"],
         graph_rev=12,
     ).model_dump(mode="json"))
 
@@ -508,6 +508,10 @@ async def test_применение_синка_шлёт_contents_текстам�
     assert "Обновлено: 1" in out
     assert "Создано связей: 1" in out
     assert "Дополнено связей (канал, тип канала): 1" in out
+    # Пропуски бывают не только «цель исчезла»: сервер оставляет и тип, который менять
+    # нельзя, — причина в самой строке, заголовок её не подменяет.
+    assert "Пропущено (причина в строке): 1" in out
+    assert "• Маркетплейс / Склад: тип не изменён." in out
     assert "graph_rev=12" in out
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == ["прогон"]
@@ -925,6 +929,10 @@ async def test_создание_объекта_шлёт_элемент(client: A
     assert body["element"] == "container"
     check_node_contract("NodeCreate", body)
     assert out.splitlines()[-1] == "Элемент архитектуры: контейнер"
+    # Элемент родителя (NodeCreate.parent_element, Р38) инструмент не выставляет и
+    # аргументом не принимает: агент задаёт element родителю заранее.
+    assert "parent_element" not in body
+    assert "parent_element" not in tools.BY_NAME["archmap_create_node"]["schema"]["properties"]
 
 
 async def test_создание_без_элемента_поля_не_шлёт(client: ArchMapClient, api: FakeApi) -> None:
@@ -1008,3 +1016,29 @@ async def test_дерево_помечает_контейнер_с_компон�
     # с компонентами печатается как до эпика.
     assert "    • api [сервис]  id=n3" in lines
     assert "  • billing [сервис]  id=n4" in lines
+
+
+async def test_дерево_помечает_пустую_систему(client: ArchMapClient, api: FakeApi) -> None:
+    # Пустая система (Р39) — лист в дереве; без маркера агент прочёл бы её контейнером.
+    api.get("/nodes/all", [
+        node("n1", "shop", has_children=True, element_effective="system"),
+        node("n2", "warehouse", "n1", has_children=False, element="system", element_effective="system"),
+    ])
+    api.get("/edges", [])
+
+    out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
+
+    assert "  • warehouse (система без контейнеров) [сервис]  id=n2" in out.splitlines()
+
+
+async def test_дерево_не_помечает_внешнюю_систему(client: ArchMapClient, api: FakeApi) -> None:
+    # Внешняя система (Р42) — чёрный ящик: пометки «без контейнеров» нет, внешность
+    # видна в свойствах строки.
+    api.get("/nodes/all", [
+        node("n1", "Банк", has_children=False, is_external=True, element_effective="system"),
+    ])
+    api.get("/edges", [])
+
+    out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
+
+    assert "• Банк [сервис, внешний]  id=n1" in out.splitlines()

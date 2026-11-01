@@ -226,7 +226,7 @@ describe("ConfigParamsSection: элемент архитектуры", () => {
   it("система без параметров — своей конфигурации нет, меню «+ Параметр» нет", async () => {
     renderSection({ params: [], element: { kind: "system" } });
     expect(await screen.findByText(
-      "Это система, своей конфигурации у неё нет. Параметры описывают у её контейнеров",
+      "Это система, своей конфигурации у неё нет. Параметры можно описать у её контейнеров",
     )).toBeInTheDocument();
     expect(screen.queryByText("+ Параметр")).toBeNull();
     expect(screen.queryByText("Параметры не описаны")).toBeNull();

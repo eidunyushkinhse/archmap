@@ -1,13 +1,17 @@
 // Перетаскивание шаблона узла из боковой палитры на схему: превью-рамка с
-// примагничиванием + создание узла на drop.
+// примагничиванием + создание узла на drop. Цель броска проверяет тип (приёмка Ф12
+// 2026-10-31): бросок туда, где тип невозможен, объект не создаёт, а отдаёт отказ.
 import { useState, useEffect, useCallback, type Dispatch, type SetStateAction } from "react";
 import type { DragEvent } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import type { NodeShape } from "../../../types";
+import { shapeOfType, TYPE_ORDER, type NodeType } from "../../nodeTerms";
 import { NODE_DRAG_MIME } from "../../nodeTree.mime";
 import { NODE_W, NODE_H } from "../constants";
 import { snapNode } from "./snap";
 import type { Guides } from "./useAlignmentGuides";
+import type { DropEligible } from "../types";
+import { targetAccepts } from "../dropFrameTargets";
 
 // Раскрытая рамка (гостевая или локальная) как цель дропа: абсолютный rect + id
 // контейнера (будущий parent_id) + depth (для выбора самой глубокой при вложенности).
@@ -24,12 +28,18 @@ interface Params {
   clearGuides: () => void;
   isArchitect: boolean;
   disabled: boolean;
-  // parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) либо
-  // null (текущий уровень). Позицию в текущий вид пишет вызывающий (см. MapEditorPage).
-  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
-  dragShape?: NodeShape | null;
+  // type — тип объекта с плитки палитры; parentId — контейнер раскрытой рамки под
+  // курсором (узел станет его ребёнком) либо null (текущий уровень). Позицию в текущий
+  // вид пишет вызывающий (см. MapEditorPage).
+  onDropNode?: (type: NodeType, pos: { x: number; y: number }, parentId: string | null) => void;
+  dragType?: NodeType | null;
   // Раскрытые рамки текущего уровня (из layout.guestFrames) — цели дропа для хит-теста.
   expandedFrames: DropFrame[];
+  // Куда можно бросить dragType (решает страница по правилам поля «Тип»); null/undefined —
+  // сведений нет, бросок проверит окно «Новый объект».
+  eligible?: DropEligible | null;
+  // Бросок туда, где тип невозможен: parentId — рамка под курсором или null (уровень).
+  onDropRefused?: (type: NodeType, parentId: string | null) => void;
 }
 
 // Самая глубокая раскрытая рамка, чей rect накрывает точку (центр будущего узла). При
@@ -45,44 +55,51 @@ function frameAt(x: number, y: number, frames: DropFrame[]): DropFrame | null {
   return best;
 }
 
+// Тип с плитки палитры из dataTransfer: чужая строка (драг из другого окна) — не тип.
+function typeFromDrag(raw: string): NodeType | null {
+  return TYPE_ORDER.find((t) => t === raw) ?? null;
+}
+
 export function useTemplateDrop({
   rfNodes, screenToFlowPosition, setGuides, clearGuides,
-  isArchitect, disabled, onDropNode, dragShape, expandedFrames,
+  isArchitect, disabled, onDropNode, dragType, expandedFrames, eligible, onDropRefused,
 }: Params) {
   // Рамка-цель под курсором во время перетаскивания — для индикации («рамка раскрывается
   // шире под новый узел»). null — узел ляжет на текущий уровень.
   const [dropTargetFrame, setDropTargetFrame] = useState<DropFrame | null>(null);
-  // Превью будущего узла при перетаскивании шаблона из палитры: форма + координаты
+  // Превью будущего узла при перетаскивании шаблона из палитры: форма типа + координаты
   // (левый-верхний угол) в системе графа. Рендерится в ViewportPortal, поэтому
   // автоматически масштабируется под текущий зум — рамка совпадает с реальным
   // размером узлов на схеме. null — превью не показываем.
   const [dropPreview, setDropPreview] = useState<{ shape: NodeShape; x: number; y: number } | null>(null);
 
-  // Драг шаблона завершился (drop или отмена) — MapEditorPage обнулил dragShape.
+  // Драг шаблона завершился (drop или отмена) — MapEditorPage обнулил dragType.
   // Убираем превью и направляющие.
   useEffect(() => {
-    if (!dragShape) {
+    if (!dragType) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- сброс превью/цели по завершении драга — синхронизация с внешним событием; updater с noop-guard минимизирует рендеры
       setDropPreview((p) => (p === null ? p : null));
       setDropTargetFrame((f) => (f === null ? f : null));
       clearGuides();
     }
-  }, [dragShape, clearGuides]);
+  }, [dragType, clearGuides]);
 
   // Перетаскивание шаблона узла из боковой палитры на схему. dragOver с
-  // preventDefault разрешает дроп; на drop читаем форму из dataTransfer, переводим
+  // preventDefault разрешает дроп; на drop читаем тип из dataTransfer, переводим
   // экранные координаты курсора в координаты графа и центрируем узел под курсором.
   const handleDragOver = useCallback((e: DragEvent) => {
     if (!isArchitect || disabled || !onDropNode) return;
     if (!e.dataTransfer.types.includes(NODE_DRAG_MIME)) return;
     e.preventDefault();
+    // «copy» и над местом, где тип невозможен: иначе браузер не отдаст drop, и человек не
+    // узнает, почему объект не появился (отказ объясняет страница).
     e.dataTransfer.dropEffect = "copy";
     // Курсор = центр будущего узла. Притягиваем центр к соседям, рамку-превью
     // ставим на притянутую позицию, направляющие показываем как при обычном драге.
-    if (!dragShape) return;
+    if (!dragType) return;
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
     const { snapCx, snapCy, hitX, hitY, spacing } = snapNode(flow.x, flow.y, NODE_W, NODE_H, rfNodes);
-    setDropPreview({ shape: dragShape, x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
+    setDropPreview({ shape: shapeOfType(dragType), x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 });
     // Рамка-цель под центром будущего узла — для индикации (см. dropTargetFrame).
     const frame = frameAt(snapCx, snapCy, expandedFrames);
     setDropTargetFrame((prev) => (prev?.id === frame?.id ? prev : frame));
@@ -93,7 +110,7 @@ export function useTemplateDrop({
         ? prev
         : { x: gx, y: gy, spacing },
     );
-  }, [isArchitect, disabled, onDropNode, dragShape, rfNodes, screenToFlowPosition, setGuides, expandedFrames]);
+  }, [isArchitect, disabled, onDropNode, dragType, rfNodes, screenToFlowPosition, setGuides, expandedFrames]);
 
   // Курсор ушёл с канваса (а не на его дочерний элемент) — убираем превью/направляющие,
   // чтобы рамка не «зависала» на краю.
@@ -106,20 +123,24 @@ export function useTemplateDrop({
 
   const handleDrop = useCallback((e: DragEvent) => {
     if (!isArchitect || disabled || !onDropNode) return;
-    const shape = e.dataTransfer.getData(NODE_DRAG_MIME);
-    if (!shape) return;
+    const type = typeFromDrag(e.dataTransfer.getData(NODE_DRAG_MIME));
+    if (!type) return;
     e.preventDefault();
     const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    const s = shape as NodeShape;
     // Узел создаётся ровно там, где показывало превью (с тем же примагничиванием).
     const { snapCx, snapCy } = snapNode(flow.x, flow.y, NODE_W, NODE_H, rfNodes);
     // Раскрытая рамка под центром → узел станет ребёнком её контейнера; иначе текущий уровень.
     const frame = frameAt(snapCx, snapCy, expandedFrames);
-    onDropNode(s, { x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 }, frame?.id ?? null);
+    const parentId = frame?.id ?? null;
+    // Цель, которая тип не принимает, ничего не создаёт: отказ с причиной покажет страница.
+    // Сведения о целях посчитаны для типа, который тянут сейчас, — другой тип (чужой драг)
+    // по ним не судим.
+    if (type === dragType && !targetAccepts(eligible, frame)) onDropRefused?.(type, parentId);
+    else onDropNode(type, { x: snapCx - NODE_W / 2, y: snapCy - NODE_H / 2 }, parentId);
     setDropPreview(null);
     setDropTargetFrame(null);
     clearGuides();
-  }, [isArchitect, disabled, onDropNode, rfNodes, screenToFlowPosition, clearGuides, expandedFrames]);
+  }, [isArchitect, disabled, onDropNode, rfNodes, screenToFlowPosition, clearGuides, expandedFrames, dragType, eligible, onDropRefused]);
 
   return { dropPreview, dropTargetFrame, handleDragOver, handleDragLeave, handleDrop };
 }

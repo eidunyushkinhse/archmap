@@ -60,6 +60,8 @@ def build_export(
     sites: Sequence[DeploymentSite] = (),
     instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
     elements: Elements[uuid.UUID] | None = None,
+    *,
+    typed: Elements[uuid.UUID] | None = None,
 ) -> str:
     """Собирает YAML-документ {nodes: <дерево>, edges: <список>} для набора узлов.
 
@@ -78,8 +80,18 @@ def build_export(
     считаются по самому набору — это верно для набора, замкнутого вверх (вся схема);
     поддерево обязано передать элементы проекта: контейнер над корнем поддерева делает
     его узлы компонентами.
+
+    typed — выписка для промпта документации (routers/docs_import): у КАЖДОГО узла
+    формы service ключ element несёт ДЕЙСТВУЮЩИЙ тип (system | container | component)
+    по этим элементам проекта, хранимый не пишется; у базы, брокера и «Пользователя»
+    ключа нет. Агент адресует схемы по типу, а не выводит его сам из правил с
+    исключениями (пустая система, внешняя система, составной компонент). Такой документ
+    — не формат ввоза (component ввоз не примет), поэтому экспорт и архив знания typed не
+    передают: без него документ прежний байт-в-байт.
     """
-    return build_export_ordered(nodes, edges, root_id, sites, instances, elements)[0]
+    return build_export_ordered(
+        nodes, edges, root_id, sites, instances, elements, typed=typed
+    )[0]
 
 
 def _sites_section(
@@ -146,6 +158,8 @@ def build_export_ordered(
     sites: Sequence[DeploymentSite] = (),
     instances: Sequence[tuple[uuid.UUID, uuid.UUID]] = (),
     elements: Elements[uuid.UUID] | None = None,
+    *,
+    typed: Elements[uuid.UUID] | None = None,
 ) -> tuple[str, list[uuid.UUID]]:
     """То же, что build_export, плюс ПОРЯДОК id узлов в готовом документе.
 
@@ -241,9 +255,15 @@ def build_export_ordered(
         # размещение уже записано у системы выше: у поддерева ключа sites нет.
         order.append(node.id)  # до рекурсии по детям: обход = порядок документа
         d: dict = {"name": node.name, "shape": node.shape}
-        # Элемент архитектуры (Р29) — рядом с формой и только заданный: null («не
-        # сказано») не пишем, и документ проекта без элементов остаётся прежним.
-        if node.element:
+        # Элемент архитектуры (Р29) — рядом с формой. Документ формата ввоза пишет только
+        # ХРАНИМЫЙ и только заданный: null («не сказано») не пишем, и документ проекта без
+        # элементов остаётся прежним. Выписка промпта документации (typed) пишет на том же
+        # месте ДЕЙСТВУЮЩИЙ тип каждого сервиса, как его считает app/element.py.
+        if typed is not None:
+            effective = typed.effective(node.id)
+            if node.shape == "service" and effective is not None:
+                d["element"] = effective
+        elif node.element:
             d["element"] = node.element
         if node.status != "existing":
             d["status"] = node.status

@@ -15,7 +15,8 @@
   её единице, а её размещение — производное от единиц: площадки, где стоят все, и где
   — часть (partial). Обход вниз останавливается на единице (компоненты контейнера не
   обходятся) и идёт сквозь вложенные системы.
-- «Пользователь» живёт вне системы — размещения у него нет.
+- «Пользователь» живёт вне системы — размещения у него нет, а вложенных объектов у него
+  не бывает (N4), поэтому и группой единиц он не бывает.
 Экземпляры у компонента или системы (прежние данные, перенос узла — эпик, Ф5) —
 «спящие»: размещение их не считает, площадки компонента видит алерт AL36 (has_sites).
 При элементе null во всём проекте (узел с детьми — система, лист — контейнер) единица —
@@ -42,6 +43,9 @@ from app.schemas.node import NodeSiteOut
 
 PERSON_DETAIL = "У пользователя нет размещения — он живёт вне системы"
 EMPTY_CONTAINER = "В «{name}» нет объектов, которые можно разместить"
+# Внешняя система (Р42: внешний лист-сервис без элемента) — чёрный ящик: единиц у неё нет
+# и не ждут, отказ — без «пустоты», которую надо заполнить.
+EXTERNAL_SYSTEM = "«{name}» — внешняя система, её размещение не ведётся"
 COMPONENT_DETAIL = "Площадки задаются контейнеру: «{name}» — компонент контейнера «{container}»"
 CONTAINER_LEVEL = (
     "Внутри контейнера «{name}» отдельного размещения нет: компоненты развёртываются вместе с ним"
@@ -195,8 +199,8 @@ def set_placements(
     (node_or_404 в роутере).
 
     Отказы — до любой записи, поэтому частично применённого набора не бывает:
-    «Пользователь» или компонент среди узлов, система без единиц — 422, площадка не из
-    проекта — 404. Возвращает число добавленных и снятых экземпляров (0 — набор уже
+    «Пользователь» или компонент среди узлов, система без единиц (пустая или внешняя,
+    Р39/Р42) — 422, площадка не из проекта — 404. Возвращает число добавленных и снятых экземпляров (0 — набор уже
     был таким, курсоры двигать не нужно). Коммит — на вызывающей стороне.
 
     Дерево читается из БД после flush: PATCH узла применяет элемент, форму и родителя
@@ -230,7 +234,8 @@ def set_placements(
     for node in nodes:
         units = placeable_units(elements, node.id)
         if not units:
-            raise PlacementError(EMPTY_CONTAINER.format(name=node.name))
+            text = EXTERNAL_SYSTEM if elements.external_system(node.id) else EMPTY_CONTAINER
+            raise PlacementError(text.format(name=node.name))
         for unit in units:
             targets[unit] = None
 
@@ -258,9 +263,9 @@ def site_refs(
     places: Sequence[SitePlace],
     sites_by_id: Mapping[uuid.UUID, DeploymentSite],
 ) -> list[NodeSiteOut]:
-    """Размещение узла строками NodeResponse.sites. «Пользователь» — всегда пусто
-    (импорт мог положить его внутрь системы — это ловит алерт AL25, а не размещение);
-    компонент — тоже: placement_map его экземпляры не считает."""
+    """Размещение узла строками NodeResponse.sites. «Пользователь» — всегда пусто:
+    размещения у него нет, где бы он ни лежал (вложенный — только в старых данных, его
+    ловит алерт AL25); компонент — тоже: placement_map его экземпляры не считает."""
     if node.shape == "person":
         return []
     out: list[NodeSiteOut] = []
@@ -314,6 +319,27 @@ def own_by_node(pairs: Sequence[tuple[uuid.UUID, uuid.UUID]]) -> dict[uuid.UUID,
     for node_id, site_id in pairs:
         own.setdefault(node_id, []).append(site_id)
     return own
+
+
+def unit_instance_counts(db: Session, project_id: uuid.UUID) -> dict[uuid.UUID, int]:
+    """Число экземпляров ЕДИНИЦ на каждой площадке проекта (SiteOut.instance_count: окно
+    удаления площадки называет, чьё размещение снимется). Спящие экземпляры — у компонента,
+    системы, «Пользователя» (прежние данные, перенос узла, правило 5 D34) — не в счёт:
+    размещение их не считает, и ни одна строка «Размещение» их не показывает. Проект без
+    экземпляров платит одним лёгким запросом, как mark_sites."""
+    pairs = (
+        db.query(DeploymentInstance.node_id, DeploymentInstance.site_id)
+        .filter(DeploymentInstance.project_id == project_id)
+        .all()
+    )
+    if not pairs:
+        return {}
+    _parent_of, elements = project_tree(db, project_id)
+    counts: dict[uuid.UUID, int] = {}
+    for node_id, site_id in pairs:
+        if elements.effective(node_id) == "container":
+            counts[site_id] = counts.get(site_id, 0) + 1
+    return counts
 
 
 def mark_sites(db: Session, project_id: uuid.UUID, nodes: Sequence[Node]) -> None:

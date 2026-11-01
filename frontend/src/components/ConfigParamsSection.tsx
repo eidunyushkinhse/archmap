@@ -149,7 +149,7 @@ export default function ConfigParamsSection({
       )}
       {empty ? (
         kind === "system" ? (
-          <p className="np-empty">Это система, своей конфигурации у неё нет. Параметры описывают у её контейнеров</p>
+          <p className="np-empty">Это система, своей конфигурации у неё нет. Параметры можно описать у её контейнеров</p>
         ) : component ? null : (
           <p className="np-empty">Параметры не описаны</p>
         )

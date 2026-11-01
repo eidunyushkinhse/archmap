@@ -25,25 +25,23 @@ sys.path.insert(0, str(BACKEND))
 # Settings читает .env ОТ ТЕКУЩЕЙ ДИРЕКТОРИИ — иначе database_url не найдётся.
 os.chdir(BACKEND)
 
-from sqlalchemy.orm import Session  # noqa: E402
-
 # Регистрация моделей в реестре SQLAlchemy (как в alembic/env.py): без полного
 # набора импортов relationship'ы не резолвятся по строковым именам.
 import app.models.broker_channel  # noqa: E402
 import app.models.business_process  # noqa: E402
-import app.models.channel_field  # noqa: F401,E402
+import app.models.channel_field  # noqa: E402
 import app.models.config_param  # noqa: E402
-import app.models.db_column  # noqa: F401,E402
+import app.models.db_column  # noqa: E402
 import app.models.db_table  # noqa: E402
 import app.models.edge  # noqa: E402
 import app.models.node  # noqa: E402
 import app.models.node_doc  # noqa: E402
-import app.models.process_fragment  # noqa: F401,E402
+import app.models.process_fragment  # noqa: E402
 import app.models.process_message  # noqa: E402
 import app.models.process_participant  # noqa: E402
 import app.models.project  # noqa: E402
 import app.models.user  # noqa: E402
-import app.models.view_layout  # noqa: F401,E402
+import app.models.view_layout  # noqa: E402
 import app.models.view_state  # noqa: F401,E402
 from app.alerts import compute_alerts  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
@@ -62,6 +60,7 @@ from app.models.process_message import ProcessMessage  # noqa: E402
 from app.models.process_participant import ProcessParticipant  # noqa: E402
 from app.models.project import Project  # noqa: E402
 from app.models.user import User  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
 
 PROJECT_NAME = "Стенд алертов"
 
@@ -353,9 +352,12 @@ def main() -> None:
             return e
 
         # AL6, все три комбинации флагов: конец-контейнер справа, слева, с обеих сторон.
+        # Концы — соседи: связь «Платформы» с её же частью — уже не AL6, а AL32 (ниже).
         edge(gateway.id, billing.id, "создать платёж")
+        edge(catalog.id, gateway.id, "обновить цены")
+        edge(billing.id, orders.id, "внутренний вызов")
+        # AL32: связь узла с собственной частью — вложенность уже выражена иерархией.
         edge(platform.id, gateway.id, "маршрутизация")
-        edge(platform.id, billing.id, "внутренний вызов")
         # Нормальные связи — держат первый кластер связным.
         queue = edge(gateway.id, billing_worker.id, "поставить в очередь", sync=False)
         edge(gateway.id, orders_api.id, "создать заказ")

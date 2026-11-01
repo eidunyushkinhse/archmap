@@ -18,7 +18,14 @@
    из базы внутри контейнера, следующим правилом выносится и из контейнера). Своих
    площадок у поднятого нет — он берёт объявление прежнего родителя: тот был для него
    системой и отдавал ему своё размещение (app/deployment.unit_placements); внутри
-   контейнера размещения не было ни у кого из них, и ничего не берётся;
+   контейнера размещения не было ни у кого из них, и ничего не берётся. Вложенного
+   «Пользователя» это правило не трогает — его поднимает следующее;
+0а. «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31, API
+   отказывает в создании внутри объекта): вложенный поднимается на верхний уровень, где
+   бы ни лежал — в системе, контейнере, компоненте или внутри базы. Правило идёт после
+   правила 0: дети человека к этому моменту уже у его родителя и в корень с ним не
+   уезжают. Замечание одно на человека; отчёт слияния о людях внутри системы больше не
+   пишет (app/merge_warnings) — после подъёма ему не о ком говорить;
 1. элемент у не-сервиса снимается — значение пропущено;
 2. база или брокер внутри контейнера ВЫНОСИТСЯ на уровень выше — к родителю контейнера (у
    корневого контейнера — на верхний уровень), контейнер остаётся контейнером (решение
@@ -58,6 +65,11 @@ from app.element import CONTAINER, Elements
 from app.element_marks import ElementRow, build_elements
 
 ONLY_SERVICE_NOTE = "{path}: элемент архитектуры задаётся только у сервиса — значение пропущено"
+# Правило 0а: вложенный «Пользователь» поднимается на верхний уровень. {path} — где он
+# лежал (путь родителя), как у замечаний правила 0 и выноса из контейнера.
+PERSON_LIFTED_NOTE = (
+    "{path}: пользователь «{name}» живёт вне границ системы — поднят на верхний уровень"
+)
 # Правило 0: у формы без детей вложенный объект поднимается выше. {where} — как у выноса
 # из контейнера (_where): «на уровень выше, в «Путь»» либо «на верхний уровень».
 CHILDLESS_LIFTED_NOTE = {
@@ -107,13 +119,17 @@ COMPONENT_SITES_NOTE = (
 
 class ElementNode(Protocol):
     """Узел разобранного дерева, как его видит санитизация (_ImpNode ввоза): элемент,
-    родитель и площадки она меняет, имя и форму только читает."""
+    родитель и площадки она меняет, имя, форму и внешность только читает (внешний
+    лист-сервис без элемента — система, Р42)."""
 
     @property
     def name(self) -> str: ...
 
     @property
     def shape(self) -> str: ...
+
+    @property
+    def is_external(self) -> bool: ...
 
     parent_idx: int | None
     element: NodeElement | None
@@ -130,7 +146,7 @@ def _rows(nodes: Sequence[ElementNode]) -> list[ElementRow]:
     return [
         ElementRow(
             _key(i), None if n.parent_idx is None else _key(n.parent_idx), n.shape, n.element,
-            n.name,
+            n.name, n.is_external,
         )
         for i, n in enumerate(nodes)
     ]
@@ -194,13 +210,18 @@ def _lift_from_childless(
     поддеревьями. Цепочка «база в базе» распутывается за один проход: родители раньше
     детей, и поднятый (индекс больше) будет осмотрен позже уже на новом месте.
     Закреплённый ребёнок (живой при догрузке) не переносится — живое против живого
-    ввоз не судит."""
+    ввоз не судит. Ребёнок-«Пользователь» остаётся правилу 0а: оно поднимет его сразу
+    на верхний уровень одним замечанием, а не двумя."""
     notes: list[str] = []
     for i, holder in enumerate(nodes):
         if holder.shape not in CHILDLESS_LIFTED_NOTE:
             continue
         for c, child in enumerate(nodes):
-            if child.parent_idx != i or (pinned is not None and pinned(c)):
+            if (
+                child.parent_idx != i
+                or child.shape == "person"
+                or (pinned is not None and pinned(c))
+            ):
                 continue
             if not child.sites and not _in_container(nodes, i):
                 child.sites = list(holder.sites)
@@ -209,6 +230,25 @@ def _lift_from_childless(
                 path=paths[i], name=holder.name, child=child.name,
                 where=_where(nodes, paths, i),
             ))
+    return notes
+
+
+def _lift_persons(
+    nodes: Sequence[ElementNode],
+    paths: Sequence[str],
+    pinned: Callable[[int], bool] | None,
+) -> list[str]:
+    """Правило 0а: вложенный «Пользователь» — на верхний уровень. Порядок «родители
+    раньше детей» сохраняется: у корневого узла родителя нет. Площадки не берутся — у
+    пользователя размещения не бывает (app/deployment). Закреплённый (живой при
+    догрузке) не переносится: догрузка живое дерево не перестраивает, вложенного
+    человека из старых данных отмечает AL25."""
+    notes: list[str] = []
+    for i, n in enumerate(nodes):
+        if n.shape != "person" or n.parent_idx is None or (pinned is not None and pinned(i)):
+            continue
+        notes.append(PERSON_LIFTED_NOTE.format(path=paths[n.parent_idx], name=n.name))
+        n.parent_idx = None
     return notes
 
 
@@ -225,6 +265,7 @@ def sanitize_elements(
     выносимого. pinned — узлы, которые переносить нельзя (живые при догрузке);
     live_element — узлы, чей элемент взят из живого проекта, а не из ввоза."""
     notes = _lift_from_childless(nodes, paths, pinned)
+    notes += _lift_persons(nodes, paths, pinned)
     if all(n.element is None for n in nodes):
         return notes
     for i, n in enumerate(nodes):
@@ -297,6 +338,56 @@ def effective_elements(nodes: Sequence[ElementNode]) -> list[NodeElementEffectiv
     конец связи в системе или в контейнере, тег объекта в списках разбора."""
     elements = build_elements(_rows(nodes))
     return [elements.effective(_key(i)) for i in range(len(nodes))]
+
+
+# Узел до санитизации слияния: родитель, элемент, площадки (MergeReport.pre_settle).
+NodeState = tuple[int | None, NodeElement | None, list[str]]
+
+
+def restore_settled(
+    nodes: Sequence[ElementNode], before: Sequence[NodeState], root: int
+) -> dict[int, set[str]]:
+    """Вернуть поддерево root к документу — каким оно было до санитизации слияния:
+    родителей, элементы и площадки всех узлов, что лежали в root. Зовётся, когда ответ
+    на спор элемента снял с root «контейнер» (Ф13а): санитизация слияния, решавшая по
+    «контейнеру», вынесла из него базы и брокеры и сняла элементы и площадки компонентов,
+    а ответ «Система» иначе оставил бы базу снаружи. Дальше санитизация применения
+    решает по ответу — по тем же правилам. Принадлежность — по дереву ДО санитизации,
+    подъём с ограничением шагов (данные бывают циклическими). before не той длины (дерево
+    менялось) — ничего не трогаем. Возвращает, что у какого узла вернулось («parent»,
+    «element», «sites»): замечания о том, что вернуть нечего (снято ещё разбором файла),
+    остаются в силе."""
+    changed: dict[int, set[str]] = {}
+    if len(before) != len(nodes):
+        return changed
+
+    def was_inside(idx: int) -> bool:
+        cur = before[idx][0]
+        for _ in range(len(nodes)):
+            if cur is None:
+                return False
+            if cur == root:
+                return True
+            cur = before[cur][0]
+        return False
+
+    for i, n in enumerate(nodes):
+        if i == root or not was_inside(i):
+            continue
+        parent, element, sites = before[i]
+        kinds = {
+            kind
+            for kind, now, then in (
+                ("parent", n.parent_idx, parent),
+                ("element", n.element, element),
+                ("sites", n.sites, sites),
+            )
+            if now != then
+        }
+        if kinds:
+            n.parent_idx, n.element, n.sites = parent, element, list(sites)
+            changed[i] = kinds
+    return changed
 
 
 def tree_paths(nodes: Sequence[ElementNode]) -> list[str]:

@@ -186,7 +186,7 @@ describe("тур — пропуск ненайденных объектов", ()
 });
 
 describe("тур — свой проект", () => {
-  it("система — новый «Сервис» в корне своего проекта; второй объект — любой в корне", () => {
+  it("система — новая «Система» (форма service) в корне своего проекта; второй объект — любой в корне", () => {
     let s = at("create-system", { vars: { ownProjectId: OWN } });
     // база в корне — не система
     s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", parentId: null })]);
@@ -243,12 +243,19 @@ describe("тур — свой проект", () => {
     expect(s.step).toBe("final");
   });
 
+  it("объекты создаются с явным типом: «Система» на схему, «Контейнер» в её рамку (Р41)", () => {
+    expect(STEPS["create-system"].action)
+      .toBe("Перетащите «Систему» на схему и назовите её именем вашей системы.");
+    expect(STEPS["create-system"].target).toMatchObject({ main: { kind: "tour", key: "palette:system" } });
+    expect(STEPS["add-child"].target).toMatchObject({ main: { kind: "tour", key: "palette:container" } });
+  });
+
   it("имена созданных объектов подставляются в именительном падеже", () => {
     const vars = { ...OWN_VARS, childName: "Касса" };
     expect(stepTexts(STEPS.connect, vars).action)
       .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
-    expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Сервис» в рамку «Платёжный шлюз».");
+    expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» в рамку «Платёжный шлюз».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился сервис.")).toBe(true);
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)

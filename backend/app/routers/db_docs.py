@@ -61,7 +61,7 @@ def _writable_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
             status_code=400,
             detail=(
                 "У системы или контейнера не бывает собственной структуры данных — она "
-                "живёт у баз данных внутри"
+                "хранится у баз данных внутри"
             ),
         )
     return node

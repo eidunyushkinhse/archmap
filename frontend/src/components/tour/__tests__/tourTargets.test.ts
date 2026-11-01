@@ -69,9 +69,9 @@ describe("цель шага в DOM", () => {
 
 describe("составные цели", () => {
   it("два выреза: с чем работать — пульсирует, зона — без пульса, карточку к первому", () => {
-    const host = el('<div data-tour="palette:service"></div><div class="react-flow"></div>');
-    withRect(host.querySelector('[data-tour="palette:service"]')!, { x: 20, y: 600, w: 200, h: 40 });
-    const target = { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "canvas" } } as const;
+    const host = el('<div data-tour="palette:system"></div><div class="react-flow"></div>');
+    withRect(host.querySelector('[data-tour="palette:system"]')!, { x: 20, y: 600, w: 200, h: 40 });
+    const target = { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "canvas" } } as const;
     // холста ещё нет — только палитра
     expect(resolveTarget(target, CTX)!.holes).toHaveLength(1);
     // (окно jsdom — 1024×768: вырез не шире видимой части)
@@ -84,16 +84,16 @@ describe("составные цели", () => {
     expect(res.anchor).toEqual(res.holes[0]);
     expect(res.soft).toEqual([res.holes[1]]);
     // без палитры цели нет, даже если холст на месте
-    host.querySelector('[data-tour="palette:service"]')!.remove();
+    host.querySelector('[data-tour="palette:system"]')!.remove();
     expect(resolveTarget(target, CTX)).toBeNull();
   });
 
   it("рамка системы — зона второго выреза", () => {
-    const host = el('<div data-tour="palette:service"></div><div class="react-flow__node" data-id="s1"></div>');
-    withRect(host.querySelector('[data-tour="palette:service"]')!, { x: 20, y: 600, w: 200, h: 40 });
+    const host = el('<div data-tour="palette:system"></div><div class="react-flow__node" data-id="s1"></div>');
+    withRect(host.querySelector('[data-tour="palette:system"]')!, { x: 20, y: 600, w: 200, h: 40 });
     withRect(host.querySelector('[data-id="s1"]')!, { x: 400, y: 200, w: 500, h: 300 });
     const res = resolveTarget(
-      { kind: "pair", main: { kind: "tour", key: "palette:service" }, zone: { kind: "system" } },
+      { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "system" } },
       { ...CTX, vars: { systemId: "s1" } },
     )!;
     expect(res.holes[1]).toMatchObject({ x: 394, y: 194, quiet: true });

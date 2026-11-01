@@ -3,15 +3,15 @@
 // openapi у проекции нет, править её нельзя (реальный узел живёт в другой ветке дерева).
 // Кнопка «Перейти к оригиналу» уводит на уровень, где узел показан как локал; раздел
 // «Документация → Открыть» — на страницу узла, как у своего узла (двойной клик по узлу
-// сам на страницу не уводит). Строка «Элемент архитектуры» — тем же вычислением, что у
-// своего узла (elementView), только текстом: у компонента контейнер — ссылкой на его
-// страницу, контейнер ищется в пути гостя.
+// сам на страницу не уводит). Строка «Тип» — тем же вычислением, что у своего узла
+// (typeView, Р40), только текстом: у компонента контейнер — ссылкой на его страницу,
+// контейнер ищется в пути гостя.
 import type { GhostNode } from "../../types";
 import { treeNesting } from "../../types";
 import { STATUS_META } from "../graph/colors";
 import { ShapeGlyph } from "../nodeTree.shared";
-import { elementView } from "../element/elementView";
-import { ElementValue } from "../element/ElementParts";
+import { typeView } from "../element/elementView";
+import { TypeValue } from "../element/ElementParts";
 import "./inspector.css";
 
 interface Props {
@@ -24,7 +24,6 @@ interface Props {
 
 export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: Props) {
   const path = ghost.ancestors.map((a) => a.name).join(" / ");
-  const element = elementView(ghost, false, ghost.ancestors);
 
   return (
     <div>
@@ -36,14 +35,12 @@ export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: 
         <span className="insp-endname">{ghost.name}</span>
       </div>
       <dl className="insp-meta insp-meta--stacked">
-        {(element.kind === "text" || element.kind === "link") && (
-          <div className="insp-row">
-            <dt className="insp-term">Элемент архитектуры</dt>
-            <dd className="insp-value" style={{ margin: 0 }}>
-              <ElementValue view={element} onNavigateNode={onNavigateNode} />
-            </dd>
-          </div>
-        )}
+        <div className="insp-row">
+          <dt className="insp-term">Тип</dt>
+          <dd className="insp-value" style={{ margin: 0 }}>
+            <TypeValue view={typeView(ghost, ghost.ancestors)} options={null} onNavigateNode={onNavigateNode} />
+          </dd>
+        </div>
         {ghost.role && (
           <div className="insp-row">
             <dt className="insp-term">Роль</dt>

@@ -11,10 +11,19 @@
   «контейнер»; все собственные параметры конфигурации — одному потомку-контейнеру.
   Получатели — сервисы в поддереве узла на любой глубине; система и контейнер с
   компонентами схемы логики не принимают, база, брокер и «Пользователь» — ничего.
+- Превью переноса (transfer_preview): что у узла своего и кому в его составе это можно
+  отдать — флаги получателей по тем же правилам, что проверяет перенос. Окно интерфейса и
+  MCP получателей не отбирают сами: третья копия правил разошлась бы с первой.
 - Собрать с компонентов (вверх): параметры и спецификация компонентов переезжают их
-  контейнеру. Одноимённые параметры — один и тот же параметр контейнера: остаётся
-  выбранный, остальные удаляются. Спецификация переезжает только выбранная; прочие
-  остаются у компонентов (удалять документацию молча нельзя — их отметит AL36).
+  контейнеру. Знание контейнера в приоритете (решения владельца 2026-10-31): оно
+  полнее, знание компонента — часть общего пазла. Одноимённый параметр, который есть у
+  контейнера, остаётся его записью, записи компонентов отбрасываются; своя
+  спецификация контейнера остаётся, спецификации компонентов отбрасываются.
+  Единственная спецификация компонента при пустом контейнере переезжает сама.
+  Краевые случаи — вопросы пользователю с дефолтом «как сейчас»: одноимённый параметр
+  только у компонентов (чьё описание переедет) и несколько спецификаций компонентов
+  при пустом контейнере (чья переедет). Без ответа записи остаются у компонентов, и их
+  по-прежнему отмечает AL36. Отброшенное и оставленное называет отчёт.
 
 Домен без HTTP: отказы — FactsTransferError со статусом (404 — схема не своя, 409 —
 занято имя, уже есть спецификация, получатель вне поддерева; 422 — правило элемента),
@@ -24,6 +33,7 @@
 
 import uuid
 
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.element_marks import ElementRow, build_elements, project_element_rows
@@ -41,6 +51,9 @@ from app.schemas.node import (
     CollectSpecOut,
     DistributeDocsIn,
     DistributeDocsOut,
+    TransferDocOut,
+    TransferDocsPreview,
+    TransferReceiverOut,
 )
 from app.view_state import bump_meta_rev
 
@@ -59,11 +72,14 @@ DOCS_TARGET = (
 SPEC_TARGET = "Спецификация переносится только контейнеру, а «{name}» — {what}."
 PARAMS_TARGET = "Конфигурация переносится только контейнеру, а «{name}» — {what}."
 NOT_CONTAINER = "Собирать можно только контейнеру с компонентами"
-CHOOSE_PARAM = (
-    "Параметр «{name}» есть у нескольких объектов. Выберите, какое описание оставить."
-)
 WRONG_CHOICE = "Для параметра «{name}» выбран объект, у которого его нет."
 SPEC_NOT_COMPONENT = "Спецификацию можно взять только у компонента контейнера «{name}»"
+# Ответ там, где вопроса нет: у контейнера своя запись, она приоритетна.
+SPEC_OWN = "У «{name}» есть своя спецификация — спецификации компонентов при сборе отбрасываются"
+PARAM_OWN = (
+    "У «{name}» есть свой параметр «{param}» — одноимённые параметры компонентов при "
+    "сборе отбрасываются"
+)
 
 
 class FactsTransferError(ValueError):
@@ -82,7 +98,20 @@ class _Tree:
         rows: list[ElementRow] = project_element_rows(db, project_id)
         self.names = {r.id: r.name for r in rows}
         self.shapes = {r.id: r.shape for r in rows}
+        self.parents = {r.id: r.parent_id for r in rows}
         self.elements = build_elements(rows)
+
+    def path_from(self, root: uuid.UUID, node_id: uuid.UUID) -> str:
+        """Путь потомка от узла root, без него самого: «orders / api». Подъём с seen —
+        данные бывают циклическими."""
+        parts: list[str] = []
+        seen: set[uuid.UUID] = set()
+        cur: uuid.UUID | None = node_id
+        while cur is not None and cur != root and cur not in seen:
+            seen.add(cur)
+            parts.append(self.names[cur])
+            cur = self.parents.get(cur)
+        return " / ".join(reversed(parts))
 
 
 # Формы, у которых документации процесса и кода не бывает: лист базы или брокера по
@@ -225,9 +254,55 @@ def transfer_docs(
     )
 
 
+def transfer_preview(db: Session, project: Project, node: Node) -> TransferDocsPreview:
+    """«Перенести документацию» без записи: своя документация узла (схемы логики,
+    спецификация, число параметров) и все потомки в обходе в глубину с флагами — что
+    каждый примет. Флаги — те же _docs_place и _process_place, что проверяет
+    transfer_docs. Узел без вложенных — 422 тем же текстом, что у переноса."""
+    tree = _Tree(db, project.id)
+    inside = tree.elements.descendants(node.id)
+    if not inside:
+        raise FactsTransferError(NOTHING_INSIDE.format(name=node.name), 422)
+    process = [m for m in inside if _process_place(tree, m)]
+    # Спецификации — только у контейнеров (остальным она не переносится): тексты не
+    # тянем ради всего поддерева. «Есть» — по тому же правилу, что отказ SPEC_TAKEN.
+    with_spec = {
+        nid
+        for nid, spec in (
+            db.query(Node.id, Node.openapi_spec).filter(Node.id.in_(process)).all()
+            if process else []
+        )
+        if (spec or "").strip()
+    }
+    docs = db.query(NodeDoc).filter(NodeDoc.node_id == node.id).order_by(NodeDoc.name).all()
+    params = db.query(func.count(ConfigParam.id)).filter(ConfigParam.node_id == node.id).scalar()
+    return TransferDocsPreview(
+        node_id=node.id,
+        name=node.name,
+        element_effective=tree.elements.effective(node.id),
+        docs=[
+            TransferDocOut(doc_id=d.id, name=d.name, kind=d.kind, operation=d.operation)
+            for d in docs
+        ],
+        has_spec=_has_spec(node),
+        params=params or 0,
+        receivers=[
+            TransferReceiverOut(
+                node_id=m,
+                path=tree.path_from(node.id, m),
+                element_effective=tree.elements.effective(m),
+                takes_docs=_docs_place(tree, m),
+                takes_process_facts=m in process,
+                has_spec=m in with_spec,
+            )
+            for m in inside
+        ],
+    )
+
+
 class _Collect:
     """Что лежит у контейнера и его компонентов: компоненты в обходе в глубину (дети по
-    имени), узлы и параметры по владельцам."""
+    имени), узлы и параметры по владельцам, держатели спецификации среди компонентов."""
 
     def __init__(self, db: Session, project: Project, node: Node) -> None:
         tree = _Tree(db, project.id)
@@ -253,6 +328,8 @@ class _Collect:
         for h in holders:
             for p in self.params[h]:
                 self.by_name.setdefault(p.name, []).append(p)
+        self.own_spec = _has_spec(node)
+        self.spec_holders = [self.nodes[m] for m in components if _has_spec(self.nodes[m])]
 
     def clashes(self) -> list[tuple[str, list[ConfigParam]]]:
         return sorted(
@@ -260,13 +337,27 @@ class _Collect:
             key=lambda item: item[0],
         )
 
+    def container_keeps(self, ps: list[ConfigParam]) -> bool:
+        """Среди держателей одноимённого параметра сам контейнер (он первый по порядку):
+        остаётся его запись, вопроса нет."""
+        return ps[0].node_id == self.container.id
+
+    def single_spec_from(self) -> uuid.UUID | None:
+        """Своей спецификации у контейнера нет, а держатель среди компонентов один: его
+        спецификация переедет без вопроса."""
+        if self.own_spec or len(self.spec_holders) != 1:
+            return None
+        return self.spec_holders[0].id
+
     def name_of(self, node_id: uuid.UUID) -> str:
         return self.nodes[node_id].name
 
 
 def collect_preview(db: Session, project: Project, node: Node) -> CollectFactsPreview:
-    """«Собрать с компонентов» без записи: компоненты с фактами, одноимённые параметры,
-    держатели спецификации. 422 — узел не контейнер с компонентами."""
+    """«Собрать с компонентов» без записи: компоненты с фактами, одноимённые параметры
+    (container_keeps — у контейнера своя запись, вопроса нет), держатели спецификации,
+    есть ли своя у контейнера и единственный держатель, чья спецификация переедет без
+    вопроса. 422 — узел не контейнер с компонентами."""
     c = _Collect(db, project, node)
     components = [
         CollectComponentOut(
@@ -276,10 +367,16 @@ def collect_preview(db: Session, project: Project, node: Node) -> CollectFactsPr
         if c.params[m] or _has_spec(c.nodes[m])
     ]
     clashes = [
-        CollectClashOut(name=name, candidates=[
-            CollectCandidateOut(node_id=p.node_id, node_name=c.name_of(p.node_id), description=p.description)
-            for p in ps
-        ])
+        CollectClashOut(
+            name=name,
+            candidates=[
+                CollectCandidateOut(
+                    node_id=p.node_id, node_name=c.name_of(p.node_id), description=p.description,
+                )
+                for p in ps
+            ],
+            container_keeps=c.container_keeps(ps),
+        )
         for name, ps in c.clashes()
     ]
     specs = [
@@ -287,59 +384,134 @@ def collect_preview(db: Session, project: Project, node: Node) -> CollectFactsPr
         for h in (node.id, *c.components)
         if _has_spec(c.nodes[h])
     ]
-    return CollectFactsPreview(components=components, param_clashes=clashes, specs=specs)
+    return CollectFactsPreview(
+        components=components,
+        param_clashes=clashes,
+        specs=specs,
+        container_has_spec=c.own_spec,
+        single_spec_from=c.single_spec_from(),
+    )
+
+
+def _param_answers(
+    c: _Collect, choices: dict[str, uuid.UUID]
+) -> dict[str, ConfigParam | None]:
+    """Чья запись остаётся у каждого одноимённого параметра; None — вопрос без ответа,
+    записи остаются у компонентов. Есть запись контейнера — остаётся она, и ответ за
+    компонент — отказ: отбросить знание контейнера ради части пазла правило не даёт.
+    Чужой node_id — отказ, как прежде."""
+    keep: dict[str, ConfigParam | None] = {}
+    for name, ps in c.clashes():
+        chosen = choices.get(name)
+        match = next((p for p in ps if p.node_id == chosen), None)
+        if chosen is not None and match is None:
+            raise FactsTransferError(WRONG_CHOICE.format(name=name), 422)
+        if c.container_keeps(ps):
+            if match is not None and match is not ps[0]:
+                raise FactsTransferError(
+                    PARAM_OWN.format(name=c.container.name, param=name), 422
+                )
+            keep[name] = ps[0]
+        else:
+            keep[name] = match
+    return keep
+
+
+def _spec_answer(c: _Collect, spec_from: uuid.UUID | None) -> Node | None:
+    """Чья спецификация переезжает по ответу. Сам контейнер в spec_from — то же, что
+    без ответа (так было и до решений 2026-10-31)."""
+    if spec_from is None or spec_from == c.container.id:
+        return None
+    if spec_from not in c.components:
+        raise FactsTransferError(SPEC_NOT_COMPONENT.format(name=c.container.name), 422)
+    if c.own_spec:
+        raise FactsTransferError(SPEC_OWN.format(name=c.container.name), 422)
+    source = c.nodes[spec_from]
+    if not _has_spec(source):
+        raise FactsTransferError(NO_SPEC.format(name=source.name), 422)
+    return source
+
+
+def _write_params(
+    db: Session, c: _Collect, keep: dict[str, ConfigParam | None]
+) -> tuple[int, int, list[str]]:
+    """Параметры: сначала удаления (уникальность имени у контейнера), потом переезд.
+    Возвращает (переехало, отброшено, имена оставленных у компонентов)."""
+    survivors: list[ConfigParam] = []
+    left: list[str] = []
+    dropped = 0
+    for name, ps in c.by_name.items():
+        if name in keep and keep[name] is None:
+            left.append(name)
+            continue
+        kept = keep.get(name) or ps[0]
+        for p in ps:
+            if p is not kept:
+                db.delete(p)
+                dropped += 1
+        survivors.append(kept)
+    db.flush()
+    moved = 0
+    for p in sorted(survivors, key=lambda p: p.name):
+        if p.node_id != c.container.id:
+            p.node_id = c.container.id
+            p.version += 1
+            moved += 1
+    return moved, dropped, sorted(left)
+
+
+def _write_spec(c: _Collect, source: Node | None) -> tuple[bool, int, int]:
+    """Спецификация: своя у контейнера — спецификации компонентов очищаются; ответ или
+    единственный держатель — переезжает он, прочие очищаются; держателей несколько и
+    ответа нет — все остаются. Возвращает (переехала, отброшено, оставлено)."""
+    holders = c.spec_holders
+    if not c.own_spec and source is None:
+        if len(holders) != 1:
+            return False, 0, len(holders)
+        source = holders[0]
+    if source is not None:
+        c.container.openapi_spec = source.openapi_spec
+        c.container.version += 1
+        source.openapi_spec = None
+        source.version += 1
+    drop = [h for h in holders if h is not source]
+    for h in drop:
+        h.openapi_spec = None
+        h.version += 1
+    return source is not None, len(drop), 0
 
 
 def collect_facts(
     db: Session, project: Project, node: Node, payload: CollectFactsIn
 ) -> CollectFactsOut:
-    """«Собрать с компонентов»: параметры компонентов — контейнеру (одноимённые — по
-    выбору, остальные из группы удаляются), спецификация выбранного компонента —
-    контейнеру (прежняя заменяется)."""
+    """«Собрать с компонентов» по правилу приоритета контейнера (решения владельца
+    2026-10-31).
+
+    Параметры: запись, которая есть только у компонента, переезжает контейнеру.
+    Одноимённый параметр с записью контейнера — остаётся она, записи компонентов
+    удаляются. Одноимённый только у компонентов — вопрос: ответ (param_choices) —
+    выбранная запись переезжает, прочие удаляются; без ответа все остаются у
+    компонентов (left_params).
+
+    Спецификация: своя у контейнера — спецификации компонентов очищаются, spec_from —
+    422. Своей нет: единственная у компонентов переезжает без ответа; несколько — по
+    ответу (spec_from) переезжает выбранная, прочие очищаются, без ответа все остаются
+    (left_specs).
+
+    Всё проверяется до записи; ответ необязателен, неверный ответ — 422."""
     c = _Collect(db, project, node)
-    choices = {ch.name: ch.node_id for ch in payload.param_choices}
+    keep = _param_answers(c, {ch.name: ch.node_id for ch in payload.param_choices})
+    source = _spec_answer(c, payload.spec_from)
 
-    # ── Проверки: всё до записи ──
-    keep: dict[str, ConfigParam] = {}
-    for name, ps in c.clashes():
-        chosen = choices.get(name)
-        if chosen is None:
-            raise FactsTransferError(CHOOSE_PARAM.format(name=name), 422)
-        match = next((p for p in ps if p.node_id == chosen), None)
-        if match is None:
-            raise FactsTransferError(WRONG_CHOICE.format(name=name), 422)
-        keep[name] = match
-    spec_source: Node | None = None
-    if payload.spec_from is not None and payload.spec_from != node.id:
-        if payload.spec_from not in c.components:
-            raise FactsTransferError(SPEC_NOT_COMPONENT.format(name=node.name), 422)
-        spec_source = c.nodes[payload.spec_from]
-        if not _has_spec(spec_source):
-            raise FactsTransferError(NO_SPEC.format(name=spec_source.name), 422)
-
-    # ── Запись: сначала удаления (уникальность имени у контейнера), потом переезд ──
-    survivors: list[ConfigParam] = []
-    for name, ps in c.by_name.items():
-        kept = keep.get(name, ps[0])
-        for p in ps:
-            if p is not kept:
-                db.delete(p)
-        survivors.append(kept)
-    db.flush()
-    moved = 0
-    for p in sorted(survivors, key=lambda p: p.name):
-        if p.node_id != node.id:
-            p.node_id = node.id
-            p.version += 1
-            moved += 1
-    spec_moved = False
-    if spec_source is not None:
-        node.openapi_spec = spec_source.openapi_spec
-        spec_source.openapi_spec = None
-        node.version += 1
-        spec_source.version += 1
-        spec_moved = True
-    if moved or spec_moved or len(survivors) != sum(len(ps) for ps in c.by_name.values()):
+    moved, dropped_params, left_params = _write_params(db, c, keep)
+    spec_moved, dropped_specs, left_specs = _write_spec(c, source)
+    if moved or dropped_params or spec_moved or dropped_specs:
         bump_meta_rev(db, project)
-    return CollectFactsOut(moved_params=moved, spec_moved=spec_moved)
-
+    return CollectFactsOut(
+        moved_params=moved,
+        spec_moved=spec_moved,
+        dropped_params=dropped_params,
+        dropped_specs=dropped_specs,
+        left_params=left_params,
+        left_specs=left_specs,
+    )

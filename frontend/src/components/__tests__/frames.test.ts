@@ -71,20 +71,37 @@ describe("computeFrames — вложенные родные рамки", () => {
   });
 });
 
+describe("computeFrames — внешность нативных рамок", () => {
+  // Нативная рамка внешнего предка красится его палитрой (Ф13а): внешность звеньев крошек
+  // приходит входом ancestorExternals, без него предки — свои, как раньше.
+  const pos = (id: string) => (id === "C" ? { x: 0, y: 0 } : undefined);
+  const base = { localIds: ["C"], externals: [], pos, ancestorIds: ["A", "B"], ancestorNames: ["A", "B"] };
+
+  it("внешность звена крошек доходит до рамки", () => {
+    const frames = computeFrames({ ...base, ancestorElements: ["system", "container"], ancestorExternals: [false, true] });
+    expect(frames.map((f) => [f.id, f.is_external])).toEqual([["A", false], ["B", true]]);
+  });
+
+  it("без входа внешности нативные рамки — свои", () => {
+    const frames = computeFrames(base);
+    expect(frames.every((f) => !f.is_external)).toBe(true);
+  });
+});
+
 describe("computeFrames — гостевая рамка (раскрытый промежуточный контейнер)", () => {
   it("промежуточный контейнер P — НЕ нативная рамка глубже общего предка", () => {
-    // breadcrumb [IM]; локальный X; гость Zabbix с предками IM>ProdMon
+    // breadcrumb [IM]; локальный X; гость Zabbix с предками IM>logistics
     const pos = (id: string) =>
       ({ X: { x: 0, y: 0 }, Z: { x: 300, y: 0 } } as Record<string, { x: number; y: number }>)[id];
     const frames = computeFrames({
       localIds: ["X"],
-      externals: [{ id: "Z", ancestors: [a("IM"), a("ProdMon")] }],
+      externals: [{ id: "Z", ancestors: [a("IM"), a("logistics")] }],
       pos,
       ancestorIds: ["IM"],
       ancestorNames: ["IM"],
     });
     const IM = frames.find((f) => f.id === "IM")!;
-    const P = frames.find((f) => f.id === "ProdMon")!;
+    const P = frames.find((f) => f.id === "logistics")!;
     expect(IM.native).toBe(true);
     expect([...IM.memberIds].sort()).toEqual(["X", "Z"]); // Z член общего предка
     expect(P.native).toBe(false);
@@ -94,20 +111,20 @@ describe("computeFrames — гостевая рамка (раскрытый пр
 
   it("гость без общего предка: вся чужая ветка от корня — гостевые рамки", () => {
     // Просмотр с уровня OM (Объекты мониторинга); локальный BD (БД, родной). Гость DP
-    // (DB Proxy) с предками HelixMon > ObsCore — ни один не в breadcrumb. Обе ветки —
+    // (DB Proxy) с предками warehouse > inventory — ни один не в breadcrumb. Обе ветки —
     // вложенные гостевые рамки вокруг гостя, снаружи родной рамки OM.
     const pos = (id: string) =>
       ({ BD: { x: 0, y: 0 }, DP: { x: 300, y: 0 } } as Record<string, { x: number; y: number }>)[id];
     const frames = computeFrames({
       localIds: ["BD"],
-      externals: [{ id: "DP", ancestors: [a("HelixMon"), a("ObsCore")] }],
+      externals: [{ id: "DP", ancestors: [a("warehouse"), a("inventory")] }],
       pos,
       ancestorIds: ["OM"],
       ancestorNames: ["OM"],
     });
     const OM = frames.find((f) => f.id === "OM")!;
-    const IM = frames.find((f) => f.id === "HelixMon")!;
-    const MC = frames.find((f) => f.id === "ObsCore")!;
+    const IM = frames.find((f) => f.id === "warehouse")!;
+    const MC = frames.find((f) => f.id === "inventory")!;
     expect(OM.native).toBe(true);
     expect([...OM.memberIds]).toEqual(["BD"]); // гость DP НЕ член родной OM
     expect(IM.native).toBe(false);

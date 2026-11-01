@@ -18,7 +18,7 @@ import type { EdgeSide } from "./edgePath";
 import { canHaveChildren, type NodeStatus } from "../../types";
 import { STATUS_META } from "./colors";
 import { DrillInIcon } from "./icons";
-import FramePlaque, { FrameLabel } from "./FramePlaque";
+import FramePlaque, { FrameLabel, COLLAPSE_MARK_STYLE } from "./FramePlaque";
 import { frameStyle, frameClass } from "./frameStyle";
 import { frameElement } from "./layout/frames";
 import { SiteKindIcon } from "../../ui/icons";
@@ -57,11 +57,14 @@ function StatusBadge({ status, border }: { status: NodeStatus; border: string })
 // компоненты). Признак в DOM — data-glyph="tree" | "grid". Цвет наследует text-цвет узла.
 // child_count считает бэкенд. На read-only странице count — РЕЛЕВАНТНЫЕ дети (X16 v2),
 // total — все дети по БД: при расхождении бейдж показывает «N из M» (сколько на схеме из
-// скольких всего).
+// скольких всего). count = 0 — ЗНАК ТИПА У ЛИСТА (node.md N4в): тот же глиф без числа —
+// дерево у пустой системы, сетка у контейнера без компонентов; иначе они на холсте
+// неотличимы (решение владельца 2026-10-31 по прототипу, приёмка Ф12).
 function ChildrenBadge({ count, total, color, element }: {
   count: number; total?: number; color: string; element: FrameElement;
 }) {
   const grid = element !== "system";
+  const label = count === 0 ? null : total !== undefined && total > count ? `${count} из ${total}` : count;
   return (
     <span style={{
       position: "absolute", right: 12, bottom: 12, zIndex: 1,
@@ -90,7 +93,7 @@ function ChildrenBadge({ count, total, color, element }: {
           </>
         )}
       </svg>
-      {total !== undefined && total > count ? `${count} из ${total}` : count}
+      {label}
     </span>
   );
 }
@@ -324,6 +327,10 @@ function NodeName({ name }: { name: string }) {
   );
 }
 
+// Элементы, лист которых несёт знак типа в углу (N4в): система — дерево, контейнер — сетка.
+// Компонент внутри контейнера — без знака: там всё компоненты.
+const isMarkedElement = (e: FrameElement | null | undefined): boolean => e === "system" || e === "container";
+
 // Текст неактивной лупы (C8). Кнопка на предельной глубине остаётся видимой, но не
 // раскрывает: исчезающая кнопка не объясняет себя, а подсказка называет и предел, и
 // выход из него. Словами продукта: лупа есть у системы и у контейнера, поэтому
@@ -408,6 +415,10 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
   // редактор — все (badgeCount == child_count по построению assembleRf).
   const childCount = data.badgeCount;
   const intoZone = drillable && childCount > 0;
+  // Знак типа у листа (N4в): дерево у пустой системы, сетка у контейнера без компонентов, без
+  // числа — иначе они неотличимы (решение владельца 2026-10-31). Пометка проекции («1/2»)
+  // занимает тот же угол и старше.
+  const typeMark = drillable && childCount === 0 && !data.mark && isMarkedElement(data.appNode.element_effective);
   // Кнопки действий: «Войти» (onDrillDown) — только в редакторе, лупа (onExpand) —
   // и на странице объекта (инлайн-раскрытие — просмотрная механика).
   const hasActions = !data.hideActions && drillable
@@ -446,8 +457,9 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
 
       {/* Кнопки в правом верхнем углу — абсолютно, не зависят от контента. */}
       {intoZone && <IntoCue />}
-      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой. */}
-      {intoZone && (
+      {/* Бейдж «есть дети» — в правом-нижнем углу узла с под-схемой; у листа — знак типа
+          без числа. */}
+      {(intoZone || typeMark) && (
         <ChildrenBadge
           count={childCount} total={data.appNode.child_count} color={c.text}
           element={frameElement(data.appNode.element_effective)}
@@ -479,7 +491,7 @@ function BlockNode({ id, data, selected }: NodeProps<BlockRFNode>) {
 
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, hasActions) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || data.mark ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: intoZone || typeMark || data.mark ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -496,6 +508,8 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
   const onEnter = data.onEnter;
   const hasChildren = data.appNode.has_children;
   const canEnter = hasChildren && onEnter != null;
+  // Гость-лист — знак типа, как у локала (N4в): дерево у системы, сетка у контейнера.
+  const typeMark = !hasChildren && canHaveChildren(shape) && isMarkedElement(data.appNode.element_effective);
   const btnStyle: CSSProperties = {
     ...nodeBtn,
     background: "rgba(255,255,255,0.18)",
@@ -518,13 +532,17 @@ function GhostBlockNode({ data, selected }: NodeProps<GhostRFNode>) {
           ><DrillInIcon /></button>
         </div>
       )}
-      {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter. */}
-      {hasChildren && (
-        <ChildrenBadge count={data.appNode.child_count} color={c.text} element={frameElement(data.appNode.element_effective)} />
+      {/* Бейдж «есть дети» — у промежуточного гостя (есть под-схема), без привязки к onEnter;
+          у гостя-листа — знак типа без числа. */}
+      {(hasChildren || typeMark) && (
+        <ChildrenBadge
+          count={hasChildren ? data.appNode.child_count : 0} color={c.text}
+          element={frameElement(data.appNode.element_effective)}
+        />
       )}
       <div style={{ position: "relative", zIndex: 1, height: "100%", boxSizing: "border-box", overflow: "hidden", ...contentPadding(shape, canEnter) }}>
         <NodeName name={data.appNode.name} />
-        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren ? 34 : 0 }}>
+        <div style={{ display: "flex", justifyContent: "flex-start", paddingRight: hasChildren || typeMark ? 34 : 0 }}>
           <RoleTechChip role={data.appNode.role} technology={data.appNode.technology} color={c.text} />
         </div>
       </div>
@@ -635,6 +653,8 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         // вид — общий с рамкой уровня и оверлеем драга (frameStyle.ts)
         ...frameStyle(data),
         pointerEvents: picking ? "auto" : "none",
+        // на время драга ребёнка рамку и плашку рисует оверлей (useFrameFollowOverlay, C17)
+        opacity: data.dragHidden ? 0 : undefined,
       }}
     >
       <FrameHandles nodeId={id} />
@@ -648,6 +668,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
         x={positionAbsoluteX}
         bottom={positionAbsoluteY + (height ?? 0)}
         interactive
+        hidden={data.dragHidden}
         onClick={data.onCollapse}
         title={data.onCollapse ? collapseTitle : undefined}
       >
@@ -657,10 +678,7 @@ function FrameNode({ id, data, positionAbsoluteX, positionAbsoluteY, height }: N
             className="nodrag"
             onClick={(e) => { e.stopPropagation(); data.onCollapse?.(); }}
             title={collapseTitle}
-            style={{
-              border: "none", background: "transparent", cursor: "pointer",
-              padding: 0, fontSize: 12, lineHeight: 1, color: "#64748b", fontWeight: 700,
-            }}
+            style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, ...COLLAPSE_MARK_STYLE }}
           >✕</button>
         )}
       </FramePlaque>

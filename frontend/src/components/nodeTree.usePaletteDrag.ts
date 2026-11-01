@@ -1,10 +1,11 @@
 import { useRef, useState } from "react";
 import type { DragEvent } from "react";
-import type { NodeShape } from "../types";
+import type { NodeType } from "./nodeTerms";
 import { NODE_DRAG_MIME } from "./nodeTree.mime";
 
-// Драг шаблона из палитры «Добавить объект» (аудит F-7): форма уходит под своим MIME,
-// схема рисует превью, панель на время драга накрывается «корзиной» (nodeTree.Palette).
+// Драг шаблона из палитры «Добавить объект» (аудит F-7): тип объекта уходит под своим
+// MIME, схема рисует превью, панель на время драга накрывается «корзиной»
+// (nodeTree.Palette).
 
 // Прозрачная 1×1 картинка вместо стандартного drag-image: прячем «снимок» плитки —
 // вместо него схема показывает свою рамку-превью будущего узла (масштаб под зум).
@@ -20,28 +21,28 @@ export interface PaletteDrag {
   dragging: boolean;
   // Курсор над «корзиной» (drop здесь = отмена) — подсветка.
   trashActive: boolean;
-  onTemplateDragStart: (e: DragEvent, shape: NodeShape) => void;
+  onTemplateDragStart: (e: DragEvent, type: NodeType) => void;
   onTemplateDragEnd: () => void;
   onTrashDragOver: (e: DragEvent) => void;
   onTrashDragLeave: () => void;
   onTrashDrop: (e: DragEvent) => void;
 }
 
-// onTemplateDrag — начало/конец драга шаблона: shape при старте, null при завершении.
+// onTemplateDrag — начало/конец драга шаблона: тип при старте, null при завершении.
 // По нему схема рисует превью-рамку будущего узла под курсором.
-export function usePaletteDrag(onTemplateDrag: ((shape: NodeShape | null) => void) | undefined): PaletteDrag {
+export function usePaletteDrag(onTemplateDrag: ((type: NodeType | null) => void) | undefined): PaletteDrag {
   const [dragging, setDragging] = useState(false);
   const [trashActive, setTrashActive] = useState(false);
   // синхронный флаг «идёт драг» — оверлей показываем отложенно (см. onTemplateDragStart),
   // а ref нужен, чтобы не зажечь его уже после завершения короткого драга
   const draggingRef = useRef(false);
 
-  function onTemplateDragStart(e: DragEvent, shape: NodeShape) {
-    e.dataTransfer.setData(NODE_DRAG_MIME, shape);
+  function onTemplateDragStart(e: DragEvent, type: NodeType) {
+    e.dataTransfer.setData(NODE_DRAG_MIME, type);
     e.dataTransfer.effectAllowed = "copy";
     // Прячем стандартный drag-image (снимок плитки) — превью рисует схема.
     if (EMPTY_DRAG_IMG) e.dataTransfer.setDragImage(EMPTY_DRAG_IMG, 0, 0);
-    onTemplateDrag?.(shape);
+    onTemplateDrag?.(type);
     // ВАЖНО: оверлей-корзину показываем НЕ синхронно. Если смонтировать плитку
     // поверх карточки-источника прямо в обработчике dragstart, браузер отменяет
     // нативный drag (источник под курсором исчезает/накрывается). Откладываем на

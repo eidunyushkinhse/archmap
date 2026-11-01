@@ -3,8 +3,10 @@
 import type { Node as RFNode } from "@xyflow/react";
 import type {
   Node as AppNode, GhostNode, Edge as AppEdge, AncestorRef, EdgePoint, LayoutEdge,
-  NodeShape, SiteKind, ViewLayoutPayload,
+  SiteKind, ViewLayoutPayload,
 } from "../../types";
+import type { NodeType } from "../nodeTerms";
+import type { TypeSubject } from "../element/typeOptions";
 import type { EdgeSide } from "./edgePath";
 import type { SchemaView } from "../schemaView";
 import type { History } from "./interaction/useHistory";
@@ -181,7 +183,7 @@ export interface GhostData extends Record<string, unknown> {
   onEnter?: () => void;
 }
 
-// Свёрнутый узел-контейнер соседней ветки (напр. ProdMon) — с кнопкой-лупой.
+// Свёрнутый узел-контейнер соседней ветки (напр. logistics) — с кнопкой-лупой.
 export interface ContainerData extends Record<string, unknown> {
   id: string;
   name: string;
@@ -227,6 +229,10 @@ export interface FrameData extends Record<string, unknown> {
   // (обычно оно прозрачно для мыши), плашка не сворачивает, а тоже выбирает. Вложенная
   // рамка лежит поверх объемлющей и ловит щелчок первой.
   onPick?: (id: string) => void;
+  // Рамку на время драга её ребёнка рисует оверлей (useFrameFollowOverlay, container.md C17):
+  // сама рамка прозрачна, плашка скрыта — она в слое подписей, и прозрачность рамки до неё
+  // не доходит. Ставит и снимает только оверлей.
+  dragHidden?: boolean;
 }
 
 // ДЕКОР РАМКИ ПО ДАННЫМ (холст развёртывания, docs/specs/deployment.md). site — рамка
@@ -433,13 +439,40 @@ export interface LevelDeleteCallbacks {
   onRequestDeleteNodes?: (nodes: AppNode[]) => void;
 }
 
+// Раскрытая рамка холста как цель броска плитки палитры (приёмка Ф12 2026-10-31): id —
+// будущий parent_id, subject — объект рамки в виде, который понимают правила поля «Тип»
+// (element/typeOptions; собирает graph/dropFrameTargets).
+export interface DropFrameTarget {
+  id: string;
+  name: string;
+  subject: TypeSubject;
+}
+
+// Куда можно бросить тип, который сейчас тянут (цель броска проверяет тип): levelOk — на
+// текущий уровень, frameIds — в какие раскрытые рамки.
+export interface DropEligible {
+  levelOk: boolean;
+  frameIds: ReadonlySet<string>;
+}
+
 // Дроп шаблона узла из боковой палитры на схему.
 export interface LevelDropProps {
-  // Отпускание перетянутого шаблона: shape — форма, pos — координаты в системе графа,
-  // parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) / null (уровень).
-  onDropNode?: (shape: NodeShape, pos: { x: number; y: number }, parentId: string | null) => void;
-  // Форма шаблона, который СЕЙЧАС перетаскивают (null — драга нет) — для превью-рамки в dragover.
-  dragShape?: NodeShape | null;
+  // Отпускание перетянутого шаблона: type — тип объекта (Р41), pos — координаты в системе
+  // графа, parentId — контейнер раскрытой рамки под курсором (узел станет его ребёнком) /
+  // null (уровень).
+  onDropNode?: (type: NodeType, pos: { x: number; y: number }, parentId: string | null) => void;
+  // Тип шаблона, который СЕЙЧАС перетаскивают (null — драга нет) — для превью-рамки в dragover.
+  dragType?: NodeType | null;
+  // Раскрытые рамки холста как цели броска: холст сообщает их при каждой смене набора
+  // (раскрыли, свернули, переименовали), по ним страница решает, какие плитки палитры
+  // активны и куда тип можно бросить.
+  onDropFrames?: (frames: DropFrameTarget[]) => void;
+  // Куда можно бросить dragType; null — сведений нет (родитель уровня не загружен):
+  // бросок проверит окно «Новый объект», как до приёмки.
+  dropEligible?: DropEligible | null;
+  // Бросок туда, где тип невозможен: объект не создаётся, страница объясняет причину.
+  // parentId — раскрытая рамка под курсором или null (уровень).
+  onDropRefused?: (type: NodeType, parentId: string | null) => void;
 }
 
 // Undo/Redo: общая история + дисптчеры из страницы-хозяина (кросс-уровневый редирект).

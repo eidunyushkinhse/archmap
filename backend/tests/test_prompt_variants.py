@@ -27,6 +27,7 @@ from app.database import get_db
 from app.deps import get_current_project, require_project_editor
 from app.docs_import import prompt_name_catalogs
 from app.docs_prompt import build_docs_prompt
+from app.element_marks import build_elements, element_rows_of
 from app.export import build_export
 from app.import_prompt import build_import_prompt
 from app.main import app
@@ -144,13 +145,15 @@ def test_импорт_скептик_это_аудит_а_не_стройка(db
 
 
 def _прямой_доковый(db, project) -> str:
-    """Тот же промпт, что собирает ручка: срез схемы + каталоги имён проекта."""
+    """Тот же промпт, что собирает ручка: срез схемы с типами объектов (Ф14) + каталоги
+    имён проекта."""
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     edges = db.query(Edge).filter(Edge.project_id == project.id).all()
     tables, channels, params = prompt_name_catalogs(db, project.id, {n.id for n in nodes})
+    typed = build_elements(element_rows_of(nodes))
     return build_docs_prompt(
-        build_export(nodes, edges, root_id=None), "both", "ru", None, None, tables, channels,
-        param_catalog=params,
+        build_export(nodes, edges, root_id=None, typed=typed), "both", "ru", None, None,
+        tables, channels, param_catalog=params,
     )
 
 

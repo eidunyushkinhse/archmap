@@ -62,13 +62,17 @@ DIFF_LINES = 60
 
 # ── Фикстуры аргументов ──────────────────────────────────────────────────────
 # Фиксированные и маленькие: снапшот должен читаться человеком, а не быть дампом.
+# Срезы — в том виде, в каком их печатает роутер промпта документации (build_export
+# typed, Ф14): у каждого сервиса действующий тип, у базы ключа нет.
 SLICE = (
     "nodes:\n"
     "- name: Ярмарка\n"
     "  shape: service\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: orders\n"
     "    shape: service\n"
+    "    element: container\n"
     "  - name: Каталог-БД\n"
     "    shape: database\n"
     "edges: []\n"
@@ -78,6 +82,7 @@ COMPONENT_SLICE = (
     "nodes:\n"
     "- name: api\n"
     "  shape: service\n"
+    "  element: component\n"
     "edges: []\n"
 )
 DB_PATHS = ["Ярмарка / Каталог-БД", "Ярмарка / Учёт-БД"]
@@ -240,6 +245,16 @@ def test_промпт_совпадает_со_снапшотом(case: Case) -> 
     stored = path.read_text(encoding="utf-8")
     if stored != текст:
         pytest.fail(f"{ПОДСКАЗКА}\n\n{_diff(stored, текст, case.name)}", pytrace=False)
+
+
+@pytest.mark.parametrize("case", CASES, ids=ИМЕНА)
+def test_промпт_словами_продукта_запуск_а_не_прогон(case: Case) -> None:
+    """Ф14: агенту пользователя — «запуск», а не внутреннее «прогон», и концовки без
+    привязки к окну: тот же текст отдаёт MCP. Сторож на возвращение хвостов в любом
+    потоке и варианте."""
+    текст = case.build()
+    assert "прогон" not in текст.lower()
+    assert "открыто окно" not in текст
 
 
 def test_имена_случаев_уникальны() -> None:

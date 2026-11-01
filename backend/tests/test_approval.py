@@ -15,7 +15,12 @@ from conftest import ensure_architect, ensure_project, make_project
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from app.approval import SYSTEM_DETAIL, ApprovalRow, effective_approvals
+from app.approval import (
+    EXTERNAL_DETAIL,
+    SYSTEM_DETAIL,
+    ApprovalRow,
+    effective_approvals,
+)
 from app.auth import create_access_token
 from app.database import get_db
 from app.element import Elements
@@ -277,7 +282,11 @@ def test_children_и_система_по_вычисленному(db):
     parent = _node(db, "Заказы")
     a = _node(db, "Сервис заказов", parent=parent)
     b = _node(db, "База заказов", parent=parent, shape="database")
-    # Внешний объект среди детей считается наравне с прочими (решение Р1).
+    # Внешний объект среди детей считается наравне с прочими (решение Р1): внешняя
+    # база данных — единица, как своя.
+    ext_db = _node(db, "Банк-БД", parent=parent, shape="database", is_external=True)
+    # Внешний лист-сервис без элемента — внешняя система (Р42): не единица, статус у
+    # неё не ведётся, и согласованию системы она не мешает.
     ext = _node(db, "Платёжный шлюз", parent=parent, is_external=True)
     project = ensure_project(db)
     db.commit()
@@ -287,6 +296,7 @@ def test_children_и_система_по_вычисленному(db):
     assert {k.name: k.approval_effective for k in kids} == {
         "Сервис заказов": "in_progress",
         "База заказов": "in_progress",
+        "Банк-БД": "in_progress",
         "Платёжный шлюз": "in_progress",
     }
 
@@ -294,11 +304,39 @@ def test_children_и_система_по_вычисленному(db):
         update_node(n.id, NodeUpdate(approval="approved"), db=db, project=project, user=arch)
     assert get_node(parent.id, db=db, project=project, _=arch).approval_effective == "in_progress"
 
-    update_node(ext.id, NodeUpdate(approval="approved"), db=db, project=project, user=arch)
+    with pytest.raises(HTTPException) as exc:
+        update_node(ext.id, NodeUpdate(approval="approved"), db=db, project=project, user=arch)
+    assert (exc.value.status_code, exc.value.detail) == (422, EXTERNAL_DETAIL)
+    assert EXTERNAL_DETAIL == "Статус внешней системы не ведётся"
+
+    update_node(ext_db.id, NodeUpdate(approval="approved"), db=db, project=project, user=arch)
     kids = get_children(parent.id, db=db, project=project, _=arch)
-    assert {k.approval_effective for k in kids} == {"approved"}
+    assert {k.name: k.approval_effective for k in kids if k.id != ext.id} == {
+        "Сервис заказов": "approved", "База заказов": "approved", "Банк-БД": "approved",
+    }
     out = NodeResponse.model_validate(get_node(parent.id, db=db, project=project, _=arch))
     assert (out.approval, out.approval_effective) == ("in_progress", "approved")
+
+
+def test_внешний_лист_с_контейнером_единица_и_внутренним_снова_свой_статус(db):
+    """Р42: хранимое «контейнер» у внешнего листа — явное намерение, он единица со своим
+    статусом. Внешняя система, ставшая своей в том же запросе, — контейнер: ручной
+    статус проходит (элемент — по дереву после правки)."""
+    parent = _node(db, "Заказы")
+    ext_c = _node(db, "Шлюз", parent=parent, is_external=True, element="container")
+    ext = _node(db, "Банк", parent=parent, is_external=True)
+    project = ensure_project(db)
+    db.commit()
+    arch = ensure_architect(db)
+
+    update_node(ext_c.id, NodeUpdate(approval="approved"), db=db, project=project, user=arch)
+    assert get_node(parent.id, db=db, project=project, _=arch).approval_effective == "approved"
+
+    res = update_node(
+        ext.id, NodeUpdate(is_external=False, approval="approved"),
+        db=db, project=project, user=arch,
+    )
+    assert (res.element_effective, res.approval_effective) == ("container", "approved")
 
 
 def test_граф_уровня_и_контекст_несут_вычисленный_статус(db):

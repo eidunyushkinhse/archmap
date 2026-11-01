@@ -10,7 +10,10 @@
 // есть площадки (зона с заливкой, свёрнутая — белая карточка), группа «Размещение не
 // указано», пунктирная карточка системы целиком на площадке и пометка «1/2».
 // Рамки — по элементу архитектуры (Р20, Р24 эпика docs/plan-c4-elements.md): обе
-// пунктиром, у контейнера заливка цветом глубины (graph/frameStyle.ts).
+// пунктиром, у контейнера заливка цветом глубины (graph/frameStyle.ts). Знаки в углу блока
+// (ChildrenBadge, node.md N17 и N4в): дерево — система, сетка — контейнер; число рядом —
+// сколько внутри, у листа знак без числа.
+
 import { useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import "./SchemaLegend.css";
@@ -93,6 +96,34 @@ function SwatchWholeSystem() {
     </svg>
   );
 }
+/* Знак в правом нижнем углу блока (ChildrenBadge): дерево у системы, сетка у контейнера —
+   тот же глиф в масштабе свотча на блоке сервиса. */
+function SwatchCornerBadge({ glyph }: { glyph: "tree" | "grid" }) {
+  const stroke = { fill: "none", stroke: "#fff", strokeWidth: 2.4, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+  return (
+    <svg width={26} height={18} viewBox="0 0 26 18">
+      <rect x={1} y={1} width={24} height={16} rx={4} fill={BLUE} stroke={BLUE_BORDER} strokeWidth={1.3} />
+      <g transform="translate(13.5 5.5) scale(0.42)" data-glyph={glyph}>
+        {glyph === "tree" ? (
+          <>
+            <circle cx="12" cy="6" r="2.3" {...stroke} />
+            <circle cx="6" cy="18" r="2.3" {...stroke} />
+            <circle cx="18" cy="18" r="2.3" {...stroke} />
+            <path d="M12 8.3 V13" {...stroke} />
+            <path d="M6 15.7 V13 H18 V15.7" {...stroke} />
+          </>
+        ) : (
+          <>
+            <rect x="4" y="4" width="7" height="7" rx="1.5" {...stroke} />
+            <rect x="13" y="4" width="7" height="7" rx="1.5" {...stroke} />
+            <rect x="4" y="13" width="7" height="7" rx="1.5" {...stroke} />
+            <rect x="13" y="13" width="7" height="7" rx="1.5" {...stroke} />
+          </>
+        )}
+      </g>
+    </svg>
+  );
+}
 /* Площадка развёртывания — зона: лёгкая заливка и светлая граница (FrameNode, decor site) */
 function SwatchSite() {
   return (
@@ -159,9 +190,9 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
           <div style={head}>Легенда</div>
 
           <Section title="Типы объектов">
-            <Row swatch={<SwatchService />} label="Сервис" />
+            <Row swatch={<SwatchService />} label="Система, контейнер, компонент" />
             <Row swatch={<SwatchDatabase />} label="База данных" />
-            <Row swatch={<SwatchBroker />} label="Брокер сообщений" />
+            <Row swatch={<SwatchBroker />} label="Брокер" />
             {!deployment && <Row swatch={<SwatchPerson />} label="Пользователь" />}
           </Section>
 
@@ -184,6 +215,8 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
               <Row swatch={<SwatchGhost />} label="Объект с другого уровня" />
               <Row swatch={<SwatchFrame />} label="Рамка системы" />
               <Row swatch={<SwatchContainerFrame />} label="Рамка контейнера" />
+              <Row swatch={<SwatchCornerBadge glyph="tree" />} label="Система, рядом число вложенных объектов" />
+              <Row swatch={<SwatchCornerBadge glyph="grid" />} label="Контейнер, рядом число компонентов" />
             </Section>
           )}
         </div>

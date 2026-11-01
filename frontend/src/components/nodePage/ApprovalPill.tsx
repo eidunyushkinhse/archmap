@@ -20,7 +20,8 @@ interface Props {
   node: Node;
   isArchitect: boolean;
   // Единицы статуса системы — её потомки, кроме вложенных систем (контейнеры,
-  // компоненты, «Пользователи»); null — ещё грузятся (или узел не система).
+  // компоненты, «Пользователи»); null — ещё грузятся (или узел не система), [] — единиц
+  // нет (пустая система): согласовывать нечего.
   units: Node[] | null;
   onNavigateNode: (id: string) => void;
   onPick: (value: NodeApproval) => void;
@@ -60,7 +61,7 @@ export default function ApprovalPill({ node, isArchitect, units, onNavigateNode,
   }
 
   const approvedCount = units ? units.filter((c) => c.approval_effective === "approved").length : 0;
-  const counter = isSystem && units ? ` · ${approvedCount} из ${units.length}` : "";
+  const counter = isSystem && units && units.length > 0 ? ` · ${approvedCount} из ${units.length}` : "";
   const close = () => setOpen(false);
 
   return (
@@ -83,6 +84,8 @@ export default function ApprovalPill({ node, isArchitect, units, onNavigateNode,
             {isSystem ? (
               units === null ? (
                 <div className="np-approval-head">Загрузка…</div>
+              ) : units.length === 0 ? (
+                <div className="np-approval-head">Согласовывать пока нечего</div>
               ) : (
                 <>
                   <div className="np-approval-head">Согласовано {approvedCount} из {units.length}</div>

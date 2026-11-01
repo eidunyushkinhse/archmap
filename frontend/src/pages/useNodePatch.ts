@@ -38,9 +38,11 @@ interface NodePatch {
   commitOpenapi: (value: string) => Promise<string | null>;
   toggleExternal: () => void;
   pickStatus: (st: Node["status"]) => void;
-  // Смена типа узла (форма C4): структурная правка со своими запретами на сервере
-  // (дети / описанная структура БД) — отказ приезжает в error, не молчанием.
-  pickShape: (sh: Node["shape"]) => void;
+  // Смена формы узла: структурная правка со своими запретами на сервере (дети /
+  // описанная структура БД) — отказ приезжает в error, не молчанием. element — элемент
+  // той же правкой: база, брокер или «Пользователь», ставшие системой или контейнером
+  // (строка «Тип», Р40), — сервис с этим элементом.
+  pickShape: (sh: Node["shape"], element?: NodeElement) => void;
   // Якорь (поле «Якорь», components/anchor). Возвращает текст отказа — или null,
   // если сохранилось: 422 обязан остаться ПОД ФОРМОЙ, где его исправляют, а не
   // только в общей плашке страницы. null в аргументе — очистка якоря.
@@ -202,10 +204,10 @@ export function useNodePatch(
     void save({ status: st });
   }, [status, save]);
 
-  const pickShape = useCallback((sh: Node["shape"]) => {
-    if (sh === shape) return;
+  const pickShape = useCallback((sh: Node["shape"], element?: NodeElement) => {
+    if (sh === shape && element === undefined) return;
     setShape(sh);
-    void save({ shape: sh });
+    void save(element === undefined ? { shape: sh } : { shape: sh, element });
   }, [shape, save]);
 
   // Якорь в общий payload НЕ входит осознанно: поле source, не присланное в

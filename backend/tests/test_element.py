@@ -71,14 +71,79 @@ def test_вложенный_хранимый_контейнер_внутри_к�
 
 
 def test_хранимое_у_листа_и_система_явно():
-    # Хранимое значение у листа не читается (узел потерял последнего ребёнка);
-    # явная «system» у узла с детьми — то же, что не сказано.
+    # Хранимое «контейнер» у листа читается как не сказано (лист — контейнер); явная
+    # «system» у узла с детьми — то же, что не сказано.
     parent_of = {"g": None, "leaf": "g", "lone": None}
-    el = _elements(parent_of, {"g": "system", "leaf": "system", "lone": "container"})
+    el = _elements(parent_of, {"g": "system", "lone": "container"})
     assert el.effective("g") == "system"
     assert el.effective("leaf") == "container"
     assert el.effective("lone") == "container"
     assert el.units_under("g") == ["leaf"]
+
+
+def test_пустая_система():
+    # Р39: лист-сервис с хранимым «system» — система без единиц: не контейнер, не
+    # единица, контейнера для фактов процесса у неё нет, состава тоже.
+    parent_of = {"g": None, "empty": "g", "lone": None}
+    el = _elements(parent_of, {"empty": "system", "lone": "system"})
+    for node in ("empty", "lone"):
+        assert el.effective(node) == "system"
+        assert el.container_of(node) is None
+        assert el.units_under(node) == []
+        assert el.members_of(node) == []
+    # Система над пустой системой единиц не получает.
+    assert el.units_under("g") == []
+
+
+def test_пустая_система_только_у_сервиса_и_не_внутри_контейнера():
+    # Хранимое «system» у не-сервиса (данные в обход правил) не читается; внутри
+    # контейнера лист — компонент при любом хранимом.
+    parent_of = {"db": None, "orders": None, "api": "orders"}
+    shapes = {"db": "database", "orders": "service", "api": "service"}
+    el = Elements(parent_of, shapes, {"db": "system", "orders": "container", "api": "system"})
+    assert el.effective("db") == "container"
+    assert el.effective("api") == "component"
+
+
+def test_внешний_лист_без_элемента_внешняя_система():
+    # Р42 (2026-10-31): внешний лист-сервис без хранимого элемента — система (чёрный
+    # ящик): единиц и состава нет, контейнера для фактов процесса тоже. Хранимое
+    # «контейнер» у внешнего листа — явное намерение; свой лист без элемента — контейнер.
+    parent_of = {"sys": None, "pay": "sys", "gw": "sys", "own": "sys", "bank": None}
+    el = Elements(
+        parent_of, {n: "service" for n in parent_of}, {"gw": "container"},
+        external={"pay", "gw", "bank"},
+    )
+    for node in ("pay", "bank"):
+        assert el.effective(node) == "system"
+        assert el.external_system(node)
+        assert el.container_of(node) is None
+        assert el.units_under(node) == []
+    assert el.effective("gw") == "container" and not el.external_system("gw")
+    assert el.effective("own") == "container" and not el.external_system("own")
+    # Система над внешней системой её единицей не считает.
+    assert el.units_under("sys") == ["gw", "own"]
+
+
+def test_внешний_с_детьми_по_общему_правилу_и_внешний_не_сервис_контейнер():
+    # Внешний узел с детьми — как прежде: система без хранимого, контейнер с хранимым;
+    # внешняя система с вложенными не «чёрный ящик» (external_system — только лист).
+    # Внешняя база или брокер — контейнер, единица: элемент задаётся только у сервиса.
+    # Внутри контейнера внешний лист — компонент.
+    parent_of = {
+        "ext": None, "ext_kid": "ext", "extc": None, "extc_kid": "extc",
+        "bankdb": None, "orders": None, "sdk": "orders",
+    }
+    shapes = {n: "service" for n in parent_of} | {"bankdb": "database"}
+    el = Elements(
+        parent_of, shapes, {"extc": "container", "orders": "container"},
+        external={"ext", "extc", "bankdb", "sdk", "ext_kid"},
+    )
+    assert el.effective("ext") == "system" and not el.external_system("ext")
+    assert el.effective("ext_kid") == "system" and el.external_system("ext_kid")
+    assert el.effective("extc") == "container"
+    assert el.effective("bankdb") == "container"
+    assert el.effective("sdk") == "component" and not el.external_system("sdk")
 
 
 def test_пользователь_снаружи_и_внутри_контейнера():

@@ -170,6 +170,29 @@ def test_круг_архива_несёт_элемент_архитектуры(
     assert b"  element: system\n" in c4(архив)
 
 
+def test_круг_архива_несёт_пустую_систему(db):
+    """Пустая система (Р39) — лист-сервис с «система» — едет архивом и обратно: значение
+    на месте, c4.yaml нового проекта байт-в-байт тот же."""
+    исходный = _полигон(db)
+    узлы_исходного = {n.name: n for n in db.query(Node).filter(Node.project_id == исходный.id)}
+    узлы_исходного["orders"].element = "system"
+    db.commit()
+    архив = build_archive(db, исходный)
+
+    план, новый, отчёт = _ввоз(db, архив)
+    db.commit()
+
+    assert план.ok and отчёт.warnings == []
+    узлы = {n.name: n for n in db.query(Node).filter(Node.project_id == новый.id)}
+    assert узлы["orders"].element == "system"
+
+    def c4(данные: bytes) -> bytes:
+        with zipfile.ZipFile(io.BytesIO(данные)) as z:
+            return z.read("c4.yaml")
+
+    assert c4(build_archive(db, новый)) == c4(архив)
+
+
 def test_кривой_zip_не_создаёт_проекта(db):
     было = db.query(Project).count()
     # Магия zip есть, содержимого нет — вход разбирается как архив и падает на нём.

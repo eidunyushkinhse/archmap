@@ -49,7 +49,7 @@ export function widenNodesForLabels(params: {
   // Сколько рёбер на каждой НЕУПОРЯДОЧЕННОЙ паре узлов — встречную/много-рёберную пару
   // раздвигать бессмысленно: их плечи совпадают (R4), инлайн на прямом коридоре всё равно
   // запрещён → за это отвечают рельсы (A11) и детур (A12), а не раздвижка. Иначе A10 зря
-  // выселял бы узел (см. дамп A10.2: ObsCore уезжал, плашка всё равно leader).
+  // выселял бы узел (см. дамп A10.2: inventory уезжал, плашка всё равно leader).
   const pairCount = new Map<string, number>();
   for (const g of groupArr) {
     const k = g.source < g.target ? `${g.source}|${g.target}` : `${g.target}|${g.source}`;

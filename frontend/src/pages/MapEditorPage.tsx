@@ -10,7 +10,7 @@ import { getIsGuest } from "../api/auth";
 import { canEditProject, useProjectRole } from "./projectRole";
 import type {
   AncestorRef, DeletionSnapshot, Edge, EdgeUpdate, GhostNode, LevelEdge,
-  Node, NodeShape, NodeUpdate,
+  Node, NodeUpdate,
   ViewLayout, ViewLayoutPayload,
 } from "../types";
 import { useHistory } from "../components/graph/interaction/useHistory";
@@ -26,10 +26,11 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
-import type { LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
+import type { DropFrameTarget, LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
+import { remoteToastInRail } from "../ui/remoteToast";
 import { useSchemaAlerts, resolveAlertLocate, PENDING_ALERT_LOCATE_KEY, PENDING_PROCESS_KEY } from "./useSchemaAlerts";
 import { mergeViewLayout, toLevelEdges } from "../components/pageSchema";
 import SchemaAlerts, { type LocateTarget } from "../components/SchemaAlerts";
@@ -51,8 +52,12 @@ import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
 import { useFirstChild } from "../components/element/useFirstChild";
+import type { NodeType } from "../components/nodeTerms";
 import { useConsequences } from "../components/element/useConsequences";
 import { hasConsequences } from "../components/element/elementChange";
+import { useAsyncLoad } from "../lib/useAsyncLoad";
+import { typeOptions } from "../components/element/typeOptions";
+import { dropEligibility, dropRefusal, paletteTiles } from "../components/element/paletteTiles";
 
 interface Props {
   projectId: string;
@@ -94,7 +99,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [selectedObject, setSelectedObject] = useState<Selected>(null);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false); // свёрнута ли правая панель
   const [nodeModal, setNodeModal] = useState<{
-    open: boolean; node: Node | null; shape?: NodeShape;
+    open: boolean; node: Node | null; type?: NodeType;
     pos?: { x: number; y: number } | null;
     parentId?: string | null; posView?: string | null;
   }>({ open: false, node: null });
@@ -120,7 +125,8 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Токен мутации (создание/удаление узлов и связей): LevelGraph перерисовывает
   // изменившиеся стрелки анимированно и рисует новые (окно мутаций, AN28а).
   const [mutationToken, setMutationToken] = useState(0);
-  const [dragShape, setDragShape] = useState<NodeShape | null>(null);
+  // Тип плитки палитры, которую сейчас тянут (null — драга нет): превью на схеме.
+  const [dragType, setDragType] = useState<NodeType | null>(null);
   // Сигнал перезагрузки дерева (создание/удаление узла, undo/redo)
   const [treeReload, setTreeReload] = useState(0);
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
@@ -134,11 +140,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
   // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
   const [errorToast, showErrorToast] = useMessageToast();
-  // Первый вложенный объект у листа (Р4 эпика элементов): «+» дерева, бросок шаблона на
-  // уровень листа и перенос в лист спрашивают элемент родителя ДО создания или переноса.
+  // Перенос объекта в лист спрашивает элемент листа ДО переноса (окно первого вложенного
+  // объекта). Создание его не спрашивает: окно «Новый объект» задаёт родителя тем же
+  // запросом (Р38 раздела 13 docs/plan-c4-elements.md).
   const firstChild = useFirstChild(showErrorToast);
-  // Стабильная ссылка (useCallback в хуке) — для бандла броска холста ниже.
-  const ensureFirstChild = firstChild.ensure;
   // Перенос в контейнер и из него переносит площадки (Р18): сначала окно последствий.
   const consequences = useConsequences();
 
@@ -147,6 +152,60 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const isArchitect = canEditProject(useProjectRole());
   const currentParent = breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1] : null;
   const currentParentId = currentParent?.id ?? null;
+
+  // ── Палитра и бросок по месту назначения (приёмка Ф12 2026-10-31) ──
+  // Цель броска проверяет тип: те же правила поля «Тип», что у окна «Новый объект»
+  // (element/typeOptions), для родителя уровня и для раскрытых рамок холста. Родитель
+  // уровня нужен целиком (в крошках нет формы, хранимого элемента и «есть ли вложенные»):
+  // один GET на уровень и мутацию — treeReload дёргают создание, удаление, перенос,
+  // undo/redo и смена типа в свойствах; верхний уровень — без запроса. Пока родитель не
+  // загружен или не загрузился — null: палитра ничего не гасит, бросок проверит окно.
+  const levelParent = useAsyncLoad<Node | null>(
+    `level-parent:${currentParentId ?? ""}:${treeReload}`,
+    async () => (currentParentId ? nodesApi.get(currentParentId) : null),
+  );
+  // Крошки — путь навигации (id и порядок звеньев), а элемент и внешность звеньев
+  // меняются и без навигации: смена типа предка в свойствах, первый вложенный объект,
+  // задавший элемент родителю уровня (Р38). Звенья перечитываются тем же сигналом
+  // treeReload, что и дерево: родителя уровня даёт levelParent, звенья выше — по запросу
+  // на звено, и только после правки (до первой мутации запросов нет). Не перечитались —
+  // остаются звенья навигации, ошибку показывает палитра (levelParent).
+  const upperIds = breadcrumb.slice(0, -1).map((b) => b.id);
+  const upperCrumbs = useAsyncLoad<Node[] | null>(
+    `crumbs:${upperIds.join("/")}:${treeReload}`,
+    async () => (treeReload > 0 && upperIds.length > 0 ? Promise.all(upperIds.map((id) => nodesApi.get(id))) : null),
+  );
+  const crumbs = useMemo((): AncestorRef[] => {
+    const fresh = new Map<string, AncestorRef>();
+    for (const n of upperCrumbs.data ?? []) fresh.set(n.id, ancestorRef(n));
+    if (levelParent.data) fresh.set(levelParent.data.id, ancestorRef(levelParent.data));
+    return fresh.size === 0 ? breadcrumb : breadcrumb.map((b) => fresh.get(b.id) ?? b);
+  }, [breadcrumb, upperCrumbs.data, levelParent.data]);
+  const levelOptions = useMemo(() => {
+    if (currentParentId === null) return typeOptions({ mode: "create", parent: null });
+    return levelParent.data ? typeOptions({ mode: "create", parent: levelParent.data }) : null;
+  }, [currentParentId, levelParent.data]);
+  // Ошибку не глотаем: работа не блокируется (палитра как без сведений), причина — тостом,
+  // один раз на отказ.
+  const levelParentName = currentParent?.name ?? "";
+  useEffect(() => {
+    if (!levelParent.error) return;
+    showErrorToast(`Не удалось проверить, какие объекты можно добавить в «${levelParentName}»: ${loadErrorText(levelParent.error)}`);
+  }, [levelParent.error, levelParentName, showErrorToast]);
+  // Раскрытые рамки холста — цели броска (их сообщает LevelGraph). Помечены уровнем: после
+  // перехода и пока холста нет на экране (загрузка, ошибка) прежние рамки не действуют.
+  const [dropFramesAt, setDropFramesAt] = useState<{ level: string | null; frames: DropFrameTarget[] }>(
+    { level: null, frames: NO_DROP_FRAMES },
+  );
+  const dropFrames = !loading && !loadError && dropFramesAt.level === currentParentId
+    ? dropFramesAt.frames
+    : NO_DROP_FRAMES;
+  // Плитки палитры и цели броска для типа, который тянут сейчас.
+  const tiles = useMemo(() => paletteTiles(levelOptions, dropFrames), [levelOptions, dropFrames]);
+  const dropEligible = useMemo(
+    () => dropEligibility(dragType, levelOptions, dropFrames),
+    [dragType, levelOptions, dropFrames],
+  );
 
   const viewMetaRef = useRef<ViewMetaState>({ version: 0, graphRev: 0 });
   // Номер последнего начатого чтения уровня и признак «идёт переход» (см. load).
@@ -494,9 +553,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
-    // Цель — лист без элемента: сначала окно первого вложенного объекта. «Отмена» —
-    // объект остаётся на месте.
-    if (!(await firstChild.ensure(newParentId, node.shape))) return;
+    // Цель — лист без элемента: сначала окно первого вложенного объекта (что такое
+    // переносимый внутри цели). «Отмена» — объект остаётся на месте.
+    if (!(await firstChild.ensure(newParentId, node))) return;
     // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
     // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
     // перенос назад, с теми же последствиями).
@@ -562,6 +621,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     }
     setNodeModal({ open: false, node: null });
     setSelectedObject((sel) => sel?.kind === "node" && sel.node.id === saved.id ? { kind: "node", node: saved } : sel);
+    // Сменился тип (элемент или форма; правка без «до» — смена элемента с последствиями) —
+    // дерево перечитывается: глиф строки, а если правили родителя уровня — и палитра.
+    if (!isCreate && (!before || before.element !== saved.element || before.shape !== saved.shape)) {
+      setTreeReload((t) => t + 1);
+    }
     if (!isArchitect) return;
     if (isCreate) {
       noteMutation();
@@ -719,9 +783,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // раскрытой рамке, её объект среди узлов уровня. Глубже (вторая раскрытая рамка)
   // цепочка обрывается — строка «Элемент архитектуры» тогда назовёт контейнер текстом.
   const selectedAncestors = useMemo((): AncestorRef[] => {
-    if (selectedObject?.kind !== "node") return breadcrumb;
-    return [...breadcrumb, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
-  }, [selectedObject, breadcrumb, nodes]);
+    if (selectedObject?.kind !== "node") return crumbs;
+    return [...crumbs, ...chainTo(nodes, selectedObject.node.parent_id).map(ancestorRef)];
+  }, [selectedObject, crumbs, nodes]);
 
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
@@ -782,18 +846,20 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   }), []);
 
   const drop = useMemo<LevelDropProps>(() => ({
-    onDropNode: (shape, pos, dropParentId) => {
-      // В раскрытую рамку — у её узла дети уже есть, выбора нет. На уровень — родитель
-      // уровня мог быть листом: сначала окно первого вложенного объекта.
-      if (dropParentId) setNodeModal({ open: true, node: null, shape, pos, parentId: dropParentId, posView: currentParentId });
-      else {
-        void ensureFirstChild(currentParentId, shape).then((go) => {
-          if (go) setNodeModal({ open: true, node: null, shape, pos });
-        });
-      }
+    onDropNode: (type, pos, dropParentId) => {
+      // Тип плитки палитры — предвыбор поля «Тип» (Р41): сюда доходит только бросок в место,
+      // где тип возможен (или сведений о месте нет). В раскрытую рамку — родитель рамки,
+      // позиция в виде текущего уровня; на уровень — родитель уровня. Если он лист, окно
+      // само скажет, кем он станет (Р38).
+      if (dropParentId) setNodeModal({ open: true, node: null, type, pos, parentId: dropParentId, posView: currentParentId });
+      else setNodeModal({ open: true, node: null, type, pos });
     },
-    dragShape,
-  }), [currentParentId, dragShape, ensureFirstChild]);
+    dragType,
+    onDropFrames: (frames) => setDropFramesAt({ level: currentParentId, frames }),
+    dropEligible,
+    // Бросок туда, где тип невозможен: объекта нет, окна нет — причина тостом.
+    onDropRefused: (type, dropParentId) => showErrorToast(dropRefusal(type, dropParentId, levelOptions, dropFrames)),
+  }), [currentParentId, dragType, dropEligible, levelOptions, dropFrames, showErrorToast]);
 
   const undo = useMemo<LevelUndoProps>(() => ({
     history,
@@ -827,10 +893,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           <button className="crumb" style={crumbLink} data-tour="crumb-root" onClick={() => { void navigateToLevel(null); }}>
             {breadcrumb.length === 0 ? "Контекст" : "Проект"}
           </button>
-          {breadcrumb.map((n, i) => (
+          {crumbs.map((n, i) => (
             <span key={n.id} style={{ display: "flex", alignItems: "center" }}>
               <span style={crumbSep}><ChevronIcon /></span>
-              {i < breadcrumb.length - 1 ? (
+              {i < crumbs.length - 1 ? (
                 <button className="crumb" style={crumbLink} onClick={() => navigateTo(i)}>{n.name}</button>
               ) : (
                 <button style={crumbCurrent} disabled>{n.name}</button>
@@ -899,13 +965,10 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           currentNodeId={currentParentId}
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
-          onCreateChild={(parentId) => {
-            void firstChild.ensure(parentId, "service").then((go) => {
-              if (go) setNodeModal({ open: true, node: null, parentId, pos: null });
-            });
-          }}
+          onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
           onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
-          onTemplateDrag={setDragShape}
+          onTemplateDrag={setDragType}
+          paletteTiles={tiles}
         />
 
         {/* Холст */}
@@ -926,7 +989,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
                 onOpenProcess={openProcess}
               />
             )}
-            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            {remoteToast && <div style={remoteToastInRail}>Схема обновлена в другой сессии</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
             {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
           </div>
@@ -941,8 +1004,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
               nodes={nodes} endpoints={endpoints} viewLayout={viewLayout} edges={edges}
               depth={breadcrumb.length} containerId={currentParentId} relayoutToken={relayoutToken}
               mutationToken={mutationToken}
-              ancestorNames={breadcrumb.map((b) => b.name)} ancestorIds={breadcrumb.map((b) => b.id)}
-              ancestorElements={breadcrumb.map((b) => b.element_effective)}
+              ancestorNames={crumbs.map((b) => b.name)} ancestorIds={crumbs.map((b) => b.id)}
+              ancestorElements={crumbs.map((b) => b.element_effective)}
+              ancestorExternals={crumbs.map((b) => b.is_external)}
               isArchitect={isArchitect}
               linkedHighlight={linkedHighlight}
               childrenRev={childrenRev}
@@ -995,7 +1059,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       {nodeModal.open && (
         <NodeModal
           parentId={nodeModal.parentId !== undefined ? nodeModal.parentId : currentParentId}
-          shape={nodeModal.shape} initialPos={nodeModal.pos ?? null} posView={nodeModal.posView}
+          type={nodeModal.type} initialPos={nodeModal.pos ?? null} posView={nodeModal.posView}
           onClose={() => setNodeModal({ open: false, node: null })} onSaved={handleNodeSaved}
         />
       )}
@@ -1056,6 +1120,9 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   );
 }
 
+// Пустой набор рамок-целей — одна ссылка: мемо палитры и броска не пересчитываются зря.
+const NO_DROP_FRAMES: DropFrameTarget[] = [];
+
 // ── Стили ───────────────────────────────────────────────────────────
 
 const page: CSSProperties = { ...workPage, background: "#f8fafc" };
@@ -1076,4 +1143,3 @@ const iconBtn: CSSProperties = { display: "inline-flex", alignItems: "center", j
 const toastRail: CSSProperties = { position: "absolute", top: 12, right: 12, zIndex: 6, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8, pointerEvents: "none" };
 const errorToastStyle: CSSProperties = { background: "#fef2f2", border: "1px solid #fca5a5", color: "#991b1b", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
 const transitionToastStyle: CSSProperties = { background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };
-const remoteToastStyle: CSSProperties = { background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3", borderRadius: 10, padding: "7px 12px", fontSize: 13, boxShadow: "0 4px 12px rgba(30,41,59,.10)", pointerEvents: "auto" };

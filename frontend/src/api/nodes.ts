@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { AnchorPreviewOut, CollectFactsIn, CollectFactsOut, CollectFactsPreview, ElementChangePreview, NodeElement, NodeSource, TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
+import type { AnchorPreviewOut, CollectFactsIn, CollectFactsOut, CollectFactsPreview, ElementChangePreview, NodeElement, NodeSource, TableUsage, ConfigParam, ConfigParamCreate, ConfigParamUpdate, ConfigParamUsage, BrokerChannel, ChannelUsage, BrokerChannelCreate, BrokerChannelUpdate, ChannelField, ChannelFieldCreate, ChannelFieldUpdate, DbColumn, DbColumnCreate, DbColumnUpdate, DbTable, DbTableCreate, DbTableUpdate, DeletionSnapshot, DistributeDocsIn, DistributeDocsOut, Edge, EdgeCreate, EdgeUpdate, ExportResponse, GraphResponse, Node, NodeCreate, NodeDoc, NodeDocCreate, NodeDocUpdate, NodeDocUsage, NodeEdgeInfo, NodeUpdate, ProcessListItem, SchemaAlerts, TransferDocsPreview, TransitionApplyOut, TransitionPreview, ViewLayoutPayload, ViewLayoutResult, ViewState } from "../types";
 
 export const nodesApi = {
   list: (parentId?: string | null): Promise<Node[]> => {
@@ -83,6 +83,11 @@ export const nodesApi = {
     api.get<CollectFactsPreview>(`/nodes/${id}/facts/collect-preview`),
   collectFacts: (id: string, data: CollectFactsIn): Promise<CollectFactsOut> =>
     api.post<CollectFactsOut>(`/nodes/${id}/facts/collect`, data),
+  // «Перенести документацию» (Р19) без записи: своя документация узла и получатели с
+  // флагами — кто примет схемы логики, кто спецификацию и конфигурацию. 422 — внутри нет
+  // объектов.
+  transferPreview: (id: string): Promise<TransferDocsPreview> =>
+    api.get<TransferDocsPreview>(`/nodes/${id}/docs/transfer-preview`),
   // «Переразложить уровень»: стирает ВСЕ строки view_layout уровня (позиции
   // локалов и гостей, раскрытия expanded, легаси) → возврат к авто-виду.
   // containerId=null — корневой уровень. После вызова уровень нужно перезагрузить.

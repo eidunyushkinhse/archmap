@@ -30,7 +30,7 @@ from app.models.node_doc import NodeDoc
 from app.models.process_message import ProcessMessage
 from app.models.project import Project
 from app.models.user import User
-from app.schemas.node import DistributeDocsIn, DistributeDocsOut
+from app.schemas.node import DistributeDocsIn, DistributeDocsOut, TransferDocsPreview
 from app.schemas.node_doc import (
     NodeDocCreate,
     NodeDocDetail,
@@ -97,6 +97,25 @@ def docs_usage(
         NodeDocUsage(doc_id=doc_id, process_id=pid, process_name=pname, steps=steps)
         for doc_id, pid, pname, steps in rows
     ]
+
+
+@router.get("/transfer-preview", response_model=TransferDocsPreview)
+def transfer_preview(
+    node_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    project: Project = Depends(get_current_project),
+    _: User = Depends(require_project_editor),
+) -> TransferDocsPreview:
+    """Что отдаст «Перенести документацию» (POST /distribute ниже), БЕЗ записи: своя
+    документация узла и потомки с флагами — кто что примет (app/facts_transfer). Окно
+    интерфейса и MCP получателей не отбирают сами. Редактору, как превью сбора. 422 —
+    внутри нет объектов. Объявлен ДО /{doc_id}: иначе «transfer-preview» попал бы туда
+    как doc_id и получил 422."""
+    node = node_or_404(db, node_id, project)
+    try:
+        return facts_transfer.transfer_preview(db, project, node)
+    except facts_transfer.FactsTransferError as e:
+        raise HTTPException(status_code=e.status, detail=e.detail) from None
 
 
 @router.get("", response_model=list[NodeDocResponse])

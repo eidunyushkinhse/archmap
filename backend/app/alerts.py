@@ -147,7 +147,9 @@ def compute_alerts(db: Session, project_id: uuid.UUID) -> AlertsResponse:
        контейнеров), у контейнера с компонентами — только собственные схемы логики
        (их место — у компонентов; спецификация и конфигурация у контейнера — норма);
     5) люди (shape=person), вложенные в другой узел — по C4 актор живёт на
-       контекстном уровне, ВНЕ границы системы;
+       контекстном уровне, ВНЕ границы системы; с 2026-10-31 сервер отказывает в
+       создании человека внутри объекта и в смене формы у вложенного (app/reparent),
+       а ввоз поднимает его на верхний уровень — алерт остался для старых данных;
     6) повисшие сообщения процессов — связь, которой шло сообщение, удалена
        из схемы (edge_id = NULL);
     7) участники процессов без узла схемы;
@@ -278,9 +280,9 @@ def _isolated_groups(ctx: AlertContext) -> list[IsolatedGroupAlert]:
 
 
 def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
-    """4) Системы и контейнеры со своей документацией (AL24): узел с детьми формы
-    service, у которого остались собственные схемы логики, спецификация или параметры
-    конфигурации. Совет — по действующему элементу архитектуры (app/element.py, раздел
+    """4) Системы и контейнеры со своей документацией (AL24): система формы service (с
+    детьми или пустая — лист с хранимым «система», Р39) или контейнер с компонентами, у
+    которых остались собственные схемы логики, спецификация или параметры конфигурации. Совет — по действующему элементу архитектуры (app/element.py, раздел
     0а docs/plan-c4-elements.md; элементы — из каталога, без второй сборки):
     - система — замечание на всё, как до эпика у любого узла с детьми: группа сама не
       запускается, API отдают и конфигурацию читают её контейнеры;
@@ -289,7 +291,9 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
       его законные факты (пометки «зависит от:» компонентов ищут ручку именно у него).
     Составной компонент (узел с детьми внутри контейнера) сюда не попадает: схемы
     логики — факт кода компонента, а его спецификацию и конфигурацию ловит класс 15.
-    Не-service с детьми не алертится (элемент архитектуры — только у сервиса)."""
+    Не-service с детьми не алертится (элемент архитектуры — только у сервиса). Внешние
+    объекты не проверяются вовсе (Р42, 2026-10-31): внешняя система — чёрный ящик, и
+    агент описывает её API спецификацией — это норма, а не забытая документация."""
     elements = ctx.catalog.elements
     node_ids = [n.id for n in ctx.nodes]
     doc_owners: set[uuid.UUID] = set()
@@ -302,16 +306,18 @@ def _container_own_docs(ctx: AlertContext) -> list[ContainerOwnDocsAlert]:
     param_owners = set(ctx.catalog.params_by_node)
     out: list[ContainerOwnDocsAlert] = []
     for n in ctx.nodes:
-        if n.id not in ctx.intermediate_ids or n.shape != "service":
+        if n.shape != "service" or n.is_external:
             continue
         has_docs = n.id in doc_owners
         has_spec = bool(n.openapi_spec)
         has_config = n.id in param_owners
         element: Literal["system", "container"]
-        if elements.effective(n.id) == "system":
+        effective = elements.effective(n.id)
+        # Система — и пустая (лист с хранимым «система», Р39): своих фактов у неё нет.
+        if effective == "system":
             element = "system"
             misplaced = has_docs or has_spec or has_config
-        elif elements.effective(n.id) == "container":
+        elif effective == "container" and n.id in ctx.intermediate_ids:
             element = "container"
             misplaced = has_docs
         else:
@@ -378,9 +384,10 @@ def _component_facts(ctx: AlertContext) -> list[ComponentFactsAlert]:
 
 
 def _persons_inside(ctx: AlertContext) -> list[PersonInsideAlert]:
-    """5) Люди внутри системы. Правило C4: актор не может быть частью контейнера.
-    Промпт импорта его требует, отчёт слияния предупреждает — но объекты, заведённые
-    РУКАМИ, не проверял никто (остаток находки 2026-08-08)."""
+    """5) Люди внутри системы. Правило C4: актор не может быть частью системы.
+    Промпт импорта его требует, ввоз поднимает такого на верхний уровень, а API с
+    2026-10-31 не создаёт его внутри объекта (app/reparent.person_refusal), — алерт
+    отмечает вложенных из старых данных (остаток находки 2026-08-08)."""
     return [
         PersonInsideAlert(
             node_id=n.id, node_name=n.name, parent_id=n.parent_id, parent_name=ctx.name(n.parent_id)
@@ -558,6 +565,10 @@ def _unresolved_refs(
         #     резолв (ProjectCatalog.params_for): запись называет место починки.
         if ref.mode == "config":
             container = ctx.catalog.elements.container_of(hit.node_id)
+            # Внешняя система (Р42) — чёрный ящик: её параметры ArchMap не ведёт, и совет
+            # «перенесите схему контейнеру» ей не к месту — пометку не судим.
+            if ctx.catalog.elements.external_system(hit.node_id):
+                continue
             config.append(
                 UnresolvedConfigRefAlert(
                     **where,

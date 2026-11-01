@@ -912,6 +912,40 @@ def test_схема_у_системы_даёт_запись_без_контей�
     assert (алерт.container_id, алерт.container_name) == (None, None)
 
 
+def test_схема_внешней_системы_пометок_конфигурации_не_судит(db):
+    """Р42: внешний лист без элемента — внешняя система, чёрный ящик. Её параметры
+    ArchMap не ведёт, и совет «перенесите схему контейнеру» ей не к месту. Внешний лист
+    с хранимым «контейнер» — контейнер: его пометка судится как у своего."""
+    банк = _node(db, "Банк", is_external=True)
+    шлюз = _node(db, "Шлюз", is_external=True, element="container")
+    _док(db, банк, "POST /pay", 'A["зависит от: BANK_TIMEOUT"]')
+    _док(db, шлюз, "POST /pay", 'A["зависит от: GW_TIMEOUT"]')
+    db.commit()
+
+    [алерт] = _конфиг(db)
+    assert (алерт.node_name, алерт.ref, алерт.container_id) == ("Шлюз", "GW_TIMEOUT", шлюз.id)
+
+
+def test_внешняя_система_со_своей_документацией_без_замечания(db):
+    """Р42: AL24 внешние объекты не проверяет — спецификация и схемы логики у внешней
+    системы норма (агент описывает чужое API), и у внешней системы с вложенными тоже.
+    Своя пустая система с теми же фактами — замечание, как прежде."""
+    from app.models.config_param import ConfigParam
+
+    банк = _node(db, "Банк", is_external=True, openapi_spec="openapi: 3.0.0")
+    _док(db, банк, "POST /pay")
+    db.add(ConfigParam(id=uuid.uuid4(), node_id=банк.id, name="BANK_URL"))
+    партнёр = _node(db, "Партнёр", is_external=True, openapi_spec="openapi: 3.0.0")
+    _node(db, "Партнёр-API", партнёр, is_external=True)
+    _node(db, "Склад", element="system", openapi_spec="openapi: 3.0.0")
+    db.commit()
+
+    отчёт = get_alerts(db=db, project=ensure_project(db), _=None)
+    assert [(a.node_name, a.element_effective) for a in отчёт.container_own_docs] == [
+        ("Склад", "system")
+    ]
+
+
 def test_здоровая_конфигурационная_пометка_алерта_не_даёт(db):
     сервис = _node(db, "Заказы")
     _параметр(db, сервис, "FEATURE_X")

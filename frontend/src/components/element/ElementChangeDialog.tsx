@@ -46,8 +46,13 @@ export default function ElementChangeDialog({ preview, nodeName, onConfirm, onCa
         <section>
           <div style={sectionLabel}>Площадки</div>
           <Rows rows={preview.before} label="Площадки до" />
-          <div style={arrow} aria-hidden>↓</div>
-          <Rows rows={preview.after} label="Площадки после" />
+          {/* Пустой системе (Р39) площадки отдать некому: строки «после» нет, стрелки тоже. */}
+          {preview.after.length > 0 && (
+            <>
+              <div style={arrow} aria-hidden>↓</div>
+              <Rows rows={preview.after} label="Площадки после" />
+            </>
+          )}
           <p style={note}>{t.placementNote}</p>
         </section>
       )}

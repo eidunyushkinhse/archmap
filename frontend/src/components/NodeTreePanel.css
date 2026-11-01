@@ -119,6 +119,15 @@
   font-weight: 600;
   color: #1e293b;
 }
+/* Пояснение в строке результата поиска: у компонента на холсте «Развёртывание» — чей
+   контейнер покажет щелчок. */
+.nt-note {
+  flex: none;
+  margin-left: 6px;
+  font-size: 11px;
+  color: #9ca3af;
+  white-space: nowrap;
+}
 
 /* Глиф формы: контурный SVG, цвет наследуется строкой (серый в покое). */
 .nt-glyph {
@@ -192,6 +201,17 @@
 }
 .template-card:active {
   cursor: grabbing;
+}
+/* Тип, которого некуда положить ни на уровне, ни в раскрытые рамки: серая плитка без
+   драга, объяснение — в подсказке. */
+.template-card--off,
+.template-card--off:active {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.template-card--off:hover {
+  border-color: #e2e8f0;
+  box-shadow: none;
 }
 
 /* Футер сворачивания панели — нижняя строка вне скролла контента. */

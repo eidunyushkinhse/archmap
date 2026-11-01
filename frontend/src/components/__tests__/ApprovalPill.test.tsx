@@ -143,6 +143,15 @@ describe("ApprovalPill", () => {
     expect(screen.getByText("Загрузка…")).toBeTruthy();
   });
 
+  it("система без единиц (пустая система) — без счётчика «0 из 0», в выпадашке «нечего»", () => {
+    renderPill({ node: container, units: [] });
+    const pill = screen.getByRole("button", { name: /В работе/ });
+    expect(pill.textContent).not.toContain("из");
+    fireEvent.click(pill);
+    expect(screen.getByText("Согласовывать пока нечего")).toBeTruthy();
+    expect(screen.queryByText("Загрузка…")).toBeNull();
+  });
+
   it("Escape и клик мимо закрывают выпадашку", () => {
     const { container: root } = renderPill();
     fireEvent.click(screen.getByRole("button", { name: /В работе/ }));

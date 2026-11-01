@@ -101,7 +101,12 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
 }));
 vi.mock("../../components/CrossLevelEdgePicker", () => ({ default: () => null }));
 vi.mock("../../components/EdgeQuickCreate", () => ({ default: () => null }));
-vi.mock("../../components/NodeModal", () => ({ default: () => null }));
+// Окно «Новый объект»: заглушка показывает, с каким родителем и шаблоном его открыли.
+vi.mock("../../components/NodeModal", () => ({
+  default: ({ parentId, type }: { parentId: string | null; type?: string }) => (
+    <div data-testid="node-modal" data-parent={parentId ?? ""} data-type={type ?? ""} />
+  ),
+}));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
@@ -337,6 +342,159 @@ describe("MapEditorPage", () => {
   });
 });
 
+// ── Создание объекта (Р38 раздела 13 docs/plan-c4-elements.md) ──────────────────
+// «+» дерева и бросок шаблона открывают окно «Новый объект» сразу: родителя окно
+// загружает само и, если он лист, задаёт его тем же запросом. Редактор ничего не
+// спрашивает и не пишет — окна первого вложенного объекта на этих путях нет.
+describe("MapEditorPage: создание объекта", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+  });
+
+  it("«+» у листа в дереве — окно с этим родителем, без запросов и окна первого вложенного", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onCreateChild = treeProps.current.onCreateChild as (parentId: string) => void;
+    act(() => { onCreateChild("leaf1"); });
+    expect(screen.getByTestId("node-modal")).toHaveAttribute("data-parent", "leaf1");
+    expect(nodesApi.get).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("бросок шаблона на уровень — окно с родителем уровня и шаблоном как типом", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
+    act(() => { drop.onDropNode("database", { x: 10, y: 20 }, null); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "");
+    expect(modal).toHaveAttribute("data-type", "database");
+    expect(nodesApi.get).not.toHaveBeenCalled();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
+  it("бросок в раскрытую рамку — родитель рамки, тип плитки уходит в окно", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
+    act(() => { drop.onDropNode("component", { x: 10, y: 20 }, "box"); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "box");
+    expect(modal).toHaveAttribute("data-type", "component");
+  });
+
+  it("драг плитки палитры — тип уходит холсту для превью", async () => {
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onTemplateDrag = treeProps.current.onTemplateDrag as (type: string | null) => void;
+    act(() => { onTemplateDrag("system"); });
+    expect((levelGraphProps.current!.drop as { dragType: string | null }).dragType).toBe("system");
+    act(() => { onTemplateDrag(null); });
+    expect((levelGraphProps.current!.drop as { dragType: string | null }).dragType).toBeNull();
+  });
+});
+
+// ── Палитра и бросок по месту назначения (приёмка Ф12 2026-10-31) ─────────────
+// Цель броска проверяет тип: родителя уровня страница грузит сама (один GET на уровень и
+// мутацию), раскрытые рамки сообщает холст. Бросок туда, где тип невозможен, — тост с
+// причиной, окна нет; в принимающую рамку — окно с этим типом.
+describe("MapEditorPage: палитра и бросок по месту назначения", () => {
+  const sys = node("s1", { has_children: true, child_count: 1, element: null, element_effective: "system" });
+  const ordersFrame = {
+    id: "orders", name: "orders",
+    subject: { name: "orders", shape: "service", element: "container", element_effective: "container", has_children: true, container_name: null },
+  };
+  type Tile = { type: string; enabled: boolean; reason?: string };
+  const tileOf = (type: string) => (treeProps.current.paletteTiles as Tile[] | null)?.find((t) => t.type === type);
+  type Drop = {
+    onDropNode: (t: string, p: { x: number; y: number }, d: string | null) => void;
+    onDropFrames: (frames: unknown[]) => void;
+    onDropRefused: (t: string, d: string | null) => void;
+    dropEligible: { levelOk: boolean; frameIds: ReadonlySet<string> } | null;
+  };
+  const drop = () => levelGraphProps.current!.drop as Drop;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([sys]);
+    vi.mocked(nodesApi.get).mockResolvedValue(sys as never);
+  });
+
+  async function openSystemLevel() {
+    render(<MapEditorPage {...props} nodeId="s1" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(tileOf("component")?.enabled).toBe(false));
+  }
+
+  it("уровень системы: родитель — одним запросом, «Компонент» серый с причиной", async () => {
+    await openSystemLevel();
+    expect(nodesApi.get).toHaveBeenCalledTimes(1);
+    expect(nodesApi.get).toHaveBeenCalledWith("s1");
+    expect(tileOf("component")?.reason).toBe(
+      "Компонентом объект бывает только внутри контейнера. Чтобы вложить компонент, сделайте «S1» контейнером в его свойствах.",
+    );
+    expect(tileOf("container")).toEqual({ type: "container", enabled: true });
+  });
+
+  it("раскрытая рамка контейнера делает «Компонент» активным; бросок мимо рамок — тост, окна нет", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    expect(tileOf("component")).toEqual({
+      type: "component", enabled: true, reason: "Положите «Компонент» в раскрытую рамку: «orders»",
+    });
+    const onTemplateDrag = treeProps.current.onTemplateDrag as (type: string | null) => void;
+    act(() => { onTemplateDrag("component"); });
+    expect(drop().dropEligible?.levelOk).toBe(false);
+    expect([...drop().dropEligible!.frameIds]).toEqual(["orders"]);
+
+    act(() => { drop().onDropRefused("component", null); });
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Компонентом объект бывает только внутри контейнера. Чтобы вложить компонент, сделайте «S1» контейнером "
+      + "в его свойствах. Положите «Компонент» в раскрытую рамку: «orders».",
+    );
+    expect(screen.queryByTestId("node-modal")).toBeNull();
+  });
+
+  it("бросок «Компонента» в рамку контейнера — окно «Новый объект» с «Компонентом»", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    act(() => { drop().onDropNode("component", { x: 10, y: 20 }, "orders"); });
+    const modal = screen.getByTestId("node-modal");
+    expect(modal).toHaveAttribute("data-parent", "orders");
+    expect(modal).toHaveAttribute("data-type", "component");
+  });
+
+  it("«База данных» в рамку контейнера — причина этой рамки", async () => {
+    await openSystemLevel();
+    act(() => { drop().onDropFrames([ordersFrame]); });
+    act(() => { drop().onDropRefused("database", "orders"); });
+    expect(screen.getByRole("alert")).toHaveTextContent("База данных не входит в состав контейнера, создайте её рядом с «orders».");
+  });
+
+  it("смена типа в свойствах перечитывает дерево и родителя уровня", async () => {
+    await openSystemLevel();
+    const reloadBefore = treeProps.current.reloadToken;
+    const onNodeSaved = inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
+    act(() => { onNodeSaved(node("a", { element: "system" }), false, node("a", { element: null })); });
+    expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
+    await waitFor(() => expect(nodesApi.get).toHaveBeenCalledTimes(2));
+  });
+
+  it("родитель уровня не загрузился — тост с причиной, палитра ничего не гасит", async () => {
+    vi.mocked(nodesApi.get).mockRejectedValue(new TypeError("Failed to fetch"));
+    render(<MapEditorPage {...props} nodeId="s1" />);
+    await screen.findByTestId("level-graph");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Не удалось проверить, какие объекты можно добавить в «S1»: Нет связи с сервером",
+    );
+    expect(treeProps.current.paletteTiles).toBeNull();
+    expect(drop().dropEligible ?? null).toBeNull();
+  });
+});
+
 // ── Перенос объекта на другой уровень (Ф4) ───────────────────────────────────
 // Сам жест живёт в дереве (его тесты — NodeTreePanel.test.tsx); здесь оркестрация:
 // снимок раскладки берётся ДО правки, иначе Undo вернул бы родителя без геометрии.
@@ -393,15 +551,16 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
   });
 
-  // Р4 эпика элементов: цель — лист-сервис без элемента. Сначала окно первого вложенного
-  // объекта; «Отмена» — объект остаётся на месте, ни снимка, ни правки.
-  it("перенос в лист: сначала окно первого вложенного объекта, «Отмена» ничего не делает", async () => {
+  // Р38 раздела 13 плана: цель — лист-сервис без элемента, переносимый — сервис без
+  // элемента. Сначала окно со стороны переносимого; «Отмена» — объект остаётся на месте,
+  // ни снимка, ни правки.
+  it("перенос в лист: сначала окно «что такое переносимый», «Отмена» ничего не делает", async () => {
     vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: null, element_effective: "container", sites: [] }) as never);
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("tree-panel");
     const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
     await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
-    expect(await screen.findByText("Внутри «NEW» появился первый объект")).toBeInTheDocument();
+    expect(await screen.findByText("Что такое «KID» внутри «NEW»?")).toBeInTheDocument();
     await act(async () => { screen.getByText("Отмена").click(); });
     expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
     expect(nodesApi.update).not.toHaveBeenCalled();
@@ -598,5 +757,61 @@ describe("MapEditorPage: правка объекта в истории", () => {
       act(() => drill().onInspectNodeId("deep"));
       await waitFor(() => expect(selected()).toMatchObject({ kind: "node", node: { name: "Модуль" } }));
     });
+  });
+});
+
+// ── Крошки после правки без навигации (Ф13а) ─────────────────────────────────
+// Элемент и внешность звеньев меняются и без перехода: первый вложенный объект задаёт
+// элемент родителю уровня (Р38), предку меняют тип или внешность. Холст (рамки) и крошки
+// получают свежие звенья тем же сигналом, что дерево.
+describe("MapEditorPage: крошки перечитываются после правки", () => {
+  const a = node("a", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" });
+  const b = node("b", { name: "orders", parent_id: "a", element: null, element_effective: "container" });
+  const getBy = (map: Record<string, Node>) => async (id: string) => map[id] as never;
+  const onNodeSaved = () => inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([a, b]);
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b }));
+  });
+
+  it("первый вложенный объект задал элемент родителю уровня — холст получает его без навигации", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "container"]));
+    const callsBefore = vi.mocked(nodesApi.get).mock.calls.length;
+
+    // Сервер записал родителю элемент вместе с созданием: «orders» теперь система.
+    const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system", has_children: true });
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b: bSystem }));
+    act(() => { onNodeSaved()(node("c", { parent_id: "b" }), true); });
+
+    await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "system"]));
+    // Тот же сигнал перечитал и звено выше уровня — по запросу на звено.
+    const reread = vi.mocked(nodesApi.get).mock.calls.slice(callsBefore).map((c) => c[0]);
+    expect([...new Set(reread)].sort()).toEqual(["a", "b"]);
+  });
+
+  it("предку выше уровня сменили внешность — рамка и крошки по свежим звеньям", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([false, false]));
+
+    const aExternal = node("a", { name: "Торговля", is_external: true, has_children: true, element_effective: "system" });
+    vi.mocked(nodesApi.get).mockImplementation(getBy({ a: aExternal, b }));
+    act(() => { onNodeSaved()(node("x", { shape: "database" }), false, node("x")); });
+
+    await waitFor(() => expect(levelGraphProps.current?.ancestorExternals).toEqual([true, false]));
+    expect(screen.getByRole("button", { name: "Торговля" })).toBeInTheDocument();
+  });
+
+  it("до первой правки звенья выше уровня не запрашиваются", async () => {
+    render(<MapEditorPage {...props} nodeId="b" />);
+    await screen.findByTestId("level-graph");
+    await waitFor(() => expect(nodesApi.get).toHaveBeenCalledWith("b"));
+    expect(nodesApi.get).not.toHaveBeenCalledWith("a");
   });
 });

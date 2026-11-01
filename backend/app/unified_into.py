@@ -102,6 +102,8 @@ from app.unified_apply import (
     decisions_note,
     merge_chain,
     resolve_decisions,
+    restore_answered_systems,
+    settled_remark_ids,
 )
 from app.unified_import import (
     MAX_ARCHIVES,
@@ -702,6 +704,10 @@ def apply_into_plan(
     lost = _live_lost(plan, resolutions)
     # Ответы на вопросы остатка (Ф-E) — той же сверкой с планом, тоже до записи.
     решения = resolve_decisions(plan, decisions, SELF_ORIGIN)
+    # Ответ «Система» на спор элемента — поддерево узла к документу, как у создания.
+    if восстановлены := restore_answered_systems(merged, plan, решения):
+        лишние = settled_remark_ids(plan, merged, восстановлены)
+        unfixable = [u for u in unfixable if u.id not in лишние]
     forced = _forced_fields(merged, решения)
     # «Похоже на контейнер» — вопрос только о новых узлах: ответ «Контейнер» ставит им
     # элемент до санитизации, как у создания (Р7).

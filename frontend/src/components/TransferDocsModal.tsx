@@ -3,59 +3,57 @@
 // своей документации нет вовсе — схемы логики, спецификация и конфигурация; у контейнера
 // с компонентами не на месте только схемы логики (они описывают код компонентов).
 //
-// Получатели — любой потомок подходящего элемента (transferDocs: takesLogic,
-// takesProcessFacts), подписи — путь от узла («orders / api»). Окно само грузит узел,
-// потомков и число собственных параметров; применение — POST /nodes/{id}/docs/distribute.
-// Отказ сервера (занято имя, уже есть спецификация) — текстом под формой, окно открыто.
+// Что у узла своего и кто что примет, считает сервер — одно превью
+// (nodesApi.transferPreview, app/facts_transfer): у каждого потомка флаги «схемы логики» и
+// «спецификация и конфигурация», подпись — путь от узла («orders / api»). Окно правил
+// элемента не знает и получателей не отбирает. Узел без вложенных — отказ превью (422)
+// его текстом. Применение — POST /nodes/{id}/docs/distribute; отказ сервера (занято имя,
+// уже есть спецификация) — текстом под формой, окно открыто. После записи окно
+// показывает итог (что перенесено) до «Закрыть», как окно «Собрать с компонентов».
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
-import type { Node } from "../types";
-import { configParamsApi, nodesApi, nodeDocsApi } from "../api/nodes";
+import type { DistributeDocsOut, TransferDocsPreview } from "../types";
+import { nodesApi, nodeDocsApi } from "../api/nodes";
 import { ApiError } from "../api/client";
 import Modal from "../ui/Modal";
 import DialogTitle from "../ui/DialogTitle";
 import { plural } from "../ui/plural";
 import { primaryBtn, secondaryBtn } from "../ui/styles";
-import { subtreeRows, takesLogic, takesProcessFacts, type SubtreeRow } from "./element/transferDocs";
 import "./inspector/inspector.css"; // классы insp-doc-chip для чипов вида схемы
 
 const TITLE = "Перенести документацию";
 const LEAD_SYSTEM = "У системы своей документации нет. Выберите, куда перенести каждую часть.";
-const LEAD_CONTAINER = "Схемы логики описывают код, и их место у компонентов.";
+const LEAD_CONTAINER = "Схемы логики описывают код, и их можно перенести компонентам.";
 const NONE = "Внутри нет подходящего объекта.";
+const FAILED = "Не удалось загрузить данные объекта.";
 
 interface Props {
   nodeId: string;
   onClose: () => void;
   // Перенос применён — страница перечитывает узел, потомков и параметры (окно
-  // закрывается само).
+  // остаётся открытым с итогом).
   onApplied: () => void;
 }
 
-interface Loaded {
-  node: Node;
-  rows: SubtreeRow[];
-  params: number;
-}
-
 export default function TransferDocsModal({ nodeId, onClose, onApplied }: Props) {
-  const [data, setData] = useState<Loaded | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [data, setData] = useState<TransferDocsPreview | null>(null);
+  // Отказ превью: 422 — правило («внутри нет объектов») словами сервера, прочее — общий текст.
+  const [failed, setFailed] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
-    Promise.all([nodesApi.get(nodeId), nodesApi.getDescendants(nodeId), configParamsApi.list(nodeId)])
-      .then(([node, descendants, params]) => {
-        if (alive) setData({ node, rows: subtreeRows(nodeId, descendants), params: params.length });
-      })
-      .catch(() => { if (alive) setFailed(true); });
+    nodesApi.transferPreview(nodeId)
+      .then((preview) => { if (alive) setData(preview); })
+      .catch((e: unknown) => {
+        if (alive) setFailed(e instanceof ApiError && e.status === 422 ? e.message : FAILED);
+      });
     return () => { alive = false; };
   }, [nodeId]);
 
-  if (failed) {
+  if (failed !== null) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <DialogTitle lead="Не удалось загрузить данные объекта.">{TITLE}</DialogTitle>
+        <DialogTitle lead={failed}>{TITLE}</DialogTitle>
         <div style={footRow}>
           <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
         </div>
@@ -65,65 +63,51 @@ export default function TransferDocsModal({ nodeId, onClose, onApplied }: Props)
   if (!data) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <div style={muted}>Загрузка…</div>
+        <div style={muted}>Загружаем данные объекта</div>
       </Modal>
     );
   }
-  return <TransferForm key={data.node.id} data={data} onClose={onClose} onApplied={onApplied} />;
+  return <TransferForm key={data.node_id} data={data} onClose={onClose} onApplied={onApplied} />;
 }
 
-// Форма монтируется на загруженных данных: начальные назначения — из них.
+// Форма монтируется на загруженном превью: начальные назначения — из него.
 function TransferForm({ data, onClose, onApplied }: {
-  data: Loaded;
+  data: TransferDocsPreview;
   onClose: () => void;
   onApplied: () => void;
 }) {
-  const { node, rows } = data;
-  const system = node.element_effective === "system";
-  const logicTo = useMemo(() => rows.filter((r) => takesLogic(r.node)), [rows]);
-  const processTo = useMemo(() => rows.filter((r) => takesProcessFacts(r.node)), [rows]);
+  const { receivers, docs } = data;
+  const system = data.element_effective === "system";
+  const logicTo = useMemo(() => receivers.filter((r) => r.takes_docs), [receivers]);
+  const processTo = useMemo(() => receivers.filter((r) => r.takes_process_facts), [receivers]);
   // Спецификация и конфигурация не на месте только у системы: у контейнера они свои.
-  const spec = system && (node.openapi_spec ?? "").trim() !== "";
+  const spec = system && data.has_spec;
   const params = system ? data.params : 0;
 
   const [docTo, setDocTo] = useState<Record<string, string>>(() =>
-    Object.fromEntries(node.docs.map((d) => [d.id, logicTo[0]?.node.id ?? ""])),
+    Object.fromEntries(docs.map((d) => [d.doc_id, logicTo[0]?.node_id ?? ""])),
   );
   // "" — не переносить. По умолчанию — первый контейнер без своей спецификации.
-  const [specTo, setSpecTo] = useState(() =>
-    (spec && processTo.find((r) => !(r.node.openapi_spec ?? "").trim())?.node.id) || "",
-  );
-  const [paramsTo, setParamsTo] = useState(() => (params > 0 ? processTo[0]?.node.id ?? "" : ""));
+  const [specTo, setSpecTo] = useState(() => (spec && processTo.find((r) => !r.has_spec)?.node_id) || "");
+  const [paramsTo, setParamsTo] = useState(() => (params > 0 ? processTo[0]?.node_id ?? "" : ""));
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-
-  if (rows.length === 0) {
-    return (
-      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
-        <DialogTitle lead={`Внутри «${node.name}» нет объектов, поэтому переносить документацию некуда.`}>
-          {TITLE}
-        </DialogTitle>
-        <div style={footRow}>
-          <button type="button" onClick={onClose} style={secondaryBtn}>Закрыть</button>
-        </div>
-      </Modal>
-    );
-  }
+  const [result, setResult] = useState<DistributeDocsOut | null>(null);
 
   const apply = () => {
     setSending(true);
     setError(null);
     nodeDocsApi
-      .distribute(node.id, {
-        doc_assignments: node.docs
-          .map((d) => ({ doc_id: d.id, child_id: docTo[d.id] ?? "" }))
+      .distribute(data.node_id, {
+        doc_assignments: docs
+          .map((d) => ({ doc_id: d.doc_id, child_id: docTo[d.doc_id] ?? "" }))
           .filter((a) => a.child_id !== ""),
         ...(specTo !== "" ? { spec_child_id: specTo } : {}),
         ...(paramsTo !== "" ? { params_target_id: paramsTo } : {}),
       })
-      .then(() => {
+      .then((out) => {
+        setResult(out);
         onApplied();
-        onClose();
       })
       .catch((e: unknown) => {
         setError(e instanceof ApiError ? e.message : "Не удалось перенести документацию");
@@ -131,15 +115,27 @@ function TransferForm({ data, onClose, onApplied }: {
       });
   };
 
+  if (result !== null) {
+    return (
+      <Modal onClose={onClose} boxStyle={{ width: 560 }}>
+        <DialogTitle>{TITLE}</DialogTitle>
+        <p style={resultLine}>{transferResult(result)}</p>
+        <div style={footRow}>
+          <button type="button" onClick={onClose} style={primaryBtn}>Закрыть</button>
+        </div>
+      </Modal>
+    );
+  }
+
   return (
     <Modal onClose={onClose} boxStyle={{ width: 560 }}>
       <DialogTitle lead={system ? LEAD_SYSTEM : LEAD_CONTAINER}>{TITLE}</DialogTitle>
 
-      {node.docs.length > 0 && (
+      {docs.length > 0 && (
         <>
           <div style={groupLabel}>Схемы логики</div>
-          {logicTo.length === 0 ? <p style={muted}>{NONE}</p> : node.docs.map((d) => (
-            <div key={d.id} style={row}>
+          {logicTo.length === 0 ? <p style={muted}>{NONE}</p> : docs.map((d) => (
+            <div key={d.doc_id} style={row}>
               <span style={rowName} title={d.name}>
                 {d.name}
                 <span className={`insp-doc-chip insp-doc-chip--${d.kind}`} style={{ marginLeft: 8 }}>
@@ -148,11 +144,11 @@ function TransferForm({ data, onClose, onApplied }: {
               </span>
               <select
                 style={select}
-                value={docTo[d.id] ?? ""}
-                onChange={(e) => setDocTo((m) => ({ ...m, [d.id]: e.target.value }))}
+                value={docTo[d.doc_id] ?? ""}
+                onChange={(e) => setDocTo((m) => ({ ...m, [d.doc_id]: e.target.value }))}
                 aria-label={`Куда перенести схему «${d.name}»`}
               >
-                {logicTo.map((r) => <option key={r.node.id} value={r.node.id}>{r.label}</option>)}
+                {logicTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
               </select>
             </div>
           ))}
@@ -172,14 +168,11 @@ function TransferForm({ data, onClose, onApplied }: {
                 aria-label="Куда перенести спецификацию"
               >
                 <option value="">Не переносить</option>
-                {processTo.map((r) => {
-                  const taken = (r.node.openapi_spec ?? "").trim() !== "";
-                  return (
-                    <option key={r.node.id} value={r.node.id} disabled={taken}>
-                      {r.label}{taken ? " (уже есть спецификация)" : ""}
-                    </option>
-                  );
-                })}
+                {processTo.map((r) => (
+                  <option key={r.node_id} value={r.node_id} disabled={r.has_spec}>
+                    {r.path}{r.has_spec ? " (уже есть спецификация)" : ""}
+                  </option>
+                ))}
               </select>
             </div>
           )}
@@ -199,7 +192,7 @@ function TransferForm({ data, onClose, onApplied }: {
                 aria-label="Куда перенести конфигурацию"
               >
                 <option value="">Не переносить</option>
-                {processTo.map((r) => <option key={r.node.id} value={r.node.id}>{r.label}</option>)}
+                {processTo.map((r) => <option key={r.node_id} value={r.node_id}>{r.path}</option>)}
               </select>
             </div>
           )}
@@ -215,7 +208,7 @@ function TransferForm({ data, onClose, onApplied }: {
           disabled={sending}
           style={{ ...primaryBtn, ...(sending ? { opacity: 0.6, cursor: "default" } : {}) }}
         >
-          {sending ? "Перенос…" : "Перенести"}
+          {sending ? "Переносим" : "Перенести"}
         </button>
         <button type="button" onClick={onClose} style={secondaryBtn}>Отмена</button>
       </div>
@@ -223,7 +216,22 @@ function TransferForm({ data, onClose, onApplied }: {
   );
 }
 
+// Итог переноса: перенесённые части по порядку окна, пустые не называются —
+// «Перенесено: 2 схемы логики, спецификация, 3 параметра.»
+function transferResult(out: DistributeDocsOut): string {
+  const parts: string[] = [];
+  if (out.moved_docs > 0) {
+    parts.push(`${out.moved_docs} ${plural(out.moved_docs, ["схема логики", "схемы логики", "схем логики"])}`);
+  }
+  if (out.spec_moved) parts.push("спецификация");
+  if (out.moved_params > 0) {
+    parts.push(`${out.moved_params} ${plural(out.moved_params, ["параметр", "параметра", "параметров"])}`);
+  }
+  return parts.length > 0 ? `Перенесено: ${parts.join(", ")}.` : "Ничего не перенесено.";
+}
+
 /* --------------------------------- стили --------------------------------- */
+const resultLine: CSSProperties = { margin: "0 0 6px", fontSize: 14, color: "#1e293b", lineHeight: 1.5 };
 const muted: CSSProperties = { color: "#475569", margin: "4px 0 0", fontSize: 13.5 };
 const groupLabel: CSSProperties = {
   fontSize: 10.5,

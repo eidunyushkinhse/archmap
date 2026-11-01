@@ -51,7 +51,9 @@ class SiteOut(BaseModel):
     parent_id: uuid.UUID | None = None
     version: int = 1
     # Число объектов на площадке: им окно подтверждения удаления говорит, сколько
-    # размещений снимется вместе с ней.
+    # размещений снимется вместе с ней. Считаются только экземпляры единиц (D33):
+    # спящие у системы, компонента и «Пользователя» ни одна строка «Размещение» не
+    # показывает (app/deployment.unit_instance_counts).
     instance_count: int = 0
 
     model_config = {"from_attributes": True}

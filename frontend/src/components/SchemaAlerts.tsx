@@ -104,7 +104,7 @@ function configReason(r: UnresolvedConfigRefAlert): string {
     return "параметра нет в конфигурации объекта: опишите его или, если это обычная фраза, уберите двоеточие";
   }
   if (r.container_id === null) {
-    return "схема у системы, а параметры живут у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие";
+    return "схема у системы, а параметры хранятся у контейнера: перенесите схему контейнеру или компоненту либо уберите двоеточие";
   }
   return `параметра нет в конфигурации контейнера «${r.container_name ?? ""}»: опишите его там или, если это обычная фраза, уберите двоеточие`;
 }
@@ -122,6 +122,15 @@ const OWN_DOCS_HINT: Record<Alerts["container_own_docs"][number]["element_effect
 function componentFacts(c: Alerts["component_facts"][number]): string {
   return [c.has_config && "конфигурация", c.has_spec && "спецификация", c.has_sites && "площадки"]
     .filter(Boolean).join(", ");
+}
+
+// Куда девать факты компонента. Сбор с компонентов переносит спецификацию и
+// конфигурацию; площадки он не трогает — их задают контейнеру. Те же слова печатает MCP
+// (render.COMPONENT_FACTS_HINT и COMPONENT_SITES_HINT) — сверяет mcp/tests/test_alerts_render.
+function componentFactsHint(c: Alerts["component_facts"][number]): string {
+  return c.has_spec || c.has_config
+    ? `можно собрать у контейнера «${c.container_name}»`
+    : `площадки можно задать контейнеру «${c.container_name}»`;
 }
 
 const CHANNEL_REASON: Record<UnresolvedChannelRefAlert["reason"], string> = {
@@ -283,7 +292,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (c) => (
       <>
         <span className="sa-line">{c.node_name} · {componentFacts(c)}</span>
-        <span className="sa-hint">место — у контейнера «{c.container_name}»</span>
+        <span className="sa-hint">{componentFactsHint(c)}</span>
       </>
     ),
   }),

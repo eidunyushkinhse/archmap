@@ -25,6 +25,7 @@ vi.mock("../../api/nodes", () => ({
   nodesApi: {
     create: vi.fn(), get: vi.fn(), update: vi.fn(), delete: vi.fn(), deletionSnapshot: vi.fn(),
     getDescendants: vi.fn(() => Promise.resolve([])), anchorPreview: vi.fn(),
+    list: vi.fn(() => Promise.resolve([])),
   },
   viewsApi: { saveLayout: vi.fn() },
   edgesApi: {
@@ -94,8 +95,10 @@ describe("автозаполнение браузера в формах прод
     expectNoAutofill(container);
   });
 
-  it("«Новый объект»", () => {
-    const { container } = render(<NodeModal parentId={null} shape="service" onClose={vi.fn()} onSaved={vi.fn()} />);
+  it("«Новый объект»", async () => {
+    const { container } = render(<NodeModal parentId={null} type="system" onClose={vi.fn()} onSaved={vi.fn()} />);
+    // Поле «Тип» появляется, когда окно загрузило место создания.
+    await waitFor(() => expect(container.querySelector(".ts-trigger")).not.toBeNull());
     expectNoAutofill(container);
   });
 

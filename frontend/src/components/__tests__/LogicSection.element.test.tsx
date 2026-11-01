@@ -59,7 +59,7 @@ describe("LogicSection: система", () => {
   it("пусто — система, своих схем нет; меню «+ Добавить» нет", () => {
     renderSection(SYSTEM);
     expect(screen.getByText(
-      "Это система, своих схем логики у неё нет. Схемы логики описывают у её контейнеров и компонентов",
+      "Это система, своих схем логики у неё нет. Схемы логики можно описать у её контейнеров и компонентов",
     )).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
@@ -67,7 +67,7 @@ describe("LogicSection: система", () => {
   it("свои схемы — предупреждение, список и «Перенести документацию»", () => {
     renderSection(SYSTEM, { docs: [doc()] });
     expect(screen.getByText(
-      "У системы остались собственные схемы логики. Схемы описывают код, их место у контейнеров и компонентов",
+      "У системы остались собственные схемы логики. Схемы описывают код, их можно перенести контейнерам и компонентам",
     )).toBeInTheDocument();
     expect(screen.getByText("Оформление заказа")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
@@ -88,10 +88,10 @@ describe("LogicSection: контейнер с компонентами", () => {
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 
-  it("свои схемы — предупреждение «их место у компонентов» и «Перенести документацию»", () => {
+  it("свои схемы — предупреждение «их можно перенести компонентам» и «Перенести документацию»", () => {
     renderSection(CONTAINER, { docs: [doc()], groups });
     expect(screen.getByText(
-      "У контейнера есть свои схемы логики. Схемы описывают код, их место у компонентов",
+      "У контейнера есть свои схемы логики. Схемы описывают код, их можно перенести компонентам",
     )).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Перенести документацию" })).toBeInTheDocument();
     expect(screen.getByText("Схемы компонентов")).toBeInTheDocument();
@@ -112,19 +112,32 @@ describe("LogicSection: составной компонент", () => {
     unmount();
     renderSection(COMPOSITE, { docs: [doc()], groups });
     expect(screen.getByText(
-      "У компонента есть свои схемы логики. Схемы описывают код, их место у вложенных компонентов",
+      "У компонента есть свои схемы логики. Схемы описывают код, их можно перенести вложенным компонентам",
     )).toBeInTheDocument();
     expect(screen.getByText("Схема api")).toBeInTheDocument();
   });
 });
 
 describe("LogicSection: объект без вложенных — как раньше", () => {
-  it("контейнер без компонентов и компонент: свои схемы, меню «+ Добавить»", () => {
-    for (const element of [{ kind: "leaf" }, { kind: "component", container: { id: "c", name: "orders" } }] as PageElement[]) {
+  it("контейнер без компонентов, компонент и внешняя система: свои схемы, меню «+ Добавить»", () => {
+    const elements = [
+      { kind: "leaf" }, { kind: "component", container: { id: "c", name: "orders" } }, { kind: "external" },
+    ] as PageElement[];
+    for (const element of elements) {
       const { unmount } = renderSection(element);
       expect(screen.getByText("Схемы логики не заданы")).toBeInTheDocument();
       expect(screen.getByText("+ Добавить")).toBeInTheDocument();
       unmount();
     }
+  });
+});
+
+describe("LogicSection: внешняя система (Р42)", () => {
+  it("свои схемы без предупреждения и без «Перенести документацию»: чёрный ящик описывают у него", () => {
+    renderSection({ kind: "external" }, { docs: [doc()] });
+    expect(screen.queryByText("Схемы логики не заданы")).toBeNull();
+    expect(screen.getByText("+ Добавить")).toBeInTheDocument();
+    expect(screen.queryByText(/остались собственные схемы/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Перенести документацию" })).toBeNull();
   });
 });
