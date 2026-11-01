@@ -132,8 +132,8 @@ export default function ConfigParamsSection({
       {limit && <LimitNotice message={limit} />}
       {!allowed && (
         <p className="np-warn">
-          Конфигурация описывает ручки сервиса, а у этого объекта их нет — перенесите
-          её на сервис, который с ним работает
+          Параметры конфигурации описывают настройки контейнера, а у этого объекта своих
+          настроек нет. Перенесите параметры на контейнер, который с ним работает
         </p>
       )}
       {component && <ComponentConfig container={component} dependsOn={dependsOn} onNavigateNode={onNavigateNode} />}

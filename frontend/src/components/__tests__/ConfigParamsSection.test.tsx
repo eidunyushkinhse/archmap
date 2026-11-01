@@ -189,7 +189,9 @@ describe("ConfigParamsSection", () => {
     renderSection({ allowed: false });
 
     await waitFor(() => expect(screen.getByText("Конфигурация")).toBeInTheDocument());
-    expect(screen.getByText(/перенесите её на сервис/)).toBeInTheDocument();
+    const warn = screen.getByText(/Перенесите параметры на контейнер, который с ним работает/);
+    expect(warn.textContent).toContain("Параметры конфигурации описывают настройки контейнера");
+    expect(warn.textContent).not.toMatch(/ручк|сервис/);
     // Заводить новые у неподходящей формы всё же не даём — это уже не спасение данных.
     expect(screen.queryByText("+ Параметр")).toBeNull();
   });
