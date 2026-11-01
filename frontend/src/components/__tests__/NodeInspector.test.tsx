@@ -2,7 +2,7 @@
 // смена формы и элемента архитектором, серые пункты, отказ сервера плашкой и полное
 // отсутствие выпадашки у наблюдателя. Смена коммитится сразу (как статус) и уходит в Undo
 // редактора тем же onNodeSaved, что и остальная мета — своей истории у панели нет.
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import NodeInspector from "../inspector/NodeInspector";
@@ -57,6 +57,17 @@ const cb = {
 function setup(node: Node, isArchitect = true) {
   return render(<NodeInspector node={node} isArchitect={isArchitect} {...cb} />);
 }
+
+// Значение строки «Тип» (dd её ряда): шапка панели показывает ту же подпись, поэтому
+// текст типа ищется внутри строки, а не по всей панели.
+function typeRow(): HTMLElement {
+  const row = [...document.querySelectorAll(".insp-row")]
+    .find((r) => r.querySelector(".insp-term")?.textContent?.startsWith("Тип"));
+  const dd = row?.querySelector("dd");
+  if (!(dd instanceof HTMLElement)) throw new Error("нет строки «Тип»");
+  return dd;
+}
+const headType = () => document.querySelector(".insp-typeline")?.textContent;
 
 describe("NodeInspector: смена типа формой", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -171,6 +182,36 @@ describe("NodeInspector: источник", () => {
     render(<NodeInspector node={n} isArchitect={false} {...cb} />);
     expect(screen.getByText("код:")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Изменить" })).toBeNull();
+  });
+});
+
+// Шапка панели называет тип той же подписью, что строка «Тип» (typeView): слова «Сервис» в
+// интерфейсе нет, внешность звучит только у системы и контейнера («Внешняя система»,
+// «Внешний контейнер»), у компонента — «Компонент» без имени контейнера.
+describe("NodeInspector: шапка называет тип", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  const cases: [string, Partial<Node>, string][] = [
+    ["контейнер", { shape: "service", element_effective: "container" }, "Контейнер"],
+    ["система с вложенными", { shape: "service", has_children: true, child_count: 2, element_effective: "system" }, "Система"],
+    ["внешняя система", { shape: "service", is_external: true, element_effective: "system" }, "Внешняя система"],
+    ["внешний контейнер", { shape: "service", is_external: true, element: "container", element_effective: "container" }, "Внешний контейнер"],
+    ["компонент", { shape: "service", element_effective: "component", container_name: "orders" }, "Компонент"],
+    ["внешняя база данных", { shape: "database", is_external: true, element_effective: "container" }, "База данных"],
+    ["пользователь", { shape: "person", element_effective: null }, "Пользователь"],
+  ];
+
+  it.each(cases)("%s — та же подпись, что у строки «Тип»", (_name, over, label) => {
+    setup(makeNode(over), false);
+    expect(headType()).toBe(label);
+    expect(typeRow().textContent).toContain(label);
+    expect(headType()).not.toMatch(/[Сс]ервис|внутренн/);
+  });
+
+  it("у архитектора шапка совпадает с кнопкой «Тип»", () => {
+    setup(makeNode({ shape: "service", is_external: true, element_effective: "system" }));
+    expect(headType()).toBe("Внешняя система");
+    expect(screen.getByRole("button", { name: "Тип" })).toHaveTextContent("Внешняя система");
   });
 });
 
@@ -381,7 +422,7 @@ describe("NodeInspector: тип система и контейнер", () => {
 
   it("читателю — текстом; у «Пользователя» тип тоже есть", () => {
     const { unmount } = setup(system({ element: "container", element_effective: "container" }), false);
-    expect(screen.getByText("Контейнер")).toBeInTheDocument();
+    expect(within(typeRow()).getByText("Контейнер")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Тип" })).not.toBeInTheDocument();
     unmount();
     setup(makeNode({ shape: "person", element_effective: null }));
@@ -445,7 +486,7 @@ describe("NodeInspector: строка «Тип» по Ф8 и Р40", () => {
 
   it("пустая система (Р39) — «Система»", () => {
     setup(makeNode({ shape: "service", element: "system", element_effective: "system" }), false);
-    expect(screen.getByText("Система")).toBeInTheDocument();
+    expect(within(typeRow()).getByText("Система")).toBeInTheDocument();
   });
 
   it("технология системы: потомки не загрузились — «не загрузилась» и «Повторить», а не «не указана»", async () => {
