@@ -863,6 +863,54 @@ def test_живые_имена_чужих_узлов_в_процессе_не_и
     assert diff_items(before, after) == []
 
 
+# ── Элемент архитектуры в свойствах ────────────────────────────────────────────
+
+
+def test_элемент_компонента_подписан_компонентом(db):
+    """Тип выбран всегда (2026-11-01): у сервиса внутри контейнера хранимого элемента нет,
+    тип задан положением. Дельта подписывает его «Компонент» (расчёт — app/element), а
+    «Не задан» остаётся у не-сервиса и у сервиса без хранимого вне контейнера (снимки до
+    миграции типа)."""
+    s = _scene(db)
+    s.orders.element = "container"
+    api = Node(id=uuid.uuid4(), project_id=s.project.id, name="API", parent_id=s.orders.id)
+    db.add(api)
+    db.commit()
+    before = _snap(db, s)
+    api.description = "HTTP-эндпоинты"
+    s.pay.description = "Проводит оплату"
+    s.db_node.description = "Заказы и статусы"
+    db.commit()
+    after = _snap(db, s)
+
+    items = {i.name: i for i in diff_items(before, after)}
+    элемент = {}
+    for name in ("API", "Оплаты", "БД"):
+        detail = diff_item(before, after, items[name].item_id)
+        assert detail is not None
+        элемент[name] = dict(r.cells for r in detail.after.rows or [])["элемент архитектуры"]
+    assert элемент == {"API": "Компонент", "Оплаты": "Не задан", "БД": "Не задан"}
+
+
+def test_перенос_в_контейнер_контейнер_стал_компонентом(db):
+    """Сервис, перенесённый внутрь контейнера, теряет хранимый элемент: строка дельты —
+    «Контейнер → Компонент», а не «Контейнер → Не задан»."""
+    s = _scene(db)
+    s.orders.element = "container"
+    s.pay.element = "container"
+    db.commit()
+    before = _snap(db, s)
+    s.pay.parent_id = s.orders.id
+    s.pay.element = None
+    db.commit()
+    after = _snap(db, s)
+
+    [item] = [i for i in diff_items(before, after) if i.name == "Оплаты"]
+    detail = diff_item(before, after, item.item_id)
+    assert detail is not None
+    assert ("mod", ["элемент архитектуры", "Контейнер", "Компонент"]) in _rows(detail.changes)
+
+
 # ── Адрес элемента ─────────────────────────────────────────────────────────────
 
 

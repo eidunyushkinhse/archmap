@@ -17,12 +17,14 @@ import difflib
 import uuid
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Protocol
 
 from app.domain_types import (
     ELEMENT_UNSET_LABEL,
     NODE_APPROVAL_LABELS,
     NODE_DOC_KIND_LABELS,
+    NODE_ELEMENT_EFFECTIVE_LABELS,
     NODE_ELEMENT_LABELS,
     NODE_SHAPE_LABELS,
     NODE_STATUS_LABELS,
@@ -31,6 +33,8 @@ from app.domain_types import (
     VersionCategory,
     VersionItemStatus,
 )
+from app.element import Elements
+from app.element_marks import ElementRow, build_elements
 from app.schemas.process import FragmentOut, MessageOut, ParticipantOut
 from app.schemas.restore import (
     BrokerChannelSnapshot,
@@ -237,6 +241,16 @@ class _Side:
     def full_path(self, node_id: uuid.UUID) -> str:
         """Путь объекта с корнем среза — подпись родителя в таблице свойств."""
         return self._chain(node_id, with_root=True)
+
+    @cached_property
+    def elements(self) -> Elements[uuid.UUID]:
+        """Действующие элементы узлов снимка: расчёт только в app/element (адаптер
+        element_marks), своего обхода предков здесь нет. Собираются по первому вопросу:
+        object_path и сторона без свойств их не просят."""
+        return build_elements(
+            ElementRow(n.id, n.parent_id, n.shape, n.element, n.name, n.is_external)
+            for n in self.nodes.values()
+        )
 
 
 @dataclass(frozen=True)
@@ -450,10 +464,23 @@ def _prop_value(pair: _Pair, side: _Side, node: NodeSnapshot, field: str) -> str
     if field == "status":
         return NODE_STATUS_LABELS[node.status]
     if field == "element":
-        return NODE_ELEMENT_LABELS[node.element] if node.element else ELEMENT_UNSET_LABEL
+        return _element_label(side, node)
     if field == "parent_id":
         return _parent_label(side, pair.outside, node.parent_id)
     return _val(getattr(node, field))
+
+
+def _element_label(side: _Side, node: NodeSnapshot) -> str:
+    """Хранимый элемент словами. У сервиса внутри контейнера того же снимка хранимого
+    элемента нет по инварианту «тип выбран всегда»: тип задан положением, и подпись —
+    «Компонент». «Не задан» остаётся там, где хранимого нет без такой причины: у
+    не-сервиса и у сервиса в снимке до 2026-11-01 (снят до миграции типа). Контейнер-предок
+    вне среза снимок не видит, и такой компонент тоже подписан «Не задан»."""
+    if node.element:
+        return NODE_ELEMENT_LABELS[node.element]
+    if node.shape == "service" and side.elements.effective(node.id) == "component":
+        return NODE_ELEMENT_EFFECTIVE_LABELS["component"]
+    return ELEMENT_UNSET_LABEL
 
 
 def _prop_rows(pair: _Pair, side: _Side, node: NodeSnapshot | None) -> VersionView:
