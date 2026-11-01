@@ -4,7 +4,7 @@
 // блока: дерево системы и сетка контейнера (у листа — без числа, N4в, приёмка Ф12
 // 2026-10-31); на холсте «Развёртывание» — прежние строки и «Система целиком на площадке»
 // (пунктирная карточка).
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import SchemaLegend from "../SchemaLegend";
@@ -58,5 +58,36 @@ describe("SchemaLegend", () => {
     ]);
     expect(swatchRect("Система целиком на площадке")?.getAttribute("stroke-dasharray")).toBeTruthy();
     expect(screen.queryByText("Рамка контейнера")).toBeNull();
+  });
+
+  // Встроенный холст обрезает содержимое (.esb-wrap, overflow: hidden): панель живёт в
+  // портале на body и стоит в окне (position: fixed), а нажатие в ней — всё ещё «внутри».
+  it("панель вне обрезающего холста: портал на body, нажатие в ней не закрывает", async () => {
+    const { container } = render(
+      <div className="esb-wrap" style={{ overflow: "hidden", height: 320 }}><SchemaLegend /></div>,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Легенда/ }));
+    const panel = document.querySelector<HTMLElement>(".sleg-panel");
+    expect(panel).not.toBeNull();
+    expect(container.contains(panel)).toBe(false);
+    expect(panel?.parentElement).toBe(document.body);
+    expect(panel?.style.position).toBe("fixed");
+    expect(panel?.style.visibility).not.toBe("hidden");
+
+    fireEvent.mouseDown(screen.getByText("Рамка системы"));
+    expect(document.querySelector(".sleg-panel")).not.toBeNull();
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector(".sleg-panel")).toBeNull();
+  });
+
+  it("Escape закрывает, повторное нажатие кнопки — тоже", async () => {
+    await open();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(document.querySelector(".sleg-panel")).toBeNull();
+    const button = screen.getByRole("button", { name: /Легенда/ });
+    await userEvent.click(button);
+    expect(document.querySelector(".sleg-panel")).not.toBeNull();
+    await userEvent.click(button);
+    expect(document.querySelector(".sleg-panel")).toBeNull();
   });
 });

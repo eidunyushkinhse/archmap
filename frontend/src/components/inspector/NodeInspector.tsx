@@ -18,7 +18,7 @@ import { useNodePatch } from "../../pages/useNodePatch";
 import "./inspector.css";
 import { noAutofill } from "../../ui/noAutofill";
 import { loadErrorText } from "../../ui/loadErrorText";
-import { SHAPE_LABEL, STATUS_ORDER } from "../nodeTerms";
+import { STATUS_ORDER } from "../nodeTerms";
 import { useTypePick } from "../element/useTypePick";
 import { typeView } from "../element/elementView";
 import { typeOptions } from "../element/typeOptions";
@@ -62,6 +62,9 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
   // (onNodeSaved → данные узла в редакторе → холст), а при отказе 400 показанный тип
   // остаётся прежним, потому что прошлое значение никто не перетирал.
   const shape = node.shape;
+  // Шапка и строка «Тип» называют объект одной подписью (typeView): тип по элементу с
+  // сервера, у внешних системы и контейнера — «Внешняя система» / «Внешний контейнер».
+  const nodeType = typeView(node, ancestors);
   const isPerson = shape === "person";
   const isGroup = nodeNesting(node) === "group";
   // Сводная технология потомков, только чтение — ТОЛЬКО у системы (Р15): она сама не
@@ -86,7 +89,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
     <div>
       {conflict && <p style={noticeStyle}>{conflict}</p>}
       {error && <p style={noticeStyle}>{error}</p>}
-      {/* Шапка-идентификатор: глиф формы + имя + строка типа */}
+      {/* Шапка-идентификатор: глиф формы + имя + тип той же подписью, что строка «Тип» */}
       <div className="insp-head">
         <span className="insp-headglyph"><ShapeGlyph nesting={treeNesting(node)} shape={shape} /></span>
         <div className="insp-headmain">
@@ -101,9 +104,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
           ) : (
             <div className="insp-name">{node.name}</div>
           )}
-          <div className="insp-typeline">
-            {SHAPE_LABEL[shape]} · {isExternal ? "внешний" : "внутренний"}
-          </div>
+          <div className="insp-typeline">{nodeType.label}</div>
         </div>
       </div>
 
@@ -129,7 +130,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
         <MetaRow icon={META_ICON.type} label="Тип" help={<ElementHelp />}>
           <span className="insp-value">
             <TypeValue
-              view={typeView(node, ancestors)}
+              view={nodeType}
               options={isArchitect ? typeOptions({ mode: "change", node, ancestors }) : null}
               onPick={typePick.pick}
               onNavigateNode={onNavigateNode}
