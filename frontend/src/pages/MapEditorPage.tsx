@@ -51,7 +51,6 @@ import { emitTourEvent, onTourFocusRequest, onTourLevelRequest } from "../compon
 import LoadError from "../ui/LoadError";
 import { loadErrorText } from "../ui/loadErrorText";
 import { safeSession } from "../lib/safeStorage";
-import { useFirstChild } from "../components/element/useFirstChild";
 import type { NodeType } from "../components/nodeTerms";
 import { useConsequences } from "../components/element/useConsequences";
 import { hasConsequences } from "../components/element/elementChange";
@@ -140,10 +139,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const [remoteToast, showRemoteToast] = useToast();
   // Отказ действия, у которого нет своего места для ошибки (перенос в дереве).
   const [errorToast, showErrorToast] = useMessageToast();
-  // Перенос объекта в лист спрашивает элемент листа ДО переноса (окно первого вложенного
-  // объекта). Создание его не спрашивает: окно «Новый объект» задаёт родителя тем же
-  // запросом (Р38 раздела 13 docs/plan-c4-elements.md).
-  const firstChild = useFirstChild(showErrorToast);
   // Перенос в контейнер и из него переносит площадки (Р18): сначала окно последствий.
   const consequences = useConsequences();
 
@@ -165,11 +160,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     async () => (currentParentId ? nodesApi.get(currentParentId) : null),
   );
   // Крошки — путь навигации (id и порядок звеньев), а элемент и внешность звеньев
-  // меняются и без навигации: смена типа предка в свойствах, первый вложенный объект,
-  // задавший элемент родителю уровня (Р38). Звенья перечитываются тем же сигналом
-  // treeReload, что и дерево: родителя уровня даёт levelParent, звенья выше — по запросу
-  // на звено, и только после правки (до первой мутации запросов нет). Не перечитались —
-  // остаются звенья навигации, ошибку показывает палитра (levelParent).
+  // меняются и без навигации: смена типа предка в свойствах и её Undo. Звенья
+  // перечитываются тем же сигналом treeReload, что и дерево: родителя уровня даёт
+  // levelParent, звенья выше — по запросу на звено, и только после правки (до первой
+  // мутации запросов нет). Не перечитались — остаются звенья навигации, ошибку показывает
+  // палитра (levelParent).
   const upperIds = breadcrumb.slice(0, -1).map((b) => b.id);
   const upperCrumbs = useAsyncLoad<Node[] | null>(
     `crumbs:${upperIds.join("/")}:${treeReload}`,
@@ -553,9 +548,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
-    // Цель — лист без элемента: сначала окно первого вложенного объекта (что такое
-    // переносимый внутри цели). «Отмена» — объект остаётся на месте.
-    if (!(await firstChild.ensure(newParentId, node))) return;
     // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
     // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
     // перенос назад, с теми же последствиями).
@@ -587,10 +579,12 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     history.push({
       label: "Перенос объекта", level: levelAtMove,
       // Порядок важен: сначала возвращаем родителя (эта же правка снимет позиции,
-      // засеянные на новом месте), только потом кладём обратно старые строки.
+      // засеянные на новом месте), только потом кладём обратно старые строки. Элемент —
+      // тем же запросом: перенос в контейнер его снимает (компонент), а без присланного
+      // значения сервер вернул бы объекту на старом месте «контейнер», а не прежний тип.
       undo: () => {
         guardPersist(
-          nodesApi.update(node.id, { parent_id: oldParentId })
+          nodesApi.update(node.id, { parent_id: oldParentId, ...(node.element ? { element: node.element } : {}) })
             .then(() => nodesApi.restore(snapshot))
             .then(() => { setTreeReload((t) => t + 1); refetch(); }),
           onHistoryError("save"),
@@ -849,8 +843,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
     onDropNode: (type, pos, dropParentId) => {
       // Тип плитки палитры — предвыбор поля «Тип» (Р41): сюда доходит только бросок в место,
       // где тип возможен (или сведений о месте нет). В раскрытую рамку — родитель рамки,
-      // позиция в виде текущего уровня; на уровень — родитель уровня. Если он лист, окно
-      // само скажет, кем он станет (Р38).
+      // позиция в виде текущего уровня; на уровень — родитель уровня.
       if (dropParentId) setNodeModal({ open: true, node: null, type, pos, parentId: dropParentId, posView: currentParentId });
       else setNodeModal({ open: true, node: null, type, pos });
     },
@@ -1054,7 +1047,6 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       </div>
 
       {/* Модалки */}
-      {firstChild.dialog}
       {consequences.dialog}
       {nodeModal.open && (
         <NodeModal

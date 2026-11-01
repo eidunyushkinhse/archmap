@@ -342,10 +342,10 @@ describe("MapEditorPage", () => {
   });
 });
 
-// ── Создание объекта (Р38 раздела 13 docs/plan-c4-elements.md) ──────────────────
+// ── Создание объекта ─────────────────────────────────────────────────────────
 // «+» дерева и бросок шаблона открывают окно «Новый объект» сразу: родителя окно
-// загружает само и, если он лист, задаёт его тем же запросом. Редактор ничего не
-// спрашивает и не пишет — окна первого вложенного объекта на этих путях нет.
+// загружает само, редактор ничего не спрашивает и не пишет. Тип родителя создание не
+// меняет: у листа он выбран всегда (решение владельца 2026-11-01).
 describe("MapEditorPage: создание объекта", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -353,7 +353,7 @@ describe("MapEditorPage: создание объекта", () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue([]);
   });
 
-  it("«+» у листа в дереве — окно с этим родителем, без запросов и окна первого вложенного", async () => {
+  it("«+» у листа в дереве — окно с этим родителем, без запросов", async () => {
     render(<MapEditorPage {...props} nodeId={null} />);
     await screen.findByTestId("tree-panel");
     const onCreateChild = treeProps.current.onCreateChild as (parentId: string) => void;
@@ -503,7 +503,7 @@ describe("MapEditorPage: перенос объекта", () => {
     vi.clearAllMocks();
     vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
     vi.mocked(nodesApi.getAll).mockResolvedValue([]);
-    // Цель переноса — узел с детьми: окна первого вложенного объекта нет.
+    // Цель переноса — система с вложенными.
     vi.mocked(nodesApi.get).mockResolvedValue(
       node("new", { has_children: true, child_count: 1, element_effective: "system" }) as never,
     );
@@ -551,20 +551,14 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(treeProps.current.reloadToken).not.toBe(reloadBefore);
   });
 
-  // Р38 раздела 13 плана: цель — лист-сервис без элемента, переносимый — сервис без
-  // элемента. Сначала окно со стороны переносимого; «Отмена» — объект остаётся на месте,
-  // ни снимка, ни правки.
-  it("перенос в лист: сначала окно «что такое переносимый», «Отмена» ничего не делает", async () => {
-    vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: null, element_effective: "container", sites: [] }) as never);
-    render(<MapEditorPage {...props} nodeId={null} />);
-    await screen.findByTestId("tree-panel");
-    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
-    await act(async () => { onReparent(node("kid", { parent_id: "old" }), "new"); });
-    expect(await screen.findByText("Что такое «KID» внутри «NEW»?")).toBeInTheDocument();
-    await act(async () => { screen.getByText("Отмена").click(); });
-    expect(nodesApi.moveSnapshot).not.toHaveBeenCalled();
-    expect(nodesApi.update).not.toHaveBeenCalled();
-    expect(historyMock.push).not.toHaveBeenCalled();
+  // Тип выбран всегда (решение владельца 2026-11-01): у листа-цели тип уже есть, окна
+  // «что такое переносимый» нет — перенос идёт сразу, переносимый становится компонентом.
+  it("перенос в лист-контейнер: без окна о типе, правка сразу", async () => {
+    vi.mocked(nodesApi.get).mockResolvedValue(node("new", { element: "container", element_effective: "container", sites: [] }) as never);
+    await перенести();
+    expect(screen.queryByText(/Что такое/)).toBeNull();
+    expect(nodesApi.movePreview).toHaveBeenCalledWith("kid", "new");
+    expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "new" });
   });
 
   // Р18: перенос в контейнер переносит площадки — сначала окно последствий; такой перенос
@@ -614,6 +608,28 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "old" });
     expect(vi.mocked(nodesApi.update).mock.invocationCallOrder[0])
       .toBeLessThan(vi.mocked(nodesApi.restore).mock.invocationCallOrder[0]);
+  });
+
+  // Перенос в контейнер снимает элемент (объект — компонент), а без присланного значения
+  // сервер вернул бы объекту на старом месте «контейнер»: Undo шлёт прежний тип.
+  it("Undo возвращает и прежний тип переносимого", async () => {
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("kid") as never);
+    vi.mocked(nodesApi.restore).mockResolvedValue(undefined as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => void;
+    const kid = node("kid", { parent_id: "old", element: "system", element_effective: "system" });
+    await act(async () => { onReparent(kid, "new"); });
+    const cmd = historyMock.push.mock.calls[0][0] as { undo: () => void; redo: () => void };
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.undo(); });
+    await waitFor(() => expect(nodesApi.restore).toHaveBeenCalledWith(снимок));
+    expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "old", element: "system" });
+    // Redo — тот же перенос: элемент на новом месте выравнивает сервер.
+    vi.mocked(nodesApi.update).mockClear();
+    await act(async () => { cmd.redo(); });
+    await waitFor(() => expect(nodesApi.update).toHaveBeenCalledWith("kid", { parent_id: "new" }));
   });
 });
 
@@ -761,12 +777,12 @@ describe("MapEditorPage: правка объекта в истории", () => {
 });
 
 // ── Крошки после правки без навигации (Ф13а) ─────────────────────────────────
-// Элемент и внешность звеньев меняются и без перехода: первый вложенный объект задаёт
-// элемент родителю уровня (Р38), предку меняют тип или внешность. Холст (рамки) и крошки
-// получают свежие звенья тем же сигналом, что дерево.
+// Элемент и внешность звеньев меняются и без перехода: родителю уровня или предку выше
+// меняют тип или внешность. Холст (рамки) и крошки получают свежие звенья тем же сигналом,
+// что дерево.
 describe("MapEditorPage: крошки перечитываются после правки", () => {
-  const a = node("a", { name: "Торговля", has_children: true, child_count: 1, element_effective: "system" });
-  const b = node("b", { name: "orders", parent_id: "a", element: null, element_effective: "container" });
+  const a = node("a", { name: "Торговля", has_children: true, child_count: 1, element: "system", element_effective: "system" });
+  const b = node("b", { name: "orders", parent_id: "a", element: "container", element_effective: "container" });
   const getBy = (map: Record<string, Node>) => async (id: string) => map[id] as never;
   const onNodeSaved = () => inspectorProps.current.onNodeSaved as (saved: Node, isCreate: boolean, before?: Node) => void;
 
@@ -778,16 +794,16 @@ describe("MapEditorPage: крошки перечитываются после п
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b }));
   });
 
-  it("первый вложенный объект задал элемент родителю уровня — холст получает его без навигации", async () => {
+  it("родителю уровня сменили тип — холст получает его без навигации", async () => {
     render(<MapEditorPage {...props} nodeId="b" />);
     await screen.findByTestId("level-graph");
     await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "container"]));
     const callsBefore = vi.mocked(nodesApi.get).mock.calls.length;
 
-    // Сервер записал родителю элемент вместе с созданием: «orders» теперь система.
-    const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system", has_children: true });
+    // «orders» сделали пустой системой в свойствах.
+    const bSystem = node("b", { name: "orders", parent_id: "a", element: "system", element_effective: "system" });
     vi.mocked(nodesApi.get).mockImplementation(getBy({ a, b: bSystem }));
-    act(() => { onNodeSaved()(node("c", { parent_id: "b" }), true); });
+    act(() => { onNodeSaved()(bSystem, false, b); });
 
     await waitFor(() => expect(levelGraphProps.current?.ancestorElements).toEqual(["system", "system"]));
     // Тот же сигнал перечитал и звено выше уровня — по запросу на звено.

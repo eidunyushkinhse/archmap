@@ -8,7 +8,7 @@
 // Элемент считает сервер (element_effective); своей модели элементов здесь нет.
 import type { AncestorRef, Node } from "../../types";
 import { TYPE_ORDER, typeOf, type NodeType } from "../nodeTerms";
-import { awaitsFirstChild, childIsComponent, containerOf } from "./elementView";
+import { childIsComponent, containerOf } from "./elementView";
 
 export interface TypeOption {
   type: NodeType;
@@ -17,8 +17,6 @@ export interface TypeOption {
   // владельца 2026-11-01), поэтому причины режима change сейчас нигде не выводятся.
   disabled: boolean;
   reason?: string;
-  // Строка под полем, когда пункт выбран (Р38: что станет с родителем).
-  note?: string;
 }
 
 // То, что правилам нужно от объекта: у родителя в окне создания и у объекта в свойствах.
@@ -65,8 +63,6 @@ const WITH_CHILDREN: Record<"database" | "broker" | "person", string> = {
   broker: "Объект с вложенными объектами не может стать брокером.",
   person: "Объект с вложенными объектами не может стать пользователем.",
 };
-const becomesContainer = (parent: string) => `«${parent}» станет контейнером.`;
-const becomesSystem = (parent: string) => `«${parent}» станет системой.`;
 
 // ── Режимы ────────────────────────────────────────────────────────────────────
 
@@ -83,16 +79,9 @@ function holderName(node: TypeSubject, ancestors: readonly AncestorRef[] = []): 
 
 function createOptions(parent: TypeSubject | null): TypeOption[] {
   // Внутри любого объекта «Пользователь» серый: он живёт только на верхнем уровне.
-  // Лист-сервис без элемента ждёт первого вложенного объекта: выбор задаёт и его (Р38).
-  if (parent && awaitsFirstChild(parent)) {
-    return TYPE_ORDER.map((type) => type === "person" ? grey(type, PERSON_CREATE) : {
-      type,
-      disabled: false,
-      note: type === "component" ? becomesContainer(parent.name) : becomesSystem(parent.name),
-    });
-  }
-  // Внутри контейнера (и его компонента) всё — компоненты; база и брокер в контейнер не
-  // входят.
+  // Внутри контейнера (в том числе листа-контейнера) и его компонента всё — компоненты;
+  // база и брокер в контейнер не входят. Тип родителя первый вложенный объект не меняет:
+  // у листа тип выбран всегда (решение владельца 2026-11-01).
   if (parent && parent.shape === "service" && childIsComponent(parent)) {
     const container = holderName(parent);
     return TYPE_ORDER.map((type) => {

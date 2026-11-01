@@ -18,7 +18,6 @@ import { loadErrorText } from "../ui/loadErrorText";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
 import { STATUS_ORDER, shapeOfType, type NodeType } from "./nodeTerms";
 import { preselectType, typeOptions } from "./element/typeOptions";
-import { awaitsFirstChild } from "./element/elementView";
 import TypeSelect from "./element/TypeSelect";
 
 // Модалка СОЗДАНИЯ объекта. Просмотр и правка существующего узла переехали в правую
@@ -28,9 +27,8 @@ import TypeSelect from "./element/TypeSelect";
 // Первое поле — «Тип» (Р36 раздела 13 docs/plan-c4-elements.md), обязательное: какие из
 // шести типов возможны под этим родителем, решает typeOptions, серые не выбираются.
 // Родителя и соседей окно загружает само по parentId: по ним — варианты и предвыбор
-// (тип шаблона, «Компонент» внутри контейнера, тип последнего созданного соседа). У
-// листа-сервиса без элемента выбор задаёт и родителя (Р38): строка под полем говорит,
-// кем он станет, а запрос несёт parent_element — родитель и ребёнок пишутся вместе.
+// (тип шаблона, «Компонент» внутри контейнера, тип последнего созданного соседа). Тип
+// родителя окно не меняет: у листа он выбран всегда (решение владельца 2026-11-01).
 // Обучающий тур демо на шаге создания с плитки (tourStore) держит тип плитки: поле видно,
 // но заблокировано (строки-пояснения под ним нет по решению владельца 2026-11-01), —
 // иначе объект другого типа оставлял тур стоять на шаге.
@@ -80,7 +78,6 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
     ]);
     return { parent, siblings };
   });
-  const parent = place.data?.parent ?? null;
   const options = useMemo(
     () => (place.data ? typeOptions({ mode: "create", parent: place.data.parent }) : []),
     [place.data],
@@ -94,7 +91,6 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
   const tourLock = useSyncExternalStore(subscribeTourTypeLock, getTourTypeLock);
   const typeLocked = tourLock && !!templateType && preselect === templateType;
   const type = typeLocked && templateType ? templateType : picked ?? preselect;
-  const note = options.find((o) => o.type === type)?.note;
   // Поля по форме типа: у «Пользователя» нет технологии и внешности.
   const isPerson = type === "person";
 
@@ -119,11 +115,6 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
       // Тип в модели — форма и элемент: система и контейнер пишутся элементом,
       // компонентом объект делает место (внутри контейнера), а не поле.
       const element: NodeElement | null = type === "system" || type === "container" ? type : null;
-      // Первый вложенный объект листа задаёт его элемент (Р38): компонент — контейнер,
-      // любой другой тип — система.
-      const parentElement: NodeElement | null = parent && awaitsFirstChild(parent)
-        ? (type === "component" ? "container" : "system")
-        : null;
       const data: NodeCreate = {
         name: name.trim(),
         description: description || null,
@@ -135,7 +126,6 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
         shape: shapeOfType(type),
         status,
         ...(element ? { element } : {}),
-        ...(parentElement ? { parent_element: parentElement } : {}),
         // При дропе в рамку позицию НЕ отдаём POST-у (он положил бы её в вид parentId) —
         // пишем ниже в вид текущего уровня. Обычный дроп — как раньше, позицию кладёт POST.
         pos_x: intoFrame ? null : (initialPos?.x ?? null),
@@ -196,7 +186,6 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
           />
         </div>
       )}
-      {note && <p style={noteStyle}>{note}</p>}
 
       <label style={labelStyle}>Название *</label>
       <input {...noAutofill("node-modal-1")} value={name} onChange={(e) => setName(e.target.value)} style={input} data-autofocus />
@@ -260,7 +249,6 @@ function ChevronDown() {
 }
 
 const typeField: CSSProperties = { marginBottom: 10 };
-const noteStyle: CSSProperties = { margin: "-4px 0 10px", fontSize: 12.5, color: "#475569" };
 const loadFail: CSSProperties = {
   display: "flex", alignItems: "center", gap: 10, marginBottom: 10, padding: "8px 11px",
   border: "1px solid #fecaca", borderRadius: 8, background: "#fef2f2", color: "#991b1b", fontSize: 13,

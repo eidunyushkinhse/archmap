@@ -1,9 +1,9 @@
 // Окно «Новый объект». Первое поле — «Тип» (Р36 раздела 13 docs/plan-c4-elements.md):
-// варианты по месту создания (корень, система, контейнер, лист без элемента), серый пункт
-// не выбирается, предвыбор по шаблону палитры и по последнему созданному соседу, без типа
-// «Создать» неактивна, сбой загрузки родителя виден в окне. Первый вложенный объект листа
-// задаёт родителя тем же запросом (Р38, parent_element). Подтверждение клавишей Enter — то
-// же, что кнопка «Создать» (ui/Modal.onSubmit). События тура — NodeModal.tourEvents.test.
+// варианты по месту создания (корень, система, контейнер, лист-контейнер), серый пункт не
+// выбирается, предвыбор по шаблону палитры и по последнему созданному соседу, без типа
+// «Создать» неактивна, сбой загрузки родителя виден в окне. Тип родителя окно не меняет:
+// у листа он выбран всегда (решение владельца 2026-11-01). Подтверждение клавишей Enter —
+// то же, что кнопка «Создать» (ui/Modal.onSubmit). События тура — NodeModal.tourEvents.test.
 //
 // jsdom не открывает <dialog>: роли внутри скрыты, поэтому поля ищутся селекторами.
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -23,7 +23,7 @@ function node(over: Partial<Node> = {}): Node {
     id: "p1", name: "orders", description: null, role: null, technology: null, parent_id: null,
     openapi_spec: null, docs: [], is_external: false, shape: "service", status: "existing",
     child_count: 0, has_children: false, approval: "in_progress", approval_effective: "in_progress",
-    element: null, element_effective: "container", container_name: null,
+    element: "container", element_effective: "container", container_name: null,
     version: 1, created_at: "2026-10-30T10:00:00Z", updated_at: "", sites: [],
     ...over,
   };
@@ -88,11 +88,10 @@ describe("NodeModal — поле «Тип» по месту создания", (
     save("Ярмарка");
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
     expect(body()).toMatchObject({ name: "Ярмарка", shape: "service", element: "system", parent_id: null });
-    expect(body()).not.toHaveProperty("parent_element");
   });
 
   it("система с вложенными: контейнер пишется элементом, родитель не трогается", async () => {
-    const system = node({ id: "s1", name: "Ярмарка", element_effective: "system", has_children: true, child_count: 1 });
+    const system = node({ id: "s1", name: "Ярмарка", element: "system", element_effective: "system", has_children: true, child_count: 1 });
     place(system, [node({ id: "k1", element_effective: "container", parent_id: "s1" })]);
     render(<NodeModal parentId="s1" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
@@ -107,12 +106,11 @@ describe("NodeModal — поле «Тип» по месту создания", (
     save("orders");
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
     expect(body()).toMatchObject({ shape: "service", element: "container", parent_id: "s1" });
-    expect(body()).not.toHaveProperty("parent_element");
   });
 
   it("контейнер: предвыбран «Компонент», элемент не шлётся, база серая", async () => {
     const container = node({ id: "k1", element: "container", has_children: true, child_count: 1 });
-    place(container, [node({ id: "a1", element_effective: "component", parent_id: "k1" })]);
+    place(container, [node({ id: "a1", element: null, element_effective: "component", parent_id: "k1" })]);
     render(<NodeModal parentId="k1" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
     expect(typeField()!.textContent).toContain("Компонент");
@@ -124,12 +122,11 @@ describe("NodeModal — поле «Тип» по месту создания", (
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
     expect(body()).toMatchObject({ shape: "service", parent_id: "k1" });
     expect(body()).not.toHaveProperty("element");
-    expect(body()).not.toHaveProperty("parent_element");
   });
 
   it("внутри системы «Пользователь» серый и шаблоном не предвыбирается", async () => {
     // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
-    const system = node({ id: "s1", name: "Ярмарка", element_effective: "system", has_children: true, child_count: 1 });
+    const system = node({ id: "s1", name: "Ярмарка", element: "system", element_effective: "system", has_children: true, child_count: 1 });
     place(system, [node({ id: "k1", element_effective: "container", parent_id: "s1" })]);
     render(<NodeModal parentId="s1" type="person" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
@@ -140,28 +137,21 @@ describe("NodeModal — поле «Тип» по месту создания", (
     expect(option("Пользователь").textContent).toBe("Пользователь");
   });
 
-  it("лист без элемента: компонент делает его контейнером — одним запросом (Р38)", async () => {
+  it("лист-контейнер: предвыбран «Компонент», тип родителя не меняется, строки под полем нет", async () => {
     place(node({ id: "l1", name: "billing" }));
     render(<NodeModal parentId="l1" onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();
-    expect(createBtn()).toBeDisabled();
-    pick("Компонент");
-    expect(screen.getByText("«billing» станет контейнером.")).toBeInTheDocument();
+    expect(typeField()!.textContent).toContain("Компонент");
+    fireEvent.click(typeField()!);
+    expect(option("База данных")).toHaveAttribute("aria-disabled", "true");
+    expect(option("Система")).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(typeField()!);
+    expect(screen.queryByText(/станет/)).toBeNull();
     save("worker");
     await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
-    expect(body()).toMatchObject({ shape: "service", parent_id: "l1", parent_element: "container" });
+    expect(body()).toEqual(expect.objectContaining({ shape: "service", parent_id: "l1" }));
     expect(body()).not.toHaveProperty("element");
-  });
-
-  it("лист без элемента: любой другой тип делает его системой", async () => {
-    place(node({ id: "l1", name: "billing" }));
-    render(<NodeModal parentId="l1" onClose={vi.fn()} onSaved={vi.fn()} />);
-    await ready();
-    pick("База данных");
-    expect(screen.getByText("«billing» станет системой.")).toBeInTheDocument();
-    save("billing-db");
-    await waitFor(() => expect(nodesApi.create).toHaveBeenCalledOnce());
-    expect(body()).toMatchObject({ shape: "database", parent_id: "l1", parent_element: "system" });
+    expect(Object.keys(body())).not.toContain("parent_element");
   });
 });
 
@@ -187,8 +177,8 @@ describe("NodeModal — предвыбор", () => {
 
   it("сосед: тип последнего созданного, выбор человека его перекрывает", async () => {
     place(null, [
-      node({ id: "a", shape: "database", created_at: "2026-10-30T09:00:00Z" }),
-      node({ id: "b", shape: "person", element_effective: null, created_at: "2026-10-30T11:00:00Z" }),
+      node({ id: "a", shape: "database", element: null, created_at: "2026-10-30T09:00:00Z" }),
+      node({ id: "b", shape: "person", element: null, element_effective: null, created_at: "2026-10-30T11:00:00Z" }),
     ]);
     render(<NodeModal parentId={null} onClose={vi.fn()} onSaved={vi.fn()} />);
     await ready();

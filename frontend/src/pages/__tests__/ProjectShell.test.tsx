@@ -172,7 +172,7 @@ describe("ProjectShell", () => {
     expect(screen.queryByTestId("node-page")).not.toBeInTheDocument();
   });
 
-  it("«+» в дереве сразу открывает «Новый объект» с родителем — без окна первого вложенного объекта (Р38)", async () => {
+  it("«+» в дереве сразу открывает «Новый объект» с родителем", async () => {
     setup(null);
     await userEvent.click(screen.getByTestId("tree-plus"));
     // Родителя окно загружает само; оболочка ничего не спрашивает и не пишет.

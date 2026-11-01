@@ -30,10 +30,8 @@ from app.element_marks import (
     project_element_rows,
 )
 from app.element_rules import (
-    PARENT_ELEMENT_ROOT,
     STORE_CREATE,
     element_change_refusal,
-    first_child_refusal,
     store_refusal,
 )
 from app.graph_queries import build_graph, external_edges, project_has_status_info
@@ -209,8 +207,7 @@ def create_node(
     user: User = Depends(require_project_editor),
 ) -> Node:
     parent: Node | None = None
-    # Узлы проекта — только когда они нужны правилам: создание без элемента родителя,
-    # базы и брокера лишнего запроса не платит.
+    # Узлы проекта выбираются один раз и только когда они нужны правилам.
     rows: list[ElementRow] | None = None
     if payload.parent_id:
         parent = scoped_node(db, payload.parent_id, project)
@@ -220,38 +217,23 @@ def create_node(
         # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
         if parent.shape not in reparent.CONTAINER_SHAPES:
             raise HTTPException(status_code=422, detail=reparent.NO_CHILDREN)
-        # «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31) —
-        # до правила первого вложенного объекта: человек не задаёт родителю элемент.
+        # «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
         reason = reparent.person_refusal(
             shape=payload.shape, parent_id=parent.id, name=payload.name, action="create"
         )
         if reason:
             raise HTTPException(status_code=422, detail=reason)
-        # Первый вложенный объект задаёт элемент родителя (Р38): правило — в домене,
-        # дальше проверки ребёнка видят дерево уже с этим элементом.
-        if payload.parent_element is not None:
-            rows = project_element_rows(db, project.id)
-            reason = first_child_refusal(
-                rows, parent_id=parent.id, value=payload.parent_element,
-                child_name=payload.name, child_shape=payload.shape, child_element=payload.element,
-            )
-            if reason:
-                raise HTTPException(status_code=422, detail=reason)
-            rows = [
-                r._replace(element=payload.parent_element) if r.id == parent.id else r
-                for r in rows
-            ]
         # Узлы проекта выбираются только для базы и брокера: прочим формам Р6 не грозит.
+        # Лист-контейнер базу и брокер не принимает: его тип выбран всегда (решение
+        # владельца 2026-11-01), первый вложенный объект его не меняет.
         if payload.shape in STORE_CREATE:
+            rows = project_element_rows(db, project.id)
             reason = store_refusal(
-                rows if rows is not None else project_element_rows(db, project.id),
-                node_id=None, name=payload.name,
+                rows, node_id=None, name=payload.name,
                 parent_id=payload.parent_id, shape=payload.shape, action="create",
             )
             if reason:
                 raise HTTPException(status_code=422, detail=reason)
-    elif payload.parent_element is not None:
-        raise HTTPException(status_code=422, detail=PARENT_ELEMENT_ROOT)
     # Элемент архитектуры — с запретами (app/element_rules): форма и «внутри контейнера»
     # по цепочке предков будущего родителя.
     if payload.element is not None:
@@ -275,27 +257,20 @@ def create_node(
                 payload.shape, None, inside=False, leaf=True, external=payload.is_external
             )
         )
-    # Элемент родителя пишется в той же транзакции до ребёнка: отказ ребёнка (длина имени
-    # при flush, предел демо) не оставляет его записанным. Это правка схемы (graph_rev
-    # ниже двигается созданием) и колонка узла — его CAS-версия растёт, как у PATCH.
-    if parent is not None and payload.parent_element is not None:
-        parent.element = payload.parent_element
-        parent.version += 1
     # project_id проставляем сервером из текущего проекта (клиент его в теле не шлёт).
     # Якорь — не колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом (та же функция и те же отказы 422, что у PATCH).
     node = Node(
-        **payload.model_dump(exclude={"pos_x", "pos_y", "source", "parent_element", "element"}),
+        **payload.model_dump(exclude={"pos_x", "pos_y", "source", "element"}),
         element=element,
         source_ref=_source_ref_of(payload.source.model_dump() if payload.source else None),
         project_id=project.id,
     )
     db.add(node)
     db.flush()
-    # Лист с площадками, получивший первого ребёнка и ставший системой (в том числе
-    # элементом родителя из этого же запроса), отдаёт их ребёнку в той же транзакции
-    # (D34, правило 5): иначе экземпляры листа уснули бы, а новый объект остался бы без
-    # площадок. Курсор меты — если экземпляры изменились.
+    # Пустая система с площадками, получившая первого ребёнка, отдаёт их ребёнку в той же
+    # транзакции (D34, правило 5): иначе экземпляры уснули бы, а новый объект остался бы
+    # без площадок. Курсор меты — если экземпляры изменились.
     relocated = element_change.apply_created(db, project, node)
     # Координаты дропа шаблона — строкой раскладки в вид РОДИТЕЛЯ (R3: единое
     # хранилище; в колонках узла позиций больше нет). Без координат — авто (ELK).
