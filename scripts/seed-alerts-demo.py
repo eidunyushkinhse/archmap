@@ -25,6 +25,8 @@ sys.path.insert(0, str(BACKEND))
 # Settings читает .env ОТ ТЕКУЩЕЙ ДИРЕКТОРИИ — иначе database_url не найдётся.
 os.chdir(BACKEND)
 
+from sqlalchemy.orm import Session  # noqa: E402
+
 # Регистрация моделей в реестре SQLAlchemy (как в alembic/env.py): без полного
 # набора импортов relationship'ы не резолвятся по строковым именам.
 import app.models.broker_channel  # noqa: E402
@@ -61,7 +63,6 @@ from app.models.process_message import ProcessMessage  # noqa: E402
 from app.models.process_participant import ProcessParticipant  # noqa: E402
 from app.models.project import Project  # noqa: E402
 from app.models.user import User  # noqa: E402
-from sqlalchemy.orm import Session  # noqa: E402
 
 PROJECT_NAME = "Стенд алертов"
 
