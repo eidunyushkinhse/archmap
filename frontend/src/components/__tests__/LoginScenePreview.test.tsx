@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, describe, it, expect, vi } from "vitest";
 import LoginScenePreview from "../login/LoginScenePreview";
 
-const ARIA = "Схема маркетплейса «Ярмарка»: система «Сервис заказов» раскрывается и сворачивается";
+const ARIA = "Схема маркетплейса «Ярмарка»: система «Заказы» раскрывается и сворачивается";
 
 function mockMotion(reduce: boolean) {
   vi.spyOn(window, "matchMedia").mockImplementation((query: string) => ({
@@ -38,7 +38,7 @@ describe("LoginScenePreview", () => {
     const { raf, caf } = mockRaf();
     const { unmount } = render(<LoginScenePreview />);
     expect(screen.getByRole("img", { name: ARIA })).toBeInTheDocument();
-    expect(screen.getAllByText("Сервис заказов")).toHaveLength(1);
+    expect(screen.getAllByText("Заказы")).toHaveLength(1);
     expect(screen.queryByText("Order API")).toBeNull();
     expect(raf).toHaveBeenCalled();
     unmount();
