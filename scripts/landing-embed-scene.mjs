@@ -4,7 +4,7 @@
 // frontend/src/embed/scene.gen.ts и работает без сервера.
 //
 // Запуск (dev-стек поднят через ./dev.sh):
-//   node scripts/landing-embed-scene.mjs                        # страница «Сервиса заказов»
+//   node scripts/landing-embed-scene.mjs                        # страница системы «Заказы»
 //   node scripts/landing-embed-scene.mjs --focus "Сервис оплаты" # страница другого объекта
 //   node scripts/landing-embed-scene.mjs --root                 # корневой уровень проекта
 //   node scripts/landing-embed-scene.mjs --positions all        # позиции вида целиком (по умолчанию locals)
@@ -28,7 +28,7 @@ const BACKEND = process.env.ARCHMAP_BACKEND ?? "http://localhost:8000";
 const args = process.argv.slice(2);
 const argOf = (n) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const PROJECT_NAME = argOf("--project") ?? "Маркетплейс «Ярмарка» v2";
-const FOCUS_NAME = args.includes("--root") ? null : (argOf("--focus") ?? "Сервис заказов");
+const FOCUS_NAME = args.includes("--root") ? null : (argOf("--focus") ?? "Заказы");
 const POSITIONS = argOf("--positions") ?? "locals";
 if (!["all", "locals", "none"].includes(POSITIONS)) throw new Error(`--positions: all | locals | none, а не «${POSITIONS}»`);
 const OUT = resolve(argOf("--out") ?? join(ROOT, "frontend/src/embed/scene.gen.ts"));

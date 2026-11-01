@@ -1,11 +1,11 @@
 // ГЕНЕРАТ scripts/landing-embed-scene.mjs — руками не править, перегенерировать скриптом.
-// Снимок: «Маркетплейс «Ярмарка» v2», страница «Сервис заказов», позиции locals.
+// Снимок: «Маркетплейс «Ярмарка» v2», страница «Заказы», позиции locals.
 import type { LandingScene } from "./scene";
 
 export const SCENE: LandingScene = {
   "source": {
     "project": "Маркетплейс «Ярмарка» v2",
-    "focus": "Сервис заказов"
+    "focus": "Заказы"
   },
   "graph": {
     "nodes": [
@@ -72,7 +72,7 @@ export const SCENE: LandingScene = {
       },
       {
         "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-        "name": "Сервис заказов",
+        "name": "Заказы",
         "description": "Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.",
         "role": "сервис",
         "technology": null,
@@ -92,9 +92,9 @@ export const SCENE: LandingScene = {
         "source_ref": null,
         "source": null,
         "sites": [],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
-        "updated_at": "2026-08-19T10:12:17.371806+03:00"
+        "updated_at": "2026-11-01T14:52:17.027675+03:00"
       },
       {
         "id": "21349aeb-5697-436b-b217-7502d919168b",
@@ -134,15 +134,6 @@ export const SCENE: LandingScene = {
         "version": 1
       },
       {
-        "id": "cde51e8b-2646-47b8-b253-2f4583ede3cd",
-        "label": "События заказов для саги",
-        "technology": "Kafka",
-        "source_id": "e106e5c5-cae2-48e6-9635-d167e723b4da",
-        "target_id": "8259621d-d755-4b39-82d4-33b92558a622",
-        "channel": "orders.events",
-        "version": 1
-      },
-      {
         "id": "b8d52953-a25e-4c60-bd9b-038bd2c81d2d",
         "label": "События жизненного цикла заказа",
         "technology": "Kafka",
@@ -170,31 +161,40 @@ export const SCENE: LandingScene = {
         "version": 1
       },
       {
+        "id": "cde51e8b-2646-47b8-b253-2f4583ede3cd",
+        "label": "События заказов для саги",
+        "technology": "Kafka",
+        "source_id": "e106e5c5-cae2-48e6-9635-d167e723b4da",
+        "target_id": "76e8f3f2-5892-4fd1-a496-c22dee208dcf",
+        "channel": "orders.events",
+        "version": 2
+      },
+      {
         "id": "fcd26d9a-0789-475a-ab04-26f8926d1c10",
         "label": "Выставление счёта",
         "technology": "REST",
-        "source_id": "8259621d-d755-4b39-82d4-33b92558a622",
+        "source_id": "58c68793-ffed-42ee-b871-b65576fc72c2",
         "target_id": "308bbd77-64a0-4315-a5ff-7492fb0b1f1a",
         "channel": null,
-        "version": 1
+        "version": 2
       },
       {
         "id": "4ebfd4af-0959-4c2c-93ea-6803fcbeddee",
         "label": "Журнал саги и статусы заказа",
         "technology": "SQL",
-        "source_id": "8259621d-d755-4b39-82d4-33b92558a622",
+        "source_id": "58c68793-ffed-42ee-b871-b65576fc72c2",
         "target_id": "f665d127-739f-464a-b423-cc71ef051f24",
         "channel": null,
-        "version": 1
+        "version": 2
       },
       {
         "id": "01373d04-2c73-4d4e-8bb0-ef7327c56d91",
         "label": "Создание отправления",
         "technology": "REST",
-        "source_id": "8259621d-d755-4b39-82d4-33b92558a622",
+        "source_id": "58c68793-ffed-42ee-b871-b65576fc72c2",
         "target_id": "18067bc1-9bdf-4869-81e2-61b01a08fccd",
         "channel": null,
-        "version": 1
+        "version": 2
       },
       {
         "id": "df86d0d7-37c4-4932-af01-d2003ecb19f3",
@@ -204,6 +204,15 @@ export const SCENE: LandingScene = {
         "target_id": "77f5a050-ca2b-4991-9f1f-a1b54783564a",
         "channel": null,
         "version": 3
+      },
+      {
+        "id": "157fc36d-15c2-471e-a0e2-02c1077f818b",
+        "label": "Передаёт событие заказа",
+        "technology": null,
+        "source_id": "76e8f3f2-5892-4fd1-a496-c22dee208dcf",
+        "target_id": "58c68793-ffed-42ee-b871-b65576fc72c2",
+        "channel": null,
+        "version": 1
       }
     ],
     "endpoints": [
@@ -218,7 +227,7 @@ export const SCENE: LandingScene = {
         "node_depth": 0,
         "has_children": false,
         "child_count": 0,
-        "element_effective": "container",
+        "element_effective": "system",
         "ancestors": [],
         "is_ghost": true
       },
@@ -251,6 +260,74 @@ export const SCENE: LandingScene = {
         "is_ghost": true
       },
       {
+        "id": "58c68793-ffed-42ee-b871-b65576fc72c2",
+        "name": "Шаги саги",
+        "role": "шаги саги",
+        "technology": "Python",
+        "is_external": false,
+        "shape": "service",
+        "status": "existing",
+        "node_depth": 3,
+        "has_children": false,
+        "child_count": 0,
+        "element_effective": "component",
+        "ancestors": [
+          {
+            "id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
+            "name": "Маркетплейс «Ярмарка»",
+            "is_external": false,
+            "element_effective": "system"
+          },
+          {
+            "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
+            "name": "Заказы",
+            "is_external": false,
+            "element_effective": "system"
+          },
+          {
+            "id": "8259621d-d755-4b39-82d4-33b92558a622",
+            "name": "Оркестратор заказа",
+            "is_external": false,
+            "element_effective": "container"
+          }
+        ],
+        "is_ghost": true
+      },
+      {
+        "id": "76e8f3f2-5892-4fd1-a496-c22dee208dcf",
+        "name": "Приём событий",
+        "role": "потребитель событий",
+        "technology": "Python",
+        "is_external": false,
+        "shape": "service",
+        "status": "existing",
+        "node_depth": 3,
+        "has_children": false,
+        "child_count": 0,
+        "element_effective": "component",
+        "ancestors": [
+          {
+            "id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
+            "name": "Маркетплейс «Ярмарка»",
+            "is_external": false,
+            "element_effective": "system"
+          },
+          {
+            "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
+            "name": "Заказы",
+            "is_external": false,
+            "element_effective": "system"
+          },
+          {
+            "id": "8259621d-d755-4b39-82d4-33b92558a622",
+            "name": "Оркестратор заказа",
+            "is_external": false,
+            "element_effective": "container"
+          }
+        ],
+        "is_ghost": true
+      },
+      {
         "id": "77f5a050-ca2b-4991-9f1f-a1b54783564a",
         "name": "Order API",
         "role": "сервис",
@@ -271,35 +348,7 @@ export const SCENE: LandingScene = {
           },
           {
             "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-            "name": "Сервис заказов",
-            "is_external": false,
-            "element_effective": "system"
-          }
-        ],
-        "is_ghost": true
-      },
-      {
-        "id": "8259621d-d755-4b39-82d4-33b92558a622",
-        "name": "Оркестратор заказа",
-        "role": "воркер (сага)",
-        "technology": "Python",
-        "is_external": false,
-        "shape": "service",
-        "status": "existing",
-        "node_depth": 2,
-        "has_children": false,
-        "child_count": 0,
-        "element_effective": "container",
-        "ancestors": [
-          {
-            "id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
-            "name": "Маркетплейс «Ярмарка»",
-            "is_external": false,
-            "element_effective": "system"
-          },
-          {
-            "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-            "name": "Сервис заказов",
+            "name": "Заказы",
             "is_external": false,
             "element_effective": "system"
           }
@@ -327,7 +376,7 @@ export const SCENE: LandingScene = {
           },
           {
             "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-            "name": "Сервис заказов",
+            "name": "Заказы",
             "is_external": false,
             "element_effective": "system"
           }
@@ -354,8 +403,8 @@ export const SCENE: LandingScene = {
       }
     },
     "version": 15,
-    "graph_rev": 753,
-    "meta_rev": 40,
+    "graph_rev": 762,
+    "meta_rev": 43,
     "has_status_info": true
   },
   "containerId": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
@@ -369,6 +418,86 @@ export const SCENE: LandingScene = {
     }
   ],
   "children": {
+    "8259621d-d755-4b39-82d4-33b92558a622": [
+      {
+        "id": "76e8f3f2-5892-4fd1-a496-c22dee208dcf",
+        "name": "Приём событий",
+        "description": "Читает события заказов из orders.events, определяет тип события и передаёт его шагам саги.",
+        "role": "потребитель событий",
+        "technology": "Python",
+        "parent_id": "8259621d-d755-4b39-82d4-33b92558a622",
+        "openapi_spec": null,
+        "docs": [
+          {
+            "id": "fa04f96a-f545-4d8e-910a-14207ee3d64b",
+            "name": "Приём события заказа",
+            "kind": "worker",
+            "operation": null,
+            "version": 1,
+            "described": true
+          }
+        ],
+        "is_external": false,
+        "shape": "service",
+        "status": "existing",
+        "child_count": 0,
+        "has_children": false,
+        "approval": "in_progress",
+        "approval_effective": "in_progress",
+        "element": null,
+        "element_effective": "component",
+        "container_name": "Оркестратор заказа",
+        "source_ref": "git:github.com/yarmarka/orders#services/order-saga/consumer",
+        "source": {
+          "repo": "github.com/yarmarka/orders",
+          "path": "services/order-saga/consumer",
+          "host": null
+        },
+        "sites": [],
+        "version": 1,
+        "created_at": "2026-11-01T14:52:17.075895+03:00",
+        "updated_at": "2026-11-01T14:52:17.075899+03:00"
+      },
+      {
+        "id": "58c68793-ffed-42ee-b871-b65576fc72c2",
+        "name": "Шаги саги",
+        "description": "Выставляет счёт, создаёт отправление, ведёт журнал саги и повторяет упавшие шаги.",
+        "role": "шаги саги",
+        "technology": "Python",
+        "parent_id": "8259621d-d755-4b39-82d4-33b92558a622",
+        "openapi_spec": null,
+        "docs": [
+          {
+            "id": "6f83ef18-7ef8-4914-805d-abb308ea4f0c",
+            "name": "Сага заказа",
+            "kind": "worker",
+            "operation": null,
+            "version": 3,
+            "described": true
+          }
+        ],
+        "is_external": false,
+        "shape": "service",
+        "status": "existing",
+        "child_count": 0,
+        "has_children": false,
+        "approval": "in_progress",
+        "approval_effective": "in_progress",
+        "element": null,
+        "element_effective": "component",
+        "container_name": "Оркестратор заказа",
+        "source_ref": "git:github.com/yarmarka/orders#services/order-saga/steps",
+        "source": {
+          "repo": "github.com/yarmarka/orders",
+          "path": "services/order-saga/steps",
+          "host": null
+        },
+        "sites": [],
+        "version": 1,
+        "created_at": "2026-11-01T14:52:17.106149+03:00",
+        "updated_at": "2026-11-01T14:52:17.106153+03:00"
+      }
+    ],
     "183c04a6-b1e1-4dc9-b776-895e202dc1fe": [
       {
         "id": "74131dcb-836d-497e-877b-12401a6e2585",
@@ -545,7 +674,7 @@ export const SCENE: LandingScene = {
       },
       {
         "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
-        "name": "Сервис заказов",
+        "name": "Заказы",
         "description": "Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.",
         "role": "сервис",
         "technology": null,
@@ -590,9 +719,9 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
-        "updated_at": "2026-08-19T10:12:17.371806+03:00"
+        "updated_at": "2026-11-01T14:52:17.027675+03:00"
       },
       {
         "id": "21349aeb-5697-436b-b217-7502d919168b",
@@ -845,24 +974,15 @@ export const SCENE: LandingScene = {
         "technology": "Python",
         "parent_id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
         "openapi_spec": null,
-        "docs": [
-          {
-            "id": "6f83ef18-7ef8-4914-805d-abb308ea4f0c",
-            "name": "Сага заказа",
-            "kind": "worker",
-            "operation": null,
-            "version": 1,
-            "described": true
-          }
-        ],
+        "docs": [],
         "is_external": false,
         "shape": "service",
         "status": "existing",
-        "child_count": 0,
-        "has_children": false,
+        "child_count": 2,
+        "has_children": true,
         "approval": "approved",
         "approval_effective": "approved",
-        "element": null,
+        "element": "container",
         "element_effective": "container",
         "container_name": null,
         "source_ref": "git:github.com/yarmarka/orders#services/order-saga",
@@ -881,9 +1001,9 @@ export const SCENE: LandingScene = {
             "partial": false
           }
         ],
-        "version": 4,
+        "version": 5,
         "created_at": "2026-08-19T10:12:17.371810+03:00",
-        "updated_at": "2026-10-22T14:13:38.947682+03:00"
+        "updated_at": "2026-11-01T14:52:17.050521+03:00"
       },
       {
         "id": "f665d127-739f-464a-b423-cc71ef051f24",
