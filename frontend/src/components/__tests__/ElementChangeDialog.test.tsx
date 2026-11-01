@@ -89,7 +89,7 @@ describe("окно последствий", () => {
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
   });
 
-  it("перенос в лист с площадками: лист станет системой, площадки — вложенным", () => {
+  it("перенос в пустую систему с площадками: площадки — первому вложенному", () => {
     const { onConfirm } = show(preview({
       kind: "first_child",
       before: [row("orders", ["prod-eu", "prod-ru"])],
@@ -97,7 +97,7 @@ describe("окно последствий", () => {
       container_name: "orders",
     }), "api");
     expect(screen.getByText("Перенести «api» в «orders»?")).toBeInTheDocument();
-    expect(screen.getByText("«orders» станет системой из вложенных объектов, и его площадки перейдут к ним.")).toBeInTheDocument();
+    expect(screen.getByText("У «orders» пока нет вложенных объектов. С первым из них его площадки перейдут к нему.")).toBeInTheDocument();
     expect(screen.getByText("Площадки")).toBeInTheDocument();
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
