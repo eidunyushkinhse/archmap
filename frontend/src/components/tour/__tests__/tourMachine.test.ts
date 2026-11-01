@@ -147,8 +147,12 @@ describe("тур — проход по «Ярмарке»", () => {
     s = run(s, [sig({ kind: "dom", key: "create-project" })]);
     expect(s.step).toBe("create-blank");
     s = run(s, [route(`#/p/${OWN}`)]);
-    expect(s.step).toBe("create-system");
+    // свой проект открыт — сначала шесть типов объектов у палитры, затем «Система»
+    expect(s.step).toBe("types");
     expect(s.vars.ownProjectId).toBe(OWN);
+    expect(STEPS.types).toMatchObject({ kind: "info", screen: { kind: "own-map" }, target: { kind: "tour", key: "palette" } });
+    s = run(s, [NEXT]);
+    expect(s.step).toBe("create-system");
   });
 
   it("на шаге создания проекта переход в «Ярмарку» — не свой проект", () => {
@@ -302,13 +306,14 @@ describe("тур — свой проект", () => {
 
   it("«Назад» со своего проекта перешагивает уже невыполнимое создание проекта", () => {
     const s = at("create-system", { vars: { ownProjectId: OWN } });
-    expect(run(s, [BACK]).step).toBe("leave-yar");
+    expect(run(s, [BACK]).step).toBe("types");
+    expect(run(s, [BACK, BACK]).step).toBe("leave-yar");
   });
 });
 
 describe("тур — повторный запуск при своём проекте", () => {
   it("короткий проход: «Ярмарка» до логотипа и короткий финал", () => {
-    expect(stepTotal("full")).toBe(27);
+    expect(stepTotal("full")).toBe(28);
     expect(stepTotal("short")).toBe(14);
     const s = run({ ...startState("short"), step: "leave-yar" }, [route("#/projects")]);
     expect(s.step).toBe("final-short");

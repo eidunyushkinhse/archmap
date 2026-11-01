@@ -58,6 +58,8 @@ export type StepId =
   | "leave-yar"
   | "new-project"
   | "create-blank"
+  /** шесть типов объектов у палитры своего проекта */
+  | "types"
   | "create-system"
   | "add-peer"
   | "connect"
@@ -279,21 +281,26 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     body: "Импорт и ИИ-агент пригодятся, когда захотите собрать схему из кода.",
     action: "Выберите «Пустой», введите название и нажмите «Создать проект».",
   },
+  types: {
+    id: "types", kind: "info", n: 17, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
+    title: "Шесть типов объектов",
+    body: "Система объединяет части, которые запускаются отдельно. Контейнер запускается один. Компонент — часть кода контейнера, поэтому в корне схемы он недоступен. База данных, брокер и пользователь говорят сами за себя.",
+  },
   "create-system": {
-    id: "create-system", kind: "act", n: 17, screen: OWN_MAP,
+    id: "create-system", kind: "act", n: 18, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "canvas" } },
     title: "Создайте свою систему",
     body: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.",
     action: "Перетащите «Систему» на схему и назовите её именем вашей системы.",
   },
   "add-peer": {
-    id: "add-peer", kind: "act", n: 18, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
+    id: "add-peer", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
     title: "Добавьте ещё один объект",
     body: "Например, внешний сервис, который обменивается данными с вашей системой, или пользователя.",
     action: "Перетащите объект на схему.",
   },
   connect: {
-    id: "connect", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "handles" },
+    id: "connect", kind: "act", n: 20, screen: OWN_MAP, target: { kind: "handles" },
     title: "Проведите связь",
     // Прототип: «от точки на «Покупателе» к точке на «Моей системе»»; точек стыковки
     // больше нет (Ф5 эпика стрелок): тянут за стрелку-глиф у стороны объекта, бросают на
@@ -303,25 +310,25 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     action: "Потяните стрелку от объекта «{peer}» и отпустите на объекте «{system}».",
   },
   "context-diagram": {
-    id: "context-diagram", kind: "info", n: 20, screen: OWN_MAP, target: { kind: "context-diagram" },
+    id: "context-diagram", kind: "info", n: 21, screen: OWN_MAP, target: { kind: "context-diagram" },
     title: "У вас получилась диаграмма контекста",
     body: "Она ещё не полная, но вы уже знаете, как её доделать.",
   },
   "enter-system": {
-    id: "enter-system", kind: "act", n: 21, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
+    id: "enter-system", kind: "act", n: 22, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
     title: "Перейдём на следующий слой архитектуры",
     body: "",
     action: "Нажмите «Войти» на системе «{system}».",
   },
   "add-child": {
-    id: "add-child", kind: "act", n: 22, screen: OWN_MAP,
+    id: "add-child", kind: "act", n: 23, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:container" }, zone: { kind: "system" } },
     title: "Соберите систему из контейнеров",
     body: "Поместите в рамку контейнер — часть системы, которая запускается отдельно. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте приложение, которое отдаёт ему фронтенд. А если внешнюю систему, то контейнер, который с ней интегрирован.",
     action: "Перетащите «Контейнер» в рамку «{system}».",
   },
   rehang: {
-    id: "rehang", kind: "act", n: 23, screen: OWN_MAP, target: { kind: "frame-end" },
+    id: "rehang", kind: "act", n: 24, screen: OWN_MAP, target: { kind: "frame-end" },
     title: "Перевесьте связь на контейнер",
     // Лексикон эпика «Элемент архитектуры» §3.9: «Моя система» остаётся системой (тур
     // задаёт элемент явно), вызовы принимает не она, а её контейнеры.
@@ -329,26 +336,26 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     action: "Потяните конец стрелки с рамки на объект «{child}».",
   },
   "go-up": {
-    id: "go-up", kind: "act", n: 24, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
+    id: "go-up", kind: "act", n: 25, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
     title: "Вернитесь на верхний слой",
     body: "Связь теперь ведёт прямо к контейнеру «{child}». Посмотрим, как это выглядит на диаграмме контекста.",
     action: "Нажмите «Проект» в шапке.",
   },
   "context-edge": {
-    id: "context-edge", kind: "info", n: 25, screen: OWN_MAP, target: { kind: "context-edge" },
+    id: "context-edge", kind: "info", n: 26, screen: OWN_MAP, target: { kind: "context-edge" },
     title: "Наверху связь по-прежнему ведёт в систему",
     // Прототип: «„Покупатель“ работает с „Моей системой“ целиком».
     body: "Для слоя контекста это правда: «{peer}» работает с системой «{system}» целиком.",
   },
   "expand-own": {
-    id: "expand-own", kind: "act", n: 26, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
+    id: "expand-own", kind: "act", n: 27, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
     title: "Загляните внутрь",
     body: "Лупа раскрывает систему прямо на схеме, и видно, куда связь ведёт на самом деле.",
     action: "Нажмите лупу.",
     focus: true,
   },
   inside: {
-    id: "inside", kind: "info", n: 27, screen: OWN_MAP, target: { kind: "inside" },
+    id: "inside", kind: "info", n: 28, screen: OWN_MAP, target: { kind: "inside" },
     title: "Вот куда ведёт связь на самом деле",
     body: "Внутри системы «{system}» связь приходит в контейнер «{child}». Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
     watchMs: WATCH_MS,
@@ -374,7 +381,7 @@ const YAR_PART: readonly StepId[] = [
 /** Полный проход: «Ярмарка», затем свой проект. */
 export const FULL_SEQUENCE: readonly StepId[] = [
   "welcome", ...YAR_PART,
-  "new-project", "create-blank", "create-system", "add-peer", "connect", "context-diagram", "enter-system",
+  "new-project", "create-blank", "types", "create-system", "add-peer", "connect", "context-diagram", "enter-system",
   "add-child", "rehang", "go-up", "context-edge", "expand-own", "inside", "final",
 ];
 

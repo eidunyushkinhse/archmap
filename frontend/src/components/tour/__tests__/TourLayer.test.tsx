@@ -22,7 +22,7 @@ function renderLayer(stepId: StepId, v: TourView, canBack = true) {
       stepKey={stepId}
       step={step}
       texts={{ title: step.title, body: step.body, action: step.action }}
-      count={step.n ? `Шаг ${step.n} из 25` : null}
+      count={step.n ? `Шаг ${step.n} из 28` : null}
       canBack={canBack}
       {...handlers}
     />,
@@ -52,7 +52,7 @@ describe("TourLayer", () => {
 
   it("шаг с действием: счётчик, строка действия, пульс, без «Далее»", () => {
     const { handlers } = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
-    expect(screen.getByText("Шаг 3 из 25")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 3 из 28")).toBeInTheDocument();
     expect(screen.getByText("Нажмите «Редактировать».")).toHaveClass("tour-do");
     expect(screen.queryByRole("button", { name: "Далее" })).toBeNull();
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toHaveClass("tour-ring--act");
@@ -153,7 +153,7 @@ describe("TourLayer", () => {
     const layer = (settled: boolean) => (
       <TourLayer
         view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled }} stepKey="inside" step={step}
-        texts={{ title: step.title, body: step.body }} count="Шаг 25 из 25" canBack
+        texts={{ title: step.title, body: step.body }} count="Шаг 28 из 28" canBack
         onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
       />
     );
@@ -167,7 +167,7 @@ describe("TourLayer", () => {
     render(
       <TourLayer
         view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled: false }} stepKey="context-edge" step={plain}
-        texts={{ title: plain.title, body: plain.body }} count="Шаг 23 из 25" canBack
+        texts={{ title: plain.title, body: plain.body }} count="Шаг 26 из 28" canBack
         onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
       />,
     );

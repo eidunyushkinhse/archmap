@@ -102,7 +102,7 @@ export function canGoBack(step: StepId): boolean {
 }
 
 const OWN_STEPS = new Set<StepId>([
-  "create-system", "add-peer", "connect", "context-diagram", "enter-system", "add-child",
+  "types", "create-system", "add-peer", "connect", "context-diagram", "enter-system", "add-child",
   "rehang", "go-up", "context-edge", "expand-own", "inside",
 ]);
 
