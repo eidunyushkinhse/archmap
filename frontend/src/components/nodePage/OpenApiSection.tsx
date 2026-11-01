@@ -139,7 +139,7 @@ export default function OpenApiSection({
         <>
           {legacy && (
             <p className="np-warn">
-              OpenAPI описывает HTTP-API, который объект предоставляет сам, — у этого объекта его нет
+              OpenAPI описывает HTTP-API, который объект предоставляет сам, а у этого объекта его нет
             </p>
           )}
           <button className="np-doc-row" onClick={() => onOpen({ mode: "openapi" })}>
