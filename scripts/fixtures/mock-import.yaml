@@ -2,7 +2,9 @@
 # (или вставить текст). Формат — тот же, что выдаёт «Экспорт»: дерево nodes
 # (вложенность через children) + edges по именам узлов; при дублях имён конец
 # связи указывается путём «Предок / Имя» (см. две «БД» ниже). Координат в
-# формате нет — раскладку построит авто-ELK при первом открытии уровня.
+# формате нет — раскладку построит авто-ELK при первом открытии уровня. У объекта
+# с вложенными тип обязателен (element: system или container), иначе ввоз файл
+# не примет; базы данных в контейнер не входят, поэтому сервисы с базами — системы.
 nodes:
   - name: Зритель
     shape: person
@@ -11,6 +13,7 @@ nodes:
     description: Смотрит фильмы и сериалы по подписке.
   - name: Плёнка
     shape: service
+    element: system
     role: система
     description: |
       Онлайн-кинотеатр: каталог, стриминг с DRM и подписочный биллинг.
@@ -30,6 +33,7 @@ nodes:
         technology: Kong
       - name: Сервис каталога
         shape: service
+        element: system
         role: сервис
         technology: Go
         children:
@@ -41,6 +45,7 @@ nodes:
             technology: Redis
       - name: Сервис биллинга
         shape: service
+        element: system
         role: сервис
         technology: Java
         children:
@@ -49,6 +54,7 @@ nodes:
             technology: PostgreSQL
       - name: Сервис рекомендаций
         shape: service
+        element: system
         role: сервис
         technology: Python
         status: planned

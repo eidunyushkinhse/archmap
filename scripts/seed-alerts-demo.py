@@ -45,6 +45,7 @@ import app.models.view_layout  # noqa: E402
 import app.models.view_state  # noqa: F401,E402
 from app.alerts import compute_alerts  # noqa: E402
 from app.database import SessionLocal  # noqa: E402
+from app.element_marks import store_elements  # noqa: E402
 from app.models.broker_channel import BrokerChannel  # noqa: E402
 from app.models.business_process import BusinessProcess  # noqa: E402
 from app.models.channel_field import ChannelField  # noqa: E402
@@ -182,13 +183,16 @@ def main() -> None:
             return n
 
         # --- Схема -----------------------------------------------------------
-        # Элемент архитектуры не задан — узлы с детьми системы (как до эпика), кроме
-        # «Заказов» ниже: там явный контейнер с компонентом.
+        # Тип выбран всегда (решение владельца 2026-11-01): у объектов с вложенными он
+        # задан явно — системы «Платформа», «Биллинг», «Каталог» и контейнер «Заказы»;
+        # листьям его пишет функция записи перед коммитом (store_elements — «контейнер»).
         # «Платформа» — система, на которой осталась СПЕКА (AL24 system: только has_spec).
-        platform = node("Платформа", role="система", spec=SPEC)
+        platform = node("Платформа", role="система", spec=SPEC, element="system")
         gateway = node("Шлюз", parent=platform.id, role="сервис", technology="Go")
         # «Биллинг» — система, на которой осталась СХЕМА ЛОГИКИ (AL24 system: только has_docs).
-        billing = node("Биллинг", parent=platform.id, role="сервис", technology="Python")
+        billing = node(
+            "Биллинг", parent=platform.id, role="сервис", technology="Python", element="system"
+        )
         billing_worker = node(
             "Биллинг-воркер", parent=billing.id, role="воркер", technology="Celery"
         )
@@ -222,7 +226,7 @@ def main() -> None:
         # AL35: заглушка разведки (схема без тела) — у компонента, где ей и место.
         db.add(NodeDoc(node_id=orders_api.id, name="GET /orders/{id}", kind="operation", content=""))
         # «Каталог» — система, на которой остались И доки, И спека (AL24 system: оба флага).
-        catalog = node("Каталог", parent=platform.id, role="сервис", spec=SPEC)
+        catalog = node("Каталог", parent=platform.id, role="сервис", spec=SPEC, element="system")
         catalog_db = node(
             "Каталог-БД", parent=catalog.id, shape="database", role="БД", technology="PostgreSQL"
         )
@@ -439,6 +443,9 @@ def main() -> None:
         p_export = participant(recon, "Отчётный экспортёр", 1, None)
         message(recon, 0, p_worker2, p_export, "выгрузить реестр", edge_id=None)
 
+        # Тип выбран всегда (решение владельца 2026-11-01): узлы, созданные прямой записью,
+        # получают элемент функцией записи, как после миграции.
+        store_elements(db, pid)
         db.commit()
         print(f"Проект «{PROJECT_NAME}» создан: {pid}")
         _report(db, pid)
