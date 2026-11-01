@@ -105,6 +105,16 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(run(at("components"), [BACK]).step).toBe("docs");
   });
 
+  it("после процессов — «Развёртывание» (оболочка «Ярмарки», режим переключает тур), затем логотип", () => {
+    expect(run(at("processes"), [NEXT]).step).toBe("deploy");
+    expect(run(at("deploy"), [NEXT]).step).toBe("leave-yar");
+    expect(run(at("leave-yar"), [BACK]).step).toBe("deploy");
+    expect(STEPS.deploy).toMatchObject({
+      kind: "info", mode: "deploy", screen: { kind: "yar-shell" },
+      target: { kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "tour", key: "deploy-diagram" } },
+    });
+  });
+
   it("компоненты: та же страница «Оркестратора заказа», ветку в дереве тур раскрывает сам", () => {
     const s = at("components");
     expect(screenHash(STEPS.components.screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
@@ -298,8 +308,8 @@ describe("тур — свой проект", () => {
 
 describe("тур — повторный запуск при своём проекте", () => {
   it("короткий проход: «Ярмарка» до логотипа и короткий финал", () => {
-    expect(stepTotal("full")).toBe(26);
-    expect(stepTotal("short")).toBe(13);
+    expect(stepTotal("full")).toBe(27);
+    expect(stepTotal("short")).toBe(14);
     const s = run({ ...startState("short"), step: "leave-yar" }, [route("#/projects")]);
     expect(s.step).toBe("final-short");
     expect(stepTexts(STEPS[s.step], s.vars).body).toBe("Свой проект у вас уже есть. Продолжайте в нём.");
@@ -322,6 +332,10 @@ describe("тур — экраны шагов", () => {
     expect(onScreen(STEPS["create-system"].screen, parseTourRoute(`#/p/${OWN}`), own, ENV)).toBe(false);
     expect(onScreen(STEPS["leave-yar"].screen, parseTourRoute(`#/p/${YAR}/map`), own, ENV)).toBe(true);
     expect(onScreen(STEPS.processes.screen, parseTourRoute(`#/p/${YAR}/map`), own, ENV)).toBe(false);
+    // «Развёртывание» — тоже оболочка проекта, но не его главная
+    expect(onScreen(STEPS.deploy.screen, parseTourRoute(`#/p/${YAR}/deploy`), own, ENV)).toBe(true);
+    expect(onScreen(STEPS.processes.screen, parseTourRoute(`#/p/${YAR}/deploy/c0de-02`), own, ENV)).toBe(true);
+    expect(onScreen(STEPS["yar-home"].screen, parseTourRoute(`#/p/${YAR}/deploy`), own, ENV)).toBe(false);
   });
 
   it("куда вести при входе в шаг", () => {
@@ -348,6 +362,8 @@ describe("тур — маршрут и хранение", () => {
     expect(parseTourRoute(`#/p/${YAR}/nodes/abc-1`)).toEqual({ name: "node", projectId: YAR, nodeId: "abc-1" });
     expect(parseTourRoute(`#/p/${YAR}/map`)).toEqual({ name: "map", projectId: YAR });
     expect(parseTourRoute(`#/p/${YAR}/map/abc-1?locate=x`)).toEqual({ name: "map", projectId: YAR });
+    expect(parseTourRoute(`#/p/${YAR}/deploy`)).toEqual({ name: "deploy", projectId: YAR });
+    expect(parseTourRoute(`#/p/${YAR}/deploy/abc-1`)).toEqual({ name: "deploy", projectId: YAR });
     expect(parseTourRoute("#/admin/users")).toEqual({ name: "other" });
   });
 

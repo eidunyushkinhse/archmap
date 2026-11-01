@@ -243,6 +243,20 @@ describe("DemoTour", () => {
     expect(click).not.toHaveBeenCalled();
   });
 
+  it("«Развёртывание»: тур сам включает режим, вырезы — переключатель и холст площадок", async () => {
+    window.location.hash = `/p/${YAR}`;
+    localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "deploy", variant: "full", dir: 1, vars: {} }));
+    const tab = target("mode-deploy", { x: 400, y: 10, w: 140, h: 32 });
+    const click = vi.fn();
+    tab.addEventListener("click", click);
+    target("deploy-diagram", { x: 300, y: 80, w: 900, h: 600 });
+    render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Развёртывание" })).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelectorAll("[data-tour-layer] .tour-ring")).toHaveLength(2));
+    await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
+    expect(click).toHaveBeenCalledOnce();
+  });
+
   it("шаг перевеса связи: плашки подписей пропускают нажатия к ручке конца", async () => {
     window.location.hash = `/p/${OWN}/map`;
     localStorage.setItem(KEY, JSON.stringify({

@@ -410,7 +410,7 @@ function TourRuntime({ userId }: { userId: string }) {
       // Шаг «Проведите связь»: стрелки протяжки на объекте-источнике видны сразу.
       const arrowsId = screenOk && step.target?.kind === "handles" ? st.vars.peerId ?? null : null;
       markArrows(arrowsId ? document.querySelector(rfNodeSel(arrowsId)) : null);
-      // Режим оболочки («Объекты»/«Процессы») — один раз на вход в шаг.
+      // Режим оболочки («Объекты»/«Процессы»/«Развёртывание») — один раз на вход в шаг.
       if (step.mode && screenOk && !doneForRef.current.mode) {
         const tab = document.querySelector<HTMLElement>(`[data-tour="mode-${step.mode}"]`);
         if (tab) {

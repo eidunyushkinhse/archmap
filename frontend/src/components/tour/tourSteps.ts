@@ -53,6 +53,8 @@ export type StepId =
   /** компоненты «Оркестратора заказа» строками дерева слева */
   | "components"
   | "processes"
+  /** режим «Развёртывание»: площадки «Ярмарки» */
+  | "deploy"
   | "leave-yar"
   | "new-project"
   | "create-blank"
@@ -78,7 +80,7 @@ export type Screen =
   | { kind: "projects" }
   /** главная «Ярмарки» */
   | { kind: "yar-home" }
-  /** оболочка «Ярмарки»: главная или страница объекта */
+  /** оболочка «Ярмарки»: главная, страница объекта или «Развёртывание» */
   | { kind: "yar-shell" }
   /** любой экран «Ярмарки», включая редактор (логотип есть везде) */
   | { kind: "yar-any" }
@@ -141,8 +143,9 @@ export interface TourStep {
   target?: Target;
   /** объекты «Ярмарки» по именам: нет хоть одного — шаг пропускается */
   needs?: readonly string[];
-  /** режим оболочки проекта («Объекты»/«Процессы»), выставляемый на входе в шаг */
-  mode?: "schema" | "proc";
+  /** режим оболочки проекта («Объекты»/«Процессы»/«Развёртывание»), выставляемый на
+   *  входе в шаг нажатием переключателя (у «Развёртывания» — свой адрес, #/p/<id>/deploy) */
+  mode?: "schema" | "proc" | "deploy";
   /** на входе в шаг раскрыть в дереве слева ветку этого объекта «Ярмарки»: цель шага —
    *  его вложенные строки, а страница объекта раскрывает дерево только до него самого */
   treeOpen?: string;
@@ -250,41 +253,47 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     title: "Бизнес-процессы",
     body: "На схеме архитектуры неудобно показывать бизнес-процессы. Зато удобно на диаграмме последовательности. В разделе «Процессы» есть конструктор таких диаграмм, в котором вы можете собрать сценарии вашей системы шаг за шагом: какие сервисы участвуют и что передают друг другу.",
   },
+  deploy: {
+    id: "deploy", kind: "info", n: 13, screen: { kind: "yar-shell" }, mode: "deploy",
+    target: { kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "tour", key: "deploy-diagram" } },
+    title: "Развёртывание",
+    body: "Схема архитектуры отвечает, из чего система состоит, а «Развёртывание» — где это работает: площадки и что на каждой стоит.",
+  },
   "leave-yar": {
-    id: "leave-yar", kind: "act", n: 13, screen: { kind: "yar-any" }, mode: "schema",
+    id: "leave-yar", kind: "act", n: 14, screen: { kind: "yar-any" }, mode: "schema",
     target: { kind: "tour", key: "logo" },
     title: "Вы посмотрели «Ярмарку»",
     body: "Логотип ArchMap всегда ведёт ко всем проектам.",
     action: "Нажмите на логотип.",
   },
   "new-project": {
-    id: "new-project", kind: "act", n: 14, screen: { kind: "projects" },
+    id: "new-project", kind: "act", n: 15, screen: { kind: "projects" },
     target: { kind: "tour", key: "new-project" },
     title: "Начните свой проект",
     body: "Теперь ваша очередь. В песочнице можно создать один свой проект.",
     action: "Нажмите «Новый проект».",
   },
   "create-blank": {
-    id: "create-blank", kind: "act", n: 15, screen: ANY, target: { kind: "create-project" },
+    id: "create-blank", kind: "act", n: 16, screen: ANY, target: { kind: "create-project" },
     title: "Проще всего начать с пустого",
     body: "Импорт и ИИ-агент пригодятся, когда захотите собрать схему из кода.",
     action: "Выберите «Пустой», введите название и нажмите «Создать проект».",
   },
   "create-system": {
-    id: "create-system", kind: "act", n: 16, screen: OWN_MAP,
+    id: "create-system", kind: "act", n: 17, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "canvas" } },
     title: "Создайте свою систему",
     body: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.",
     action: "Перетащите «Систему» на схему и назовите её именем вашей системы.",
   },
   "add-peer": {
-    id: "add-peer", kind: "act", n: 17, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
+    id: "add-peer", kind: "act", n: 18, screen: OWN_MAP, target: { kind: "tour", key: "palette" },
     title: "Добавьте ещё один объект",
     body: "Например, внешний сервис, который обменивается данными с вашей системой, или пользователя.",
     action: "Перетащите объект на схему.",
   },
   connect: {
-    id: "connect", kind: "act", n: 18, screen: OWN_MAP, target: { kind: "handles" },
+    id: "connect", kind: "act", n: 19, screen: OWN_MAP, target: { kind: "handles" },
     title: "Проведите связь",
     // Прототип: «от точки на «Покупателе» к точке на «Моей системе»»; точек стыковки
     // больше нет (Ф5 эпика стрелок): тянут за стрелку-глиф у стороны объекта, бросают на
@@ -294,25 +303,25 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     action: "Потяните стрелку от объекта «{peer}» и отпустите на объекте «{system}».",
   },
   "context-diagram": {
-    id: "context-diagram", kind: "info", n: 19, screen: OWN_MAP, target: { kind: "context-diagram" },
+    id: "context-diagram", kind: "info", n: 20, screen: OWN_MAP, target: { kind: "context-diagram" },
     title: "У вас получилась диаграмма контекста",
     body: "Она ещё не полная, но вы уже знаете, как её доделать.",
   },
   "enter-system": {
-    id: "enter-system", kind: "act", n: 20, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
+    id: "enter-system", kind: "act", n: 21, screen: OWN_MAP, target: { kind: "system-part", part: "node-enter" },
     title: "Перейдём на следующий слой архитектуры",
     body: "",
     action: "Нажмите «Войти» на системе «{system}».",
   },
   "add-child": {
-    id: "add-child", kind: "act", n: 21, screen: OWN_MAP,
+    id: "add-child", kind: "act", n: 22, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:container" }, zone: { kind: "system" } },
     title: "Соберите систему из контейнеров",
     body: "Поместите в рамку контейнер — часть системы, которая запускается отдельно. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте приложение, которое отдаёт ему фронтенд. А если внешнюю систему, то контейнер, который с ней интегрирован.",
     action: "Перетащите «Контейнер» в рамку «{system}».",
   },
   rehang: {
-    id: "rehang", kind: "act", n: 22, screen: OWN_MAP, target: { kind: "frame-end" },
+    id: "rehang", kind: "act", n: 23, screen: OWN_MAP, target: { kind: "frame-end" },
     title: "Перевесьте связь на контейнер",
     // Лексикон эпика «Элемент архитектуры» §3.9: «Моя система» остаётся системой (тур
     // задаёт элемент явно), вызовы принимает не она, а её контейнеры.
@@ -320,26 +329,26 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     action: "Потяните конец стрелки с рамки на объект «{child}».",
   },
   "go-up": {
-    id: "go-up", kind: "act", n: 23, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
+    id: "go-up", kind: "act", n: 24, screen: OWN_MAP, target: { kind: "tour", key: "crumb-root" },
     title: "Вернитесь на верхний слой",
     body: "Связь теперь ведёт прямо к контейнеру «{child}». Посмотрим, как это выглядит на диаграмме контекста.",
     action: "Нажмите «Проект» в шапке.",
   },
   "context-edge": {
-    id: "context-edge", kind: "info", n: 24, screen: OWN_MAP, target: { kind: "context-edge" },
+    id: "context-edge", kind: "info", n: 25, screen: OWN_MAP, target: { kind: "context-edge" },
     title: "Наверху связь по-прежнему ведёт в систему",
     // Прототип: «„Покупатель“ работает с „Моей системой“ целиком».
     body: "Для слоя контекста это правда: «{peer}» работает с системой «{system}» целиком.",
   },
   "expand-own": {
-    id: "expand-own", kind: "act", n: 25, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
+    id: "expand-own", kind: "act", n: 26, screen: OWN_MAP, target: { kind: "system-part", part: "node-expand" },
     title: "Загляните внутрь",
     body: "Лупа раскрывает систему прямо на схеме, и видно, куда связь ведёт на самом деле.",
     action: "Нажмите лупу.",
     focus: true,
   },
   inside: {
-    id: "inside", kind: "info", n: 26, screen: OWN_MAP, target: { kind: "inside" },
+    id: "inside", kind: "info", n: 27, screen: OWN_MAP, target: { kind: "inside" },
     title: "Вот куда ведёт связь на самом деле",
     body: "Внутри системы «{system}» связь приходит в контейнер «{child}». Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
     watchMs: WATCH_MS,
@@ -356,10 +365,10 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   },
 };
 
-/** Шаги «Ярмарки» (1–13): общие у полного и короткого прохода. */
+/** Шаги «Ярмарки» (1–14): общие у полного и короткого прохода. */
 const YAR_PART: readonly StepId[] = [
   "open-yar", "yar-home", "open-editor", "drag", "expand-system", "expand-service",
-  "service-expanded", "tree", "tree-open", "docs", "components", "processes", "leave-yar",
+  "service-expanded", "tree", "tree-open", "docs", "components", "processes", "deploy", "leave-yar",
 ];
 
 /** Полный проход: «Ярмарка», затем свой проект. */
@@ -370,5 +379,5 @@ export const FULL_SEQUENCE: readonly StepId[] = [
 ];
 
 /** Повторный запуск при уже созданном своём проекте: «Новый проект» погашена, шаги
- *  14–15 не выполнить — после «Ярмарки» короткий финал. */
+ *  15–16 не выполнить — после «Ярмарки» короткий финал. */
 export const SHORT_SEQUENCE: readonly StepId[] = ["welcome", ...YAR_PART, "final-short"];
