@@ -30,7 +30,7 @@ nodes:
     - Кластер prod
   - name: Заказы
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.'
     children:
     - name: Order API
@@ -88,7 +88,7 @@ nodes:
       repo: github.com/yarmarka/mobile-app
   - name: Сервис каталога
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен товара: карточки, категории, кэш и поток событий изменений для поискового индекса.'
     children:
     - name: Catalog API
@@ -127,7 +127,7 @@ nodes:
       - Кластер prod
   - name: Сервис оплаты
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.'
     sites:
     - Кластер prod
@@ -155,7 +155,7 @@ nodes:
       description: Платежи и результаты антифрод-проверок.
   - name: Сервис поиска
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен поиска: полнотекстовый индекс товаров и API поисковых запросов.'
     children:
     - name: Elasticsearch
@@ -177,7 +177,7 @@ nodes:
       - Кластер prod
   - name: Сервис пользователей
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен пользователя: учётные записи, вход и токены, профиль и адреса доставки.'
     children:
     - name: Auth API
@@ -215,7 +215,7 @@ nodes:
     description: Планируемый сервис персональных подборок на главной. Пока отдаёт популярные товары, ML-ранжирование — в планах.
   - name: Сервис уведомлений
     shape: service
-    role: сервис
+    role: подсистема
     description: 'Домен уведомлений: шаблоны, журнал отправки, доставка писем и SMS через внешнего провайдера.'
     children:
     - name: Notification worker
@@ -248,7 +248,7 @@ nodes:
       - Управляемая PostgreSQL
 - name: Платёжный шлюз ЮKassa
   shape: service
-  role: внешний сервис
+  role: внешняя система
   technology: REST API
   external: true
   description: Принимает оплату картами на своей странице и шлёт вебхуки о статусе платежа.
@@ -259,7 +259,7 @@ nodes:
   description: Выбирает товары, оформляет и оплачивает заказы, получает уведомления и доставку.
 - name: Провайдер рассылок
   shape: service
-  role: внешний сервис
+  role: внешняя система
   technology: Email/SMS
   external: true
   description: Внешний шлюз доставки писем и SMS покупателям.
@@ -270,7 +270,7 @@ nodes:
   description: Публикует товары, управляет ценами и остатками через кабинет на витрине.
 - name: Служба доставки
   shape: service
-  role: внешний сервис
+  role: внешняя система
   technology: REST API
   external: true
   description: Принимает отправления, возвращает трек-номер и везёт заказ покупателю.
