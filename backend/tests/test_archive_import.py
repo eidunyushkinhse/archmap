@@ -258,6 +258,7 @@ def test_архив_с_площадками_применяется(db):
     db.add_all([кластер, стойка])
     db.flush()
     db.add(DeploymentInstance(project_id=проект.id, node_id=api.id, site_id=кластер.id))
+    typed(db, проект.id)
     db.commit()
 
     план, новый, _ = _ввоз(db, build_archive(db, проект), "Копия")

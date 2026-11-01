@@ -24,10 +24,10 @@ NODE_STATUSES: tuple[NodeStatus, ...] = get_args(NodeStatus)
 NodeApproval = Literal["in_progress", "approved"]
 NODE_APPROVALS: tuple[NodeApproval, ...] = get_args(NodeApproval)
 
-# Элемент архитектуры узла с детьми (docs/plan-c4-elements.md, раздел 0а): хранимое значение
-# (nodes.element) — system | container | None, где None («не сказано») читается как система,
-# как у всех узлов с детьми до эпика. Действующий элемент (app/element.py) добавляет
-# component — всё, что лежит внутри контейнера.
+# Элемент архитектуры (docs/plan-c4-elements.md, раздел 0а): хранимое значение (nodes.element)
+# — system | container у каждого сервиса вне контейнера (тип выбран всегда, решение владельца
+# 2026-11-01), None — у компонентов и не-сервисов. Действующий элемент (app/element.py)
+# добавляет component — всё, что лежит внутри контейнера.
 NodeElement = Literal["system", "container"]
 NODE_ELEMENTS: tuple[NodeElement, ...] = get_args(NodeElement)
 NodeElementEffective = Literal["system", "container", "component"]
@@ -114,9 +114,9 @@ NODE_DOC_KIND_LABELS: dict[NodeDocKind, str] = {
     "operation": "Операция",
     "worker": "Воркер",
 }
-# Элемент архитектуры: хранимый (дельта версий показывает, что поставил человек) и
-# действующий (то, чем узел считается сейчас). Хранимого может не быть — подпись
-# ELEMENT_UNSET_LABEL: «не сказано» не равно «система», хотя читается так же.
+# Элемент архитектуры: хранимый (дельта версий показывает, что записано) и действующий (то,
+# чем узел считается сейчас). Хранимого нет у компонента и у не-сервиса, а в снимках версий
+# до 2026-11-01 — и у части сервисов: подпись ELEMENT_UNSET_LABEL.
 NODE_ELEMENT_LABELS: dict[NodeElement, str] = {
     "system": "Система",
     "container": "Контейнер",

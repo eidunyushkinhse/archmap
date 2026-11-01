@@ -98,7 +98,6 @@ from app.unified_apply import (
     _synthetic_files,
     _Winner,
     _winners,
-    apply_container_hints,
     decisions_note,
     merge_chain,
     resolve_decisions,
@@ -709,9 +708,6 @@ def apply_into_plan(
         лишние = settled_remark_ids(plan, merged, восстановлены)
         unfixable = [u for u in unfixable if u.id not in лишние]
     forced = _forced_fields(merged, решения)
-    # «Похоже на контейнер» — вопрос только о новых узлах: ответ «Контейнер» ставит им
-    # элемент до санитизации, как у создания (Р7).
-    apply_container_hints(merged, решения)
     склейки = merge_chain(решения.merges, lambda i: i in into.live_of)
     # merged-узел → узел, в который он склеен решением пользователя. Поглощённый
     # здесь ВСЕГДА новый: пара живых узлов вопросом не становится (их видит панель

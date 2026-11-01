@@ -93,9 +93,11 @@ def _вклады_согласованы(
 FILE_A = """
 nodes:
   - name: Ярмарка
+    element: system
     role: система
     children:
       - name: payments
+        element: system
         technology: Python
         description: Сервис платежей
         children:
@@ -124,9 +126,11 @@ edges:
 FILE_B = """
 nodes:
   - name: Ярмарка
+    element: system
     role: система
     children:
       - name: orders
+        element: system
         technology: Go
         description: Сервис заказов
         children:
@@ -239,8 +243,8 @@ def test_same_pair_different_labels_warns():
 
 
 def test_fuzzy_siblings_warn_not_merge():
-    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments\n")
-    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments-service\n")
+    a = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments\n")
+    b = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments-service\n")
     merged, report = merge_imports([a, b])
     paths = set(_path_list(merged))
     # НЕ склеены — оба существуют
@@ -299,6 +303,7 @@ def test_якорь_склеивает_сервис_названный_по_ра
     own = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: app\n"
         "        technology: Go\n"
@@ -307,6 +312,7 @@ def test_якорь_склеивает_сервис_названный_по_ра
     caller = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: payments\n"
         "        source: {host: payments}\n"
@@ -332,6 +338,7 @@ def test_якорь_разводит_тёзок_из_разных_репозит
     team_a = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         "        source: {repo: github.com/team-a/api}\n"
@@ -339,6 +346,7 @@ def test_якорь_разводит_тёзок_из_разных_репозит
     team_b = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: api\n"
         "        source: {repo: github.com/team-b/api}\n"
@@ -351,8 +359,8 @@ def test_якорь_разводит_тёзок_из_разных_репозит
 
 def test_без_якорей_поведение_прежнее():
     """Файлы старых прогонов (якорей нет) склеиваются по имени, как раньше."""
-    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        role: сервис\n")
-    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n        technology: Go\n")
+    a = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n        role: сервис\n")
+    b = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n        technology: Go\n")
     merged, report = merge_imports([a, b])
 
     assert _path_list(merged) == ["Система", "Система / api"]
@@ -368,6 +376,7 @@ def test_якорь_сильнее_иерархии():
     a = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: auth\n"
         "        source: {repo: github.com/org/auth}\n"
@@ -375,8 +384,10 @@ def test_якорь_сильнее_иерархии():
     b = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: gateway\n"
+        "        element: system\n"
         "        children:\n"
         "          - name: auth\n"
         "            source: {repo: github.com/org/auth}\n"
@@ -414,15 +425,17 @@ def test_узлы_одного_файла_не_склеиваются_общим
     mono = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: frontend\n"
         "        source: {repo: github.com/org/mono}\n"
         "      - name: backend\n"
+        "        element: system\n"
         "        source: {repo: github.com/org/mono}\n"
         "        children:\n"
         "          - name: api\n"
     )
-    neighbour = _parse("nodes:\n  - name: Система\n    children:\n      - name: backend\n        source: {host: backend}\n")
+    neighbour = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: backend\n        source: {host: backend}\n")
     merged, report = merge_imports([mono, neighbour])
 
     paths = _path_list(merged)
@@ -437,6 +450,7 @@ def test_path_различает_сервисы_монорепо():
     mono = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: frontend\n"
         "        source: {repo: github.com/org/mono, path: web}\n"
@@ -446,6 +460,7 @@ def test_path_различает_сервисы_монорепо():
     caller = _parse(
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: сервер\n"
         "        source: {repo: github.com/org/mono, path: api}\n"
@@ -472,6 +487,7 @@ def test_актор_внутри_системы_поднят_в_корень_о�
     merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
             "  - name: Избиратель\n"
@@ -493,6 +509,7 @@ def test_актор_в_корне_молчит():
     merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
             "- name: Избиратель\n"
@@ -509,6 +526,7 @@ def test_объекты_без_связей_считаются_и_называю
     merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
             "  - name: redis\n"
@@ -527,7 +545,7 @@ def test_корень_системы_без_связей_не_считается
     # У корня связей и не бывает — они у его детей; жаловаться не на что.
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Voting App\n  children:\n  - name: vote\n  - name: redis\n",
+            "- name: Voting App\n  element: system\n  children:\n  - name: vote\n  - name: redis\n",
             "edges:\n- from: vote\n  to: redis\n",
         )
     ])
@@ -543,6 +561,7 @@ def test_связь_в_контейнер_с_компонентами_назыв
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
             "    element: container\n"
@@ -566,6 +585,7 @@ def test_оба_конца_контейнеры_названы_оба():
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
             "    element: container\n"
@@ -595,6 +615,7 @@ def test_слова_замечания_по_элементу_конца():
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Торговля\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: catalog\n"
             "  - name: orders\n"
@@ -602,6 +623,7 @@ def test_слова_замечания_по_элементу_конца():
             "    children:\n"
             "    - name: api\n"
             "- name: Склад\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: worker\n"
             "- name: Витрина\n",
@@ -640,6 +662,7 @@ def test_замечание_несёт_перечень_компонентов_�
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Zabbix\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: server\n"
             "    element: container\n"
@@ -667,7 +690,7 @@ def test_перечень_компонентов_капится_хвостом()
     дети = "".join(f"    - name: c{i}\n" for i in range(1, 10))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Zabbix\n  children:\n  - name: server\n    element: container\n"
+            "- name: Zabbix\n  element: system\n  children:\n  - name: server\n    element: container\n"
             "    children:\n"
             + дети
             + "  - name: db\n",
@@ -690,7 +713,7 @@ def test_при_двух_перечнях_кап_строже():
     правые = "".join(f"    - name: r{i}\n" for i in range(1, 7))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Voting App\n  children:\n  - name: vote\n    element: container\n"
+            "- name: Voting App\n  element: system\n  children:\n  - name: vote\n    element: container\n"
             "    children:\n"
             + левые
             + "  - name: worker\n    element: container\n    children:\n"
@@ -712,8 +735,10 @@ def test_связи_только_в_листья_молчат():
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: system\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: redis\n",
@@ -729,9 +754,9 @@ def test_кап_на_связях_в_контейнер():
     # Замечания уезжают агенту одним списком: полсотни строк одного класса
     # вытеснили бы всё остальное.
     сколько = 12
-    nodes = "- name: Voting App\n  children:\n  - name: redis\n"
+    nodes = "- name: Voting App\n  element: system\n  children:\n  - name: redis\n"
     for i in range(сколько):
-        nodes += f"  - name: svc{i}\n    children:\n    - name: api{i}\n"
+        nodes += f"  - name: svc{i}\n    element: system\n    children:\n    - name: api{i}\n"
     edges = "edges:\n" + "".join(f"- from: svc{i}\n  to: redis\n" for i in range(сколько))
 
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
@@ -747,8 +772,10 @@ def test_контейнер_со_связанными_детьми_подвис�
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Voting App\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: vote\n"
+            "    element: system\n"
             "    children:\n"
             "    - name: web-api\n"
             "  - name: redis\n",
@@ -770,10 +797,13 @@ def test_контейнер_со_связанными_детьми_подвис�
 
 _К4_ВЛОЖЕННОСТЬ = (
     "- name: Zulip\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: background-workers\n"
+    "    element: system\n"
     "    children:\n"
     "    - name: email-senders\n"
+    "      element: system\n"
     "      children:\n"
     "      - name: smtp-client\n"
     "  - name: redis\n"
@@ -842,11 +872,14 @@ def test_связь_в_чужой_контейнер_остаётся_прежн
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Zulip\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: background-workers\n"
+            "    element: system\n"
             "    children:\n"
             "    - name: email-senders\n"
             "  - name: zulip-web\n"
+            "    element: system\n"
             "    children:\n"
             "    - name: django-app\n",
             "edges:\n- from: background-workers\n  to: zulip-web\n",
@@ -866,9 +899,9 @@ def test_связь_в_чужой_контейнер_остаётся_прежн
 def test_кап_на_связях_с_собственным_потомком():
     # Кап и хвост — как у соседних классов: одинокий класс не вытесняет остальные.
     сколько = 12
-    nodes = "- name: Zulip\n  children:\n"
+    nodes = "- name: Zulip\n  element: system\n  children:\n"
     for i in range(сколько):
-        nodes += f"  - name: svc{i}\n    children:\n    - name: part{i}\n"
+        nodes += f"  - name: svc{i}\n    element: system\n    children:\n    - name: part{i}\n"
     edges = "edges:\n" + "".join(f"- from: svc{i}\n  to: part{i}\n" for i in range(сколько))
 
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
@@ -884,6 +917,7 @@ def test_на_связи_с_потомком_молчат_и_брокерный_
     лишняя целиком (то же правило, что у контейнерного класса)."""
     узлы = (
         "- name: Заказы\n"
+        "  element: system\n"
         "  children:\n"
         "  - name: kafka\n"
         "    shape: broker\n"
@@ -905,7 +939,7 @@ def test_на_связи_с_потомком_молчат_и_брокерный_
 def test_замечание_о_потомке_адресовано_файлу_связи():
     """Виновная сущность одна — сама связь, поэтому адресат общего правила Ф7 здесь
     всегда файл-первоисточник связи (её концы объявлены тем же файлом)."""
-    дерево = "nodes:\n- name: Zulip\n  children:\n  - name: workers\n    children:\n    - name: email-senders\n"
+    дерево = "nodes:\n- name: Zulip\n  element: system\n  children:\n  - name: workers\n    element: system\n    children:\n    - name: email-senders\n"
     _merged, report, errors = parse_and_merge(
         [дерево, дерево + "edges:\n- from: workers\n  to: email-senders\n"]
     )
@@ -930,6 +964,7 @@ def _channel_of(p: ParsedImport, src: str, dst: str) -> str | None:
 
 _БРОКЕР_A = (
     "- name: Ярмарка\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: orders\n"
     "  - name: Kafka\n"
@@ -1000,6 +1035,7 @@ def test_связи_без_брокера_про_канал_не_предупр�
     _merged, report, errors = parse_and_merge([
         _doc(
             "- name: Ярмарка\n"
+            "  element: system\n"
             "  children:\n"
             "  - name: orders\n"
             "  - name: orders-db\n"
@@ -1018,7 +1054,7 @@ def test_связей_в_брокер_без_канала_больше_капа_
     edges = "".join(f"- from: s{i}\n  to: Kafka\n" for i in range(13))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Ярмарка\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
+            "- name: Ярмарка\n  element: system\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
             "edges:\n" + edges,
         )
     ])
@@ -1096,7 +1132,7 @@ def test_перечней_в_channel_больше_капа_свёрнуты():
     edges = "".join(f"- from: s{i}\n  to: Kafka\n  channel: a, b\n" for i in range(13))
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Ярмарка\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
+            "- name: Ярмарка\n  element: system\n  children:\n" + services + "  - name: Kafka\n    shape: broker\n",
             "edges:\n" + edges,
         )
     ])
@@ -1113,6 +1149,7 @@ def test_перечней_в_channel_больше_капа_свёрнуты():
 
 _ФРАГМЕНТ = (
     "- name: Ярмарка\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: vote\n"
     "  - name: redis\n"
@@ -1158,7 +1195,7 @@ def test_одиночка_группой_не_считается():
     # объекте агент чинит дважды, а группой из одного узла он и не является.
     _merged, report, errors = parse_and_merge([
         _doc(
-            "- name: Ярмарка\n  children:\n  - name: vote\n  - name: redis\n"
+            "- name: Ярмарка\n  element: system\n  children:\n  - name: vote\n  - name: redis\n"
             "  - name: Одинокий\n",
             "edges:\n- from: vote\n  to: redis\n",
         )
@@ -1175,7 +1212,7 @@ def test_кап_имён_в_группе_и_хвост():
     )
     ядро = [f"я{i}" for i in range(9)]
     группа = [f"г{i}" for i in range(8)]
-    узлы = "- name: Ярмарка\n  children:\n" + "".join(
+    узлы = "- name: Ярмарка\n  element: system\n  children:\n" + "".join(
         f"  - name: {n}\n" for n in ядро + группа
     )
 
@@ -1194,7 +1231,7 @@ def test_групп_больше_капа_свёрнуты():
     ядро = "- from: я0\n  to: я1\n- from: я1\n  to: я2\n"
     пары = "".join(f"- from: п{i}a\n  to: п{i}b\n" for i in range(12))
     имена = ["я0", "я1", "я2"] + [f"п{i}{s}" for i in range(12) for s in ("a", "b")]
-    узлы = "- name: Ярмарка\n  children:\n" + "".join(f"  - name: {n}\n" for n in имена)
+    узлы = "- name: Ярмарка\n  element: system\n  children:\n" + "".join(f"  - name: {n}\n" for n in имена)
 
     _merged, report, errors = parse_and_merge([_doc(узлы, "edges:\n" + ядро + пары)])
 
@@ -1228,10 +1265,12 @@ def _db_связь(db, src, tgt, **kw):
 
 _КОРОБКА = (
     "- name: Grafana\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: server\n"
     "  - name: web\n"
     "- name: Плагин\n"
+    "  element: system\n"
     "  children:\n"
     "  - name: backend\n"
     "  - name: frontend\n"
@@ -1328,6 +1367,7 @@ def test_паритет_с_алертом_связи_в_собственного
     алерт = get_alerts(db=db, project=ensure_project(db))
     узлы = (
         "- name: Заказы\n"
+        "  element: system\n"
         "  children:\n"
         "  - name: kafka\n"
         "    shape: broker\n"
@@ -1366,6 +1406,7 @@ def test_паритет_с_алертом_связи_в_собственного
 _Ф6_ЗАКАЗЫ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
         technology: Go
@@ -1383,6 +1424,7 @@ edges:
 _Ф6_ПЛАТЕЖИ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: payments
       - name: orders
@@ -1436,8 +1478,8 @@ def test_люди_двух_файлов_поднимаются_замечани�
     2026-10-31 она называла людей обоих файлов и виноватого не имела): разбор каждого
     файла поднимает своего человека на верхний уровень и адресует замечание себе.
     Схемная корзина для объектов разных файлов — test_группа_из_узлов_разных_файлов_…"""
-    а = "nodes:\n- name: Ярмарка\n  children:\n  - name: vote\n  - name: Оператор\n    shape: person\n"
-    б = "nodes:\n- name: Ярмарка\n  children:\n  - name: vote\n  - name: Админ\n    shape: person\n"
+    а = "nodes:\n- name: Ярмарка\n  element: system\n  children:\n  - name: vote\n  - name: Оператор\n    shape: person\n"
+    б = "nodes:\n- name: Ярмарка\n  element: system\n  children:\n  - name: vote\n  - name: Админ\n    shape: person\n"
     рёбра = "edges:\n- from: Оператор\n  to: vote\n"
     merged, report, errors = parse_and_merge(
         [а + рёбра, б + "edges:\n- from: Админ\n  to: vote\n"]
@@ -1499,7 +1541,7 @@ def test_кап_предупреждений_режет_разметку_вме�
     """Свёртка «…и ещё N предупреждений» режет плоский список — разметка природы
     обязана укоротиться строка в строку, иначе корзины разъедутся со списком."""
     файлы_яml = [
-        "nodes:\n- name: Система\n  children:\n"
+        "nodes:\n- name: Система\n  element: system\n  children:\n"
         + "".join(f"  - name: сервис-{i}-{суффикс}\n" for i in range(40))
         for суффикс in ("a", "b")
     ]
@@ -1529,6 +1571,7 @@ def test_кап_предупреждений_режет_разметку_вме�
 _Ф7_ОСТРОВ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: redis
@@ -1547,6 +1590,7 @@ edges:
 _Ф7_СОСЕД = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: payments
       - name: vote
@@ -1590,6 +1634,7 @@ def test_замечание_следует_за_файлом_при_перест
 _Ф7_МОСТ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: Оператор
@@ -1613,6 +1658,7 @@ def test_остров_погашенный_слиянием_не_упомина�
 _Ф7_ПОЛОВИНА_А = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: redis
@@ -1633,6 +1679,7 @@ edges:
 _Ф7_ПОЛОВИНА_Б = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: Шина
       - name: Журнал
@@ -1658,6 +1705,7 @@ def test_группа_из_узлов_разных_файлов_остаётся
 _Ф7_СВЯЗЬ_В_REDIS = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: redis
@@ -1668,8 +1716,10 @@ edges:
 _Ф7_КОМПОНЕНТЫ_REDIS = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: redis
+        element: system
         children:
           - name: redis-core
 edges: []
@@ -1677,9 +1727,11 @@ edges: []
 _Ф7_СВОЙ_КОНТЕЙНЕР = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: redis
+        element: system
         children:
           - name: redis-core
 edges:
@@ -1720,6 +1772,7 @@ def test_контейнер_с_вкладом_своего_файла_адрес
 _Ф7_СИРОТА = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: api
@@ -1754,6 +1807,7 @@ def test_объект_обоих_файлов_адресуется_первом�
 _ЗАГЛУШКА_СОСЕДА = """
 nodes:
   - name: Zabbix
+    element: system
     children:
       - name: server
   - name: Grafana
@@ -1768,6 +1822,7 @@ edges:
 _СВОЙ_РЕПОЗИТОРИЙ = """
 nodes:
   - name: Grafana
+    element: system
     technology: Go, TypeScript
     source: {repo: 'https://github.com/grafana/grafana', path: ''}
     children:
@@ -1781,6 +1836,7 @@ edges:
 _ПЛАГИН = """
 nodes:
   - name: grafana
+    element: system
     source: {repo: 'https://github.com/alexanderzobnin/grafana-zabbix.git', host: grafana}
     children:
       - name: zabbix-datasource
@@ -1823,11 +1879,11 @@ def test_равная_содержательность_решается_перв
     содержательностью нечем, работает прежний tie-break «побеждает первый»
     (пара «заглушка + заглушка» — в test_field_conflict_first_wins)."""
     a = _parse(
-        "nodes:\n  - name: svc\n    technology: Python\n"
+        "nodes:\n  - name: svc\n    element: system\n    technology: Python\n"
         "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
     )
     b = _parse(
-        "nodes:\n  - name: svc\n    technology: Go\n"
+        "nodes:\n  - name: svc\n    element: system\n    technology: Go\n"
         "    source: {repo: github.com/org/svc}\n    children:\n      - name: core\n"
     )
     merged, report = merge_imports([a, b])
@@ -1850,6 +1906,7 @@ def test_равная_содержательность_решается_перв
 _ЯДРО_ПРОДУКТА = """
 nodes:
   - name: Grafana
+    element: system
     children:
       - name: grafana-server
         source: {repo: github.com/grafana/grafana, path: pkg/cmd/grafana, host: grafana}
@@ -1864,6 +1921,7 @@ edges:
 _ПЛАГИН_ПОЛЕ = """
 nodes:
   - name: grafana-zabbix
+    element: system
     source:
       repo: https://github.com/alexanderzobnin/grafana-zabbix
       host: grafana
@@ -2017,15 +2075,15 @@ def test_свидетель_не_сводит_тёзок_спорящих_нап
     транзитивностью union-find (A+свидетель, свидетель+B → A и B в одной группе
     вопреки их прямому спору)."""
     команда_a = (
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/team-a/api.git}\n"
     )
     команда_b = (
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/team-b/api.git}\n"
     )
     свидетель = (
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {host: api-net}\n"
     )
     for порядок in permutations((команда_a, команда_b, свидетель)):
@@ -2041,14 +2099,14 @@ def test_тёзки_раздельны_во_всех_порядках_даже_�
     другу «api» — иначе порядконезависимость купилась бы ценой молчаливой ложной
     склейки, которая хуже дубля (дубль видно, склейка выглядит корректной схемой)."""
     команда_a = (
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/team-a/api.git, host: api-a}\n"
     )
     команда_b = (
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/team-b/api.git, host: api-b}\n"
     )
-    безъякорная = "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+    безъякорная = "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
     for порядок in permutations((команда_a, команда_b, безъякорная)):
         merged, report = merge_imports([_parse(t) for t in порядок])
 
@@ -2077,6 +2135,7 @@ def test_настоящие_тёзки_без_единого_совпадени�
 _П4_ВИТРИНА = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: vote
       - name: redis
@@ -2089,6 +2148,7 @@ edges:
 _П4_РАССЫЛЬНЫЙ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: payments
       - name: vote
@@ -2123,10 +2183,10 @@ def test_сироты_без_общего_файла_остаются_польз
     собранная файлами 3–4, общего файла не имеют — их строка уезжает человеку."""
 
     def один(имя: str) -> str:
-        return f"nodes:\n  - name: Ярмарка\n    children:\n      - name: {имя}\n"
+        return f"nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: {имя}\n"
 
     ядро = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: vote\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: vote\n"
         "      - name: redis\n      - name: склад\nedges:\n  - from: vote\n    to: redis\n"
     )
     файлы, _ошибки, схема = _корзины(ядро, один("склад"), один("почта"), один("почта"))
@@ -2152,10 +2212,12 @@ def test_сироты_без_общего_файла_остаются_польз
 _МОНОРЕПО_ОБА = (
     "nodes:\n"
     "  - name: Система\n"
+    "    element: system\n"
     "    children:\n"
     "      - name: frontend\n"
     "        source: {repo: github.com/org/mono}\n"
     "      - name: backend\n"
+    "        element: system\n"
     "        source: {repo: github.com/org/mono}\n"
     "        children:\n"
     "          - name: api\n"
@@ -2163,6 +2225,7 @@ _МОНОРЕПО_ОБА = (
 _МОНОРЕПО_ФРОНТ = (
     "nodes:\n"
     "  - name: Система\n"
+    "    element: system\n"
     "    children:\n"
     "      - name: frontend\n"
     "        source: {repo: github.com/org/mono}\n"
@@ -2170,8 +2233,10 @@ _МОНОРЕПО_ФРОНТ = (
 _МОНОРЕПО_БЭК = (
     "nodes:\n"
     "  - name: Система\n"
+    "    element: system\n"
     "    children:\n"
     "      - name: backend\n"
+    "        element: system\n"
     "        source: {repo: github.com/org/mono}\n"
     "        children:\n"
     "          - name: api\n"
@@ -2223,6 +2288,7 @@ def test_свой_path_у_каждого_узла_снимает_замечан�
     оба = (
         "nodes:\n"
         "  - name: Система\n"
+        "    element: system\n"
         "    children:\n"
         "      - name: frontend\n" + свой_путь.format("web") +
         "      - name: backend\n" + свой_путь.format("api")
@@ -2231,9 +2297,9 @@ def test_свой_path_у_каждого_узла_снимает_замечан�
     assert _про_источник(файлы[0].warnings) == [] and _про_источник(схема) == []
 
     врозь_файлы, _ошибки2, врозь_схема = _корзины(
-        "nodes:\n  - name: Система\n    children:\n      - name: backend\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: backend\n"
         + свой_путь.format("api"),
-        "nodes:\n  - name: Система\n    children:\n      - name: frontend\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: frontend\n"
         + свой_путь.format("web"),
     )
     assert all(_про_источник(f.warnings) == [] for f in врозь_файлы)
@@ -2257,7 +2323,7 @@ def test_кап_имён_в_замечании_об_общем_источник�
         f"      - name: сервис{i}\n        source: {{repo: github.com/org/mono}}\n"
         for i in range(9)
     )
-    файлы, _ошибки, _схема = _корзины(f"nodes:\n  - name: Система\n    children:\n{дети}")
+    файлы, _ошибки, _схема = _корзины(f"nodes:\n  - name: Система\n    element: system\n    children:\n{дети}")
 
     assert _про_источник(файлы[0].warnings) == [
         "«сервис0», «сервис1», «сервис2», «сервис3», «сервис4», «сервис5» и ещё 3 "
@@ -2392,8 +2458,10 @@ def test_снимок_одно_файлового_прогона_file_a():
 _ВСЕ_КЛАССЫ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
+        element: system
         technology: Go
         source: {repo: github.com/org/orders, host: orders}
         children:
@@ -2487,9 +2555,9 @@ def test_предупреждение_разбора_доезжает_до_от�
     парсеру одного документа, а показывает замечания отчёт слияния. Проверяем, что
     оно доехало и адресовано ТОМУ файлу, где найдено, — иначе агент второго
     репозитория чинил бы чужой YAML."""
-    чистый = "nodes:\n  - name: Система\n    children:\n      - name: a\n"
+    чистый = "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: a\n"
     со_старым = (
-        "nodes:\n  - name: Система\n    children:\n      - name: b\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: b\n"
         "        source: {image: reg.io/b, host: b}\n"
     )
     _merged, report, errors = parse_and_merge([чистый, со_старым])
@@ -2515,11 +2583,11 @@ def _basis(merged: ParsedImport, report: MergeReport, path: str) -> str | None:
 def test_основание_склейки_по_коду():
     """Один и тот же репозиторий у обоих файлов — сошлись по коду."""
     a = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/org/api}\n"
     )
     b = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n        role: сервис\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n        role: сервис\n"
         "        source: {repo: github.com/org/api}\n"
     )
     merged, report = merge_imports([a, b])
@@ -2536,11 +2604,11 @@ def test_основание_склейки_по_имени_зависимост�
     """Свой репозиторий знает только вызывающий, у заглушки соседа кода нет —
     общей гранью остаётся имя зависимости."""
     свой = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: app\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: app\n"
         "        source: {repo: github.com/org/payments, host: payments}\n"
     )
     сосед = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: payments\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments\n"
         "        source: {host: payments}\n"
     )
     merged, report = merge_imports([свой, сосед])
@@ -2551,9 +2619,9 @@ def test_основание_склейки_по_имени_зависимост�
 def test_основание_склейки_по_имени_и_узел_из_одного_файла():
     """Якорей нет вовсе — решило имя. Узел, встреченный ровно в одном файле,
     основания не имеет (склейки не было): None, а не «name»."""
-    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    a = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n")
     b = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "      - name: одинокий\n"
     )
     merged, report = merge_imports([a, b])
@@ -2567,14 +2635,14 @@ def test_основание_склейки_сильнейшее_из_вклад�
     """Три файла: второй сошёлся с первым по коду, третий — только по имени.
     Показываем СИЛЬНЕЙШЕЕ основание: узел всё-таки опознан по коду."""
     a = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/org/api}\n"
     )
     b = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: api\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n"
         "        source: {repo: github.com/org/api}\n"
     )
-    c = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    c = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n")
     merged, report = merge_imports([a, b, c])
 
     assert _path_list(merged) == ["Система", "Система / api"]
@@ -2585,14 +2653,14 @@ def test_основание_не_влияет_на_склейку_при_люб�
     """Сторож порядконезависимости (стабилизация v3): основание — доклад. При любой
     перестановке файлов результат тот же, и основание узла тоже одно и то же."""
     свой = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: app\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: app\n"
         "        source: {repo: github.com/org/payments, host: payments}\n"
     )
     сосед = _parse(
-        "nodes:\n  - name: Система\n    children:\n      - name: payments\n"
+        "nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments\n"
         "        source: {host: payments}\n"
     )
-    третий = _parse("nodes:\n  - name: Система\n    children:\n      - name: web\n")
+    третий = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: web\n")
     исходы = set()
     for перестановка in permutations([свой, сосед, третий]):
         merged, report = merge_imports(list(перестановка))
@@ -2605,7 +2673,7 @@ def test_основание_не_влияет_на_склейку_при_люб�
 
 def test_основание_склейки_один_файл_пусто():
     """Passthrough одного документа: склеек нет, оснований тоже — по узлу на None."""
-    один = _parse("nodes:\n  - name: Система\n    children:\n      - name: api\n")
+    один = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: api\n")
     _merged, report = merge_imports([один])
 
     assert report.node_basis == [None, None]
@@ -2642,7 +2710,7 @@ def test_остаток_спор_поля_только_при_равной_со�
     # Тот же спор, но второй файл разобрал узел изнутри (репозиторий + компоненты):
     # П2 знает ответ, спрашивать не о чем — строка есть, вопроса нет.
     богатый = _parse(
-        "nodes:\n  - name: svc\n    description: Сервис оплаты\n"
+        "nodes:\n  - name: svc\n    element: system\n    description: Сервис оплаты\n"
         "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
     )
     merged2, report2 = merge_imports([a, богатый])
@@ -2675,7 +2743,7 @@ def test_остаток_спор_поля_снимается_поздним_со
         _parse("nodes:\n  - name: svc\n    role: сервис\n"),
         _parse("nodes:\n  - name: svc\n    role: демон\n"),
         _parse(
-            "nodes:\n  - name: svc\n    role: обработчик\n"
+            "nodes:\n  - name: svc\n    element: system\n    role: обработчик\n"
             "    source: {repo: github.com/org/svc}\n    children:\n      - name: api\n"
         ),
     ]
@@ -2688,12 +2756,15 @@ def test_остаток_спор_поля_снимается_поздним_со
 _КОНТЕЙНЕРЫ = """
 nodes:
   - name: Grafana
+    element: system
     children:
       - name: Сервер
+        element: system
         children:
           - name: Рантайм плагинов
       - name: Веб
   - name: Zabbix
+    element: system
     children:
       - name: web
 edges:
@@ -2728,7 +2799,7 @@ def test_остаток_связей_в_контейнер_больше_капа
     """Кап — свойство ТЕКСТА (замечания уезжают агенту одним списком), а вопрос
     положен каждой связи: скрытые за «…ещё N» записи есть, и их строка — хвост."""
     n = _MAX_CONTAINER_EDGES + 3
-    текст = "nodes:\n  - name: box\n    children:\n      - name: inner\n"
+    текст = "nodes:\n  - name: box\n    element: system\n    children:\n      - name: inner\n"
     текст += "".join(f"  - name: s{i}\n" for i in range(n))
     текст += "edges:\n" + "".join(f"  - from: s{i}\n    to: box\n" for i in range(n))
     _merged, report, errors = parse_and_merge([текст])
@@ -2763,8 +2834,8 @@ def test_остаток_изолированные_группы_все_и_со_�
 
 
 def test_остаток_fuzzy_пара_с_родителем_и_строкой():
-    a = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments\n")
-    b = _parse("nodes:\n  - name: Система\n    children:\n      - name: payments-service\n")
+    a = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments\n")
+    b = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n      - name: payments-service\n")
     merged, report = merge_imports([a, b])
     paths = _path_list(merged)
 
@@ -2780,9 +2851,9 @@ def test_остаток_переживает_общий_кап_предупре�
     """Строк больше _MAX_WARNINGS — хвост срезан, и ссылки записей на срезанные
     строки гаснут (иначе индекс показал бы на «…и ещё N предупреждений»)."""
     n = 35  # fuzzy-пары капа не знают — ими и переполняем общий список строк
-    a = _parse("nodes:\n  - name: Система\n    children:\n"
+    a = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n"
                + "".join(f"      - name: payments{i}\n" for i in range(n)))
-    b = _parse("nodes:\n  - name: Система\n    children:\n"
+    b = _parse("nodes:\n  - name: Система\n    element: system\n    children:\n"
                + "".join(f"      - name: payments{i}-service\n" for i in range(n)))
     _merged, report = merge_imports([a, b])
 
@@ -2799,10 +2870,10 @@ def test_остаток_переживает_общий_кап_предупре�
 
 def test_остаток_пуст_у_чистого_слияния():
     """Сторож: там, где мерджу спрашивать не о чем, структура пуста целиком."""
-    a = _parse("nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+    a = _parse("nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n"
                "      - name: Каталог-БД\n        shape: database\n"
                "edges:\n  - from: orders\n    to: Каталог-БД\n    label: пишет\n")
-    b = _parse("nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+    b = _parse("nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n"
                "        technology: Go\n")
     merged, report = merge_imports([a, b])
     warn_content(merged, report)
@@ -2817,6 +2888,7 @@ def test_остаток_пуст_у_чистого_слияния():
 ПЛОЩАДКИ_1 = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: api
         sites: [Кластер, ВМ]
@@ -2830,6 +2902,7 @@ deployment:
 ПЛОЩАДКИ_2 = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: api
         sites: [Стойка, Кластер]
@@ -2901,17 +2974,18 @@ def test_слияние_не_трогает_размещение_исходны�
 
 # ── Элемент архитектуры (эпик «Элемент архитектуры», Ф2: Р30, камень 6) ──────
 #
-# «Не сказано» (None) уступает любому значению, «система» против «контейнера» — спор
-# П2; слитое дерево санитизируется так же, как один файл; объекты, положенные в
-# контейнер файлом, который не называл его контейнером, — замечанием.
+# «Не указан» (None — у листа: у объекта с вложенными тип обязателен) уступает любому
+# значению, «система» против «контейнера» — спор П2; слитое дерево санитизируется так же,
+# как один файл; объекты, положенные в контейнер файлом, который не называл его
+# контейнером, — замечанием.
 
 
 def _элемент(merged: ParsedImport, path: str) -> str | None:
     return _node_by_path(merged, path).element
 
 
-def test_элемент_не_сказано_уступает_значению_в_обе_стороны():
-    молчит = _parse("nodes:\n  - name: svc\n    children:\n      - name: api\n")
+def test_элемент_листа_без_типа_уступает_значению_в_обе_стороны():
+    молчит = _parse("nodes:\n  - name: svc\n")
     говорит = _parse(
         "nodes:\n  - name: svc\n    element: container\n    children:\n      - name: api\n"
     )
@@ -2966,6 +3040,7 @@ def test_элемент_равные_вклады_спорят_полем_elemen
 _ОБЪЕДИНЕНИЕ_А = """
 nodes:
   - name: shop
+    element: system
     children:
       - name: orders
         element: container
@@ -2979,7 +3054,8 @@ def test_замечание_об_объединении_детей_контей�
     что это контейнер, — они молча стали компонентами. Одна строка на контейнер,
     схемная (виноватого файла нет: каждый по отдельности чист)."""
     б = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n"
         "          - name: worker\n          - name: api\n          - name: cache\n"
     )
     merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
@@ -2996,14 +3072,14 @@ def test_замечание_об_объединении_детей_контей�
 
 
 def test_замечание_об_объединении_детей_не_нужно_когда_дети_из_файла_контейнера():
-    б = _parse("nodes:\n  - name: shop\n    children:\n      - name: orders\n")
+    б = _parse("nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n")
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
     assert not any("не зная, что это контейнер" in w for w in report.warnings)
 
     # И когда второй файл тоже называет узел контейнером — он знал, куда кладёт.
     в = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        element: "
-        "container\n        children:\n          - name: worker\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
+        "        element: container\n        children:\n          - name: worker\n"
     )
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), в])
     assert not any("не зная, что это контейнер" in w for w in report.warnings)
@@ -3012,10 +3088,11 @@ def test_замечание_об_объединении_детей_не_нужн
 def test_замечание_об_объединении_детей_кап_перечня_и_два_файла():
     дети = "".join(f"          - name: w{i}\n" for i in range(8))
     б = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n" + дети
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
+        "        element: system\n        children:\n" + дети
     )
     в = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n        element: system\n        children:\n"
         "          - name: z9\n"
     )
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б, в])
@@ -3033,7 +3110,7 @@ def test_база_второго_файла_в_контейнере_первог
     слитого дерева — уже по новому месту, и замечания об объединении детей о ней нет
     (внутри контейнера её больше нет)."""
     б = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n        element: system\n        children:\n"
         "          - name: orders-db\n            shape: database\n"
     )
     merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
@@ -3056,7 +3133,8 @@ def test_после_выноса_строки_слияния_называют_н
     ещё разбором файла, и замечания слияния называют их уже там."""
     def база(ребёнок: str) -> ParsedImport:
         return _parse(
-            "nodes:\n  - name: shop\n    children:\n      - name: orders\n        children:\n"
+            "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
+            "        element: container\n        children:\n"
             "          - name: orders-db\n            shape: database\n            children:\n"
             f"              - name: {ребёнок}\n"
         )
@@ -3076,7 +3154,7 @@ def test_спор_элемента_остаётся_когда_база_выне
     Вынос базы элемент не меняет — вопрос остаётся, и с ответом по умолчанию база уже
     уровнем выше."""
     б = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n        element: system\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n        element: system\n"
         "        children:\n          - name: api\n          - name: orders-db\n"
         "            shape: database\n"
     )
@@ -3088,22 +3166,22 @@ def test_спор_элемента_остаётся_когда_база_выне
 
 
 def test_спор_элемента_снимается_когда_ответило_правило():
-    """Равные вклады спорят «контейнер / система», но третий файл делает родителя
-    контейнером: узел — его компонент, элемента у него нет, и вопрос был бы о
-    решённом — его нет."""
+    """Равные вклады спорят «контейнер / система» об orders, но файл, идущий первым, делает
+    родителя контейнером (в споре о shop он побеждает порядком): orders — его компонент,
+    элемента у него нет, и вопрос был бы о решённом — его нет."""
     а = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
         "        element: container\n        children:\n          - name: api\n"
     )
     б = _parse(
-        "nodes:\n  - name: shop\n    children:\n      - name: orders\n"
+        "nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n"
         "        element: system\n        children:\n          - name: api\n"
     )
     в = _parse(
         "nodes:\n  - name: shop\n    element: container\n    children:\n"
         "      - name: orders\n"
     )
-    merged, report = merge_imports([а, б, в])
+    merged, report = merge_imports([в, а, б])
 
     assert _элемент(merged, "shop") == "container"
     assert _элемент(merged, "shop / orders") is None
@@ -3116,16 +3194,19 @@ def test_спор_элемента_снимается_когда_ответил�
     ) in report.warnings
 
 
-def test_файлы_без_элемента_отчёт_прежний():
-    """Слияние документов без поля element — тем же отчётом, что до эпика: эталон
+def test_файлы_с_системами_отчёт_прежний():
+    """Слияние документов, где у объектов с вложенными тип — «система» (так они читались без
+    поля до решения 2026-11-01: тип выбран всегда), — тем же отчётом, что до эпика: эталон
     снят с прежней версии слияния (git 4fe7d24c), строка в строку. Кроме слов замечаний
-    о связях в объект с вложенными (Ф6): без элемента такой объект — система."""
+    о связях в объект с вложенными (Ф6)."""
     а = """
 nodes:
   - name: Ярмарка
+    element: system
     description: Торговая площадка
     children:
       - name: orders
+        element: system
         technology: Python
         children:
           - name: api
@@ -3139,9 +3220,11 @@ edges:
     б = """
 nodes:
   - name: Ярмарка
+    element: system
     description: Магазин
     children:
       - name: orders
+        element: system
         technology: Go
         children:
           - name: worker
@@ -3154,7 +3237,9 @@ edges:
 """
     merged, report, errors = parse_and_merge([а, б])
     assert errors == [] and merged is not None
-    assert all(n.element is None for n in merged.nodes)
+    assert {n.name: n.element for n in merged.nodes if n.element} == {
+        "Ярмарка": "system", "orders": "system",
+    }
     assert report.conflicts == [
         "Ярмарка: description: оставлено «Торговая площадка» (файл 1), отброшено «Магазин» (файл 2)",
         "Ярмарка / orders: technology: оставлено «Python» (файл 1), отброшено «Go» (файл 2)",

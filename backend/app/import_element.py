@@ -53,6 +53,12 @@ app/element.stored_elements, тип выбран всегда).
 правит — догрузка только доливает пустое, — поэтому такое место остаётся как есть и без
 замечания.
 
+Одно исключение из «поправить, а не отвергать» — тип объекта с вложенными (решение владельца
+2026-11-01, docs/tasks/type-always.md): сервис вне контейнера, у которого после правил выше
+остались вложенные объекты, обязан назвать element — system или container. Угадывать за
+автора файла ArchMap больше не берётся: такой документ отвергается целиком одним списком
+(untyped_parents, зовёт parse_import). Лист без значения — контейнер, это не ошибка.
+
 Тексты замечаний не содержат маркеров классов остатка (app/unified_remarks,
 _REMARK_CLASSES и _REMARK_TAILS узнают класс подстрокой): строка без маркера едет в
 свёртку «Придется подправить вручную» как есть.
@@ -407,3 +413,33 @@ def as_clause(refusal: str) -> str:
     """Текст отказа правила (app/element_rules) хвостом строки отчёта после тире: с
     маленькой буквы, как продолжение фразы."""
     return refusal[:1].lower() + refusal[1:]
+
+
+# Сколько объектов назвать в отказе поимённо; остальные — числом.
+_MAX_UNTYPED_SHOWN = 20
+
+
+def untyped_parents(nodes: Sequence[ElementNode], paths: Sequence[str]) -> list[str]:
+    """Пути сервисов вне контейнера, у которых есть вложенные объекты, а элемента нет (тип
+    выбран всегда). Порядок — порядок документа. «Пользователь» вложенным не считается:
+    санитизация поднимает его на верхний уровень, поэтому ответ один и до неё, и после."""
+    parents = {n.parent_idx for n in nodes if n.parent_idx is not None and n.shape != "person"}
+    return [
+        paths[i] for i, n in enumerate(nodes)
+        if n.shape == "service" and n.element is None and i in parents
+        and not _in_container(nodes, i)
+    ]
+
+
+def untyped_error(paths: Sequence[str]) -> str:
+    """Отказ ввоза одной строкой: кого назвать и что написать в файле. Тёзки с одним путём
+    называются один раз."""
+    paths = list(dict.fromkeys(paths))
+    shown = ", ".join(f"«{p}»" for p in paths[:_MAX_UNTYPED_SHOWN])
+    extra = len(paths) - _MAX_UNTYPED_SHOWN
+    if extra > 0:
+        shown += f" и ещё {extra}"
+    who = "У объекта с вложенными объектами" if len(paths) == 1 else (
+        "У объектов с вложенными объектами"
+    )
+    return f"{who} не указан тип: {shown}. Укажите element: system или element: container."

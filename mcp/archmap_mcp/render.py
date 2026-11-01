@@ -1985,17 +1985,6 @@ def _field_question(d: dict[str, Any]) -> list[str]:
     return out
 
 
-def _hint_question(h: dict[str, Any]) -> list[str]:
-    kids = [str(k) for k in h.get("children") or []]
-    lies = "лежит" if len(kids) == 1 else "лежат"
-    return [
-        f"  • {_ref(h.get('id'))} — похоже, «{h.get('node_path')}» — контейнер с компонентами: "
-        f"{_paths(kids)} {lies} в {h.get('folder')} репозитория {h.get('repo')}.",
-        f"    Без ответа останется системой. Ответ: decisions.container_hints[{_ref(h.get('id'))}] = "
-        '"container".',
-    ]
-
-
 def _edge_question(e: dict[str, Any]) -> list[str]:
     element = str(e.get("container_element"))
     pair = f"«{e.get('from_path')} → {e.get('to_path')}»" + (f" («{e['label']}»)" if e.get("label") else "")
@@ -2042,7 +2031,6 @@ def _group_question(g: dict[str, Any]) -> list[str]:
 # Виды вопросов в порядке окна интерфейса: ключ RemainderOut и сборщик строк пункта.
 REMAINDER_KINDS: list[tuple[str, Callable[[dict[str, Any]], list[str]]]] = [
     ("field_conflicts", _field_question),
-    ("container_hints", _hint_question),
     ("container_edges", _edge_question),
     ("fuzzy_pairs", _pair_question),
     ("isolated_groups", _group_question),

@@ -409,7 +409,7 @@ def test_apply_создаёт_базу_уровнем_выше_живого_ко
     p, _user = _project(db, RUN_ЭЛЕМЕНТ)
     прогон = RUN_ЭЛЕМЕНТ.replace(
         "      - name: orders\n        element: container\n",
-        "      - name: orders\n        children:\n          - name: api\n"
+        "      - name: orders\n        element: system\n        children:\n          - name: api\n"
         "          - name: orders-cache\n            shape: database\n",
     ) + "  - {from: api, to: orders-cache, label: кэширует}\n"
 
@@ -425,16 +425,18 @@ def test_apply_создаёт_базу_уровнем_выше_живого_ко
 
     again = _plan(db, p, прогон, sync_components=True)
     assert again.is_noop, again.summary
+    # Прогон зовёт orders системой (у него вложенные), живой — контейнер: тип не меняется.
     assert again.conflicts == [
+        "«orders»: в YAML элемент архитектуры другой («система») — в схеме оставляем как есть",
         "«orders-cache»: база данных не может входить в состав контейнера «orders» — в "
-        "схеме она лежит уровнем выше, в «Система»"
+        "схеме она лежит уровнем выше, в «Система»",
     ]
 
 
 def test_apply_брокер_корневого_контейнера_на_верхнем_уровне(db):
     живой = "nodes:\n  - name: orders\n    element: container\n    children:\n      - name: api\n"
     прогон = (
-        "nodes:\n  - name: orders\n    children:\n      - name: api\n"
+        "nodes:\n  - name: orders\n    element: system\n    children:\n      - name: api\n"
         "      - name: scheduler\n"
         "      - name: Kafka\n        shape: broker\n"
     )
@@ -503,7 +505,8 @@ def test_синк_создаёт_вложенного_пользователя_�
 # ── Смена типа живого узла — правилом API (Ф13а, находка Ф12б) ──────────────
 
 ЖИВОЙ_С_ДЕТЬМИ = (
-    "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+    "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n"
+    "        element: system\n"
     "        source: {host: orders}\n        children:\n          - name: api\n"
 )
 
@@ -513,7 +516,7 @@ def test_синк_не_меняет_тип_в_обход_правила(db):
     («у узла есть вложенные объекты»), и синк тип не меняет — превью говорит причину
     строкой расхождений, применение оставляет сервис."""
     прогон = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n"
         "        shape: database\n        source: {host: orders}\n"
     )
     p, user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
@@ -535,7 +538,7 @@ def test_синк_не_делает_вложенный_сервис_пользо
     """Полевой случай Ф12б: прогон называет живой вложенный сервис «Пользователем»
     (разбор поднимает его в корень, а якорь находит живой узел внутри системы). Тип не
     меняется: «Пользователь» живёт только на верхнем уровне."""
-    живой = "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n        source: {host: orders}\n"
+    живой = "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n        source: {host: orders}\n"
     прогон = (
         "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
         "        shape: person\n        source: {host: orders}\n"
@@ -556,7 +559,7 @@ def test_применение_само_проверяет_тип_по_плану
     from app.sync_plan import build_sync_plan
 
     прогон = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n      - name: orders\n"
         "        shape: database\n        source: {host: orders}\n"
     )
     p, _user = _project(db, ЖИВОЙ_С_ДЕТЬМИ)
@@ -588,13 +591,19 @@ def test_синк_не_кладёт_детей_в_живого_пользова�
     со строкой плана, как правило 0 ввоза."""
     живой = "nodes:\n  - name: Покупатель\n    shape: person\n  - name: Ярмарка\n"
     прогон = (
-        "nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"
+        "nodes:\n  - name: Покупатель\n    element: system\n    children:\n      - name: кабинет\n"
         "  - name: Ярмарка\n"
     )
     p, user = _project(db, живой)
 
+    # Тип у объекта с вложенными в прогоне обязателен; живому человеку он не ложится.
+    тип = (
+        "«Покупатель»: элемент архитектуры из YAML не применён — элемент архитектуры "
+        "задаётся только у сервиса."
+    )
     превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
     assert превью.conflicts == [
+        тип,
         "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» будет "
         "создан на верхнем уровне",
     ]
@@ -610,6 +619,7 @@ def test_синк_не_кладёт_детей_в_живого_пользова�
     # Повторный синк того же прогона находит «кабинет» на верхнем уровне и не дублирует.
     превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
     assert превью.conflicts == [
+        тип,
         "«Покупатель»: у пользователя вложенных объектов не бывает — «кабинет» в схеме "
         "лежит на верхнем уровне",
     ]
@@ -626,12 +636,14 @@ def test_синк_не_кладёт_детей_во_вложенную_базу_
     )
     прогон = (
         "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
-        "      - name: orders-store\n        children:\n          - name: схема заказов\n"
+        "      - name: orders-store\n        element: system\n        children:\n          - name: схема заказов\n"
     )
     p, user = _project(db, живой)
 
     превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
     assert превью.conflicts == [
+        "«orders-store»: элемент архитектуры из YAML не применён — элемент архитектуры "
+        "задаётся только у сервиса.",
         f"«orders-store»: у {word} вложенных объектов не бывает — «схема заказов» будет "
         "создан уровнем выше, в «Ярмарка»",
     ]
@@ -651,7 +663,7 @@ def test_применение_не_создаёт_ребёнка_пользов�
 
     p, _user = _project(db, "nodes:\n  - name: Покупатель\n    shape: person\n")
     merged, _report, errors = parse_and_merge(
-        ["nodes:\n  - name: Покупатель\n    children:\n      - name: кабинет\n"]
+        ["nodes:\n  - name: Покупатель\n    element: system\n    children:\n      - name: кабинет\n"]
     )
     assert merged is not None, errors
     покупатель = _node(db, p.id, "Покупатель")
@@ -669,3 +681,26 @@ def test_применение_не_создаёт_ребёнка_пользов�
         "Покупатель / кабинет: не создан — у «Покупатель» вложенных объектов не бывает",
     ]
     assert db.query(Node).filter(Node.name == "кабинет").count() == 0
+
+
+# ── Тип выбран всегда: прогон без типа у объекта с вложенными — плана нет ────────
+
+
+def test_синк_не_строит_план_по_прогону_без_типа(db):
+    """Решение владельца 2026-11-01: прогон, где у объекта с вложенными нет element,
+    плана не получает — причина в ответе превью, применение отвечает отказом."""
+    p, user = _project(db)
+    прогон = "nodes:\n  - name: Система\n    children:\n      - name: payments\n"
+    отказ = (
+        "У объекта с вложенными объектами не указан тип: «Система». Укажите element: system "
+        "или element: container."
+    )
+
+    превью = sync_preview(p.id, SyncPreviewIn(contents=[прогон]), db=db, user=user)
+    assert not превью.ok
+    assert превью.errors == [отказ]
+    assert превью.nodes == []
+
+    with pytest.raises(HTTPException) as e:
+        sync_apply(p.id, SyncApplyIn(contents=[прогон]), db=db, user=user)
+    assert e.value.status_code == 400 and e.value.detail == отказ

@@ -9,9 +9,11 @@ build_export импортируется без ошибок с той же се�
 его понимает (app/node_ref.py). Размещение (docs/tasks/deployment-view.md): раздел
 deployment.sites — площадки с вложенностью по имени родителя, у узла sites — имена
 площадок, где он стоит сам. Элемент архитектуры (element: system | container,
-docs/plan-c4-elements.md) — необязательный: нет ключа — «не сказано»; недопустимое
-значение (у не-сервиса, у контейнера с базой внутри, у компонента) снимается с
-замечанием, а не валит документ (app/import_element). Раскладки в формате
+docs/plan-c4-elements.md): у сервиса вне контейнера с вложенными объектами — обязателен,
+без него документ отвергается целиком (тип выбран всегда, docs/tasks/type-always.md);
+лист без ключа — контейнер; недопустимое значение (у не-сервиса, у контейнера с базой
+внутри, у компонента) снимается с замечанием, а не валит документ (app/import_element).
+Раскладки в формате
 нет — координаты не пишем, холст разложит авто-ELK; вложенные документы (доки
 логики node_docs, openapi_spec) в формат не входят → останутся пустыми
 (наполнение доков — BYOA-дозаливка, этап 2 plan-agent-docs.md).
@@ -49,7 +51,7 @@ from app.domain_types import (
 from app.element import stored_elements
 from app.element_marks import ElementRow, build_elements
 from app.identity import SourceRef, source_keys
-from app.import_element import sanitize_elements
+from app.import_element import sanitize_elements, untyped_error, untyped_parents
 from app.models.deployment_instance import DeploymentInstance
 from app.models.deployment_site import DeploymentSite
 from app.models.edge import Edge
@@ -85,8 +87,9 @@ class _ImpNode:
     # Имена площадок, где узел стоит САМ (ключ sites), без повторов. Унаследованное
     # от контейнера сюда не входит: оно производное и восстанавливается само.
     sites: list[str] = field(default_factory=list)
-    # Элемент архитектуры (ключ element). None — «не сказано»: у узла с детьми это
-    # система, и слияние уступает такое значение любому заданному (Р30).
+    # Элемент архитектуры (ключ element). None бывает только у листа (у объекта с
+    # вложенными вне контейнера ключ обязателен) и у компонента; слияние уступает такое
+    # значение любому заданному (Р30), запись делает лист контейнером.
     element: NodeElement | None = None
 
 
@@ -563,9 +566,9 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         if shape is None:
             errors.append(f"{path}: shape {raw_shape!r} не поддерживается ({' | '.join(_SHAPES)})")
             shape = "service"
-        # Элемент архитектуры: нет ключа (или null) — «не сказано»; чужое значение —
-        # ошибка, как у shape. Допустимость по месту в дереве проверяется в конце
-        # разбора (sanitize_elements): для неё нужно всё дерево.
+        # Элемент архитектуры: чужое значение — ошибка, как у shape. Допустимость по месту
+        # в дереве и обязательность у объекта с вложенными проверяются в конце разбора
+        # (sanitize_elements, untyped_parents): для них нужно всё дерево.
         raw_element = raw.get("element")
         element: NodeElement | None = None
         if raw_element is not None:
@@ -784,7 +787,11 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
     site_parents = _site_parents(site_draft, errors)
 
     if errors:
-        return None, errors
+        # Тип у объектов с вложенными — тем же списком, чтобы автор файла исправил всё
+        # за один раз (санитизация до ошибок не идёт; без неё ответ тот же, кроме редкого
+        # объекта под «Пользователем» внутри сервиса).
+        untyped = [] if live else untyped_parents(nodes, fulls)
+        return None, errors + ([untyped_error(untyped)] if untyped else [])
     # Элемент архитектуры — по всему дереву: у не-сервиса и у компонентов значение
     # снимается, база и брокер выносятся из контейнера на уровень выше — с замечанием
     # (пути — те же «Корень / … / Имя», что у замечаний слияния о том же узле). Связи
@@ -797,6 +804,11 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
             live_element=(lambda _i: True) if live else None,
         )
     )
+    # Тип выбран всегда (решение владельца 2026-11-01): объект с вложенными без element
+    # отвергает документ целиком. Снимок живого проекта не судится — в нём тип записан.
+    untyped = [] if live else untyped_parents(nodes, fulls)
+    if untyped:
+        return None, [untyped_error(untyped)]
     moved = any(n.parent_idx != p for n, p in zip(nodes, doc_parents, strict=True))
     roots = [n.name for n in nodes if n.parent_idx is None]
     return ParsedImport(

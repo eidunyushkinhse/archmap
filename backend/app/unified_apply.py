@@ -139,19 +139,12 @@ class Decisions:
     edges: dict[str, str] = field(default_factory=dict)  # id связи → путь компонента
     new_edges: list[NewEdgeIn] = field(default_factory=list)
     merges: dict[str, str] = field(default_factory=dict)  # id пары → имя склеенного
-    # id вопросов «похоже на контейнер» с ответом «container» (Р7)
-    containers: list[str] = field(default_factory=list)
 
     def empty(self) -> bool:
-        return not (
-            self.fields or self.edges or self.new_edges or self.merges or self.containers
-        )
+        return not (self.fields or self.edges or self.new_edges or self.merges)
 
 
-_SECTIONS = ("fields", "edges", "new_edges", "merges", "container_hints")
-# Ответы на вопрос «похоже на контейнер»: «system» — сегодняшнее поведение (узел
-# остаётся без элемента), поэтому применять по нему нечего.
-_HINT_ANSWERS = ("container", "system")
+_SECTIONS = ("fields", "edges", "new_edges", "merges")
 
 
 def _text(value: object, что: str) -> str | None:
@@ -233,17 +226,6 @@ def parse_decisions(raw: str | None) -> Decisions:
                 f"Поле decisions: ответ о паре «{pid}» — «diff» либо объект с name"
             )
         out.merges[str(pid)] = имя
-
-    подсказки = data.get("container_hints") or {}
-    if not isinstance(подсказки, dict):
-        raise UnifiedImportError("Поле decisions: container_hints — объект «id: ответ»")
-    for hid, choice in подсказки.items():
-        if choice not in _HINT_ANSWERS:
-            raise UnifiedImportError(
-                f"Поле decisions: ответ о контейнере «{hid}» — «container» либо «system»"
-            )
-        if choice == "container":
-            out.containers.append(str(hid))
     return out
 
 
@@ -259,12 +241,9 @@ class ResolvedDecisions:
         default_factory=list
     )
     merges: list[tuple[int, int, str]] = field(default_factory=list)  # A, B, имя склеенного
-    containers: list[int] = field(default_factory=list)  # узлы, отмеченные контейнером
 
     def empty(self) -> bool:
-        return not (
-            self.fields or self.edges or self.new_edges or self.merges or self.containers
-        )
+        return not (self.fields or self.edges or self.new_edges or self.merges)
 
 
 def resolve_decisions(
@@ -311,12 +290,6 @@ def resolve_decisions(
         if пара is None:
             raise UnifiedImportError(STALE)
         out.merges.append((пара[0], пара[1], имя))
-
-    for hid in decisions.containers:
-        узел = index.hints.get(hid)
-        if узел is None:
-            raise UnifiedImportError(STALE)
-        out.containers.append(узел)
     return out
 
 
@@ -405,14 +378,6 @@ def settled_remark_ids(plan: UnifiedPlan, merged: ParsedImport, restored: Restor
     }
 
 
-def apply_container_hints(merged: ParsedImport, res: ResolvedDecisions) -> None:
-    """Ответ «Контейнер» на вопрос «похоже на контейнер» (Р7): элемент слитому узлу ДО
-    санитизации — дальше обычные правила ввоза (база внутри выносится, у компонентов
-    элемент и площадки снимаются). Общий у создания и догрузки."""
-    for node_idx in res.containers:
-        merged.nodes[node_idx].element = CONTAINER
-
-
 def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
     """Правки СЛИТОГО ДЕРЕВА до записи в БД: значения полей, перевешенные концы,
     дорисованные связи. Возвращает число выброшенных дублей.
@@ -423,7 +388,6 @@ def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
     значит ровно то же, что и в его отчёте."""
     for node_idx, fld, value in res.fields:
         setattr(merged.nodes[node_idx], fld, value)
-    apply_container_hints(merged, res)
     for edge_idx, end, comp_idx in res.edges:
         e = merged.edges[edge_idx]
         if end == "source":
@@ -464,7 +428,6 @@ def decisions_note(res: ResolvedDecisions, merges_done: int) -> str | None:
         (len(res.new_edges), "добавлено связей"),
         (merges_done, "склеено объектов"),
         (len(res.fields), "выбрано значений полей"),
-        (len(res.containers), "отмечено контейнерами"),
     ]
     названо = [f"{слово} {n}" for n, слово in части if n]
     return "Ваши решения: " + " · ".join(названо) if названо else None

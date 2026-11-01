@@ -15,10 +15,12 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import mcp.types as types
 import pytest
 from conftest import PROJECT_ID, FakeApi, backend
+from mcp.shared.memory import create_connected_server_and_client_session
 
-from archmap_mcp import tools
+from archmap_mcp import server, tools
 from archmap_mcp.client import ArchMapClient, ArchMapError
 
 PREVIEW_PATH = "/projects/import/unified-preview"
@@ -151,16 +153,42 @@ async def test_имя_из_манифеста_названо_явно(client: Ar
 
 
 async def test_непройдёт_показывает_ошибки(client: ArchMapClient, api: FakeApi) -> None:
+    """Превью, по которому применить нельзя, — отказ (isError): агент исправляет файл."""
     api.post(PREVIEW_PATH, dump(
         "unified_import", "UnifiedPreviewOut", ok=False,
         errors=["вход 1: не найден корневой узел"],
     ))
 
-    out = await tools.call(
-        "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "!"}]}, client
-    )
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call(
+            "archmap_import_preview", {"files": [{"name": "a.yaml", "content": "!"}]}, client
+        )
 
-    assert "НЕ пройдёт" in out and "не найден корневой узел" in out
+    assert "НЕ пройдёт" in str(exc.value) and "не найден корневой узел" in str(exc.value)
+
+
+ОТКАЗ_ТИПА = (
+    "вход 1: У объекта с вложенными объектами не указан тип: «Заказы». Укажите element: "
+    "system или element: container."
+)
+
+
+async def test_файл_без_типа_отказ_с_isError(client: ArchMapClient, api: FakeApi) -> None:
+    """Тип выбран всегда (решение владельца 2026-11-01): файл, где у объекта с вложенными
+    нет element, превью отвергает — агент получает отказ словами продукта с isError."""
+    api.post(PREVIEW_PATH, dump(
+        "unified_import", "UnifiedPreviewOut", ok=False, errors=[ОТКАЗ_ТИПА],
+    ))
+    async with create_connected_server_and_client_session(server.build_server(client)) as s:
+        result = await s.call_tool(
+            "archmap_import_preview",
+            {"files": [{"name": "a.yaml", "content": "nodes: []"}]},
+        )
+
+    assert result.isError is True
+    block = result.content[0]
+    assert isinstance(block, types.TextContent)
+    assert "Импорт НЕ пройдёт" in block.text and ОТКАЗ_ТИПА in block.text
 
 
 async def test_несуществующий_путь_называет_файл(client: ArchMapClient) -> None:
@@ -366,10 +394,6 @@ def remainder(**over: Any) -> dict[str, Any]:
                 {"origin": 1, "origin_label": "2 · b.yaml", "source_label": "Из файла b.yaml", "value": "container"},
             ],
         }],
-        "container_hints": [{
-            "id": "hint|Ярмарка/payments", "node_path": "Ярмарка / payments",
-            "children": ["api", "worker"], "folder": "src/payments", "repo": "github.com/org/shop",
-        }],
         "container_edges": [{
             "id": "edge|Ярмарка/web|Ярмарка/orders|создать заказ|target",
             "from_path": "Ярмарка / web", "to_path": "Ярмарка / orders", "label": "создать заказ",
@@ -409,16 +433,15 @@ async def test_превью_печатает_вопросы_разбора_с_id
     )
 
     lines = out.splitlines()
-    assert any(line.startswith("Вопросы разбора (6) — ") and "archmap_import_apply аргументом decisions" in line for line in lines)
+    assert any(line.startswith("Вопросы разбора (5) — ") and "archmap_import_apply аргументом decisions" in line for line in lines)
     # Спор поля: кандидаты с номерами и источниками, значения элемента — словами.
     assert '  • "field|Ярмарка/orders|description" — описание у «Ярмарка / orders» задано по-разному в 2 файлах:' in lines
     assert "      0 — «Принимает заказы» (из файла a.yaml)" in lines
     assert '    Без ответа — 0. Ответ: decisions.fields["field|Ярмарка/orders|description"] = номер.' in lines
     assert '  • "field|Ярмарка/orders|element" — элемент архитектуры у «Ярмарка / orders» задан по-разному в 2 файлах:' in lines
     assert "      1 — «контейнер» (из файла b.yaml)" in lines
-    # «Похоже на контейнер»
-    assert any("«Ярмарка / payments» — контейнер с компонентами: api, worker лежат в src/payments репозитория github.com/org/shop" in line for line in lines)
-    assert '    Без ответа останется системой. Ответ: decisions.container_hints["hint|Ярмарка/payments"] = "container".' in lines
+    # Вопроса «похоже на контейнер» больше нет: тип выбран всегда (2026-11-01).
+    assert "container_hints" not in out
     # Связь в контейнер: цели путями, вложенный объект помечен
     assert any(
         "связь «Ярмарка / web → Ярмарка / orders» («создать заказ») приходит в контейнер «Ярмарка / orders» целиком; "

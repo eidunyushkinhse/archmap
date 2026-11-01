@@ -7,7 +7,7 @@
 
 import uuid
 
-from conftest import ensure_project
+from conftest import ensure_project, typed
 
 from app.archive_export import (
     render_channels_yaml,
@@ -233,6 +233,7 @@ def test_сборка_архива_полна_и_детерминирована(
                           edge_id=None, leg="forward", doc_id=схема.id,
                           from_participant_id=участник.id, to_participant_id=участник.id,
                           caption="оформить"))
+    typed(db, проект.id)
     db.commit()
 
     архив = build_archive(db, проект)
