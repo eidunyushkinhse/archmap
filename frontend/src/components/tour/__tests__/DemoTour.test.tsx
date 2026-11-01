@@ -24,7 +24,7 @@ vi.mock("../../../api/projects", () => ({
 vi.mock("../../../api/nodes", () => ({
   nodesApi: {
     getAll: vi.fn(async () => [
-      { id: "c0de-01", name: "Продавец" }, { id: "c0de-03", name: "Сервис заказов" },
+      { id: "c0de-01", name: "Продавец" }, { id: "c0de-03", name: "Заказы" },
       { id: "c0de-07", name: "Оркестратор заказа" },
     ]),
   },
@@ -169,13 +169,13 @@ describe("DemoTour", () => {
     frame.className = "react-flow__node react-flow__node-frame";
     frame.setAttribute("data-id", "c0de-03");
     render(<DemoTour />);
-    expect(await screen.findByRole("dialog", { name: "Внутри системы её сервисы" })).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Внутри системы её части" })).toBeInTheDocument();
     await act(async () => { await new Promise((r) => setTimeout(r, 100)); });
     expect(stored()).toMatchObject({ step: "expand-service" });
     frame.remove();
   });
 
-  it("дерево: ветка «Сервиса заказов» раскрыта — шаг засчитан; дальше строка «Оркестратора»", async () => {
+  it("дерево: ветка «Заказы» раскрыта — шаг засчитан; дальше строка «Оркестратора»", async () => {
     window.location.hash = `/p/${YAR}/nodes/c0de-03`;
     localStorage.setItem(KEY, JSON.stringify({ status: "running", step: "tree", variant: "full", dir: 1, vars: {} }));
     const chev = target("tree-chev:c0de-03", { x: 10, y: 300, w: 26, h: 28 });

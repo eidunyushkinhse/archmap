@@ -80,7 +80,7 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(focusTarget(at("inside", { vars: OWN_VARS }), ENV)).toBeNull();
   });
 
-  it("дерево: раскрыл «Сервис заказов» — открой «Оркестратор заказа»; его страница — документация", () => {
+  it("дерево: раскрыл «Заказы» — открой «Оркестратор заказа»; его страница — документация", () => {
     let s = run(at("service-expanded"), [NEXT]);
     expect(s.step).toBe("tree");
     expect(treeExpandTarget(s, ENV)).toBe("c0de-03");
@@ -159,12 +159,12 @@ describe("тур — пропуск ненайденных объектов", ()
     expect(run(s, [BACK], env).step).toBe("open-editor");
   });
 
-  it("нет «Сервиса заказов»: после раскрытия системы — документация «Оркестратора заказа»", () => {
+  it("нет «Заказов»: после раскрытия системы — документация «Оркестратора заказа»", () => {
     const objects = new Map(OBJECTS);
     objects.delete(YAR_ORDERS);
     const env = { ...ENV, yarObjects: objects };
     const s = run(at("expand-system"), [sig({ kind: "node-expanded", projectId: YAR, id: "c0de-02" })], env);
-    // 6–9 завязаны на «Сервис заказов» — следующий шаг документация «Оркестратора заказа»
+    // 6–9 завязаны на «Заказы» — следующий шаг документация «Оркестратора заказа»
     expect(s.step).toBe("docs");
   });
 
@@ -215,7 +215,7 @@ describe("тур — свой проект", () => {
     expect(run(s, [BACK]).step).toBe("context-diagram");
   });
 
-  it("вход на слой системы, сервис внутри, перевес связи, возврат и лупа", () => {
+  it("вход на слой системы, контейнер внутри, перевес связи, возврат и лупа", () => {
     let s = at("enter-system", { vars: OWN_VARS });
     s = run(s, [sig({ kind: "level", projectId: OWN, levelId: "p1" })]);
     expect(s.step).toBe("enter-system");
@@ -256,14 +256,14 @@ describe("тур — свой проект", () => {
       .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» в рамку «Платёжный шлюз».");
-    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился сервис.")).toBe(true);
+    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился контейнер.")).toBe(true);
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
-      .toBe("Связь теперь ведёт прямо к сервису «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
+      .toBe("Связь теперь ведёт прямо к контейнеру «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
     expect(stepTexts(STEPS["context-edge"], vars).body)
       .toBe("Для слоя контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
     expect(stepTexts(STEPS.inside, vars).body).toBe(
-      "Внутри системы «Платёжный шлюз» связь приходит в сервис «Касса». "
+      "Внутри системы «Платёжный шлюз» связь приходит в контейнер «Касса». "
       + "Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
     );
   });

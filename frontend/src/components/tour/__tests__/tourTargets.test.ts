@@ -5,7 +5,7 @@ import { hiddenTarget, resolveTarget, revealTarget, type TargetCtx } from "../to
 
 const CTX: TargetCtx = {
   yarProjectId: "aaaa-0001",
-  yarObjects: new Map([["Продавец", "c0de-01"], ["Сервис заказов", "c0de-03"]]),
+  yarObjects: new Map([["Продавец", "c0de-01"], ["Заказы", "c0de-03"]]),
   vars: {},
 };
 
@@ -103,9 +103,9 @@ describe("составные цели", () => {
     const host = el('<div data-tour="tree-row:c0de-03"><button data-tour="tree-chev:c0de-03"></button></div>');
     withRect(host.querySelector("button")!, { x: 10, y: 300, w: 26, h: 28 });
     withRect(host.firstElementChild!, { x: 10, y: 300, w: 240, h: 28 });
-    const chev = resolveTarget({ kind: "yar-tree", name: "Сервис заказов", part: "chevron" }, CTX)!;
+    const chev = resolveTarget({ kind: "yar-tree", name: "Заказы", part: "chevron" }, CTX)!;
     expect(chev.elements).toEqual([host.querySelector("button")]);
-    const row = resolveTarget({ kind: "yar-tree", name: "Сервис заказов", part: "row" }, CTX)!;
+    const row = resolveTarget({ kind: "yar-tree", name: "Заказы", part: "row" }, CTX)!;
     expect(row.elements).toEqual([host.firstElementChild]);
     expect(resolveTarget({ kind: "yar-tree", name: "Продавец", part: "row" }, CTX)).toBeNull();
   });
