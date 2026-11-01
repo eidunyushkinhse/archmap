@@ -49,7 +49,7 @@ from app.config_import import ParamIn, apply_config_plan, build_config_plan
 from app.data_import import TableIn, apply_data_plan, build_data_plan
 from app.deployment import project_sites, project_tree, unit_placements
 from app.domain_types import NodeElement
-from app.element_marks import ElementRow, project_element_rows
+from app.element_marks import ElementRow, project_element_rows, store_elements
 from app.element_rules import element_change_refusal
 from app.identity import known_key, source_ref_dict
 from app.import_element import as_clause, sanitize_elements, tree_paths
@@ -811,8 +811,7 @@ def apply_into_plan(
             shape=imp.shape,
             status=imp.status,
             is_external=imp.is_external,
-            # Как есть: слитое дерево уже санитизировано. Под живым контейнером значение
-            # спит — действующий элемент компонента его не читает (переносы — Ф5).
+            # Слитое дерево уже санитизировано; значение приводит функция записи ниже.
             element=imp.element,
             source_ref=known_key(imp.source_keys[0]) if imp.source_keys else None,
             parent_id=parent.id if parent else None,
@@ -820,6 +819,10 @@ def apply_into_plan(
         db.add(node)
         node_of.append(node)
     db.flush()
+    # Тип выбран всегда (решение владельца 2026-11-01): новый лист без элемента —
+    # контейнер (внешний — система), новый объект под живым контейнером — компонент без
+    # элемента (app/element_marks.store_elements).
+    store_elements(db, project.id)
 
     new_edges: list[Edge] = []
     # Подписи живых связей нужны только там, где решение изменило концы: без

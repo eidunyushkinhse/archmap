@@ -21,8 +21,9 @@ import zipfile
 
 import pytest
 import yaml
-from conftest import ensure_architect, make_project
+from conftest import ensure_architect, make_project, typed
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 from app import archive_import
 from app.archive_export import build_archive
@@ -72,6 +73,21 @@ from app.unified_remarks import (
     friendly_apply_note,
     remainder_from_plan,
 )
+
+
+@pytest.fixture(autouse=True)
+def _как_после_миграции(db):
+    """Тип выбран всегда (docs/tasks/type-always.md): строители ниже кладут узлы строками ORM
+    без элемента, а в живой базе таких данных больше нет. Перед каждым коммитом сессии
+    сервисам вне контейнера без элемента записывается то, что записала бы миграция."""
+
+    def перед_коммитом(session) -> None:
+        typed(session)
+
+    event.listen(db, "before_commit", перед_коммитом)
+    yield
+    event.remove(db, "before_commit", перед_коммитом)
+
 
 ПРЕВЬЮ = "/api/v1/projects/{}/import-archive/preview"
 ПРИМЕНЕНИЕ = "/api/v1/projects/{}/import-archive/apply"
@@ -982,8 +998,10 @@ _SHOP = """
 nodes:
   - name: Ярмарка
     description: Торговая площадка
+    element: system
     children:
       - name: orders
+        element: system
         children:
           - name: api
           - name: worker
@@ -1006,6 +1024,7 @@ edges:
 _WAREHOUSE = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: Каталог-БД
         shape: database
@@ -2100,7 +2119,10 @@ def test_отчёт_догрузки_свёртка_вместо_сырых_за
     проект, _ = _ярмарка(db)
     донор = _проект(db, "Донор")
     корень = _узел(db, донор, "Ярмарка", role="система")
-    orders = _узел(db, донор, "orders", корень, technology="Go", description="Описание донора")
+    orders = _узел(
+        db, донор, "orders", корень, technology="Go", description="Описание донора",
+        element="container",
+    )
     _узел(db, донор, "api", orders)  # донор видит orders изнутри: его поля побеждают в мердже
     каталог = _узел(db, донор, "Каталог-БД", корень, shape="database", status="planned")
     kafka = _узел(db, донор, "Kafka", корень, shape="broker")
@@ -2281,22 +2303,19 @@ def _элемент(db, узел: Node) -> str | None:
     return живой.element
 
 
-def test_элемент_пустой_живой_доливается_из_архива(db):
+def test_элемент_живой_задан_всегда_архив_с_тем_же_ничего_не_меняет(db):
+    """Тип выбран всегда: у живого листа элемент уже записан, доливать нечего — архив с тем
+    же значением запись не трогает и строки «пустовало» не даёт."""
     проект, узлы = _ярмарка(db)
     донор, _ = _донор_ярмарки(db, element="container")
     db.commit()
+    версия = db.get(Node, узлы["orders"].id).version
 
     _, отчёт = _догрузить(db, проект, build_archive(db, донор))
 
     assert _элемент(db, узлы["orders"]) == "container"
-    orders = db.get(Node, узлы["orders"].id)
-    assert orders is not None and orders.version == 2  # запись изменилась ровно раз
-    assert (
-        "узел «Ярмарка / orders»: поле «элемент архитектуры» пустовало — залито из архива"
-        in отчёт.warnings
-    )
-    assert отчёт.nodes_filled == 1
-    # Долитое — информация, в свёртку отчёта не едет.
+    assert db.get(Node, узлы["orders"].id).version == версия
+    assert not any("элемент архитектуры" in w for w in отчёт.warnings)
     assert not any("элемент архитектуры" in u.text for u in отчёт.unfixable)
 
 
@@ -2419,29 +2438,6 @@ def test_элемент_выбранный_контейнер_с_живой_ба
     )
     assert строка in отчёт.warnings
     assert строка in [u.text for u in отчёт.unfixable]
-
-
-def test_элемент_архив_делает_контейнером_узел_с_живой_базой(db):
-    """Р6 по живому дереву: архив называет узел контейнером, а под ним в проекте база.
-    Слитое дерево это видит (живой проект — вход №0): контейнер не ложится, замечание
-    слияния — текстом владельца."""
-    проект, узлы = _ярмарка(db)
-    _узел(db, проект, "orders-db", узлы["orders"], shape="database")
-    db.commit()
-    донор, донорские = _донор_ярмарки(db, element="container")
-    _узел(db, донор, "api", донорские["orders"])
-    db.commit()
-
-    превью, отчёт = _догрузить(db, проект, build_archive(db, донор))
-
-    assert _элемент(db, узлы["orders"]) is None
-    строка = (
-        "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
-        "состав контейнера — объект оставлен системой"
-    )
-    assert строка in превью.warnings
-    assert строка in [u.text for u in превью.remainder.unfixable]
-    assert not any("элемент архитектуры» пустовало" in w for w in отчёт.warnings)
 
 
 def test_элемент_архив_задаёт_его_узлу_внутри_живого_контейнера(db):
@@ -2620,67 +2616,17 @@ def test_склейка_догрузки_выносит_новую_базу_по
     ) in отчёт.warnings
 
 
-def test_склейка_догрузки_доливает_элемент_живому_через_правило(db):
-    проект, плагин, отчёт = _живой_плагин(db, с_базой=False)
+@pytest.mark.parametrize("с_базой", [False, True])
+def test_склейка_догрузки_не_трогает_элемент_живого(db, с_базой):
+    """Тип выбран всегда: у живого выжившего элемент записан (с вложенными — система),
+    поглощённый контейнер его не переписывает, строки «пустовало» нет, а живая база под
+    выжившим так под ним и остаётся."""
+    проект, плагин, отчёт = _живой_плагин(db, с_базой=с_базой)
 
-    assert _элемент(db, плагин) == "container"
+    assert _элемент(db, плагин) == "system"
     frontend = db.query(Node).filter(Node.project_id == проект.id, Node.name == "frontend").one()
     assert frontend.parent_id == плагин.id
-    assert (
-        "узел «Плагин Zabbix»: поле «элемент архитектуры» пустовало — залито из "
-        "склеенного объекта"
-    ) in отчёт.warnings
-
-
-def test_склейка_догрузки_не_делает_контейнером_живой_узел_с_базой(db):
-    """Поглощённый — контейнер, а под живым выжившим живая база: живое дерево ввоз не
-    перестраивает, значит контейнер не ложится, замечание — текстом владельца."""
-    _проект_, плагин, отчёт = _живой_плагин(db, с_базой=True)
-
-    assert _элемент(db, плагин) is None
-    assert (
-        "Плагин Zabbix: внутри лежит база данных «plugin-db», она не может входить в "
-        "состав контейнера — объект оставлен системой"
-    ) in отчёт.warnings
     assert not any("элемент архитектуры» пустовало" in w for w in отчёт.warnings)
+    assert not any("не может входить в состав контейнера" in w for w in отчёт.warnings)
 
 
-# ── Вопрос «похоже на контейнер» в догрузке: только о новых узлах (Р7, Р3) ──
-
-
-def _из_кода(db, проект: Project, имя: str, родитель: Node | None, путь: str) -> Node:
-    return _узел(db, проект, имя, родитель, source_ref=f"git:github.com/org/shop#{путь}")
-
-
-def test_похоже_на_контейнер_в_догрузке_только_о_новых_узлах(db):
-    """Живой orders похож на контейнер не меньше нового «Склада», но живое ввоз не
-    судит (Р3): вопрос только о новом узле, а ответ «Контейнер» ставит элемент ему."""
-    проект = _проект(db, "Живой")
-    корень = _узел(db, проект, "Ярмарка", role="система")
-    orders = _из_кода(db, проект, "orders", корень, "services/orders")
-    _из_кода(db, проект, "api", orders, "services/orders/api")
-    db.commit()
-    донор = _проект(db, "Донор")
-    д_корень = _узел(db, донор, "Ярмарка", role="система")
-    д_orders = _из_кода(db, донор, "orders", д_корень, "services/orders")
-    _из_кода(db, донор, "api", д_orders, "services/orders/api")
-    склад = _из_кода(db, донор, "Склад", д_корень, "services/stock")
-    _из_кода(db, донор, "reserve", склад, "services/stock/reserve")
-    _из_кода(db, донор, "sync", склад, "services/stock/sync")
-    db.commit()
-    архив = build_archive(db, донор)
-
-    [подсказка] = into_preview(build_into_plan(db, проект, [("a.zip", архив)])).remainder.container_hints
-    assert (подсказка.id, подсказка.node_path) == ("hint|Ярмарка / Склад", "Ярмарка / Склад")
-    assert sorted(подсказка.children) == ["reserve", "sync"]
-    assert (подсказка.folder, подсказка.repo) == ("services/stock", "github.com/org/shop")
-
-    _превью, отчёт = _догрузить(
-        db, проект, архив,
-        решения=parse_decisions(json.dumps({"container_hints": {подсказка.id: "container"}})),
-    )
-
-    новый = db.query(Node).filter(Node.project_id == проект.id, Node.name == "Склад").one()
-    assert новый.element == "container"
-    assert _элемент(db, orders) is None
-    assert any("Ваши решения: отмечено контейнерами 1" in w for w in отчёт.warnings)

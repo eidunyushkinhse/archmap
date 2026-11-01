@@ -2,8 +2,9 @@
 
 Поле хранимое и правится человеком, поэтому едет везде, где едет форма узла: копия
 проекта, снимок удаления (Undo), снимок версии. Дельта версий показывает его строкой
-«Свойств», откат версии его возвращает. Старый снимок без поля — то же «не сказано»,
-что у всех узлов до эпика: ложных изменений он не даёт.
+«Свойств», откат версии его возвращает. Старый снимок без поля читается так же, как
+снимок с пустым элементом, — ложных изменений он не даёт. Восстановление и копия приводят
+элементы к инварианту «тип выбран всегда» (решение владельца 2026-11-01).
 """
 
 import hashlib
@@ -12,7 +13,7 @@ import uuid
 import zlib
 
 import pytest
-from conftest import ensure_architect, make_project
+from conftest import ensure_architect, make_project, typed
 
 from app import versions
 from app.models.node import Node
@@ -23,7 +24,9 @@ from app.versions_restore import restore_version
 from app.versions_snapshot import _dumps, build_snapshot, content_hash, decode
 
 
-def _shop(db):
+def _shop(db, *, typed_tree: bool = True):
+    """shop → orders → api; по умолчанию — с явными элементами, как после миграции
+    (система, система, контейнер)."""
     p = make_project(db, "Ярмарка")
     shop = Node(id=uuid.uuid4(), project_id=p.id, name="shop")
     db.add(shop)
@@ -33,6 +36,8 @@ def _shop(db):
     db.flush()
     api = Node(id=uuid.uuid4(), project_id=p.id, name="api", parent_id=orders.id)
     db.add(api)
+    if typed_tree:
+        typed(db, p.id)
     db.commit()
     return p, shop, orders, api
 
@@ -55,7 +60,9 @@ def test_копия_проекта_переносит_элемент(db):
     copy_project_schema(db, p.id, dst.id)
     db.commit()
     copied = {n.name: n.element for n in db.query(Node).filter(Node.project_id == dst.id)}
-    assert copied == {"shop": None, "orders": "container", "api": None}
+    # api в источнике остался с «контейнером» от фикстуры, копия держит инвариант: внутри
+    # контейнера элемента нет.
+    assert copied == {"shop": "system", "orders": "container", "api": None}
 
 
 def test_откат_удаления_возвращает_элемент(db):
@@ -84,17 +91,18 @@ def test_смена_элемента_строка_свойств_в_дельте
     assert content_hash(before) != content_hash(after)
     detail = diff_item(before, after, item.item_id)
     assert detail is not None
-    assert _rows(detail.changes) == [("mod", ["элемент архитектуры", "Не задан", "Контейнер"])]
+    assert _rows(detail.changes) == [("mod", ["элемент архитектуры", "Система", "Контейнер"])]
     was = dict(r.cells for r in detail.before.rows or [])
     now = dict(r.cells for r in detail.after.rows or [])
-    assert (was["элемент архитектуры"], now["элемент архитектуры"]) == ("Не задан", "Контейнер")
+    assert (was["элемент архитектуры"], now["элемент архитектуры"]) == ("Система", "Контейнер")
 
 
 def test_старый_снимок_без_поля_изменений_не_даёт(db):
     """Камень 3: версия, снятая до эпика, — в её JSON ключа element нет, и хэш посчитан
-    без него. Живой срез с element = null — то же состояние: «изменений нет», откатывать
-    нечего."""
-    p, shop, _orders, _api = _shop(db)
+    без него. Срез с element = null — то же состояние: «изменений нет», откатывать нечего.
+    В живой базе после миграции «тип выбран всегда» таких узлов нет; тест сторожит чтение
+    старого JSON."""
+    p, shop, _orders, _api = _shop(db, typed_tree=False)
     user = ensure_architect(db)
     row = versions.create_version(db, p, user, shop, "v1")
     db.commit()
@@ -148,7 +156,7 @@ def test_пустая_система_в_копии_и_версии(db):
     copy_project_schema(db, p.id, dst.id)
     db.commit()
     copied = {n.name: n.element for n in db.query(Node).filter(Node.project_id == dst.id)}
-    assert copied == {"shop": None, "orders": None, "api": "system"}
+    assert copied == {"shop": "system", "orders": "system", "api": "system"}
 
     versions.create_version(db, p, user, shop, "v1")
     db.commit()

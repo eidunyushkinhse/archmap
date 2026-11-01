@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
+from app.element_marks import store_elements
 from app.identity import known_key
 from app.import_yaml import ParsedImport, _ImpNode
 from app.models.edge import Edge
@@ -92,6 +93,11 @@ def apply_sync_plan(
         by_path[act.path] = node
         if act.action != "unchanged" and act.fields:
             _update_node(db, act, imp, node, report)
+
+    # Тип выбран всегда (решение владельца 2026-11-01): новый лист без элемента —
+    # контейнер (внешний — система), новый объект под живым контейнером и объект, ставший
+    # базой или брокером, — без элемента (app/element_marks.store_elements).
+    store_elements(db, project.id)
 
     live_edges = {
         e.id: e for e in db.query(Edge).filter(Edge.project_id == project.id).all()
@@ -214,8 +220,9 @@ def _create_node(
         shape=imp.shape,
         status=imp.status,
         is_external=imp.is_external,
-        # Как есть: разбор прогона уже санитизирован. Контейнер без компонентов (их
-        # слой синк по умолчанию отрезает) — норма: у листа значение — намерение (Р3).
+        # Разбор прогона уже санитизирован; значение приводит функция записи в конце
+        # применения (apply_sync_plan). Контейнер без компонентов (их слой синк по
+        # умолчанию отрезает) — норма.
         element=imp.element,
         source_ref=known_key(act.source_ref),
         parent_id=parent.id if parent else None,

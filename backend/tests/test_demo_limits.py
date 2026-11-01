@@ -47,6 +47,7 @@ API = "/api/v1"
 SCENE = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
       - name: orders-db
@@ -62,6 +63,7 @@ edges:
 GROWN = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
       - name: orders-db

@@ -46,7 +46,13 @@ from sqlalchemy.orm import Session
 from app.deployment import ordered_instances, own_by_node, project_sites
 from app.domain_types import ElementChangeKind
 from app.element import Elements
-from app.element_marks import ElementRow, build_elements, project_element_rows
+from app.element_marks import (
+    ElementRow,
+    build_elements,
+    normalized_rows,
+    project_element_rows,
+    store_elements,
+)
 from app.models.config_param import ConfigParam
 from app.models.deployment_instance import DeploymentInstance
 from app.models.node import Node
@@ -308,7 +314,8 @@ def preview(
     функциями, что PATCH)."""
     rows = project_element_rows(db, project.id)
     names = {r.id: r.name for r in rows}
-    after_rows = (
+    # Дерево после правки — приведённое функцией записи, как его запишет PATCH.
+    after_rows = normalized_rows(
         _patched(rows, node.id, lambda r: r._replace(parent_id=parent_id))
         if moved
         else _patched(rows, node.id, lambda r: r._replace(element=element))
@@ -342,17 +349,24 @@ def apply(
 ) -> int:
     """Перенести размещение по уже присвоенной правке узла (routers/nodes.update_node).
     Перенос и смена элемента в одном запросе применяются последовательно: сначала
-    родитель, потом элемент. Возвращает число добавленных и снятых экземпляров (0 —
-    курсоры двигать не нужно). Коммит — на вызывающей стороне."""
+    родитель, потом элемент. Элементы прочих узлов приводятся к инварианту «тип выбран
+    всегда» (app/element_marks.store_elements): у поддерева, ушедшего внутрь контейнера или
+    ставшего им, они снимаются, у вложенных бывшего контейнера появляются, — и деревья
+    «после» считаются уже приведёнными, как в превью. Возвращает число добавленных и
+    снятых экземпляров (0 — курсоры двигать не нужно). Коммит — на вызывающей стороне."""
     if not (moved or element_changed):
         return 0
     db.flush()
-    final = project_element_rows(db, project.id)
-    # Промежуточное дерево — перенос уже сделан, элемент прежний; исходное — всё прежнее.
-    middle = _patched(final, node.id, lambda r: r._replace(element=old_element))
+    raw = project_element_rows(db, project.id)
+    final = normalized_rows(raw)
+    # Промежуточное дерево — перенос уже сделан, элемент прежний (и приведён по новому
+    # месту); исходное — всё прежнее, элементы прочих узлов ещё не тронуты.
+    middle = normalized_rows(_patched(raw, node.id, lambda r: r._replace(element=old_element)))
     start = _patched(
-        middle, node.id,
-        lambda r: r._replace(parent_id=old_parent, shape=old_shape, name=old_name),
+        raw, node.id,
+        lambda r: r._replace(
+            parent_id=old_parent, shape=old_shape, name=old_name, element=old_element,
+        ),
     )
     state = _state(db, project.id)
     own = state.own
@@ -364,6 +378,7 @@ def apply(
         own = _apply_own(own, relocation(
             build_elements(middle), build_elements(final), node.id, own, state.rank, moved=False,
         ))
+    store_elements(db, project.id)
     return _write(db, project, state.own, own)
 
 

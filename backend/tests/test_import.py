@@ -11,7 +11,7 @@ import uuid
 
 import pytest
 import yaml
-from conftest import seed_project_from_yaml
+from conftest import seed_project_from_yaml, typed
 
 from app.deployment import ordered_instances, project_sites
 from app.element_marks import elements_for_project as build_elements_of
@@ -119,6 +119,7 @@ def test_roundtrip_export_import_same_semantics(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=svc.id, target_id=sdb.id))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=platform.id, target_id=pdb.id,
                 label="хранит"))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -967,6 +968,7 @@ def test_roundtrip_канала_связи(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=orders.id, target_id=kafka.id,
                 label="событие", channel="orders.created"))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=kafka.id, target_id=orders.id))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -1020,6 +1022,7 @@ def test_roundtrip_якоря_источника_и_типа_канала(db):
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=витрина.id, target_id=orders.id,
                 label="создать заказ", is_synchronous=True))
     db.add(Edge(id=uuid.uuid4(), project_id=src.id, source_id=ярмарка.id, target_id=kafka.id))
+    typed(db, src.id)
     db.commit()
 
     nodes = db.query(Node).filter(Node.project_id == src.id).all()
@@ -1408,7 +1411,7 @@ def test_база_и_брокер_из_контейнера_вынесены_у�
     """Решение владельца Р6: база и брокер внутри контейнера выносятся к его родителю,
     контейнер остаётся контейнером; замечание — адресом контейнера и новым местом."""
     parsed, errors = parse_import(_yaml([{
-        "name": "Ярмарка", "children": [
+        "name": "Ярмарка", "element": "system", "children": [
             {"name": "orders", "element": "container", "children": [
                 {"name": "api"}, {"name": "orders-db", "shape": "database"},
             ]},
@@ -1419,7 +1422,7 @@ def test_база_и_брокер_из_контейнера_вынесены_у�
     }]))
     assert errors == [] and parsed is not None
     assert {n.name: n.element for n in parsed.nodes} == {
-        "Ярмарка": None, "orders": "container", "api": None, "orders-db": None,
+        "Ярмарка": "system", "orders": "container", "api": None, "orders-db": None,
         "events": "container", "relay": None, "Kafka": None,
     }
     assert _родители(parsed) == {
@@ -1850,9 +1853,10 @@ def test_живой_разбор_живое_место_не_трогает():
 
 def test_закреплённая_база_снимает_ввезённый_контейнер():
     """Закреплённую (живую) базу вынести нельзя, а элемент контейнера пришёл из ввоза:
-    контейнер снимается, узел остаётся системой — замечание это и говорит."""
+    узел становится системой — явной, тип выбран всегда, — замечание это и говорит."""
     parsed, _ = parse_import(_yaml([{
-        "name": "orders", "children": [{"name": "api"}, {"name": "orders-db", "shape": "database"}],
+        "name": "orders", "element": "system",
+        "children": [{"name": "api"}, {"name": "orders-db", "shape": "database"}],
     }]))
     assert parsed is not None
     parsed.nodes[0].element = "container"
@@ -1860,7 +1864,7 @@ def test_закреплённая_база_снимает_ввезённый_к�
         parsed.nodes, ["orders", "orders / api", "orders / orders-db"],
         pinned=lambda i: i == 2, live_element=lambda _i: False,
     )
-    assert parsed.nodes[0].element is None
+    assert parsed.nodes[0].element == "system"
     assert _родители(parsed)["orders-db"] == "orders"
     assert заметки == [STORE_KEPT_NOTE["database"].format(path="orders", name="orders-db")]
 
@@ -1957,7 +1961,7 @@ def test_круг_экспорта_с_пустой_системой(db):
     src = _project(db, "Источник")
     корень = _node(db, src.id, "Ярмарка", element="system")
     _node(db, src.id, "Склад", корень, element="system")
-    _node(db, src.id, "billing", корень)
+    _node(db, src.id, "billing", корень, element="container")
     db.commit()
 
     def экспорт(project_id) -> str:

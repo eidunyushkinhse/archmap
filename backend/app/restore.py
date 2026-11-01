@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session, undefer
 
 from app import tree
 from app.database import Base
+from app.element_marks import store_elements
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.config_param import ConfigParam
@@ -363,8 +364,11 @@ def validate_snapshot(db: Session, snapshot: DeletionSnapshot, project_id: uuid.
 def restore_from_snapshot(
     db: Session, snapshot: DeletionSnapshot, project_id: uuid.UUID
 ) -> None:
-    """Undo удаления: воссоздать всё из снимка (apply_snapshot) и закоммитить."""
+    """Undo удаления: воссоздать всё из снимка (apply_snapshot) и закоммитить. Элементы
+    архитектуры воссозданных узлов приводятся к инварианту «тип выбран всегда»: снимок
+    мог быть снят, когда родитель поддерева был другого типа."""
     apply_snapshot(db, snapshot, project_id)
+    store_elements(db, project_id)
     db.commit()
 
 

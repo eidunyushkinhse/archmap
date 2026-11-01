@@ -24,6 +24,7 @@ from app.schemas.project import SyncApplyIn, SyncPreviewIn
 RUN = """
 nodes:
   - name: Система
+    element: system
     children:
       - name: payments
         role: сервис
@@ -42,6 +43,7 @@ edges:
 NEXT_RUN = """
 nodes:
   - name: Система
+    element: system
     children:
       - name: billing
         role: сервис
@@ -210,6 +212,7 @@ def test_apply_переносит_имя_и_описание_по_политик
 BROKER_RUN = """
 nodes:
   - name: Система
+    element: system
     children:
       - name: producer
         source: {host: producer}
@@ -364,25 +367,26 @@ def test_модули_синка_размещение_не_читают():
         assert ".sites" not in inspect.getsource(module)
 
 
-# ── Элемент архитектуры: синк доливает пустое и создаёт с элементом (Ф2, Р30) ─
+# ── Элемент архитектуры: синк создаёт с элементом (Ф2, Р30) ─────────────────
 
 RUN_ЭЛЕМЕНТ = NEXT_RUN.replace(
     "      - name: orders\n", "      - name: orders\n        element: container\n"
 ).replace("      - name: cache\n", "      - name: cache\n        element: container\n")
 
 
-def test_apply_доливает_элемент_и_создаёт_с_элементом_фикспойнт(db):
-    """Пустой элемент живого узла доливается, новый узел создаётся с элементом (лист-
-    контейнер без компонентов — норма, Р3), и повторный план на том же входе пуст."""
+def test_apply_создаёт_с_элементом_фикспойнт(db):
+    """Новый узел создаётся с элементом (лист-контейнер без компонентов — норма, Р3), живые
+    листы уже хранят контейнер — тип выбран всегда, доливать нечего, — и повторный план на
+    том же входе пуст."""
     p, user = _project(db)
 
     out = sync_apply(p.id, SyncApplyIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
 
-    assert "Система / orders" in out.updated_nodes
+    assert "Система / orders" not in out.updated_nodes
     assert out.created_nodes == ["Система / cache"]
     assert _node(db, p.id, "orders").element == "container"
     assert _node(db, p.id, "cache").element == "container"
-    assert _node(db, p.id, "payments").element is None
+    assert _node(db, p.id, "payments").element == "container"
 
     again = sync_preview(p.id, SyncPreviewIn(contents=[RUN_ЭЛЕМЕНТ]), db=db, user=user)
     assert again.is_noop, again.summary
@@ -453,11 +457,13 @@ def test_синк_создаёт_вложенного_пользователя_�
     поднимает их на верхний уровень (та же санитизация, что у ввоза), синк создаёт их в
     корне, связи находят концы, повторный прогон пуст."""
     живой = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
-        "        element: container\n        children:\n          - name: api\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: orders\n        element: container\n        children:\n"
+        "          - name: api\n"
     )
     прогон = (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: Покупатель\n"
         "        shape: person\n      - name: orders\n        element: container\n"
         "        children:\n          - name: api\n          - name: Оператор\n"
         "            shape: person\n"

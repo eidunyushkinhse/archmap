@@ -156,8 +156,9 @@ def test_поддерево_с_брокером_нельзя_перенести_
 
 
 def test_контейнер_в_контейнер_переносить_можно(db):
-    """По Р5 контейнер внутри контейнера — составной компонент: хранимое значение спит,
-    действующий элемент решают предки. Это не отказ."""
+    """По Р5 контейнер внутри контейнера — составной компонент: это не отказ. Тип выбран
+    всегда (решение владельца 2026-11-01): хранимое значение перенесённого внутрь
+    снимается функцией записи, вложенные остаются без элемента."""
     p = ensure_project(db)
     orders = _node(db, "orders", element="container")
     _node(db, "api", orders)
@@ -165,7 +166,7 @@ def test_контейнер_в_контейнер_переносить_можн�
     _node(db, "gateway", payments)
     assert reparent.validate_reparent(db, p, payments, orders.id) is None
     moved = _move(db, payments, orders.id)
-    assert (moved.element, moved.element_effective) == ("container", "component")
+    assert (moved.element, moved.element_effective) == (None, "component")
 
 
 # ── Раскладка ─────────────────────────────────────────────────────────────────

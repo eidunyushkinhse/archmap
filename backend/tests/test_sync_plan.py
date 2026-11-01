@@ -413,13 +413,15 @@ def test_sync_preview_endpoint(db):
     from app.schemas.project import SyncPreviewIn
 
     user = ensure_architect(db)
-    p = seed_project_from_yaml(db, [RUN])
+    # Тип выбран всегда: у объекта с вложенными тип указан в файле.
+    run = RUN.replace("  - name: Система\n", "  - name: Система\n    element: system\n")
+    p = seed_project_from_yaml(db, [run])
 
-    same = sync_preview(p.id, SyncPreviewIn(contents=[RUN]), db=db, user=user)
+    same = sync_preview(p.id, SyncPreviewIn(contents=[run]), db=db, user=user)
     assert same.ok and same.is_noop
     assert same.summary == {"nodes_unchanged": 4, "edges_unchanged": 2}
 
-    grown = RUN.replace(
+    grown = run.replace(
         "edges:",
         "      - name: cache\n        source: {host: cache}\nedges:\n  - {from: payments, to: cache, label: кэширует}",
     )

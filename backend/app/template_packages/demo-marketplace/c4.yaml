@@ -1,11 +1,13 @@
 nodes:
 - name: Маркетплейс «Ярмарка»
   shape: service
+  element: system
   role: система
   description: 'Онлайн-маркетплейс: витрина, каталог товаров, заказы, оплата, поиск и уведомления. Продавцы публикуют товары, покупатели оформляют и оплачивают заказы.'
   children:
   - name: API Gateway
     shape: service
+    element: container
     role: шлюз
     technology: Kong
     description: 'Единая точка входа: маршрутизация к сервисам, проверка JWT, ограничение частоты запросов.'
@@ -21,6 +23,7 @@ nodes:
     - ВМ брокера
   - name: Веб-витрина
     shape: service
+    element: container
     role: SPA
     technology: React
     description: 'Витрина маркетплейса в браузере: каталог, корзина, оформление заказа, кабинет продавца.'
@@ -30,11 +33,13 @@ nodes:
     - Кластер prod
   - name: Заказы
     shape: service
+    element: system
     role: подсистема
     description: 'Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.'
     children:
     - name: Order API
       shape: service
+      element: container
       role: сервис
       technology: Python/FastAPI
       description: Принимает и хранит заказы, отдаёт их состав и статус, публикует события жизненного цикла заказа.
@@ -81,6 +86,7 @@ nodes:
           path: services/order-saga/steps
   - name: Мобильное приложение
     shape: service
+    element: container
     role: клиент
     technology: iOS/Android
     description: Мобильный клиент покупателя. Ходит в тот же API Gateway, что и веб-витрина.
@@ -88,11 +94,13 @@ nodes:
       repo: github.com/yarmarka/mobile-app
   - name: Сервис каталога
     shape: service
+    element: system
     role: подсистема
     description: 'Домен товара: карточки, категории, кэш и поток событий изменений для поискового индекса.'
     children:
     - name: Catalog API
       shape: service
+      element: container
       role: сервис
       technology: Python/FastAPI
       description: Карточки товаров и категории. Пишет изменения в БД, кэширует карточки, публикует события изменений.
@@ -110,6 +118,7 @@ nodes:
       - Managed PostgreSQL
     - name: Индексатор товаров
       shape: service
+      element: container
       role: воркер
       technology: Python
       description: Слушает события изменения товаров и пакетно обновляет поисковый индекс.
@@ -127,6 +136,7 @@ nodes:
       - Кластер prod
   - name: Сервис оплаты
     shape: service
+    element: system
     role: подсистема
     description: 'Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.'
     sites:
@@ -134,6 +144,7 @@ nodes:
     children:
     - name: Payment API
       shape: service
+      element: container
       role: сервис
       technology: Java/Spring
       description: Выставляет счета, проводит платежи через ЮKassa, принимает вебхуки статуса, хранит платежи и вердикты антифрода.
@@ -142,6 +153,7 @@ nodes:
         path: services/payment-api
     - name: Антифрод
       shape: service
+      element: container
       role: сервис
       technology: Python
       description: Скоринг транзакций по правилам и ML-модели. Без своего состояния — правила и модель приезжают конфигурацией.
@@ -155,6 +167,7 @@ nodes:
       description: Платежи и результаты антифрод-проверок.
   - name: Сервис поиска
     shape: service
+    element: system
     role: подсистема
     description: 'Домен поиска: полнотекстовый индекс товаров и API поисковых запросов.'
     children:
@@ -167,6 +180,7 @@ nodes:
       - ВМ поиска
     - name: Search API
       shape: service
+      element: container
       role: сервис
       technology: Go
       description: Поиск товаров по индексу с фильтрами и ранжированием.
@@ -177,11 +191,13 @@ nodes:
       - Кластер prod
   - name: Сервис пользователей
     shape: service
+    element: system
     role: подсистема
     description: 'Домен пользователя: учётные записи, вход и токены, профиль и адреса доставки.'
     children:
     - name: Auth API
       shape: service
+      element: container
       role: сервис
       technology: Python/FastAPI
       description: Регистрация, вход, выпуск и обновление JWT, обслуживание refresh-токенов.
@@ -192,6 +208,7 @@ nodes:
       - Кластер prod
     - name: Profile API
       shape: service
+      element: container
       role: сервис
       technology: Python/FastAPI
       description: Профиль покупателя и адреса доставки.
@@ -209,17 +226,20 @@ nodes:
       - Managed PostgreSQL
   - name: Сервис рекомендаций
     shape: service
+    element: container
     status: planned
     role: сервис
     technology: Python
     description: Планируемый сервис персональных подборок на главной. Пока отдаёт популярные товары, ML-ранжирование — в планах.
   - name: Сервис уведомлений
     shape: service
+    element: system
     role: подсистема
     description: 'Домен уведомлений: шаблоны, журнал отправки, доставка писем и SMS через внешнего провайдера.'
     children:
     - name: Notification worker
       shape: service
+      element: container
       role: воркер
       technology: Python
       description: Слушает события заказов, собирает письма по шаблонам и отправляет их через провайдера рассылок.
@@ -230,6 +250,7 @@ nodes:
       - Кластер prod
     - name: SMS-рассыльщик
       shape: service
+      element: container
       status: deprecated
       role: воркер
       technology: Python
@@ -248,6 +269,7 @@ nodes:
       - Managed PostgreSQL
 - name: Платёжный шлюз ЮKassa
   shape: service
+  element: system
   role: внешняя система
   technology: REST API
   external: true
@@ -259,6 +281,7 @@ nodes:
   description: Выбирает товары, оформляет и оплачивает заказы, получает уведомления и доставку.
 - name: Провайдер рассылок
   shape: service
+  element: system
   role: внешняя система
   technology: Email/SMS
   external: true
@@ -270,6 +293,7 @@ nodes:
   description: Публикует товары, управляет ценами и остатками через кабинет на витрине.
 - name: Служба доставки
   shape: service
+  element: system
   role: внешняя система
   technology: REST API
   external: true

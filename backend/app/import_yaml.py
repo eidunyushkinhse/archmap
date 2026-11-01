@@ -46,6 +46,7 @@ from app.domain_types import (
     SiteKind,
     pick,
 )
+from app.element import stored_elements
 from app.element_marks import ElementRow, build_elements
 from app.identity import SourceRef, source_keys
 from app.import_element import sanitize_elements
@@ -821,7 +822,16 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> lis
     не по пути — пути неоднозначны (якорь source_ref разводит тёзок в одном
     родителе). Прежним вызывающим возврат не мешает: они его игнорируют."""
     ids: list[uuid.UUID] = []
-    for n in parsed.nodes:
+    # Тип выбран всегда (решение владельца 2026-11-01): лист-сервис без элемента —
+    # контейнер (внешний — система), всё внутри контейнера — без элемента; проект новый,
+    # и дерево целиком в документе (app/element.stored_elements).
+    elements = stored_elements(
+        {i: n.parent_idx for i, n in enumerate(parsed.nodes)},
+        {i: n.shape for i, n in enumerate(parsed.nodes)},
+        {i: n.element for i, n in enumerate(parsed.nodes)},
+        external=[i for i, n in enumerate(parsed.nodes) if n.is_external],
+    )
+    for i, n in enumerate(parsed.nodes):
         nid = uuid.uuid4()
         ids.append(nid)
         db.add(
@@ -835,7 +845,7 @@ def seed_import(db: Session, project_id: uuid.UUID, parsed: ParsedImport) -> lis
                 shape=n.shape,
                 status=n.status,
                 is_external=n.is_external,
-                element=n.element,
+                element=elements[i],
                 # Сильнейший якорь прогона: по нему будущий синк узнает узел, даже
                 # если сервис переименуют (docs/plan-arch-sync.md).
                 source_ref=n.source_keys[0] if n.source_keys else None,

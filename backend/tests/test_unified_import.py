@@ -1827,8 +1827,9 @@ def test_применение_кладёт_вложенного_пользова
     """Сквозь создание проекта единым ввозом: «Пользователь», вложенный в файле в систему
     и в контейнер, ложится на верхний уровень, связи с ним целы."""
     план = build_unified_plan([("shop.yaml", (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: Покупатель\n"
-        "        shape: person\n      - name: orders\n        element: container\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: Покупатель\n        shape: person\n"
+        "      - name: orders\n        element: container\n"
         "        children:\n          - name: api\n          - name: Оператор\n"
         "            shape: person\n"
         "edges:\n  - {from: Покупатель, to: orders}\n  - {from: Оператор, to: api}\n"
@@ -2491,6 +2492,7 @@ def test_склейка_объединяет_размещение_поглощё
 _ЭЛЕМЕНТ_1 = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
         element: system
@@ -2500,6 +2502,7 @@ nodes:
 _ЭЛЕМЕНТ_2 = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
         element: container
@@ -2573,8 +2576,8 @@ _ПЛОЩАДКА_ВМ = "deployment:\n  sites:\n    - name: ВМ\n"
 def _с_базой(tech: str) -> str:
     """orders — система: у api свои площадки, база внутри."""
     return (
-        "nodes:\n  - name: Ярмарка\n    children:\n      - name: orders\n"
-        "        element: system\n        children:\n"
+        "nodes:\n  - name: Ярмарка\n    element: system\n    children:\n"
+        "      - name: orders\n        element: system\n        children:\n"
         "          - name: api\n            sites: [ВМ]\n"
         f"          - name: orders-db\n            shape: database\n            technology: {tech}\n"
     ) + _ПЛОЩАДКА_ВМ
@@ -2757,6 +2760,7 @@ def test_склейка_переносит_элемент_через_прави�
 _ПОХОЖЕ = """
 nodes:
   - name: Ярмарка
+    element: system
     children:
       - name: orders
         source: {repo: github.com/org/shop, path: services/orders}
@@ -2850,15 +2854,6 @@ def test_похоже_на_контейнер_ответ_контейнер_да
     assert узлы["orders-cache"].parent_id == узлы["Ярмарка"].id
     assert any("внутри лежит база данных «orders-cache»" in w for w in отчёт.warnings)
     assert any("Ваши решения: отмечено контейнерами 1" in w for w in отчёт.warnings)
-
-
-@pytest.mark.parametrize("ответ", [None, {"container_hints": {_ПОДСКАЗКА: "system"}}])
-def test_похоже_на_контейнер_система_и_молчание_оставляют_как_есть(db, ответ):
-    узлы, отчёт = _создать_с_ответом(db, ответ)
-
-    assert узлы["orders"].element is None
-    assert узлы["orders-cache"].parent_id == узлы["api"].id
-    assert not any("Ваши решения" in w for w in отчёт.warnings)
 
 
 def test_похоже_на_контейнер_ответ_проверяется():
