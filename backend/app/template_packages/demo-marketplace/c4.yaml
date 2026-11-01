@@ -28,14 +28,7 @@ nodes:
       repo: github.com/yarmarka/storefront-web
     sites:
     - Кластер prod
-  - name: Мобильное приложение
-    shape: service
-    role: клиент
-    technology: iOS/Android
-    description: Мобильный клиент покупателя. Ходит в тот же API Gateway, что и веб-витрина.
-    source:
-      repo: github.com/yarmarka/mobile-app
-  - name: Сервис заказов
+  - name: Заказы
     shape: service
     role: сервис
     description: 'Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.'
@@ -60,6 +53,7 @@ nodes:
       - Управляемая PostgreSQL
     - name: Оркестратор заказа
       shape: service
+      element: container
       role: воркер (сага)
       technology: Python
       description: 'Ведёт сагу заказа по событиям: выставляет счёт после создания, создаёт отправление после оплаты, ретраит упавшие шаги.'
@@ -68,6 +62,30 @@ nodes:
         path: services/order-saga
       sites:
       - Кластер prod
+      children:
+      - name: Приём событий
+        shape: service
+        role: потребитель событий
+        technology: Python
+        description: Читает события заказов из orders.events, определяет тип события и передаёт его шагам саги.
+        source:
+          repo: github.com/yarmarka/orders
+          path: services/order-saga/consumer
+      - name: Шаги саги
+        shape: service
+        role: шаги саги
+        technology: Python
+        description: Выставляет счёт, создаёт отправление, ведёт журнал саги и повторяет упавшие шаги.
+        source:
+          repo: github.com/yarmarka/orders
+          path: services/order-saga/steps
+  - name: Мобильное приложение
+    shape: service
+    role: клиент
+    technology: iOS/Android
+    description: Мобильный клиент покупателя. Ходит в тот же API Gateway, что и веб-витрина.
+    source:
+      repo: github.com/yarmarka/mobile-app
   - name: Сервис каталога
     shape: service
     role: сервис
@@ -317,7 +335,7 @@ edges:
   channel: catalog.product-events
   sync: false
 - from: Kafka
-  to: Оркестратор заказа
+  to: Приём событий
   label: События заказов для саги
   technology: Kafka
   channel: orders.events
@@ -386,18 +404,6 @@ edges:
   to: API Gateway
   label: REST-запросы
   technology: JSON/HTTPS
-- from: Оркестратор заказа
-  to: Payment API
-  label: Выставление счёта
-  technology: REST
-- from: Оркестратор заказа
-  to: БД заказов
-  label: Журнал саги и статусы заказа
-  technology: SQL
-- from: Оркестратор заказа
-  to: Служба доставки
-  label: Создание отправления
-  technology: REST
 - from: Платёжный шлюз ЮKassa
   to: Payment API
   label: Webhook о статусе платежа
@@ -414,6 +420,9 @@ edges:
   to: Платёжный шлюз ЮKassa
   label: Оплачивает на странице шлюза
   technology: HTTPS
+- from: Приём событий
+  to: Шаги саги
+  label: Передаёт событие заказа
 - from: Провайдер рассылок
   to: Покупатель
   label: Письма и SMS покупателю
@@ -426,6 +435,18 @@ edges:
   to: Покупатель
   label: Доставляет заказы
   technology: Курьерская сеть
+- from: Шаги саги
+  to: Payment API
+  label: Выставление счёта
+  technology: REST
+- from: Шаги саги
+  to: БД заказов
+  label: Журнал саги и статусы заказа
+  technology: SQL
+- from: Шаги саги
+  to: Служба доставки
+  label: Создание отправления
+  technology: REST
 deployment:
   sites:
   - name: Облако

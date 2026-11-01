@@ -1,7 +1,7 @@
 %% archmap-name: Получение заказа
 %% archmap-kind: operation
 %% archmap-operation: GET /orders/{order_id}
-%% archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+%% archmap-node: Маркетплейс «Ярмарка» / Заказы / Order API
 graph TD
   A["Принять номер заказа"] --> B["Найти заказ владельца<br>читает: orders"]
   B --> C{"Заказ найден<br>и принадлежит покупателю?"}

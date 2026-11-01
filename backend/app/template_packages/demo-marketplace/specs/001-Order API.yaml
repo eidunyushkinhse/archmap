@@ -1,4 +1,4 @@
-# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+# archmap-node: Маркетплейс «Ярмарка» / Заказы / Order API
 openapi: 3.0.3
 info:
   title: Order API
