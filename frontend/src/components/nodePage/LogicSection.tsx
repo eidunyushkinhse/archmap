@@ -27,7 +27,7 @@ const OWN_DOCS_WARN: Record<NestedKind, string> = {
 };
 const COMPONENTS_EMPTY = "Схемы логики компонентов появятся здесь, когда их опишут";
 const NESTED_EMPTY: Record<NestedKind, string> = {
-  system: "Это система, своих схем логики у неё нет. Схемы логики описывают у её контейнеров и компонентов",
+  system: "Это система, своих схем логики у неё нет. Схемы логики можно описать у её контейнеров и компонентов",
   container: COMPONENTS_EMPTY,
   composite: COMPONENTS_EMPTY,
 };

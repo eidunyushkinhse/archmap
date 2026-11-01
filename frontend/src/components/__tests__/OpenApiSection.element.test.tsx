@@ -57,7 +57,7 @@ const ORDERS = { id: "c", name: "orders" };
 describe("OpenApiSection: система", () => {
   it("пусто — своего API у системы нет, меню «+ Добавить» нет", () => {
     renderSection({ kind: "system" });
-    expect(screen.getByText("Это система, своего API у неё нет. Спецификации описывают у её контейнеров")).toBeInTheDocument();
+    expect(screen.getByText("Это система, своего API у неё нет. Спецификацию можно описать у её контейнеров")).toBeInTheDocument();
     expect(screen.queryByText("+ Добавить")).not.toBeInTheDocument();
   });
 

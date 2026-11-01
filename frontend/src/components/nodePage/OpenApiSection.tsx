@@ -111,7 +111,7 @@ export default function OpenApiSection({
             )}
           </>
         ) : (
-          <p className="np-empty">Это система, своего API у неё нет. Спецификации описывают у её контейнеров</p>
+          <p className="np-empty">Это система, своего API у неё нет. Спецификацию можно описать у её контейнеров</p>
         )}
       </div>
     );
