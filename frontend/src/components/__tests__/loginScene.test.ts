@@ -9,11 +9,11 @@ import { getNodeColors, STATUS_META } from "../graph/colors";
 const ids = (t: number) => sceneFrame(t).edges.map((e) => e.id);
 
 describe("sceneFrame", () => {
-  it("t=0: контейнер свёрнут, детей нет, две связи в его бока", () => {
+  it("t=0: система свёрнута, детей нет, две связи в её бока", () => {
     const f = sceneFrame(0);
     expect(f.children).toHaveLength(0);
     expect(f.frame).toBeNull();
-    expect(f.container?.name).toBe("Сервис заказов");
+    expect(f.container?.name).toBe("Заказы");
     expect(f.container?.alpha).toBe(1);
     expect(ids(0)).toEqual(["checkout", "shipment"]);
     expect(f.edges.every((e) => e.alpha === 1)).toBe(true);
@@ -24,7 +24,7 @@ describe("sceneFrame", () => {
     expect(f.children.map((c) => c.name)).toEqual(["Order API", "Оркестратор"]);
     expect(f.children.every((c) => c.alpha === 1)).toBe(true);
     expect(f.container).toBeNull();
-    expect(f.frame).toEqual(expect.objectContaining({ name: "Сервис заказов", alpha: 1 }));
+    expect(f.frame).toEqual(expect.objectContaining({ name: "Заказы", alpha: 1 }));
     expect(ids(1)).toEqual(["checkout-api", "api-orchestrator", "orchestrator-shipment"]);
     expect(f.edges.map((e) => e.label.join(" "))).toEqual([
       "Оформление заказа · REST", "События заказа · Kafka", "Создание отправки · REST",

@@ -9,7 +9,7 @@ import {
   type Screen, type StepId, type TourStep,
 } from "./tourSteps";
 
-/** Что тур узнал о своём проекте пользователя по ходу шагов 14–20. */
+/** Что тур узнал о своём проекте пользователя по ходу его шагов (создание проекта и объектов). */
 export interface TourVars {
   ownProjectId?: string;
   systemId?: string;
@@ -41,15 +41,21 @@ export interface TourState {
   dir: 1 | -1;
   vars: TourVars;
   pause?: TourPausePoint;
+  /** шаг, на котором появился объект не того типа: пока шаг тот же, карточка просит
+   *  создать нужный (retry шага) */
+  wrongAt?: StepId;
 }
 
 /** Сигналы продукта: маршрут, шина событий (projectId — проект маршрута в момент
- *  события) и состояния DOM: окно «Новый проект» открылось, ветка «Сервиса заказов»
+ *  события) и состояния DOM: окно «Новый проект» открылось, ветка «Заказы»
  *  в дереве раскрыта. */
 export type TourSignal =
   | { kind: "route"; route: TourRoute }
   | { kind: "level"; projectId: string; levelId: string | null }
-  | { kind: "node-created"; projectId: string | null; id: string; name: string; shape: string; parentId: string | null }
+  | {
+    kind: "node-created"; projectId: string | null; id: string; name: string; shape: string;
+    element: string | null; parentId: string | null;
+  }
   | { kind: "edge-created"; projectId: string | null; id: string; sourceId: string; targetId: string }
   | { kind: "edge-reconnected"; projectId: string | null; fromId: string; toId: string }
   | { kind: "node-expanded"; projectId: string | null; id: string }
@@ -102,7 +108,7 @@ export function canGoBack(step: StepId): boolean {
 }
 
 const OWN_STEPS = new Set<StepId>([
-  "create-system", "add-peer", "connect", "context-diagram", "enter-system", "add-child",
+  "types", "create-system", "add-peer", "connect", "context-diagram", "enter-system", "add-child",
   "rehang", "go-up", "context-edge", "expand-own", "inside",
 ]);
 
@@ -114,7 +120,7 @@ function needsYar(step: TourStep): boolean {
 /** Можно ли показать шаг: «no» — пропускаем, «unknown» — данные ещё грузятся. */
 export function availability(id: StepId, state: TourState, env: TourEnv): Availability {
   const step = STEPS[id];
-  // Свой проект уже создан: «Новый проект» погашена, шаги 13–14 не выполнить.
+  // Свой проект уже создан: «Новый проект» погашена, шаги создания проекта не выполнить.
   if ((id === "new-project" || id === "create-blank") && state.vars.ownProjectId) return "no";
   if (OWN_STEPS.has(id) && !state.vars.ownProjectId) return "no";
   if (needsYar(step)) {
@@ -187,10 +193,12 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
       const pid = routeProject(s.route);
       return pid && pid !== yar ? { ownProjectId: pid } : null;
     }
-    // «Система» и «Контейнер» с палитры (шаги 15 и 20) — в модели форма service с
-    // элементом (Р35 раздела 13 docs/plan-c4-elements.md): событие несёт форму.
+    // «Система» и «Контейнер» с палитры (шаги 18 и 23) — в модели форма service с
+    // элементом (Р35 раздела 13 docs/plan-c4-elements.md): событие несёт форму и
+    // элемент. Контейнер в корне — не система: дальше тур вошёл бы в него, как в систему.
     case "create-system":
-      return s.kind === "node-created" && s.projectId === own && s.parentId === null && s.shape === "service"
+      return s.kind === "node-created" && s.projectId === own && s.parentId === null
+        && s.shape === "service" && s.element === "system"
         ? { systemId: s.id, systemName: s.name }
         : null;
     case "add-peer":
@@ -204,7 +212,7 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
       return ok(s.kind === "level" && s.projectId === own && !!state.vars.systemId && s.levelId === state.vars.systemId);
     case "add-child":
       return s.kind === "node-created" && s.projectId === own && !!state.vars.systemId
-        && s.parentId === state.vars.systemId && s.shape === "service"
+        && s.parentId === state.vars.systemId && s.shape === "service" && s.element === "container"
         ? { childId: s.id, childName: s.name }
         : null;
     case "rehang":
@@ -219,6 +227,20 @@ function actDone(state: TourState, s: TourSignal, env: TourEnv): TourVars | null
         && !!state.vars.systemId && s.id === state.vars.systemId);
     default:
       return null;
+  }
+}
+
+/** На шаге создания объект появился в нужном месте, но другого типа (тип сменили в окне,
+ *  объект создан не с плитки): шаг ждёт дальше, карточка просит создать нужный. */
+function wrongType(state: TourState, s: TourSignal): boolean {
+  if (s.kind !== "node-created" || !state.vars.ownProjectId || s.projectId !== state.vars.ownProjectId) return false;
+  switch (state.step) {
+    case "create-system":
+      return s.parentId === null;
+    case "add-child":
+      return !!state.vars.systemId && s.parentId === state.vars.systemId;
+    default:
+      return false;
   }
 }
 
@@ -249,7 +271,7 @@ export function reduceTour(state: TourState, action: TourAction, env: TourEnv): 
     case "signal": {
       if (kind !== "act") return state;
       const caught = actDone(state, action.signal, env);
-      if (!caught) return state;
+      if (!caught) return wrongType(state, action.signal) ? { ...state, wrongAt: state.step } : state;
       return move({ ...state, vars: { ...state.vars, ...caught } }, 1, env);
     }
   }
@@ -306,8 +328,17 @@ export function treeExpandTarget(state: TourState, env: TourEnv): string | null 
   return state.step === "tree" ? env.yarObjects?.get(YAR_ORDERS) ?? null : null;
 }
 
-/** Тексты шага с подставленными именами созданных объектов. */
-export function stepTexts(step: TourStep, vars: TourVars): { title: string; body: string; action?: string } {
+/** Чью ветку дерева слева шаг раскрывает сам на входе (treeOpen; null — не раскрывает). */
+export function treeOpenTarget(state: TourState, env: TourEnv): string | null {
+  const name = STEPS[state.step].treeOpen;
+  return name ? env.yarObjects?.get(name) ?? null : null;
+}
+
+/** Тексты шага с подставленными именами созданных объектов; wrong — на шаге появился
+ *  объект не того типа: к текстам добавляется подсказка retry. */
+export function stepTexts(
+  step: TourStep, vars: TourVars, wrong = false,
+): { title: string; body: string; note?: string; action?: string; retry?: string } {
   const sub = (s: string) => s
     .replaceAll("{system}", vars.systemName ?? FALLBACK_NAMES.system)
     .replaceAll("{peer}", vars.peerName ?? FALLBACK_NAMES.peer)
@@ -315,7 +346,9 @@ export function stepTexts(step: TourStep, vars: TourVars): { title: string; body
   return {
     title: sub(step.title),
     body: sub(step.body),
+    ...(step.note ? { note: sub(step.note) } : {}),
     ...(step.action ? { action: sub(step.action) } : {}),
+    ...(wrong && step.retry ? { retry: step.retry } : {}),
   };
 }
 
@@ -331,7 +364,8 @@ export function onScreen(screen: Screen, route: TourRoute, state: TourState, env
     case "yar-home":
       return route.name === "project-home" && !!yar && pid === yar;
     case "yar-shell":
-      return (route.name === "project-home" || route.name === "node") && !!yar && pid === yar;
+      return (route.name === "project-home" || route.name === "node" || route.name === "deploy")
+        && !!yar && pid === yar;
     case "yar-any":
       return !!yar && pid === yar;
     case "yar-map":

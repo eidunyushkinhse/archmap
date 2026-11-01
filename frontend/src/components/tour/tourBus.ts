@@ -6,8 +6,9 @@
 import { createEmitter } from "../../lib/emitter";
 
 export type TourBusEvent =
-  /** создан объект (окно «Новый объект») */
-  | { type: "node-created"; id: string; name: string; shape: string; parentId: string | null }
+  /** создан объект (окно «Новый объект»); element — хранимый элемент (system,
+   *  container или null): «Система» и «Контейнер» в модели — форма service с элементом */
+  | { type: "node-created"; id: string; name: string; shape: string; element: string | null; parentId: string | null }
   /** создана связь (окна создания связи в редакторе) */
   | { type: "edge-created"; id: string; sourceId: string; targetId: string }
   /** конец связи перевешен с рамки на узел внутри неё и сохранён */

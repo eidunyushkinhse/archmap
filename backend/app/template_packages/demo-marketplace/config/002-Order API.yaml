@@ -1,4 +1,4 @@
-# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+# archmap-node: Маркетплейс «Ярмарка» / Заказы / Order API
 config:
 - name: DATABASE_URL
   type: string

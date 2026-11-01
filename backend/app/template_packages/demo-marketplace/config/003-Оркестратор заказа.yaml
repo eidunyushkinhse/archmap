@@ -1,4 +1,4 @@
-# archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Оркестратор заказа
+# archmap-node: Маркетплейс «Ярмарка» / Заказы / Оркестратор заказа
 config:
 - name: DATABASE_URL
   type: string

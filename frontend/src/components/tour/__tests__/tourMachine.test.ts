@@ -4,13 +4,13 @@
 import { describe, it, expect } from "vitest";
 import {
   availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState,
-  stepTexts, stepTotal, treeExpandTarget,
+  stepTexts, stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "../tourMachine";
 import { parseTourState } from "../tourPersist";
 import { parseTourRoute } from "../tourRoute";
 import {
-  FULL_SEQUENCE, STEPS, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_SELLER, YAR_SYSTEM,
+  FULL_SEQUENCE, STEPS, YAR_INTAKE, YAR_ORCH, YAR_ORDER_API, YAR_ORDERS, YAR_SAGA_STEPS, YAR_SELLER, YAR_SYSTEM,
   type StepId,
 } from "../tourSteps";
 
@@ -22,6 +22,8 @@ const OBJECTS = new Map<string, string>([
   [YAR_ORDERS, "c0de-03"],
   [YAR_ORDER_API, "c0de-04"],
   [YAR_ORCH, "c0de-07"],
+  [YAR_INTAKE, "c0de-08"],
+  [YAR_SAGA_STEPS, "c0de-09"],
 ]);
 const ENV: TourEnv = { yarProjectId: YAR, yarObjects: OBJECTS };
 
@@ -80,7 +82,7 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(focusTarget(at("inside", { vars: OWN_VARS }), ENV)).toBeNull();
   });
 
-  it("дерево: раскрыл «Сервис заказов» — открой «Оркестратор заказа»; его страница — документация", () => {
+  it("дерево: раскрыл «Заказы» — открой «Оркестратор заказа»; его страница — документация", () => {
     let s = run(at("service-expanded"), [NEXT]);
     expect(s.step).toBe("tree");
     expect(treeExpandTarget(s, ENV)).toBe("c0de-03");
@@ -96,9 +98,35 @@ describe("тур — проход по «Ярмарке»", () => {
     expect(screenHash(STEPS.docs.screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
   });
 
-  it("документация — один ознакомительный шаг: «Далее» ведёт к процессам", () => {
-    expect(run(at("docs"), [NEXT]).step).toBe("processes");
-    expect(run(at("processes"), [BACK]).step).toBe("docs");
+  it("документация, затем компоненты «Оркестратора заказа» — ознакомительные шаги перед процессами", () => {
+    expect(run(at("docs"), [NEXT]).step).toBe("components");
+    expect(run(at("components"), [NEXT]).step).toBe("processes");
+    expect(run(at("processes"), [BACK]).step).toBe("components");
+    expect(run(at("components"), [BACK]).step).toBe("docs");
+  });
+
+  it("после процессов — «Развёртывание» (оболочка «Ярмарки», режим переключает тур), затем логотип", () => {
+    expect(run(at("processes"), [NEXT]).step).toBe("deploy");
+    expect(run(at("deploy"), [NEXT]).step).toBe("leave-yar");
+    expect(run(at("leave-yar"), [BACK]).step).toBe("deploy");
+    expect(STEPS.deploy).toMatchObject({
+      kind: "info", mode: "deploy", screen: { kind: "yar-shell" },
+      target: { kind: "pair", main: { kind: "tour", key: "mode-deploy" }, zone: { kind: "tour", key: "deploy-diagram" } },
+    });
+  });
+
+  it("компоненты: та же страница «Оркестратора заказа», ветку в дереве тур раскрывает сам", () => {
+    const s = at("components");
+    expect(screenHash(STEPS.components.screen, s, ENV)).toBe(`/p/${YAR}/nodes/c0de-07`);
+    expect(treeOpenTarget(s, ENV)).toBe("c0de-07");
+    expect(treeOpenTarget(at("docs"), ENV)).toBeNull();
+    expect(STEPS.components.target).toEqual({ kind: "yar-tree-rows", names: [YAR_INTAKE, YAR_SAGA_STEPS] });
+  });
+
+  it("гость удалил компонент: после документации — сразу процессы", () => {
+    const objects = new Map(OBJECTS);
+    objects.delete(YAR_SAGA_STEPS);
+    expect(run(at("docs"), [NEXT], { ...ENV, yarObjects: objects }).step).toBe("processes");
   });
 
   it("нет «Оркестратора заказа»: после раскрытия ветки — сразу процессы", () => {
@@ -119,8 +147,12 @@ describe("тур — проход по «Ярмарке»", () => {
     s = run(s, [sig({ kind: "dom", key: "create-project" })]);
     expect(s.step).toBe("create-blank");
     s = run(s, [route(`#/p/${OWN}`)]);
-    expect(s.step).toBe("create-system");
+    // свой проект открыт — сначала шесть типов объектов у палитры, затем «Система»
+    expect(s.step).toBe("types");
     expect(s.vars.ownProjectId).toBe(OWN);
+    expect(STEPS.types).toMatchObject({ kind: "info", screen: { kind: "own-map" }, target: { kind: "tour", key: "palette" } });
+    s = run(s, [NEXT]);
+    expect(s.step).toBe("create-system");
   });
 
   it("на шаге создания проекта переход в «Ярмарку» — не свой проект", () => {
@@ -159,12 +191,12 @@ describe("тур — пропуск ненайденных объектов", ()
     expect(run(s, [BACK], env).step).toBe("open-editor");
   });
 
-  it("нет «Сервиса заказов»: после раскрытия системы — документация «Оркестратора заказа»", () => {
+  it("нет «Заказов»: после раскрытия системы — документация «Оркестратора заказа»", () => {
     const objects = new Map(OBJECTS);
     objects.delete(YAR_ORDERS);
     const env = { ...ENV, yarObjects: objects };
     const s = run(at("expand-system"), [sig({ kind: "node-expanded", projectId: YAR, id: "c0de-02" })], env);
-    // 6–9 завязаны на «Сервис заказов» — следующий шаг документация «Оркестратора заказа»
+    // 6–9 завязаны на «Заказы» — следующий шаг документация «Оркестратора заказа»
     expect(s.step).toBe("docs");
   });
 
@@ -186,18 +218,54 @@ describe("тур — пропуск ненайденных объектов", ()
 });
 
 describe("тур — свой проект", () => {
-  it("система — новая «Система» (форма service) в корне своего проекта; второй объект — любой в корне", () => {
+  it("система — новая «Система» (форма service, элемент system) в корне своего проекта; второй объект — любой в корне", () => {
     let s = at("create-system", { vars: { ownProjectId: OWN } });
     // база в корне — не система
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", element: null, parentId: null })]);
     expect(s.step).toBe("create-system");
-    // сервис в чужом проекте — не система
-    s = run(s, [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "service", parentId: null })]);
+    // система в чужом проекте — не своя
+    s = run(s, [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "service", element: "system", parentId: null })]);
     expect(s.step).toBe("create-system");
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Платёжный шлюз", shape: "service", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Платёжный шлюз", shape: "service", element: "system", parentId: null })]);
     expect(s).toMatchObject({ step: "add-peer", vars: { systemId: "s1", systemName: "Платёжный шлюз" } });
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "p1", name: "Банк", shape: "person", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "p1", name: "Банк", shape: "person", element: null, parentId: null })]);
     expect(s).toMatchObject({ step: "connect", vars: { peerId: "p1", peerName: "Банк" } });
+  });
+
+  it("объект не того типа на шаге создания — шаг ждёт, карточка просит создать нужный", () => {
+    let s = at("create-system", { vars: { ownProjectId: OWN } });
+    expect(stepTexts(STEPS["create-system"], s.vars, s.wrongAt === "create-system").retry).toBeUndefined();
+    // контейнер в корне — не система (раньше тур принимал его и ломал вход в систему)
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "k1", name: "Касса", shape: "service", element: "container", parentId: null })]);
+    expect(s).toMatchObject({ step: "create-system", wrongAt: "create-system" });
+    expect(stepTexts(STEPS["create-system"], s.vars, s.wrongAt === "create-system").retry)
+      .toBe("Нужна именно система — создайте её плиткой «Система».");
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Шлюз", shape: "service", element: "system", parentId: null })]);
+    // подсказка осталась на прежнем шаге
+    expect(s.step).toBe("add-peer");
+    expect(stepTexts(STEPS[s.step], s.vars, s.wrongAt === s.step).retry).toBeUndefined();
+    // в чужом проекте объект другого типа подсказку не зовёт
+    const other = run(at("create-system", { vars: { ownProjectId: OWN } }),
+      [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "database", element: null, parentId: null })]);
+    expect(other.wrongAt).toBeUndefined();
+  });
+
+  it("в рамке системы — только «Контейнер»: база там же — подсказка, объект в корне — не в счёт", () => {
+    const vars = { ...OWN_VARS };
+    let s = at("add-child", { vars });
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", element: "container", parentId: null })]);
+    expect(s.step).toBe("add-child");
+    expect(s.wrongAt).toBeUndefined();
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", element: null, parentId: "s1" })]);
+    expect(s).toMatchObject({ step: "add-child", wrongAt: "add-child" });
+    expect(stepTexts(STEPS["add-child"], s.vars, true).retry).toBe("Нужен именно контейнер — создайте его плиткой «Контейнер».");
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", element: "container", parentId: "s1" })]);
+    expect(s).toMatchObject({ step: "rehang", vars: { childId: "c1" } });
+  });
+
+  it("на шагах создания с плитки окно держит тип плитки; на остальных — нет", () => {
+    const locked = (Object.keys(STEPS) as StepId[]).filter((id) => STEPS[id].lockType);
+    expect(locked).toEqual(["create-system", "add-child"]);
   });
 
   it("связь между системой и вторым объектом — в любую сторону", () => {
@@ -215,16 +283,16 @@ describe("тур — свой проект", () => {
     expect(run(s, [BACK]).step).toBe("context-diagram");
   });
 
-  it("вход на слой системы, сервис внутри, перевес связи, возврат и лупа", () => {
+  it("вход на слой системы, контейнер внутри, перевес связи, возврат и лупа", () => {
     let s = at("enter-system", { vars: OWN_VARS });
     s = run(s, [sig({ kind: "level", projectId: OWN, levelId: "p1" })]);
     expect(s.step).toBe("enter-system");
     s = run(s, [sig({ kind: "level", projectId: OWN, levelId: "s1" })]);
     expect(s.step).toBe("add-child");
-    // сервис в корне — не ребёнок системы
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", parentId: null })]);
+    // контейнер в корне — не ребёнок системы
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", element: "container", parentId: null })]);
     expect(s.step).toBe("add-child");
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", parentId: "s1" })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", element: "container", parentId: "s1" })]);
     expect(s).toMatchObject({ step: "rehang", vars: { childId: "c1", childName: "Касса" } });
     s = run(s, [sig({ kind: "edge-reconnected", projectId: OWN, fromId: "other", toId: "c1" })]);
     expect(s.step).toBe("rehang");
@@ -256,14 +324,20 @@ describe("тур — свой проект", () => {
       .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
     expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» в рамку «Платёжный шлюз».");
-    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился сервис.")).toBe(true);
+    expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился контейнер.")).toBe(true);
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
-      .toBe("Связь теперь ведёт прямо к сервису «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
+      .toBe("Связь теперь ведёт прямо к контейнеру «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
+    // абзац курсивом есть только у приветствия
+    expect(stepTexts(STEPS.welcome, vars).note).toBe(
+      "Чтобы поставить обучение на паузу и осмотреться, нажмите левой клавишей мыши в серую область экрана. "
+      + "Кнопка для продолжения будет справа сверху.",
+    );
+    expect(stepTexts(STEPS.rehang, vars)).not.toHaveProperty("note");
     expect(stepTexts(STEPS["context-edge"], vars).body)
       .toBe("Для слоя контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
     expect(stepTexts(STEPS.inside, vars).body).toBe(
-      "Внутри системы «Платёжный шлюз» связь приходит в сервис «Касса». "
+      "Внутри системы «Платёжный шлюз» связь приходит в контейнер «Касса». "
       + "Диаграмма контекста показывает систему целиком, а лупа показывает, что внутри.",
     );
   });
@@ -274,14 +348,15 @@ describe("тур — свой проект", () => {
 
   it("«Назад» со своего проекта перешагивает уже невыполнимое создание проекта", () => {
     const s = at("create-system", { vars: { ownProjectId: OWN } });
-    expect(run(s, [BACK]).step).toBe("leave-yar");
+    expect(run(s, [BACK]).step).toBe("types");
+    expect(run(s, [BACK, BACK]).step).toBe("leave-yar");
   });
 });
 
 describe("тур — повторный запуск при своём проекте", () => {
   it("короткий проход: «Ярмарка» до логотипа и короткий финал", () => {
-    expect(stepTotal("full")).toBe(25);
-    expect(stepTotal("short")).toBe(12);
+    expect(stepTotal("full")).toBe(28);
+    expect(stepTotal("short")).toBe(14);
     const s = run({ ...startState("short"), step: "leave-yar" }, [route("#/projects")]);
     expect(s.step).toBe("final-short");
     expect(stepTexts(STEPS[s.step], s.vars).body).toBe("Свой проект у вас уже есть. Продолжайте в нём.");
@@ -304,6 +379,10 @@ describe("тур — экраны шагов", () => {
     expect(onScreen(STEPS["create-system"].screen, parseTourRoute(`#/p/${OWN}`), own, ENV)).toBe(false);
     expect(onScreen(STEPS["leave-yar"].screen, parseTourRoute(`#/p/${YAR}/map`), own, ENV)).toBe(true);
     expect(onScreen(STEPS.processes.screen, parseTourRoute(`#/p/${YAR}/map`), own, ENV)).toBe(false);
+    // «Развёртывание» — тоже оболочка проекта, но не его главная
+    expect(onScreen(STEPS.deploy.screen, parseTourRoute(`#/p/${YAR}/deploy`), own, ENV)).toBe(true);
+    expect(onScreen(STEPS.processes.screen, parseTourRoute(`#/p/${YAR}/deploy/c0de-02`), own, ENV)).toBe(true);
+    expect(onScreen(STEPS["yar-home"].screen, parseTourRoute(`#/p/${YAR}/deploy`), own, ENV)).toBe(false);
   });
 
   it("куда вести при входе в шаг", () => {
@@ -330,6 +409,8 @@ describe("тур — маршрут и хранение", () => {
     expect(parseTourRoute(`#/p/${YAR}/nodes/abc-1`)).toEqual({ name: "node", projectId: YAR, nodeId: "abc-1" });
     expect(parseTourRoute(`#/p/${YAR}/map`)).toEqual({ name: "map", projectId: YAR });
     expect(parseTourRoute(`#/p/${YAR}/map/abc-1?locate=x`)).toEqual({ name: "map", projectId: YAR });
+    expect(parseTourRoute(`#/p/${YAR}/deploy`)).toEqual({ name: "deploy", projectId: YAR });
+    expect(parseTourRoute(`#/p/${YAR}/deploy/abc-1`)).toEqual({ name: "deploy", projectId: YAR });
     expect(parseTourRoute("#/admin/users")).toEqual({ name: "other" });
   });
 
@@ -343,6 +424,10 @@ describe("тур — маршрут и хранение", () => {
     expect(parseTourState(JSON.stringify({ ...s, variant: "short" }))).toBeNull();
     expect(parseTourState(JSON.stringify({ ...s, vars: { systemId: 5, peerName: "Банк" } })))
       .toMatchObject({ vars: { peerName: "Банк" } });
+    // подсказка «не тот тип» переживает перезагрузку; неизвестный шаг в ней — нет
+    const wrong = at("create-system", { vars: { ownProjectId: OWN }, wrongAt: "create-system" });
+    expect(parseTourState(JSON.stringify(wrong))).toEqual(wrong);
+    expect(parseTourState(JSON.stringify({ ...wrong, wrongAt: "nope" }))?.wrongAt).toBeUndefined();
   });
 });
 

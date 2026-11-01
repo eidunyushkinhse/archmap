@@ -1,7 +1,7 @@
 %% archmap-name: Создание заказа
 %% archmap-kind: operation
 %% archmap-operation: POST /orders
-%% archmap-node: Маркетплейс «Ярмарка» / Сервис заказов / Order API
+%% archmap-node: Маркетплейс «Ярмарка» / Заказы / Order API
 graph TD
   A["Принять состав корзины и адрес"] --> B["Проверить число позиций<br>зависит от: MAX_ITEMS_PER_ORDER"]
   B --> C{"Позиций не больше лимита?"}

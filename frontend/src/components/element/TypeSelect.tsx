@@ -1,7 +1,7 @@
 // Поле «Тип» (Р35–Р37 раздела 13 docs/plan-c4-elements.md) — выпадашка из шести типов,
 // один рендер на окно «Новый объект», инспектор редактора и «Свойства» страницы объекта.
-// Пункты в две строки: подпись и подсказка; серый пункт вместо подсказки объясняет,
-// почему он недоступен (aria-disabled), и не выбирается. Какие пункты серые, решает
+// Пункт — только название типа (подсказки под названием убраны по решению владельца
+// 2026-11-01); серый пункт (aria-disabled) не выбирается. Какие пункты серые, решает
 // чистая модель typeOptions; здесь только разметка и клавиатура.
 //
 // Клавиатура: пункты — кнопки (Tab и Enter работают сами), стрелки ходят по пунктам,
@@ -9,7 +9,7 @@
 // окно «Новый объект» — нативный <dialog>, и без этого клавиша закрыла бы всё окно.
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { TYPE_HINT, TYPE_LABEL, type NodeType } from "../nodeTerms";
+import { TYPE_LABEL, type NodeType } from "../nodeTerms";
 import type { TypeOption } from "./typeOptions";
 import "./element.css";
 
@@ -30,10 +30,14 @@ interface Props {
   label?: string;
   // Кнопка по ширине значения («Свойства» страницы), а не во всю ячейку.
   inline?: boolean;
+  // Значение видно, но меню не открывается: в окне «Новый объект» тип задаёт плитка,
+  // пока обучающий тур на шаге создания с неё.
+  disabled?: boolean;
 }
 
 export default function TypeSelect({
   value, valueLabel, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -84,6 +88,7 @@ export default function TypeSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
+        disabled={disabled}
       >
         <span className={value ? "ts-value" : "ts-value ts-placeholder"}>
           {value ? valueLabel ?? TYPE_LABEL[value] : placeholder}
@@ -105,7 +110,6 @@ export default function TypeSelect({
                 onClick={() => pick(o)}
               >
                 <span className="ts-label">{TYPE_LABEL[o.type]}</span>
-                <small className="ts-hint">{o.disabled ? o.reason : TYPE_HINT[o.type]}</small>
                 {o.type === value && <span className="ts-check" aria-hidden><CheckMark /></span>}
               </button>
             ))}

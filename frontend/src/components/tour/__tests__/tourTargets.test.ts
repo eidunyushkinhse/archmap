@@ -5,7 +5,7 @@ import { hiddenTarget, resolveTarget, revealTarget, type TargetCtx } from "../to
 
 const CTX: TargetCtx = {
   yarProjectId: "aaaa-0001",
-  yarObjects: new Map([["Продавец", "c0de-01"], ["Сервис заказов", "c0de-03"]]),
+  yarObjects: new Map([["Продавец", "c0de-01"], ["Заказы", "c0de-03"]]),
   vars: {},
 };
 
@@ -103,11 +103,24 @@ describe("составные цели", () => {
     const host = el('<div data-tour="tree-row:c0de-03"><button data-tour="tree-chev:c0de-03"></button></div>');
     withRect(host.querySelector("button")!, { x: 10, y: 300, w: 26, h: 28 });
     withRect(host.firstElementChild!, { x: 10, y: 300, w: 240, h: 28 });
-    const chev = resolveTarget({ kind: "yar-tree", name: "Сервис заказов", part: "chevron" }, CTX)!;
+    const chev = resolveTarget({ kind: "yar-tree", name: "Заказы", part: "chevron" }, CTX)!;
     expect(chev.elements).toEqual([host.querySelector("button")]);
-    const row = resolveTarget({ kind: "yar-tree", name: "Сервис заказов", part: "row" }, CTX)!;
+    const row = resolveTarget({ kind: "yar-tree", name: "Заказы", part: "row" }, CTX)!;
     expect(row.elements).toEqual([host.firstElementChild]);
     expect(resolveTarget({ kind: "yar-tree", name: "Продавец", part: "row" }, CTX)).toBeNull();
+  });
+
+  it("строки компонентов в дереве — один вырез на все; нет хоть одной строки — цели нет", () => {
+    const ctx = { ...CTX, yarObjects: new Map([["Приём событий", "c0de-08"], ["Шаги саги", "c0de-09"]]) };
+    const target = { kind: "yar-tree-rows", names: ["Приём событий", "Шаги саги"] } as const;
+    const host = el('<div data-tour="tree-row:c0de-08"></div><div data-tour="tree-row:c0de-09"></div>');
+    withRect(host.children[0], { x: 30, y: 330, w: 220, h: 28 });
+    expect(resolveTarget(target, ctx)).toBeNull();
+    withRect(host.children[1], { x: 30, y: 358, w: 220, h: 28 });
+    const res = resolveTarget(target, ctx)!;
+    expect(res.elements).toEqual([host.children[0], host.children[1]]);
+    expect(res.holes).toEqual([{ x: 24, y: 324, w: 232, h: 68, shape: "rect" }]);
+    expect(res.anchor).toEqual(res.holes[0]);
   });
 
   it("прямая связь — отрезок нулевой ширины (роутер ведёт линии прямо): цель находится, вырез с толщиной", () => {

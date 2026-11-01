@@ -18,13 +18,15 @@ import {
 } from "./tourBus";
 import {
   availability, canGoBack, expandTarget, focusTarget, onScreen, reduceTour, screenHash, startState, stepTexts,
-  stepTotal, treeExpandTarget,
+  stepTotal, treeExpandTarget, treeOpenTarget,
   type TourAction, type TourEnv, type TourSignal, type TourState,
 } from "./tourMachine";
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
 import { dropStaleTours, loadTour, saveTour } from "./tourPersist";
-import { markExitToPill, onTourRestart, onTourResume, setTourPaused, takeExitToPill } from "./tourStore";
+import {
+  markExitToPill, onTourRestart, onTourResume, setTourPaused, setTourTypeLock, takeExitToPill,
+} from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
@@ -185,7 +187,10 @@ function TourRuntime({ userId }: { userId: string }) {
         break;
       }
       case "node-created":
-        signal = { kind: "node-created", projectId: pid, id: e.id, name: e.name, shape: e.shape, parentId: e.parentId };
+        signal = {
+          kind: "node-created", projectId: pid, id: e.id, name: e.name, shape: e.shape, element: e.element,
+          parentId: e.parentId,
+        };
         break;
       case "edge-created":
         signal = { kind: "edge-created", projectId: pid, id: e.id, sourceId: e.sourceId, targetId: e.targetId };
@@ -243,6 +248,11 @@ function TourRuntime({ userId }: { userId: string }) {
   const paused = state.status === "paused";
   useLayoutEffect(() => { setTourPaused(paused); }, [paused]);
   useEffect(() => () => setTourPaused(false), []);
+  // Шаг создания с плитки (lockType): окно «Новый объект» держит тип плитки, пока тур идёт;
+  // на паузе человек осматривается сам, и тип свободен. Layout-эффект — как у паузы.
+  const typeLock = running && !!STEPS[state.step].lockType;
+  useLayoutEffect(() => { setTourTypeLock(typeLock); }, [typeLock]);
+  useEffect(() => () => setTourTypeLock(false), []);
 
   // ── «Ярмарка»: проект по имени, его объекты по именам ──
   useEffect(() => {
@@ -283,9 +293,11 @@ function TourRuntime({ userId }: { userId: string }) {
   const navForRef = useRef<StepId | null>(raw.step);
   // Разовые действия входа в шаг: режим оболочки выставлен, цель прокручена, уже
   // раскрытый узел засчитан, камера отведена ко всему слою (fit) и подведена к цели
-  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге.
+  // (focus); treeClosed — ветка дерева была свёрнутой на этом шаге; treeOpened — ветку,
+  // на чьи вложенные строки смотрит шаг, тур раскрыл сам (или она уже была раскрыта).
   const freshEntry = () => ({
-    mode: false, scroll: false, expanded: false, treeClosed: false, reveals: 0, revealAt: 0, fit: false, focus: false,
+    mode: false, scroll: false, expanded: false, treeClosed: false, treeOpened: false, reveals: 0, revealAt: 0,
+    fit: false, focus: false,
   });
   const doneForRef = useRef(freshEntry());
   useLayoutEffect(() => {
@@ -408,7 +420,7 @@ function TourRuntime({ userId }: { userId: string }) {
       // Шаг «Проведите связь»: стрелки протяжки на объекте-источнике видны сразу.
       const arrowsId = screenOk && step.target?.kind === "handles" ? st.vars.peerId ?? null : null;
       markArrows(arrowsId ? document.querySelector(rfNodeSel(arrowsId)) : null);
-      // Режим оболочки («Объекты»/«Процессы») — один раз на вход в шаг.
+      // Режим оболочки («Объекты»/«Процессы»/«Развёртывание») — один раз на вход в шаг.
       if (step.mode && screenOk && !doneForRef.current.mode) {
         const tab = document.querySelector<HTMLElement>(`[data-tour="mode-${step.mode}"]`);
         if (tab) {
@@ -434,6 +446,14 @@ function TourRuntime({ userId }: { userId: string }) {
         else if (st.dir === 1 || doneForRef.current.treeClosed) {
           send({ action: { type: "signal", signal: { kind: "dom", key: "tree-expanded" } }, env: en });
         }
+      }
+      // Шаг смотрит на вложенные строки ветки (treeOpen): страница объекта раскрывает
+      // дерево только до него самого — ветку раскрываем сами, один раз на вход в шаг.
+      const openId = screenOk && !doneForRef.current.treeOpened ? treeOpenTarget(st, en) : null;
+      const openChev = openId ? document.querySelector<HTMLElement>(`[data-tour="tree-chev:${openId}"]`) : null;
+      if (openChev) {
+        doneForRef.current.treeOpened = true;
+        if (openChev.getAttribute("aria-expanded") !== "true") openChev.click();
       }
       // «Новый проект»: окно открылось — шаг сделан; кнопка погашена — проект уже есть.
       if (st.step === "new-project") {
@@ -473,7 +493,7 @@ function TourRuntime({ userId }: { userId: string }) {
       motion={view.m ?? undefined}
       stepKey={view.step}
       step={step}
-      texts={stepTexts(step, state.vars)}
+      texts={stepTexts(step, state.vars, state.wrongAt === view.step)}
       count={step.n !== undefined ? `Шаг ${step.n} из ${stepTotal(state.variant)}` : null}
       canBack={canGoBack(view.step)}
       onNext={() => dispatch({ type: "next" })}

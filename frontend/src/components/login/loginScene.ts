@@ -1,5 +1,5 @@
 // Сцена превью на странице входа: кадр анимации по t∈[0,1] — чистая функция.
-// t=0 — контейнер «Сервис заказов» свёрнут, t=1 — раскрыт в рамку с детьми.
+// t=0 — система «Заказы» свёрнута, t=1 — раскрыта в рамку со своими контейнерами.
 // Геометрия и подписи — из принятого прототипа страницы входа; цвета узлов и связей —
 // из палитры холста (graph/colors.ts), чтобы картинка совпадала с редактором.
 // Это картинка, а не холст: ни React Flow, ни движок раскладки сюда не тянем.
@@ -13,10 +13,10 @@ export interface SceneBox { x: number; y: number; w: number; h: number }
 /** Обычный узел-сервис: заливка, имя, плашка технологии. */
 export interface SceneService { name: string; tag: string; x: number; y: number; colors: NodeColors }
 
-/** Свёрнутый контейнер (пунктир, «контейнер», лупа) — сам «Сервис заказов» или его дети. */
+/** Свёрнутый объект с содержимым (пунктир, лупа) — сама система «Заказы» или её дети. */
 export interface SceneContainer { name: string; box: SceneBox; colors: NodeColors; alpha: number }
 
-/** Рамка раскрытого контейнера: серый пунктир и плашка с именем внизу слева. */
+/** Рамка раскрытой системы: серый пунктир и плашка с именем внизу слева. */
 export interface SceneFrameBox { name: string; box: SceneBox; alpha: number }
 
 /** Ортогональная связь с подписью на белой плашке (строки подписи — сверху вниз). */
@@ -39,17 +39,17 @@ export const SCENE_NODE_H = 78;
 export const SCENE_VIEWBOX = "-12 34 784 346";
 
 // Цвет связи — цвет существующей связи на холсте; узлы — рампа C4 по глубине:
-// «Сервис заказов» и шлюз — глубина 1, дети раскрытого — глубина 2, внешний — 0.
+// «Заказы» и шлюз — глубина 1, дети раскрытой системы — глубина 2, внешний — 0.
 export const SCENE_EDGE_COLOR = STATUS_META.existing.edge;
 const DEPTH1 = getNodeColors(false, 1);
 const DEPTH2 = getNodeColors(false, 2);
 const EXTERNAL = getNodeColors(true, 0);
 
-const ORDER_SERVICE = "Сервис заказов";
+const ORDERS = "Заказы";
 const ROW_Y = 161; // верх ряда «шлюз — сервис — доставка»
 const MID_Y = ROW_Y + SCENE_NODE_H / 2; // уровень горизонтальных связей
 
-// Два состояния: свёрнуто / раскрыто. Соседи раздвигаются, контейнер становится рамкой.
+// Два состояния: свёрнуто / раскрыто. Соседи раздвигаются, система становится рамкой.
 const COLLAPSED = { gateway: 40, delivery: 570, box: { x: 305, y: ROW_Y, w: SCENE_NODE_W, h: SCENE_NODE_H } };
 const EXPANDED = { gateway: 0, delivery: 610, box: { x: 240, y: 48, w: 280, h: 318 } };
 const KIDS = [
@@ -69,7 +69,7 @@ const FADE_IN_START = 0.55;
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /** Кадр сцены по t∈[0,1] (вне отрезка — прижимается к краю). Морф рамки идёт всю
- *  длину перехода, смена содержимого — в середине: связи и свёрнутый контейнер
+ *  длину перехода, смена содержимого — в середине: связи и свёрнутая система
  *  гаснут до t=0.45, дети и связи раскрытого вида проявляются после t=0.55. */
 export function sceneFrame(tRaw: number): SceneFrame {
   const t = Math.min(1, Math.max(0, tRaw));
@@ -89,7 +89,7 @@ export function sceneFrame(tRaw: number): SceneFrame {
   const H = SCENE_NODE_H;
 
   const edges: SceneEdge[] = [];
-  // Связи свёрнутого вида: в бока контейнера.
+  // Связи свёрнутого вида: в бока системы.
   if (early > 0) {
     edges.push(
       { id: "checkout", points: [[gw + W, MID_Y], [b.x, MID_Y]], label: CHECKOUT,
@@ -120,8 +120,8 @@ export function sceneFrame(tRaw: number): SceneFrame {
       { name: "API Gateway", tag: "шлюз: Kong", x: gw, y: ROW_Y, colors: DEPTH1 },
       { name: "Служба доставки", tag: "внешний: REST API", x: dl, y: ROW_Y, colors: EXTERNAL },
     ],
-    frame: t > 0 ? { name: ORDER_SERVICE, box: b, alpha: Math.min(1, t * 2.2) } : null,
-    container: early > 0 ? { name: ORDER_SERVICE, box: b, colors: DEPTH1, alpha: early } : null,
+    frame: t > 0 ? { name: ORDERS, box: b, alpha: Math.min(1, t * 2.2) } : null,
+    container: early > 0 ? { name: ORDERS, box: b, colors: DEPTH1, alpha: early } : null,
     children: late > 0
       ? KIDS.map((k) => ({ name: k.name, box: { x: k.x, y: k.y, w: W, h: H }, colors: DEPTH2, alpha: late }))
       : [],

@@ -13,7 +13,9 @@ interface TourCardProps {
   /** цель кадра: фаза и место карточки (якорь, что не заслонять) */
   view: TourView;
   step: TourStep;
-  texts: { title: string; body: string; action?: string };
+  /** body — абзацы через «\n»; note — абзац курсивом после текста (приветствие: о паузе);
+   *  retry — мягкая подсказка: на шаге создания появился объект не того типа */
+  texts: { title: string; body: string; note?: string; action?: string; retry?: string };
   /** «Шаг N из M» или null у приветствия и финалов */
   count: string | null;
   canBack: boolean;
@@ -72,8 +74,10 @@ export default function TourCard({
     <div ref={ref} className={cls} style={style} role="dialog" aria-label={texts.title}>
       {count && <span className="tour-count">{count}</span>}
       <h3>{texts.title}</h3>
-      {texts.body && <p>{texts.body}</p>}
+      {texts.body && texts.body.split("\n").map((para, i) => <p key={i}>{para}</p>)}
+      {texts.note && <p className="tour-note">{texts.note}</p>}
       {texts.action && <p className="tour-do">{texts.action}</p>}
+      {texts.retry && <p className="tour-retry" role="status">{texts.retry}</p>}
       <div className="tour-bar">
         {isEnd ? <span /> : (
           <button type="button" className="tour-skip" onClick={onSkip}>

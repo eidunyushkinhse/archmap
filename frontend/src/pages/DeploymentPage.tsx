@@ -432,7 +432,8 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
           ) : !hasObjects ? (
             <div className="dp-note">Нет объектов для размещения</div>
           ) : (
-            <div className="dp-stage">
+            // data-tour — холст площадок для обучающего тура (шаг «Развёртывание»)
+            <div className="dp-stage" data-tour="deploy-diagram">
               <LevelGraph
                 nodes={proj.nodes}
                 endpoints={proj.endpoints}

@@ -21,8 +21,8 @@ function renderLayer(stepId: StepId, v: TourView, canBack = true) {
       view={v}
       stepKey={stepId}
       step={step}
-      texts={{ title: step.title, body: step.body, action: step.action }}
-      count={step.n ? `Шаг ${step.n} из 25` : null}
+      texts={{ title: step.title, body: step.body, note: step.note, action: step.action }}
+      count={step.n ? `Шаг ${step.n} из 28` : null}
       canBack={canBack}
       {...handlers}
     />,
@@ -50,9 +50,33 @@ describe("TourLayer", () => {
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toBeNull();
   });
 
+  it("приветствие: абзац о паузе курсивом — после текста, отдельным абзацем", () => {
+    renderLayer("welcome", view({ phase: "center" }), false);
+    const paras = [...screen.getByRole("dialog", { name: "Добро пожаловать в ArchMap" }).querySelectorAll("p")];
+    expect(paras.map((p) => p.className)).toEqual(["", "tour-note"]);
+    expect(paras[0].textContent).toBe(STEPS.welcome.body);
+    expect(paras[1]).toHaveTextContent(/^Чтобы поставить обучение на паузу/);
+  });
+
+  it("перенос строки в тексте шага — новый абзац; у остальных шагов абзац один", () => {
+    renderLayer("types", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
+    const paras = [...screen.getByRole("dialog", { name: "Шесть типов объектов" }).querySelectorAll("p")];
+    expect(paras.map((p) => p.textContent)).toEqual([
+      "Система. Абстрактный слой, который может объединять контейнеры и другие системы.",
+      "Контейнер. Отдельный прикладной сервис в составе системы.",
+      "Компонент. Модуль, выполняющий часть бизнес-логики контейнера. Может входить только в состав "
+        + "контейнера, поэтому на верхний уровень схемы его положить нельзя.",
+      "База данных, брокер и пользователь говорят сами за себя.",
+    ]);
+    expect(paras.some((p) => p.classList.contains("tour-note"))).toBe(false);
+  });
+
   it("шаг с действием: счётчик, строка действия, пульс, без «Далее»", () => {
     const { handlers } = renderLayer("open-editor", view({ holes: [HOLE], anchor: HOLE, avoid: [HOLE] }));
-    expect(screen.getByText("Шаг 3 из 25")).toBeInTheDocument();
+    expect(screen.getByText("Шаг 3 из 28")).toBeInTheDocument();
+    // текст без переносов — один абзац, следом строка действия
+    const card = screen.getByRole("dialog", { name: "Откройте редактор" });
+    expect([...card.querySelectorAll("p")].map((p) => p.className)).toEqual(["", "tour-do"]);
     expect(screen.getByText("Нажмите «Редактировать».")).toHaveClass("tour-do");
     expect(screen.queryByRole("button", { name: "Далее" })).toBeNull();
     expect(document.querySelector("[data-tour-layer] .tour-ring")).toHaveClass("tour-ring--act");
@@ -153,7 +177,7 @@ describe("TourLayer", () => {
     const layer = (settled: boolean) => (
       <TourLayer
         view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled }} stepKey="inside" step={step}
-        texts={{ title: step.title, body: step.body }} count="Шаг 25 из 25" canBack
+        texts={{ title: step.title, body: step.body }} count="Шаг 28 из 28" canBack
         onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
       />
     );
@@ -167,7 +191,7 @@ describe("TourLayer", () => {
     render(
       <TourLayer
         view={v} motion={{ opacity: 1, holes: [shownHole(HOLE)], settled: false }} stepKey="context-edge" step={plain}
-        texts={{ title: plain.title, body: plain.body }} count="Шаг 23 из 25" canBack
+        texts={{ title: plain.title, body: plain.body }} count="Шаг 26 из 28" canBack
         onNext={vi.fn()} onBack={vi.fn()} onSkip={vi.fn()} onFinish={vi.fn()} onShade={vi.fn()}
       />,
     );

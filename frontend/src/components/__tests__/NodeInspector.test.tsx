@@ -115,7 +115,7 @@ describe("NodeInspector: смена типа формой", () => {
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });
 
-  it("вложенный объект: «Пользователь» серый с причиной, запроса нет", async () => {
+  it("вложенный объект: «Пользователь» серый, запроса нет", async () => {
     // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
     const system: AncestorRef = { id: "s1", name: "Ярмарка", is_external: false, element_effective: "system" };
     render(<NodeInspector node={makeNode({ shape: "service", element_effective: "container", parent_id: "s1" })}
@@ -123,9 +123,7 @@ describe("NodeInspector: смена типа формой", () => {
     await userEvent.click(typeButton());
     const person = option("Пользователь");
     expect(person).toHaveAttribute("aria-disabled", "true");
-    expect(person).toHaveTextContent(
-      "Пользователь живёт вне границ системы, сначала перенесите объект на верхний уровень.",
-    );
+    expect(person.textContent).toBe("Пользователь");
     await userEvent.click(person);
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
@@ -290,9 +288,10 @@ describe("NodeInspector: тип система и контейнер", () => {
     expect(typeButton()).toHaveTextContent("Система");
 
     await userEvent.click(typeButton());
-    // Пункты в две строки: подпись и подсказка.
-    expect(screen.getByText("Группа контейнеров: сама не запускается")).toBeInTheDocument();
-    expect(screen.getByText("Одно приложение, которое запускается целиком")).toBeInTheDocument();
+    // Пункт — только название типа, без подсказки под ним.
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Система", "Контейнер", "Компонент", "База данных", "Брокер", "Пользователь",
+    ]);
     await userEvent.click(option("Контейнер"));
 
     await waitFor(() => expect(nodesApi.update).toHaveBeenCalledOnce());
@@ -340,13 +339,13 @@ describe("NodeInspector: тип система и контейнер", () => {
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 
-  it("невозможные пункты серые с причиной и не выбираются", async () => {
+  it("невозможные пункты серые и не выбираются", async () => {
     setup(system());
     await userEvent.click(typeButton());
     const db = option("База данных");
     expect(db).toHaveAttribute("aria-disabled", "true");
-    expect(db).toHaveTextContent("Объект с вложенными объектами не может стать базой данных.");
-    expect(option("Компонент")).toHaveTextContent("перенесите его в контейнер");
+    expect(db.textContent).toBe("База данных");
+    expect(option("Компонент")).toHaveAttribute("aria-disabled", "true");
     await userEvent.click(db);
     expect(nodesApi.update).not.toHaveBeenCalled();
     expect(nodesApi.elementPreview).not.toHaveBeenCalled();

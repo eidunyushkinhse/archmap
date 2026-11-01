@@ -12,7 +12,9 @@ import { awaitsFirstChild, childIsComponent, containerOf } from "./elementView";
 
 export interface TypeOption {
   type: NodeType;
-  // Серый пункт: не выбирается, вместо подсказки показывает reason.
+  // Серый пункт: не выбирается. reason — почему: его показывает палитра (подсказка серой
+  // плитки и отказ броска, paletteTiles). Меню поля «Тип» причин не показывает (решение
+  // владельца 2026-11-01), поэтому причины режима change сейчас нигде не выводятся.
   disabled: boolean;
   reason?: string;
   // Строка под полем, когда пункт выбран (Р38: что станет с родителем).
