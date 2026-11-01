@@ -189,7 +189,6 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
             onRelayout={handleRelayout}
             relayoutToken={relayoutToken}
             height={height}
-            toolbarHint={hasNodes ? `корневой уровень · ${graphNodes.length} ${plural(graphNodes.length, ["объект", "объекта", "объектов"])}` : undefined}
             showViewFilter={hasStatusInfo}
             onEdit={hasNodes ? () => onNavigateMap?.(null) : undefined}
             empty={
