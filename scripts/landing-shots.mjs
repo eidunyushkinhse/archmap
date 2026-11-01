@@ -815,8 +815,10 @@ const SHOTS = {
   // редактора-карты в виде «Переход», в кадре все четыре объекта ромбом — «Заказы» слева,
   // внешний «SMS-провайдер» справа, между ними проектируемый «Центр уведомлений» над
   // выводимым «SMS-рассыльщиком». Расстановка ручная, сохранена в виде корня мока. Кадр —
-  // постер ролика vid-status и его запасная картинка на лендинге.
-  status: { size: [2100, 900], async run(page, s) {
+  // постер ролика vid-status и его запасная картинка на лендинге, поэтому окно то же, что у
+  // сцены status в landing-videos.mjs: 1400×600 (21:9, как рамка раздела), холст в масштабе
+  // около 1.
+  status: { size: [1400, 600], async run(page, s) {
     await go(page, `/p/${s.pid}/map`);
     await page.getByRole("button", { name: "Свернуть панель" }).last().click(); // правая
     await page.getByRole("button", { name: "Свернуть панель" }).first().click(); // левая
@@ -825,6 +827,8 @@ const SHOTS = {
     await page.locator(".react-flow__controls-fitview").click();
     await settle(page);
     await frameNodes(page, s.frame, 0.8);
+    const k = await page.evaluate(() => /scale\(([-\d.]+)\)/.exec(document.querySelector(".react-flow__viewport").style.transform)?.[1]);
+    console.log(`  масштаб холста ${Number(k).toFixed(2)}`);
     await shoot(page, "shot-status.png");
   } },
 
