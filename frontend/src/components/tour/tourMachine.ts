@@ -338,7 +338,7 @@ export function treeOpenTarget(state: TourState, env: TourEnv): string | null {
  *  объект не того типа: к текстам добавляется подсказка retry. */
 export function stepTexts(
   step: TourStep, vars: TourVars, wrong = false,
-): { title: string; body: string; action?: string; retry?: string } {
+): { title: string; body: string; note?: string; action?: string; retry?: string } {
   const sub = (s: string) => s
     .replaceAll("{system}", vars.systemName ?? FALLBACK_NAMES.system)
     .replaceAll("{peer}", vars.peerName ?? FALLBACK_NAMES.peer)
@@ -346,6 +346,7 @@ export function stepTexts(
   return {
     title: sub(step.title),
     body: sub(step.body),
+    ...(step.note ? { note: sub(step.note) } : {}),
     ...(step.action ? { action: sub(step.action) } : {}),
     ...(wrong && step.retry ? { retry: step.retry } : {}),
   };

@@ -328,6 +328,12 @@ describe("тур — свой проект", () => {
     expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
       .toBe("Связь теперь ведёт прямо к контейнеру «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
+    // абзац курсивом есть только у приветствия
+    expect(stepTexts(STEPS.welcome, vars).note).toBe(
+      "Чтобы поставить обучение на паузу и осмотреться, нажмите левой клавишей мыши в серую область экрана. "
+      + "Кнопка для продолжения будет справа сверху.",
+    );
+    expect(stepTexts(STEPS.rehang, vars)).not.toHaveProperty("note");
     expect(stepTexts(STEPS["context-edge"], vars).body)
       .toBe("Для слоя контекста это правда: «Банк» работает с системой «Платёжный шлюз» целиком.");
     expect(stepTexts(STEPS.inside, vars).body).toBe(
