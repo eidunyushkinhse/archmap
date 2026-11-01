@@ -74,7 +74,33 @@ export const SCENE: LandingScene = {
         "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
         "name": "Заказы",
         "description": "Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.",
-        "role": "сервис",
+        "role": "подсистема",
+        "technology": null,
+        "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
+        "openapi_spec": null,
+        "docs": [],
+        "is_external": false,
+        "shape": "service",
+        "status": "existing",
+        "child_count": 3,
+        "has_children": true,
+        "approval": "in_progress",
+        "approval_effective": "in_progress",
+        "element": null,
+        "element_effective": "system",
+        "container_name": null,
+        "source_ref": null,
+        "source": null,
+        "sites": [],
+        "version": 3,
+        "created_at": "2026-08-19T10:12:17.371805+03:00",
+        "updated_at": "2026-11-01T18:15:22.063422+03:00"
+      },
+      {
+        "id": "21349aeb-5697-436b-b217-7502d919168b",
+        "name": "Сервис оплаты",
+        "description": "Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -93,34 +119,8 @@ export const SCENE: LandingScene = {
         "source": null,
         "sites": [],
         "version": 2,
-        "created_at": "2026-08-19T10:12:17.371805+03:00",
-        "updated_at": "2026-11-01T14:52:17.027675+03:00"
-      },
-      {
-        "id": "21349aeb-5697-436b-b217-7502d919168b",
-        "name": "Сервис оплаты",
-        "description": "Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.",
-        "role": "сервис",
-        "technology": null,
-        "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
-        "openapi_spec": null,
-        "docs": [],
-        "is_external": false,
-        "shape": "service",
-        "status": "existing",
-        "child_count": 3,
-        "has_children": true,
-        "approval": "in_progress",
-        "approval_effective": "in_progress",
-        "element": null,
-        "element_effective": "system",
-        "container_name": null,
-        "source_ref": null,
-        "source": null,
-        "sites": [],
-        "version": 1,
         "created_at": "2026-08-19T10:12:17.371820+03:00",
-        "updated_at": "2026-08-19T10:12:17.371821+03:00"
+        "updated_at": "2026-11-01T18:15:22.091571+03:00"
       }
     ],
     "edges": [
@@ -219,7 +219,7 @@ export const SCENE: LandingScene = {
       {
         "id": "18067bc1-9bdf-4869-81e2-61b01a08fccd",
         "name": "Служба доставки",
-        "role": "внешний сервис",
+        "role": "внешняя система",
         "technology": "REST API",
         "is_external": true,
         "shape": "service",
@@ -404,7 +404,7 @@ export const SCENE: LandingScene = {
     },
     "version": 15,
     "graph_rev": 763,
-    "meta_rev": 43,
+    "meta_rev": 52,
     "has_status_info": true
   },
   "containerId": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
@@ -676,7 +676,7 @@ export const SCENE: LandingScene = {
         "id": "f02c675c-1da7-4e08-b8bb-7a512ad63299",
         "name": "Заказы",
         "description": "Домен заказа: приём и хранение заказов, сага исполнения от оплаты до доставки.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -719,15 +719,15 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 2,
+        "version": 3,
         "created_at": "2026-08-19T10:12:17.371805+03:00",
-        "updated_at": "2026-11-01T14:52:17.027675+03:00"
+        "updated_at": "2026-11-01T18:15:22.063422+03:00"
       },
       {
         "id": "21349aeb-5697-436b-b217-7502d919168b",
         "name": "Сервис оплаты",
         "description": "Домен оплаты: счета, проведение платежей через внешний шлюз, антифрод-скоринг.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -754,15 +754,15 @@ export const SCENE: LandingScene = {
             "partial": false
           }
         ],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371820+03:00",
-        "updated_at": "2026-08-19T10:12:17.371821+03:00"
+        "updated_at": "2026-11-01T18:15:22.091571+03:00"
       },
       {
         "id": "f3fc0c75-b6c0-4031-b31e-c851df2e0824",
         "name": "Сервис поиска",
         "description": "Домен поиска: полнотекстовый индекс товаров и API поисковых запросов.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -797,15 +797,15 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371826+03:00",
-        "updated_at": "2026-08-19T10:12:17.371827+03:00"
+        "updated_at": "2026-11-01T18:15:22.121078+03:00"
       },
       {
         "id": "655edb32-9345-400f-9fa0-d458184e8c0f",
         "name": "Сервис пользователей",
         "description": "Домен пользователя: учётные записи, вход и токены, профиль и адреса доставки.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -840,15 +840,15 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371831+03:00",
-        "updated_at": "2026-08-19T10:12:17.371832+03:00"
+        "updated_at": "2026-11-01T18:15:22.153316+03:00"
       },
       {
         "id": "3a07990c-ba79-418c-9869-f00b5dc69d69",
         "name": "Сервис уведомлений",
         "description": "Домен уведомлений: шаблоны, журнал отправки, доставка писем и SMS через внешнего провайдера.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -891,9 +891,9 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 1,
+        "version": 2,
         "created_at": "2026-08-19T10:12:17.371837+03:00",
-        "updated_at": "2026-08-19T10:12:17.371838+03:00"
+        "updated_at": "2026-11-01T18:15:22.184429+03:00"
       },
       {
         "id": "870d3977-92ca-4a0e-8e94-ea49ab03ab23",
@@ -925,7 +925,7 @@ export const SCENE: LandingScene = {
         "id": "2cd96e90-0c87-49c0-829b-e299739080ca",
         "name": "Сервис каталога",
         "description": "Домен товара: карточки, категории, кэш и поток событий изменений для поискового индекса.",
-        "role": "сервис",
+        "role": "подсистема",
         "technology": null,
         "parent_id": "183c04a6-b1e1-4dc9-b776-895e202dc1fe",
         "openapi_spec": null,
@@ -960,9 +960,9 @@ export const SCENE: LandingScene = {
             "partial": true
           }
         ],
-        "version": 13,
+        "version": 14,
         "created_at": "2026-08-19T10:12:17.371813+03:00",
-        "updated_at": "2026-09-04T22:05:39.818046+03:00"
+        "updated_at": "2026-11-01T18:15:22.208724+03:00"
       }
     ],
     "f02c675c-1da7-4e08-b8bb-7a512ad63299": [
