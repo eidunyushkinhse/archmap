@@ -72,6 +72,7 @@ export function parseTourState(raw: string | null): TourState | null {
     }
   }
   const state: TourState = { status: o.status, step, variant: o.variant, dir: o.dir === -1 ? -1 : 1, vars };
+  if (typeof o.wrongAt === "string" && STEP_IDS.has(o.wrongAt)) state.wrongAt = o.wrongAt as StepId;
   const p = o.pause;
   if (state.status === "paused" && p && typeof p === "object") {
     const at = p as Record<string, unknown>;

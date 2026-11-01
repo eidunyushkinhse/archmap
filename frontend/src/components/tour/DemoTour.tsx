@@ -24,7 +24,9 @@ import {
 import { parseTourRoute, routeProject, type TourRoute } from "./tourRoute";
 import { STEPS, YAR_PROJECT, type StepId } from "./tourSteps";
 import { dropStaleTours, loadTour, saveTour } from "./tourPersist";
-import { markExitToPill, onTourRestart, onTourResume, setTourPaused, takeExitToPill } from "./tourStore";
+import {
+  markExitToPill, onTourRestart, onTourResume, setTourPaused, setTourTypeLock, takeExitToPill,
+} from "./tourStore";
 import { hiddenTarget, resolveTarget, revealTarget, topDialog } from "./tourTargets";
 import TourLayer from "./TourLayer";
 import { TourMotion, motionTarget, prefersReducedMotion, type MotionFrame } from "./tourMotion";
@@ -185,7 +187,10 @@ function TourRuntime({ userId }: { userId: string }) {
         break;
       }
       case "node-created":
-        signal = { kind: "node-created", projectId: pid, id: e.id, name: e.name, shape: e.shape, parentId: e.parentId };
+        signal = {
+          kind: "node-created", projectId: pid, id: e.id, name: e.name, shape: e.shape, element: e.element,
+          parentId: e.parentId,
+        };
         break;
       case "edge-created":
         signal = { kind: "edge-created", projectId: pid, id: e.id, sourceId: e.sourceId, targetId: e.targetId };
@@ -243,6 +248,11 @@ function TourRuntime({ userId }: { userId: string }) {
   const paused = state.status === "paused";
   useLayoutEffect(() => { setTourPaused(paused); }, [paused]);
   useEffect(() => () => setTourPaused(false), []);
+  // Шаг создания с плитки (lockType): окно «Новый объект» держит тип плитки, пока тур идёт;
+  // на паузе человек осматривается сам, и тип свободен. Layout-эффект — как у паузы.
+  const typeLock = running && !!STEPS[state.step].lockType;
+  useLayoutEffect(() => { setTourTypeLock(typeLock); }, [typeLock]);
+  useEffect(() => () => setTourTypeLock(false), []);
 
   // ── «Ярмарка»: проект по имени, его объекты по именам ──
   useEffect(() => {
@@ -483,7 +493,7 @@ function TourRuntime({ userId }: { userId: string }) {
       motion={view.m ?? undefined}
       stepKey={view.step}
       step={step}
-      texts={stepTexts(step, state.vars)}
+      texts={stepTexts(step, state.vars, state.wrongAt === view.step)}
       count={step.n !== undefined ? `Шаг ${step.n} из ${stepTotal(state.variant)}` : null}
       canBack={canGoBack(view.step)}
       onNext={() => dispatch({ type: "next" })}

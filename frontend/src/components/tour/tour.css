@@ -201,6 +201,11 @@ body.tour-pass-labels [data-lg-edge] {
   color: #1d4ed8;
   font-weight: 600;
 }
+/* Мягкая подсказка: на шаге создания появился объект не того типа. */
+.tour-card p.tour-retry {
+  color: #b45309;
+  font-weight: 600;
+}
 .tour-bar {
   display: flex;
   align-items: center;

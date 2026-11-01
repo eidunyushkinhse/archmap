@@ -35,7 +35,7 @@ import DemoTour from "../DemoTour";
 import { emitTourEvent, onTourFocusRequest, type TourFocus } from "../tourBus";
 import { stepTotal } from "../tourMachine";
 import { tourKey } from "../tourPersist";
-import { getTourPaused, requestTourRestart, requestTourResume } from "../tourStore";
+import { getTourPaused, getTourTypeLock, requestTourRestart, requestTourResume } from "../tourStore";
 
 const KEY = tourKey(GUEST.id);
 const stored = () => JSON.parse(localStorage.getItem(KEY) ?? "null") as { status: string; step: string } | null;
@@ -146,9 +146,43 @@ describe("DemoTour", () => {
     target("palette", { x: 10, y: 600, w: 300, h: 180 });
     render(<DemoTour />);
     expect(await screen.findByRole("dialog", { name: "Создайте свою систему" })).toBeInTheDocument();
-    act(() => emitTourEvent({ type: "node-created", id: "s1", name: "Касса", shape: "service", parentId: null }));
+    act(() => emitTourEvent({ type: "node-created", id: "s1", name: "Касса", shape: "service", element: "system", parentId: null }));
     expect(await screen.findByRole("dialog", { name: "Добавьте ещё один объект" })).toBeInTheDocument();
     expect(stored()).toMatchObject({ step: "add-peer", vars: { systemId: "s1", systemName: "Касса" } });
+  });
+
+  it("шаг «Создайте свою систему»: тип задаёт плитка; объект не того типа — подсказка в карточке", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "create-system", variant: "full", dir: 1, vars: { ownProjectId: OWN },
+    }));
+    target("palette:system");
+    target("palette", { x: 10, y: 600, w: 300, h: 180 });
+    const view = render(<DemoTour />);
+    expect(await screen.findByRole("dialog", { name: "Создайте свою систему" })).toBeInTheDocument();
+    expect(getTourTypeLock()).toBe(true);
+    act(() => emitTourEvent({ type: "node-created", id: "k1", name: "Касса", shape: "service", element: "container", parentId: null }));
+    expect(await screen.findByText("Нужна именно система — создайте её плиткой «Система».")).toBeInTheDocument();
+    expect(stored()).toMatchObject({ step: "create-system", wrongAt: "create-system" });
+    act(() => emitTourEvent({ type: "node-created", id: "s1", name: "Шлюз", shape: "service", element: "system", parentId: null }));
+    // карточка нового шага — без подсказки (копия прежней ещё гаснет на старом месте)
+    const next = await screen.findByRole("dialog", { name: "Добавьте ещё один объект" });
+    expect(next).not.toHaveTextContent("Нужна именно система");
+    // дальше тип в окне свободен
+    expect(getTourTypeLock()).toBe(false);
+    view.unmount();
+  });
+
+  it("тур закрыт посреди шага создания — тип в окне снова свободен", async () => {
+    window.location.hash = `/p/${OWN}/map`;
+    localStorage.setItem(KEY, JSON.stringify({
+      status: "running", step: "create-system", variant: "full", dir: 1, vars: { ownProjectId: OWN },
+    }));
+    target("palette:system");
+    render(<DemoTour />);
+    await waitFor(() => expect(getTourTypeLock()).toBe(true));
+    fireEvent.click(await screen.findByRole("button", { name: "Пропустить обучение" }));
+    expect(getTourTypeLock()).toBe(false);
   });
 
   it("повторный проход: узел уже раскрыт с прошлого раза — шаг засчитан сразу", async () => {

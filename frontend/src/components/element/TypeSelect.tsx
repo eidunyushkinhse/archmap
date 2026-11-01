@@ -30,10 +30,14 @@ interface Props {
   label?: string;
   // Кнопка по ширине значения («Свойства» страницы), а не во всю ячейку.
   inline?: boolean;
+  // Значение видно, но меню не открывается: в окне «Новый объект» тип задаёт плитка,
+  // пока обучающий тур на шаге создания с неё.
+  disabled?: boolean;
 }
 
 export default function TypeSelect({
   value, valueLabel, options, onPick, triggerClass, chevron, placeholder = "Выберите тип", label, inline = false,
+  disabled = false,
 }: Props) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -84,6 +88,7 @@ export default function TypeSelect({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={label}
+        disabled={disabled}
       >
         <span className={value ? "ts-value" : "ts-value ts-placeholder"}>
           {value ? valueLabel ?? TYPE_LABEL[value] : placeholder}

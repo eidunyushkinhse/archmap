@@ -37,7 +37,7 @@ interface Props {
   /** ключ шага: новый шаг — свежее состояние перехватчика и новая карточка */
   stepKey: string;
   step: TourStep;
-  texts: { title: string; body: string; action?: string };
+  texts: { title: string; body: string; action?: string; retry?: string };
   /** «Шаг N из M» или null у приветствия и финалов */
   count: string | null;
   canBack: boolean;

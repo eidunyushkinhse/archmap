@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import type { CSSProperties } from "react";
 import type { Node, NodeCreate, NodeElement, NodeStatus } from "../types";
 import { getNodeColors, STATUS_META } from "./graph/colors";
@@ -12,6 +12,7 @@ import { limitMessage } from "./demo/demoLimits";
 import type { LimitMessage } from "./demo/demoLimits";
 import { LimitText } from "./demo/DemoLimitToast";
 import { emitTourEvent } from "./tour/tourBus";
+import { getTourTypeLock, subscribeTourTypeLock } from "./tour/tourStore";
 import { noAutofill } from "../ui/noAutofill";
 import { loadErrorText } from "../ui/loadErrorText";
 import { useAsyncLoad } from "../lib/useAsyncLoad";
@@ -30,6 +31,8 @@ import TypeSelect from "./element/TypeSelect";
 // (тип шаблона, «Компонент» внутри контейнера, тип последнего созданного соседа). У
 // листа-сервиса без элемента выбор задаёт и родителя (Р38): строка под полем говорит,
 // кем он станет, а запрос несёт parent_element — родитель и ребёнок пишутся вместе.
+// Обучающий тур демо на шаге создания с плитки (tourStore) держит тип плитки: поле видно,
+// но заблокировано, — иначе объект другого типа оставлял тур стоять на шаге.
 interface Props {
   parentId: string | null;
   // Тип шаблона из палитры: предвыбран, если возможен в этом месте.
@@ -86,7 +89,10 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
     () => (place.data ? preselectType(options, place.data.parent, place.data.siblings, templateType ?? null) : null),
     [options, place.data, templateType],
   );
-  const type = picked ?? preselect;
+  // Тип задаёт плитка, пока тур на шаге создания с неё (и тип плитки возможен здесь).
+  const tourLock = useSyncExternalStore(subscribeTourTypeLock, getTourTypeLock);
+  const typeLocked = tourLock && !!templateType && preselect === templateType;
+  const type = typeLocked && templateType ? templateType : picked ?? preselect;
   const note = options.find((o) => o.type === type)?.note;
   // Поля по форме типа: у «Пользователя» нет технологии и внешности.
   const isPerson = type === "person";
@@ -140,7 +146,10 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
         await viewsApi.saveLayout(posView ?? null, { [saved.id]: { x: initialPos.x, y: initialPos.y } });
       }
       // Обучающий тур демо-стенда ждёт созданные объекты (docs/tasks/demo-tour.md).
-      emitTourEvent({ type: "node-created", id: saved.id, name: saved.name, shape: saved.shape, parentId: saved.parent_id ?? null });
+      emitTourEvent({
+        type: "node-created", id: saved.id, name: saved.name, shape: saved.shape, element: saved.element,
+        parentId: saved.parent_id ?? null,
+      });
       onSaved(saved, true);
     } catch (e: unknown) {
       const refusal = limitMessage(e, "node");
@@ -182,9 +191,11 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
             triggerClass="ts-field"
             chevron={<span className="ts-chev"><ChevronDown /></span>}
             label="Тип"
+            disabled={typeLocked}
           />
         </div>
       )}
+      {typeLocked && <p style={noteStyle}>Во время обучения тип задаёт плитка.</p>}
       {note && <p style={noteStyle}>{note}</p>}
 
       <label style={labelStyle}>Название *</label>

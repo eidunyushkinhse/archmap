@@ -218,18 +218,54 @@ describe("тур — пропуск ненайденных объектов", ()
 });
 
 describe("тур — свой проект", () => {
-  it("система — новая «Система» (форма service) в корне своего проекта; второй объект — любой в корне", () => {
+  it("система — новая «Система» (форма service, элемент system) в корне своего проекта; второй объект — любой в корне", () => {
     let s = at("create-system", { vars: { ownProjectId: OWN } });
     // база в корне — не система
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", element: null, parentId: null })]);
     expect(s.step).toBe("create-system");
-    // сервис в чужом проекте — не система
-    s = run(s, [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "service", parentId: null })]);
+    // система в чужом проекте — не своя
+    s = run(s, [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "service", element: "system", parentId: null })]);
     expect(s.step).toBe("create-system");
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Платёжный шлюз", shape: "service", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Платёжный шлюз", shape: "service", element: "system", parentId: null })]);
     expect(s).toMatchObject({ step: "add-peer", vars: { systemId: "s1", systemName: "Платёжный шлюз" } });
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "p1", name: "Банк", shape: "person", parentId: null })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "p1", name: "Банк", shape: "person", element: null, parentId: null })]);
     expect(s).toMatchObject({ step: "connect", vars: { peerId: "p1", peerName: "Банк" } });
+  });
+
+  it("объект не того типа на шаге создания — шаг ждёт, карточка просит создать нужный", () => {
+    let s = at("create-system", { vars: { ownProjectId: OWN } });
+    expect(stepTexts(STEPS["create-system"], s.vars, s.wrongAt === "create-system").retry).toBeUndefined();
+    // контейнер в корне — не система (раньше тур принимал его и ломал вход в систему)
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "k1", name: "Касса", shape: "service", element: "container", parentId: null })]);
+    expect(s).toMatchObject({ step: "create-system", wrongAt: "create-system" });
+    expect(stepTexts(STEPS["create-system"], s.vars, s.wrongAt === "create-system").retry)
+      .toBe("Нужна именно система — создайте её плиткой «Система».");
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Шлюз", shape: "service", element: "system", parentId: null })]);
+    // подсказка осталась на прежнем шаге
+    expect(s.step).toBe("add-peer");
+    expect(stepTexts(STEPS[s.step], s.vars, s.wrongAt === s.step).retry).toBeUndefined();
+    // в чужом проекте объект другого типа подсказку не зовёт
+    const other = run(at("create-system", { vars: { ownProjectId: OWN } }),
+      [sig({ kind: "node-created", projectId: YAR, id: "x", name: "X", shape: "database", element: null, parentId: null })]);
+    expect(other.wrongAt).toBeUndefined();
+  });
+
+  it("в рамке системы — только «Контейнер»: база там же — подсказка, объект в корне — не в счёт", () => {
+    const vars = { ...OWN_VARS };
+    let s = at("add-child", { vars });
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", element: "container", parentId: null })]);
+    expect(s.step).toBe("add-child");
+    expect(s.wrongAt).toBeUndefined();
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", element: null, parentId: "s1" })]);
+    expect(s).toMatchObject({ step: "add-child", wrongAt: "add-child" });
+    expect(stepTexts(STEPS["add-child"], s.vars, true).retry).toBe("Нужен именно контейнер — создайте его плиткой «Контейнер».");
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", element: "container", parentId: "s1" })]);
+    expect(s).toMatchObject({ step: "rehang", vars: { childId: "c1" } });
+  });
+
+  it("на шагах создания с плитки окно держит тип плитки; на остальных — нет", () => {
+    const locked = (Object.keys(STEPS) as StepId[]).filter((id) => STEPS[id].lockType);
+    expect(locked).toEqual(["create-system", "add-child"]);
   });
 
   it("связь между системой и вторым объектом — в любую сторону", () => {
@@ -253,10 +289,10 @@ describe("тур — свой проект", () => {
     expect(s.step).toBe("enter-system");
     s = run(s, [sig({ kind: "level", projectId: OWN, levelId: "s1" })]);
     expect(s.step).toBe("add-child");
-    // сервис в корне — не ребёнок системы
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", parentId: null })]);
+    // контейнер в корне — не ребёнок системы
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c0", name: "Лишний", shape: "service", element: "container", parentId: null })]);
     expect(s.step).toBe("add-child");
-    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", parentId: "s1" })]);
+    s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", element: "container", parentId: "s1" })]);
     expect(s).toMatchObject({ step: "rehang", vars: { childId: "c1", childName: "Касса" } });
     s = run(s, [sig({ kind: "edge-reconnected", projectId: OWN, fromId: "other", toId: "c1" })]);
     expect(s.step).toBe("rehang");
@@ -382,6 +418,10 @@ describe("тур — маршрут и хранение", () => {
     expect(parseTourState(JSON.stringify({ ...s, variant: "short" }))).toBeNull();
     expect(parseTourState(JSON.stringify({ ...s, vars: { systemId: 5, peerName: "Банк" } })))
       .toMatchObject({ vars: { peerName: "Банк" } });
+    // подсказка «не тот тип» переживает перезагрузку; неизвестный шаг в ней — нет
+    const wrong = at("create-system", { vars: { ownProjectId: OWN }, wrongAt: "create-system" });
+    expect(parseTourState(JSON.stringify(wrong))).toEqual(wrong);
+    expect(parseTourState(JSON.stringify({ ...wrong, wrongAt: "nope" }))?.wrongAt).toBeUndefined();
   });
 });
 

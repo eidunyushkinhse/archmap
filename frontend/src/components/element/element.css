@@ -36,6 +36,10 @@
   text-align: left;
   cursor: pointer;
 }
+/* Заблокированное поле (тип задаёт плитка во время обучения): значение читается, меню нет. */
+.ts-wrap > .ts-trigger:disabled {
+  cursor: default;
+}
 .ts-value {
   flex: 1;
   min-width: 0;
@@ -121,6 +125,10 @@
   color: #0f172a;
   background: #fff;
   box-sizing: border-box;
+}
+.ts-field:disabled {
+  background: #f8fafc;
+  color: #475569;
 }
 .ts-chev {
   display: flex;
