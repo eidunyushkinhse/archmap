@@ -171,14 +171,14 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
                               disabled={busy}
                               lockedReason={revokeLock}
                             >
-                              Снять админа
+                              Снять права администратора
                             </RowAction>
                           ) : (
                             <RowAction
                               onClick={() => void patch(u, { is_admin: true }, "Права администратора выданы")}
                               disabled={busy}
                             >
-                              Сделать админом
+                              Сделать администратором
                             </RowAction>
                           )}
                           {u.is_active ? (

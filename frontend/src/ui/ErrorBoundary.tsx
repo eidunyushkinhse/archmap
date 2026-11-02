@@ -54,7 +54,7 @@ function CrashCard({ error, onReset }: { error: Error; onReset: () => void }) {
       <div style={card}>
         <h2 style={title}>Что-то сломалось</h2>
         <p style={lead}>
-          Страница не смогла отрисоваться. Обновите её; если не поможет — вернитесь к списку
+          Страницу не удалось показать. Обновите её, а если не поможет, вернитесь к списку
           проектов и откройте страницу заново.
         </p>
         <code style={detail}>{error.message || error.name}</code>

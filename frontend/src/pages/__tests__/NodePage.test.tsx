@@ -1467,7 +1467,7 @@ describe("NodePage: ⋯-меню и версии документации", () =
   it("читатель: меню есть, в нём только просмотр; пункт открывает панель без права правки", async () => {
     await openMenu(false, "reader");
     expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Экспорт поддерева" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Экспорт объекта с вложенными" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
@@ -1482,7 +1482,7 @@ describe("NodePage: ⋯-меню и версии документации", () =
 
   it("редактор: пункты правки на месте, панель с фиксацией, но без удаления версий", async () => {
     await openMenu(true, "editor");
-    expect(screen.getByRole("button", { name: "Экспорт поддерева" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Экспорт объекта с вложенными" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить объект" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Версии документации" }));
     const panel = screen.getByTestId("versions-panel");

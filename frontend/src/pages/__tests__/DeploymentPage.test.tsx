@@ -489,7 +489,7 @@ describe("DeploymentPage", () => {
     await setup();
     act(() => { treeProps().onPlace?.(pnode("l1", "Лист", "c1")); });
     act(() => { props().projection?.pickFrame?.("deploy:site:s1"); });
-    expect(await screen.findByText("„Лист“ размещён на „s1“")).toBeInTheDocument();
+    expect(await screen.findByText("«Лист» размещён на «s1»")).toBeInTheDocument();
   });
 
   it("система, чьи единицы нигде не стоят или стоят там же, — запись сразу (набор единицам раздаёт сервер)", async () => {

@@ -449,7 +449,7 @@ function NodePageInner({
                     {isArchitect && (
                       <>
                         <button onClick={() => { setMenuOpen(false); setExportOpen(true); }}>
-                          Экспорт поддерева
+                          Экспорт объекта с вложенными
                         </button>
                         <button className="np-danger" onClick={() => { setMenuOpen(false); setConfirming(true); }}>
                           Удалить объект
@@ -629,10 +629,10 @@ function NodePageInner({
         />
       )}
 
-      {/* Экспорт поддерева (⋯-меню) */}
+      {/* Экспорт объекта с вложенными (⋯-меню) */}
       {exportOpen && (
         <ExportModal
-          title="Экспорт поддерева"
+          title="Экспорт объекта с вложенными"
           loadKey={node.id}
           load={() => exportApi.subtree(node.id)}
           onClose={() => setExportOpen(false)}

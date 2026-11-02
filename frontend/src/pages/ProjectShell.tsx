@@ -157,7 +157,7 @@ export default function ProjectShell({
           }
         : null
       : nodeId
-        ? { key: nodeId, title: "Экспорт поддерева", load: () => exportApi.subtree(nodeId) }
+        ? { key: nodeId, title: "Экспорт объекта с вложенными", load: () => exportApi.subtree(nodeId) }
         : {
             key: "all",
             title: "Экспорт схемы",
@@ -368,7 +368,7 @@ function ModeSwitch({ mode, onChange }: { mode: WorkMode; onChange: (m: WorkMode
         </svg>
         Процессы
       </button>
-      <button style={tab(mode === "deploy")} data-tour="mode-deploy" onClick={() => onChange("deploy")} title="Развёртывание: где крутятся объекты">
+      <button style={tab(mode === "deploy")} data-tour="mode-deploy" onClick={() => onChange("deploy")} title="Развёртывание: где работают объекты">
         <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round">
           <rect x="4" y="3.5" width="16" height="7.5" rx="1.5" /><rect x="4" y="13" width="16" height="7.5" rx="1.5" /><path d="M8 7.25 H8.01 M8 16.75 H8.01" strokeWidth={2.6} />
         </svg>

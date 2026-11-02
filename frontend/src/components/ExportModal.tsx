@@ -5,7 +5,7 @@ import { primaryBtn, secondaryBtn } from "../ui/styles";
 import { copyText } from "../lib/copyText";
 
 interface Props {
-  // Заголовок модалки («Экспорт схемы» / «Экспорт поддерева …»).
+  // Заголовок модалки («Экспорт схемы», «Экспорт объекта с вложенными»).
   title: string;
   // Ключ области экспорта (scope) — "all" / id узла / id процесса. Дубль как dep эффекта.
   loadKey: string;

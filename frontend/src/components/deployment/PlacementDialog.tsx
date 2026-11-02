@@ -7,8 +7,9 @@
 // (родитель — где нажали) и сразу отмечена. Размещение хранится у единиц — контейнеров
 // (deployment.md D30, D33): контейнер, в том числе с компонентами, пишется сам; система
 // — это её единицы, им и пишется набор (состав проекта грузится при открытии);
-// «Убрать размещение» у системы снимает его у всех её единиц — второй шаг в том же окне
-// со списком «объект: площадки» (вложенный <dialog> нельзя), «Снять» / «Назад».
+// «Снять размещение» у системы снимает его у всех её единиц — второй шаг в том же окне
+// со списком «объект: площадки» (вложенный <dialog> нельзя), «Снять» / «Отмена»
+// («Отмена» возвращает к галочкам).
 import { useState } from "react";
 import type { ReactNode } from "react";
 import type { DeploymentNode, Node, SiteOut } from "../../types";
@@ -145,7 +146,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
     for (const g of plan()) await deploymentApi.setPlacements(g.nodeIds, g.siteIds);
   });
 
-  // Убрать размещение: у единиц — сразу; есть система — сначала список, у кого внутри
+  // Снять размещение: у единиц — сразу; есть система — сначала список, у кого внутри
   // оно снимется.
   const clearAll = () => run(() => deploymentApi.setPlacements(targets().map((t) => t.id), []));
   const removeAll = () => {
@@ -200,7 +201,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
             Снять
           </button>
           <button type="button" style={secondaryBtn} onClick={() => { setClearing(null); setError(null); }} disabled={busy}>
-            Назад
+            Отмена
           </button>
         </div>
       </Modal>
@@ -251,7 +252,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
           Применить
         </button>
         <button type="button" style={secondaryBtn} onClick={removeAll} disabled={busy || allPending || !hasOwn}>
-          Убрать размещение
+          Снять размещение
         </button>
         <button type="button" style={secondaryBtn} onClick={onClose} disabled={busy}>
           Отмена

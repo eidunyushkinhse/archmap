@@ -788,7 +788,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
 
   // Экспортируем то, что открыто: поддерево текущего уровня, в корне — всю схему.
   const exportScope: ExportScope = currentParentId
-    ? { key: currentParentId, title: "Экспорт поддерева", load: () => exportApi.subtree(currentParentId) }
+    ? { key: currentParentId, title: "Экспорт объекта с вложенными", load: () => exportApi.subtree(currentParentId) }
     : {
         key: "all", title: "Экспорт схемы", load: () => exportApi.all(),
         // Архив — операция над проектом целиком; в редакторе его прежде не было

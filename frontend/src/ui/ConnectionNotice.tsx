@@ -4,7 +4,7 @@ import { isOffline, subscribeConnection } from "../lib/connection";
 
 // Плашка «нет связи» (аудит R-24): поллинг не достучался до сервера несколько раз
 // подряд — изменения других участников не подтягиваются. Гаснет на первом удачном тике.
-export const CONNECTION_NOTICE = "Нет связи с сервером — изменения не подтягиваются. ArchMap повторит сам.";
+export const CONNECTION_NOTICE = "Нет связи с сервером, поэтому свежие изменения не видны. ArchMap переподключится сам.";
 
 export default function ConnectionNotice() {
   const offline = useSyncExternalStore(subscribeConnection, isOffline);

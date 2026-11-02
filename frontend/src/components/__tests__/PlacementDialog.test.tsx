@@ -1,11 +1,11 @@
 // Окно «Размещение» (docs/tasks/deployment-view.md §6): галочки по площадкам выбранных
 // объектов (все — отмечена, часть — частичная), «Применить» шлёт набор целиком
-// (нетронутая частичная сохраняется у каждого объекта), «Убрать размещение» — пустой
+// (нетронутая частичная сохраняется у каждого объекта), «Снять размещение» — пустой
 // набор. Дерево площадок общее с окном «Площадки» (SiteTree): свёрнуто, кроме предков
 // площадок, где стоят выбранные; новая площадка заводится «+» в дереве (родитель — где
 // нажали) и появляется отмеченной, отказ по пределу демо — строкой в окне. Система —
 // это её единицы (deployment.md D30, D33): набор пишется им по составу проекта, снятие —
-// после второго шага со списком «объект: площадки» («Снять», «Назад»). Контейнер с
+// после второго шага со списком «объект: площадки» («Снять», «Отмена»). Контейнер с
 // компонентами — единица: пишется сам, состав проекта не нужен.
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -122,17 +122,17 @@ describe("PlacementDialog", () => {
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["a", "b"], ["k8s", "vm1"]));
   });
 
-  it("«Убрать размещение» у объекта шлёт пустой набор сразу", async () => {
+  it("«Снять размещение» у объекта шлёт пустой набор сразу", async () => {
     const props = setup([obj("a", ["k8s"])]);
-    await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["a"], []));
     expect(props.onApplied).toHaveBeenCalled();
     expect(nodesApi.getAll).not.toHaveBeenCalled();
   });
 
-  it("«Убрать размещение» выключена, когда размещения нет ни у кого", () => {
+  it("«Снять размещение» выключена, когда размещения нет ни у кого", () => {
     setup([obj("a", [])]);
-    expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Снять размещение" })).toBeDisabled();
   });
 
   it("дерево свёрнуто, когда выбранные нигде не стоят; «+» под площадкой — после шеврона", async () => {
@@ -201,7 +201,7 @@ describe("PlacementDialog", () => {
     // состав грузится: галочки работают, ждёт только запись
     expect(screen.getByText("Загрузка…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Снять размещение" })).toBeDisabled();
     await expand("cloud");
     await userEvent.click(check("k8s"));
     resolveAll(inside());
@@ -231,11 +231,11 @@ describe("PlacementDialog", () => {
     expect(deploymentApi.setPlacements).toHaveBeenCalledTimes(1);
   });
 
-  it("«Убрать размещение» у системы: второй шаг со списком единиц → «Снять» шлёт пустой набор единицам", async () => {
+  it("«Снять размещение» у системы: второй шаг со списком единиц → «Снять» шлёт пустой набор единицам", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
     const props = setup([container()]);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeEnabled());
-    await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Снять размещение" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
     expect(screen.getByText("Снять размещение «Заказы»?")).toBeInTheDocument();
     expect(screen.getByText("Размещение всех контейнеров системы будет снято:")).toBeInTheDocument();
@@ -248,14 +248,14 @@ describe("PlacementDialog", () => {
     expect(props.onApplied).toHaveBeenCalled();
   });
 
-  it("второй шаг: «Назад» возвращает галочки как были, без записи", async () => {
+  it("второй шаг: «Отмена» возвращает галочки как были, без записи", async () => {
     vi.mocked(nodesApi.getAll).mockResolvedValue(inside());
     setup([container()]);
     await expand("cloud");
     await userEvent.click(check("k8s"));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Убрать размещение" })).toBeEnabled());
-    await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
-    await userEvent.click(screen.getByRole("button", { name: "Назад" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Снять размещение" })).toBeEnabled());
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
+    await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(check("k8s").checked).toBe(true);
     expect(check("vm1").indeterminate).toBe(true);
     expect(deploymentApi.setPlacements).not.toHaveBeenCalled();
@@ -319,12 +319,13 @@ describe("PlacementDialog", () => {
     expect(props.onApplied).toHaveBeenCalled();
   });
 
-  it("«Убрать размещение» у контейнера с компонентами — сразу, без второго шага", async () => {
+  it("«Снять размещение» у контейнера с компонентами — сразу, без второго шага", async () => {
     const orders: DeploymentNode = { ...obj("o", ["vm1"]), name: "orders", has_children: true, child_count: 2 };
     setup([orders]);
-    await userEvent.click(screen.getByRole("button", { name: "Убрать размещение" }));
+    await userEvent.click(screen.getByRole("button", { name: "Снять размещение" }));
     await waitFor(() => expect(deploymentApi.setPlacements).toHaveBeenCalledWith(["o"], []));
-    expect(screen.queryByText(/Снять размещение/)).toBeNull();
+    // Вопроса второго шага нет: кнопка окна называется так же, поэтому ищем вопрос.
+    expect(screen.queryByText(/Снять размещение .*\?/)).toBeNull();
   });
 
   it("система: набор получают её контейнеры — контейнер с компонентами целиком, компоненты нет", async () => {

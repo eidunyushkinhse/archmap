@@ -39,8 +39,8 @@ describe("DemoLoginPage", () => {
     expect(install).toHaveAttribute("target", "_blank");
     expect(install.getAttribute("rel")).toContain("noopener");
     expect(screen.getByText(
-      "Помните: это только знакомство. Ваш проект удалится через сутки бездействия. Не вносите "
-      + "сюда рабочие данные. Полные возможности ArchMap раскроются в вашем контуре.",
+      "Это только знакомство. Ваш проект удалится, если сутки в нём ничего не делать. Не вносите "
+      + "сюда рабочие данные. Все возможности ArchMap откроются, когда вы установите его у себя.",
     )).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByLabelText("Логин")).toBeNull();

@@ -69,16 +69,16 @@ describe("UsersPage", () => {
     expect(row("boss").getByLabelText("Роль boss")).toHaveValue("architect");
   });
 
-  it("у себя «Заблокировать» и «Снять админа» отключены с подсказкой", async () => {
+  it("у себя «Заблокировать» и «Снять права администратора» отключены с подсказкой", async () => {
     await setup([boss, olga, ivan]);
     const block = row("boss").getByRole("button", { name: "Заблокировать" });
-    const revoke = row("boss").getByRole("button", { name: "Снять админа" });
+    const revoke = row("boss").getByRole("button", { name: "Снять права администратора" });
     expect(block).toBeDisabled();
     expect(revoke).toBeDisabled();
     expect(block.parentElement).toHaveAttribute("title", "Нельзя заблокировать себя");
     expect(revoke.parentElement).toHaveAttribute("title", "Нельзя снять права с себя");
     // у второго админа — доступны
-    expect(row("olga").getByRole("button", { name: "Снять админа" })).toBeEnabled();
+    expect(row("olga").getByRole("button", { name: "Снять права администратора" })).toBeEnabled();
     expect(row("olga").getByRole("button", { name: "Заблокировать" })).toBeEnabled();
   });
 
@@ -90,7 +90,7 @@ describe("UsersPage", () => {
     render(<UsersPage onAllProjects={vi.fn()} onLogout={vi.fn()} />);
     await screen.findByTestId("user-row-olga");
     const block = row("olga").getByRole("button", { name: "Заблокировать" });
-    const revoke = row("olga").getByRole("button", { name: "Снять админа" });
+    const revoke = row("olga").getByRole("button", { name: "Снять права администратора" });
     expect(block).toBeDisabled();
     expect(revoke).toBeDisabled();
     expect(block.parentElement).toHaveAttribute("title", "Это последний администратор");
@@ -114,7 +114,7 @@ describe("UsersPage", () => {
 
   it("отмена подтверждения ничего не меняет", async () => {
     await setup([boss, olga]);
-    await userEvent.click(row("olga").getByRole("button", { name: "Снять админа" }));
+    await userEvent.click(row("olga").getByRole("button", { name: "Снять права администратора" }));
     expect(screen.getByText("Снять права администратора с «olga»?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(adminApi.update).not.toHaveBeenCalled();
@@ -123,7 +123,7 @@ describe("UsersPage", () => {
   it("снятие админа — через подтверждение; отказ бэка виден в окне", async () => {
     await setup([boss, olga]);
     vi.mocked(adminApi.update).mockRejectedValue(new Error("Нельзя снять права с последнего администратора"));
-    await userEvent.click(row("olga").getByRole("button", { name: "Снять админа" }));
+    await userEvent.click(row("olga").getByRole("button", { name: "Снять права администратора" }));
     await userEvent.click(screen.getByRole("button", { name: "Снять" }));
     expect(adminApi.update).toHaveBeenCalledWith("u-olga", { is_admin: false });
     expect(await screen.findByText("Нельзя снять права с последнего администратора")).toBeInTheDocument();
@@ -137,9 +137,9 @@ describe("UsersPage", () => {
     await waitFor(() => expect(row("petr").getByText("Активен")).toBeInTheDocument());
 
     vi.mocked(adminApi.update).mockResolvedValueOnce({ ...ivan, is_admin: true });
-    await userEvent.click(row("ivan").getByRole("button", { name: "Сделать админом" }));
+    await userEvent.click(row("ivan").getByRole("button", { name: "Сделать администратором" }));
     expect(adminApi.update).toHaveBeenCalledWith("u-ivan", { is_admin: true });
-    await waitFor(() => expect(row("ivan").getByRole("button", { name: "Снять админа" })).toBeInTheDocument());
+    await waitFor(() => expect(row("ivan").getByRole("button", { name: "Снять права администратора" })).toBeInTheDocument());
   });
 
   it("смена роли — выбором в строке", async () => {

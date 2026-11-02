@@ -85,7 +85,7 @@ export function useDeploymentPlacing({ proj, sites, allNodes, onWritten, onShow,
     else onToast(toast);
   };
   const placedText = (node: AppNode, siteId: string | null) =>
-    siteId ? `„${node.name}“ размещён на „${siteName(siteId)}“` : `Размещение „${node.name}“ снято`;
+    siteId ? `«${node.name}» размещён на «${siteName(siteId)}»` : `Размещение «${node.name}» снято`;
 
   const run = async (write: () => Promise<void>) => {
     if (busyRef.current) return;
