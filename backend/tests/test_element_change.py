@@ -3,7 +3,8 @@ docs/plan-c4-elements.md, app/element_change.py).
 
 Сторожим пять видов переноса площадок (система → контейнер объединением, контейнер →
 система раздачей вложенным — они становятся контейнерами, вход в контейнер, выход из него,
-первый вложенный объект у пустой системы с площадками — при создании и переносе),
+первая единица в поддереве пустой системы с площадками — при создании и переносе, на любой
+глубине и с несколькими держателями),
 отсутствие спящих экземпляров после операции, «ничего не переезжает»
 (none), явные site_ids поверх переноса, элемент и родителя в одном PATCH, превью = итог,
 отказы превью теми же текстами, что у PATCH, и курсоры.
@@ -378,7 +379,7 @@ def test_превью_только_редактору(client, db):
     assert r.status_code in (403, 404)
 
 
-# --- Правило 5: первый вложенный объект у листа с площадками ---
+# --- Правило 5: первая единица в поддереве пустой системы с площадками ---
 
 def test_создание_под_пустой_системой_с_площадками_отдаёт_их_ребёнку(client, db):
     """Пустая система со спящими площадками, получившая первого ребёнка: её площадки
@@ -479,3 +480,120 @@ def test_перенос_в_лист_без_пятого_правила(client, d
     before = s.own()
     assert s.patch("billing", {"parent_id": str(s.ids[target])}).status_code == 200
     assert s.own() == before
+
+
+# --- Правило 5: решение владельца 2026-11-02 — площадки ждут первую единицу ---
+
+
+def test_вложенная_пустая_система_площадки_не_будит_а_контейнер_после_неё_будит(client, db):
+    """Первым внутрь положили не единицу, а вложенную пустую систему: площадки спят дальше
+    (экземпляры и курсор меты на месте), их получает первый контейнер после неё."""
+    s = Scene(db, client, [("orders", None, {"element": "system"}, ["prod-eu", "prod-ru"])])
+    g0, m0 = s.revs()
+    r = s.create("core", "orders", element="system")
+    assert r.json()["sites"] == []
+    assert s.own() == {"orders": ["prod-eu", "prod-ru"]}
+    assert s.revs() == (g0 + 1, m0)
+
+    g1, m1 = s.revs()
+    r = s.create("api", "orders")
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu", "prod-ru"]
+    assert s.own() == {"api": ["prod-eu", "prod-ru"]}
+    assert s.revs() == (g1 + 1, m1 + 1)
+
+
+def test_перенос_контейнера_в_пустую_систему_со_вложенной_пустой_системой(client, db):
+    """Перенос контейнера со своими площадками в пустую систему, где уже лежит вложенная
+    пустая система: он — первая единица, окно и итог как у первого вложенного объекта."""
+    s = Scene(db, client, [
+        ("shop", None, {}, []),
+        ("orders", "shop", {"element": "system"}, ["prod-eu"]),
+        ("core", "orders", {"element": "system"}, []),
+        ("billing", "shop", {"element": "container"}, ["prod-ru"]),
+    ])
+    p = s.preview_move("billing", "orders")
+    assert p["kind"] == "first_child"
+    assert p["container_name"] == "orders"
+    assert _rows(p, "before") == [("orders", ["prod-eu"]), ("billing", ["prod-ru"])]
+    assert _rows(p, "after") == [("billing", ["prod-eu", "prod-ru"])]
+    assert p["docs_names"] == []
+
+    g0, m0 = s.revs()
+    assert s.patch("billing", {"parent_id": str(s.ids["orders"])}).status_code == 200
+    assert s.own() == {"billing": ["prod-eu", "prod-ru"]}
+    s.shown(p["after"])
+    assert s.revs() == (g0 + 1, m0 + 1)
+
+
+def test_единица_внутри_вложенной_пустой_системы_получает_площадки_внешней(client, db):
+    """Глубина: единица считается во всём поддереве системы (units_under — вниз до первого
+    контейнера, сквозь вложенные системы). Окно переноса называет держателя площадок, а не
+    цель переноса: цель окну передаёт интерфейс."""
+    s = Scene(db, client, [
+        ("orders", None, {"element": "system"}, ["prod-eu", "prod-ru"]),
+        ("core", "orders", {"element": "system"}, []),
+        ("billing", None, {"element": "container"}, []),
+    ])
+    p = s.preview_move("billing", "core")
+    assert (p["kind"], p["container_name"]) == ("first_child", "orders")
+    assert _rows(p, "before") == [("orders", ["prod-eu", "prod-ru"])]
+    assert _rows(p, "after") == [("billing", ["prod-eu", "prod-ru"])]
+
+    g0, m0 = s.revs()
+    r = s.create("api", "core")
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu", "prod-ru"]
+    assert s.own() == {"api": ["prod-eu", "prod-ru"]}
+    assert s.revs() == (g0 + 1, m0 + 1)
+
+
+def _two_holders(db, client) -> Scene:
+    """Два держателя: у orders спят prod-eu, вложенный core разместили на prod-ru, пока он
+    был контейнером, затем ему задали тип «система» (empty_system: prod-ru спит у него)."""
+    s = Scene(db, client, [
+        ("orders", None, {"element": "system"}, ["prod-eu"]),
+        ("core", "orders", {"element": "container"}, ["prod-ru"]),
+        ("billing", None, {"element": "container"}, []),
+    ])
+    p = s.preview_element("core", "system")
+    assert (p["kind"], _rows(p, "before"), p["after"]) == ("empty_system", [("core", ["prod-ru"])], [])
+    assert s.patch("core", {"element": "system"}).status_code == 200
+    assert s.own() == {"core": ["prod-ru"], "orders": ["prod-eu"]}
+    return s
+
+
+def test_два_держателя_отдают_объединение_созданной_единице(client, db):
+    s = _two_holders(db, client)
+    g0, m0 = s.revs()
+    r = s.create("api", "core")
+    # Объединение — в порядке площадок проекта, у обоих держателей экземпляров нет.
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu", "prod-ru"]
+    assert s.own() == {"api": ["prod-eu", "prod-ru"]}
+    assert s.revs() == (g0 + 1, m0 + 1)
+
+
+def test_два_держателя_в_окне_переноса(client, db):
+    """Превью переноса в core показывает строки обоих держателей «до» (ближайший первым),
+    окно называет ближайшего; итог равен превью."""
+    s = _two_holders(db, client)
+    p = s.preview_move("billing", "core")
+    assert (p["kind"], p["container_name"]) == ("first_child", "core")
+    assert _rows(p, "before") == [("core", ["prod-ru"]), ("orders", ["prod-eu"])]
+    assert _rows(p, "after") == [("billing", ["prod-eu", "prod-ru"])]
+
+    assert s.patch("billing", {"parent_id": str(s.ids["core"])}).status_code == 200
+    assert s.own() == {"billing": ["prod-eu", "prod-ru"]}
+    s.shown(p["after"])
+
+
+def test_пользователь_из_старых_данных_площадки_не_держит(client, db):
+    """«Пользователь» внутри пустой системы — старые данные (через API он туда не
+    создаётся, N4г): единицей он не считается, первый контейнер получает площадки."""
+    s = Scene(db, client, [
+        ("orders", None, {"element": "system"}, ["prod-eu"]),
+        ("Покупатель", "orders", {"shape": "person"}, []),
+    ])
+    g0, m0 = s.revs()
+    r = s.create("api", "orders")
+    assert [x["name"] for x in r.json()["sites"]] == ["prod-eu"]
+    assert s.own() == {"api": ["prod-eu"]}
+    assert s.revs() == (g0 + 1, m0 + 1)
