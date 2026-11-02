@@ -142,7 +142,7 @@ def container_name(node: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> st
 
 KIND_LABEL = {"code": "код", "dependency": "имя зависимости"}
 BASIS_LABEL = {"code": "по коду", "dependency": "по имени зависимости", "name": "по имени"}
-NO_ANCHOR = "нет — опознаётся по имени"
+NO_ANCHOR = "нет, объект опознаётся по имени"
 
 
 def anchor_kind(source: dict[str, Any] | None) -> str | None:
@@ -225,21 +225,24 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
         if not node.get("has_children"):
             return f"Статус страницы: {word}"
         return (
-            f"Статус страницы: {word} — складывается из вложенных объектов, "
-            f"согласовано {done} из {len(units)}"
+            f"Статус страницы: {word} (складывается из вложенных объектов, "
+            f"согласовано {done} из {len(units)})"
         )
     if node.get("element_effective") != "system":
         return f"Статус страницы: {word}"
     if external_system(node):
         # Внешнее не согласуют (Р42): «согласовывать пока нечего» звучало бы упрёком.
-        return f"Статус страницы: не ведётся — это {EXTERNAL_SYSTEM}"
+        return f"Статус страницы: не ведётся, потому что это {EXTERNAL_SYSTEM}"
     if not units:
         # Система без единиц (пустая или с одними вложенными системами) не согласована:
         # «0 из 0» читалось бы как «всё согласовано».
-        return f"Статус страницы: {word} — складывается из вложенных объектов, согласовывать пока нечего"
+        return (
+            f"Статус страницы: {word} (складывается из вложенных объектов, согласовывать "
+            "пока нечего)"
+        )
     return (
-        f"Статус страницы: {word} — складывается из вложенных объектов, "
-        f"согласовано {done} из {len(units)}"
+        f"Статус страницы: {word} (складывается из вложенных объектов, "
+        f"согласовано {done} из {len(units)})"
     )
 
 
@@ -291,8 +294,10 @@ def placement_line(node: dict[str, Any], container: dict[str, Any] | None = None
         if not name:
             return None
         held = list((container or {}).get("sites") or [])
-        where = ", ".join(_site_name(s) for s in held) + " — " if held else ""
-        return f"Размещение: {where}как у контейнера «{name}»"
+        if not held:
+            return f"Размещение: как у контейнера «{name}»"
+        where = ", ".join(_site_name(s) for s in held)
+        return f"Размещение: {where} (как у контейнера «{name}»)"
     sites = list(node.get("sites") or [])
     if not sites:
         return None
@@ -434,7 +439,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
         pad = "  " * depth
         members = sorted(own.get(sid, []), key=lambda m: path_of(str(m[0]["id"]), by_id))
         total = sum(c for _n, c, _whole in members)
-        out.append(f"{pad}{site_label(site)} — {_objects(total) if members else 'пусто'}")
+        out.append(f"{pad}{site_label(site)} · {_objects(total) if members else 'пусто'}")
         for n, c, whole in members[:PLACEMENT_CAP]:
             tail = f" (система целиком, {_containers(c)})" if whole else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
@@ -454,7 +459,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
         if _placement_role(n) == "unit" and not n.get("sites")
     )
     if not unplaced:
-        out.append("Без размещения: нет — все объекты стоят на площадках")
+        out.append("Без размещения: нет, все объекты стоят на площадках")
         return out
     out.append(f"Без размещения: {_objects(len(unplaced))}")
     out.extend(f"  • {u}" for u in unplaced[:PLACEMENT_CAP])
@@ -477,13 +482,13 @@ def node_placement(
     if node.get("element_effective") == "component":
         holder = container_name(node, by_id)
         out.append(
-            f"Размещения нет: это компонент — площадки задаются контейнеру «{holder}»"
+            f"Размещения нет: это компонент, а площадки задаются контейнеру «{holder}»"
             if holder
-            else "Размещения нет: это компонент — площадки задаются его контейнеру"
+            else "Размещения нет: это компонент, а площадки задаются его контейнеру"
         )
         return out
     if empty_system(node):
-        out.append(f"Размещения нет: это {EMPTY_SYSTEM} — площадки задаются её контейнерам")
+        out.append(f"Размещения нет: это {EMPTY_SYSTEM}, а площадки задаются её контейнерам")
         return out
     if external_system(node):
         out.append(f"Размещения нет: {EXTERNAL_SYSTEM}")
@@ -500,7 +505,7 @@ def node_placement(
         site = by_site.get(sid, e)
         label = site_label({**site, "name": paths.get(sid, e.get("name", "?"))})
         if e.get("partial"):
-            label += " — часть контейнеров"
+            label += " (часть контейнеров)"
         out.append(f"  • {label}")
     return out
 
@@ -510,7 +515,7 @@ def anchor_note(source: dict[str, Any] | None) -> str:
     kind = anchor_kind(source)
     if source and kind:
         return f"источник: {KIND_LABEL[kind]} {anchor_readable(source)}"
-    return "источника нет — будет опознаваться по имени"
+    return "источника нет, объект будет опознаваться по имени"
 
 
 def basis_label(basis: str, path: str | None = None) -> str:
@@ -633,15 +638,15 @@ OWN_DOCS_HINT = {
         "спецификацию, конфигурацию и схемы логики можно перенести контейнерам этой "
         "системы"
     ),
-    "container": "схемы логики описывают код компонентов — перенесите их компонентам",
+    "container": "схемы логики описывают код компонентов, поэтому перенесите их компонентам",
 }
 COMPONENT_FACTS_HINT = "можно собрать у контейнера «{name}»"
 # Только площадки: сбор их не переносит, площадки задают контейнеру.
 COMPONENT_SITES_HINT = "площадки можно задать контейнеру «{name}»"
 # Чем закрыть рекомендацию (MCP 0.12.0): инструмент по имени и объект, с которого его
 # звать. Хвост — только у MCP, слова панели выше не меняются.
-TRANSFER_TAIL = " — archmap_transfer_docs_preview, node_id={node_id}"
-COLLECT_TAIL = " — archmap_collect_facts_preview, node_id={node_id}"
+TRANSFER_TAIL = " (archmap_transfer_docs_preview, node_id={node_id})"
+COLLECT_TAIL = " (archmap_collect_facts_preview, node_id={node_id})"
 
 
 def own_docs_line(record: dict[str, Any]) -> str:
@@ -712,8 +717,8 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
         if len(value) > UNKNOWN_ALERTS_SHOWN:
             lines.append(f"и ещё {len(value) - UNKNOWN_ALERTS_SHOWN}")
         head = (
-            f"«{key}» ({len(value)}). Этот класс рекомендаций MCP-серверу незнаком — сервер "
-            "ArchMap новее, обновите MCP-сервер. Записи как есть:"
+            f"«{key}» ({len(value)}). Этот класс рекомендаций MCP-серверу незнаком, потому что "
+            "сервер ArchMap новее. Обновите MCP-сервер. Записи как есть:"
         )
         out.append((head + "\n" + "\n".join("  • " + line for line in lines), len(value)))
     return out
@@ -801,7 +806,7 @@ def alerts(data: dict[str, Any]) -> str:
     add(
         "Обращения к неописанным данным",
         [
-            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — "
+            f"{r['node_name']} · {r['doc_name']}: «{r['ref']}»: "
             f"{DATA_REASON.get(str(r.get('reason')), str(r.get('reason')))}"
             for r in data_refs
         ],
@@ -809,7 +814,7 @@ def alerts(data: dict[str, Any]) -> str:
     add(
         "Обращения к неописанным каналам",
         [
-            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — "
+            f"{r['node_name']} · {r['doc_name']}: «{r['ref']}»: "
             f"{CHANNEL_REASON.get(str(r.get('reason')), str(r.get('reason')))}"
             for r in channel_refs
         ],
@@ -817,7 +822,7 @@ def alerts(data: dict[str, Any]) -> str:
     add(
         "Обращения к неописанным параметрам",
         [
-            f"{r['node_name']} · {r['doc_name']}: „{r['ref']}“ — {config_reason(r)}"
+            f"{r['node_name']} · {r['doc_name']}: «{r['ref']}»: {config_reason(r)}"
             for r in config_refs
         ],
     )
@@ -857,7 +862,7 @@ def alerts(data: dict[str, Any]) -> str:
     add(
         "Объекты с неописанными схемами логики",
         [
-            f"{u['node_name']} — {u['count']} {_plural(int(u['count']), ('схема', 'схемы', 'схем'))}"
+            f"{u['node_name']}: {u['count']} {_plural(int(u['count']), ('схема', 'схемы', 'схем'))}"
             for u in undescribed
         ],
     )
@@ -943,7 +948,7 @@ def docs(
             where = ", ".join(str(r.get("process_name", "?")) for r in rows)
             n = len(rows)
             marks.append(f"в {n} {_plural(n, ('процессе', 'процессах', 'процессах'))}: {where}")
-        tail = f" — {'; '.join(marks)}" if marks else ""
+        tail = f" · {'; '.join(marks)}" if marks else ""
         lines.append(f"  • {d['name']} ({head}){tail}  id={doc_id}")
 
     title = "СХЕМЫ ЛОГИКИ:"
@@ -964,7 +969,7 @@ STEP_KIND_WORD = {
 # «связь удалили из схемы» и «канал стал асинхронным, ответа у него не бывает».
 STEP_BROKEN_WORD = {
     "edge_deleted": "связь удалена",
-    "leg_gone": "канал без ответа",
+    "leg_gone": "связь без ответа",
 }
 
 
@@ -977,7 +982,7 @@ def process_list(items: list[dict[str, Any]]) -> str:
         scope = p.get("scope_name") or "весь проект"
         n = int(p.get("message_count", 0) or 0)
         lines.append(
-            f"• {p.get('name', '?')} — область: {scope}, "
+            f"• {p.get('name', '?')} · область: {scope}, "
             f"шагов {n}  id={p.get('id', '?')}"
         )
     return "\n".join(lines)
@@ -988,7 +993,7 @@ def node_processes(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
     процесса узел бывает и без единой схемы логики, поэтому раздел не выводится
     из обратного индекса доков в карточке."""
     lines = [
-        f"  • {p.get('name', '?')} — шагов {int(p.get('message_count', 0) or 0)}"
+        f"  • {p.get('name', '?')} · шагов {int(p.get('message_count', 0) or 0)}"
         f"  id={p.get('id', '?')}"
         for p in items
     ]
@@ -1001,7 +1006,7 @@ def _step_binding(m: dict[str, Any]) -> str:
     Путь узла обязателен рядом с именем: одноимённые схемы живут у разных
     объектов, и «схема „POST /orders“» без адреса неразличима."""
     if not m.get("doc_id"):
-        return " — схема не привязана"
+        return " · схема не привязана"
     where = f" ({m['doc_node_path']})" if m.get("doc_node_path") else ""
     return f" → схема «{m.get('doc_name', '?')}»{where}"
 
@@ -1027,7 +1032,7 @@ def process_detail(detail: dict[str, Any]) -> str:
             marks.append("внешний")
         if not p.get("node_id"):
             marks.append("не привязан к объекту")
-        tail = f" — {', '.join(marks)}" if marks else ""
+        tail = f" · {', '.join(marks)}" if marks else ""
         out.append(f"  {p.get('order', '?')}. {p.get('name', '?')}{tail}")
 
     out.append("")
@@ -1089,8 +1094,8 @@ def step_docs(data: dict[str, Any]) -> str:
     if not docs_:
         return (
             "Подходящих схем логики нет: ни у участников шага, ни у их потомков не "
-            "заведено ни одной. Сначала опишите логику — archmap_docs_prompt / "
-            "archmap_docs_apply."
+            "заведено ни одной. Сначала опишите логику инструментами archmap_docs_prompt "
+            "и archmap_docs_apply."
         )
     owner = str(data.get("default_node_id") or "")
     lines: list[str] = []
@@ -1106,7 +1111,7 @@ def step_docs(data: dict[str, Any]) -> str:
             marks.append("не описана")
         tail = f" [{', '.join(marks)}]" if marks else ""
         lines.append(
-            f"  • {d.get('name', '?')} ({head}) — {d.get('node_path', '?')}{tail}"
+            f"  • {d.get('name', '?')} ({head}) · {d.get('node_path', '?')}{tail}"
             f"  id={d.get('id', '?')}"
         )
     head_line = f"ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ ({len(docs_)}):"
@@ -1191,7 +1196,7 @@ def config_params(items: list[dict[str, Any]]) -> tuple[str, list[str]]:
         bits.append("обяз." if p.get("required") else "необяз.")
         if p.get("default_value"):
             bits.append(f"по умолчанию «{p['default_value']}»")
-        desc = f" — {p['description']}" if p.get("description") else ""
+        desc = f": {p['description']}" if p.get("description") else ""
         lines.append(f"  • {p['name']} ({', '.join(bits)}){desc}")
     n = len(items)
     title = f"КОНФИГУРАЦИЯ ({n} {_plural(n, ('параметр', 'параметра', 'параметров'))}):"
@@ -1209,14 +1214,14 @@ RECON_GROUPS: tuple[tuple[str, str, str, str], ...] = (
     ("unchanged", "Заглушки уже есть", "", "заглушки уже есть"),
     (
         "described",
-        "Уже описаны — не тронем",
+        "Уже описаны, их не тронем",
         "повторный сбор перечня не затирает работу",
         "уже описано",
     ),
     (
         "vanished",
         "Есть в документации, но не найдено в коде",
-        "ничего не удаляем — это показ расхождения",
+        "ничего не удаляем, это только показ расхождения",
         "не найдено в коде",
     ),
 )
@@ -1285,7 +1290,7 @@ def recon_report(data: dict[str, Any], *, applied: bool) -> str:
 
     out.extend(problems(data))
     if not applied:
-        out.append("\nНичего не записано — для записи вызовите archmap_recon_apply.")
+        out.append("\nНичего не записано. Для записи вызовите archmap_recon_apply.")
     return "\n".join(out)
 
 
@@ -1412,7 +1417,7 @@ def facts_report(data: dict[str, Any], family: str, *, applied: bool) -> str:
 
     out.extend(problems(data))
     if not applied:
-        out.append("\nНичего не записано — для записи вызовите archmap_facts_apply.")
+        out.append("\nНичего не записано. Для записи вызовите archmap_facts_apply.")
     return "\n".join(out)
 
 
@@ -1491,7 +1496,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
         out.append("")
         out.append("Пакет ничего не принёс: ни схем логики, ни спецификаций не распознано.")
     if not applied:
-        out.append("\nНичего не записано — для записи вызовите archmap_docs_apply.")
+        out.append("\nНичего не записано. Для записи вызовите archmap_docs_apply.")
     return "\n".join(out).lstrip("\n")
 
 
@@ -1555,7 +1560,7 @@ def archive_summary(manifest: dict[str, Any], *, files: int, size: int, path: st
         out.append("Состав:")
         out.extend(rows)
     else:
-        out.append("Состав: пусто — в проекте нечего архивировать.")
+        out.append("Состав: пусто, в проекте нечего архивировать.")
     return "\n".join(out)
 
 
@@ -1570,15 +1575,15 @@ TRANSFER_CAP = 40  # получателей и компонентов в пер�
 TRANSFER_HINT = {
     "system": (
         "У системы своей документации нет: схемы логики отдают компонентам и объектам без "
-        "вложенных, спецификацию и конфигурацию — контейнерам."
+        "вложенных, а спецификацию и конфигурацию контейнерам."
     ),
     "container": (
-        "У контейнера с компонентами переносят только схемы логики — их можно перенести "
-        "компонентам; спецификация и конфигурация у контейнера свои."
+        "У контейнера с компонентами переносят только схемы логики: их можно перенести "
+        "компонентам, а спецификация и конфигурация у контейнера свои."
     ),
     "component": (
         "Схемы логики составного компонента отдают его вложенным компонентам; спецификацию "
-        "и конфигурацию компонента собирают в контейнер — archmap_collect_facts_preview."
+        "и конфигурацию компонента собирают в контейнер (archmap_collect_facts_preview)."
     ),
 }
 
@@ -1598,7 +1603,7 @@ def _receiver_line(r: dict[str, Any]) -> str:
             "спецификация и конфигурация" + (" (своя спецификация уже есть)" if r.get("has_spec") else "")
         )
     word = ELEMENT_WORD.get(str(r.get("element_effective")), "объект")
-    return f"  • {r.get('path')} [{word}] — {'; '.join(takes)}  node_id={r.get('node_id')}"
+    return f"  • {r.get('path')} [{word}] · {'; '.join(takes)}  node_id={r.get('node_id')}"
 
 
 def transfer_preview(data: dict[str, Any]) -> str:
@@ -1635,13 +1640,13 @@ def transfer_preview(data: dict[str, Any]) -> str:
     if takers:
         out.extend(_capped([_receiver_line(r) for r in takers], TRANSFER_CAP, ("получатель", "получателя", "получателей")))
     else:
-        out.append("  нет — внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров")
+        out.append("  нет: внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров")
     if others:
         shown = ", ".join(others[:TRANSFER_CAP]) + (f" и ещё {len(others) - TRANSFER_CAP}" if len(others) > TRANSFER_CAP else "")
         out.append(f"Не принимают ничего: {shown}.")
     out.append(
-        "\nНичего не записано — для переноса вызовите archmap_transfer_docs_apply: docs — "
-        '{"<doc_id схемы>": "<node_id получателя со схемами логики>"}, spec_to и params_to — '
+        "\nНичего не записано. Для переноса вызовите archmap_transfer_docs_apply: в docs "
+        '{"<doc_id схемы>": "<node_id получателя со схемами логики>"}, в spec_to и params_to '
         "node_id получателя со спецификацией и конфигурацией."
     )
     return "\n".join(out)
@@ -1650,7 +1655,7 @@ def transfer_preview(data: dict[str, Any]) -> str:
 def transfer_result(data: dict[str, Any]) -> str:
     """Отчёт переноса (DistributeDocsOut)."""
     return (
-        f"Переехало: схем логики {data.get('moved_docs', 0)}, спецификация — "
+        f"Переехало: схем логики {data.get('moved_docs', 0)}, спецификация: "
         f"{_yes(data.get('spec_moved'))}, параметров конфигурации {data.get('moved_params', 0)}."
     )
 
@@ -1699,14 +1704,17 @@ def _collect_facts(data: dict[str, Any], container_id: str) -> list[str]:
             continue
         others = [str(c.get("node_name")) for c in cl.get("candidates") or [] if str(c.get("node_id")) != container_id]
         whose = f"у компонента «{others[0]}»" if len(others) == 1 else f"у компонентов {_names(others)}"
-        out.append(f"Параметр «{cl.get('name')}» есть у контейнера — остаётся его описание, {whose} параметр будет отброшен")
+        out.append(
+            f"Параметр «{cl.get('name')}» есть у контейнера, поэтому остаётся его описание, а {whose} "
+            "параметр будет отброшен"
+        )
     specs = list(data.get("specs") or [])
     holders = [str(s.get("name")) for s in specs if str(s.get("node_id")) != container_id]
     if data.get("container_has_spec") and holders:
         out.append(
-            f"У контейнера есть своя спецификация — спецификация компонента «{holders[0]}» будет отброшена"
+            f"У контейнера есть своя спецификация, поэтому спецификация компонента «{holders[0]}» будет отброшена"
             if len(holders) == 1
-            else f"У контейнера есть своя спецификация — спецификации компонентов {_names(holders)} будут отброшены"
+            else f"У контейнера есть своя спецификация, поэтому спецификации компонентов {_names(holders)} будут отброшены"
         )
     single = next((s for s in specs if str(s.get("node_id")) == str(data.get("single_spec_from"))), None)
     if data.get("single_spec_from") and single is not None:
@@ -1718,14 +1726,14 @@ def _collect_param_question(cl: dict[str, Any]) -> list[str]:
     cands = list(cl.get("candidates") or [])
     name = str(cl.get("name"))
     out = [
-        f"  • {_ref(name)} — параметр описан у компонентов {_names([str(c.get('node_name')) for c in cands])}, "
-        "у контейнера его нет — чьё описание переедет контейнеру:"
+        f"  • {_ref(name)}: параметр описан у компонентов {_names([str(c.get('node_name')) for c in cands])}, "
+        "а у контейнера его нет. Чьё описание переедет контейнеру:"
     ]
     for c in cands:
         desc = f"«{c['description']}»" if c.get("description") else "без описания"
         out.append(f"      {c.get('node_name')}: {desc}  node_id={c.get('node_id')}")
     out.append(
-        f"    Без ответа — останется у компонентов. Ответ: param_choices[{_ref(name)}] = node_id; "
+        f"    Без ответа останется у компонентов. Ответ: param_choices[{_ref(name)}] = node_id; "
         "остальные записи будут отброшены."
     )
     return out
@@ -1733,11 +1741,11 @@ def _collect_param_question(cl: dict[str, Any]) -> list[str]:
 
 def _collect_spec_question(holders: list[dict[str, Any]]) -> list[str]:
     out = [
-        f"  • spec_from — спецификация есть у компонентов {_names([str(h.get('name')) for h in holders])}, "
-        "у контейнера своей нет — чью считать спецификацией контейнера:"
+        f"  • spec_from: спецификация есть у компонентов {_names([str(h.get('name')) for h in holders])}, "
+        "а у контейнера своей нет. Чью считать спецификацией контейнера:"
     ]
     out.extend(f"      {h.get('name')}  node_id={h.get('node_id')}" for h in holders)
-    out.append("    Без ответа — останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены.")
+    out.append("    Без ответа останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены.")
     return out
 
 
@@ -1760,7 +1768,7 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
     ))
     facts = _collect_facts(data, container_id)
     if facts:
-        out += ["", "Без вопросов — знание контейнера в приоритете:"]
+        out += ["", "Без вопросов (знание контейнера в приоритете):"]
         out.extend("  • " + f for f in facts)
     asked = [cl for cl in data.get("param_clashes") or [] if not cl.get("container_keeps")]
     holders = [s for s in data.get("specs") or [] if str(s.get("node_id")) != container_id]
@@ -1769,7 +1777,7 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
     if total:
         out += [
             "",
-            f"Вопросы ({total}) — у контейнера своей записи нет, приоритета нет. Ответы передают "
+            f"Вопросы ({total}): у контейнера своей записи нет, приоритета нет. Ответы передают "
             "в archmap_collect_facts_apply; вопрос без ответа получит дефолт «как сейчас»:",
         ]
         for cl in asked:
@@ -1777,8 +1785,8 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
         if ask_spec:
             out.extend(_collect_spec_question(holders))
     out.append(
-        "\nНичего не записано — для сбора вызовите archmap_collect_facts_apply"
-        + (" (ответы — param_choices и spec_from, оба необязательны)" if total else "")
+        "\nНичего не записано. Для сбора вызовите archmap_collect_facts_apply"
+        + (" (ответы в param_choices и spec_from, оба необязательны)" if total else "")
         + "."
     )
     return "\n".join(out)
@@ -1787,7 +1795,7 @@ def collect_preview(data: dict[str, Any], container_id: str) -> str:
 def collect_result(data: dict[str, Any]) -> str:
     """Отчёт сбора (CollectFactsOut): собрано, отброшено, осталось у компонентов."""
     out = [
-        f"Собрано: параметров {data.get('moved_params', 0)}, спецификация — {_yes(data.get('spec_moved'))}."
+        f"Собрано: параметров {data.get('moved_params', 0)}, спецификация: {_yes(data.get('spec_moved'))}."
     ]
     dropped_params, dropped_specs = int(data.get("dropped_params") or 0), int(data.get("dropped_specs") or 0)
     if dropped_params or dropped_specs:
@@ -1799,7 +1807,7 @@ def collect_result(data: dict[str, Any]) -> str:
         if left_specs:
             parts.append(f"спецификаций {left_specs}")
         out.append(
-            f"Осталось у компонентов (вопросы без ответа): {', '.join(parts)} — их по-прежнему "
+            f"Осталось у компонентов (вопросы без ответа): {', '.join(parts)}. Их по-прежнему "
             "отмечает archmap_alerts."
         )
     return "\n".join(out)
@@ -1860,15 +1868,15 @@ def c4_preview(c4: dict[str, Any], folded: bool = False) -> list[str]:
         # ложная склейка хуже дубля именно тем, что выглядит правильной схемой.
         for m in c4.get("merged_nodes") or []:
             path = str(m.get("path", ""))
-            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+            out.append(f"  • {path} · {basis_label(str(m.get('basis')), path)}")
     # Узлы без якоря следующий прогон опознает только по имени внутри контейнера:
     # переименуют — получится дубль. Счётчиком, а не списком: при создании проекта
     # новые ВСЕ узлы, и перечень был бы шумом, а не предупреждением.
     without = int(c4.get("nodes_without_anchor") or 0)
     if without:
         out.append(
-            f"Без источника: {without} {_plural(without, ('объект', 'объекта', 'объектов'))} — "
-            "будут опознаваться по имени"
+            f"Без источника: {without} {_plural(without, ('объект', 'объекта', 'объектов'))}, "
+            "они будут опознаваться по имени"
         )
     sections: list[tuple[str, str]] = []
     if not folded:
@@ -1911,18 +1919,18 @@ def conflicts(rows: list[dict[str, Any]], *, apply_tool: str) -> list[str]:
     """
     if not rows:
         return []
-    out = ["", f"Споры содержимого ({len(rows)}) — один факт описан по-разному:"]
+    out = ["", f"Споры содержимого ({len(rows)}). Один факт описан по-разному:"]
     lines: list[str] = []
     for c in rows:
         family = FAMILY_WORD.get(str(c.get("family")), str(c.get("family")))
-        lines.append(f"  «{c.get('id')}» — {family} «{c.get('key')}» у «{c.get('node_path')}»")
+        lines.append(f"  «{c.get('id')}»: {family} «{c.get('key')}» у «{c.get('node_path')}»")
         for i, cand in enumerate(c.get("candidates") or []):
             mark = " [текущий в проекте]" if cand.get("current") else ""
             lines.append(
-                f"      cand:{i} — {cand.get('origin_label', '?')} · "
+                f"      cand:{i}: {cand.get('origin_label', '?')} · "
                 f"{cand.get('summary', '')}{mark}"
             )
-        allow = ', «all» — взять все' if c.get("allow_all") else ""
+        allow = '; «all» берёт все' if c.get("allow_all") else ""
         lines.append(f"      по умолчанию: {c.get('default')}{allow}")
     out.extend(_capped(lines, CONFLICT_CAP * 3, ("строка", "строки", "строк")))
     out.append(
@@ -1985,12 +1993,12 @@ def _field_question(d: dict[str, Any]) -> list[str]:
     field = str(d.get("field"))
     cands = list(d.get("candidates") or [])
     word, given = FIELD_WORD.get(field, (field, "задано"))
-    out = [f"  • {_ref(d.get('id'))} — {word} у «{d.get('node_path')}» {given} по-разному в "
+    out = [f"  • {_ref(d.get('id'))}: {word} у «{d.get('node_path')}» {given} по-разному в "
            f"{len(cands)} файлах:"]
     for i, c in enumerate(cands):
         mark = " [текущее в проекте]" if c.get("current") else ""
-        out.append(f"      {i} — «{_field_value(field, str(c.get('value')))}» ({_source(c.get('source_label'))}){mark}")
-    out.append(f"    Без ответа — {d.get('default')}. Ответ: decisions.fields[{_ref(d.get('id'))}] = номер.")
+        out.append(f"      {i}: «{_field_value(field, str(c.get('value')))}» ({_source(c.get('source_label'))}){mark}")
+    out.append(f"    Без ответа: {d.get('default')}. Ответ: decisions.fields[{_ref(d.get('id'))}] = номер.")
     return out
 
 
@@ -2010,7 +2018,7 @@ def _edge_question(e: dict[str, Any]) -> list[str]:
         targets.append(f"{c.get('path')}{tag}")
     kept = "системе" if element == "system" else "контейнере"
     return [
-        f"  • {_ref(e.get('id'))} — связь {pair} {where} «{e.get('container_path')}» целиком; "
+        f"  • {_ref(e.get('id'))}: связь {pair} {where} «{e.get('container_path')}» целиком; "
         f"цели внутри: {_paths(targets)}.",
         f"    Без ответа связь останется на {kept}. Ответ: decisions.edges[{_ref(e.get('id'))}] = "
         '{"to_path": "<полный путь цели>"}.',
@@ -2019,7 +2027,7 @@ def _edge_question(e: dict[str, Any]) -> list[str]:
 
 def _pair_question(p: dict[str, Any]) -> list[str]:
     return [
-        f"  • {_ref(p.get('id'))} — «{p.get('a_path')}» и «{p.get('b_path')}» — похожие имена из "
+        f"  • {_ref(p.get('id'))}: «{p.get('a_path')}» и «{p.get('b_path')}» — похожие имена из "
         f"разных файлов ({_source(p.get('a_source'))} и {_source(p.get('b_source'))}, оба "
         f"{p.get('where')}); связей {p.get('a_edges', 0)} и {p.get('b_edges', 0)}.",
         f"    Без ответа останутся два объекта. Ответ, если это один объект: "
@@ -2030,9 +2038,9 @@ def _pair_question(p: dict[str, Any]) -> list[str]:
 def _group_question(g: dict[str, Any]) -> list[str]:
     paths = [str(p) for p in g.get("node_paths") or []]
     return [
-        f"  • {_ref(g.get('id'))} — нет связей с остальной схемой у {len(paths)} "
+        f"  • {_ref(g.get('id'))}: нет связей с остальной схемой у {len(paths)} "
         f"{_plural(len(paths), ('объекта', 'объектов', 'объектов'))}: {_paths(paths)}.",
-        "    Без ответа группа останется без связей. Ответ — провести связь: decisions.new_edges = "
+        "    Без ответа группа останется без связей. Ответ: провести связь, decisions.new_edges = "
         f'[{{"group_id": {_ref(g.get("id"))}, "from_path": "<путь>", "to_path": "<путь>"}}].',
     ]
 
@@ -2054,7 +2062,7 @@ def remainder(data: dict[str, Any], *, apply_tool: str) -> list[str]:
     if total:
         out += [
             "",
-            f"Вопросы разбора ({total}) — то, что слияние не решило само. Ответы передают в "
+            f"Вопросы разбора ({total}): то, что слияние не решило само. Ответы передают в "
             f"{apply_tool} аргументом decisions; вопрос без ответа получит свой дефолт:",
         ]
         for key, build in REMAINDER_KINDS:
@@ -2084,7 +2092,7 @@ def unified_preview(data: dict[str, Any]) -> str:
     if isinstance(c4, dict):
         out.extend(c4_preview(c4, folded))
     else:
-        out.append("C4-схемы во входах нет — приедет только содержимое архивов.")
+        out.append("C4-схемы во входах нет, поэтому приедет только содержимое архивов.")
     out.append(family_counts(_dict(data.get("families"))))
     out.extend(conflicts(list(data.get("family_conflicts") or []), apply_tool="archmap_import_apply"))
 
@@ -2104,7 +2112,7 @@ def unified_preview(data: dict[str, Any]) -> str:
         )
     else:
         out.append("\nИмя проекта придётся задать самому: аргумент name у archmap_import_apply.")
-    out.append("Ничего не создано — для создания вызовите archmap_import_apply.")
+    out.append("Ничего не создано. Для создания вызовите archmap_import_apply.")
     return "\n".join(out)
 
 
@@ -2115,7 +2123,7 @@ def _channel_stubs_line(data: dict[str, Any]) -> list[str]:
         return []
     return [
         f"Каналов брокеров заведено по связям схемы: {n} "
-        f"{_plural(n, ('заглушка', 'заглушки', 'заглушек'))} без описания — дозалейте "
+        f"{_plural(n, ('заглушка', 'заглушки', 'заглушек'))} без описания. Дозалейте "
         "пакет каналов (archmap_facts_prompt family=channels)."
     ]
 
@@ -2162,7 +2170,7 @@ def into_preview(data: dict[str, Any]) -> str:
         shown = list(data.get("matched_nodes") or [])
         for m in shown:
             path = str(m.get("path", ""))
-            out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
+            out.append(f"  • {path} · {basis_label(str(m.get('basis')), path)}")
         if matched > len(shown):
             out.append(f"  и ещё {matched - len(shown)}")
     # Новые объекты — с их якорями: «(без якоря)» значит, что следующая догрузка
@@ -2172,7 +2180,7 @@ def into_preview(data: dict[str, Any]) -> str:
         out.append("Новые объекты:")
         for n in new_nodes:
             source = n.get("source")
-            tail = f" — источник: {anchor_value(source)}" if anchor_kind(source) else " (без источника)"
+            tail = f" (источник: {anchor_value(source)})" if anchor_kind(source) else " (без источника)"
             out.append(f"  • {n.get('path', '?')}{tail}")
     else:
         # Старое поле — запасной путь: контракты превью только дополняются, и
@@ -2200,10 +2208,10 @@ def into_preview(data: dict[str, Any]) -> str:
     out.append("")
     out.append(
         f"Для применения передайте base_graph_rev={data.get('base_graph_rev', 0)} и "
-        f"base_meta_rev={data.get('base_meta_rev', 0)} — они защищают от параллельной "
+        f"base_meta_rev={data.get('base_meta_rev', 0)}: они защищают от параллельной "
         "правки проекта (при расхождении будет 409, тогда перечитайте превью)."
     )
-    out.append("Ничего не записано — для записи вызовите archmap_import_into_apply.")
+    out.append("Ничего не записано. Для записи вызовите archmap_import_into_apply.")
     return "\n".join(out)
 
 
@@ -2288,8 +2296,8 @@ SEARCH_KIND_WORD = {
     "step": "шаг",
 }
 SEARCH_NEXT = (
-    "Открыть найденное: схему целиком — archmap_doc(doc_id), объект — "
-    "archmap_node(node_id), процесс с шагами — archmap_processes(process_id)."
+    "Открыть найденное: схему целиком archmap_doc(doc_id), объект "
+    "archmap_node(node_id), процесс с шагами archmap_processes(process_id)."
 )
 
 
@@ -2320,7 +2328,7 @@ def search_results(data: dict[str, Any]) -> str:
         return (
             f"Ничего не нашлось (искали по: {tokens}). Находкой считается строка, где "
             "совпали хотя бы два слова запроса, а схемы часто пересказывают ошибку "
-            "по-русски. Попробуйте одно характерное слово из строки — имя параметра, "
+            "по-русски. Попробуйте одно характерное слово из строки: имя параметра, "
             "протокола, таблицы, устройства: запрос из одного слова находит все его "
             "вхождения."
         )
@@ -2409,7 +2417,7 @@ def doc_card(detail: dict[str, Any]) -> str:
         for p in procs:
             steps = int(p.get("steps", 0) or 0)
             out.append(
-                f"  • {p.get('process_name', '?')} — {steps} "
+                f"  • {p.get('process_name', '?')} · {steps} "
                 f"{_plural(steps, ('шаг', 'шага', 'шагов'))}  process_id={p.get('process_id')}"
             )
     else:
@@ -2460,8 +2468,8 @@ ROW_MARK = {"add": "+", "del": "−", "mod": "~", "move": "↕", "": " "}
 LINE_MARK = {"add": "+", "del": "-", "": " "}
 
 DIFF_NEXT = (
-    "Дельта одного элемента — archmap_version_diff с item (те же version и base); "
-    "текст схемы, спецификации или процесса на версии — archmap_version_doc."
+    "Дельта одного элемента: archmap_version_diff с item (те же version и base). "
+    "Текст схемы, спецификации или процесса на версии: archmap_version_doc."
 )
 
 
@@ -2548,8 +2556,8 @@ def version_list(title: str, data: dict[str, Any]) -> str:
             out.append(f"    изменено: {changed_brief(changed)}")
     out.append("")
     out.append(
-        "Что изменилось в версии — archmap_version_diff с version; "
-        "с версии до текущего состояния — base=live."
+        "Что изменилось в версии: archmap_version_diff с version. "
+        "С версии до текущего состояния: base=live."
     )
     return "\n".join(out)
 
@@ -2581,7 +2589,7 @@ def _version_item_line(item: dict[str, Any]) -> str:
 def version_diff(owner: str, data: dict[str, Any]) -> str:
     """Элементы дельты (VersionDiff) — строка на элемент, item в конце строки: им
     агент спрашивает подробности одного элемента."""
-    head = f"{owner} — {_version_ref(data.get('base'))} → {_version_ref(data.get('target'))}"
+    head = f"{owner} · {_version_ref(data.get('base'))} → {_version_ref(data.get('target'))}"
     items: list[dict[str, Any]] = data.get("items") or []
     if not items:
         return f"{head}\nИзменений нет."
@@ -2642,7 +2650,7 @@ def version_item(
     with_sides — ещё «было» и «стало» теми же правилами."""
     item: dict[str, Any] = detail.get("item") or {}
     out = [
-        f"{owner} — {_version_base_phrase(number, base)}",
+        f"{owner} · {_version_base_phrase(number, base)}",
         f"{_version_item_line(item)}  item={item.get('item_id')}",
         "",
         "ИЗМЕНЕНИЯ:",

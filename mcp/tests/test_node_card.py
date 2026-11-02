@@ -127,7 +127,7 @@ async def test_карточка_сервиса_показывает_параме
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "КОНФИГУРАЦИЯ (2 параметра):" in out
-    assert "• ORDER_TIMEOUT (duration, необяз., по умолчанию «30s») — сколько ждать ответа" in out
+    assert "• ORDER_TIMEOUT (duration, необяз., по умолчанию «30s»): сколько ждать ответа" in out
     assert "• DB_DSN (string, обяз.)" in out
     assert "/tables" not in " ".join(paths(api)) and "/channels" not in " ".join(paths(api))
 
@@ -200,10 +200,10 @@ async def test_схемы_логики_видом_словарём_заглуш�
 
     assert "СХЕМЫ ЛОГИКИ (описано 1 из 2):" in out
     assert (
-        "• POST /orders (операция · POST /orders) — в 2 процессах: "
+        "• POST /orders (операция · POST /orders) · в 2 процессах: "
         "Оформление заказа, Возврат" in out
     )
-    assert "• Ночная сверка (воркер) — не описана" in out
+    assert "• Ночная сверка (воркер) · не описана" in out
     assert "operation" not in out and "worker" not in out  # виды — словами, не кодами
 
 
@@ -276,7 +276,7 @@ async def test_карточка_называет_процессы_объекта
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "УЧАСТВУЕТ В ПРОЦЕССАХ (2):" in out
-    assert "• Оформление заказа — шагов 12" in out
+    assert "• Оформление заказа · шагов 12" in out
     assert f"id={u(8)}" in out
 
 
@@ -346,7 +346,7 @@ async def test_без_источника_карточка_называет_по�
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Источник: нет — опознаётся по имени" in out
+    assert "Источник: нет, объект опознаётся по имени" in out
 
 
 async def test_слова_источника_те_же_что_в_интерфейсе() -> None:
@@ -360,7 +360,7 @@ async def test_слова_источника_те_же_что_в_интерфе�
     assert f'NO_ANCHOR = "{render.NO_ANCHOR}"' in text
     for word in render.BASIS_LABEL.values():
         assert f'"{word}"' in text
-    assert "источника нет — будет опознаваться по имени" in text
+    assert "источника нет, объект будет опознаваться по имени" in text
 
 
 # ── Статус страницы (docs/tasks/page-status.md) ──────────────────────────────
@@ -405,7 +405,7 @@ async def test_статус_страницы_системы_складывает
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert (
-        "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 4"
+        "Статус страницы: в работе (складывается из вложенных объектов, согласовано 2 из 4)"
         in out.splitlines()
     )
 
@@ -451,7 +451,7 @@ async def test_старый_сервер_статус_по_прямым_детя
 
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert "Статус страницы: в работе — складывается из вложенных объектов, согласовано 2 из 3" in out
+    assert "Статус страницы: в работе (складывается из вложенных объектов, согласовано 2 из 3)" in out
 
 
 async def test_сервер_без_статуса_страниц_строки_не_выдумывает(
@@ -575,7 +575,7 @@ async def test_карточка_компонента_размещение_как
 
     lines = out.splitlines()
     assert "Элемент архитектуры: компонент контейнера «orders»" in lines
-    i = lines.index("Размещение: Облако — как у контейнера «orders»")
+    i = lines.index("Размещение: Облако (как у контейнера «orders»)")
     assert lines[i - 1].startswith("Источник:")
     assert not any("/deployment" in c.url.path for c in api.calls)
 
@@ -638,7 +638,7 @@ async def test_карточка_пустой_системы(client: ArchMapClien
     lines = out.splitlines()
     assert "Элемент архитектуры: система без контейнеров" in lines
     assert (
-        "Статус страницы: в работе — складывается из вложенных объектов, согласовывать пока нечего"
+        "Статус страницы: в работе (складывается из вложенных объектов, согласовывать пока нечего)"
         in lines
     )
     assert "согласовано 0 из 0" not in out
@@ -658,7 +658,7 @@ async def test_карточка_внешней_системы(client: ArchMapCli
 
     lines = out.splitlines()
     assert "Элемент архитектуры: система" in lines
-    assert "Статус страницы: не ведётся — это внешняя система" in lines
+    assert "Статус страницы: не ведётся, потому что это внешняя система" in lines
     assert "без контейнеров" not in out
     assert "согласовывать" not in out
 

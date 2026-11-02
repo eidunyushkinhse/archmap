@@ -93,8 +93,8 @@ async def test_список_процессов_называет_область_�
 
     # «Участников N» здесь не бывает вовсе — контракт списка их не считает.
     assert "участников" not in out
-    assert "Оформление заказа — область: весь проект, шагов 4" in out
-    assert "Возврат — область: Ярмарка / Заказы, шагов 11" in out
+    assert "Оформление заказа · область: весь проект, шагов 4" in out
+    assert "Возврат · область: Ярмарка / Заказы, шагов 11" in out
     assert f"id={PROC}" in out
 
 
@@ -119,7 +119,7 @@ async def test_шаг_печатает_имена_концов_привязку_
     assert "1. Сервис заказов → Покупатель: ответ" in out
     assert "· ответ" in out  # плечо названо словом, а не кодом kind
     assert "→ схема «POST /orders» (Ярмарка / Заказы)" in out
-    assert "— схема не привязана" in out
+    assert "· схема не привязана" in out
     # id и version — вход archmap_bind_step: без них пришлось бы перечитывать процесс.
     assert f"id={M1} version=3" in out
     assert f"id={M2} version=1" in out
@@ -139,7 +139,7 @@ async def test_сломанный_шаг_назван_словами_интер�
     )
 
     assert "⚠ связь удалена" in out
-    assert "⚠ канал без ответа" in out
+    assert "⚠ связь без ответа" in out
 
 
 async def test_непривязанный_участник_и_фрагменты_видны(
@@ -157,8 +157,8 @@ async def test_непривязанный_участник_и_фрагменты
     )
 
     assert "Область: Ярмарка / Заказы" in out
-    assert "0. Покупатель — внешний" in out
-    assert "1. Сервис заказов — не привязан к объекту" in out
+    assert "0. Покупатель · внешний" in out
+    assert "1. Сервис заказов · не привязан к объекту" in out
     assert "alt шаги 0–1 «оплата прошла», ветвей ещё 1" in out
 
 
@@ -235,8 +235,8 @@ async def test_каталог_шага_метит_исполнителя_и_за
     )
 
     assert "ПОДХОДЯЩИЕ СХЕМЫ ЛОГИКИ (2)" in out
-    assert "POST /orders (операция · POST /orders) — Ярмарка / Заказы [исполнитель]" in out
-    assert "резерв (воркер) — Ярмарка / Склад [не описана]" in out
+    assert "POST /orders (операция · POST /orders) · Ярмарка / Заказы [исполнитель]" in out
+    assert "резерв (воркер) · Ярмарка / Склад [не описана]" in out
     assert f"id={DOC}" in out
 
 
@@ -321,7 +321,7 @@ async def test_снятие_привязки_передаёт_настоящий
     body, raw = bind_body(api)
     assert raw["doc_id"] is None
     assert "doc_id" in body.model_fields_set and body.doc_id is None
-    assert "— схема не привязана" in out
+    assert "· схема не привязана" in out
 
 
 async def test_пустая_строка_тоже_снимает_привязку(
@@ -372,4 +372,4 @@ async def test_устаревшая_версия_шага_даёт_конфли�
             client,
         )
 
-    assert "Конфликт версий" in str(exc.value) and "перечитайте" in str(exc.value)
+    assert "Конфликт версий" in str(exc.value) and "Перечитайте" in str(exc.value)

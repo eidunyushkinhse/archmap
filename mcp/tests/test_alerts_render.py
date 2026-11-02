@@ -159,9 +159,9 @@ def test_порядок_и_заголовки_повторяют_панель() 
 
 def test_причины_пишутся_словами_а_не_кодами() -> None:
     out = render.alerts(validated_payload())
-    assert "„orders.stat“ — колонки нет в таблице" in out
-    assert "„order.created“ — канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in out
-    assert "„TIMEOUT“ — параметра нет в конфигурации объекта" in out
+    assert "«orders.stat»: колонки нет в таблице" in out
+    assert "«order.created»: канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in out
+    assert "«TIMEOUT»: параметра нет в конфигурации объекта" in out
     assert "unknown_column" not in out and "ambiguous" not in out
     # Связь с брокером: обе причины — разные фразы починки.
     assert "Сервис заказов → Kafka: канал не указан" in out
@@ -223,11 +223,11 @@ def test_причина_AL33_называет_место_поиска() -> None:
     assert render.config_reason(base) == render.CONFIG_REASON
     # У системы схему переносят её вложенным объектам — совет называет инструмент.
     assert render.config_reason(system) == (
-        render.CONFIG_REASON_SYSTEM + f" — archmap_transfer_docs_preview, node_id={u(7)}"
+        render.CONFIG_REASON_SYSTEM + f" (archmap_transfer_docs_preview, node_id={u(7)})"
     )
     line = render.alerts({"unresolved_config_refs": [component]})
     assert (
-        "api · POST /orders: „TIMEOUT“ — параметра нет в конфигурации контейнера "
+        "api · POST /orders: «TIMEOUT»: параметра нет в конфигурации контейнера "
         "«orders». Опишите его там, а если это обычная фраза, уберите двоеточие после "
         "«зависит от»"
     ) in line
@@ -243,15 +243,15 @@ def test_совет_AL24_по_элементу_архитектуры() -> None:
     out = render.alerts({"container_own_docs": [container]})
     # Хвост — чем закрыть рекомендацию: инструмент переноса и объект, с которого его звать.
     assert (
-        "  • orders (схемы логики описывают код компонентов — перенесите их компонентам)"
-        f" — archmap_transfer_docs_preview, node_id={u(4)}"
+        "  • orders (схемы логики описывают код компонентов, поэтому перенесите их компонентам)"
+        f" (archmap_transfer_docs_preview, node_id={u(4)})"
         in out.splitlines()
     )
     out = render.alerts(validated_payload())
     assert any(
         line.startswith(
             "  • Маркетплейс (спецификацию, конфигурацию и схемы логики можно перенести "
-            "контейнерам этой системы) — archmap_transfer_docs_preview, node_id="
+            "контейнерам этой системы) (archmap_transfer_docs_preview, node_id="
         )
         for line in out.splitlines()
     )
@@ -263,7 +263,7 @@ def test_факты_компонента_называют_контейнер() -
     assert any(
         line.startswith(
             "  • orders/api · конфигурация, спецификация, площадки (можно собрать у контейнера «orders»)"
-            " — archmap_collect_facts_preview, node_id="
+            " (archmap_collect_facts_preview, node_id="
         )
         for line in out.splitlines()
     )
@@ -275,7 +275,7 @@ def test_факты_компонента_называют_контейнер() -
     out = render.alerts({"component_facts": [one]})
     assert out.startswith("Рекомендаций: 1\n")
     assert "Конфигурация и спецификации у компонентов (1):" in out
-    collect = f" — archmap_collect_facts_preview, node_id={u(18)}"
+    collect = f" (archmap_collect_facts_preview, node_id={u(18)})"
     assert "  • orders/api · спецификация (можно собрать у контейнера «orders»)" + collect in out.splitlines()
     # только площадки — одно слово и без хвоста: сбор площадки не переносит; сервер без
     # флага площадок — слова нет
@@ -296,7 +296,7 @@ def test_строки_называют_имена_и_детали() -> None:
     assert "Оформление заказа: «создать заказ» (Покупатель → Сервис заказов)" in out
     assert "Оформление заказа: без подписи (Сервис заказов → Kafka · канал «orders.created»)" in out
     assert "Оформление заказа: Склад" in out
-    assert "Сервис заказов — 3 схемы" in out
+    assert "Сервис заказов: 3 схемы" in out
     assert "Покупатель внутри Маркетплейс" in out
 
 
@@ -323,7 +323,7 @@ def test_незнакомый_класс_нового_сервера_печат�
     records = [{"node_id": u(i), "node_name": f"Объект {i}"} for i in range(7)]
     out = render.alerts({"future_class": records})
     assert out.startswith("Рекомендаций: 7\n")
-    assert "«future_class» (7)" in out and "обновите MCP-сервер" in out
+    assert "«future_class» (7)" in out and "Обновите MCP-сервер" in out
     assert '"node_name": "Объект 0"' in out and '"node_name": "Объект 4"' in out
     assert "Объект 5" not in out and "и ещё 2" in out
     # рядом с известными классами — свой блок после них, счётчик общий

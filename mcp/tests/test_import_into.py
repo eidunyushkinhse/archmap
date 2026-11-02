@@ -157,7 +157,7 @@ async def test_расхождение_ревизий_говорит_перечи
             client,
         )
 
-    assert "Конфликт версий" in str(exc.value) and "перечитайте" in str(exc.value)
+    assert "Конфликт версий" in str(exc.value) and "Перечитайте" in str(exc.value)
 
 
 async def test_догрузка_без_входов_не_ходит_на_сервер(
@@ -228,10 +228,10 @@ async def test_превью_называет_найденные_объекты_�
     )
 
     assert "Найдено в проекте: 3 объекта" in out
-    assert "• Ярмарка / Заказы — по коду" in out
-    assert "• Ярмарка / Kafka — по имени зависимости" in out
+    assert "• Ярмарка / Заказы · по коду" in out
+    assert "• Ярмарка / Kafka · по имени зависимости" in out
     assert "и ещё 1" in out  # список короче счётчика — обрыв назван вслух
-    assert "• Ярмарка / Оплата — источник: код github.com/y/pay, путь svc" in out
+    assert "• Ярмарка / Оплата (источник: код github.com/y/pay, путь svc)" in out
     assert "• Ярмарка / Ручной (без источника)" in out
 
 

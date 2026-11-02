@@ -114,7 +114,7 @@ function configReason(r: UnresolvedConfigRefAlert): string {
 // слова печатает MCP (render.OWN_DOCS_HINT) — сверяет mcp/tests/test_alerts_render.
 const OWN_DOCS_HINT: Record<Alerts["container_own_docs"][number]["element_effective"], string> = {
   system: "спецификацию, конфигурацию и схемы логики можно перенести контейнерам этой системы",
-  container: "схемы логики описывают код компонентов — перенесите их компонентам",
+  container: "схемы логики описывают код компонентов, поэтому перенесите их компонентам",
 };
 
 // Что осталось у компонента — словами продукта, в порядке «конфигурация, спецификация,

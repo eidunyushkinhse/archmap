@@ -115,7 +115,7 @@ async def t_projects(client: ArchMapClient, args: dict[str, Any]) -> str:
         return "Проектов нет."
     lines = []
     for p in projects:
-        tail = f" — {p['description']}" if p.get("description") else ""
+        tail = f" · {p['description']}" if p.get("description") else ""
         archived = " (в архиве)" if p.get("archived_at") else ""
         role = ROLE_WORDS.get(p.get("my_role") or "")
         badge = f" [{role}]" if role else ""
@@ -288,7 +288,7 @@ async def t_deployment(client: ArchMapClient, args: dict[str, Any]) -> str:
         if node_id not in by_id:
             raise ArchMapError(f"Объект {node_id} не найден в проекте «{pname}».")
         return "\n".join([f"Проект «{pname}»", *render.node_placement(by_id[node_id], by_id, sites)])
-    head = f"Проект «{pname}» — площадки развёртывания ({len(sites)}):"
+    head = f"Проект «{pname}» · площадки развёртывания ({len(sites)}):"
     return "\n".join([head, *render.deployment_tree(sites, nodes)])
 
 
@@ -304,7 +304,7 @@ async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
         items = await client.request("GET", "/processes", project_id=pid)
         if not items:
             return f"В проекте «{pname}» бизнес-процессов нет."
-        return f"Проект «{pname}» — бизнес-процессы:\n" + render.process_list(items)
+        return f"Проект «{pname}» · бизнес-процессы:\n" + render.process_list(items)
 
     detail = await client.request("GET", f"/processes/{args['process_id']}", project_id=pid)
     head = f"Процесс «{detail['name']}» (проект «{pname}»)"
@@ -327,7 +327,7 @@ async def t_search(client: ArchMapClient, args: dict[str, Any]) -> str:
         # Повторяемый параметр (?kinds=doc&kinds=spec): httpx раскладывает список сам.
         params["kinds"] = list(args["kinds"])
     data = await client.request("GET", "/search", project_id=pid, params=params)
-    return f"Проект «{pname}» — поиск\n\n{render.search_results(data)}"
+    return f"Проект «{pname}» · поиск\n\n{render.search_results(data)}"
 
 
 async def t_doc(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -365,7 +365,7 @@ async def t_step_docs(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     path = f"/processes/{args['process_id']}/messages/{args['message_id']}/docs"
     data = await client.request("GET", path, project_id=pid)
-    return f"Проект «{pname}» — чем можно задокументировать шаг\n\n" + render.step_docs(data)
+    return f"Проект «{pname}» · чем можно задокументировать шаг\n\n" + render.step_docs(data)
 
 
 async def t_bind_step(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -386,7 +386,7 @@ async def t_bind_step(client: ArchMapClient, args: dict[str, Any]) -> str:
     }
     path = f"/processes/{args['process_id']}/messages/{args['message_id']}"
     msg = await client.request("PATCH", path, project_id=pid, json=body)
-    return f"Проект «{pname}» — привязка шага обновлена\n\n" + render.step_bound(msg)
+    return f"Проект «{pname}» · привязка шага обновлена\n\n" + render.step_bound(msg)
 
 
 async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -396,7 +396,7 @@ async def t_export(client: ArchMapClient, args: dict[str, Any]) -> str:
     # ⚠️ Поле контракта — content (ExportResponse), НЕ «yaml»: по несуществующему
     # ключу инструмент годами отдавал агенту пустой экспорт с одной шапкой, и
     # ловилось это только живым прогоном (подменённый транспорт форму не судит).
-    return f"# Проект «{pname}» — семантический экспорт\n{data.get('content', '')}"
+    return f"# Проект «{pname}» · семантический экспорт\n{data.get('content', '')}"
 
 
 # Пределы чтения с диска и из ответа (аудит P-11): файл ввоза больше предела запроса
@@ -420,7 +420,7 @@ def _export_target(raw: str, export_dir: str, overwrite: bool) -> Path:
     if path.is_symlink():
         raise ArchMapError(f"out_path {path} — символическая ссылка; укажите обычный файл.")
     if path.exists() and not path.is_file():
-        raise ArchMapError(f"out_path {path} — не файл.")
+        raise ArchMapError(f"out_path {path} указывает не на файл.")
     if path.exists() and not overwrite:
         raise ArchMapError(
             f"Файл {path} уже существует. Перезапись только явным overwrite=true "
@@ -463,7 +463,7 @@ async def t_export_archive(client: ArchMapClient, args: dict[str, Any]) -> str:
             manifest_raw = ""
             if "manifest.yaml" in names:
                 if zf.getinfo("manifest.yaml").file_size > MAX_MANIFEST_BYTES:
-                    raise ArchMapError(f"Манифест архива проекта «{pname}» больше 1 МБ — это не архив ArchMap.")
+                    raise ArchMapError(f"Манифест архива проекта «{pname}» больше 1 МБ. Это не архив ArchMap.")
                 manifest_raw = zf.read("manifest.yaml").decode("utf-8")
     except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as exc:
         raise ArchMapError(f"ArchMap вернул не архив проекта «{pname}»: {exc}") from exc
@@ -526,8 +526,8 @@ def _read_input(path: Path, used: int) -> bytes:
     size = path.stat().st_size
     if used + size > MAX_INPUT_BYTES:
         raise ArchMapError(
-            f"Файл {path}: входы ввоза вместе больше {MAX_INPUT_BYTES // 1024 // 1024} МБ — "
-            "столько ArchMap за один запрос не принимает."
+            f"Файл {path}: входы ввоза вместе больше {MAX_INPUT_BYTES // 1024 // 1024} МБ. "
+            "Столько ArchMap за один запрос не принимает."
         )
     return path.read_bytes()
 
@@ -563,7 +563,7 @@ def _inputs(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
         out.append(("files", (path.name, data, mime)))
     if not out:
         raise ArchMapError(
-            "Не передан ни один вход: files — YAML текстом, paths — файлы .yaml/.zip с диска."
+            "Не передан ни один вход: передайте YAML текстом в files или файлы .yaml/.zip с диска в paths."
         )
     return out
 
@@ -592,7 +592,7 @@ def _archives(args: dict[str, Any]) -> list[tuple[str, tuple[str, bytes, str]]]:
         out.append(("files", (path.name, data, ZIP_MIME)))
     if not out:
         raise ArchMapError(
-            "Не передан ни один архив: paths — файлы .zip с диска. YAML к живому "
+            "Не передан ни один архив: передайте файлы .zip с диска в paths. YAML к живому "
             "проекту заливают обновлением из кода: archmap_sync_preview / "
             "archmap_sync_apply."
         )
@@ -637,7 +637,7 @@ async def t_upload_url(client: ArchMapClient, args: dict[str, Any]) -> str:
     mb = int(data.get("max_bytes", 0)) // (1024 * 1024)
     expires = str(data.get("expires_at", ""))[:19].replace("T", " ")
     return (
-        f"Ссылка на загрузку «{name}» — одноразовая, до {expires} UTC, файл не больше {mb} МБ:\n"
+        f"Одноразовая ссылка на загрузку «{name}» (до {expires} UTC, файл не больше {mb} МБ):\n"
         f"{url}\n\n"
         "Положите файл командой в терминале машины агента (токен не нужен — право даёт сама ссылка):\n"
         f"  curl -sS -T путь/к/{name} \"{url}\"\n"
@@ -687,7 +687,7 @@ async def t_import_into_preview(client: ArchMapClient, args: dict[str, Any]) -> 
         files=_archives(args),
     )
     return _refused_unless_ok(
-        data, f"Проект «{pname}» — план догрузки архивов\n\n" + render.into_preview(data)
+        data, f"Проект «{pname}» · план догрузки архивов\n\n" + render.into_preview(data)
     )
 
 
@@ -707,7 +707,7 @@ async def t_import_into_apply(client: ArchMapClient, args: dict[str, Any]) -> st
             "base_meta_rev": str(args["base_meta_rev"]),
         },
     )
-    return f"Проект «{pname}» — архивы догружены\n\n" + render.into_result(data)
+    return f"Проект «{pname}» · архивы догружены\n\n" + render.into_result(data)
 
 
 async def t_sync_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -715,7 +715,7 @@ async def t_sync_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
     body = _sync_body(args)
     data = await client.request("POST", f"/projects/{pid}/sync/preview", project_id=pid, json=body)
     return _refused_unless_ok(
-        data, f"Проект «{pname}» — план обновления из кода\n\n" + _sync_report(data)
+        data, f"Проект «{pname}» · план обновления из кода\n\n" + _sync_report(data)
     )
 
 
@@ -751,9 +751,9 @@ def _sync_basis(action: dict[str, Any]) -> str:
     и агенту незачем угадывать, какое из них применилось (Ф2/Ф4 источников)."""
     kind = action.get("action")
     if kind == "update" and action.get("matched_by"):
-        return " — " + render.basis_label(str(action["matched_by"]), str(action.get("path", "")))
+        return " · " + render.basis_label(str(action["matched_by"]), str(action.get("path", "")))
     if kind == "create":
-        return " — " + render.anchor_note(action.get("source"))
+        return " · " + render.anchor_note(action.get("source"))
     return ""
 
 
@@ -806,7 +806,7 @@ def _sync_report(data: dict[str, Any]) -> str:
     out = ["Будет сделано: " + ", ".join(f"{title}: {summary.get(key, 0)}" for key, title in SYNC_COUNTS)]
     if data.get("is_noop"):
         # Фикспойнт синка: повторный прогон на том же входе обязан быть пустым.
-        out.append("Схема уже соответствует присланному YAML — менять нечего.")
+        out.append("Схема уже соответствует присланному YAML, менять нечего.")
     changed = [
         a for a in data.get("nodes", []) if a.get("action") in ("create", "update", "missing")
     ]
@@ -834,7 +834,7 @@ def _sync_report(data: dict[str, Any]) -> str:
             out.append(f"{title} ({len(rows)}):")
             out.extend("  • " + r for r in rows[:20])
     out.append(
-        f"\nНичего не записано — для записи вызовите archmap_sync_apply "
+        f"\nНичего не записано. Для записи вызовите archmap_sync_apply "
         f"с base_graph_rev={data.get('graph_rev', 0)} (защита от параллельной правки: "
         "разошлась схема — 409, тогда перечитайте план)."
     )
@@ -864,7 +864,7 @@ def _sync_applied_report(data: dict[str, Any]) -> str:
         if len(rows) > 40:
             out.append(f"  и ещё {len(rows) - 40}")
     if not out:
-        out.append("Ничего не изменилось — схема уже соответствовала присланному YAML.")
+        out.append("Ничего не изменилось, потому что схема уже соответствовала присланному YAML.")
     out.append(f"\nНовый курсор схемы: graph_rev={data.get('graph_rev', 0)}.")
     return "\n".join(out)
 
@@ -874,7 +874,7 @@ async def t_docs_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
     data = await client.request(
         "POST", "/docs-import/preview", project_id=pid, json=_docs_body(args)
     )
-    return f"Проект «{pname}» — план дозаливки\n\n" + render.docs_report(data, applied=False)
+    return f"Проект «{pname}» · план дозаливки\n\n" + render.docs_report(data, applied=False)
 
 
 async def t_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -882,7 +882,7 @@ async def t_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
     data = await client.request(
         "POST", "/docs-import/apply", project_id=pid, json=_docs_body(args)
     )
-    return f"Проект «{pname}» — дозаливка применена\n\n" + render.docs_report(data, applied=True)
+    return f"Проект «{pname}» · дозаливка применена\n\n" + render.docs_report(data, applied=True)
 
 
 def _docs_body(args: dict[str, Any]) -> dict[str, Any]:
@@ -923,7 +923,7 @@ async def t_recon_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
         "POST", "/recon/preview", project_id=pid, json=_recon_body(args)
     )
     return (
-        f"Проект «{pname}» — план разведки точек входа\n\n"
+        f"Проект «{pname}» · план разведки точек входа\n\n"
         + render.recon_report(data, applied=False)
     )
 
@@ -934,7 +934,7 @@ async def t_recon_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
         "POST", "/recon/apply", project_id=pid, json=_recon_body(args)
     )
     return (
-        f"Проект «{pname}» — разведка применена\n\n"
+        f"Проект «{pname}» · разведка применена\n\n"
         + render.recon_report(data, applied=True)
     )
 
@@ -954,9 +954,9 @@ FACT_PATH = {
 # Какой форме объекта принадлежит семья — тем же словом, каким названа форма в
 # карточке. Ошибка «канал у сервиса» дешевле всего лечится текстом описания.
 FACT_OWNER = {
-    "tables": "структура БД — у объектов формы database",
-    "channels": "каналы — у объектов формы broker",
-    "config": "параметры конфигурации — у объектов формы service",
+    "tables": "структура БД у объектов формы database",
+    "channels": "каналы у объектов формы broker",
+    "config": "параметры конфигурации у объектов формы service",
 }
 
 
@@ -1001,7 +1001,7 @@ async def t_facts_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
         "POST", f"{FACT_PATH[family]}/preview", project_id=pid, json=_facts_body(args)
     )
     return (
-        f"Проект «{pname}» — план дозаливки фактов\n\n"
+        f"Проект «{pname}» · план дозаливки фактов\n\n"
         + render.facts_report(data, family, applied=False)
     )
 
@@ -1013,7 +1013,7 @@ async def t_facts_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
         "POST", f"{FACT_PATH[family]}/apply", project_id=pid, json=_facts_body(args)
     )
     return (
-        f"Проект «{pname}» — дозаливка фактов применена\n\n"
+        f"Проект «{pname}» · дозаливка фактов применена\n\n"
         + render.facts_report(data, family, applied=True)
     )
 
@@ -1039,7 +1039,7 @@ async def t_transfer_docs_preview(client: ArchMapClient, args: dict[str, Any]) -
     data = await client.request(
         "GET", f"/nodes/{args['node_id']}/docs/transfer-preview", project_id=pid, refusal_as_is=True
     )
-    return f"Проект «{pname}» — что перенести в состав объекта\n\n" + render.transfer_preview(data)
+    return f"Проект «{pname}» · что перенести в состав объекта\n\n" + render.transfer_preview(data)
 
 
 async def t_transfer_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1054,14 +1054,14 @@ async def t_transfer_docs_apply(client: ArchMapClient, args: dict[str, Any]) -> 
         body["params_target_id"] = args["params_to"]
     if len(body) == 1 and not docs:
         raise ArchMapError(
-            "Нечего переносить: передайте docs, spec_to или params_to — получателей с "
+            "Нечего переносить: передайте docs, spec_to или params_to. Получателей с "
             "node_id называет archmap_transfer_docs_preview."
         )
     data = await client.request(
         "POST", f"/nodes/{args['node_id']}/docs/distribute", project_id=pid, json=body,
         refusal_as_is=True,
     )
-    return f"Проект «{pname}» — документация перенесена\n\n" + render.transfer_result(data)
+    return f"Проект «{pname}» · документация перенесена\n\n" + render.transfer_result(data)
 
 
 async def t_collect_facts_preview(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1070,7 +1070,7 @@ async def t_collect_facts_preview(client: ArchMapClient, args: dict[str, Any]) -
     data = await client.request(
         "GET", f"/nodes/{node_id}/facts/collect-preview", project_id=pid, refusal_as_is=True
     )
-    return f"Проект «{pname}» — что соберётся в контейнер\n\n" + render.collect_preview(data, node_id)
+    return f"Проект «{pname}» · что соберётся в контейнер\n\n" + render.collect_preview(data, node_id)
 
 
 async def t_collect_facts_apply(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1085,7 +1085,7 @@ async def t_collect_facts_apply(client: ArchMapClient, args: dict[str, Any]) -> 
         "POST", f"/nodes/{args['node_id']}/facts/collect", project_id=pid, json=body,
         refusal_as_is=True,
     )
-    return f"Проект «{pname}» — собрано с компонентов\n\n" + render.collect_result(data)
+    return f"Проект «{pname}» · собрано с компонентов\n\n" + render.collect_result(data)
 
 
 # ── Точечные правки ──────────────────────────────────────────────────────────
@@ -1148,7 +1148,7 @@ async def _site_ids(client: ArchMapClient, pid: str, pname: str, names: list[Any
         raise ArchMapError(
             f"{what} {', '.join(f'«{m}»' for m in missing)} в проекте «{pname}» нет. "
             + (f"Есть: {known}. " if known else "Площадок в проекте нет. ")
-            + "Через MCP площадки не создаются — их заводит человек на холсте "
+            + "Через MCP площадки не создаются. Их заводит человек на холсте "
             "«Развёртывание» или импорт YAML с разделом deployment."
         )
     return ids
@@ -1283,7 +1283,7 @@ async def t_version_diff(client: ArchMapClient, args: dict[str, Any]) -> str:
         listing = await client.request("GET", path, project_id=pid)
         numbers = [int(v["number"]) for v in listing.get("versions") or []]
         if not numbers:
-            return f"{owner}: версий ещё нет — сравнивать нечего."
+            return f"{owner}: версий ещё нет, сравнивать нечего."
         number = max(numbers)
     number = int(number)
     # base передаём всегда, и умолчание тоже: так запрос однозначен и виден в журнале.
@@ -2403,7 +2403,7 @@ async def _resolve_files(client: ArchMapClient, name: str, args: dict[str, Any])
     received: list[Received] = []
     for i, f in enumerate(args.get("files") or [], 1):
         if not isinstance(f, dict):
-            raise ArchMapError(f"Вход {i} в files — не объект {{name, content}} или {{name, upload_id}}.")
+            raise ArchMapError(f"Вход {i} в files должен быть объектом {{name, content}} или {{name, upload_id}}.")
         fname = str(f.get("name") or f"вход-{i}.yaml")
         upload_id = f.get("upload_id")
         has_content = f.get("content") is not None
@@ -2442,14 +2442,17 @@ async def _resolve_files(client: ArchMapClient, name: str, args: dict[str, Any])
             received.append(Received(path.name, len(data), _sha256(data), "disk"))
         new_args.pop("paths", None)
         if not out:
-            raise ArchMapError("Не передан ни один вход: files — текстом или upload_id, paths — файлы с диска.")
+            raise ArchMapError(
+                "Не передан ни один вход: передайте файлы в files (текстом или upload_id) "
+                "или в paths (с диска)."
+            )
     return new_args, received
 
 
 def received_block(received: list[Received]) -> str:
     if not received:
         return ""
-    rows = [f"  • {r.name} — {r.size} байт, sha256 {r.sha256} ({RECEIVED_VIA[r.via]})" for r in received]
+    rows = [f"  • {r.name} · {r.size} байт, sha256 {r.sha256} ({RECEIVED_VIA[r.via]})" for r in received]
     return (
         f"\n\nПолучено входов: {len(received)}. Сверьте sha256 с sha256sum файлов у себя: расхождение значит, "
         "что текст изменился при передаче (набран в content с ошибками; хвостовой перевод строки тоже меняет хеш).\n"
@@ -2482,7 +2485,7 @@ LOCAL_ONLY = frozenset({"archmap_export_archive", "archmap_import_into_preview",
 DISK_ARGS = frozenset({"paths", "out_path"})
 
 _REMOTE_IMPORT_TAIL = (
-    " Архив знания (zip) так не ввозят: его ввозят в интерфейсе ArchMap — «Новый проект» → "
+    " Архив знания (zip) так не ввозят: его ввозят в интерфейсе ArchMap через «Новый проект» → "
     "«Импорт»."
 )
 

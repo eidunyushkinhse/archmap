@@ -116,7 +116,7 @@ async def test_превью_разведки_не_пишет_и_говорит_�
     assert "Создадим заглушки (2)" in out
     assert "• POST /orders (операция)" in out
     assert "• email_senders (воркер)" in out
-    assert "Уже описаны — не тронем (1)" in out
+    assert "Уже описаны, их не тронем (1)" in out
     assert "→ Отправка сообщения" in out  # что именно закрыло операцию
     assert "Есть в документации, но не найдено в коде (1)" in out
     assert "Предупреждения (1)" in out

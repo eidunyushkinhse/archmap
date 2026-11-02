@@ -26,7 +26,7 @@ from archmap_mcp import tools
 from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 SERVER_NAME = "archmap"
-VERSION = "0.13.2"
+VERSION = "0.13.3"
 
 
 def tool_defs(catalog: list[dict[str, Any]]) -> list[types.Tool]:
@@ -99,7 +99,7 @@ async def settle(name: str, work: Awaitable[str], journal: str = "журнале
         traceback.print_exc(file=sys.stderr)
         return Reply(
             f"Сбой MCP-сервера ArchMap в инструменте {name}: {type(exc).__name__}: {exc}. "
-            f"Это не ответ ArchMap; подробности — в {journal}.",
+            f"Это не ответ ArchMap; подробности в {journal}.",
             "failed",
         )
 
@@ -112,7 +112,7 @@ async def main() -> None:
         # инструменты вообще исчезли бы из списка. Предупреждаем в stderr (он
         # уходит в лог клиента) и отвечаем причиной на первый же вызов.
         print(
-            "archmap-mcp: не заданы " + ", ".join(missing) + " — инструменты вернут ошибку. "
+            "archmap-mcp: не заданы " + ", ".join(missing) + ", поэтому инструменты вернут ошибку. "
             "См. mcp/README.md.",
             file=sys.stderr,
         )

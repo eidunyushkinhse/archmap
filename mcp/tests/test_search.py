@@ -98,7 +98,7 @@ async def test_поиск_группирует_по_объектам_и_ведё
         "▸ Zabbix server  node_id"
     )
     assert out.rstrip().endswith(
-        "archmap_doc(doc_id), объект — archmap_node(node_id), процесс с шагами — "
+        "archmap_doc(doc_id), объект archmap_node(node_id), процесс с шагами "
         "archmap_processes(process_id)."
     )
 
@@ -178,7 +178,7 @@ async def test_одна_схема_целиком(client: ArchMapClient, api: Fa
     assert f"Объект: Zabbix server / Alerter  node_id={ALERTER}" in out
     assert f"Схема: «SMS: отправка» (воркер)  doc_id={DOC}" in out
     assert "В 1 процессе:" in out
-    assert f"  • Отправка оповещения — 2 шага  process_id={PROC}" in out
+    assert f"  • Отправка оповещения · 2 шага  process_id={PROC}" in out
     assert "```mermaid\nflowchart TD\n  B -->|нет| E[Ошибка]\n```" in out
     assert "Не описана" not in out
 

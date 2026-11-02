@@ -130,8 +130,8 @@ async def test_споры_печатаются_с_id_и_кандидатами(
     )
 
     assert "doc|Маркетплейс/API|Оформление заказа" in out
-    assert "cand:0 — a.zip · 42 строки" in out
-    assert "cand:1 — b.zip · 30 строк" in out
+    assert "cand:0: a.zip · 42 строки" in out
+    assert "cand:1: b.zip · 30 строк" in out
     assert "по умолчанию: all" in out
     assert "resolutions" in out  # агент обязан узнать, чем решить спор
     assert "схем логики 4" in out and "таблиц 7" in out
@@ -308,11 +308,11 @@ async def test_превью_называет_основание_каждой_с�
         "archmap_import_preview", {"paths": [str(zip_input(tmp_path))]}, client
     )
 
-    assert "• Маркетплейс / Заказы — по коду" in out
-    assert "• Маркетплейс / Kafka — по имени зависимости" in out
+    assert "• Маркетплейс / Заказы · по коду" in out
+    assert "• Маркетплейс / Kafka · по имени зависимости" in out
     # У матча по имени называем ГДЕ: имя решает только внутри своего контейнера.
-    assert "• Маркетплейс / Каталог — по имени внутри «Маркетплейс»" in out
-    assert "Без источника: 5 объектов — будут опознаваться по имени" in out
+    assert "• Маркетплейс / Каталог · по имени внутри «Маркетплейс»" in out
+    assert "Без источника: 5 объектов, они будут опознаваться по имени" in out
 
 
 async def test_без_склеек_и_безъякорных_лишних_строк_нет(
@@ -433,13 +433,13 @@ async def test_превью_печатает_вопросы_разбора_с_id
     )
 
     lines = out.splitlines()
-    assert any(line.startswith("Вопросы разбора (5) — ") and "archmap_import_apply аргументом decisions" in line for line in lines)
+    assert any(line.startswith("Вопросы разбора (5): ") and "archmap_import_apply аргументом decisions" in line for line in lines)
     # Спор поля: кандидаты с номерами и источниками, значения элемента — словами.
-    assert '  • "field|Ярмарка/orders|description" — описание у «Ярмарка / orders» задано по-разному в 2 файлах:' in lines
-    assert "      0 — «Принимает заказы» (из файла a.yaml)" in lines
-    assert '    Без ответа — 0. Ответ: decisions.fields["field|Ярмарка/orders|description"] = номер.' in lines
-    assert '  • "field|Ярмарка/orders|element" — элемент архитектуры у «Ярмарка / orders» задан по-разному в 2 файлах:' in lines
-    assert "      1 — «контейнер» (из файла b.yaml)" in lines
+    assert '  • "field|Ярмарка/orders|description": описание у «Ярмарка / orders» задано по-разному в 2 файлах:' in lines
+    assert "      0: «Принимает заказы» (из файла a.yaml)" in lines
+    assert '    Без ответа: 0. Ответ: decisions.fields["field|Ярмарка/orders|description"] = номер.' in lines
+    assert '  • "field|Ярмарка/orders|element": элемент архитектуры у «Ярмарка / orders» задан по-разному в 2 файлах:' in lines
+    assert "      1: «контейнер» (из файла b.yaml)" in lines
     # Вопроса «похоже на контейнер» больше нет: тип выбран всегда (2026-11-01).
     assert "container_hints" not in out
     # Связь в контейнер: цели путями, вложенный объект помечен

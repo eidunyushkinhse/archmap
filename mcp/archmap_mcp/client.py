@@ -249,7 +249,7 @@ class ArchMapClient:
             if error_code(resp) == "demo_limit":
                 raise ArchMapError(f"Предел демо-проекта: {detail_text(resp)}")
             raise ArchMapError(
-                f"Конфликт версий: {detail_text(resp)}. Схему изменили — перечитайте её и повторите."
+                f"Конфликт версий: {detail_text(resp)}. Схему изменили. Перечитайте её и повторите."
             )
         if resp.status_code == 422:
             raise ArchMapError(f"ArchMap отклонил данные: {detail_text(resp)}")

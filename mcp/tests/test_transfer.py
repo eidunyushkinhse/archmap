@@ -88,9 +88,9 @@ async def test_превью_переноса_называет_своё_и_пол
     # Получатели — в порядке сервера, путём от объекта, с пометками по семьям.
     takers = [line for line in lines if line.startswith("  • ")]
     assert takers == [
-        f"  • billing [контейнер] — схемы логики; спецификация и конфигурация (своя спецификация уже есть)  node_id={u(10)}",
-        f"  • orders [контейнер] — спецификация и конфигурация  node_id={u(12)}",
-        f"  • orders / api [компонент] — схемы логики  node_id={u(13)}",
+        f"  • billing [контейнер] · схемы логики; спецификация и конфигурация (своя спецификация уже есть)  node_id={u(10)}",
+        f"  • orders [контейнер] · спецификация и конфигурация  node_id={u(12)}",
+        f"  • orders / api [компонент] · схемы логики  node_id={u(13)}",
     ]
     assert "Не принимают ничего: inner, orders-db." in lines
     assert "archmap_transfer_docs_apply" in out and "Ничего не записано" in out
@@ -116,10 +116,10 @@ async def test_превью_переноса_у_контейнера_схемы_
     out = await tools.call("archmap_transfer_docs_preview", {"project": "Ярмарка", "node_id": ORDERS}, client)
 
     assert (
-        "У контейнера с компонентами переносят только схемы логики — их можно перенести "
-        "компонентам; спецификация и конфигурация у контейнера свои." in out
+        "У контейнера с компонентами переносят только схемы логики: их можно перенести "
+        "компонентам, а спецификация и конфигурация у контейнера свои." in out
     )
-    assert "  нет — внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров" in out.splitlines()
+    assert "  нет: внутри нет ни компонентов, ни объектов без вложенных, ни контейнеров" in out.splitlines()
 
 
 async def test_превью_переноса_у_листа_отказ_словами_сервера(client: ArchMapClient, api: FakeApi) -> None:
@@ -153,7 +153,7 @@ async def test_применение_переноса_шлёт_назначени
         "spec_child_id": u(12),
         "params_target_id": u(12),
     }
-    assert "Переехало: схем логики 2, спецификация — да, параметров конфигурации 3." in out
+    assert "Переехало: схем логики 2, спецификация: да, параметров конфигурации 3." in out
 
 
 async def test_применение_переноса_только_схем(client: ArchMapClient, api: FakeApi) -> None:
@@ -166,7 +166,7 @@ async def test_применение_переноса_только_схем(clien
     }, client)
 
     assert sent_json(api) == {"doc_assignments": [{"doc_id": u(1), "child_id": u(13)}]}
-    assert "Переехало: схем логики 1, спецификация — нет, параметров конфигурации 0." in out
+    assert "Переехало: схем логики 1, спецификация: нет, параметров конфигурации 0." in out
 
 
 async def test_применение_переноса_без_назначений_не_уходит_на_сервер(
@@ -262,34 +262,34 @@ async def test_превью_сбора_печатает_факты_и_вопро
     # Отбрасываемое по приоритету контейнера названо в строке компонента.
     assert f"  • worker · 1 параметр, будет отброшен  node_id={u(23)}" in lines
     # Приоритет контейнера — строкой-фактом, вопроса по RETRY_TIMEOUT нет.
-    assert "Без вопросов — знание контейнера в приоритете:" in lines
+    assert "Без вопросов (знание контейнера в приоритете):" in lines
     assert (
-        "  • Параметр «RETRY_TIMEOUT» есть у контейнера — остаётся его описание, у компонента "
+        "  • Параметр «RETRY_TIMEOUT» есть у контейнера, поэтому остаётся его описание, а у компонента "
         "«worker» параметр будет отброшен"
     ) in lines
     assert not any(line.startswith('  • "RETRY_TIMEOUT"') for line in lines)
     assert (
-        "Вопросы (2) — у контейнера своей записи нет, приоритета нет. Ответы передают в "
+        "Вопросы (2): у контейнера своей записи нет, приоритета нет. Ответы передают в "
         "archmap_collect_facts_apply; вопрос без ответа получит дефолт «как сейчас»:"
     ) in lines
     assert (
-        '  • "DATABASE_URL" — параметр описан у компонентов «api» и «outbox», у контейнера его нет — '
-        "чьё описание переедет контейнеру:"
+        '  • "DATABASE_URL": параметр описан у компонентов «api» и «outbox», а у контейнера его нет. '
+        "Чьё описание переедет контейнеру:"
     ) in lines
     assert f"      api: «адрес базы для api»  node_id={u(21)}" in lines
     assert f"      outbox: без описания  node_id={u(22)}" in lines
     assert (
-        '    Без ответа — останется у компонентов. Ответ: param_choices["DATABASE_URL"] = node_id; '
+        '    Без ответа останется у компонентов. Ответ: param_choices["DATABASE_URL"] = node_id; '
         "остальные записи будут отброшены."
     ) in lines
     assert (
-        "  • spec_from — спецификация есть у компонентов «api» и «outbox», у контейнера своей нет — "
-        "чью считать спецификацией контейнера:"
+        "  • spec_from: спецификация есть у компонентов «api» и «outbox», а у контейнера своей нет. "
+        "Чью считать спецификацией контейнера:"
     ) in lines
     assert f"      outbox  node_id={u(22)}" in lines
-    assert "    Без ответа — останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены." in lines
+    assert "    Без ответа останутся у компонентов. Ответ: spec_from = node_id; остальные будут отброшены." in lines
     assert lines[-1] == (
-        "Ничего не записано — для сбора вызовите archmap_collect_facts_apply (ответы — param_choices "
+        "Ничего не записано. Для сбора вызовите archmap_collect_facts_apply (ответы в param_choices "
         "и spec_from, оба необязательны)."
     )
 
@@ -306,10 +306,10 @@ async def test_превью_сбора_без_вопросов(client: ArchMapCl
     out = await tools.call("archmap_collect_facts_preview", {"project": "Ярмарка", "node_id": ORDERS}, client)
 
     assert (
-        "  • У контейнера есть своя спецификация — спецификации компонентов «api» и «outbox» будут отброшены"
+        "  • У контейнера есть своя спецификация, поэтому спецификации компонентов «api» и «outbox» будут отброшены"
     ) in out.splitlines()
     assert "Вопросы (" not in out
-    assert out.endswith("Ничего не записано — для сбора вызовите archmap_collect_facts_apply.")
+    assert out.endswith("Ничего не записано. Для сбора вызовите archmap_collect_facts_apply.")
 
     api.get(f"/nodes/{ORDERS}/facts/collect-preview", collect_preview(
         param_clashes=[], specs=[{"node_id": u(21), "name": "api"}], single_spec_from=u(21),
@@ -353,7 +353,7 @@ async def test_применение_сбора_шлёт_ответы_и_назы
         "spec_from": u(22),
     }
     assert out.splitlines()[-2:] == [
-        "Собрано: параметров 3, спецификация — да.",
+        "Собрано: параметров 3, спецификация: да.",
         "Отброшено: параметров 2, спецификаций 1.",
     ]
 
@@ -367,13 +367,13 @@ async def test_применение_сбора_без_ответов_дефол�
 
     assert sent_json(api) == {"param_choices": []}
     assert out.splitlines()[-3:] == [
-        "Собрано: параметров 1, спецификация — нет.",
+        "Собрано: параметров 1, спецификация: нет.",
         "Отброшено: параметров 1, спецификаций 0.",
-        "Осталось у компонентов (вопросы без ответа): параметр «DATABASE_URL», спецификаций 2 — их "
+        "Осталось у компонентов (вопросы без ответа): параметр «DATABASE_URL», спецификаций 2. Их "
         "по-прежнему отмечает archmap_alerts.",
     ]
 
-    text = "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются"
+    text = "У «orders» есть своя спецификация, поэтому спецификации компонентов при сборе отбрасываются"
     api.post(f"/nodes/{ORDERS}/facts/collect", refusal(422, text))
     with pytest.raises(ArchMapError) as exc:
         await tools.call("archmap_collect_facts_apply", {"project": "Ярмарка", "node_id": ORDERS, "spec_from": u(22)}, client)

@@ -90,7 +90,7 @@ async def test_список_проектов_называет_роль_учёт�
     out = await tools.t_projects(client, {})
     assert out.splitlines() == [
         f"• Ярмарка [владелец]: 3 объектов  id={PROJECT_ID}",
-        f"• Плёнка [чтение]: 2 объектов — демо  id={OTHER_ID}",
+        f"• Плёнка [чтение]: 2 объектов · демо  id={OTHER_ID}",
         "• Zabbix [редактор]: 9 объектов  id=33333333-3333-3333-3333-333333333333",
     ]
 
@@ -392,7 +392,7 @@ async def test_файл_по_upload_id_подставляется_и_сверя�
     body = json.loads(api.calls[-1].content)
     assert body["contents"] == [text]
     assert "Получено входов: 1" in out
-    assert f"r.yaml — {len(text.encode())} байт, sha256 {digest} (загрузкой по ссылке)" in out
+    assert f"r.yaml · {len(text.encode())} байт, sha256 {digest} (загрузкой по ссылке)" in out
 
 
 async def test_эхо_sha256_у_текста_вызова(client: ArchMapClient, api: FakeApi) -> None:
@@ -679,7 +679,7 @@ async def test_создание_без_источника_поля_source_не_�
     )
 
     assert "source" not in json.loads(api.calls[-1].content)
-    assert "Источник: нет — опознаётся по имени" in out
+    assert "Источник: нет, объект опознаётся по имени" in out
 
 
 async def test_правка_объекта_шлёт_источник(client: ArchMapClient, api: FakeApi) -> None:
@@ -710,7 +710,7 @@ async def test_пустой_объект_source_доезжает_как_очис
     )
 
     assert json.loads(api.calls[-1].content) == {"source": {}}
-    assert "Источник: нет — опознаётся по имени" in out
+    assert "Источник: нет, объект опознаётся по имени" in out
 
 
 async def test_источник_без_прочих_полей_это_уже_правка(
@@ -826,10 +826,10 @@ async def test_план_синка_называет_основание_и_ист
         client,
     )
 
-    assert "update: М / Заказы (description) — по коду" in out
-    assert "update: М / Kafka — по имени зависимости" in out
-    assert "create: М / Оплата — источник: код github.com/y/pay, путь svc" in out
-    assert "create: М / Ручной — источника нет — будет опознаваться по имени" in out
+    assert "update: М / Заказы (description) · по коду" in out
+    assert "update: М / Kafka · по имени зависимости" in out
+    assert "create: М / Оплата · источник: код github.com/y/pay, путь svc" in out
+    assert "create: М / Ручной · источника нет, объект будет опознаваться по имени" in out
 
 
 async def test_экспорт_отдаёт_сам_yaml_а_не_одну_шапку(

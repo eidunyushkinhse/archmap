@@ -95,7 +95,7 @@ describe("planSections", () => {
     expect(planSections(p)[0].rows.map((r) => r.note)).toEqual([
       "источник: код github.com/org/a, путь src/api",
       "источник: имя зависимости postgres",
-      "источника нет — будет опознаваться по имени",
+      "источника нет, объект будет опознаваться по имени",
     ]);
   });
 });

@@ -1275,7 +1275,7 @@ describe("NodePage: источник", () => {
 
   it("узел без источника говорит, по чему его тогда узнают", async () => {
     setupAnchor();
-    expect(await screen.findByText("нет — опознаётся по имени")).toBeInTheDocument();
+    expect(await screen.findByText("нет, объект опознаётся по имени")).toBeInTheDocument();
   });
 
   it("правка источника уходит PATCH-ом со своим CAS, не трогая прочих свойств", async () => {

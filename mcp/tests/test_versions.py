@@ -181,7 +181,7 @@ async def test_дельта_по_умолчанию_последней_верс�
     assert paths(service)[-1] == f"/nodes/{NODE}/versions/3/diff"
     assert service.calls[-1].url.params["base"] == "prev"
     lines = out.splitlines()
-    assert lines[0] == "«Сервис заказов» — v1 (orders 2.2) → v3 (orders 2.3 · ORD-412)"
+    assert lines[0] == "«Сервис заказов» · v1 (orders 2.2) → v3 (orders 2.3 · ORD-412)"
     assert (
         f"• Схема логики «Создать заказ» (Заказы / Сервис заказов): изменено, +3 −2  item=doc:{DOC}"
     ) in lines
@@ -201,7 +201,7 @@ async def test_дельта_корня_с_текущим_состоянием(cl
 
     assert paths(api) == ["/projects", "/versions/1/diff"]
     assert api.calls[-1].url.params["base"] == "live"
-    assert out == "Проект «Ярмарка» — v1 (релиз 1.0) → текущее состояние\nИзменений нет."
+    assert out == "Проект «Ярмарка» · v1 (релиз 1.0) → текущее состояние\nИзменений нет."
 
 
 async def test_дельта_первой_версии_с_начала_и_база_номером(
@@ -218,7 +218,7 @@ async def test_дельта_первой_версии_с_начала_и_баз�
 
     # Номер базы уходит строкой — ручка принимает prev | live | число.
     assert service.calls[-1].url.params["base"] == "1"
-    assert out.splitlines()[0] == "«Сервис заказов» — с начала → v2"
+    assert out.splitlines()[0] == "«Сервис заказов» · с начала → v2"
     assert f"• Свойства «Сервис заказов»: новое, объект  item=props:{NODE}" in out
 
 
@@ -229,7 +229,7 @@ async def test_дельта_без_версий_сравнивать_нечег�
 
     out = await tools.call("archmap_version_diff", {"project": "Ярмарка", "node_id": NODE}, client)
 
-    assert out == "«Сервис заказов»: версий ещё нет — сравнивать нечего."
+    assert out == "«Сервис заказов»: версий ещё нет, сравнивать нечего."
     assert not [p for p in paths(service) if "/diff" in p]
 
 
@@ -293,7 +293,7 @@ async def test_дельта_процесса_таблицей(client: ArchMapCli
     assert service.calls[-1].url.params["base"] == "prev"
     lines = out.splitlines()
     assert lines[:4] == [
-        "«Сервис заказов» — v3 против предыдущей версии",
+        "«Сервис заказов» · v3 против предыдущей версии",
         f"Процесс «Оформление заказа»: изменено, +1 ~1 ↕1 шага  item=process:{PROCESS}",
         "",
         "ИЗМЕНЕНИЯ:",
@@ -332,7 +332,7 @@ async def test_дельта_схемы_построчно_с_было_и_ста�
 
     assert api.calls[-1].url.params["base"] == "live"
     assert out.splitlines() == [
-        "Проект «Ярмарка» — v2 → текущее состояние",
+        "Проект «Ярмарка» · v2 → текущее состояние",
         f"Схема логики «Создать заказ» (Заказы / Сервис заказов): новое, +2  item=doc:{DOC}",
         "",
         "ИЗМЕНЕНИЯ:",
@@ -360,7 +360,7 @@ async def test_дельта_одного_элемента_против_номе�
         client,
     )
 
-    assert out.splitlines()[0] == "«Сервис заказов» — v1 → v3"
+    assert out.splitlines()[0] == "«Сервис заказов» · v1 → v3"
 
 
 # ── archmap_version_doc ─────────────────────────────────────────────────────────
