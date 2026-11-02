@@ -1109,7 +1109,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       )}
       {intoPicker && (
         <CrossLevelEdgePicker title={`Связь внутрь «${intoPicker.containerName}»`}
-          subtitle="Выберите объект-потомок — дальний конец межуровневой связи."
+          subtitle={`Выберите объект внутри «${intoPicker.containerName}», к которому ведёт связь.`}
           sourceId={intoPicker.sourceId} sourceLabel={intoPicker.sourceName ?? findNodeLabel(intoPicker.sourceId)}
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)} scopeKey={intoPicker.containerId}
           rootParentId={intoPicker.containerId} slotPlaceholder={`Объект внутри «${intoPicker.containerName}»…`}

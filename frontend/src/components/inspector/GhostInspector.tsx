@@ -28,7 +28,7 @@ export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: 
   return (
     <div>
       <div className="insp-block-label">
-        {ghost.is_external ? "Внешний объект" : "Объект"} · проекция
+        {ghost.is_external ? "Внешний объект" : "Объект"} с другого уровня
       </div>
       <div className="insp-ghost-head">
         <ShapeGlyph nesting={treeNesting(ghost)} shape={ghost.shape} />
@@ -64,7 +64,7 @@ export default function GhostInspector({ ghost, onGoToSource, onNavigateNode }: 
           <dd className="insp-value" style={{ margin: 0 }}>{STATUS_META[ghost.status].label}</dd>
         </div>
       </dl>
-      <p className="insp-ghost-note">Проекция узла из другой части схемы — только просмотр.</p>
+      <p className="insp-ghost-note">Этот объект находится в другой части схемы, здесь его можно только посмотреть.</p>
       <button type="button" className="insp-goto" onClick={() => onGoToSource(ghost)}>
         Перейти к оригиналу
       </button>

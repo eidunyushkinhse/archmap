@@ -171,9 +171,9 @@ describe("NodeTreePanel: палитра шаблонов", () => {
     // некуда положить, плитка серая с причиной.
     expect(greyed()).toEqual(["palette:person"]);
     expect(tile("person")).toHaveAttribute(
-      "title", "Пользователь живёт вне границ системы, создайте его на верхнем уровне.",
+      "title", "Пользователь живёт вне границ системы, создайте его в корне проекта.",
     );
-    expect(tile("component")).toHaveAttribute("title", "Положите «Компонент» в раскрытую рамку: «orders»");
+    expect(tile("component")).toHaveAttribute("title", "Положите «Компонент» внутрь раскрытой системы или контейнера: «orders»");
     expect(tile("component")).toHaveAttribute("draggable", "true");
     const transfer = dt();
     fireEvent.dragStart(tile("component"), { dataTransfer: transfer });

@@ -73,8 +73,8 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
   return (
     <Modal onClose={onClose} boxStyle={{ width: 560, maxHeight: "84vh", overflowY: "auto" }}>
       <DialogTitle lead={<>
-        Запланированное станет существующим, а выводимое из эксплуатации — исчезнет
-        из схемы. Действие затрагивает весь проект и отменить его нельзя.
+        Проектируемые объекты станут существующими, а выводимые исчезнут из схемы.
+        Действие затрагивает весь проект и отменить его нельзя.
       </>}>
         Принять переход
       </DialogTitle>
@@ -84,8 +84,8 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
 
       {preview?.is_noop && (
         <p style={{ ...hint, color: "#334155" }}>
-          Принимать нечего: в схеме нет ни запланированных объектов, ни выводимых
-          из эксплуатации.
+          Принимать нечего, потому что в схеме нет ни проектируемых, ни выводимых
+          объектов.
         </p>
       )}
 
@@ -107,7 +107,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
           {preview.collateral.length > 0 && (
             <div style={warnBox}>
               <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                Уедут заодно · {preview.collateral.length}
+                Удалятся вместе с ними · {preview.collateral.length}
               </div>
               <div style={{ marginBottom: 6 }}>
                 Эти объекты не помечены выводимыми — они просто лежат внутри удаляемых.

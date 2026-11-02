@@ -19,8 +19,8 @@ const ancestor = (id: string, name: string, element: AncestorRef["element_effect
 const free = (opts: TypeOption[]) => opts.filter((o) => !o.disabled).map((o) => o.type);
 const reasonOf = (opts: TypeOption[], type: string) => opts.find((o) => o.type === type)?.reason;
 // «Пользователь» живёт только на верхнем уровне (решение владельца 2026-10-31).
-const PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его на верхнем уровне.";
-const PERSON_CHANGE = "Пользователь живёт вне границ системы, сначала перенесите объект на верхний уровень.";
+const PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его в корне проекта.";
+const PERSON_CHANGE = "Пользователь живёт вне границ системы, сначала перенесите объект в корень проекта.";
 
 describe("словарь типов", () => {
   it("шесть типов в порядке поля, подписи без слова «Сервис»", () => {

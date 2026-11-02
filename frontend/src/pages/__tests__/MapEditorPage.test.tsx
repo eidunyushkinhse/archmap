@@ -497,7 +497,7 @@ describe("MapEditorPage: палитра и бросок по месту назн
     await openSystemLevel();
     act(() => { drop().onDropFrames([ordersFrame]); });
     expect(tileOf("component")).toEqual({
-      type: "component", enabled: true, reason: "Положите «Компонент» в раскрытую рамку: «orders»",
+      type: "component", enabled: true, reason: "Положите «Компонент» внутрь раскрытой системы или контейнера: «orders»",
     });
     const onTemplateDrag = treeProps.current.onTemplateDrag as (type: string | null) => void;
     act(() => { onTemplateDrag("component"); });
@@ -507,7 +507,7 @@ describe("MapEditorPage: палитра и бросок по месту назн
     act(() => { drop().onDropRefused("component", null); });
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Компонентом объект бывает только внутри контейнера. Чтобы вложить компонент, сделайте «S1» контейнером "
-      + "в его свойствах. Положите «Компонент» в раскрытую рамку: «orders».",
+      + "в его свойствах. Положите «Компонент» внутрь раскрытой системы или контейнера: «orders».",
     );
     expect(screen.queryByTestId("node-modal")).toBeNull();
   });

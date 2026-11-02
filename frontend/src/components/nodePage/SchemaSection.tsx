@@ -186,13 +186,13 @@ export default function SchemaSection({
   // «Внешних связей нет»: кроме фокуса нет ни локалов-представителей, ни гостей
   // вне его поддерева (глубокие концы внутренних рёбер несут фокус в предках).
   if (hasNoNeighbors(view, node.id) && !node.has_children) {
-    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор-карту
+    // Пустое состояние: секцию не прячем; архитектору — CTA в редактор схемы
     // (наполнить состав / создать связи — правка живёт только там).
     return (
       <div className="np-empty" style={{ textAlign: "center" }}>
         Внешних связей нет — объект пока не взаимодействует с соседями.
         <br />
-        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе-карте</span>
+        <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе схемы</span>
         {isArchitect && onNavigateMap && (
           <div style={{ marginTop: 10, display: "flex", gap: 8, justifyContent: "center" }}>
             {/* Подпись называет, кем станет новый объект: компонентом — у контейнера (в
@@ -206,7 +206,7 @@ export default function SchemaSection({
               className="btn-sm-primary"
               onClick={() => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })}
             >
-              Открыть в карте
+              Открыть в редакторе
             </button>
           </div>
         )}
@@ -221,7 +221,7 @@ export default function SchemaSection({
   // view: свежепоставленный «планируется» обязан включить фильтр сразу.
   const hasStatusInfo = showStatusControls(view.has_status_info, view.nodes, view.endpoints);
 
-  // «Редактировать» / «Открыть в карте» → родительский слой + подсветка + возврат (Ф11/Ф12).
+  // «Редактировать» / «Открыть в редакторе» → родительский слой + подсветка + возврат (Ф11/Ф12).
   const onEdit = onNavigateMap
     ? () => onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` })
     : undefined;

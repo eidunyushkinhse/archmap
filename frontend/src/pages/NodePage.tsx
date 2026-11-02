@@ -440,7 +440,7 @@ function NodePageInner({
                         // Ф11: редактор на родительском слое, объект подсвечен, возврат на страницу
                         onNavigateMap(node.parent_id ?? null, { locate: node.id, ret: `node:${node.id}` });
                       }}>
-                        Открыть в карте
+                        Открыть в редакторе
                       </button>
                     )}
                     <button onClick={() => { setMenuOpen(false); setVersionsOpen(true); }}>

@@ -187,7 +187,7 @@ function EdgeEditForm({ data, onClose, onChanged }: {
         <>
           <p style={confirmText}>
             Удалить связь? Она исчезнет со схемы, а шаги процессов, которые по ней шли,
-            станут повисшими. Отменить со страницы будет нечем.
+            окажутся без связи. Со страницы удаление не отменить.
           </p>
           <div style={footRow}>
             <button type="button" onClick={handleDelete} disabled={deleting} style={dangerBtn}>

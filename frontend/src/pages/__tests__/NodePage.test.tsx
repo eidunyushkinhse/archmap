@@ -1445,7 +1445,7 @@ describe("NodePage: статус страницы", { timeout: 15_000 }, () => {
 
 // ── ⋯-меню: история версий ────────────────────────────────────────────────────
 // Меню видно обеим ролям (docs/tasks/doc-versions.md §7): у читателя — пункты
-// просмотра («Открыть в карте», «Версии документации»), пункты правки — у редактора.
+// просмотра («Открыть в редакторе», «Версии документации»), пункты правки — у редактора.
 // Удалять версии может только владелец проекта — панель получает это по роли.
 describe("NodePage: ⋯-меню и версии документации", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -1466,7 +1466,7 @@ describe("NodePage: ⋯-меню и версии документации", () =
 
   it("читатель: меню есть, в нём только просмотр; пункт открывает панель без права правки", async () => {
     await openMenu(false, "reader");
-    expect(screen.getByRole("button", { name: "Открыть в карте" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Открыть в редакторе" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Экспорт поддерева" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Удалить объект" })).toBeNull();
 

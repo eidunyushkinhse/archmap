@@ -51,7 +51,7 @@ describe("LevelGraph — совет о грязи стрелок на перег
     const { container } = await renderGraph({});
     expect(overload(container)).not.toBeNull();
     expect(dirty(container)).not.toBeNull();
-    expect(dirty(container)?.textContent).toContain("Подёргайте несколько узлов");
+    expect(dirty(container)?.textContent).toContain("Подвиньте несколько объектов");
   });
 
   it("обычная сцена: ни P8, ни совета", async () => {

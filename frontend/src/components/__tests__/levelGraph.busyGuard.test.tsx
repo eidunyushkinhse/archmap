@@ -88,7 +88,7 @@ describe("занятость конвейера и гвард прокликив
     expect(layoutAnimMock.noteExpand).toHaveBeenCalledWith("g2");
   });
 
-  it("P4: бейдж «Считаю раскладку…» виден, пока конвейер в полёте, и гаснет по применении", async () => {
+  it("P4: бейдж «Расставляем объекты» виден, пока конвейер в полёте, и гаснет по применении", async () => {
     await renderGraph({});
     const release = hangPipeline();
 

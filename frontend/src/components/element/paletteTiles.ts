@@ -54,7 +54,7 @@ export function paletteTiles(
       return {
         type: o.type,
         enabled: true,
-        reason: `Положите «${TYPE_LABEL[o.type]}» в раскрытую рамку: ${frameNames(inFrames)}`,
+        reason: `Положите «${TYPE_LABEL[o.type]}» внутрь раскрытой системы или контейнера: ${frameNames(inFrames)}`,
       };
     }
     return { type: o.type, enabled: false, reason: o.reason };
@@ -96,6 +96,6 @@ export function dropRefusal(
   const reason = (levelOptions && optionOf(levelOptions, type)?.reason) ?? fallback;
   const inFrames = framesAccepting(type, frames);
   return inFrames.length > 0
-    ? `${reason} Положите «${TYPE_LABEL[type]}» в раскрытую рамку: ${frameNames(inFrames)}.`
+    ? `${reason} Положите «${TYPE_LABEL[type]}» внутрь раскрытой системы или контейнера: ${frameNames(inFrames)}.`
     : reason;
 }
