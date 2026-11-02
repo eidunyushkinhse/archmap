@@ -290,7 +290,11 @@ class GraphResponse(BaseModel):
 
 
 class NodeEdgeInfo(BaseModel):
-    """Связь узла для предупреждения при удалении: направление + имя связанного узла."""
+    """Внешняя связь поддерева узла: для предупреждения при удалении и таблицы «Связи»
+    страницы объекта. Направление и связанный узел снаружи — относительно поддерева;
+    inner_* — конец связи ВНУТРИ поддерева (сам узел или его потомок, 2026-11-02): таблица
+    сводит одноимённые связи с одним соседом в строку и в окне выбора называет каждую
+    этим концом."""
     id: uuid.UUID
     label: str | None
     technology: str | None
@@ -298,6 +302,8 @@ class NodeEdgeInfo(BaseModel):
     direction: Literal["outgoing", "incoming"]
     other_node_id: uuid.UUID
     other_node_name: str
+    inner_node_id: uuid.UUID
+    inner_node_name: str
 
 
 class PlacementRowOut(BaseModel):

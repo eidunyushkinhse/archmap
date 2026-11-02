@@ -6456,7 +6456,11 @@ export interface components {
         };
         /**
          * NodeEdgeInfo
-         * @description Связь узла для предупреждения при удалении: направление + имя связанного узла.
+         * @description Внешняя связь поддерева узла: для предупреждения при удалении и таблицы «Связи»
+         *     страницы объекта. Направление и связанный узел снаружи — относительно поддерева;
+         *     inner_* — конец связи ВНУТРИ поддерева (сам узел или его потомок, 2026-11-02): таблица
+         *     сводит одноимённые связи с одним соседом в строку и в окне выбора называет каждую
+         *     этим концом.
          */
         NodeEdgeInfo: {
             /**
@@ -6480,6 +6484,13 @@ export interface components {
             other_node_id: string;
             /** Other Node Name */
             other_node_name: string;
+            /**
+             * Inner Node Id
+             * Format: uuid
+             */
+            inner_node_id: string;
+            /** Inner Node Name */
+            inner_node_name: string;
         };
         /** NodeResponse */
         NodeResponse: {

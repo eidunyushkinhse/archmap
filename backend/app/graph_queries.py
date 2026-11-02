@@ -206,7 +206,8 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
     """Внешние связи поддерева узла (он сам + потомки любой глубины) — те, что
     исчезнут при удалении узла: ровно один конец внутри поддерева, другой снаружи.
     Чисто внутренние связи ветки не включаем — они уходят вместе с самой веткой.
-    Направление и имя соседа — относительно поддерева (внешний конец)."""
+    Направление и имя соседа — относительно поддерева (внешний конец); inner_* — конец
+    внутри поддерева (у собственной связи узла — он сам)."""
     subtree = tree.collect_subtree_ids_db(db, node_id)
     edges = (
         db.query(Edge)
@@ -224,6 +225,7 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
             continue
         outgoing = s_in  # источник в поддереве → связь уходит наружу
         other_id = e.target_id if outgoing else e.source_id
+        inner_id = e.source_id if outgoing else e.target_id
         result.append(
             NodeEdgeInfo(
                 id=e.id,
@@ -232,6 +234,8 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
                 direction="outgoing" if outgoing else "incoming",
                 other_node_id=other_id,
                 other_node_name=names.get(other_id, "неизвестный узел"),
+                inner_node_id=inner_id,
+                inner_node_name=names.get(inner_id, "неизвестный объект"),
             )
         )
     return result
