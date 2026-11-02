@@ -657,7 +657,7 @@ def test_не_архив_отбивается_подсказкой_про_имп
 
     assert not превью.ok and превью.errors == [
         "схема.yaml: это не архив ArchMap; YAML в существующий проект заливается "
-        "через «Импорт схемы» (синк)"
+        "через «Импорт схемы»"
     ]
     with pytest.raises(UnifiedImportError, match="непригоден"):
         apply_into_plan(db, проект, план, {})
