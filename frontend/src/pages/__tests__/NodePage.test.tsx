@@ -954,7 +954,7 @@ describe("NodePage: документация по форме узла", () => {
 
   it("спеки нет: «+ Добавить → Вручную» открывает окно спеки сразу в редакторе", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не задана")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
     await меню_OpenAPI("Вручную");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
@@ -963,7 +963,7 @@ describe("NodePage: документация по форме узла", () => {
 
   it("спеки нет: «+ Добавить → Через ИИ-агента» открывает то же окно панелью агента", async () => {
     setupShape({ shape: "service" });
-    await waitFor(() => expect(screen.getByText("Спецификация не задана")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Спецификация не описана")).toBeInTheDocument());
     await меню_OpenAPI("Через ИИ-агента");
     const окно = screen.getByTestId("doc-overlay");
     expect(окно).toHaveAttribute("data-mode", "openapi");
@@ -1057,7 +1057,7 @@ describe("NodePage: «Логика» — описанные схемы, загл
   });
 
   it("одни заглушки: «Логика» говорит, что описанных пока нет, блок лежит ниже", async () => {
-    // Так выглядит объект сразу после разведки; «не заданы» тут соврало бы.
+    // Так выглядит объект сразу после разведки; «не описаны» тут соврало бы.
     setupDocs([док({ id: "d2", name: "GET /orders", described: false })]);
     await waitFor(() => expect(screen.getByText("Описанных схем логики пока нет")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /^Не описано/ })).toHaveTextContent("(1)");

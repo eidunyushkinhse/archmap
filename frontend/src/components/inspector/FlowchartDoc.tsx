@@ -157,7 +157,7 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
       taRef={taRef}
     />
   ) : shown.kind === "loading" ? (
-    <StatusNote text="Загрузка рендерера…" />
+    <StatusNote text="Открываем схему" />
   ) : (
     <StatusOk />
   );
@@ -202,11 +202,11 @@ export default function FlowchartDoc({ initial, nodeId, isArchitect, showCode, o
               <MermaidRenderer chart={code} debounceMs={350} onStatus={handleStatus} />
             </div>
           ) : (
-            <div className="doc-pvcenter"><span className="doc-pvempty">Нет диаграммы</span></div>
+            <div className="doc-pvcenter"><span className="doc-pvempty">Схема пуста</span></div>
           )}
           {observerError && shown.kind === "error" && (
             <div className="doc-pvcenter">
-              <div className="doc-mmderr">В диаграмме ошибка синтаксиса: {shown.message}</div>
+              <div className="doc-mmderr">В схеме ошибка синтаксиса: {shown.message}</div>
             </div>
           )}
           {hasChart && !observerError && (

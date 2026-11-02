@@ -74,7 +74,7 @@ async function save() {
 
 async function deleteDoc() {
   await userEvent.click(await screen.findByRole("button", { name: "Удалить схему" }));
-  await userEvent.click(screen.getByRole("button", { name: "Точно удалить?" }));
+  await userEvent.click(screen.getByRole("button", { name: "Удалить схему?" }));
 }
 
 // Новая схема со страницы: «+ Добавить → Вручную» — окно сразу в редакторе, схема

@@ -274,10 +274,11 @@ export default function FlowchartDocs({
   if (docs !== null && stage === "manual" && form && isArchitect) {
     actions = (
       <>
-        <button type="button" className="doc-btn doc-btn--ghost" onClick={cancel}>Отмена</button>
+        {/* Главная кнопка слева, «Отмена» справа: правило окон. */}
         <button type="button" className="doc-btn doc-btn--primary" onClick={() => void save()} disabled={saving}>
           Сохранить
         </button>
+        <button type="button" className="doc-btn doc-btn--ghost" onClick={cancel}>Отмена</button>
       </>
     );
   } else if (stage === "agent" && active) {
@@ -374,7 +375,7 @@ export default function FlowchartDocs({
         {active && <TwoStepDeleteButton key={active.id} label="Удалить схему" onConfirm={() => void remove()} />}
         {limit
           ? <div className="doc-limit" role="alert"><LimitText message={limit} /></div>
-          : <span>Превью обновляется на лету</span>}
+          : <span>Превью обновляется сразу</span>}
       </div>
     );
   } else if (stage === "agent" && active && isArchitect) {

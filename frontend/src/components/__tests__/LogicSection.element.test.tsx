@@ -125,7 +125,7 @@ describe("LogicSection: объект без вложенных — как ран
     ] as PageElement[];
     for (const element of elements) {
       const { unmount } = renderSection(element);
-      expect(screen.getByText("Схемы логики не заданы")).toBeInTheDocument();
+      expect(screen.getByText("Схемы логики не описаны")).toBeInTheDocument();
       expect(screen.getByText("+ Добавить")).toBeInTheDocument();
       unmount();
     }
@@ -160,7 +160,7 @@ describe("LogicSection: схемы у формы без кода", () => {
 describe("LogicSection: внешняя система (Р42)", () => {
   it("свои схемы без предупреждения и без «Перенести документацию»: чёрный ящик описывают у него", () => {
     renderSection({ kind: "external" }, { docs: [doc()] });
-    expect(screen.queryByText("Схемы логики не заданы")).toBeNull();
+    expect(screen.queryByText("Схемы логики не описаны")).toBeNull();
     expect(screen.getByText("+ Добавить")).toBeInTheDocument();
     expect(screen.queryByText(/остались собственные схемы/)).toBeNull();
     expect(screen.queryByRole("button", { name: "Перенести документацию" })).toBeNull();

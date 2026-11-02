@@ -93,9 +93,9 @@ describe("OpenApiSection: внешняя система (Р42)", () => {
 });
 
 describe("OpenApiSection: контейнер", () => {
-  it("пусто — «Спецификация не задана» и меню «+ Добавить», как у объекта без вложенных", () => {
+  it("пусто — «Спецификация не описана» и меню «+ Добавить», как у объекта без вложенных", () => {
     renderSection({ kind: "container" });
-    expect(screen.getByText("Спецификация не задана")).toBeInTheDocument();
+    expect(screen.getByText("Спецификация не описана")).toBeInTheDocument();
     expect(screen.getByText("+ Добавить")).toBeInTheDocument();
   });
 
@@ -157,7 +157,7 @@ describe("OpenApiSection: компонент", () => {
   it("своя спецификация (старые данные) — куда её собрать, строка спецификации", () => {
     renderSection(COMPONENT, { spec: "openapi: 3.0.0", containerHasSpec: false });
     expect(screen.getByText(
-      "Спецификацию отдаёт контейнер целиком. Перенесите её в «orders»: на его странице есть кнопка «Собрать с компонентов»",
+      "Спецификацию отдаёт контейнер целиком. Её можно перенести в «orders» кнопкой «Собрать с компонентов» на его странице",
     )).toBeInTheDocument();
     expect(screen.getByText("Спецификация")).toBeInTheDocument();
   });

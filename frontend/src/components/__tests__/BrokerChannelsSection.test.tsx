@@ -226,7 +226,7 @@ describe("BrokerChannelsSection", () => {
     await userEvent.click(screen.getByLabelText("Развернуть канал"));
 
     expect(
-      screen.getByText("Пометок «публикует:/потребляет:» на этот канал в схемах логики нет"),
+      screen.getByText("Ни одна схема логики не говорит, кто публикует в этот канал и кто его читает"),
     ).toBeInTheDocument();
   });
 
@@ -243,7 +243,7 @@ describe("BrokerChannelsSection", () => {
     await userEvent.click(первый);
 
     expect(
-      screen.getByText("Пометок «публикует:/потребляет:» на этот канал в схемах логики нет"),
+      screen.getByText("Ни одна схема логики не говорит, кто публикует в этот канал и кто его читает"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Заказы · POST /orders")).toBeNull();
   });

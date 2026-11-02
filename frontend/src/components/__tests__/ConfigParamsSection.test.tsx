@@ -287,8 +287,8 @@ describe("ConfigParamsSection: элемент архитектуры", () => {
   it("свои параметры у компонента (старые данные) — куда их собрать, список без «+ Параметр»", async () => {
     renderSection({ element: COMPONENT });
     expect(await screen.findByText(
-      "Конфигурацию читает контейнер целиком. Перенесите параметры в «orders»: на его странице есть"
-      + " кнопка «Собрать с компонентов»",
+      "Конфигурацию читает контейнер целиком. Параметры можно перенести в «orders» кнопкой"
+      + " «Собрать с компонентов» на его странице",
     )).toBeInTheDocument();
     expect(screen.getByDisplayValue("FEATURE_NEW_CHECKOUT")).toBeInTheDocument();
     expect(screen.queryByText("+ Параметр")).toBeNull();

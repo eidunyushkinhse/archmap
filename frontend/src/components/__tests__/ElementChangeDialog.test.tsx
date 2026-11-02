@@ -35,8 +35,8 @@ describe("окно последствий", () => {
     expect(screen.getByText("«orders» займёт все площадки, где сейчас стоят его части.")).toBeInTheDocument();
     expect(screen.getByText("Документация")).toBeInTheDocument();
     expect(screen.getByText(
-      "У api и scheduler есть своя документация. Она останется на месте: ArchMap отметит это "
-      + "подсказкой, а на странице «orders» будет кнопка, чтобы перенести её одним нажатием.",
+      "У api и scheduler есть своя документация. Она останется на месте. ArchMap отметит это "
+      + "подсказкой, а на странице «orders» появится кнопка, чтобы перенести её одним нажатием.",
     )).toBeInTheDocument();
     fireEvent.click(screen.getByText("Сделать контейнером"));
     expect(onConfirm).toHaveBeenCalledOnce();
@@ -56,7 +56,7 @@ describe("окно последствий", () => {
     expect(screen.getByText("Каждый получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
     expect(screen.getByText(
       "Документация самого «orders» останется у него. ArchMap отметит это подсказкой, а на "
-      + "странице «orders» будет кнопка, чтобы раздать её объектам внутри.",
+      + "странице «orders» появится кнопка, чтобы раздать её объектам внутри.",
     )).toBeInTheDocument();
     expect(screen.getByText("Сделать системой")).toBeInTheDocument();
   });
@@ -97,7 +97,7 @@ describe("окно последствий", () => {
       container_name: "orders",
     }), "api", "orders");
     expect(screen.getByText("Перенести «api» в «orders»?")).toBeInTheDocument();
-    expect(screen.getByText("Площадки «orders» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру, базе данных или брокеру.")).toBeInTheDocument();
     expect(screen.getByText("Площадки")).toBeInTheDocument();
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
@@ -115,7 +115,7 @@ describe("окно последствий", () => {
       container_name: "orders",
     }), "api", "core");
     expect(screen.getByText("Перенести «api» в «core»?")).toBeInTheDocument();
-    expect(screen.getByText("Площадки «orders» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру, базе данных или брокеру.")).toBeInTheDocument();
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
   });
 
@@ -151,7 +151,7 @@ describe("окно последствий", () => {
       docs_names: ["orders"],
     }), "orders");
     expect(screen.getByText("Сделать «orders» системой?")).toBeInTheDocument();
-    expect(screen.getByText("Система сама не запускается: площадки и документацию ведут объекты внутри неё.")).toBeInTheDocument();
+    expect(screen.getByText("Система сама не запускается, поэтому площадки и документацию ведут объекты внутри неё.")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Площадки до" })).toBeInTheDocument();
     // Площадки отдать некому — строки «после» и стрелки нет.
     expect(screen.queryByRole("list", { name: "Площадки после" })).not.toBeInTheDocument();

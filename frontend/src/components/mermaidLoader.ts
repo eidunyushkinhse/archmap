@@ -8,7 +8,7 @@ import { lazyOnce } from "../lib/lazyOnce";
 // Чанк mermaid не загрузился (после выката старый пропал с сервера, сеть) — это не
 // ошибка в тексте схемы, и показывать её как синтаксическую нельзя.
 export class MermaidLoadError extends Error {}
-export const MERMAID_LOAD_FAILED = "Не удалось загрузить рендерер схем — обновите страницу";
+export const MERMAID_LOAD_FAILED = "Не удалось открыть схему. Обновите страницу.";
 
 const mermaidOnce = lazyOnce<Mermaid>(() =>
   import("mermaid").then((mod) => {

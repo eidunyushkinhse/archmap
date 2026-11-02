@@ -211,7 +211,7 @@ describe("FlowchartDocs · «Вручную»", () => {
     expect(screen.getByTestId("doc-editor")).toHaveAttribute("data-edit", "false");
   });
 
-  it("удаление в подвале: «Удалить схему» → «Точно удалить?», событие и закрытие окна", async () => {
+  it("удаление в подвале: «Удалить схему» → «Удалить схему?», событие и закрытие окна", async () => {
     const d1 = doc("d1");
     vi.mocked(nodeDocsApi.list).mockResolvedValue([d1]);
     vi.mocked(nodeDocsApi.delete).mockResolvedValue(undefined);
@@ -220,7 +220,7 @@ describe("FlowchartDocs · «Вручную»", () => {
     render(<FlowchartDocs {...props} onDocEvent={onDocEvent} onClose={onClose} isArchitect initialDocId="d1" />);
     await открытьВручную();
     await userEvent.click(screen.getByRole("button", { name: "Удалить схему" }));
-    await userEvent.click(screen.getByRole("button", { name: "Точно удалить?" }));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить схему?" }));
     await waitFor(() => expect(nodeDocsApi.delete).toHaveBeenCalledWith("n1", "d1"));
     expect(onDocEvent).toHaveBeenCalledWith({ type: "delete", nodeId: "n1", doc: d1 });
     expect(onClose).toHaveBeenCalledOnce();

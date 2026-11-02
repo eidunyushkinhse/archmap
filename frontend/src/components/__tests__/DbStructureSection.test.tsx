@@ -257,7 +257,7 @@ describe("DbStructureSection: кто обращается", () => {
     await waitFor(() => expect(screen.getByDisplayValue("orders")).toBeInTheDocument());
     await userEvent.click(screen.getByLabelText("Развернуть колонки"));
     expect(
-      screen.getByText("Пометок «читает:/пишет:» на эту таблицу в схемах логики нет"),
+      screen.getByText("Ни одна схема логики не говорит, кто читает и пишет эту таблицу"),
     ).toBeInTheDocument();
   });
 });

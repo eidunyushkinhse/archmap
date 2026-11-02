@@ -294,7 +294,7 @@ function TableCard({
           <div className="dbs-usage">
             <div className="np-sublabel">Кто обращается</div>
             {usage.length === 0 ? (
-              <p className="np-empty">Пометок «читает:/пишет:» на эту таблицу в схемах логики нет</p>
+              <p className="np-empty">Ни одна схема логики не говорит, кто читает и пишет эту таблицу</p>
             ) : usage.map((u) => (
               <div key={`${u.doc_id}:${u.column_id ?? ""}:${u.mode}`} className="dbs-col dbs-col--usage">
                 <span className={`dbs-mode dbs-mode--${u.mode}`}>

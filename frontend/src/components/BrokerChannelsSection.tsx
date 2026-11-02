@@ -334,7 +334,7 @@ function ChannelCard({
             <div className="np-sublabel">Кто публикует / кто потребляет</div>
             {usage.length === 0 ? (
               <p className="np-empty">
-                Пометок «публикует:/потребляет:» на этот канал в схемах логики нет
+                Ни одна схема логики не говорит, кто публикует в этот канал и кто его читает
               </p>
             ) : usage.map((u) => (
               <div key={`${u.doc_id}:${u.field_id ?? ""}:${u.mode}`} className="bch-usagerow">

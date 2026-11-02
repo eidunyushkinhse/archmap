@@ -59,10 +59,10 @@ export default function OpenApiViewer({ spec }: Props) {
     };
   }, [safeSpec]);
 
-  if (state === "failed") return <div className="doc-pvnote">Не удалось загрузить рендерер</div>;
+  if (state === "failed") return <div className="doc-pvnote">Не удалось открыть спецификацию</div>;
   return (
     <>
-      {state === "loading" && <div className="doc-pvnote">Загрузка рендерера…</div>}
+      {state === "loading" && <div className="doc-pvnote">Открываем спецификацию</div>}
       <div ref={ref} className="doc-oas" />
     </>
   );

@@ -90,7 +90,8 @@ export function DocAgentSteps({ target, service, copy }: {
 
 // Двухшаговое удаление вместо вложенной модалки подтверждения: <dialog> внутри
 // <dialog> нельзя (cancel бубблит — ui/Modal). Второй клик по той же кнопке
-// подтверждает, увод фокуса — отменяет.
+// подтверждает, увод фокуса — отменяет. Вторая ступень спрашивает тем же действием:
+// «Удалить схему» → «Удалить схему?» (решение Р7 ревизии текстов).
 export function TwoStepDeleteButton({ label, onConfirm }: { label: string; onConfirm: () => void }) {
   const [armed, setArmed] = useState(false);
   return (
@@ -100,7 +101,7 @@ export function TwoStepDeleteButton({ label, onConfirm }: { label: string; onCon
       onClick={() => (armed ? onConfirm() : setArmed(true))}
       onBlur={() => setArmed(false)}
     >
-      {armed ? "Точно удалить?" : label}
+      {armed ? `${label}?` : label}
     </button>
   );
 }

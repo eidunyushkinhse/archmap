@@ -153,10 +153,11 @@ export default function OpenApiPane({
   if (stage === "manual" && isArchitect) {
     actions = (
       <>
-        <button type="button" className="doc-btn doc-btn--ghost" onClick={leave}>Отмена</button>
+        {/* Главная кнопка слева, «Отмена» справа: правило окон. */}
         <button type="button" className="doc-btn doc-btn--primary" onClick={() => void save()} disabled={saving}>
           Сохранить
         </button>
+        <button type="button" className="doc-btn doc-btn--ghost" onClick={leave}>Отмена</button>
       </>
     );
   } else if (stage === "agent" && isArchitect) {
@@ -188,7 +189,7 @@ export default function OpenApiPane({
         onVersion={setOasVersion}
       />
     );
-    foot = "Невалидная спецификация сохраняется как черновик, рендер не обновляется до исправления";
+    foot = "Спецификацию с ошибкой можно сохранить как черновик. Превью обновится, когда ошибка будет исправлена.";
   } else if (stage === "agent" && isArchitect) {
     body = (
       <div className="doc-agent">

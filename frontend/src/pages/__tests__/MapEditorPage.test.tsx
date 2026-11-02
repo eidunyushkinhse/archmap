@@ -653,7 +653,7 @@ describe("MapEditorPage: перенос объекта", () => {
     const onReparent = treeProps.current.onReparent as (n: Node, p: string | null, t?: string) => void;
     await act(async () => { onReparent(node("kid", { name: "KID", parent_id: "old" }), "new", "CORE"); });
     expect(await screen.findByText("Перенести «KID» в «CORE»?")).toBeInTheDocument();
-    expect(screen.getByText("Площадки «ORDERS» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «ORDERS» перейдут первому вложенному контейнеру, базе данных или брокеру.")).toBeInTheDocument();
     expect(nodesApi.update).not.toHaveBeenCalled();
   });
 

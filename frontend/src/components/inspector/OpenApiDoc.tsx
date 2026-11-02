@@ -102,8 +102,8 @@ export default function OpenApiDoc({ initial, isArchitect, showCode, onDraft, on
   let banner: string | null = null;
   if (broken) {
     banner = lastGood
-      ? "Показана последняя корректная версия" + (lastGood.time ? ` · ${lastGood.time}` : "")
-      : "Спецификация не распарсилась — превью недоступно";
+      ? "Показан последний текст без ошибок" + (lastGood.time ? ` · ${lastGood.time}` : "")
+      : "В спецификации ошибка, превью недоступно";
   }
 
   return (

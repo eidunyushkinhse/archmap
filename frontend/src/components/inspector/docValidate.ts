@@ -11,7 +11,7 @@ export type SpecStatus =
   | { kind: "not-openapi"; spec: object }; // валидный YAML, но не спека
 
 // Фиксированное сообщение для статус-строки при kind === "not-openapi".
-export const NOT_OPENAPI_MESSAGE = "Файл валиден, но не похож на OpenAPI: нет openapi/paths";
+export const NOT_OPENAPI_MESSAGE = "Файл читается, но это не OpenAPI: в нём нет разделов openapi и paths";
 
 // Локальное «HH:MM» для подписей дока: «сохранено · 12:41», amber-баннер
 // (живёт здесь: docShared.tsx экспортирует только компоненты — react-refresh).

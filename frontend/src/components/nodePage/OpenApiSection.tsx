@@ -73,7 +73,7 @@ export default function OpenApiSection({
         {spec && (
           <>
             <p className="np-warn">
-              Спецификацию отдаёт контейнер целиком. Перенесите её в «{element.container.name}»: на его странице есть кнопка «Собрать с компонентов»
+              Спецификацию отдаёт контейнер целиком. Её можно перенести в «{element.container.name}» кнопкой «Собрать с компонентов» на его странице
             </p>
             <button className="np-doc-row" onClick={() => onOpen({ mode: "openapi" })}>
               <DocRowLabel name="Спецификация" />
@@ -148,7 +148,7 @@ export default function OpenApiSection({
         </>
       ) : (
         <>
-          <p className="np-empty">Спецификация не задана</p>
+          <p className="np-empty">Спецификация не описана</p>
           {addMenu}
         </>
       )}

@@ -82,11 +82,11 @@ describe("OpenApiPane · «Вручную»", () => {
     const onCommitOpenapi = vi.fn(() => Promise.resolve(true));
     render(<OpenApiPane {...props} openapi={spec("Старая")} isArchitect onCommitOpenapi={onCommitOpenapi} />);
     await открытьВручную();
-    expect(screen.getByText(/Невалидная спецификация сохраняется как черновик/)).toBeInTheDocument();
+    expect(screen.getByText(/Спецификацию с ошибкой можно сохранить как черновик/)).toBeInTheDocument();
     fireEvent.change(field()!, { target: { value: "openapi: [\n  broken" } });
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(onCommitOpenapi).toHaveBeenCalledWith("openapi: [\n  broken");
-    expect(await screen.findByText("Спецификация не распарсилась — превью недоступно")).toBeInTheDocument();
+    expect(await screen.findByText("В спецификации ошибка, превью недоступно")).toBeInTheDocument();
   });
 
   it("«Отмена» отбрасывает черновик", async () => {

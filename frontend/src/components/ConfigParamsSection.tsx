@@ -50,8 +50,8 @@ interface Props {
 }
 
 const TYPE_TITLE =
-  "Тип значения: string, int, bool, duration, json — свободная строка, а не перечень: " +
-  "конфиги слишком разные";
+  "Тип значения, например string, int, bool, duration или json. Пишется свободно, " +
+  "потому что у разных программ типы разные.";
 const DEFAULT_TITLE =
   "Текст значения по умолчанию ИЗ КОДА («30s», «false»). Значения сред здесь не " +
   "хранятся — ArchMap не хранилище секретов";
@@ -144,7 +144,7 @@ export default function ConfigParamsSection({
       )}
       {component && !empty && (
         <p className="np-warn">
-          Конфигурацию читает контейнер целиком. Перенесите параметры в «{component.name}»: на его странице есть кнопка «Собрать с компонентов»
+          Конфигурацию читает контейнер целиком. Параметры можно перенести в «{component.name}» кнопкой «Собрать с компонентов» на его странице
         </p>
       )}
       {empty ? (
@@ -319,7 +319,7 @@ function ParamRow({
         <input
           {...noAutofill("config-params-section-3")}
           className="np-field cfg-default"
-          placeholder="дефолт из кода"
+          placeholder="значение по умолчанию из кода"
           title={DEFAULT_TITLE}
           defaultValue={param.default_value}
           key={`d:${param.id}:${param.version}`}
