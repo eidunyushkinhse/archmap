@@ -207,7 +207,12 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
     исчезнут при удалении узла: ровно один конец внутри поддерева, другой снаружи.
     Чисто внутренние связи ветки не включаем — они уходят вместе с самой веткой.
     Направление и имя соседа — относительно поддерева (внешний конец); inner_* — конец
-    внутри поддерева (у собственной связи узла — он сам)."""
+    внутри поддерева (у собственной связи узла — он сам).
+
+    Порядок задаётся здесь и только здесь: выборка без ORDER BY отдаёт строки как
+    придётся, и таблица «Связи» страницы объекта (и перечень в подтверждении удаления)
+    менялась местами между запросами. Ключ: имя соседа снаружи, подпись, технология,
+    направление, имя конца внутри, затем id. Фронт порядок не трогает."""
     subtree = tree.collect_subtree_ids_db(db, node_id)
     edges = (
         db.query(Edge)
@@ -238,4 +243,15 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
                 inner_node_name=names.get(inner_id, "неизвестный объект"),
             )
         )
+    # Без учёта регистра: «api» и «Billing» встают по алфавиту, а не по кодам символов.
+    result.sort(
+        key=lambda r: (
+            r.other_node_name.casefold(),
+            (r.label or "").casefold(),
+            (r.technology or "").casefold(),
+            r.direction,
+            r.inner_node_name.casefold(),
+            str(r.id),
+        )
+    )
     return result

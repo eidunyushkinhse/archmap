@@ -59,3 +59,35 @@ def test_external_edges_of_leaf_inner_is_itself(db):
     [row] = external_edges(db, ensure_project(db).id, leaf.id)
     assert row.id == e.id
     assert (row.direction, row.other_node_name, row.inner_node_name) == ("outgoing", "Пользователь", "Каталог")
+
+
+def test_external_edges_order_is_fixed_by_server(db):
+    """Порядок строк задаёт сервер (без ORDER BY строки таблицы «Связи» менялись местами
+    между запросами): имя соседа снаружи без учёта регистра, подпись, технология,
+    направление, конец внутри, затем id."""
+    hub = _node(db, "Заказы")
+    cart = _node(db, "Корзина", hub)
+    catalog = _node(db, "Каталог", hub)
+    stock = _node(db, "Склад")
+    api = _node(db, "api")
+    billing = _node(db, "Billing")
+    reserve = _edge(db, hub, stock, "резервирует")
+    invoice = _edge(db, billing, hub, "выставляет счёт")
+    to_cart = _edge(db, api, cart, "пишет")
+    to_catalog = _edge(db, api, catalog, "пишет")
+    reads = _edge(db, api, catalog, "читает")
+    answers = _edge(db, hub, api, "пишет")  # тот же сосед и подпись, но исходящая
+    reads_grpc = _edge(db, api, catalog, "читает")
+    reads_grpc.technology = "gRPC"
+    db.commit()
+
+    rows = external_edges(db, ensure_project(db).id, hub.id)
+    assert [r.id for r in rows] == [
+        to_catalog.id,  # api · пишет · входящая · Каталог
+        to_cart.id,  # api · пишет · входящая · Корзина
+        answers.id,  # api · пишет · исходящая
+        reads.id,  # api · читает · без технологии
+        reads_grpc.id,  # api · читает · gRPC
+        invoice.id,  # Billing после api: регистр не решает
+        reserve.id,  # Склад
+    ]
