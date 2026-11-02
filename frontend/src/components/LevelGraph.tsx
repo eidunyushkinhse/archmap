@@ -554,7 +554,7 @@ function LevelGraphInner({
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
   // Инспекция связей (openEdgeMembers) вынесена в useLevelEdgeChoice (Фаза 3б) —
   // колбэк кормит cbRef ниже.
-  const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice });
+  const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, resolveTarget, displayNameOf });
 
   const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers, pickFrame });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после

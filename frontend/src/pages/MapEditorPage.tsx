@@ -26,7 +26,7 @@ import NodeDeleteConfirm from "../components/NodeDeleteConfirm";
 import NodesDeleteConfirm from "../components/NodesDeleteConfirm";
 import RelayoutConfirm from "../components/RelayoutConfirm";
 import LevelGraph from "../components/LevelGraph";
-import type { DropFrameTarget, LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
+import type { DropFrameTarget, EdgeChoiceEnds, LayoutPatch, LevelDeleteCallbacks, LevelDrillCallbacks, LevelDropProps, LevelEdgeCallbacks, LevelModeFlags, LevelPersistenceProps, LevelUndoProps, LinkedHighlight, LocateRequest, ViewMetaState } from "../components/graph/types";
 import { useRemoteSync } from "./useRemoteSync";
 import { ancestorRef, chainTo } from "./ancestorPath";
 import { useMessageToast, useToast } from "./useToast";
@@ -800,16 +800,28 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   const hasStatusInfo = showStatusControls(projectHasStatuses, nodes, levelGhosts);
 
   const inspectEdge = (edge: LevelEdge) => { setSelectedObject({ kind: "edge", edge }); };
+  // «+ Добавить связь» окна выбора (edge.md E97, 2026-11-02): новая связь к ПОКАЗАННОЙ паре
+  // концов стрелки, как протягивание и быстрая связь, а не к настоящим концам первой связи
+  // пучка (rep). Концы классифицировал холст (ends.connect). Цель-лист — быстрое создание;
+  // цель с вложенными (свёрнутая система или контейнер) — выбор её потомка, как дроп в
+  // тело (E73). Выбора потомка-источника нет: источник с вложенными, как и неизвестный
+  // конец, берётся настоящим концом rep; без ends — прежние концы rep целиком.
+  const addEdgeFromChoice = (rep: LevelEdge, ends?: EdgeChoiceEnds) => {
+    const src = ends?.connect?.source;
+    const tgt = ends?.connect?.target;
+    const source = src?.kind === "direct" ? { sourceId: src.id, sourceName: src.name } : { sourceId: rep.source_id };
+    if (tgt?.kind === "into") setIntoPicker({ ...source, containerId: tgt.id, containerName: tgt.name });
+    else if (tgt) setEdgeQuick({ ...source, targetId: tgt.id, targetName: tgt.name });
+    else setEdgeQuick({ ...source, targetId: rep.target_id });
+  };
   // Выбор связи (общая оркестрация с просмотром — useEdgeChoice): модалки выбора
   // и резолв группы рёбер там; семантика «выбрать» здесь — открыть инспектор
-  // (inspectEdge), «дозаписать связь» (архитектор) — EdgeQuickCreate.
+  // (inspectEdge), «дозаписать связь» (архитектор) — addEdgeFromChoice.
   const { onEdgesChoice, choiceModal } = useEdgeChoice({
     resolveEdge: findLevelEdge,
     labelOf: findNodeLabel,
     onPick: inspectEdge,
-    onAddFromChoice: isArchitect
-      ? (rep) => setEdgeQuick({ sourceId: rep.source_id, targetId: rep.target_id })
-      : undefined,
+    onAddFromChoice: isArchitect ? addEdgeFromChoice : undefined,
   });
 
   // ── Бандлы пропсов LevelGraph (Фаза 3д) ──────────────────────────
