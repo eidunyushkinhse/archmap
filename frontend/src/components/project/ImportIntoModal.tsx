@@ -249,7 +249,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
             ))}
             {files.length > 0 && (
               <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
-                Добавить архив…
+                Добавить архив
               </button>
             )}
             <input
@@ -328,7 +328,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
               Отмена
             </button>
             <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
-              {applying ? "Догружаем…" : "Применить"}
+              {applying ? "Догружаем" : "Применить"}
             </button>
           </>
         )}
@@ -363,7 +363,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
             </div>
           ))}
           {preview.nodes_matched > найдены.length && (
-            <div style={subRow}>…ещё {preview.nodes_matched - найдены.length}</div>
+            <div style={subRow}>и ещё {preview.nodes_matched - найдены.length}</div>
           )}
         </div>
       )}
@@ -379,7 +379,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
             </div>
           ))}
           {preview.nodes_new > появятся.length && (
-            <div style={subRow}>…ещё {preview.nodes_new - появятся.length}</div>
+            <div style={subRow}>и ещё {preview.nodes_new - появятся.length}</div>
           )}
         </div>
       )}

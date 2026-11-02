@@ -544,7 +544,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           </div>
         )}
         {!detail || !seq ? (
-          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка…</div>
+          <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>Загрузка</div>
         ) : seq.participants.length === 0 ? (
           <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>
             {editing

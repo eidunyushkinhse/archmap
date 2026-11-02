@@ -281,7 +281,7 @@ export default function ProjectAccessDialog({ project: initial, onClose, onChang
           lead={stays}
           error={error}
           confirmLabel="Передать"
-          busyLabel="Передаём…"
+          busyLabel="Передаём"
           busy={busy}
           onConfirm={() => void transfer()}
           onCancel={() => setConfirming(false)}

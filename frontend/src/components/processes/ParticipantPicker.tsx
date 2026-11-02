@@ -143,7 +143,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
         {error ? (
           <div style={{ fontSize: 12, color: "#dc2626", padding: 8 }}>{error}</div>
         ) : nodes === null ? (
-          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>Загрузка…</div>
+          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>Загрузка</div>
         ) : roots.length === 0 ? (
           <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>В схеме нет объектов</div>
         ) : (

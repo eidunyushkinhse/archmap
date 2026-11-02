@@ -356,7 +356,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
           <div style={{ fontSize: 12.5, color: "#dc2626" }}>
             <div style={{ fontWeight: 600, marginBottom: 3 }}>Пакет не применить:</div>
             {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
-            {report.errors.length > 6 && <div>…ещё {report.errors.length - 6}</div>}
+            {report.errors.length > 6 && <div>и ещё {report.errors.length - 6}</div>}
           </div>
         )}
 

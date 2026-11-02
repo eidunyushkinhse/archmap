@@ -250,7 +250,7 @@ export default function ProcessWorkspace({
         />
       ) : (
         <div style={emptyWrap}>
-          <div style={{ fontSize: 13, color: BPT.mut }}>Загрузка…</div>
+          <div style={{ fontSize: 13, color: BPT.mut }}>Загрузка</div>
         </div>
       )}
       <DemoLimitToast message={limitToast} />

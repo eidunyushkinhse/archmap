@@ -60,7 +60,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
 
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.55 }} disabled={!canSubmit} onClick={submit}>
-          {busy ? "Сохранение…" : "Сохранить"}
+          {busy ? "Сохраняем" : "Сохранить"}
         </button>
         <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
       </div>

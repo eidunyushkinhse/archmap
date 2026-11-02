@@ -1,4 +1,4 @@
-// Приём пакета от агента в окнах дозаливки: чипы файлов, «Загрузить файлы…»,
+// Приём пакета от агента в окнах дозаливки: чипы файлов, «Загрузить файлы»,
 // «+ вставить из буфера» и зона приёма (пустая) или поле активного файла. Общая
 // часть панелей схем логики и спеки (DocsAgentPanel / SpecAgentPanel): разметка у
 // них совпадала строка в строку, различались только подписи.
@@ -52,7 +52,7 @@ export default function AgentPackageInput({ pkg, onRemove, dropText, pasteTitle 
           disabled={pkg.files.length >= MAX_FILES}
           onClick={() => fileRef.current?.click()}
         >
-          Загрузить файлы…
+          Загрузить файлы
         </button>
         <button
           type="button"

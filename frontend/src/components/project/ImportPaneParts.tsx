@@ -12,7 +12,7 @@ export function ReportList({ title, items }: { title: string; items: string[] })
       {items.slice(0, 6).map((s, i) => (
         <div key={i} style={{ marginTop: 2, color: "#475569" }}>{s}</div>
       ))}
-      {items.length > 6 && <div style={{ marginTop: 2, color: "#475569" }}>…ещё {items.length - 6}</div>}
+      {items.length > 6 && <div style={{ marginTop: 2, color: "#475569" }}>и ещё {items.length - 6}</div>}
     </div>
   );
 }

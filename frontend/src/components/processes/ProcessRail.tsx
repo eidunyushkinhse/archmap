@@ -109,7 +109,7 @@ export default function ProcessRail({
 
       <div style={railList}>
         {processes === null ? (
-          <div style={railHint}>Загрузка…</div>
+          <div style={railHint}>Загрузка</div>
         ) : processes.length === 0 ? (
           <div style={railHint}>Пока нет процессов</div>
         ) : (

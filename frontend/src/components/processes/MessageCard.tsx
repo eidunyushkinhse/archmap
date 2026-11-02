@@ -268,7 +268,7 @@ export default function MessageCard({
             {/* Скролл обязателен: каталог монолита — две сотни строк, а карточка
                 шириной 340 без него растянулась бы за пределы экрана (У5). */}
             <div style={list}>
-              {docs === null && <div style={empty}>Загружаем…</div>}
+              {docs === null && <div style={empty}>Загружаем</div>}
               {docs !== null && shown.length === 0 && (
                 <div style={empty}>
                   {docs.length === 0

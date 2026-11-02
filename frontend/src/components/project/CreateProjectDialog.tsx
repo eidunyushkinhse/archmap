@@ -450,7 +450,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
             disabled={!canSubmit}
             onClick={submit}
           >
-            {busy ? "Создание…"
+            {busy ? "Создаём"
               : importish && unifiedResult ? "Открыть проект"
               : "Создать проект"}
           </button>

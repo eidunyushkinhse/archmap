@@ -31,7 +31,7 @@ export function ArchiveDialog({ project, onClose, onDone }: BaseProps) {
       {error && <p style={errText}>{error}</p>}
       <div style={row}>
         <button style={darkBtn} disabled={busy} onClick={() => run(() => projectsApi.archive(project.id).then(onDone))}>
-          {busy ? "…" : "В архив"}
+          {busy ? "Архивируем" : "В архив"}
         </button>
         <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
       </div>
@@ -47,7 +47,7 @@ export function RestoreDialog({ project, onClose, onDone }: BaseProps) {
       {error && <p style={errText}>{error}</p>}
       <div style={row}>
         <button style={primaryBtn} disabled={busy} onClick={() => run(() => projectsApi.restore(project.id).then(onDone))}>
-          {busy ? "…" : "Вернуть"}
+          {busy ? "Возвращаем" : "Вернуть"}
         </button>
         <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
       </div>
@@ -86,7 +86,7 @@ export function DeleteForeverDialog({ project, onClose, onDone }: BaseProps) {
           disabled={!unlocked}
           onClick={remove}
         >
-          {busy ? "Удаление…" : "Удалить навсегда"}
+          {busy ? "Удаляем" : "Удалить навсегда"}
         </button>
         <button style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
       </div>

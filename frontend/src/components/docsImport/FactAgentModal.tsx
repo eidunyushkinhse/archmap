@@ -220,7 +220,7 @@ export default function FactAgentModal<R extends FactReport>({
             />
             <button type="button" className="btn-soft" disabled={pkg.files.length >= MAX_FILES}
               onClick={() => fileRef.current?.click()}>
-              Загрузить файлы…
+              Загрузить файлы
             </button>
             <button type="button" className="btn-soft" disabled={pkg.files.length >= MAX_FILES}
               title="Добавить файл вставкой текста" onClick={pkg.addPaste}>
@@ -267,7 +267,7 @@ export default function FactAgentModal<R extends FactReport>({
               <div style={{ fontSize: 12.5, color: "#dc2626" }}>
                 <div style={{ fontWeight: 600, marginBottom: 3 }}>Пакет не применить:</div>
                 {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
-                {report.errors.length > 6 && <div>…ещё {report.errors.length - 6}</div>}
+                {report.errors.length > 6 && <div>и ещё {report.errors.length - 6}</div>}
               </div>
             )}
 

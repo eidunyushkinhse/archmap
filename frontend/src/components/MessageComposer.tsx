@@ -230,7 +230,7 @@ export default function MessageComposer({
               className="bp-input"
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="создать заказ, событие оплаты…"
+              placeholder="например, создать заказ"
               disabled={busy}
               autoFocus
             />
@@ -244,7 +244,7 @@ export default function MessageComposer({
                 className="bp-input"
                 value={newTech}
                 onChange={(e) => setNewTech(e.target.value)}
-                placeholder="REST, gRPC, Kafka…"
+                placeholder="например, REST или Kafka"
                 disabled={busy}
               />
             </div>
@@ -258,7 +258,7 @@ export default function MessageComposer({
             <button className="bp-btn-primary" onClick={() => void addSchemaEdge()} disabled={busy}>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                 <IcoLink s={14} />
-                {busy ? "Добавляем…" : "Добавить связь в схему"}
+                {busy ? "Добавляем" : "Добавить связь в схему"}
               </span>
             </button>
             <button className="bp-btn-ghost" onClick={onClose}>

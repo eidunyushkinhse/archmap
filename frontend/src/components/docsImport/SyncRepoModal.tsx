@@ -88,7 +88,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
   const [applyError, setApplyError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const seqRef = useRef(0);
-  // Перетаскивание в ту же зону, что и кнопка «Загрузить файлы…»: список
+  // Перетаскивание в ту же зону, что и кнопка «Загрузить файлы»: список
   // расширений держим одинаковым с input accept ниже.
   const drop = useFileDrop({
     accept: [".yaml", ".yml", ".txt"],
@@ -267,7 +267,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             {pkg.files.length < MAX_FILES && (
               <>
                 <button type="button" className="btn-soft" onClick={() => fileRef.current?.click()}>
-                  Загрузить файлы…
+                  Загрузить файлы
                 </button>
                 <button type="button" className="btn-soft" onClick={pkg.addPaste}>
                   Вставить текст
@@ -330,7 +330,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                 ))}
               </div>
 
-              {checking && <p style={grayLine}>Сверяем со схемой…</p>}
+              {checking && <p style={grayLine}>Сверяем со схемой</p>}
               {tooBig && <div style={{ marginBottom: 10 }}><FileTooBigNotice {...tooBig} /></div>}
               {/* Не помещается в демо: вместо плана — отказ с полоской. */}
               {excess && (
@@ -387,7 +387,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           Отмена
         </button>
         <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
-          {applying ? "Применяем…" : "Применить"}
+          {applying ? "Применяем" : "Применить"}
         </button>
       </div>
     </Modal>

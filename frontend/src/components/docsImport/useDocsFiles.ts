@@ -12,7 +12,7 @@ import { bytesLimitText, MAX_FILE_BYTES } from "./useFileDrop";
 // отдельным .mmd, и у монолита их десятки (docs/plan-docs-mmd.md).
 export const MAX_FILES = 100;
 
-// Реф скрытого input[type=file] («Загрузить файлы…») намеренно НЕ здесь:
+// Реф скрытого input[type=file] («Загрузить файлы») намеренно НЕ здесь:
 // модалки держат его локально (react-hooks/refs запрещает раздавать рефы
 // из возвращаемого хуком объекта — объект становится «ref-tainted»).
 export interface DocsFilesApi {

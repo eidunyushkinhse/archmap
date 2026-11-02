@@ -397,7 +397,7 @@ describe("основание склейки и источника новых (Ф
     expect(screen.getByText("Ярмарка / Каталог-БД — по имени зависимости")).toBeInTheDocument();
     expect(screen.getByText("Ярмарка — по имени на верхнем уровне")).toBeInTheDocument();
     // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
-    expect(screen.getByText("…ещё 2")).toBeInTheDocument();
+    expect(screen.getByText("и ещё 2")).toBeInTheDocument();
   });
 
   it("сопоставлять нечего — строки нет вовсе", async () => {

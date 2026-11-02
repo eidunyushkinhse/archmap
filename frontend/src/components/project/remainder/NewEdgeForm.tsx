@@ -83,7 +83,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
                 className="rq-inp"
                 value={row.tech}
                 aria-label={`Технология связи — ${row.nodePath}`}
-                placeholder="SQL, HTTP/JSON, gRPC…"
+                placeholder="например, HTTP или gRPC"
                 onChange={(e) => правка(i, { tech: e.target.value })}
               />
             </div>

@@ -315,7 +315,7 @@ export default function ImportPane({
           disabled={docs.length >= MAX_IMPORT_FILES}
           onClick={() => fileRef.current?.click()}
         >
-          Загрузить файлы…
+          Загрузить файлы
         </button>
       </div>
 

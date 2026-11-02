@@ -34,7 +34,7 @@ describe("ArchiveDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "В архив" }));
     expect(projectsApi.archive).toHaveBeenCalledWith("p1");
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Архивируем" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
   });
 
@@ -71,7 +71,7 @@ describe("DeleteForeverDialog", () => {
     await userEvent.click(del);
     expect(projectsApi.remove).toHaveBeenCalledWith("p1", "Ярмарка");
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Удаление…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Удаляем" })).toBeDisabled();
   });
 
   it("отказ: текст ошибки и снова можно удалить", async () => {
@@ -108,7 +108,7 @@ describe("EditProjectDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
     expect(projectsApi.update).toHaveBeenCalledWith("p1", { name: "Ярмарка v2", description: null });
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Сохранение…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Сохраняем" })).toBeDisabled();
   });
 
   it("пустое название — кнопка заперта; отказ бэка показывается, и можно повторить", async () => {
