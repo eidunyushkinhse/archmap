@@ -160,7 +160,7 @@ def test_порядок_и_заголовки_повторяют_панель() 
 def test_причины_пишутся_словами_а_не_кодами() -> None:
     out = render.alerts(validated_payload())
     assert "„orders.stat“ — колонки нет в таблице" in out
-    assert "„order.created“ — имя неоднозначно, укажите „Брокер / канал“" in out
+    assert "„order.created“ — канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in out
     assert "„TIMEOUT“ — параметра нет в конфигурации объекта" in out
     assert "unknown_column" not in out and "ambiguous" not in out
     # Связь с брокером: обе причины — разные фразы починки.
@@ -228,7 +228,8 @@ def test_причина_AL33_называет_место_поиска() -> None:
     line = render.alerts({"unresolved_config_refs": [component]})
     assert (
         "api · POST /orders: „TIMEOUT“ — параметра нет в конфигурации контейнера "
-        "«orders»: опишите его там или, если это обычная фраза, уберите двоеточие"
+        "«orders». Опишите его там, а если это обычная фраза, уберите двоеточие после "
+        "«зависит от»"
     ) in line
 
 
@@ -249,8 +250,8 @@ def test_совет_AL24_по_элементу_архитектуры() -> None:
     out = render.alerts(validated_payload())
     assert any(
         line.startswith(
-            "  • Маркетплейс (спецификация, конфигурация и схемы логики описывают её контейнеры — "
-            "перенесите их вложенным объектам) — archmap_transfer_docs_preview, node_id="
+            "  • Маркетплейс (спецификацию, конфигурацию и схемы логики можно перенести "
+            "контейнерам этой системы) — archmap_transfer_docs_preview, node_id="
         )
         for line in out.splitlines()
     )
@@ -290,7 +291,7 @@ def test_факты_компонента_называют_контейнер() -
 def test_строки_называют_имена_и_детали() -> None:
     out = render.alerts(validated_payload())
     assert "Покупатель → «Маркетплейс»" in out  # проблемный конец выделен
-    assert "«Сервис заказов» — часть «Маркетплейс»" in out
+    assert "«Сервис заказов» и так входит в «Маркетплейс». Связь лишняя" in out
     assert "Группа 1: Почта, Шлюз" in out and "Группа 2: Биллинг" in out
     assert "Оформление заказа: «создать заказ» (Покупатель → Сервис заказов)" in out
     assert "Оформление заказа: без подписи (Сервис заказов → Kafka · канал «orders.created»)" in out

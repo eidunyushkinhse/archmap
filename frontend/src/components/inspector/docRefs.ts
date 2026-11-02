@@ -15,10 +15,10 @@ export const REF_MARKER =
 // Почему пометка не срослась — ТЕ ЖЕ слова, что в панели алертов (SchemaAlerts):
 // один факт, увиденный из двух мест, не должен читаться как две разные проблемы.
 // «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму
-// пометки (см. reasonOf): «БД / таблица» у данных, «Брокер / канал» у событий.
+// пометки (см. reasonOf): «база / таблица» у данных, «брокер / канал» у событий.
 const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = {
   unknown_table: "таблица не найдена",
-  ambiguous: "имя неоднозначно, укажите „БД / таблица“",
+  ambiguous: "таблица с таким именем есть в нескольких базах, укажите «база / таблица»",
   unknown_column: "колонки нет в таблице",
   unknown_channel: "канал не найден у брокеров проекта",
   unknown_field: "поля нет в канале",
@@ -26,7 +26,7 @@ const REF_REASON: Record<Exclude<DataRefPreviewItem["status"], "ok">, string> = 
   // квалификатора, ни неоднозначности.
   unknown_param: "параметра нет в конфигурации этого объекта",
 };
-const AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите „Брокер / канал“";
+const AMBIGUOUS_CHANNEL = "канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»";
 
 const isChannelMode = (mode: DataRefPreviewItem["mode"]): boolean =>
   mode === "publish" || mode === "consume";

@@ -379,14 +379,14 @@ describe("ProjectShell", () => {
     expect(sessionStorage.getItem("archmap.pendingAlertLocate")).toBeNull();
   });
 
-  it("клик по связи-алерту показывает подтверждение «Открыть в редакторе?»", async () => {
+  it("клик по связи-алерту показывает подтверждение «Открыть редактор схемы?»", async () => {
     setup(null);
     await userEvent.click(screen.getByTestId("alert-edge"));
     // Ещё не в редакторе — ждём подтверждения.
     expect(nav.onNavigateMap).not.toHaveBeenCalled();
-    expect(screen.getByText("Открыть в редакторе?")).toBeInTheDocument();
-    // «Ок» → цель в sessionStorage и карта в корне.
-    await userEvent.click(screen.getByRole("button", { name: "Ок" }));
+    expect(screen.getByText("Открыть редактор схемы?")).toBeInTheDocument();
+    // «Открыть» → цель в sessionStorage и карта в корне.
+    await userEvent.click(screen.getByRole("button", { name: "Открыть" }));
     const raw = sessionStorage.getItem("archmap.pendingAlertLocate");
     expect(JSON.parse(raw!)).toEqual({ kind: "edge", id: "e1" });
     expect(nav.onNavigateMap).toHaveBeenCalledWith(null);
@@ -395,11 +395,11 @@ describe("ProjectShell", () => {
   it("«Отмена» в подтверждении не открывает редактор", async () => {
     setup(null);
     await userEvent.click(screen.getByTestId("alert-group"));
-    expect(screen.getByText("Открыть в редакторе?")).toBeInTheDocument();
+    expect(screen.getByText("Открыть редактор схемы?")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Отмена" }));
     expect(nav.onNavigateMap).not.toHaveBeenCalled();
     expect(sessionStorage.getItem("archmap.pendingAlertLocate")).toBeNull();
-    expect(screen.queryByText("Открыть в редакторе?")).not.toBeInTheDocument();
+    expect(screen.queryByText("Открыть редактор схемы?")).not.toBeInTheDocument();
   });
 
   it("читателю проекта кнопки «Рекомендации» в шапке нет", async () => {

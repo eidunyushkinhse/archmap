@@ -117,13 +117,13 @@ export default function ProjectShell({
   // страницы/режима — дешёвая страховка для правок, у которых своего канала нет.
   useEffect(() => { reloadAlerts(); }, [mode, nodeId, reloadAlerts]);
 
-  // Подтверждение «Открыть в редакторе?» — для алертов про несколько объектов
+  // Подтверждение «Открыть редактор схемы?» — для алертов про несколько объектов
   // (связь/группа), по которым одну страницу выбрать невозможно.
   const [editorConfirmTarget, setEditorConfirmTarget] = useState<LocateTarget | null>(null);
 
   // Клик по пункту алерта в шапке (режим просмотра страниц). Один объект (узел) →
   // на его СТРАНИЦУ. Связь/группа — объектов несколько, одну страницу не выбрать →
-  // подтверждение «Открыть в редакторе?».
+  // подтверждение «Открыть редактор схемы?».
   function handleAlertLocate(target: LocateTarget) {
     if (target.kind === "node") {
       // страница узла живёт в режиме «Объекты»
@@ -298,13 +298,13 @@ export default function ProjectShell({
       {editorConfirmTarget && (
         <Modal onClose={() => setEditorConfirmTarget(null)} boxStyle={{ width: 420 }}>
           <DialogTitle lead={<>
-            Это замечание касается нескольких объектов — перейти к нему можно только
-            в редакторе-карте.
+            Эта рекомендация касается нескольких объектов, их можно показать только
+            в редакторе схемы.
           </>}>
-            Открыть в редакторе?
+            Открыть редактор схемы?
           </DialogTitle>
           <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Ок</button>
+            <button type="button" onClick={confirmGoToEditor} style={primaryBtn}>Открыть</button>
             <button type="button" onClick={() => setEditorConfirmTarget(null)} style={secondaryBtn}>Отмена</button>
           </div>
         </Modal>
