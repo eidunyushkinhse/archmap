@@ -461,7 +461,10 @@ def transition_apply(
     if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Схема изменилась с момента показа плана",
+            detail=(
+                "Схему только что изменили в другом окне. Посмотрите изменения заново "
+                "и примените."
+            ),
         )
     plan = build_transition(db, project)
     deleted, promoted = apply_transition(db, project, plan)

@@ -151,7 +151,7 @@ def test_пользователь_не_создаётся_внутри_лист�
     r = s.post("Покупатель", "orders", shape="person")
     assert r.status_code == 422
     assert r.json()["detail"] == PERSON_CREATE
-    assert r.json()["detail"] == "Пользователь живёт вне границ системы, создайте его на верхнем уровне"
+    assert r.json()["detail"] == "Пользователь живёт вне границ системы, создайте его в корне проекта"
     db.rollback()
     assert s.node("orders")["element"] == "container"
     assert s.revs() == (g0, m0)

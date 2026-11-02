@@ -124,7 +124,7 @@ def test_внутри_объекта_не_создаётся(client, db, parent)
     assert r.status_code == 422
     assert r.json()["detail"] == PERSON_CREATE
     assert r.json()["detail"] == (
-        "Пользователь живёт вне границ системы, создайте его на верхнем уровне"
+        "Пользователь живёт вне границ системы, создайте его в корне проекта"
     )
     db.rollback()
     assert s.revs() == (g0, m0)
