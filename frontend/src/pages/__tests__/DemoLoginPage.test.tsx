@@ -78,7 +78,7 @@ describe("DemoLoginPage", () => {
     render(<DemoLoginPage onLogin={vi.fn()} notice={SANDBOX_GONE_DETAIL} />);
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(
-      "Ваша песочница удалена: прошли сутки бездействия. Начните заново, это займёт пару секунд.",
+      "Песочница удалена, потому что в ней сутки ничего не делали. Начните заново, это займёт пару секунд.",
     );
     expect(alert).toHaveClass("login-msg--notice");
     await userEvent.click(screen.getByRole("button", { name: "Попробовать без регистрации" }));

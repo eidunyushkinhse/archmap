@@ -212,7 +212,7 @@ def create_node(
     if payload.parent_id:
         parent = scoped_node(db, payload.parent_id, project)
         if not parent:
-            raise HTTPException(status_code=404, detail="Родительский узел не найден")
+            raise HTTPException(status_code=404, detail="Родительский объект не найден")
         # Те же запреты вложения, что у переноса (app/reparent): внутрь формы без детей
         # не создаётся ничего, база и брокер не входят в контейнер (Р6 эпика элементов).
         if parent.shape not in reparent.CONTAINER_SHAPES:
@@ -311,9 +311,9 @@ def restore_nodes(
         raise HTTPException(status_code=400, detail="Пустой снимок")
     # Сущности не должны уже существовать (двойной restore) — иначе это не «откат удаления».
     if ids and db.query(Node.id).filter(Node.id.in_(ids)).first():
-        raise HTTPException(status_code=409, detail="Узлы уже существуют — нечего восстанавливать")
+        raise HTTPException(status_code=409, detail="Объекты уже есть, восстанавливать нечего")
     if edge_ids and db.query(Edge.id).filter(Edge.id.in_(edge_ids)).first():
-        raise HTTPException(status_code=409, detail="Связи уже существуют — нечего восстанавливать")
+        raise HTTPException(status_code=409, detail="Связи уже есть, восстанавливать нечего")
     # Родитель корня поддерева (вне снимка) должен уцелеть, иначе FK не пройдёт.
     ext_parents = {
         n.parent_id for n in snapshot.nodes if n.parent_id is not None and n.parent_id not in ids
@@ -323,7 +323,7 @@ def restore_nodes(
         # поддерево «в чужой» проект).
         if not scoped_node(db, pid, project):
             raise HTTPException(
-                status_code=409, detail="Родитель удалённого узла больше не существует"
+                status_code=409, detail="Родителя удалённого объекта больше нет"
             )
     # Восстанавливаем в текущий проект: всем воссоздаваемым узлам/связям проставляем project_id.
     try:
@@ -575,7 +575,7 @@ def update_node(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле узла)
     base_version = data.pop("base_version", None)
-    check_cas(node.version, base_version, "Узел изменён в другой сессии")
+    check_cas(node.version, base_version, "Объект только что изменили в другом окне")
     # Якорь — НЕ колонка: блок source приезжает разобранным по видам, а хранится
     # каноническим ключом. Достаём до цикла setattr, иначе присвоился бы словарь.
     if "source" in data:

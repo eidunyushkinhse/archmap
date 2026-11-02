@@ -88,7 +88,7 @@ def docs_prompt(
     if node_id is not None:
         by_id = {n.id: n for n in nodes}
         if node_id not in by_id:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Объект не найден")
         element = elements.effective(node_id)
         holder = elements.container_of(node_id)
         if element == "system" and not elements.external_system(node_id):

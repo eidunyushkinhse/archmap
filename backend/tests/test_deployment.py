@@ -476,7 +476,7 @@ def test_площадки_создание_список_правка_и_прав
     r = client.patch(
         f"{API}/deployment/sites/{cluster['id']}", json={"description": "x", "base_version": 1}, headers=h
     )
-    assert (r.status_code, r.json()) == (409, {"detail": "Площадка изменена в другой сессии"})
+    assert (r.status_code, r.json()) == (409, {"detail": "Площадку только что изменили в другом окне"})
     # Вынести в корень — parent_id: null.
     r = client.patch(f"{API}/deployment/sites/{cluster['id']}", json={"parent_id": None}, headers=h)
     assert r.json()["parent_id"] is None
@@ -706,7 +706,7 @@ def _c4(db, scene) -> dict[str, str]:
     return {n.name: str(n.id) for n in (shop, orders, api, worker, billing)}
 
 
-COMPONENT_422 = {"detail": "Площадки задаются контейнеру: «api» — компонент контейнера «orders»"}
+COMPONENT_422 = {"detail": "«api» — компонент контейнера «orders», поэтому площадки задаются контейнеру"}
 
 
 def test_компонент_не_размещается_422_и_ничего_не_пишет(client, db, scene):
@@ -810,7 +810,8 @@ def test_граф_уровня_контейнера_закрыт_а_связи_�
     r = client.get(graph, params={"level": c["orders"]}, headers=h)
     assert (r.status_code, r.json()) == (
         422,
-        {"detail": "Внутри контейнера «orders» отдельного размещения нет: компоненты развёртываются вместе с ним"},
+        {"detail": "Внутри контейнера «orders» отдельного размещения нет, потому что компоненты "
+                   "развёртываются вместе с ним"},
     )
     g = client.get(graph, params={"level": c["shop"]}, headers=h).json()
     assert {x["name"] for x in g["nodes"]} == {"orders", "api", "worker", "billing"}

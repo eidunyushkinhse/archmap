@@ -182,7 +182,7 @@ def test_CAS_канала(db):
             user=ensure_architect(db),
         )
     assert e.value.status_code == 409
-    assert e.value.detail == "Канал изменён в другой сессии"
+    assert e.value.detail == "Канал только что изменили в другом окне"
     db.refresh(канал)
     assert канал.description is None
 
@@ -205,7 +205,7 @@ def test_каналы_бывают_только_у_брокера(db):
         with pytest.raises(HTTPException) as e:
             _channel(db, узел, "orders.created")
         assert e.value.status_code == 400
-        assert e.value.detail == "Каналы может иметь только узел-брокер"
+        assert e.value.detail == "Каналы бывают только у брокера"
     assert db.query(BrokerChannel).count() == 0
 
 

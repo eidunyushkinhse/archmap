@@ -27,7 +27,7 @@ BLOCKED_DETAIL = "Учётная запись заблокирована"
 # нет). Фронт узнаёт его так же, как блокировку, и выходит на экран демо-входа с
 # жёлтой плашкой этого текста (docs/tasks/demo-mode.md).
 SANDBOX_GONE_DETAIL = (
-    "Ваша песочница удалена: прошли сутки бездействия. "
+    "Песочница удалена, потому что в ней сутки ничего не делали. "
     "Начните заново, это займёт пару секунд."
 )
 
@@ -241,7 +241,7 @@ def require_architect(user: User = Depends(get_current_user)) -> User:
     if user.role != "architect":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Требуется роль architect",
+            detail="Нужна роль «Архитектор»",
         )
     return user
 

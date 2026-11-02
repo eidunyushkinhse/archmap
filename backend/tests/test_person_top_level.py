@@ -136,7 +136,7 @@ def test_внутри_базы_прежний_отказ_формы(client, db):
     s = Scene(db, client, [("orders-db", None, {"shape": "database"})])
     r = s.post("Покупатель", "orders-db", shape="person")
     assert r.status_code == 422
-    assert r.json()["detail"] == "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"
+    assert r.json()["detail"] == "Внутрь объекта этого типа нельзя вкладывать другие"
 
 
 # ── Смена формы ───────────────────────────────────────────────────────────────

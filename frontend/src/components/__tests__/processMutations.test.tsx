@@ -88,26 +88,26 @@ async function правитьПодпись(текст: string) {
 
 describe("мутации процесса: отказ и следующий успех", () => {
   it("отказ показывает причину и перечитывает процесс", async () => {
-    vi.mocked(processesApi.updateMessage).mockRejectedValue(new Error("Шаг изменён в другой сессии"));
+    vi.mocked(processesApi.updateMessage).mockRejectedValue(new Error("Шаг только что изменили в другом окне"));
     await renderCanvas();
     const загрузок = vi.mocked(processesApi.get).mock.calls.length;
 
     await правитьПодпись("оплатить заказ");
 
-    expect(await screen.findByText("Шаг изменён в другой сессии")).toBeInTheDocument();
+    expect(await screen.findByText("Шаг только что изменили в другом окне")).toBeInTheDocument();
     await waitFor(() => expect(vi.mocked(processesApi.get).mock.calls.length).toBeGreaterThan(загрузок));
   });
 
   it("следующая удачная правка снимает прежнюю ошибку", async () => {
     vi.mocked(processesApi.updateMessage)
-      .mockRejectedValueOnce(new Error("Шаг изменён в другой сессии"))
+      .mockRejectedValueOnce(new Error("Шаг только что изменили в другом окне"))
       .mockResolvedValue({} as never);
     await renderCanvas();
 
     await правитьПодпись("оплатить заказ");
-    expect(await screen.findByText("Шаг изменён в другой сессии")).toBeInTheDocument();
+    expect(await screen.findByText("Шаг только что изменили в другом окне")).toBeInTheDocument();
 
     await правитьПодпись("оплатить заказ картой");
-    await waitFor(() => expect(screen.queryByText("Шаг изменён в другой сессии")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Шаг только что изменили в другом окне")).toBeNull());
   });
 });

@@ -61,7 +61,7 @@ def recon_prompt(
     flat, fulls, _by_bare, _by_path = NodeIndex.of(nodes)
     найден = next((fulls[i] for i, n in enumerate(flat) if n.id == node_id), None)
     if найден is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Объект не найден")
     node_path: str = найден
     return ReconPromptOut(
         prompt=prompt_for_variant(

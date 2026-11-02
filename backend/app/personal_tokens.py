@@ -38,7 +38,7 @@ READ_ONLY_DETAIL = "Токен только для чтения: менять д
 NO_DELETE_DETAIL = "Удалять через токен нельзя: это делается в интерфейсе ArchMap"
 SESSION_ONLY_DETAIL = "Это делается в интерфейсе ArchMap, не токеном"
 DEMO_DETAIL = "На демо-стенде токены недоступны"
-LIMIT_DETAIL = f"Токенов не больше {MAX_PER_USER}: отзовите ненужный"
+LIMIT_DETAIL = f"Токенов может быть не больше {MAX_PER_USER}. Отзовите ненужный"
 NAME_TAKEN_DETAIL = "Токен с таким именем уже есть"
 VIEWER_READ_ONLY_DETAIL = "С ролью «Пользователь» токен выпускается только для чтения"
 

@@ -138,7 +138,7 @@ def scoped_edge(db: Session, edge_id: uuid.UUID, project: Project) -> Edge | Non
 # ── Общее у CRUD-ручек записей узла (аудит Q-15: копии в db_docs, broker_channels,
 # config_params и node_docs) ────────────────────────────────────────────────────
 
-NODE_NOT_FOUND = "Узел не найден"
+NODE_NOT_FOUND = "Объект не найден"
 
 
 def node_or_404(db: Session, node_id: uuid.UUID, project: Project) -> Node:

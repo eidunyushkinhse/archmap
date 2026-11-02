@@ -207,7 +207,7 @@ describe("NodePage", () => {
 
   // Аудит R-2: load без catch — 404/403/сеть оставляли «Загрузку…» навсегда.
   it("узел не найден: экран с причиной, «Повторить» грузит заново, «К проекту» уводит", async () => {
-    vi.mocked(nodesApi.get).mockRejectedValueOnce(new ApiError(404, "Узел не найден")).mockResolvedValue(node("n1"));
+    vi.mocked(nodesApi.get).mockRejectedValueOnce(new ApiError(404, "Объект не найден")).mockResolvedValue(node("n1"));
     vi.mocked(nodesApi.getAll).mockResolvedValue([node("n1")]);
     vi.mocked(nodesApi.getEdges).mockResolvedValue([]);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());

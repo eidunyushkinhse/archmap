@@ -81,7 +81,7 @@ def save_view_layout(
         raise HTTPException(status_code=404, detail="Вид не найден")
     state = lock_view_state(db, project.id, vid)
     if payload.base_version is not None and payload.base_version != state.version:
-        raise HTTPException(status_code=409, detail="Вид изменён в другой сессии")
+        raise HTTPException(status_code=409, detail="Расположение объектов только что изменили в другом окне")
     if not payload.items:
         # пустой батч: мир вида не менялся — версию не двигаем, отдаём текущее
         return ViewLayoutResult(version=state.version, graph_rev=project.graph_rev)

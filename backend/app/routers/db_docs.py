@@ -201,7 +201,7 @@ def update_table(
     table = _scoped_table(db, node, table_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    check_cas(table.version, base_version, "Таблица изменена в другой сессии")
+    check_cas(table.version, base_version, "Таблицу только что изменили в другом окне")
     if data:
         new_name = data.get("name", table.name)
         new_schema = data.get("schema_name", table.schema_name)

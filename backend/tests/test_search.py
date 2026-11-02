@@ -531,7 +531,7 @@ def test_одна_схема_404_на_чужой_узел_и_чужую_схем
     assert resp.status_code == 404 and resp.json()["detail"] == "Схема не найдена"
     # Узел и схема чужого проекта.
     resp = viewer_client.get(_doc_url(foreign, foreign_doc), headers=headers)
-    assert resp.status_code == 404 and resp.json()["detail"] == "Узел не найден"
+    assert resp.status_code == 404 and resp.json()["detail"] == "Объект не найден"
     # Схема чужого проекта под своим узлом.
     resp = viewer_client.get(_doc_url(a, foreign_doc), headers=headers)
     assert resp.status_code == 404

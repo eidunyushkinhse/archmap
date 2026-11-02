@@ -43,7 +43,7 @@ def create_edge(
 ) -> Edge:
     for node_id in (payload.source_id, payload.target_id):
         if not scoped_node(db, node_id, project):
-            raise HTTPException(status_code=404, detail=f"Узел {node_id} не найден")
+            raise HTTPException(status_code=404, detail=f"Объект {node_id} не найден")
     # project_id проставляем сервером из текущего проекта (концы уже проверены в нём).
     edge = Edge(**payload.model_dump(), project_id=project.id)
     db.add(edge)
@@ -79,7 +79,7 @@ def update_edge(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужую (base_version — не поле связи)
     base_version = data.pop("base_version", None)
-    check_cas(edge.version, base_version, "Связь изменена в другой сессии")
+    check_cas(edge.version, base_version, "Связь только что изменили в другом окне")
 
     # Смена концов: проверяем существование узлов (в этом же проекте) и запрещаем петлю.
     # Геометрия (хэндлы/изломы/плашка) на связи больше не живёт (R3) — при смене конца
@@ -88,9 +88,9 @@ def update_edge(
     new_target = data.get("target_id", edge.target_id)
     for node_id in {new_source, new_target}:
         if not scoped_node(db, node_id, project):
-            raise HTTPException(status_code=404, detail=f"Узел {node_id} не найден")
+            raise HTTPException(status_code=404, detail=f"Объект {node_id} не найден")
     if new_source == new_target:
-        raise HTTPException(status_code=400, detail="Связь не может вести из узла в него же")
+        raise HTTPException(status_code=400, detail="Связь не может вести из объекта в него же")
 
     for field, value in data.items():
         setattr(edge, field, value)

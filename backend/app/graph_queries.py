@@ -233,7 +233,7 @@ def external_edges(db: Session, project_id: uuid.UUID, node_id: uuid.UUID) -> li
                 technology=e.technology,
                 direction="outgoing" if outgoing else "incoming",
                 other_node_id=other_id,
-                other_node_name=names.get(other_id, "неизвестный узел"),
+                other_node_name=names.get(other_id, "неизвестный объект"),
                 inner_node_id=inner_id,
                 inner_node_name=names.get(inner_id, "неизвестный объект"),
             )

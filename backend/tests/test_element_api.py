@@ -476,7 +476,7 @@ def test_создание_внутри_формы_без_детей_отказ(c
     owner = ensure_architect(db)
     p, ids = _tree(db, [("orders-db", None, {"shape": "database"}), ("Покупатель", None, {"shape": "person"})])
     h = _h(owner, p)
-    text = {"detail": "Внутрь этого объекта нельзя вкладывать другие — детей не бывает"}
+    text = {"detail": "Внутрь объекта этого типа нельзя вкладывать другие"}
     for parent in ("orders-db", "Покупатель"):
         db.expunge_all()
         r = client.post(URL, headers=h, json={"name": "api", "parent_id": str(ids[parent])})

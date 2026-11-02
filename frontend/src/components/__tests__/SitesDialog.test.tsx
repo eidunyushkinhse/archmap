@@ -141,7 +141,7 @@ describe("SitesDialog", () => {
   });
 
   it("правка, а площадку уже изменили в другой сессии: сообщение и перечитанное окно", async () => {
-    vi.mocked(deploymentApi.updateSite).mockRejectedValue(new ApiError(409, "Площадка изменена в другой сессии"));
+    vi.mocked(deploymentApi.updateSite).mockRejectedValue(new ApiError(409, "Площадку только что изменили в другом окне"));
     const props = setup();
     await screen.findByText("Облако");
     await userEvent.click(within(row("Стойка")).getByRole("button", { name: "Изменить площадку «Стойка»" }));

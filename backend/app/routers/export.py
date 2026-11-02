@@ -84,7 +84,7 @@ def export_subtree(
     nodes = db.query(Node).filter(Node.project_id == project.id).all()
     by_id = {n.id: n for n in nodes}
     if node_id not in by_id:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Узел не найден")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Объект не найден")
     sub_ids = tree.subtree_ids(by_id, node_id)
     sub_nodes = [by_id[i] for i in sub_ids]
     # Связи берём только внутри поддерева (build_export всё равно отфильтрует, но

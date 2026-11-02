@@ -201,12 +201,12 @@ describe("FlowchartDocs · «Вручную»", () => {
     vi.mocked(nodeDocsApi.list)
       .mockResolvedValueOnce([doc("d1")])
       .mockResolvedValueOnce([doc("d1", { content: "свежее", version: 4 })]);
-    vi.mocked(nodeDocsApi.update).mockRejectedValue(new ApiError(409, "Схема изменена в другой сессии"));
+    vi.mocked(nodeDocsApi.update).mockRejectedValue(new ApiError(409, "Схему только что изменили в другом окне"));
     render(<FlowchartDocs {...props} isArchitect initialDocId="d1" />);
     await открытьВручную();
     await userEvent.click(screen.getByText("набрать"));
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(await screen.findByText("Схема изменена в другой сессии")).toBeInTheDocument();
+    expect(await screen.findByText("Схему только что изменили в другом окне")).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId("doc-editor")).toHaveTextContent("свежее"));
     expect(screen.getByTestId("doc-editor")).toHaveAttribute("data-edit", "false");
   });

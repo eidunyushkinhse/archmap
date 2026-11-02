@@ -203,7 +203,7 @@ describe("NodeModal — поля и отказы", () => {
   });
 
   it("сбой загрузки родителя — причина в окне, «Повторить» загружает снова", async () => {
-    vi.mocked(nodesApi.get).mockRejectedValueOnce(new ApiError(404, "Узел не найден"));
+    vi.mocked(nodesApi.get).mockRejectedValueOnce(new ApiError(404, "Объект не найден"));
     vi.mocked(nodesApi.getChildren).mockResolvedValue([]);
     render(<NodeModal parentId="gone" onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(await screen.findByText("Не удалось узнать, какие типы возможны здесь.")).toBeInTheDocument();

@@ -282,7 +282,7 @@ describe("DeploymentPage", () => {
   });
 
   it("уровень контейнера по адресу — ошибка загрузки текстом сервера (D24)", async () => {
-    const text = "Внутри контейнера «orders» отдельного размещения нет: компоненты развёртываются вместе с ним";
+    const text = "Внутри контейнера «orders» отдельного размещения нет, потому что компоненты развёртываются вместе с ним";
     vi.mocked(deploymentApi.graph).mockRejectedValue(new ApiError(422, text));
     render(<DeploymentPage isArchitect level="o" onNavigateLevel={vi.fn()} onOpenNode={vi.fn()} />);
     const alert = await screen.findByRole("alert");
@@ -344,7 +344,7 @@ describe("DeploymentPage", () => {
     await setup(true, graph({
       layout: { "deploy:site:s1": { expanded: false } },
     }));
-    vi.mocked(viewsApi.saveLayout).mockRejectedValueOnce(new ApiError(409, "Вид изменён в другой сессии"));
+    vi.mocked(viewsApi.saveLayout).mockRejectedValueOnce(new ApiError(409, "Расположение объектов только что изменили в другом окне"));
     await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
     await waitFor(() => expect(viewsApi.saveLayout).toHaveBeenCalledTimes(3));
     expect(viewsApi.saveLayout).toHaveBeenNthCalledWith(2, null, { "deploy:site:s1": null }, 7);

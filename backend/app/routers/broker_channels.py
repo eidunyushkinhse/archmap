@@ -59,7 +59,7 @@ def _broker_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
     node = node_or_404(db, node_id, project)
     if node.shape != "broker":
         raise HTTPException(
-            status_code=400, detail="Каналы может иметь только узел-брокер"
+            status_code=400, detail="Каналы бывают только у брокера"
         )
     return node
 
@@ -207,7 +207,7 @@ def update_channel(
     channel = _scoped_channel(db, node, channel_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    check_cas(channel.version, base_version, "Канал изменён в другой сессии")
+    check_cas(channel.version, base_version, "Канал только что изменили в другом окне")
     if data:
         new_name = data.get("name", channel.name)
         new_group = data.get("group_name", channel.group_name)

@@ -143,7 +143,7 @@ def update_site(
     site = _site_or_404(db, project, site_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    check_cas(site.version, base_version, "Площадка изменена в другой сессии")
+    check_cas(site.version, base_version, "Площадку только что изменили в другом окне")
     # Имя и вид в БД обязательны: null в них — «не прислано», а не «очистить».
     for required in ("name", "kind"):
         if data.get(required, "") is None:

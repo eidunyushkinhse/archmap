@@ -116,7 +116,7 @@ def add_owner(db: Session, project_id: uuid.UUID, user_id: uuid.UUID) -> None:
 
 VIEWER_EDITOR_DETAIL = "«Пользователь» только смотрит: в проекте он может быть лишь читателем"
 VIEWER_OWNER_DETAIL = "Передать проект можно только архитектору"
-ADMIN_ROLE_DETAIL = "Администратор всегда архитектор: сначала снимите права администратора"
+ADMIN_ROLE_DETAIL = "Администратор всегда архитектор, поэтому сначала снимите права администратора"
 
 
 class AccessError(Exception):

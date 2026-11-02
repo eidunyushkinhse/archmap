@@ -23,7 +23,7 @@ _read_view_layout/_ghost_registry); фронт `components/nodePage/SchemaSectio
 ## 1. Контракт бэка (GET /nodes/{id}/context-graph)
 
 - **X1.** Эндпоинт доступен ОБЕИМ ролям; узел чужого проекта или
-  несуществующий → 404 «Узел не найден». Форма ответа — **GraphResponse**
+  несуществующий → 404 «Объект не найден». Форма ответа — **GraphResponse**
   (та же, что у графа уровня): nodes, edges, endpoints, layout,
   version/graph_rev. [тест: backend/tests/test_context_graph.py]
 - **X2.** Сосед = внешний СЫРОЙ конец связи, у которой ровно один конец лежит

@@ -133,7 +133,7 @@ describe("окно схемы логики: контракты, пережива
     vi.mocked(nodeDocsApi.list)
       .mockResolvedValueOnce([doc("d2", { content: "graph TD\n  старое" })])
       .mockResolvedValueOnce([doc("d2", { content: "graph TD\n  свежее", version: 5 })]);
-    vi.mocked(nodeDocsApi.update).mockRejectedValue(new ApiError(409, "Схема изменена в другой сессии"));
+    vi.mocked(nodeDocsApi.update).mockRejectedValue(new ApiError(409, "Схему только что изменили в другом окне"));
     const onDocEvent = vi.fn();
     render(<DocOverlay {...base} isArchitect initialDocId="d2" onDocEvent={onDocEvent} />);
 
@@ -141,7 +141,7 @@ describe("окно схемы логики: контракты, пережива
     setCode("graph TD\n  моё");
     await save();
 
-    expect(await screen.findByText("Схема изменена в другой сессии")).toBeInTheDocument();
+    expect(await screen.findByText("Схему только что изменили в другом окне")).toBeInTheDocument();
     await waitFor(() => expect(nodeDocsApi.list).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByTestId("mmd")).toHaveTextContent("свежее"));
     expect(onDocEvent).not.toHaveBeenCalled();

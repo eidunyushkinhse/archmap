@@ -192,7 +192,7 @@ def create_doc(
 ) -> NodeDoc:
     node = node_or_404(db, node_id, project)
     if _name_taken(db, node.id, payload.name, None):
-        raise HTTPException(status_code=409, detail="Схема с таким именем уже есть у узла")
+        raise HTTPException(status_code=409, detail="У объекта уже есть схема с таким именем")
     doc = NodeDoc(
         node_id=node.id,
         name=payload.name,
@@ -220,11 +220,11 @@ def update_doc(
     data = payload.model_dump(exclude_unset=True)
     # CAS: правка от устаревшей версии не затирает чужой текст (base_version — не поле)
     base_version = data.pop("base_version", None)
-    check_cas(doc.version, base_version, "Схема изменена в другой сессии")
+    check_cas(doc.version, base_version, "Схему только что изменили в другом окне")
     if data:
         new_name = data.get("name")
         if new_name is not None and _name_taken(db, node.id, new_name, doc.id):
-            raise HTTPException(status_code=409, detail="Схема с таким именем уже есть у узла")
+            raise HTTPException(status_code=409, detail="У объекта уже есть схема с таким именем")
         for field, value in data.items():
             setattr(doc, field, value)
         doc.version += 1

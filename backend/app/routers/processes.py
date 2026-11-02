@@ -127,7 +127,7 @@ def create_process(
 ) -> ProcessDetail:
     all_nodes = load_nodes(db, project.id)
     if payload.scope_node_id is not None and payload.scope_node_id not in all_nodes:
-        raise HTTPException(status_code=404, detail="Узел области не найден")
+        raise HTTPException(status_code=404, detail="Объект области процесса не найден")
     proc = BusinessProcess(
         name=payload.name, scope_node_id=payload.scope_node_id, project_id=project.id
     )
@@ -206,7 +206,7 @@ def update_process(
     all_nodes = load_nodes(db, project.id)
     data = payload.model_dump(exclude_unset=True)
     if data.get("scope_node_id") is not None and data["scope_node_id"] not in all_nodes:
-        raise HTTPException(status_code=404, detail="Узел области не найден")
+        raise HTTPException(status_code=404, detail="Объект области процесса не найден")
     for field, value in data.items():
         setattr(proc, field, value)
     commit_change(db, project, user.id, process=True)
@@ -270,11 +270,11 @@ def add_participant(
     all_nodes = load_nodes(db, project.id)
     node = all_nodes.get(payload.node_id)
     if node is None:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+        raise HTTPException(status_code=404, detail="Объект не найден")
     if payload.node_id not in scope_node_ids(all_nodes, proc.scope_node_id):
-        raise HTTPException(status_code=422, detail="Узел вне области процесса")
+        raise HTTPException(status_code=422, detail="Объект вне области процесса")
     if any(p.node_id == payload.node_id for p in proc.participants):
-        raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
+        raise HTTPException(status_code=409, detail="Объект уже участвует в процессе")
     # Имя кладём запасом: узел могут удалить, и тогда участник останется без него.
     part = ProcessParticipant(
         process_id=proc.id, node_id=payload.node_id, name=node.name, order=payload.order
@@ -336,17 +336,17 @@ def bind_participant(
     if part.node_id is not None:
         raise HTTPException(
             status_code=409,
-            detail="Участник уже привязан к узлу: сообщения опираются на каналы именно "
-            "этого узла, подменять его нельзя",
+            detail="Участник уже привязан к объекту. Заменить объект нельзя, потому что "
+            "сообщения участника идут по связям этого объекта",
         )
     all_nodes = load_nodes(db, project.id)
     node = all_nodes.get(payload.node_id)
     if node is None:
-        raise HTTPException(status_code=404, detail="Узел не найден")
+        raise HTTPException(status_code=404, detail="Объект не найден")
     if payload.node_id not in scope_node_ids(all_nodes, proc.scope_node_id):
-        raise HTTPException(status_code=422, detail="Узел вне области процесса")
+        raise HTTPException(status_code=422, detail="Объект вне области процесса")
     if any(p.node_id == payload.node_id for p in proc.participants):
-        raise HTTPException(status_code=409, detail="Узел уже участвует в процессе")
+        raise HTTPException(status_code=409, detail="Объект уже участвует в процессе")
     part.node_id = node.id
     part.name = node.name  # имя-запас обновляем: теперь оно про этот узел
     db.flush()  # подхват смотрит на уже привязанного участника
@@ -572,7 +572,7 @@ def update_message(
     # CAS (Д9): правка от устаревшей версии не затирает чужую. None — компенсация
     # undo без проверки (паттерн update_node / update_doc).
     base_version = data.pop("base_version", None)
-    check_cas(msg.version, base_version, "Шаг изменён в другой сессии")
+    check_cas(msg.version, base_version, "Шаг только что изменили в другом окне")
     # Поля применяются ПО БЕЛОМУ СПИСКУ, а не циклом setattr по payload. Причина не в
     # аккуратности: сюда приезжает ССЫЛОЧНОЕ поле (привязка шага к схеме логики),
     # а слепое присваивание приняло бы ссылку на строку ЧУЖОГО проекта — межпроектная

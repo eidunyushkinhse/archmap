@@ -61,15 +61,15 @@ describe("planPersistFailure", () => {
 // ApiError: фронт различает статусы (раньше коды терялись в new Error(detail)).
 describe("ApiError / isConflict", () => {
   it("isConflict — только ApiError со статусом 409", () => {
-    expect(isConflict(new ApiError(409, "Вид изменён в другой сессии"))).toBe(true);
+    expect(isConflict(new ApiError(409, "Расположение объектов только что изменили в другом окне"))).toBe(true);
     expect(isConflict(new ApiError(500, "boom"))).toBe(false);
     expect(isConflict(new Error("409"))).toBe(false);
     expect(isConflict(undefined)).toBe(false);
   });
 
   it("сохраняет message (detail бэка) и статус", () => {
-    const e = new ApiError(409, "Узел изменён в другой сессии");
-    expect(e.message).toBe("Узел изменён в другой сессии");
+    const e = new ApiError(409, "Объект только что изменили в другом окне");
+    expect(e.message).toBe("Объект только что изменили в другом окне");
     expect(e.status).toBe(409);
     expect(e).toBeInstanceOf(Error);
   });

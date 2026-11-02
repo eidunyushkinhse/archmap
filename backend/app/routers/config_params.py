@@ -163,7 +163,7 @@ def update_param(
     param = _scoped_param(db, node, param_id)
     data = payload.model_dump(exclude_unset=True)
     base_version = data.pop("base_version", None)
-    check_cas(param.version, base_version, "Параметр изменён в другой сессии")
+    check_cas(param.version, base_version, "Параметр только что изменили в другом окне")
     if data:
         new_name = data.get("name", param.name)
         if _name_taken(db, node.id, new_name, param.id):
