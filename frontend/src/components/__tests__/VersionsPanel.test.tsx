@@ -320,7 +320,7 @@ describe("VersionsPanel: фиксация", () => {
   async function openFix() {
     renderPanel();
     await userEvent.click(await screen.findByRole("button", { name: "Зафиксировать версию" }));
-    return screen.getByLabelText("Комментарий — номер версии, релиза или задачи");
+    return screen.getByLabelText("Комментарий: номер версии, релиза или задачи");
   }
 
   it("окно: строка «объект · изменения с vN: …», пустой комментарий не отправляется", async () => {
@@ -351,7 +351,7 @@ describe("VersionsPanel: фиксация", () => {
 
     expect(versionsApi.create).toHaveBeenCalledWith("n1", "orders 2.4 · ORD-430");
     expect(await screen.findByText("Изменений с v4 нет")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Комментарий — номер версии, релиза или задачи")).toBeNull();
+    expect(screen.queryByLabelText("Комментарий: номер версии, релиза или задачи")).toBeNull();
     expect(versionsApi.list).toHaveBeenCalledTimes(2);
   });
 

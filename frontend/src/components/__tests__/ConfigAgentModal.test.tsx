@@ -52,7 +52,7 @@ describe("ConfigAgentModal", () => {
   it("заголовок и подзаголовок своего окна", () => {
     open();
     expect(screen.getByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
-    expect(screen.getByText(/в репозитории сервиса/)).toBeInTheDocument();
+    expect(screen.getByText(/в репозитории\. Агент/)).toBeInTheDocument();
   });
 
   it("превью: строка параметра, по умолчанию НЕ перезаписывает", async () => {
@@ -72,7 +72,7 @@ describe("ConfigAgentModal", () => {
     );
     open();
     await превью();
-    await waitFor(() => expect(screen.getByText(/Пакет не применить/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Файлы не применить/)).toBeInTheDocument());
     expect(screen.getByText("Применить")).toBeDisabled();
   });
 

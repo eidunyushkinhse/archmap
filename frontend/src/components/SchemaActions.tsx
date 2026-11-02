@@ -93,7 +93,7 @@ export default function SchemaActions({
       a.click();
       URL.revokeObjectURL(url);
     } catch {
-      showToast("Не удалось собрать архив — попробуйте ещё раз.");
+      showToast("Не удалось собрать архив. Попробуйте ещё раз.");
     } finally {
       setArchiveBusy(false);
     }

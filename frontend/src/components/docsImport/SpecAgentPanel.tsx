@@ -140,7 +140,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
         )}
         {!checking && report !== null && report.errors.length > 0 && (
           <div style={{ fontSize: 12.5, color: "#dc2626" }}>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Пакет не применить:</div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Файлы не применить:</div>
             {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
             {report.errors.length > 6 && <div>и ещё {report.errors.length - 6}</div>}
           </div>
@@ -156,7 +156,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
               bad: !s.valid_yaml
                 ? "YAML не читается"
                 : s.origin === "synthesized"
-                  ? "синтезирована из кода — проверьте глазами"
+                  ? "синтезирована из кода, проверьте глазами"
                   : !s.looks_openapi ? "не похожа на OpenAPI" : null,
               ok: s.valid_yaml && s.looks_openapi && s.origin !== "synthesized",
             }))}

@@ -40,7 +40,7 @@ const GROUPS: { action: ReconAction; title: string; note?: string }[] = [
   { action: "unchanged", title: "Неописанные схемы уже есть" },
   {
     action: "described",
-    title: "Уже описаны — не тронем",
+    title: "Уже описаны, их не тронем",
     note: "Повторный сбор списка не затирает работу: описанная схема остаётся как есть.",
   },
   {

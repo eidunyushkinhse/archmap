@@ -102,7 +102,7 @@ export default function DocViewer({ title, source, tag, body, diagram, onPick, o
               </div>
               {error !== null && (
                 <div className="doc-pvcenter">
-                  <div className="doc-mmderr">В диаграмме ошибка синтаксиса: {error}</div>
+                  <div className="doc-mmderr">В схеме ошибка синтаксиса: {error}</div>
                 </div>
               )}
               <div className="doc-zoom">

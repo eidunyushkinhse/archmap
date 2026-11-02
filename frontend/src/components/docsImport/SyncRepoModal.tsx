@@ -178,7 +178,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
           isDemoLimit(e)
             ? `Не сохранилось. ${e.message}`
             : e instanceof ApiError && e.status === 409
-            ? "Схему изменили в другом окне или другим пользователем — список ниже устарел. Закройте это окно и откройте снова."
+            ? "Схему изменили в другом окне или другим пользователем, и список ниже устарел. Закройте это окно и откройте снова."
             : "Не удалось сохранить изменения. Проверьте соединение и повторите.",
         );
       })
@@ -360,7 +360,7 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
                         {s.rows.map((r) => (
                           <li key={r.path}>
                             {r.path}
-                            {r.note && <span style={{ color: "#94a3b8" }}> — {r.note}</span>}
+                            {r.note && <span style={{ color: "#94a3b8" }}>: {r.note}</span>}
                           </li>
                         ))}
                       </ul>
@@ -383,11 +383,11 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       </div>
 
       <div style={footRow}>
-        <button type="button" style={secondaryBtn} onClick={onClose}>
-          Отмена
-        </button>
         <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
           {applying ? "Применяем" : "Применить"}
+        </button>
+        <button type="button" style={secondaryBtn} onClick={onClose}>
+          Отмена
         </button>
       </div>
     </Modal>

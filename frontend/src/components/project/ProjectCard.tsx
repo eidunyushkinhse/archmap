@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import type { Project } from "../../types";
 import SchemaPreview from "./SchemaPreview";
 import { useDismiss } from "../../ui/useDismiss";
+import { plural } from "../../ui/plural";
 import "./projectCard.css";
 
 /**
@@ -59,7 +60,9 @@ export default function ProjectCard({
           <span style={{ color: "#94a3b8", whiteSpace: "nowrap" }}>{fmtDate(project.updated_at)}</span>
         </div>
         <span style={{ color: "#94a3b8", whiteSpace: "nowrap" }}>
-          {project.object_count} об. · {project.edge_count} св.
+          {project.object_count} {plural(project.object_count, ["объект", "объекта", "объектов"])}
+          {" · "}
+          {project.edge_count} {plural(project.edge_count, ["связь", "связи", "связей"])}
         </span>
       </div>
     </div>

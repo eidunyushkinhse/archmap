@@ -100,7 +100,7 @@ export default function MermaidRenderer({ chart, debounceMs = 0, onStatus }: Pro
   if (blocked) {
     return (
       <div className="doc-pvnote" role="status">
-        Схема большая — отрисовка может занять время.{" "}
+        Схема большая, поэтому отрисовка может занять время.{" "}
         <button type="button" className="btn-sm-primary" onClick={() => setForced(true)}>
           Показать всё равно
         </button>

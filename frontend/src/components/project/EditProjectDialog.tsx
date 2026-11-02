@@ -53,7 +53,7 @@ export default function EditProjectDialog({ project, onClose, onSaved }: Props) 
         style={{ ...input, minHeight: 60, resize: "vertical" }}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Коротко о схеме"
+        placeholder="Коротко о проекте"
       />
 
       {error && <p style={errText}>{error}</p>}

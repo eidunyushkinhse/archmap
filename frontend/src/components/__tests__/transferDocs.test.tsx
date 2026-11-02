@@ -204,7 +204,7 @@ describe("окно «Собрать с компонентов»", () => {
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
     expect(screen.getByText("worker · 1 параметр, будет отброшен")).toBeInTheDocument();
     expect(screen.getByText(
-      "Параметр «RETRY_TIMEOUT» есть у контейнера — остаётся его описание, у компонента «worker» параметр будет отброшен",
+      "Параметр «RETRY_TIMEOUT» есть у контейнера, поэтому остаётся его описание, а у компонента «worker» параметр будет отброшен",
     )).toBeInTheDocument();
     // По параметру с записью контейнера вопроса нет.
     expect(screen.queryByText(/Параметр «RETRY_TIMEOUT» описан/)).not.toBeInTheDocument();
@@ -265,7 +265,7 @@ describe("окно «Собрать с компонентов»", () => {
       specs: [{ node_id: "orders", name: "orders" }, ...preview.specs], container_has_spec: true,
     });
     expect(screen.getByText(
-      "У контейнера есть своя спецификация — спецификации компонентов «api» и «outbox» будут отброшены",
+      "У контейнера есть своя спецификация, поэтому спецификации компонентов «api» и «outbox» будут отброшены",
     )).toBeInTheDocument();
     expect(screen.queryByText(SPEC_Q)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));

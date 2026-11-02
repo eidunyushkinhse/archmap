@@ -63,7 +63,7 @@ export default function ProcessToolbar({
                 <button
                   key={k}
                   className={"bp-palitem" + (fragSelect === k ? " is-active" : "")}
-                  title={`Фрагмент ${k} — выделить диапазон сообщений`}
+                  title={`Фрагмент ${k}: выделите диапазон сообщений`}
                   onClick={() => onFragSelect(k)}
                   disabled={!canFragment}
                 >

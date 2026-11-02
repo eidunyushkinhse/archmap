@@ -119,7 +119,7 @@ export function participantEdits(
       const res = await processesApi.reattach(id);
       setBindNote(
         res.attached === 0
-          ? "Связей для шагов не нашлось — либо связи нет в схеме, либо подходящих несколько"
+          ? "Связей для шагов не нашлось: либо связи нет в схеме, либо подходящих несколько"
           : res.dangling === 0
             ? `Восстановлено связей: ${res.attached}`
             : `Восстановлено связей: ${res.attached}, осталось без связи: ${res.dangling}`,

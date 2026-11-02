@@ -73,7 +73,7 @@ function rejectMessage(
   accept: string[],
 ): string | null {
   const parts: string[] = [];
-  if (folders.length) parts.push(`Папку перетащить нельзя (${names(folders)}) — перетащите файлы из неё.`);
+  if (folders.length) parts.push(`Папку перетащить нельзя (${names(folders)}). Перетащите файлы из неё.`);
   if (badExt.length) parts.push(`Не тот формат: ${names(badExt)} (подойдёт ${accept.join(", ")}).`);
   for (const limit of new Set(tooBig.map((f) => f.limit))) {
     const these = tooBig.filter((f) => f.limit === limit).map((f) => f.name);

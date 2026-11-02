@@ -8,7 +8,6 @@
 // пересоздаёт компонент — состояние начинается с нуля).
 import { useState } from "react";
 import type { ComponentOut } from "../../../types";
-import { plural } from "../../../ui/plural";
 import Option, { PathLabel } from "./Option";
 import { nestedTag } from "./questionText";
 import { noAutofill } from "../../../ui/noAutofill";
@@ -54,8 +53,8 @@ export default function ObjectList({ items, base = null, value = null, onPick }:
           {...noAutofill("object-list-1")}
           className="rq-filter"
           value={filter}
-          aria-label="Фильтр по имени"
-          placeholder={`Фильтр по имени — ${items.length} ${plural(items.length, ["объект", "объекта", "объектов"])}`}
+          aria-label="Поиск по имени"
+          placeholder="Поиск по имени"
           onChange={(e) => setFilter(e.target.value)}
         />
       )}

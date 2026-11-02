@@ -25,7 +25,7 @@ export function ArchiveDialog({ project, onClose, onDone }: BaseProps) {
   const { busy, error, run } = useBusyAction("Ошибка");
   return (
     <Modal onClose={onClose} boxStyle={{ width: 440, padding: 24 }}>
-      <DialogTitle lead="Схема сохранится — проект можно вернуть из архива в любой момент.">
+      <DialogTitle lead="Схема сохранится, и проект можно вернуть из архива в любой момент.">
         Отправить «{project.name}» в архив?
       </DialogTitle>
       {error && <p style={errText}>{error}</p>}

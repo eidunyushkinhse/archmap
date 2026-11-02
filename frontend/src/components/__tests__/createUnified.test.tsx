@@ -157,7 +157,7 @@ describe("единый ввоз · создание проекта", () => {
 
     await положить(new File(["zip"], "archmap.zip", { type: "application/zip" }));
 
-    expect(await screen.findByText(/Имя и описание — из архива/, {}, { timeout: 3000 }))
+    expect(await screen.findByText(/Имя и описание из архива/, {}, { timeout: 3000 }))
       .toHaveTextContent("«Ярмарка v2»");
     expect(screen.getByText("демо-проект")).toBeInTheDocument();
     // П3: полей нет вовсе, и кнопка активна без единого символа имени.

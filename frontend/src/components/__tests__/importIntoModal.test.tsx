@@ -393,9 +393,9 @@ describe("основание склейки и источника новых (Ф
     await открыть(zip("b.zip"));
 
     expect(await screen.findByText(/Найдено в проекте: 5 объектов/)).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / orders — по коду")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка / Каталог-БД — по имени зависимости")).toBeInTheDocument();
-    expect(screen.getByText("Ярмарка — по имени на верхнем уровне")).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / orders · по коду")).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка / Каталог-БД · по имени зависимости")).toBeInTheDocument();
+    expect(screen.getByText("Ярмарка · по имени на верхнем уровне")).toBeInTheDocument();
     // Перечень обрезан капом — остаток назван счётчиком, а не съеден молча.
     expect(screen.getByText("и ещё 2")).toBeInTheDocument();
   });

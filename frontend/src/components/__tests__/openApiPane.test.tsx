@@ -128,7 +128,7 @@ describe("OpenApiPane · «Через ИИ-агента»", () => {
     const onApplied = vi.fn();
     render(<OpenApiPane {...props} openapi="" isArchitect initialStage="agent" onApplied={onApplied} onCommitOpenapi={vi.fn()} />);
 
-    expect(screen.getByText(/Запустите агента с этим промптом в репозитории сервиса «Каталог»/)).toBeInTheDocument();
+    expect(screen.getByText(/Запустите агента с этим промптом в репозитории «Каталог»/)).toBeInTheDocument();
     // Спеки ещё нет — возвращаться не к чему.
     expect(screen.queryByRole("button", { name: "← К спецификации" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Скопировать промпт" }));

@@ -224,7 +224,7 @@ function TableCard({
             // keyspace в Cassandra), а «схема» в ArchMap занята диаграммой. Уровня
             // может не быть вовсе (Redis, Elasticsearch) — тогда поле просто пустое.
             placeholder="схема/раздел"
-            title="Раздел базы: schema в PostgreSQL, database в MySQL/MongoDB/ClickHouse, keyspace в Cassandra. Пусто — у этой базы такого уровня нет"
+            title="Раздел базы: schema в PostgreSQL, database в MySQL/MongoDB/ClickHouse, keyspace в Cassandra. Пусто, если у базы такого уровня нет"
             defaultValue={table.schema_name}
             key={`s:${table.id}:${table.version}`}
             onBlur={(e) => { if (e.target.value !== table.schema_name) patch({ schema_name: e.target.value }); }}

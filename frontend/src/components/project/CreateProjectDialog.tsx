@@ -122,7 +122,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         (res) => { if (alive) setPreview({ forDocs, forArchives, res }); },
         (e: unknown) => {
           if (!alive) return;
-          const msg = e instanceof Error ? e.message : "Не удалось проверить входы";
+          const msg = e instanceof Error ? e.message : "Не удалось проверить файлы";
           setPreview({ forDocs, forArchives, res: failedPreview(msg, inputFiles.length) });
         },
       );
@@ -264,7 +264,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         style={{ ...input, minHeight: 52, resize: "none", marginBottom: 0 }}
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        placeholder="Коротко о схеме"
+        placeholder="Коротко о проекте"
       />
     </div>
   );
@@ -273,7 +273,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
   const manifestNote = (
     <div style={manifestBox}>
       <div style={{ fontSize: 13, color: "#334155" }}>
-        Имя и описание — из архива: «{fresh?.manifest_name ?? "без имени"}»
+        Имя и описание из архива: «{fresh?.manifest_name ?? "без имени"}»
       </div>
       {fresh?.manifest_description && (
         <div style={{ fontSize: 12.5, color: "#94a3b8", marginTop: 3 }}>
@@ -408,7 +408,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     </div>
                   </div>
                 </div>
-                <p style={blurbStyle}>Точная копия схемы «{source.name}» со всеми узлами и связями.</p>
+                <p style={blurbStyle}>Точная копия схемы «{source.name}» со всеми объектами и связями.</p>
               </>
             )}
 

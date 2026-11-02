@@ -82,7 +82,7 @@ export function DocAgentSteps({ target, service, copy }: {
           />
         </div>
       </li>
-      <li><div>Запустите агента с этим промптом в репозитории сервиса «{service}».</div></li>
+      <li><div>Запустите агента с этим промптом в репозитории «{service}».</div></li>
       <li><div>Перетащите файл, который вернёт агент, в поле справа.</div></li>
     </ol>
   );

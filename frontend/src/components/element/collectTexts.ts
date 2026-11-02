@@ -86,7 +86,7 @@ export function collectFacts(p: CollectFactsPreview, containerId: string): strin
     if (!c.container_keeps) continue;
     const others = c.candidates.filter((x) => x.node_id !== containerId).map((x) => x.node_name);
     out.push(
-      `Параметр «${c.name}» есть у контейнера — остаётся его описание, `
+      `Параметр «${c.name}» есть у контейнера, поэтому остаётся его описание, а `
       + (others.length === 1 ? `у компонента «${others[0]}»` : `у компонентов ${quoted(others)}`)
       + " параметр будет отброшен",
     );
@@ -94,8 +94,8 @@ export function collectFacts(p: CollectFactsPreview, containerId: string): strin
   const holders = specHolders(p, containerId).map((s) => s.name);
   if (p.container_has_spec && holders.length > 0) {
     out.push(holders.length === 1
-      ? `У контейнера есть своя спецификация — спецификация компонента «${holders[0]}» будет отброшена`
-      : `У контейнера есть своя спецификация — спецификации компонентов ${quoted(holders)} будут отброшены`);
+      ? `У контейнера есть своя спецификация, поэтому спецификация компонента «${holders[0]}» будет отброшена`
+      : `У контейнера есть своя спецификация, поэтому спецификации компонентов ${quoted(holders)} будут отброшены`);
   }
   const single = p.specs.find((s) => s.node_id === p.single_spec_from);
   if (single !== undefined) out.push(`Спецификация компонента «${single.name}» переедет контейнеру`);

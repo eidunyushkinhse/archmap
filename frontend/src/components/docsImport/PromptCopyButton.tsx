@@ -75,7 +75,7 @@ export default function PromptCopyButton({ label, copiedLabel, kind, buttonStyle
       {manual !== null && (
         <>
           <p style={manualHint} role="status">
-            Браузер не дал скопировать автоматически — выделите текст ниже и скопируйте
+            Браузер не дал скопировать автоматически. Выделите текст ниже и скопируйте
             (Ctrl+C).
           </p>
           <textarea

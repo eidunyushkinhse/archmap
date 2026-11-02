@@ -96,7 +96,7 @@ describe("ReconAgentModal", () => {
     await waitFor(() => expect(screen.getByText(/Операций и воркеров в списке: 4 \(новых 2\)/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*2$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Неописанные схемы уже есть\s*1$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Уже описаны — не тронем\s*1$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Уже описаны, их не тронем\s*1$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Есть в документации, но не найдено в коде\s*1$/ })).toBeInTheDocument();
     // Объект, которому уедет перечень, назван: адрес мог прийти из самого файла.
     expect(screen.getByText(/объект «Zulip \/ backend»/)).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe("ReconAgentModal", () => {
     await превью(report({ items: [item({ name: "POST /messages" })] }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*1$/ })).toBeInTheDocument());
     expect(screen.queryByText("Неописанные схемы уже есть")).toBeNull();
-    expect(screen.queryByText("Уже описаны — не тронем")).toBeNull();
+    expect(screen.queryByText("Уже описаны, их не тронем")).toBeNull();
     expect(screen.queryByText("Есть в документации, но не найдено в коде")).toBeNull();
   });
 

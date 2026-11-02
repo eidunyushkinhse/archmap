@@ -269,7 +269,7 @@ export default function MessageComposer({
       ) : (
         <>
           <div style={{ fontSize: 11.5, color: BPT.micro, padding: "4px 14px 6px" }}>
-            Сообщение — из задокументированных связей между ними:
+            Сообщение можно взять из задокументированных связей между ними:
           </div>
           <div style={{ padding: "0 14px", display: "grid", gap: 9, maxHeight: 200, overflow: "auto" }}>
             {channels.map((ch) => (

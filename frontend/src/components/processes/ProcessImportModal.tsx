@@ -183,7 +183,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
                         setMapping((m) => ({ ...m, [p.alias]: e.target.value }))
                       }
                     >
-                      <option value="">— без объекта схемы —</option>
+                      <option value="">Без объекта схемы</option>
                       {p.candidates.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}{c.parent_name ? ` (в ${c.parent_name})` : ""}

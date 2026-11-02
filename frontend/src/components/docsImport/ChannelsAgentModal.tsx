@@ -51,7 +51,7 @@ const CHANNELS: FactAgentKind<ChannelsImportReport> = {
     key: `${c.node_path}#${c.group_name}.${c.name}`,
     text: `«${c.node_path}» · ${c.group_name ? `${c.group_name}.` : ""}${c.name} · полей ${c.fields}`,
     badge: ACTION_LABEL[c.action] ?? c.action,
-    bad: c.fields === 0 ? "без полей — проверьте файл" : null,
+    bad: c.fields === 0 ? "без полей, проверьте файл" : null,
     ok: c.fields > 0,
   })),
   applied: (r) => `каналов ${r.channels_written}, полей ${r.fields_written}`,

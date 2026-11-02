@@ -284,7 +284,7 @@ describe("двухшаговые вопросы (§4.6)", () => {
     expect(screen.getAllByRole("combobox")).toHaveLength(2);
     await userEvent.type(screen.getAllByRole("combobox")[0]!, "server");
     await userEvent.click(screen.getByRole("option", { name: /server/ }));
-    await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "SQL");
+    await userEvent.type(screen.getByLabelText("Технология связи от «Плагин»"), "SQL");
     await userEvent.click(screen.getByRole("button", { name: "Провести связь" }));
     expect(screen.getByText("изменить")).toBeInTheDocument();
     expect(screen.getByText(/Плагин → server/)).toBeInTheDocument();

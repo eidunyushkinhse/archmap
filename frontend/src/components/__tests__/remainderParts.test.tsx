@@ -62,8 +62,8 @@ describe("ObjectList (§5.3)", () => {
   it("фильтр сужает список, а пустой ответ говорит словами", async () => {
     render(<ObjectList items={[...дерево(6), { path: "Zabbix / Поллер", has_children: false }]} onPick={vi.fn()} />);
     await userEvent.click(screen.getByRole("button", { name: /Показать остальные/ }));
-    const поле = screen.getByLabelText("Фильтр по имени");
-    expect(поле).toHaveAttribute("placeholder", "Фильтр по имени — 7 объектов");
+    const поле = screen.getByLabelText("Поиск по имени");
+    expect(поле).toHaveAttribute("placeholder", "Поиск по имени");
     await userEvent.type(поле, "поллер");
     expect(screen.getByText("Поллер")).toBeInTheDocument();
     expect(screen.queryByText("Компонент 1")).toBeNull();
@@ -141,7 +141,7 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     // Фокус раскрывает список целиком; отдельной панели с поиском нет.
     expect(screen.getByRole("listbox")).toBeInTheDocument();
     expect(поле()).toHaveAttribute("aria-expanded", "true");
-    expect(screen.queryByLabelText("Фильтр по имени")).toBeNull();
+    expect(screen.queryByLabelText("Поиск по имени")).toBeNull();
     const строки = () => screen.getAllByRole("option").map((o) => o.textContent);
     expect(строки().some((t) => t?.includes("Компонент 1"))).toBe(true);
     // Левый объект строки в соседи не годится.
@@ -208,8 +208,8 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     render(<EdgeFormStand onAdd={onAdd} onBack={vi.fn()} />);
     await userEvent.click(поле(0));
     await userEvent.click(screen.getByRole("option", { name: /Компонент 1/ }));
-    await userEvent.type(screen.getByLabelText("Описание связи — Плагин"), "метрики");
-    await userEvent.type(screen.getByLabelText("Технология связи — Плагин"), "HTTP");
+    await userEvent.type(screen.getByLabelText("Описание связи от «Плагин»"), "метрики");
+    await userEvent.type(screen.getByLabelText("Технология связи от «Плагин»"), "HTTP");
     await userEvent.click(поле(1));
     await userEvent.click(screen.getByRole("option", { name: /Компонент 2/ }));
     const кнопка = screen.getByRole("button", { name: /^Провести связ/ });
@@ -245,7 +245,7 @@ describe("NewEdgeForm (§5.4, П4 v2)", () => {
     ]);
     render(<EdgeFormStand onAdd={vi.fn()} onBack={vi.fn()} start={из} />);
     expect(screen.getAllByRole("combobox")[0]!).toHaveValue("Zabbix / Компонент 3");
-    expect(screen.getByLabelText("Описание связи — Плагин")).toHaveValue("чтение");
+    expect(screen.getByLabelText("Описание связи от «Плагин»")).toHaveValue("чтение");
   });
 });
 

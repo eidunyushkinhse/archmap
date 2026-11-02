@@ -605,7 +605,7 @@ describe("NodePage: правила контейнеров", () => {
     expect(screen.getByText("api · 2 параметра, спецификация")).toBeInTheDocument();
     // Своя спецификация контейнера в приоритете — фактом, без вопроса.
     expect(screen.getByText(
-      "У контейнера есть своя спецификация — спецификация компонента «api» будет отброшена",
+      "У контейнера есть своя спецификация, поэтому спецификация компонента «api» будет отброшена",
     )).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Собрать" }));
     await waitFor(() => expect(nodesApi.collectFacts).toHaveBeenCalledWith("c1", { param_choices: [] }));

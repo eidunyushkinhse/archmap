@@ -45,7 +45,7 @@ export default function FixVersionDialog({ nodeId, lead, onClose, onDone }: Prop
   return (
     <Modal onClose={onClose} onSubmit={submit} boxStyle={{ width: 480, padding: 24 }}>
       <DialogTitle lead={lead}>Зафиксировать версию</DialogTitle>
-      <label style={labelStyle} htmlFor="version-comment">Комментарий — номер версии, релиза или задачи</label>
+      <label style={labelStyle} htmlFor="version-comment">Комментарий: номер версии, релиза или задачи</label>
       <input
         {...noAutofill("version-comment")}
         id="version-comment"

@@ -224,8 +224,8 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
     const text =
       "ArchMap проверил файлы archmap-docs и нашёл замечания. " +
       "Исправь пакет и сообщи, какие файлы изменились. Битую пометку чини " +
-      "ДОСЛОВНЫМ именем: бери его из подсказки «похоже на …» в замечании, а нет " +
-      "подсказки — найди настоящее имя в структуре проекта или DDL. Уточнение " +
+      "ДОСЛОВНЫМ именем: бери его из подсказки «похоже на …» в замечании, а если " +
+      "подсказки нет, найди настоящее имя в структуре проекта или DDL. Уточнение " +
       "«Объект / имя» добавляй ТОЛЬКО когда одинаковое имя есть у разных объектов. " +
       "НЕ удаляй пометки: удаление прячет факт, а не исправляет его:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
@@ -354,7 +354,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
         )}
         {!checking && report !== null && report.errors.length > 0 && (
           <div style={{ fontSize: 12.5, color: "#dc2626" }}>
-            <div style={{ fontWeight: 600, marginBottom: 3 }}>Пакет не применить:</div>
+            <div style={{ fontWeight: 600, marginBottom: 3 }}>Файлы не применить:</div>
             {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
             {report.errors.length > 6 && <div>и ещё {report.errors.length - 6}</div>}
           </div>
@@ -383,14 +383,14 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
                       style={nameInput}
                       value={nameOf(l.source, l.name)}
                       onChange={(e) => edit(l.source, { name: e.target.value || undefined })}
-                      title="Имя схемы — под ним она будет видна в ArchMap"
+                      title="Имя, под которым схема будет видна в ArchMap"
                       aria-label={`Имя схемы из файла ${l.source}`}
                     />
                     <select
                       style={kindSelect}
                       value={kindOf(l.source, l.kind)}
                       onChange={(e) => edit(l.source, { kind: e.target.value as NodeDocKind })}
-                      title="Вид схемы — можно поменять до применения"
+                      title="Вид схемы можно поменять до применения"
                       aria-label={`Вид схемы из файла ${l.source}`}
                     >
                       {DOC_KIND_ORDER.map((k) => <option key={k} value={k}>{DOC_KIND_LABEL[k]}</option>)}

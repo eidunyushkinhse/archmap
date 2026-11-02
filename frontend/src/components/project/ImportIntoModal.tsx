@@ -324,11 +324,11 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           </button>
         ) : (
           <>
-            <button type="button" style={secondaryBtn} onClick={onClose}>
-              Отмена
-            </button>
             <button type="button" style={primaryBtn} onClick={apply} disabled={!canApply}>
               {applying ? "Догружаем" : "Применить"}
+            </button>
+            <button type="button" style={secondaryBtn} onClick={onClose}>
+              Отмена
             </button>
           </>
         )}
@@ -359,7 +359,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
           {plural(preview.nodes_matched, ["объект", "объекта", "объектов"])}
           {найдены.map((m) => (
             <div key={m.path} style={subRow}>
-              {m.path} — {basisLabel(m.basis, m.path)}
+              {m.path} · {basisLabel(m.basis, m.path)}
             </div>
           ))}
           {preview.nodes_matched > найдены.length && (

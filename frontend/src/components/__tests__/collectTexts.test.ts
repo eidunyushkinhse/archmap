@@ -67,16 +67,16 @@ describe("строки окна сбора", () => {
       specs: [{ node_id: "orders", name: "orders" }, { node_id: "api", name: "api" }],
       container_has_spec: true,
     }), "orders")).toEqual([
-      "Параметр «DATABASE_URL» есть у контейнера — остаётся его описание, у компонента «api» параметр будет отброшен",
-      "У контейнера есть своя спецификация — спецификация компонента «api» будет отброшена",
+      "Параметр «DATABASE_URL» есть у контейнера, поэтому остаётся его описание, а у компонента «api» параметр будет отброшен",
+      "У контейнера есть своя спецификация, поэтому спецификация компонента «api» будет отброшена",
     ]);
     expect(collectFacts(preview({
       param_clashes: [keeps(["api", "outbox"])],
       specs: [{ node_id: "orders", name: "orders" }, { node_id: "api", name: "api" }, { node_id: "outbox", name: "outbox" }],
       container_has_spec: true,
     }), "orders")).toEqual([
-      "Параметр «DATABASE_URL» есть у контейнера — остаётся его описание, у компонентов «api» и «outbox» параметр будет отброшен",
-      "У контейнера есть своя спецификация — спецификации компонентов «api» и «outbox» будут отброшены",
+      "Параметр «DATABASE_URL» есть у контейнера, поэтому остаётся его описание, а у компонентов «api» и «outbox» параметр будет отброшен",
+      "У контейнера есть своя спецификация, поэтому спецификации компонентов «api» и «outbox» будут отброшены",
     ]);
     const single = preview({ specs: [{ node_id: "api", name: "api" }], single_spec_from: "api" });
     expect(collectFacts(single, "orders")).toEqual(["Спецификация компонента «api» переедет контейнеру"]);

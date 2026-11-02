@@ -94,7 +94,7 @@ export default function VersionScreen({ nodeId, version, prevNum, base, restore,
               className="vp-link"
               disabled={restore.disabled || restore.busy}
               aria-busy={restore.busy}
-              title={restore.disabled ? "Изменений с этой версии нет — восстанавливать нечего" : undefined}
+              title={restore.disabled ? "Изменений с этой версии нет, восстанавливать нечего" : undefined}
               onClick={restore.onRestore}
             >
               {restore.busy ? "Готовим" : "Восстановить эту версию"}

@@ -306,7 +306,7 @@ describe("FlowchartDocs · «Через ИИ-агента»", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Изменить" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Через ИИ-агента" }));
 
-    expect(screen.getByText(/Запустите агента с этим промптом в репозитории сервиса «Заказы»/)).toBeInTheDocument();
+    expect(screen.getByText(/Запустите агента с этим промптом в репозитории «Заказы»/)).toBeInTheDocument();
     expect(screen.getByText("Перетащите файл, который вернёт агент, в поле справа.")).toBeInTheDocument();
     expect(screen.getByTestId("agent-panel")).toHaveAttribute("data-doc", "Оформление");
 

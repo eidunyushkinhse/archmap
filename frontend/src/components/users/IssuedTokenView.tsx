@@ -98,7 +98,7 @@ export default function IssuedTokenView({ issued, onDone }: Props) {
           {client === "cli" ? <><span style={stub}>{CLI_STUB}</span> {cliWords(cliArgs)}</> : connect[client]}
         </pre>
       </div>
-      {copyError && <p style={note}>Браузер не дал скопировать — выделите текст и скопируйте вручную.</p>}
+      {copyError && <p style={note}>Браузер не дал скопировать. Выделите текст и скопируйте вручную.</p>}
 
       <div style={{ display: "flex", marginTop: 20 }}>
         <button data-autofocus style={primaryBtn} onClick={onDone}>Готово</button>

@@ -81,7 +81,7 @@ describe("useFileDrop", () => {
     act(() => result.current.bind.onDrop(dragEvent([file("archmap-docs", 0, "")])));
 
     expect(onFiles).not.toHaveBeenCalled();
-    expect(result.current.error).toContain("перетащите файлы");
+    expect(result.current.error).toContain("Перетащите файлы");
   });
 
   it("без списка расширений берёт любой файл", () => {

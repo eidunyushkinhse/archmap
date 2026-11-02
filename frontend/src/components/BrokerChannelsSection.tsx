@@ -36,14 +36,14 @@ interface Props {
 // ArchMap намеренно нейтрален (как «раздел» у базы).
 const GROUP_TITLE =
   "Группа каналов: vhost в RabbitMQ, namespace в Pulsar, account в NATS. " +
-  "Пусто — у этого брокера такого уровня нет (Kafka)";
+  "Пусто, если у брокера такого уровня нет (Kafka)";
 const KIND_TITLE =
   "Вид канала: topic в Kafka, queue и exchange в RabbitMQ, stream в Redis, subject в NATS";
 const DELIVERY_TITLE =
-  "Гарантия доставки: at-least-once, at-most-once, exactly-once — от неё зависит, " +
+  "Гарантия доставки: at-least-once, at-most-once, exactly-once. От неё зависит, " +
   "обязана ли обработка быть идемпотентной";
 const RETENTION_TITLE =
-  "Сколько сообщение живёт в канале: «7d», «до ack», «compacted» — отвечает на вопрос " +
+  "Сколько сообщение живёт в канале: «7d», «до ack», «compacted». Отвечает на вопрос " +
   "«что найдётся при переигрывании»";
 const KEY_TITLE =
   "Ключ партиционирования: по нему определяется порядок применения событий одной сущности";

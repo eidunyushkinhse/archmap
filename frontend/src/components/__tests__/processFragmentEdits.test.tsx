@@ -92,7 +92,7 @@ async function open() {
 describe("правки фрагментов процесса", () => {
   it("новый фрагмент: тип с тулбара, диапазон строк → order, условие; откат удаляет созданный", async () => {
     await open();
-    await userEvent.click(screen.getByTitle("Фрагмент opt — выделить диапазон сообщений"));
+    await userEvent.click(screen.getByTitle("Фрагмент opt: выделите диапазон сообщений"));
     await userEvent.click(screen.getByText("select-0-1"));
     await userEvent.type(await screen.findByPlaceholderText("напр. оплата прошла"), "  есть скидка {Enter}");
 

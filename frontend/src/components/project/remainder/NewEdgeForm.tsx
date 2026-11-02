@@ -71,7 +71,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
                 {...noAutofill("new-edge-form-1")}
                 className="rq-inp"
                 value={row.label}
-                aria-label={`Описание связи — ${row.nodePath}`}
+                aria-label={`Описание связи от «${row.nodePath}»`}
                 placeholder="что ходит по связи"
                 onChange={(e) => правка(i, { label: e.target.value })}
               />
@@ -82,7 +82,7 @@ export default function NewEdgeForm({ nodes, draft, onDraft, onAdd, onBack }: Pr
                 {...noAutofill("new-edge-form-2")}
                 className="rq-inp"
                 value={row.tech}
-                aria-label={`Технология связи — ${row.nodePath}`}
+                aria-label={`Технология связи от «${row.nodePath}»`}
                 placeholder="например, HTTP или gRPC"
                 onChange={(e) => правка(i, { tech: e.target.value })}
               />

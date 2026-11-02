@@ -81,7 +81,7 @@ describe("ChannelsAgentModal", () => {
     open();
     await вставить("channels:");
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
-    await waitFor(() => expect(screen.getByText(/Пакет не применить/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Файлы не применить/)).toBeInTheDocument());
     expect(screen.getByText("Применить")).toBeDisabled();
   });
 

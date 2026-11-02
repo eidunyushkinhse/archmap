@@ -50,7 +50,7 @@ const DATA: FactAgentKind<DataImportReport> = {
     key: `${t.node_path}#${t.schema_name}.${t.name}`,
     text: `«${t.node_path}» · ${t.schema_name ? `${t.schema_name}.` : ""}${t.name} · колонок ${t.columns}`,
     badge: ACTION_LABEL[t.action] ?? t.action,
-    bad: t.columns === 0 ? "без колонок — проверьте файл" : null,
+    bad: t.columns === 0 ? "без колонок, проверьте файл" : null,
     ok: t.columns > 0,
   })),
   applied: (r) => `таблиц ${r.tables_written}, колонок ${r.columns_written}`,

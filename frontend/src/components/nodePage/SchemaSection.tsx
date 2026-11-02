@@ -190,7 +190,7 @@ export default function SchemaSection({
     // (наполнить состав / создать связи — правка живёт только там).
     return (
       <div className="np-empty" style={{ textAlign: "center" }}>
-        Внешних связей нет — объект пока не взаимодействует с соседями.
+        Внешних связей нет. Объект пока не взаимодействует с соседями.
         <br />
         <span style={{ fontSize: 12, color: "#b0bec5" }}>Связи создаются в редакторе схемы</span>
         {isArchitect && onNavigateMap && (
