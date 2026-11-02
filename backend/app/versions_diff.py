@@ -455,7 +455,7 @@ def _parent_label(
         return "верхний уровень"
     if parent_id in side.nodes:
         return side.full_path(parent_id)
-    return outside.get(parent_id, "объект вне среза")
+    return outside.get(parent_id, "объект в другой части проекта")
 
 
 def _prop_value(pair: _Pair, side: _Side, node: NodeSnapshot, field: str) -> str:
@@ -882,7 +882,7 @@ def _fk_label(side: _Side, column_id: uuid.UUID | None) -> str:
         return _NONE
     target = side.columns.get(column_id)
     if target is None:
-        return "колонка вне среза"
+        return "колонка другой таблицы"
     table = side.tables.get(target.table_id)
     return f"{_table_label(table)}.{target.name}" if table is not None else target.name
 
@@ -1048,7 +1048,7 @@ def _channels(pair: _Pair) -> list[_Entry]:
 
 # ── Конфигурация ───────────────────────────────────────────────────────────────
 
-_PARAM_COLUMNS = ["Параметр", "Тип", "Обязателен", "Дефолт", "Описание"]
+_PARAM_COLUMNS = ["Параметр", "Тип", "Обязателен", "По умолчанию", "Описание"]
 _PARAM_NOUN = ("параметр", "параметра", "параметров")
 
 
@@ -1178,7 +1178,7 @@ def _placements(pair: _Pair) -> list[_Entry]:
 _STEP_COLUMNS = ["№", "Кто → кому", "Подпись"]
 _STEP_NOUN = ("шаг", "шага", "шагов")
 _KIND_NOTE = {"return": "ответ", "async": "событие", "self": "внутренний шаг"}
-_BROKEN_NOTE = {"edge_deleted": "связь удалена", "leg_gone": "плеча канала нет"}
+_BROKEN_NOTE = {"edge_deleted": "связь удалена", "leg_gone": "связи для шага нет"}
 
 
 def _step_cells(proc: ProcessVersion) -> Callable[[MessageOut], list[str]]:

@@ -332,7 +332,7 @@ def test_связь_к_удалённому_внешнему_объекту_пр
 
     out = _restore(db, s, s.orders, 1)
 
-    assert out.remarks == ["связь «Банк → Магазин / Заказы» не восстановлена: объекта «Банк» больше нет"]
+    assert out.remarks == ["связь «Банк → Магазин / Заказы» не восстановлена, потому что объекта «Банк» больше нет"]
     assert db.get(Node, s.id["orders"]).technology == "Python 3.11"
     assert db.get(Edge, s.id["e_bank"]) is None
     assert db.get(Edge, s.id["e_pay"]) is not None
@@ -373,7 +373,7 @@ def test_внешний_ключ_на_исчезнувшую_колонку_вн
 
     out = _restore(db, s, s.db_node, 1)
 
-    assert out.remarks == ["внешний ключ «orders.total» не восстановлен: целевой колонки больше нет"]
+    assert out.remarks == ["внешний ключ «orders.total» не восстановлен, потому что целевой колонки больше нет"]
     assert db.get(DbColumn, s.id["c_total"]).references_column_id is None
     assert db.get(DbTable, s.id["t_orders"]).description is None
 
@@ -431,8 +431,8 @@ def test_площадки_больше_нет_размещение_пропущ�
     out = _restore(db, s, s.shop, 1)
 
     assert out.remarks == [
-        "размещение «Магазин / Заказы» на площадке «Облако / prod» не восстановлено: "
-        "площадки больше нет"
+        "размещение «Магазин / Заказы» на площадке «Облако / prod» не восстановлено, "
+        "потому что площадки больше нет"
     ]
     assert db.get(Node, s.id["orders"]).technology == "Python 3.11"
     assert _placements(db, s.id["db_node"]) == {(s.id["i_db"], s.id["rack"])}
@@ -471,10 +471,10 @@ def test_прежнего_родителя_нет_объект_остаётся(
     # в замечаниях — в порядке снимка, по id).
     *edges, parent = out.remarks
     assert sorted(edges) == [
-        "связь «Магазин / Заказы → Магазин / БД» не восстановлена: объекта «Магазин / БД» больше нет",
-        "связь «Магазин / Заказы → Магазин / Оплаты» не восстановлена: объекта «Магазин / Оплаты» больше нет",
+        "связь «Магазин / Заказы → Магазин / БД» не восстановлена, потому что объекта «Магазин / БД» больше нет",
+        "связь «Магазин / Заказы → Магазин / Оплаты» не восстановлена, потому что объекта «Магазин / Оплаты» больше нет",
     ]
-    assert parent == "объект остаётся у текущего родителя: прежнего больше нет"
+    assert parent == "объект остаётся у текущего родителя, потому что прежнего родителя больше нет"
     node = db.get(Node, s.id["orders"])
     assert (node.parent_id, node.technology) == (s.id["store"], "Python 3.11")
 

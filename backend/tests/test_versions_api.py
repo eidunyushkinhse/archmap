@@ -450,7 +450,7 @@ def test_откат_версии_замечания_курсоры(client, db, s
     assert res.json() == {
         "created": [2, 3],
         "deleted_nodes": 0,
-        "remarks": ["связь «Банк → Магазин / Заказы» не восстановлена: объекта «Банк» больше нет"],
+        "remarks": ["связь «Банк → Магазин / Заказы» не восстановлена, потому что объекта «Банк» больше нет"],
     }
     listed = client.get(s.orders_url, headers=s.h).json()
     assert [(v["number"], v["kind"], v["comment"], v["restored_from"]) for v in listed["versions"]] == [

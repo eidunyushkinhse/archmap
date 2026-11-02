@@ -265,7 +265,7 @@ def test_перенос_корня_подписан_путём_вне_среза
     # Без путей снаружи — честная заглушка, а не id.
     bare = diff_item(before, after, item.item_id)
     assert bare is not None
-    assert _rows(bare.changes) == [("mod", ["родитель", "объект вне среза", "объект вне среза"])]
+    assert _rows(bare.changes) == [("mod", ["родитель", "объект в другой части проекта", "объект в другой части проекта"])]
 
 
 def test_статус_страницы_свой_элемент(db):
@@ -550,7 +550,7 @@ def test_конфигурация_один_элемент_на_объект(db):
     )
     detail = diff_item(before, after, item.item_id)
     assert detail is not None
-    assert detail.changes.columns == ["Параметр", "Тип", "Обязателен", "Дефолт", "Описание"]
+    assert detail.changes.columns == ["Параметр", "Тип", "Обязателен", "По умолчанию", "Описание"]
     assert _rows(detail.changes) == [
         ("add", ["ORDER_CANCEL_MIN", "int", "нет", "30", "окно отмены"]),
         ("mod", ["ORDER_TTL_H", "int", "нет", "24 → 48", "—"]),

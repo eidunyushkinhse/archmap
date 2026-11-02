@@ -80,9 +80,9 @@ from app.versions_snapshot import content_hash
 from app.view_state import bump_view_version
 
 NOTHING_TO_RESTORE = "Нечего восстанавливать: документация совпадает с v{number}"
-PARENT_KEPT = "объект остаётся у текущего родителя: {reason}"
-PARENT_TOP = "объект перенесён на верхний уровень: {reason}"
-PARENT_GONE = "прежнего больше нет"
+PARENT_KEPT = "объект остаётся у текущего родителя, потому что {reason}"
+PARENT_TOP = "объект перенесён на верхний уровень, потому что {reason}"
+PARENT_GONE = "прежнего родителя больше нет"
 
 
 # ── План узлов ─────────────────────────────────────────────────────────────────
@@ -262,8 +262,8 @@ class _Apply:
             gone = [path for nid, path in ends if nid not in alive]
             if gone:
                 self.remarks.append(
-                    f"связь «{e.source_path} → {e.target_path}» не восстановлена: "
-                    f"объекта «{gone[0]}» больше нет"
+                    f"связь «{e.source_path} → {e.target_path}» не восстановлена, "
+                    f"потому что объекта «{gone[0]}» больше нет"
                 )
                 continue
             fields = set(EdgeSnapshot.model_fields)
@@ -293,7 +293,7 @@ class _Apply:
             if inst.site_id not in alive:
                 self.remarks.append(
                     f"размещение «{object_path(self.snap, inst.node_id)}» на площадке "
-                    f"«{inst.site_path}» не восстановлено: площадки больше нет"
+                    f"«{inst.site_path}» не восстановлено, потому что площадки больше нет"
                 )
                 continue
             out.append(DeploymentInstanceSnapshot.model_validate(inst.model_dump(include=fields)))
@@ -370,7 +370,9 @@ class _Apply:
                 continue
             values["references_column_id"] = None
             name = f"{tables.get(values['table_id'], '?')}.{values['name']}"
-            self.remarks.append(f"внешний ключ «{name}» не восстановлен: целевой колонки больше нет")
+            self.remarks.append(
+                f"внешний ключ «{name}» не восстановлен, потому что целевой колонки больше нет"
+            )
 
     # ── Шаг 2: уцелевшие строки снимка ──
 

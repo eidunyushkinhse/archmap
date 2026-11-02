@@ -600,7 +600,7 @@ def validate_message(
     # сознательное исключение из правила «сообщение = плечо существующего канала».
     if payload.from_participant_id == payload.to_participant_id:
         if payload.edge_id is not None:
-            raise ProcessRuleError(422, "Самосообщение не привязывается к связи")
+            raise ProcessRuleError(422, "Сообщение самому себе не привязывается к связи")
         frm = db.get(ProcessParticipant, payload.from_participant_id)
         if frm is None or frm.process_id != proc.id:
             raise ProcessRuleError(422, "Участник не из этого процесса")
@@ -617,15 +617,15 @@ def validate_message(
         if part is not None and part.process_id == proc.id and part.node_id is None:
             raise ProcessRuleError(
                 422,
-                "Участник не привязан к узлу схемы — у него нет каналов. "
-                "Сначала привяжите его к узлу",
+                "Участник не привязан к объекту схемы, поэтому у него нет связей. "
+                "Сначала привяжите его к объекту",
             )
     edge = db.get(Edge, payload.edge_id)
     if edge is None or edge.project_id != project_id:
         raise ProcessRuleError(404, "Связь не найдена")
     # 2) leg легален: return только для синхронного канала
     if payload.leg == "return" and not edge_is_synchronous(edge):
-        raise ProcessRuleError(422, "Канал асинхронный — плеча «ответ» нет")
+        raise ProcessRuleError(422, "Связь асинхронная, ответа по ней не бывает")
     # 3) концы — участники этого процесса
     frm = db.get(ProcessParticipant, payload.from_participant_id)
     to = db.get(ProcessParticipant, payload.to_participant_id)
@@ -638,12 +638,12 @@ def validate_message(
     participant_ids = bound_node_ids(proc.participants)
     leg = next((leg for leg in legs_for_edge(edge) if leg.leg == payload.leg), None)
     if leg is None:
-        raise ProcessRuleError(422, "Недопустимое плечо для этой связи")
+        raise ProcessRuleError(422, "Эта связь не подходит для такого сообщения")
     if (
         resolve_to_participant(leg.from_id, participant_ids, all_nodes) != frm.node_id
         or resolve_to_participant(leg.to_id, participant_ids, all_nodes) != to.node_id
     ):
-        raise ProcessRuleError(422, "Концы связи не проецируются на выбранных участников")
+        raise ProcessRuleError(422, "Концы связи не совпадают с выбранными участниками")
     check_step_doc(db, payload.doc_id, project_id)
     # Подпись у шага всегда СВОЯ: дефолт канала (метка связи у вызова, «ответ» у
     # ответа) замораживается здесь, один раз, и дальше живёт обычным текстом. Пустую
@@ -705,7 +705,7 @@ def check_fragment(
             raise ProcessRuleError(
                 422,
                 (
-                    "Границы ветвей обязаны строго возрастать и лежать внутри охвата: "
+                    "Границы веток должны идти по порядку внутри фрагмента: "
                     "from_order < start_order ≤ to_order"
                 ),
             )
@@ -714,7 +714,7 @@ def check_fragment(
     if span_steps is not None and len(branches) >= span_steps:
         raise ProcessRuleError(
             422,
-            "Ветвей больше, чем шагов в охвате: последней не досталось бы ни одного",
+            "Веток больше, чем шагов во фрагменте",
         )
 
 
