@@ -9,14 +9,15 @@
 // edges и одного пропса.
 import { useCallback } from "react";
 import type { Edge as AppEdge } from "../../../types";
+import type { EdgeChoiceEnds } from "../types";
 
 interface UseLevelEdgeChoiceArgs {
   edges: AppEdge[];
-  onEdgesChoice: (edges: AppEdge[]) => void;
+  onEdgesChoice: (edges: AppEdge[], ends?: EdgeChoiceEnds) => void;
 }
 
 export interface LevelEdgeChoice {
-  openEdgeMembers: (memberIds: string[]) => void;
+  openEdgeMembers: (memberIds: string[], ends?: EdgeChoiceEnds) => void;
 }
 
 export function useLevelEdgeChoice({ edges, onEdgesChoice }: UseLevelEdgeChoiceArgs): LevelEdgeChoice {
@@ -25,12 +26,12 @@ export function useLevelEdgeChoice({ edges, onEdgesChoice }: UseLevelEdgeChoiceA
   // связи того же направления). Общая точка для двойного клика по линии и по
   // плашке с описанием.
   const openEdgeMembers = useCallback(
-    (memberIds: string[]) => {
+    (memberIds: string[], ends?: EdgeChoiceEnds) => {
       const members = memberIds
         .map((mid) => edges.find((e) => e.id === mid))
         .filter((e): e is AppEdge => e != null);
       if (members.length === 0) return;
-      onEdgesChoice(members);
+      onEdgesChoice(members, ends);
     },
     [edges, onEdgesChoice],
   );

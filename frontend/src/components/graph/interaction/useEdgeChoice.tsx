@@ -12,6 +12,7 @@
 import { useCallback, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { Edge, LevelEdge } from "../../../types";
+import type { EdgeChoiceEnds } from "../types";
 import EdgeChoiceModal from "../../EdgeChoiceModal";
 
 interface UseEdgeChoiceArgs {
@@ -26,15 +27,44 @@ interface UseEdgeChoiceArgs {
 }
 
 interface UseEdgeChoiceResult {
-  onEdgesChoice: (group: Edge[]) => void;
+  onEdgesChoice: (group: Edge[], ends?: EdgeChoiceEnds) => void;
   /** Готовый к рендеру EdgeChoiceModal или null. */
   choiceModal: ReactNode;
+}
+
+// Шапка и вторые строчки окна выбора. Конец, общий у всех связей пучка, называет шапка.
+// Конец, у которого связи расходятся (пучок в свёрнутую систему: «Пользователь → Заказы»,
+// а связи идут в «Каталог», «Корзину»…), шапка называет отображаемым концом стрелки
+// (ends — id узла или рамки, на которые легли настоящие концы), а КАЖДАЯ строка — своим
+// настоящим концом: иначе десять одинаковых «пользуется» не различить (edge.md E57).
+// Отображаемый конец не известен (общий участок разных стрелок) или не разрешается в имя —
+// шапка говорит «несколько объектов». Пустые original-имена (базовый Edge без original_*)
+// заменяет имя по id конца.
+function choiceLabels(edges: LevelEdge[], ends: EdgeChoiceEnds | undefined, labelOf: (id: string) => string) {
+  const srcName = (e: LevelEdge): string => e.original_source_name || labelOf(e.source_id);
+  const tgtName = (e: LevelEdge): string => e.original_target_name || labelOf(e.target_id);
+  const srcVaries = new Set(edges.map(srcName)).size > 1;
+  const tgtVaries = new Set(edges.map(tgtName)).size > 1;
+  const shown = (id: string | null | undefined): string => {
+    const name = id ? labelOf(id) : null;
+    return name && name !== id ? name : "несколько объектов";
+  };
+  return {
+    sourceLabel: srcVaries ? shown(ends?.source) : srcName(edges[0]),
+    targetLabel: tgtVaries ? shown(ends?.target) : tgtName(edges[0]),
+    endOf: (e: LevelEdge): string | undefined => {
+      if (srcVaries && tgtVaries) return `${srcName(e)} → ${tgtName(e)}`;
+      if (tgtVaries) return `→ ${tgtName(e)}`;
+      if (srcVaries) return `${srcName(e)} →`;
+      return undefined;
+    },
+  };
 }
 
 export function useEdgeChoice({
   resolveEdge, labelOf, onPick, onAddFromChoice,
 }: UseEdgeChoiceArgs): UseEdgeChoiceResult {
-  const [edgeChoice, setEdgeChoice] = useState<LevelEdge[] | null>(null);
+  const [edgeChoice, setEdgeChoice] = useState<{ edges: LevelEdge[]; ends?: EdgeChoiceEnds } | null>(null);
 
   const resolveGroup = useCallback(
     (group: Edge[]): LevelEdge[] =>
@@ -43,36 +73,30 @@ export function useEdgeChoice({
   );
 
   // Клик по плашке/линии: одна связь — сразу выбрать, несколько — модалка выбора.
-  const onEdgesChoice = useCallback((group: Edge[]) => {
+  const onEdgesChoice = useCallback((group: Edge[], ends?: EdgeChoiceEnds) => {
     const les = resolveGroup(group);
     if (les.length === 1) onPick(les[0]);
-    else if (les.length > 1) setEdgeChoice(les);
+    else if (les.length > 1) setEdgeChoice({ edges: les, ends });
   }, [resolveGroup, onPick]);
 
-  // Подпись конца пучка: если все original-имена совпадают — оно, иначе имя
-  // спроецированного представителя (как edgeEndLabel в редакторе). Пустые имена
-  // (базовый Edge без original_*) отбрасываются — фолбэк на labelOf по id конца.
-  const endLabel = useCallback((names: string[], projectedId: string): string => {
-    const present = names.filter((n): n is string => !!n);
-    const uniq = new Set(present);
-    return uniq.size === 1 ? present[0] : labelOf(projectedId);
-  }, [labelOf]);
-
   const choiceModal = useMemo<ReactNode>(() => {
-    if (edgeChoice && edgeChoice.length > 0) {
+    if (edgeChoice && edgeChoice.edges.length > 0) {
+      const { edges } = edgeChoice;
+      const labels = choiceLabels(edges, edgeChoice.ends, labelOf);
       return (
         <EdgeChoiceModal
-          edges={edgeChoice}
-          sourceLabel={endLabel(edgeChoice.map((e) => e.original_source_name), edgeChoice[0].source_id)}
-          targetLabel={endLabel(edgeChoice.map((e) => e.original_target_name), edgeChoice[0].target_id)}
+          edges={edges}
+          sourceLabel={labels.sourceLabel}
+          targetLabel={labels.targetLabel}
+          endOf={labels.endOf}
           onPick={(edge) => { setEdgeChoice(null); onPick(edge); }}
-          onAdd={onAddFromChoice ? () => { const rep = edgeChoice[0]; setEdgeChoice(null); onAddFromChoice(rep); } : undefined}
+          onAdd={onAddFromChoice ? () => { const rep = edges[0]; setEdgeChoice(null); onAddFromChoice(rep); } : undefined}
           onClose={() => setEdgeChoice(null)}
         />
       );
     }
     return null;
-  }, [edgeChoice, onPick, onAddFromChoice, endLabel]);
+  }, [edgeChoice, onPick, onAddFromChoice, labelOf]);
 
   return { onEdgesChoice, choiceModal };
 }

@@ -960,6 +960,10 @@ function LevelGraphInner({
     (e: MouseEvent, rfEdge: RFEdge) => {
       if (!canInspectEdges) return;
       const members = new Set<string>((rfEdge.data as WrappedEdgeData | undefined)?.memberIds ?? []);
+      // Концы стрелки для шапки окна выбора: у соседей по общему участку они могут быть
+      // другими — тогда этот конец не называется (null).
+      let source: string | null = rfEdge.source;
+      let target: string | null = rfEdge.target;
       const p = screenToFlowPosition({ x: e.clientX, y: e.clientY });
       for (const other of getEdges()) {
         if (other.id === rfEdge.id) continue;
@@ -967,8 +971,10 @@ function LevelGraphInner({
         const route = d?.autoRoute;
         if (!route || route.length < 2 || distToPolyline(p, route) > SHARED_HIT_TOL) continue;
         for (const id of d?.memberIds ?? []) members.add(id);
+        if (other.source !== source) source = null;
+        if (other.target !== target) target = null;
       }
-      cbRef.current.openEdgeMembers([...members]);
+      cbRef.current.openEdgeMembers([...members], { source, target });
     },
     [canInspectEdges, screenToFlowPosition, getEdges]
   );

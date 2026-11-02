@@ -190,7 +190,8 @@ describe("assembleRfGraph — плашка мастер-стрелки", () => {
     expect(data.label).toBeUndefined();
     expect(data.memberIds).toEqual(["u1", "p", "u2", "u3"]);
     data.onOpenDetails?.();
-    expect(cb.openEdgeMembers).toHaveBeenCalledWith(["u1", "p", "u2", "u3"]);
+    // концы стрелки едут с кликом: шапка окна выбора называет ими общую пару (E57)
+    expect(cb.openEdgeMembers).toHaveBeenCalledWith(["u1", "p", "u2", "u3"], { source: "leaf", target: "group" });
   });
 
   it("одна различная подпись — плашка как у одиночной связи, выбор из всех членов", () => {

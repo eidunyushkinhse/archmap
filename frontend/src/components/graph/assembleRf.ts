@@ -11,7 +11,7 @@ import { canHaveChildren } from "../../types";
 import { MAX_INLINE_DEPTH } from "./constants";
 import type {
   WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, FrameDecor, QuickConnectHandlers,
-  SiteCardData,
+  SiteCardData, EdgeChoiceEnds,
 } from "./types";
 import { distinctEdgeTexts } from "./text";
 import { getNodeColors, STATUS_META } from "./colors";
@@ -39,7 +39,7 @@ export interface AssembleCallbacks {
   expandContainer: (id: string) => void;
   expandLocalContainer: (id: string) => void;
   collapseContainer: (id: string) => void;
-  openEdgeMembers: (memberIds: string[]) => void;
+  openEdgeMembers: (memberIds: string[], ends?: EdgeChoiceEnds) => void;
   quickConnect: QuickConnectHandlers;
   // режим выбора площадки хозяина (LevelProjectionProps.pickFrame); нет — режима нет
   pickFrame?: (id: string) => void;
@@ -349,7 +349,8 @@ export function assembleRfGraph(params: {
     // связей (см. edges.tsx). Ручной правки геометрии стрелок больше нет.
     if (isArchitect) data.editable = true;
     // Триггер детализации связи на плашке с описанием.
-    data.onOpenDetails = () => getCb().openEdgeMembers(data.memberIds);
+    // Концы стрелки едут с кликом: окно выбора называет ими общую пару (E57).
+    data.onOpenDetails = () => getCb().openEdgeMembers(data.memberIds, { source: g.source, target: g.target });
     // Авто-маршрут (R1+R3): edges.tsx рисует его ортоломаной с минимумом пересечений.
     const ar = autoRoutes?.get(g.id);
     if (ar) data.autoRoute = ar;

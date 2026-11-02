@@ -26,7 +26,7 @@ import { act } from "@testing-library/react";
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import type { Node as RFNode, Edge as RFEdge } from "@xyflow/react";
 import type { Node as AppNode, AncestorRef, ViewLayoutPayload } from "../../types";
-import type { QuickConnectHandlers } from "../graph/types";
+import type { EdgeChoiceEnds, QuickConnectHandlers } from "../graph/types";
 import type { RehangHandlers } from "../graph/ReconnectContext";
 import type { CommitOrigin } from "../graph/interaction/persistGuard";
 import type { PipelineOutput } from "../graph/layout/pipeline";
@@ -65,7 +65,7 @@ export interface TestCb {
   expandContainer: (id: string) => void;
   expandLocalContainer: (id: string) => void;
   collapseContainer: (id: string) => void;
-  openEdgeMembers: (ids: string[]) => void;
+  openEdgeMembers: (ids: string[], ends?: EdgeChoiceEnds) => void;
   commitLayout: (
     patch: Record<string, Partial<ViewLayoutPayload> | null>,
     origin?: CommitOrigin,
