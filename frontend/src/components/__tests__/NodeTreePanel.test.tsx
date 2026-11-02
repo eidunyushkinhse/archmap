@@ -209,7 +209,8 @@ describe("NodeTreePanel: цели переноса", () => {
     fireEvent.dragStart(screen.getByLabelText(/Перенести «Лист»/), { dataTransfer: transfer });
     fireEvent.dragOver(row("Контейнер"), { dataTransfer: transfer });
     fireEvent.drop(row("Контейнер"), { dataTransfer: transfer });
-    expect(onReparent).toHaveBeenCalledWith(expect.objectContaining({ id: "leaf" }), "box");
+    // Имя цели — для окна последствий (редактор знает только узлы своего уровня).
+    expect(onReparent).toHaveBeenCalledWith(expect.objectContaining({ id: "leaf" }), "box", "Контейнер");
   });
 
   it("в узел без права иметь детей и в самого себя — нельзя", async () => {

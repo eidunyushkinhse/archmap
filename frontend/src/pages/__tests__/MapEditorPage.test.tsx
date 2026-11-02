@@ -584,6 +584,25 @@ describe("MapEditorPage: перенос объекта", () => {
     expect(historyMock.push).not.toHaveBeenCalled();
   });
 
+  // Первая единица в поддереве пустой системы (решение владельца 2026-11-02): цель — вложенная
+  // система без площадок, держатель — система выше. Заголовок называет цель по имени из
+  // дерева, текст — держателя (container_name).
+  it("перенос во вложенную систему: окно называет цель из дерева и держателя площадок", async () => {
+    vi.mocked(nodesApi.movePreview).mockResolvedValue({
+      kind: "first_child",
+      before: [{ node_id: "orders", name: "ORDERS", sites: ["prod-eu"] }],
+      after: [{ node_id: "kid", name: "KID", sites: ["prod-eu"] }],
+      docs_names: [], container_name: "ORDERS",
+    } as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("tree-panel");
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null, t?: string) => void;
+    await act(async () => { onReparent(node("kid", { name: "KID", parent_id: "old" }), "new", "CORE"); });
+    expect(await screen.findByText("Перенести «KID» в «CORE»?")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «ORDERS» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
+    expect(nodesApi.update).not.toHaveBeenCalled();
+  });
+
   it("«Отмена» в окне последствий — объект остаётся на месте", async () => {
     vi.mocked(nodesApi.movePreview).mockResolvedValue({
       kind: "leave_container", before: [{ node_id: "old", name: "OLD", sites: ["prod-eu"] }],

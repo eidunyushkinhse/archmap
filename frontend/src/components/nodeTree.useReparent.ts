@@ -37,7 +37,7 @@ function joinsContainer(target: Node): boolean {
 export function useTreeReparent(
   allById: Map<string, Node>,
   pathTo: (node: Node) => Node[],
-  onReparent: ((node: Node, newParentId: string | null) => void) | undefined,
+  onReparent: ((node: Node, newParentId: string | null, targetName?: string) => void) | undefined,
 ): TreeReparent {
   // Ref — истина на момент события, стейт — для подсветки; зажигаем его отложенно
   // по той же причине, что и корзину палитры.
@@ -94,7 +94,9 @@ export function useTreeReparent(
     e.preventDefault();
     const m = movingRef.current;
     setDropTarget(null);
-    if (m && canDropInto(m, target.id)) onReparent?.(m, target.id);
+    // Имя цели — для окна последствий: цель бывает в любой ветке дерева, а редактор
+    // знает только узлы своего уровня.
+    if (m && canDropInto(m, target.id)) onReparent?.(m, target.id, target.name);
   }
 
   function onRootDragOver(e: DragEvent) {

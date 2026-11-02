@@ -13,10 +13,10 @@ function preview(over: Partial<ElementChangePreview>): ElementChangePreview {
   return { kind: "none", before: [], after: [], docs_names: [], container_name: null, ...over };
 }
 
-function show(p: ElementChangePreview, name: string) {
+function show(p: ElementChangePreview, name: string, targetName?: string) {
   const onConfirm = vi.fn();
   const onCancel = vi.fn();
-  render(<ElementChangeDialog preview={p} nodeName={name} onConfirm={onConfirm} onCancel={onCancel} />);
+  render(<ElementChangeDialog preview={p} nodeName={name} targetName={targetName} onConfirm={onConfirm} onCancel={onCancel} />);
   return { onConfirm, onCancel };
 }
 
@@ -89,15 +89,15 @@ describe("окно последствий", () => {
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
   });
 
-  it("перенос в пустую систему с площадками: площадки — первому вложенному", () => {
+  it("перенос в пустую систему с площадками: площадки — первой единице", () => {
     const { onConfirm } = show(preview({
       kind: "first_child",
       before: [row("orders", ["prod-eu", "prod-ru"])],
       after: [row("api", ["prod-eu", "prod-ru"])],
       container_name: "orders",
-    }), "api");
+    }), "api", "orders");
     expect(screen.getByText("Перенести «api» в «orders»?")).toBeInTheDocument();
-    expect(screen.getByText("У «orders» пока нет вложенных объектов. С первым из них его площадки перейдут к нему.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
     expect(screen.getByText("Площадки")).toBeInTheDocument();
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
     expect(screen.queryByText("Документация")).not.toBeInTheDocument();
@@ -105,7 +105,31 @@ describe("окно последствий", () => {
     expect(onConfirm).toHaveBeenCalledOnce();
   });
 
-  it("лист становится пустой системой: площадки ждут первого вложенного контейнера", () => {
+  // Глубина (решение владельца 2026-11-02): цель — вложенная в систему-держатель система без
+  // площадок. Заголовок называет цель, текст и таблица — держателя.
+  it("перенос во вложенную систему: заголовок — цель, площадки — держателя", () => {
+    show(preview({
+      kind: "first_child",
+      before: [row("orders", ["prod-eu"])],
+      after: [row("api", ["prod-eu"])],
+      container_name: "orders",
+    }), "api", "core");
+    expect(screen.getByText("Перенести «api» в «core»?")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» ждут первого вложенного контейнера, базы данных или брокера.")).toBeInTheDocument();
+    expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
+  });
+
+  it("без имени цели заголовок называет держателя", () => {
+    show(preview({
+      kind: "first_child",
+      before: [row("orders", ["prod-eu"])],
+      after: [row("api", ["prod-eu"])],
+      container_name: "orders",
+    }), "api");
+    expect(screen.getByText("Перенести «api» в «orders»?")).toBeInTheDocument();
+  });
+
+  it("лист становится пустой системой: площадки ждут первую единицу", () => {
     show(preview({
       kind: "empty_system",
       before: [row("orders", ["prod-eu"])],
@@ -117,7 +141,7 @@ describe("окно последствий", () => {
     expect(screen.getByRole("list", { name: "Площадки до" })).toBeInTheDocument();
     // Площадки отдать некому — строки «после» и стрелки нет.
     expect(screen.queryByRole("list", { name: "Площадки после" })).not.toBeInTheDocument();
-    expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру.")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» перейдут первому вложенному контейнеру, базе данных или брокеру.")).toBeInTheDocument();
     expect(screen.getByText(/^Документация самого «orders» останется у него/)).toBeInTheDocument();
     expect(screen.getByText("Сделать системой")).toBeInTheDocument();
     expect(hasConsequences(preview({ kind: "empty_system", before: [row("orders", ["prod-eu"])] }))).toBe(true);

@@ -11,6 +11,8 @@ interface Props {
   preview: ElementChangePreview;
   // Объект, у которого меняют элемент или который переносят.
   nodeName: string;
+  // Куда переносят (перенос в дереве); у смены типа его нет.
+  targetName?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -30,8 +32,8 @@ function Rows({ rows, label }: { rows: PlacementRowOut[]; label: string }) {
   );
 }
 
-export default function ElementChangeDialog({ preview, nodeName, onConfirm, onCancel }: Props) {
-  const t = consequenceTexts(preview, nodeName);
+export default function ElementChangeDialog({ preview, nodeName, targetName, onConfirm, onCancel }: Props) {
+  const t = consequenceTexts(preview, nodeName, targetName);
   return (
     <ConfirmDialog
       tone="neutral"

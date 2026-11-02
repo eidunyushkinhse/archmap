@@ -42,7 +42,7 @@ type ModeProps =
       // клик по листу → показать на холсте (прыжок на слой узла, выделение, locate)
       onPickLeaf: (node: Node) => void;
       // Перенос узла на другой уровень перетаскиванием строки (ручка — у архитектора).
-      onReparent?: (node: Node, newParentId: string | null) => void;
+      onReparent?: (node: Node, newParentId: string | null, targetName?: string) => void;
       // начало/конец перетаскивания шаблона из палитры: тип объекта при старте, null при
       // завершении. По нему схема рисует превью-рамку будущего узла под курсором.
       onTemplateDrag?: (type: NodeType | null) => void;

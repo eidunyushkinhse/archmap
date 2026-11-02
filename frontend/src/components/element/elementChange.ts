@@ -44,8 +44,11 @@ function componentDocs(names: string[], container: string): string | null {
     + "одним нажатием.";
 }
 
-// Тексты окна. name — объект, у которого меняют элемент или который переносят.
-export function consequenceTexts(preview: ElementChangePreview, name: string): ConsequenceTexts {
+// Тексты окна. name — объект, у которого меняют элемент или который переносят;
+// targetName — куда его переносят (знает только перенос в дереве, у смены типа его нет).
+export function consequenceTexts(
+  preview: ElementChangePreview, name: string, targetName?: string,
+): ConsequenceTexts {
   const container = preview.container_name ?? "";
   switch (preview.kind) {
     case "system_to_container":
@@ -69,11 +72,11 @@ export function consequenceTexts(preview: ElementChangePreview, name: string): C
       };
     case "empty_system":
       // Лист становится пустой системой (Р39): единиц у неё нет, площадки спят у листа
-      // до первого вложенного контейнера (D34, правило 5).
+      // до первой единицы в его поддереве (D34, правило 5).
       return {
         title: `Сделать «${name}» системой?`,
         lead: "Система сама не запускается: площадки и документацию ведут объекты внутри неё.",
-        placementNote: `Площадки «${name}» перейдут первому вложенному контейнеру.`,
+        placementNote: `Площадки «${name}» перейдут первому вложенному контейнеру, базе данных или брокеру.`,
         docs: preview.docs_names.length > 0
           ? `Документация самого «${name}» останется у него. ArchMap отметит это подсказкой, а когда `
             + `внутри появятся объекты, на странице «${name}» будет кнопка, чтобы раздать её им.`
@@ -89,11 +92,13 @@ export function consequenceTexts(preview: ElementChangePreview, name: string): C
         confirm: "Перенести",
       };
     case "first_child":
-      // Перенос в пустую систему с площадками (D34, правило 5): цель уже система, и её
-      // спящие площадки переходят к первому вложенному объекту.
+      // Первая единица в поддереве пустой системы с площадками (D34, правило 5): спящие
+      // площадки держателя (container, ближайший) переходят единицам переносимого. Цель
+      // бывает и вложенной в держателя системой без площадок, поэтому заголовок называет
+      // цель, а не держателя.
       return {
-        title: `Перенести «${name}» в «${container}»?`,
-        lead: `У «${container}» пока нет вложенных объектов. С первым из них его площадки перейдут к нему.`,
+        title: `Перенести «${name}» в «${targetName ?? container}»?`,
+        lead: `Площадки «${container}» ждут первого вложенного контейнера, базы данных или брокера.`,
         placementNote: `«${name}» получит площадки «${container}». Лишние можно убрать на холсте «Развёртывание».`,
         docs: null,
         confirm: "Перенести",

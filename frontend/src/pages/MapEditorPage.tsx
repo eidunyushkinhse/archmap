@@ -544,18 +544,19 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
   // Перенос объекта на другой уровень (драг строки в дереве). Снимок раскладки
   // берём ДО правки: сервер снимет позиции переехавшего поддерева во внешних видах,
   // и без снимка Undo вернул бы родителя, но не геометрию.
-  async function handleReparent(node: Node, newParentId: string | null) {
+  async function handleReparent(node: Node, newParentId: string | null, targetName?: string) {
     const oldParentId = node.parent_id;
     const levelAtMove = currentParentId;
     const refetch = refetchLevel(levelAtMove);
     // Последствия переноса (Р18): вход в контейнер или выход из него переносит площадки.
     // Есть они — окно; такой перенос в историю не ложится (обратное действие — тот же
-    // перенос назад, с теми же последствиями).
+    // перенос назад, с теми же последствиями). Имя цели приходит из дерева: окно первой
+    // единицы называет цель, а площадки — системы-держателя, и это бывают разные объекты.
     let withHistory: boolean;
     try {
       const preview = await nodesApi.movePreview(node.id, newParentId);
       withHistory = !hasConsequences(preview);
-      if (!(await consequences.ask(preview, node.name))) return;
+      if (!(await consequences.ask(preview, node.name, targetName))) return;
     } catch (e) {
       setTreeReload((t) => t + 1);
       if (!showLimit(e, "save")) showErrorToast(`Не удалось перенести объект: ${loadErrorText(e)}`);
@@ -959,7 +960,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           onDrillTo={drillFromTree}
           onPickLeaf={(node) => { void pickFromTree(node); }}
           onCreateChild={(parentId) => setNodeModal({ open: true, node: null, parentId, pos: null })}
-          onReparent={(node, newParentId) => { void handleReparent(node, newParentId); }}
+          onReparent={(node, newParentId, targetName) => { void handleReparent(node, newParentId, targetName); }}
           onTemplateDrag={setDragType}
           paletteTiles={tiles}
         />
