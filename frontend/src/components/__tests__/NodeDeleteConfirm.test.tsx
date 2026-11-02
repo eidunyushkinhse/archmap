@@ -54,7 +54,9 @@ describe("NodeDeleteConfirm", () => {
     expect(line.textContent).toContain("2 таблицы БД, в них 3 колонки");
     expect(nodesApi.delete).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    // Кнопка доступна, когда окно открыто: showModal зовётся в эффекте после рендера, и
+    // под нагрузкой текст уже найден, а закрытый <dialog> кнопку ещё прячет. Поэтому findByRole.
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить" }));
     await waitFor(() => expect(nodesApi.delete).toHaveBeenCalledWith("n1"));
     // В историю уходит ТОТ ЖЕ снимок, что показали: вернётся ровно показанное.
     expect(onDeleted).toHaveBeenCalledWith("n1", snap);
