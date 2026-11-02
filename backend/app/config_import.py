@@ -192,7 +192,7 @@ def build_config_plan(
             plan.report.errors.append(
                 f"{fname}: похоже на файл конфигурации, но YAML не разобрался. Частая "
                 "причина — двоеточие с пробелом внутри значения (например "
-                "«описание: таймаут: секунды»): возьмите такое значение в кавычки"
+                "«описание: таймаут: секунды»). Такое значение нужно взять в кавычки"
             )
     if not parsed:
         plan.report.errors.append("В пакете нет файлов с конфигурацией (config)")
@@ -204,8 +204,9 @@ def build_config_plan(
         # он бы решил, что адресовал пакет, а тот уехал к объекту окна.
         if pc.has_node_key:
             plan.report.warnings.append(
-                f"{fname}: ключ archmap-node адресом не является — адрес пишется "
-                "комментарием «# archmap-node: …»; параметры уедут к объекту окна"
+                f"{fname}: ключ archmap-node адресом не является. Адрес пишется "
+                "комментарием «# archmap-node: …», а без него параметры попадут к объекту, "
+                "из которого открыто окно"
             )
 
     # Параметр плана — один на «узел + имя», сколькими бы файлами он ни был описан.
@@ -230,8 +231,8 @@ def build_config_plan(
         element = elements.effective(owner.id)
         if owner.shape != "service":
             plan.report.warnings.append(
-                f"{fname}: объект «{path}» — не сервис; "
-                "конфигурацию описывают у сервиса, чей код её читает. "
+                f"{fname}: объект «{path}» не контейнер. "
+                "Конфигурацию можно описать у контейнера, чей код её читает. "
                 f"Контейнеры проекта: {hint}"
             )
         elif element == "system":
@@ -335,12 +336,12 @@ def _warn_secret_defaults(plan: ConfigPlan, merged: list[_Merged]) -> None:
     for m in suspicious[:MAX_SECRET_WARNINGS]:
         plan.report.warnings.append(
             f"{m.source}: у параметра «{m.param.name}» заполнено значение по умолчанию "
-            f"«{m.param.default_value}» — проверьте, что это дефолт из кода, а не "
-            "боевое значение: ArchMap значений не хранит"
+            f"«{m.param.default_value}». Проверьте, что это значение по умолчанию из кода, "
+            "а не значение рабочей среды. ArchMap значения сред не хранит"
         )
     if len(suspicious) > MAX_SECRET_WARNINGS:
         plan.report.warnings.append(
-            f"…ещё у {len(suspicious) - MAX_SECRET_WARNINGS} параметров с секретными "
+            f"и ещё у {len(suspicious) - MAX_SECRET_WARNINGS} параметров с секретными "
             "именами заполнено значение по умолчанию"
         )
 

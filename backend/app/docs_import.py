@@ -209,8 +209,9 @@ def _spec_target(
         return idx
     target = by_node_id[container]
     plan.warnings.append(
-        f"{fname}: спецификация узла «{path}» описана у контейнера «{fulls[target]}»: "
-        f"API отдаёт контейнер, операции «{node.name}» привязываются к ней в схемах логики"
+        f"{fname}: спецификация объекта «{path}» описана у контейнера «{fulls[target]}», "
+        f"потому что API отдаёт контейнер. Операции «{node.name}» привязываются к ней в "
+        "схемах логики"
     )
     return target
 
@@ -227,7 +228,7 @@ def _is_stub(doc: NodeDoc) -> bool:
 
 _DATA_REF_PROBLEM: dict[str, str] = {
     "unknown_table": "таблица не найдена в структуре проекта",
-    "ambiguous": "имя неоднозначно, укажите «Узел-БД / таблица»",
+    "ambiguous": "таблица с таким именем есть в нескольких базах, укажите «база / таблица»",
     "unknown_column": "колонки нет в таблице",
     # Канальная семья («публикует:/потребляет:») — свои слова: посылать агента искать
     # топик в структуре базы значит гарантированно получить неверную правку.
@@ -239,7 +240,7 @@ _DATA_REF_PROBLEM: dict[str, str] = {
     "unknown_param": "параметра нет в конфигурации этого объекта",
 }
 # «ambiguous» общий для обеих семей, а починка разная — текст выбирается по режиму.
-_AMBIGUOUS_CHANNEL = "имя неоднозначно, укажите «Брокер / канал»"
+_AMBIGUOUS_CHANNEL = "канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»"
 
 class _DataRefCheck:
     """Резолв пометок «читает:/пишет:» и «публикует:/потребляет:» в текстах пакета —
@@ -445,7 +446,7 @@ class _DataRefCheck:
         """Заметка «искать параметры негде» — называет КОНТЕЙНЕР, у которого их ищут
         (Р11): у компонента это его контейнер-предок, у системы контейнера нет вовсе."""
         names = ", ".join(dict.fromkeys(r.ref for r in config_refs))
-        where = catalog.node_paths.get(owner_id, "объект окна")
+        where = catalog.node_paths.get(owner_id, "объект, из которого открыто окно")
         if container is None and catalog.elements.effective(owner_id) == "system":
             return (
                 f"{fname}: «{where}» — система; пометки «зависит от:» ({names}) ищут "
@@ -472,19 +473,20 @@ class _DataRefCheck:
             return
         plan.warnings.extend(self.warnings)
         if self.over:
-            plan.warnings.append(f"…ещё {self.over} пометок не резолвится")
+            plan.warnings.append(
+                f"и ещё {self.over} пометок не нашли таблицу, канал или параметр"
+            )
         # Заметки о неописанной структуре независимы: таблицы могут быть описаны, а
         # каналы нет (порядок Р4 плана — структура раньше доков — соблюдают не всегда).
         if self.saw_table_refs and not self.tables:
             plan.warnings.append(
-                "В пакете есть пометки данных (читает:/пишет:), а структура БД в "
-                "проекте ещё не описана — резолв пометок проверится, когда она появится"
+                "В пакете есть пометки данных (читает:/пишет:), а структура баз данных в "
+                "проекте ещё не описана. Пометки проверятся, когда она появится"
             )
         if self.saw_channel_refs and not self.channels:
             plan.warnings.append(
                 "В пакете есть пометки каналов (публикует:/потребляет:), а каналы "
-                "брокеров в проекте ещё не описаны — резолв пометок проверится, когда "
-                "они появятся"
+                "брокеров в проекте ещё не описаны. Пометки проверятся, когда они появятся"
             )
         # У конфигурации общей заметки нет: её каталог у каждого контейнера свой, и
         # пустой у контейнера владельца схемы check называет поимённо (контейнер и
@@ -553,7 +555,7 @@ def build_docs_plan(
                 tail = f" / {norm}"
                 hits = [i for i, full in enumerate(fulls) if full.endswith(tail)]
         if not hits:
-            plan.errors.append(f'{where}: узел "{ref}" не найден в проекте')
+            plan.errors.append(f"{where}: объект «{ref}» не найден в проекте")
             return None
         if len(hits) > 1:
             plan.errors.append(f'{where}: имя "{ref}" неоднозначно, укажите путь через " / "')
@@ -598,13 +600,13 @@ def build_docs_plan(
                 owner = logic_owner.get(slot)
                 if owner == fname:
                     plan.errors.append(
-                        f'{fname}: дубль схемы "{logic.name}" у узла «{path}» в одном файле'
+                        f"{fname}: дубль схемы «{logic.name}» у объекта «{path}» в одном файле"
                     )
                     continue
                 if owner is not None:
                     plan.conflicts.append(
-                        f'схема "{logic.name}" узла «{path}» уже задана файлом {owner} — '
-                        f"вход из {fname} пропущен"
+                        f"схема «{logic.name}» объекта «{path}» уже задана файлом {owner}, "
+                        f"файл {fname} пропущен"
                     )
                     continue
                 logic_owner[slot] = fname
@@ -613,8 +615,8 @@ def build_docs_plan(
                 data_refs.check(fname, logic.mermaid, node.id)
                 if logic.kind == "operation" and not logic.operation:
                     plan.warnings.append(
-                        f'{fname}: схема "{logic.name}" узла «{path}» — kind=operation '
-                        f"без поля operation"
+                        f"{fname}: у схемы «{logic.name}» объекта «{path}» kind=operation, "
+                        f"но нет поля operation"
                     )
                 cur = existing.get(logic.name)
                 if cur is None and logic.operation and logic.mermaid.strip():
@@ -635,20 +637,20 @@ def build_docs_plan(
                     elif len(свободные) > 1:
                         имена = sorted(d.name for d in свободные)
                         хвост = (
-                            f" …и ещё {len(имена) - 3}" if len(имена) > 3 else ""
+                            f" и ещё {len(имена) - 3}" if len(имена) > 3 else ""
                         )
                         plan.warnings.append(
-                            f'{fname}: схема "{logic.name}" узла «{path}» — заглушек с '
-                            f"операцией «{logic.operation}» несколько "
-                            f'({", ".join(имена[:3])}{хвост}), какую заполнить — не '
-                            f"угадываем: создана новая схема"
+                            f"{fname}: у объекта «{path}» несколько неописанных схем с "
+                            f"операцией «{logic.operation}» "
+                            f'({", ".join(имена[:3])}{хвост}), поэтому схема '
+                            f"«{logic.name}» создана новой"
                         )
                 if cur is not None and cur.id in claimed:
                     # Заглушку уже забрал файл выше (нашёл по операции) — второй раз
                     # писать в ту же строку нельзя: одна из двух схем пропала бы молча.
                     plan.conflicts.append(
-                        f'заглушку "{cur.name}" узла «{path}» уже заполняет другой файл — '
-                        f'схема "{logic.name}" из {fname} пропущена'
+                        f"неописанную схему «{cur.name}» объекта «{path}» уже заполняет другой "
+                        f"файл, поэтому схема «{logic.name}» из {fname} пропущена"
                     )
                     continue
                 if cur is None:
@@ -690,12 +692,14 @@ def build_docs_plan(
             node, path = flat[spec_idx], fulls[spec_idx]
             owner = spec_owner.get(node.id)
             if owner == fname:
-                plan.errors.append(f"{fname}: дубль OpenAPI-спецификации у узла «{path}» в одном файле")
+                plan.errors.append(
+                    f"{fname}: дубль OpenAPI-спецификации у объекта «{path}» в одном файле"
+                )
                 continue
             if owner is not None:
                 plan.conflicts.append(
-                    f"OpenAPI-спецификация узла «{path}» уже задана файлом {owner} — "
-                    f"вход из {fname} пропущен"
+                    f"OpenAPI-спецификация объекта «{path}» уже задана файлом {owner}, "
+                    f"файл {fname} пропущен"
                 )
                 continue
             spec_owner[node.id] = fname
@@ -709,14 +713,17 @@ def build_docs_plan(
             source = entry.openapi.file
             if entry.openapi.origin is None:
                 plan.warnings.append(
-                    f"{fname}: у спецификации узла «{path}» не указано происхождение (origin)"
+                    f"{fname}: у спецификации объекта «{path}» не указано происхождение (origin)"
                 )
             valid_yaml, looks, ver = spec_check(content)
             if not valid_yaml:
-                plan.warnings.append(f"спецификация узла «{path}» ({source}) не разбирается как YAML")
+                plan.warnings.append(
+                    f"спецификация объекта «{path}» ({source}) не разбирается как YAML"
+                )
             elif not looks:
                 plan.warnings.append(
-                    f"спецификация узла «{path}» ({source}) не похожа на OpenAPI: нет openapi/paths"
+                    f"спецификация объекта «{path}» ({source}) не похожа на OpenAPI: нет "
+                    "разделов openapi и paths"
                 )
             cur_spec = node.openapi_spec or ""
             if not cur_spec.strip():

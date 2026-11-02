@@ -204,7 +204,7 @@ def test_чужая_форма_предупреждение_а_не_ошибка
     отчёт = _apply(db, _in(("cfg.yaml", "config:\n  - name: MAX_CONNECTIONS\n"), node_id=база.id))
 
     assert отчёт.errors == []
-    assert any("не сервис" in w for w in отчёт.warnings)
+    assert any("не контейнер" in w for w in отчёт.warnings)
     assert db.query(ConfigParam).one().node_id == база.id
 
 
@@ -264,7 +264,7 @@ def test_кап_дублей_не_даёт_классу_съесть_весь_с
 
     дубли = [w for w in отчёт.warnings if "описан в нескольких файлах" in w]
     assert len(дубли) == MAX_DUPLICATE_WARNINGS
-    assert any("…ещё 3" in w for w in отчёт.warnings)
+    assert any("и ещё 3" in w for w in отчёт.warnings)
 
 
 # ── Значения ──────────────────────────────────────────────────────────────────
@@ -283,7 +283,7 @@ def test_дефолт_у_секретного_имени_показываетс�
 
     отчёт = _preview(db, _in(("cfg.yaml", пакет)))
 
-    подозрения = [w for w in отчёт.warnings if "ArchMap значений не хранит" in w]
+    подозрения = [w for w in отчёт.warnings if "ArchMap значения сред не хранит" in w]
     assert len(подозрения) == 1
     assert "DATABASE_PASSWORD" in подозрения[0]
 
@@ -294,7 +294,7 @@ def test_пустой_дефолт_у_секрета_подозрений_не_�
 
     отчёт = _preview(db, _in(("cfg.yaml", пакет)))
 
-    assert not any("ArchMap значений не хранит" in w for w in отчёт.warnings)
+    assert not any("ArchMap значения сред не хранит" in w for w in отчёт.warnings)
 
 
 def test_кап_подозрительных_дефолтов(db):
@@ -305,9 +305,9 @@ def test_кап_подозрительных_дефолтов(db):
     )
     отчёт = _preview(db, _in(("cfg.yaml", f"# archmap-node: Платежи\nconfig:\n{строки}")))
 
-    подозрения = [w for w in отчёт.warnings if "ArchMap значений не хранит" in w]
+    подозрения = [w for w in отчёт.warnings if "ArchMap значения сред не хранит" in w]
     assert len(подозрения) == MAX_SECRET_WARNINGS
-    assert any("…ещё у 2" in w for w in отчёт.warnings)
+    assert any("и ещё у 2" in w for w in отчёт.warnings)
 
 
 def test_секрет_опознаётся_по_концу_имени_а_не_по_вхождению(db):
@@ -326,7 +326,7 @@ def test_секрет_опознаётся_по_концу_имени_а_не_п
 
     отчёт = _preview(db, _in(("cfg.yaml", пакет)))
 
-    подозрения = [w for w in отчёт.warnings if "ArchMap значений не хранит" in w]
+    подозрения = [w for w in отчёт.warnings if "ArchMap значения сред не хранит" in w]
     названные = {w.split("«")[1].split("»")[0] for w in подозрения}
     assert названные == {"SECRET_KEY", "AWS_SECRET_ACCESS_KEY", "SENTRY_DSN"}
 

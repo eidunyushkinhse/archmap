@@ -126,7 +126,7 @@ def parse_mmd_header(text: str) -> MmdHeader:
         # счетов»), и в операции («POST /orders») двоеточия законны.
         value = value.strip()
         if not sep or not value:
-            header.problems.append(f"строка «%% {comment}» — не понял, что после «{key or '?'}»")
+            header.problems.append(f"строка «%% {comment}»: непонятно, что после «{key or '?'}»")
             continue
         if key not in KEYS:
             header.problems.append(f"неизвестное поле «{key}» в строке «%% {comment}»")

@@ -239,8 +239,9 @@ def recon_stubs(parsed: ParsedRecon) -> tuple[list[ReconStub], list[str], list[s
 
     if len(lines) > MAX_RECON_LINES:
         errors.append(
-            f"в перечне {len(lines)} строк — больше потолка {MAX_RECON_LINES}: перечень "
-            "принадлежит одному объекту, проверьте, не склеены ли в файле несколько"
+            f"в списке операций и воркеров {len(lines)} строк, а больше {MAX_RECON_LINES} не "
+            "бывает. Список описывает один объект, проверьте, не объединены ли в файле "
+            "списки нескольких объектов"
         )
         return [], warnings, errors
 
@@ -272,32 +273,36 @@ def recon_stubs(parsed: ParsedRecon) -> tuple[list[ReconStub], list[str], list[s
         # Про сохранность говорим сразу: при пустом перечне ВСЕ схемы объекта уйдут в
         # «исчезли из кода», и человек вправе испугаться раньше, чем дочитает.
         warnings.append(
-            "перечень пуст: в разделах operations/workers нет ни одной строки — проверьте "
-            "файл (существующие схемы никуда не денутся, приём ничего не удаляет)"
+            "список операций и воркеров пуст: в разделах operations и workers нет ни одной "
+            "строки. Проверьте файл. Существующие схемы останутся на месте, ArchMap ничего "
+            "не удаляет"
         )
     if parsed.salvaged:
         warnings.append(
-            "файл разобран построчно: YAML не читается — частая причина двоеточие или "
-            "решётка в имени объекта (строка node); просмотрите строки перечня глазами"
+            "файл разобран построчно, потому что YAML не читается. Частая причина — "
+            "двоеточие или решётка в имени объекта (строка node). Просмотрите строки списка "
+            "глазами"
         )
     if empty:
-        warnings.append(f"пустых строк перечня пропущено: {empty}")
+        warnings.append(f"пустых строк списка пропущено: {empty}")
     if dupes:
-        warnings.append(f"повторов строк перечня схлопнуто: {dupes}")
+        warnings.append(f"повторов строк убрано: {dupes}")
     for name in long_lines[:MAX_LONG_WARNINGS]:
         warnings.append(
-            f"строка длиннее {MAX_ENTRY_LEN} символов — заглушка не создана: «{name[:60]}…»"
+            f"строка длиннее {MAX_ENTRY_LEN} символов, схема для неё не создана: «{name[:60]}…»"
         )
     if len(long_lines) > MAX_LONG_WARNINGS:
         warnings.append(
-            f"…ещё {len(long_lines) - MAX_LONG_WARNINGS} строк длиннее {MAX_ENTRY_LEN} символов"
+            f"и ещё {len(long_lines) - MAX_LONG_WARNINGS} строк длиннее {MAX_ENTRY_LEN} символов"
         )
     # Сомнения агента — в замечания: другого места у них нет, а потерять их значит
     # выбросить единственное, что разведчик сказал о границах своей уверенности.
     for doubt in parsed.doubts[:MAX_DOUBT_WARNINGS]:
-        warnings.append(f"сомнение разведчика: {doubt}")
+        warnings.append(f"сомнение при составлении списка: {doubt}")
     if len(parsed.doubts) > MAX_DOUBT_WARNINGS:
-        warnings.append(f"…ещё {len(parsed.doubts) - MAX_DOUBT_WARNINGS} сомнений разведчика")
+        warnings.append(
+            f"и ещё {len(parsed.doubts) - MAX_DOUBT_WARNINGS} сомнений при составлении списка"
+        )
 
     return stubs, warnings, errors
 
@@ -319,7 +324,7 @@ def _node_hint(fulls: list[str]) -> str:
         return "в проекте их нет"
     head = ", ".join(fulls[:MAX_NODE_HINTS])
     if len(fulls) > MAX_NODE_HINTS:
-        return f"{head} …и ещё {len(fulls) - MAX_NODE_HINTS}"
+        return f"{head} и ещё {len(fulls) - MAX_NODE_HINTS}"
     return head
 
 
@@ -345,13 +350,11 @@ def _resolve_node(
     """
     if ref is None:
         if window is None:
-            plan.report.errors.append(
-                f"{fname}: не указан объект, а окно не сказало, к какому применять"
-            )
+            plan.report.errors.append(f"{fname}: не указан объект. Укажите его в строке node")
             return None
         found = next((n for n in flat if n.id == window), None)
         if found is None:
-            plan.report.errors.append(f"{fname}: объект окна не найден")
+            plan.report.errors.append(f"{fname}: объект, из которого открыто окно, не найден")
         return found
     hits = by_path.get(ref) or by_bare.get(ref) or []
     if not hits:
@@ -409,11 +412,13 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
         # Спека вместо перечня — самая вероятная подмена (оба YAML, оба «про API»), и
         # молчаливое «перечня нет» отправило бы человека гадать.
         tail = (
-            f'; «{", ".join(sorted(specs))}» — OpenAPI-спецификация, а не перечень' if specs else ""
+            f'; «{", ".join(sorted(specs))}» — OpenAPI-спецификация, а не список операций'
+            if specs
+            else ""
         )
         plan.report.errors.append(
-            f"среди файлов нет перечня разведки: нужен YAML с разделом operations "
-            f"или workers{tail}"
+            f"среди файлов нет списка операций и воркеров: нужен YAML с разделом "
+            f"operations или workers{tail}"
         )
         return None
     # Сравнение по БАЗОВОМУ имени: файл приезжает и как «archmap-recon.yaml», и как
@@ -423,15 +428,16 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
     if len(канон) == 1:
         прочие = sorted(n for n, _ in picked if n != канон[0][0])
         plan.report.warnings.append(
-            f"в пакете несколько перечней — взят объединённый «{канон[0][0]}»; пропущены: "
+            f"в пакете несколько списков операций и воркеров, взят объединённый "
+            f"«{канон[0][0]}». Пропущены: "
             + ", ".join(прочие)
         )
         return канон[0]
     plan.report.errors.append(
-        "в пакете несколько перечней ("
+        "в пакете несколько списков операций и воркеров ("
         + ", ".join(sorted(n for n, _ in picked))
-        + f") — перечень принадлежит одному объекту, оставьте один файл: у промпта с аудитом "
-        f"это объединённый «{RECON_FILE}» из корня репозитория, а не отдельные запуски разведки"
+        + f"). Список описывает один объект, оставьте один файл: объединённый "
+        f"«{RECON_FILE}» из корня репозитория"
     )
     return None
 
@@ -439,15 +445,18 @@ def _pick_file(files: list[tuple[str, str]], plan: ReconPlan) -> tuple[str, Pars
 def _addressee_note(path: str, element: str | None) -> str:
     """Предупреждение об адресате перечня с вложенными объектами — по элементу."""
     if element == "system":
-        return f"«{path}» — система; перечень операций адресуйте контейнеру или компоненту"
+        return (
+            f"«{path}» — система, поэтому список операций и воркеров адресуйте контейнеру "
+            "или компоненту"
+        )
     if element == "container":
         return (
-            f"«{path}» — контейнер с компонентами; собственные схемы контейнера попадут "
-            "в рекомендации проекта — перечень лучше адресовать компонентам"
+            f"«{path}» — контейнер с компонентами. Собственные схемы контейнера попадут "
+            "в рекомендации проекта, поэтому список лучше адресовать компонентам"
         )
     return (
-        f"«{path}» — компонент с вложенными компонентами; собственные схемы попадут в "
-        "рекомендации проекта — перечень лучше адресовать вложенным компонентам"
+        f"«{path}» — компонент с вложенными компонентами. Собственные схемы попадут в "
+        "рекомендации проекта, поэтому список лучше адресовать вложенным компонентам"
     )
 
 

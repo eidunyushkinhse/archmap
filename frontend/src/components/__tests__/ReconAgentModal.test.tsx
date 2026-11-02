@@ -164,7 +164,7 @@ describe("ReconAgentModal", () => {
   });
 
   it("замечания уносят агенту «чини, а не удаляй»", async () => {
-    const w = "recon.yaml: перечень пуст";
+    const w = "recon.yaml: список операций и воркеров пуст";
     await превью(report({ warnings: [w] }));
     const writeText = vi.fn((_text: string) => Promise.resolve());
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });

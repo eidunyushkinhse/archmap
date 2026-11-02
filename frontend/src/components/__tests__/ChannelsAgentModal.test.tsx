@@ -74,7 +74,7 @@ describe("ChannelsAgentModal", () => {
 
   it("пакет с ошибками применить нельзя", async () => {
     vi.mocked(channelsImportApi.preview).mockResolvedValue(
-      report({ errors: ["channels.yaml: объект «Х» — не брокер"] }),
+      report({ errors: ["channels.yaml: объект «Х» не брокер, а каналы бывают только у брокера"] }),
     );
     open();
     await вставить("channels:");

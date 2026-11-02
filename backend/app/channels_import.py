@@ -77,8 +77,17 @@ MAX_COVERAGE_WARNINGS = 8
 # уходит, канал считается описанным им. КОНСТАНТУ НЕ МЕНЯТЬ без миграции данных:
 # записи в БД узнаются по ней.
 EDGE_STUB_DESCRIPTION = (
+    "Канал создан по подписи связи на схеме, его поля ещё не описаны. Заполните их "
+    "вручную или загрузите файлы каналов."
+)
+# Прежние тексты маркера (до ревизии текстов 2026-11-02). Ими помечены заглушки в базах,
+# заведённые раньше, и в архивах, выгруженных раньше: такие каналы — те же заглушки по
+# связи, поэтому узнаются наравне с текущим текстом. Новый текст сюда — только вместе с
+# прежним: убрать прежний значит перестать узнавать живые записи.
+EDGE_STUB_DESCRIPTIONS = (
+    EDGE_STUB_DESCRIPTION,
     "Заведён импортом по связи схемы: канал назван на стрелке, но структурой брокера "
-    "ещё не описан — дозалейте пакет каналов или заполните поля."
+    "ещё не описан — дозалейте пакет каналов или заполните поля.",
 )
 
 
@@ -101,7 +110,7 @@ def split_channel_names(raw: str | None) -> list[str]:
 
 def is_edge_stub(channel: BrokerChannel) -> bool:
     """Заглушка по связи, а не описание брокера (см. EDGE_STUB_DESCRIPTION)."""
-    return channel.description == EDGE_STUB_DESCRIPTION
+    return channel.description in EDGE_STUB_DESCRIPTIONS
 
 
 def seed_edge_channel_stubs(
@@ -155,7 +164,7 @@ def _stub_by_name(db: Session, node_id: uuid.UUID, name: str) -> BrokerChannel |
             BrokerChannel.node_id == node_id,
             BrokerChannel.group_name == "",
             BrokerChannel.name == name,
-            BrokerChannel.description == EDGE_STUB_DESCRIPTION,
+            BrokerChannel.description.in_(EDGE_STUB_DESCRIPTIONS),
         )
         .first()
     )
@@ -328,8 +337,8 @@ def build_channels_plan(
         elif LOOKS_LIKE_CHANNELS.search(content):
             plan.report.errors.append(
                 f"{fname}: похоже на файл каналов, но YAML не разобрался. Частая причина — "
-                "двоеточие с пробелом внутри значения (например «status: new: paid»): "
-                "возьмите такое значение в кавычки"
+                "двоеточие с пробелом внутри значения (например «status: new: paid»). "
+                "Такое значение нужно взять в кавычки"
             )
     if not parsed:
         plan.report.errors.append("В пакете нет файлов с каналами (channels)")
@@ -341,8 +350,9 @@ def build_channels_plan(
         # он бы решил, что адресовал пакет, а тот уехал к объекту окна.
         if pc.has_node_key:
             plan.report.warnings.append(
-                f"{fname}: ключ archmap-node адресом не является — адрес пишется "
-                "комментарием «# archmap-node: …»; каналы уедут к объекту окна"
+                f"{fname}: ключ archmap-node адресом не является. Адрес пишется "
+                "комментарием «# archmap-node: …», а без него каналы попадут к объекту, "
+                "из которого открыто окно"
             )
 
     # Канал плана — один на «узел + группа + имя», сколькими бы файлами пакета он ни
@@ -353,7 +363,7 @@ def build_channels_plan(
             continue
         owner = resolve_owner(
             pc.node_ref, fname, index, window, plan.report.errors,
-            f"узлы-брокеры проекта: {broker_hint}",
+            f"брокеры проекта: {broker_hint}",
         )
         if owner is None:
             continue
@@ -363,9 +373,9 @@ def build_channels_plan(
         # объект окна: адрес мог быть не написан вовсе.
         if owner.shape != "broker":
             plan.report.errors.append(
-                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — не брокер; "
-                "каналы может иметь только узел-брокер (форма broker). "
-                f"Узлы-брокеры проекта: {broker_hint}"
+                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» не брокер, а "
+                "каналы бывают только у брокера. "
+                f"Брокеры проекта: {broker_hint}"
             )
             continue
         for c in pc.channels:
@@ -386,8 +396,8 @@ def build_channels_plan(
         plan.report.warnings, list(merged.values()),
         lambda m: (
             f"канал «{m.channel.name}» описан в нескольких файлах пакета "
-            f'({", ".join(m.files)}): поля сольются в один канал, при совпадении '
-            "имени поля и расхождении меты побеждает первый файл"
+            f'({", ".join(m.files)}), поэтому поля сольются в один канал. Если имя поля '
+            "совпало, а описания разные, остаётся описание из первого файла"
         ),
         "каналов",
     )
@@ -562,7 +572,7 @@ def _warn_wrong_broker(db: Session, plan: ChannelsPlan, flat: list[Node]) -> Non
     plan.report.warnings.extend(found[:MAX_ADDRESS_WARNINGS])
     if len(found) > MAX_ADDRESS_WARNINGS:
         plan.report.warnings.append(
-            f"…ещё {len(found) - MAX_ADDRESS_WARNINGS} каналов адресованы вразрез со связями"
+            f"и ещё {len(found) - MAX_ADDRESS_WARNINGS} каналов адресованы вразрез со связями"
         )
 
 
@@ -636,9 +646,9 @@ def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[No
             found.append(
                 f"связь «{name_by_id.get(e.source_id, '?')} → "
                 f"{name_by_id.get(e.target_id, '?')}» называет канал «{named}», но его "
-                f"нет ни в пакете, ни в описании брокера — либо в коде он зовётся "
-                f"иначе{похоже}, либо имя на связи неточно: проверьте связь. "
-                f"Канала нет в коде — НЕ добавляйте его в пакет: чините имя на связи."
+                f"нет ни в загруженных файлах, ни в описании брокера. Либо в коде он "
+                f"зовётся иначе{похоже}, либо имя на связи неточно. Если канала нет в "
+                f"коде, исправьте имя на связи, а не добавляйте канал в файл."
             )
     # Порядок связей и брокеров из БД произволен — сортируем, иначе список замечаний
     # скакал бы от прогона к прогону (и кап резал бы каждый раз другое).
@@ -646,7 +656,7 @@ def _warn_uncovered_edge_channels(db: Session, plan: ChannelsPlan, flat: list[No
     plan.report.warnings.extend(found[:MAX_COVERAGE_WARNINGS])
     if len(found) > MAX_COVERAGE_WARNINGS:
         plan.report.warnings.append(
-            f"…ещё {len(found) - MAX_COVERAGE_WARNINGS} каналов, названных связями, "
+            f"и ещё {len(found) - MAX_COVERAGE_WARNINGS} каналов, названных связями, "
             "не описаны"
         )
 

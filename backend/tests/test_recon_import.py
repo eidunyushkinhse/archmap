@@ -180,7 +180,7 @@ def test_заглушки_из_строк():
         # — имя очереди.
         ("email_senders", "worker", None),
     ]
-    assert any("сомнение разведчика" in w for w in warnings)
+    assert any("сомнение при составлении списка" in w for w in warnings)
 
 
 def test_пустые_и_дубли_схлопываются():
@@ -193,8 +193,8 @@ def test_пустые_и_дубли_схлопываются():
         )
     )
     assert [s.name for s in stubs] == ["GET /a", "GET /b", "digest"]
-    assert any("пустых строк перечня пропущено: 1" in w for w in warnings)
-    assert any("повторов строк перечня схлопнуто: 2" in w for w in warnings)
+    assert any("пустых строк списка пропущено: 1" in w for w in warnings)
+    assert any("повторов строк убрано: 2" in w for w in warnings)
 
 
 def test_длинная_строка_не_создаётся():
@@ -203,7 +203,7 @@ def test_длинная_строка_не_создаётся():
     stubs, warnings, errors = recon_stubs(ParsedRecon(operations=[длинная, "GET /ok"]))
     assert [s.name for s in stubs] == ["GET /ok"]
     assert not errors
-    assert any("заглушка не создана" in w for w in warnings)
+    assert any("схема для неё не создана" in w for w in warnings)
 
 
 def test_потолок_строк_блокирует_перечень():
@@ -381,7 +381,7 @@ def test_пустой_перечень_объясняется(db):
     report = _план(db, "node: backend\noperations: []\nworkers: []\n").report
 
     assert not report.errors
-    assert any("перечень пуст" in w for w in report.warnings)
+    assert any("список операций и воркеров пуст" in w for w in report.warnings)
     assert _действия(report) == {"GET /old": "vanished"}
 
 
@@ -428,7 +428,7 @@ def test_без_адреса_берётся_объект_окна(db):
     assert report.node_path == "backend" and report.created == 1
     # Без адреса И без окна применять некуда — это ошибка, а не тихий пропуск.
     пустой = _план(db, "operations:\n  - GET /b\n").report
-    assert пустой.errors and "не сказало" in пустой.errors[0]
+    assert пустой.errors and "Укажите его в строке node" in пустой.errors[0]
 
 
 def test_оркестраторный_прогон_берёт_объединённый_файл(db):
@@ -468,12 +468,11 @@ def test_несколько_перечней_без_канонического_�
         ],
         None,
     )
-    assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
+    assert plan.report.errors and "несколько списков операций и воркеров" in plan.report.errors[0]
     assert "archmap-orch/recon-1.yaml" in plan.report.errors[0]
     assert f"«{RECON_FILE}»" in plan.report.errors[0]
     assert plan.report.errors[0].endswith(
-        f"оставьте один файл: у промпта с аудитом это объединённый «{RECON_FILE}» из корня "
-        "репозитория, а не отдельные запуски разведки"
+        f"оставьте один файл: объединённый «{RECON_FILE}» из корня репозитория"
     )
     assert plan.node is None
 
@@ -492,7 +491,7 @@ def test_два_канонических_имени_вопрос(db):
         ],
         None,
     )
-    assert plan.report.errors and "несколько перечней" in plan.report.errors[0]
+    assert plan.report.errors and "несколько списков операций и воркеров" in plan.report.errors[0]
     assert plan.node is None
 
 
@@ -530,7 +529,8 @@ def test_контейнер_адресат_предупреждает(db):
 
     report = _план(db, "node: Zulip\noperations:\n  - GET /a\n").report
     assert not report.errors
-    assert "«Zulip» — система; перечень операций адресуйте контейнеру или компоненту" in (
+    assert "«Zulip» — система, поэтому список операций и воркеров адресуйте контейнеру " \
+        "или компоненту" in (
         report.warnings
     )
 
@@ -539,8 +539,8 @@ def test_контейнер_адресат_предупреждает(db):
     plan = _план(db, "node: Zulip / backend\noperations:\n  - GET /a\n")
     assert not plan.report.errors
     assert (
-        "«Zulip / backend» — контейнер с компонентами; собственные схемы контейнера "
-        "попадут в рекомендации проекта — перечень лучше адресовать компонентам"
+        "«Zulip / backend» — контейнер с компонентами. Собственные схемы контейнера "
+        "попадут в рекомендации проекта, поэтому список лучше адресовать компонентам"
     ) in plan.report.warnings
     assert [s.name for s in plan.creates] == ["GET /a"]
     assert plan.node is backend

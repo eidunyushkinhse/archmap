@@ -216,8 +216,8 @@ def build_data_plan(
         elif LOOKS_LIKE_DATA.search(content):
             plan.report.errors.append(
                 f"{fname}: похоже на файл данных, но YAML не разобрался. Частая причина — "
-                "двоеточие с пробелом внутри значения (например «actor: кто перевёл: user»): "
-                "возьмите такое значение в кавычки"
+                "двоеточие с пробелом внутри значения (например «actor: кто перевёл: user»). "
+                "Такое значение нужно взять в кавычки"
             )
     if not parsed:
         plan.report.errors.append("В пакете нет файлов со структурой данных (tables)")
@@ -236,8 +236,9 @@ def build_data_plan(
         # он бы решил, что адресовал пакет, а тот уехал к объекту окна.
         if pd.has_node_key:
             plan.report.warnings.append(
-                f"{fname}: ключ archmap-node адресом не является — адрес пишется "
-                "комментарием «# archmap-node: …»; записи уедут к объекту окна"
+                f"{fname}: ключ archmap-node адресом не является. Адрес пишется "
+                "комментарием «# archmap-node: …», а без него таблицы попадут к объекту, "
+                "из которого открыто окно"
             )
 
     # --- Таблицы ---------------------------------------------------------------
@@ -249,7 +250,7 @@ def build_data_plan(
             continue
         owner = resolve_owner(
             pd.node_ref, fname, index, window, plan.report.errors,
-            f"узлы-БД проекта: {db_hint}",
+            f"базы данных проекта: {db_hint}",
         )
         if owner is None:
             continue
@@ -259,9 +260,9 @@ def build_data_plan(
         # ошибка. Проверяется и объект окна: адрес мог быть не написан вовсе.
         if owner.shape != "database":
             plan.report.errors.append(
-                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» — не база данных; "
-                "структура может принадлежать только узлу-БД (форма database). "
-                f"Узлы-БД проекта: {db_hint}"
+                f"{fname}: объект «{path_of.get(owner.id, owner.name)}» не база данных, а "
+                "структура бывает только у базы данных. "
+                f"Базы данных проекта: {db_hint}"
             )
             continue
         for t in pd.tables:
@@ -282,8 +283,8 @@ def build_data_plan(
         plan.report.warnings, list(merged.values()),
         lambda m: (
             f"таблица «{m.table.name}» описана в нескольких файлах пакета "
-            f'({", ".join(m.files)}): колонки сольются в одну таблицу, при совпадении '
-            "имени колонки и расхождении меты побеждает первый файл"
+            f'({", ".join(m.files)}), поэтому колонки сольются в одну таблицу. Если имя '
+            "колонки совпало, а описания разные, остаётся описание из первого файла"
         ),
         "таблиц",
     )
@@ -320,7 +321,7 @@ def build_data_plan(
     plan.report.warnings.extend(plan.column_conflicts)
     if plan.column_conflicts_over:
         plan.report.warnings.append(
-            f"…ещё {plan.column_conflicts_over} расхождений колонок с описанным ранее"
+            f"и ещё {plan.column_conflicts_over} расхождений колонок с описанным ранее"
         )
 
     return plan

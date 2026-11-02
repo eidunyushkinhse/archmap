@@ -107,7 +107,7 @@ def test_plan_resolve_bare_suffix_ambiguous(db):
     assert "Ярмарка / billing / api" in paths  # однозначный хвост пути
     joined = "\n".join(plan.errors)
     assert '"api" неоднозначно' in joined
-    assert '"нет-такого" не найден' in joined
+    assert 'объект «нет-такого» не найден' in joined
 
 
 def test_plan_resolve_slash_without_spaces(db):
@@ -323,9 +323,9 @@ def test_нескольких_заглушек_на_одну_операцию_н
 
     plan = _plan(db, files, window=orders, overwrite=False)
     assert [a.action for a in plan.logic] == ["create"]  # ведём себя как раньше
-    предупреждение = [w for w in plan.warnings if "не угадываем" in w]
+    предупреждение = [w for w in plan.warnings if "создана новой" in w]
     assert len(предупреждение) == 1
-    assert "«POST /orders» несколько" in предупреждение[0]
+    assert "несколько неописанных схем с операцией «POST /orders»" in предупреждение[0]
     assert "Создание" in предупреждение[0] and "POST /orders" in предупреждение[0]
 
 
@@ -409,7 +409,7 @@ def test_plan_unused_asset_warned(db):
 def test_plan_operation_kind_warning(db):
     _, orders, *_ = _tree(db)
     plan = _plan(db, [("a.mmd", _mmd("Л", kind="operation"))], window=orders)
-    assert any("kind=operation без поля operation" in w for w in plan.warnings)
+    assert any("kind=operation, но нет поля operation" in w for w in plan.warnings)
 
 
 def test_plan_схемы_системе_предупреждают_а_не_блокируют(db):
@@ -1003,12 +1003,12 @@ def test_без_структуры_бд_одна_заметка_вместо_ш�
     ], window=orders)
 
     assert [w for w in plan.warnings if "пометка «" in w] == []
-    заметки = [w for w in plan.warnings if "структура БД в проекте ещё не описана" in w]
+    заметки = [w for w in plan.warnings if "структура баз данных в проекте ещё не описана" in w]
     assert len(заметки) == 1
 
     # Пометок в пакете нет — и заметки нет: молчим о том, чего никто не писал.
     тихо = _plan(db, [("c.mmd", _mmd("Без пометок"))], window=orders)
-    assert not any("структура БД" in w for w in тихо.warnings)
+    assert not any("структура баз данных" in w for w in тихо.warnings)
 
 
 def test_неоднозначная_и_неизвестная_колонка_названы_своими_словами(db):
@@ -1025,7 +1025,7 @@ def test_неоднозначная_и_неизвестная_колонка_н�
     ], window=orders)
 
     тексты = [w for w in plan.warnings if "пометка «" in w]
-    assert "a.mmd: пометка «orders» — имя неоднозначно, укажите «Узел-БД / таблица»" in тексты
+    assert "a.mmd: пометка «orders» — таблица с таким именем есть в нескольких базах, укажите «база / таблица»" in тексты
     assert "b.mmd: пометка «accounts.balance» — колонки нет в таблице" in тексты
 
 
@@ -1041,7 +1041,7 @@ def test_кап_пометок_и_хвост_сколько_ещё(db):
     plan = _plan(db, [("a.mmd", _refs_mmd(marks))], window=orders)
 
     assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
-    assert "…ещё 3 пометок не резолвится" in plan.warnings
+    assert "и ещё 3 пометок не нашли таблицу, канал или параметр" in plan.warnings
 
 
 # ── пометки каналов в превью пакета (Ф2 docs/plan-broker-docs.md) ──────────────
@@ -1087,7 +1087,7 @@ def test_битая_канальная_пометка_названа_своим�
         "a.mmd: пометка «создание» — канал не найден у брокеров проекта — "
         "похоже на «созданные»" in тексты
     )
-    assert "b.mmd: пометка «события» — имя неоднозначно, укажите «Брокер / канал»" in тексты
+    assert "b.mmd: пометка «события» — канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in тексты
     assert "c.mmd: пометка «созданные.total» — поля нет в канале" in тексты
 
 
@@ -1116,7 +1116,7 @@ def test_заметки_о_неописанной_структуре_незав�
     # Таблицы описаны — здоровая табличная пометка молчит; каналов нет вовсе, и
     # вместо шума на каждую канальную пометку — одна заметка на пакет.
     assert [w for w in plan.warnings if "пометка «" in w] == []
-    assert not any("структура БД в проекте ещё не описана" in w for w in plan.warnings)
+    assert not any("структура баз данных в проекте ещё не описана" in w for w in plan.warnings)
     каналы = [w for w in plan.warnings if "каналы брокеров в проекте ещё не описаны" in w]
     assert len(каналы) == 1
 
@@ -1228,7 +1228,7 @@ def test_общий_кап_на_обе_семьи_пометок(db):
     plan = _plan(db, [("a.mmd", _refs_mmd(f"{данные}<br>{каналы}"))], window=orders)
 
     assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
-    assert f"…ещё {половина} пометок не резолвится" in plan.warnings
+    assert f"и ещё {половина} пометок не нашли таблицу, канал или параметр" in plan.warnings
 
 
 # ── подсказка «похоже на …» в замечаниях (Ф8б, находка №1 qa-zulip-brokers.md) ─
@@ -1381,7 +1381,7 @@ def test_подсказки_не_ломают_дедуп_и_кап(db):
         "похоже на «zerver_message»"
     ) == 1
     assert len(строки) == MAX_DATA_REF_WARNINGS
-    assert "…ещё 4 пометок не резолвится" in plan.warnings
+    assert "и ещё 4 пометок не нашли таблицу, канал или параметр" in plan.warnings
 
 
 # ── перечни описанных имён в промпте (Ф8а, находка №1 docs/qa-zulip-brokers.md) ─
@@ -1665,9 +1665,9 @@ def test_спецификация_компонента_уезжает_конте
     [spec] = plan.specs
     assert (spec.node_id, spec.node_path, spec.action) == (orders.id, "shop / orders", "create")
     assert (
-        "a.yaml: спецификация узла «shop / orders / api» описана у контейнера "
-        "«shop / orders»: API отдаёт контейнер, операции «api» привязываются к ней в "
-        "схемах логики"
+        "a.yaml: спецификация объекта «shop / orders / api» описана у контейнера "
+        "«shop / orders», потому что API отдаёт контейнер. Операции «api» привязываются "
+        "к ней в схемах логики"
     ) in plan.warnings
     apply_docs_plan(db, plan)
     db.commit()
@@ -1730,7 +1730,7 @@ def test_две_спецификации_от_двух_компонентов_к
     assert plan.errors == []
     assert [s.source for s in plan.specs] == ["a-api.yaml"]
     assert (
-        "OpenAPI-спецификация узла «shop / orders» уже задана файлом a.yaml — вход из "
+        "OpenAPI-спецификация объекта «shop / orders» уже задана файлом a.yaml, файл "
         "b.yaml пропущен"
     ) in plan.conflicts
 

@@ -59,16 +59,16 @@ def resolve_owner(
 ) -> Node | None:
     """Объект-владелец записей файла по адресу «# archmap-node»: полный путь либо
     голое имя (как в дозаливке доков). Без адреса — объект окна. Промах и
-    неоднозначность — строка в errors и None; owners — «узлы-БД проекта: …», чем
+    неоднозначность — строка в errors и None; owners — «базы данных проекта: …», чем
     подсказать допустимые адреса."""
     if ref is None:
         if window is None:
-            errors.append(f"{fname}: не указан объект, а окно не сказало, к какому применять")
+            errors.append(f"{fname}: не указан объект. Укажите его строкой «# archmap-node: …»")
             return None
         for n in index.flat:
             if n.id == window:
                 return n
-        errors.append(f"{fname}: объект окна не найден")
+        errors.append(f"{fname}: объект, из которого открыто окно, не найден")
         return None
     hits = index.by_path.get(ref) or index.by_name.get(ref) or []
     if not hits:
@@ -123,6 +123,6 @@ def warn_duplicates[M: MergedRecord](
         warnings.extend(m.meta_notes)
     if len(dups) > MAX_DUPLICATE_WARNINGS:
         warnings.append(
-            f"…ещё {len(dups) - MAX_DUPLICATE_WARNINGS} {many} описаны в нескольких "
+            f"и ещё {len(dups) - MAX_DUPLICATE_WARNINGS} {many} описаны в нескольких "
             "файлах пакета"
         )

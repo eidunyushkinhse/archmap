@@ -242,7 +242,8 @@ isolated_groups[]}` — все три поля обязательные масс
   что у промпта каналов), поэтому сразу после ввоза `unknown` возникает только у
   связи с ПЕРЕЧНЕМ имён в `channel` (ей велено разделиться) — заглушки по каждому
   имени перечня заводятся, но саму строку перечня брокер не знает. Заглушка помечена
-  фиксированным описанием (`EDGE_STUB_DESCRIPTION`) и описанием брокера не считается:
+  фиксированным описанием (`EDGE_STUB_DESCRIPTION`; прежний текст описания в старых базах
+  тоже узнаётся, `EDGE_STUB_DESCRIPTIONS`) и описанием брокера не считается:
   сверка покрытия пакета её пропускает, пакет заполняет её без overwrite. [тесты:
   backend/tests/test_alerts.py, backend/tests/test_import_merge.py,
   backend/tests/test_channels_import.py, backend/tests/test_unified_import.py,

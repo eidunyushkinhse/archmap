@@ -50,14 +50,14 @@ def test_промахи_пишутся_в_ошибки_с_подсказкой()
     index, _ = _project()
     errors: list[str] = []
     assert resolve_owner("БД", "a.yaml", index, None, errors, "-") is None
-    assert resolve_owner("Хранилище", "b.yaml", index, None, errors, "узлы-БД проекта: X") is None
+    assert resolve_owner("Хранилище", "b.yaml", index, None, errors, "базы данных проекта: X") is None
     assert resolve_owner(None, "c.yaml", index, None, errors, "-") is None
     assert resolve_owner(None, "d.yaml", index, uuid.uuid4(), errors, "-") is None
     assert errors == [
         # Кандидаты — в порядке документа: сиблинги по имени.
         "a.yaml: имя «БД» неоднозначно (Маркетплейс / Биллинг / БД, "
         "Маркетплейс / Сервис заказов / БД) — укажите полный путь",
-        "b.yaml: объект «Хранилище» не найден; узлы-БД проекта: X",
-        "c.yaml: не указан объект, а окно не сказало, к какому применять",
-        "d.yaml: объект окна не найден",
+        "b.yaml: объект «Хранилище» не найден; базы данных проекта: X",
+        "c.yaml: не указан объект. Укажите его строкой «# archmap-node: …»",
+        "d.yaml: объект, из которого открыто окно, не найден",
     ]
