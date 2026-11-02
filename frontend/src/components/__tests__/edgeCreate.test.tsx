@@ -37,7 +37,7 @@ describe("EdgeQuickCreate", () => {
   it("создаёт связь между концами жеста с заполненными полями", async () => {
     vi.mocked(edgesApi.create).mockResolvedValue(created);
     const onCreated = open();
-    await userEvent.type(screen.getByPlaceholderText("запрос, событие..."), "оплата заказа");
+    await userEvent.type(screen.getByPlaceholderText("например, запрос или событие"), "оплата заказа");
     await userEvent.click(screen.getByRole("button", { name: "Создать связь" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     // Пустая технология уходит null, а не пустой строкой.
@@ -58,7 +58,7 @@ describe("EdgeQuickCreate", () => {
   it("Enter в поле подтверждает, как «Создать связь»", async () => {
     vi.mocked(edgesApi.create).mockResolvedValue(created);
     const onCreated = open();
-    await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka..."), "gRPC{Enter}");
+    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "gRPC{Enter}");
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(edgesApi.create).toHaveBeenCalledWith(expect.objectContaining({
       source_id: "a", target_id: "b", technology: "gRPC",
@@ -98,7 +98,7 @@ describe("CrossLevelEdgePicker", () => {
     vi.mocked(edgesApi.create).mockResolvedValue(created);
     const onCreated = open();
     await userEvent.click(await screen.findByText("Оплата"));
-    await userEvent.type(screen.getByPlaceholderText("REST, Kafka…"), "gRPC");
+    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "gRPC");
     await userEvent.click(screen.getByRole("button", { name: "Создать связь" }));
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     expect(edgesApi.create).toHaveBeenCalledWith({
@@ -120,7 +120,7 @@ describe("CrossLevelEdgePicker", () => {
     vi.mocked(edgesApi.create).mockResolvedValue(created);
     const onCreated = open();
     await screen.findByText("Оплата");
-    const tech = () => screen.getByPlaceholderText("REST, Kafka…");
+    const tech = () => screen.getByPlaceholderText("например, REST или Kafka");
     await userEvent.type(tech(), "gRPC{Enter}");
     expect(edgesApi.create).not.toHaveBeenCalled();
     await userEvent.click(screen.getByText("Оплата"));

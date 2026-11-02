@@ -44,7 +44,7 @@ export default function EdgeQuickCreate({
         {...noAutofill("edge-quick-create-1")}
         value={label}
         onChange={(e) => setLabel(e.target.value)}
-        placeholder="запрос, событие..."
+        placeholder="например, запрос или событие"
         style={input}
         data-autofocus
       />
@@ -53,7 +53,7 @@ export default function EdgeQuickCreate({
         {...noAutofill("edge-quick-create-2")}
         value={technology}
         onChange={(e) => setTechnology(e.target.value)}
-        placeholder="REST, gRPC, Kafka..."
+        placeholder="например, REST или Kafka"
         style={input}
       />
 
@@ -65,7 +65,7 @@ export default function EdgeQuickCreate({
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={submit} disabled={saving} style={primaryBtn}>
-          {saving ? "Создание..." : "Создать связь"}
+          {saving ? "Создаём" : "Создать связь"}
         </button>
         <button onClick={onClose} style={secondaryBtn}>Отмена</button>
       </div>

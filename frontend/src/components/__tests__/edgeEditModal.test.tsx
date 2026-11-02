@@ -33,7 +33,7 @@ function renderModal() {
 const del = () => screen.getByRole("button", { name: "Удалить" });
 
 // Окно сначала грузит связь, список связей и имена концов, потом показывает форму. Форма —
-// другой <dialog>, чем окно «Загрузка…», и открывается он эффектом Modal уже после того,
+// другой <dialog>, чем окно «Загрузка», и открывается он эффектом Modal уже после того,
 // как текст формы появился в DOM; закрытый диалог прячет свои роли. Поэтому ждём дешёвый
 // признак — диалог с заголовком формы открыт, — а роли ищем уже синхронно. Прежде тесты
 // ждали findByRole: каждый опрос строит дерево доступности, и под нагрузкой (полный
@@ -109,7 +109,7 @@ describe("EdgeEditModal: подтверждение по Enter", () => {
   it("Enter в поле технологии — как «Готово»: коммит и закрытие", async () => {
     vi.mocked(edgesApi.update).mockResolvedValue({ ...EDGE, technology: "gRPC", version: 2 } as never);
     const { onClose, onChanged } = await openModal();
-    const tech = screen.getByPlaceholderText("REST, gRPC, Kafka…");
+    const tech = screen.getByPlaceholderText("например, REST или Kafka");
 
     await userEvent.clear(tech);
     await userEvent.type(tech, "gRPC{Enter}");
@@ -123,7 +123,7 @@ describe("EdgeEditModal: подтверждение по Enter", () => {
     const { onClose } = await openModal();
     await userEvent.click(del());
 
-    await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka…"), "{Enter}");
+    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "{Enter}");
 
     expect(edgesApi.update).not.toHaveBeenCalled();
     expect(edgesApi.delete).not.toHaveBeenCalled();

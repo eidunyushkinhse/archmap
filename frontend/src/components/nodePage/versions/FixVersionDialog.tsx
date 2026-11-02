@@ -59,7 +59,7 @@ export default function FixVersionDialog({ nodeId, lead, onClose, onDone }: Prop
       {error && <p style={errText} role="alert">{error}</p>}
       <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
         <button type="button" style={primaryBtn} disabled={!canSubmit} onClick={submit}>
-          {busy ? "Фиксация…" : "Зафиксировать"}
+          {busy ? "Фиксируем" : "Зафиксировать"}
         </button>
         <button type="button" style={secondaryBtn} disabled={busy} onClick={onClose}>Отмена</button>
       </div>

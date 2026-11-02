@@ -1,5 +1,5 @@
 // Демо-вход (docs/tasks/demo-mode.md, экран 1 прототипа): все четыре состояния —
-// обычное, «Готовим песочницу…», «слишком много пользователей», «песочница удалена».
+// обычное, «Готовим песочницу», «слишком много пользователей», «песочница удалена».
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -47,13 +47,13 @@ describe("DemoLoginPage", () => {
     expect(screen.queryByLabelText("Пароль")).toBeNull();
   });
 
-  it("старт: кнопка гаснет с «Готовим песочницу…», потом токен и вход", async () => {
+  it("старт: кнопка гаснет с «Готовим песочницу», потом токен и вход", async () => {
     let finish: (t: Token) => void = () => {};
     vi.mocked(startDemo).mockReturnValue(new Promise<Token>((r) => { finish = r; }));
     const onLogin = vi.fn();
     render(<DemoLoginPage onLogin={onLogin} />);
     await userEvent.click(screen.getByRole("button", { name: "Попробовать без регистрации" }));
-    const busy = screen.getByRole("button", { name: "Готовим песочницу…" });
+    const busy = screen.getByRole("button", { name: "Готовим песочницу" });
     expect(busy).toBeDisabled();
     finish(TOKEN);
     await vi.waitFor(() => expect(onLogin).toHaveBeenCalledTimes(1));

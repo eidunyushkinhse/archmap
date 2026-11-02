@@ -257,7 +257,7 @@ export default function PlacementDialog({ objects, sites: initialSites, onClose,
         <button type="button" style={secondaryBtn} onClick={onClose} disabled={busy}>
           Отмена
         </button>
-        {needAll && all.loading && <span className="placement-loading">Загрузка…</span>}
+        {needAll && all.loading && <span className="placement-loading">Загрузка</span>}
       </div>
     </Modal>
   );

@@ -211,7 +211,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
                 value={role}
                 onChange={(e) => patch.setRole(e.target.value)}
                 onBlur={patch.commitRole}
-                placeholder="API, воркер, шлюз…"
+                placeholder="например, API или шлюз"
               />
             </span>
           ) : (
@@ -233,7 +233,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
                 </span>
               ) : (
                 <span className={"insp-value" + (aggTech ? "" : " insp-value--empty")}>
-                  {techLoading ? "…" : aggTech || "не указана"}
+                  {techLoading ? "загрузка" : aggTech || "не указана"}
                 </span>
               )
             ) : isArchitect ? (
@@ -244,7 +244,7 @@ export default function NodeInspector({ node, ancestors, isArchitect, onNodeSave
                   value={technology}
                   onChange={(e) => patch.setTechnology(e.target.value)}
                   onBlur={patch.commitTech}
-                  placeholder="Python, Kafka, Redis…"
+                  placeholder="например, Python"
                 />
               </span>
             ) : (

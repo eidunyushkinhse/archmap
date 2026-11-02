@@ -80,7 +80,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
       </DialogTitle>
 
       {failed && <p style={errorText}>Не удалось посчитать, что изменится. Закройте окно и попробуйте снова.</p>}
-      {!preview && !failed && <p style={hint}>Считаем, что изменится…</p>}
+      {!preview && !failed && <p style={hint}>Считаем, что изменится</p>}
 
       {preview?.is_noop && (
         <p style={{ ...hint, color: "#334155" }}>
@@ -141,7 +141,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
           disabled={!canApply}
           onClick={apply}
         >
-          {applying ? "Применяем…" : "Принять переход"}
+          {applying ? "Применяем" : "Принять переход"}
         </button>
       </div>
     </Modal>

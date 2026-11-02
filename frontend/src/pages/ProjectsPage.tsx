@@ -136,7 +136,7 @@ export default function ProjectsPage({ onOpenProject, onLogout, onOpenUsers }: P
         </div>
 
         {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка…</p>}
+        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
 
         {!loading && filtered.length === 0 ? (
           <EmptyState

@@ -69,7 +69,7 @@ export default function VersionScreen({ nodeId, version, prevNum, base, restore,
         {diff.error ? (
           <LoadError what="изменения версии" error={diff.error} onRetry={diff.reload} />
         ) : diff.data === null ? (
-          <p className="vp-empty vp-note">Загрузка…</p>
+          <p className="vp-empty vp-note">Загрузка</p>
         ) : diff.data.items.length === 0 ? (
           <p className="vp-empty vp-note">{emptyDiffText(version.number, prevNum, base)}</p>
         ) : (
@@ -97,7 +97,7 @@ export default function VersionScreen({ nodeId, version, prevNum, base, restore,
               title={restore.disabled ? "Изменений с этой версии нет — восстанавливать нечего" : undefined}
               onClick={restore.onRestore}
             >
-              {restore.busy ? "Подготовка…" : "Восстановить эту версию"}
+              {restore.busy ? "Готовим" : "Восстановить эту версию"}
             </button>
           )}
           <span className="vp-spacer" />

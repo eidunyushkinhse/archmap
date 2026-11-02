@@ -199,7 +199,7 @@ describe("PlacementDialog", () => {
     expect(check("vm1").indeterminate).toBe(true);
     expect(check("vm2").indeterminate).toBe(true);
     // состав грузится: галочки работают, ждёт только запись
-    expect(screen.getByText("Загрузка…")).toBeInTheDocument();
+    expect(screen.getByText("Загрузка")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Снять размещение" })).toBeDisabled();
     await expand("cloud");
@@ -304,7 +304,7 @@ describe("PlacementDialog", () => {
   it("без систем состав проекта не грузится", () => {
     setup([obj("a", ["k8s"])]);
     expect(nodesApi.getAll).not.toHaveBeenCalled();
-    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(screen.queryByText("Загрузка")).toBeNull();
   });
 
   // ── Единица размещения — контейнер (D33) ──

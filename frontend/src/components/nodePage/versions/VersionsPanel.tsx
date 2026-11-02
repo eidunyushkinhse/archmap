@@ -154,7 +154,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
               <div className="vp-body">
                 {list.error
                   ? <LoadError what="версии" error={list.error} onRetry={list.reload} />
-                  : <p className="vp-empty vp-note">Загрузка…</p>}
+                  : <p className="vp-empty vp-note">Загрузка</p>}
               </div>
             </>
           ) : (
@@ -194,7 +194,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
           title={`Удалить версию ${deleting}?`}
           lead="Остальные номера не меняются"
           confirmLabel="Удалить"
-          busyLabel="Удаление…"
+          busyLabel="Удаляем"
           busy={deleteBusy}
           error={deleteError}
           onConfirm={confirmDelete}
@@ -207,7 +207,7 @@ export default function VersionsPanel({ nodeId, title, canEdit, canDelete, onClo
           title={`Восстановить версию ${restoring.version.number}?`}
           lead={restoreLead(title, restoring.version, restoring.preview)}
           confirmLabel="Восстановить"
-          busyLabel="Восстановление…"
+          busyLabel="Восстанавливаем"
           busy={restoreBusy}
           error={restoreError}
           onConfirm={confirmRestore}

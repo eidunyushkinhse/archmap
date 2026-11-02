@@ -155,7 +155,7 @@ export default function LogicSection({
               />
             </>
           )}
-          {nested !== "system" && loading && <p className="np-empty">Загрузка…</p>}
+          {nested !== "system" && loading && <p className="np-empty">Загрузка</p>}
           {(nested === "system" || !loading) && node.docs.length === 0 && groups.length === 0 && (
             <p className="np-empty">{NESTED_EMPTY[nested]}</p>
           )}

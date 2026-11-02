@@ -273,7 +273,7 @@ export default function CrossLevelEdgePicker({
         {...noAutofill("cross-level-edge-picker-1")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Найти объект…"
+        placeholder="Поиск по имени"
         style={{ ...input, marginBottom: 10 }}
         data-autofocus
       />
@@ -281,7 +281,7 @@ export default function CrossLevelEdgePicker({
       {/* Дерево: по умолчанию только прямые дети корня; при поиске — отфильтровано */}
       <div style={listBox}>
         {allNodes === null ? (
-          <div style={hint}>Загрузка…</div>
+          <div style={hint}>Загрузка</div>
         ) : roots.length === 0 ? (
           <div style={hint}>Нет объектов</div>
         ) : visibleIds && visibleIds.size === 0 ? (
@@ -299,7 +299,7 @@ export default function CrossLevelEdgePicker({
             {...noAutofill("cross-level-edge-picker-2")}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
-            placeholder="запрос, событие…"
+            placeholder="например, запрос или событие"
             style={{ ...input, marginBottom: 0 }}
           />
         </div>
@@ -309,7 +309,7 @@ export default function CrossLevelEdgePicker({
             {...noAutofill("cross-level-edge-picker-3")}
             value={technology}
             onChange={(e) => setTechnology(e.target.value)}
-            placeholder="REST, Kafka…"
+            placeholder="например, REST или Kafka"
             style={{ ...input, marginBottom: 0 }}
           />
         </div>
@@ -323,7 +323,7 @@ export default function CrossLevelEdgePicker({
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={submit} disabled={!canCreate} style={primaryBtn}>
-          {saving ? "Создание…" : "Создать связь"}
+          {saving ? "Создаём" : "Создать связь"}
         </button>
         <button onClick={onClose} style={secondaryBtn}>Отмена</button>
       </div>

@@ -110,7 +110,7 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
         {tokens.error !== null ? (
           <LoadError what="токены" error={tokens.error} onRetry={tokens.reload} />
         ) : tokens.loading && tokens.data === null ? (
-          <p style={muted}>Загрузка…</p>
+          <p style={muted}>Загрузка</p>
         ) : list.length > 0 && (
           <div style={listBox}>
             {list.map((t, i) => (
@@ -169,7 +169,7 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
 
         <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
           <button style={{ ...primaryBtn, opacity: canIssue ? 1 : 0.55 }} disabled={!canIssue} onClick={() => void submit()}>
-            {issue.busy ? "Выпускаем…" : "Выпустить токен"}
+            {issue.busy ? "Выпускаем" : "Выпустить токен"}
           </button>
           <button style={secondaryBtn} onClick={onClose}>Закрыть</button>
         </div>
@@ -182,7 +182,7 @@ export default function AgentTokensDialog({ readOnlyOnly, onClose }: Props) {
           lead="Агент с этим токеном сразу потеряет доступ."
           error={revokeError}
           confirmLabel="Отозвать"
-          busyLabel="Отзываем…"
+          busyLabel="Отзываем"
           busy={revokeBusy}
           onConfirm={() => void confirmRevoke()}
           onCancel={() => setRevoking(null)}

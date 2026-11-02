@@ -216,7 +216,7 @@ export default function NodeTreePanel(props: Props) {
                   {...noAutofill("node-tree-panel-1")}
                   style={searchInput}
                   type="text"
-                  placeholder="Поиск по имени…"
+                  placeholder="Поиск по имени"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -230,7 +230,7 @@ export default function NodeTreePanel(props: Props) {
             <div ref={treeScrollRef} data-tour="tree" style={{ ...treeList, flex: 1, minHeight: 0, overflowY: "auto" }}>
               {searchResults !== null ? (
                 searching ? (
-                  <div style={hint}>Поиск…</div>
+                  <div style={hint}>Ищем</div>
                 ) : searchResults.length === 0 ? (
                   <div style={hint}>Ничего не найдено</div>
                 ) : (
@@ -254,7 +254,7 @@ export default function NodeTreePanel(props: Props) {
                   ))
                 )
               ) : loadingRoots ? (
-                <div style={hint}>Загрузка…</div>
+                <div style={hint}>Загрузка</div>
               ) : shownRoots.length === 0 ? (
                 <div style={hint}>Нет объектов</div>
               ) : (

@@ -123,7 +123,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
                     переносы автора уважает и плашка на схеме (wrapLabel по \n) */}
                 <textarea {...noAutofill("edge-inspector-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
                   onChange={(e) => setLabelText(e.target.value)}
-                  onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
+                  onBlur={() => void commit({ label: labelText })} placeholder="например, запрос или событие" />
               </span>
             ) : (
               <span className="insp-value insp-value--pre">{labelText}</span>
@@ -151,7 +151,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
             {isArchitect ? (
               <span className="insp-value">
                 <input {...noAutofill("edge-inspector-3")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
-                  onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
+                  onBlur={() => void commit({ technology })} placeholder="например, REST или Kafka" />
               </span>
             ) : (
               <span className="insp-value">{technology}</span>
@@ -164,7 +164,7 @@ export default function EdgeInspector({ edge, isArchitect, onEdgeSaved, onEdgeDe
 
       {isArchitect && (
         <button type="button" className="insp-del" onClick={handleDelete} disabled={deleting}>
-          {META_ICON.trash} {deleting ? "Удаление…" : "Удалить связь"}
+          {META_ICON.trash} {deleting ? "Удаляем" : "Удалить связь"}
         </button>
       )}
     </div>

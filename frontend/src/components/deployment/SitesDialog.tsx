@@ -127,7 +127,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
         {list.error ? (
           <LoadError what="площадки" error={list.error} onRetry={list.reload} />
         ) : list.loading ? (
-          <p className="site-tree-empty">Загрузка…</p>
+          <p className="site-tree-empty">Загрузка</p>
         ) : (
           <SiteTree
             sites={sites}

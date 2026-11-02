@@ -299,7 +299,7 @@ export default function FlowchartDocs({
   // ── тело ──
   let body: ReactNode;
   if (docs === null) {
-    body = <div className="doc-pvnote" style={{ margin: "auto" }}>Загрузка схем…</div>;
+    body = <div className="doc-pvnote" style={{ margin: "auto" }}>Загрузка</div>;
   } else if (stage === "manual" && form && isArchitect) {
     body = (
       <div className="doc-flowwrap">

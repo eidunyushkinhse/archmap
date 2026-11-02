@@ -91,13 +91,13 @@ describe("LoginPage", () => {
     expect(screen.getByRole("button", { name: "Показать пароль" })).toBeInTheDocument();
   });
 
-  it("во время запроса кнопка неактивна и пишет «Входим…»", async () => {
+  it("во время запроса кнопка неактивна и пишет «Входим»", async () => {
     let resolve: (t: Token) => void = () => {};
     vi.mocked(login).mockImplementation(() => new Promise<Token>((r) => { resolve = r; }));
     const onLogin = vi.fn();
     render(<LoginPage onLogin={onLogin} />);
     const user = await fillAndSubmit();
-    const busy = screen.getByRole("button", { name: "Входим…" });
+    const busy = screen.getByRole("button", { name: "Входим" });
     expect(busy).toBeDisabled();
     await user.click(busy); // повторный клик по неактивной кнопке запроса не шлёт
     expect(login).toHaveBeenCalledTimes(1);

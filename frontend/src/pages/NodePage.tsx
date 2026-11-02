@@ -100,7 +100,7 @@ async function loadNodePage(id: string): Promise<{ node: Node; ancestors: Ancest
 }
 
 export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNavigateProject, onNavigateMap, onNavigateProcesses, onNodeDeleted }: Props) {
-  // Отказ (404 — узел удалили, 403, сеть) — экран с причиной, а не вечная «Загрузка…»
+  // Отказ (404 — узел удалили, 403, сеть) — экран с причиной, а не вечная «Загрузка»
   // (аудит R-2).
   const page = useAsyncLoad(nodeId, () => loadNodePage(nodeId));
 
@@ -110,7 +110,7 @@ export default function NodePage({ nodeId, isArchitect, onNavigateNode, onNaviga
     );
   }
   if (!page.data) {
-    return <div className="np-loading">Загрузка…</div>;
+    return <div className="np-loading">Загрузка</div>;
   }
   const { node, ancestors, edges } = page.data;
 

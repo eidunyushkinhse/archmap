@@ -101,7 +101,7 @@ export default function BrokerChannelsSection({ nodeId, nodeName, isArchitect }:
     return (
       <div className="np-card">
         <h3 className="np-card-title">Каналы</h3>
-        <p className="np-empty">Загрузка…</p>
+        <p className="np-empty">Загрузка</p>
       </div>
     );
   }

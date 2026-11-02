@@ -112,7 +112,7 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
         </div>
 
         {error && <p style={{ color: "#dc2626", fontSize: 14 }}>{error}</p>}
-        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка…</p>}
+        {loading && <p style={{ color: "#64748b", fontSize: 14 }}>Загрузка</p>}
 
         {!loading && users.length > 0 && (
           <div style={tableBox}>
@@ -231,7 +231,7 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
           title={`Заблокировать «${dialog.user.username}»?`}
           lead="Пользователь не сможет войти, открытые сессии закроются. Разблокировать можно в любой момент."
           confirmLabel="Заблокировать"
-          busyLabel="Блокировка…"
+          busyLabel="Блокируем"
           busy={busy}
           error={dialogError}
           onConfirm={() => void confirmDialog()}
@@ -243,7 +243,7 @@ export default function UsersPage({ onAllProjects, onLogout }: Props) {
           title={`Снять права администратора с «${dialog.user.username}»?`}
           lead="Пользователь больше не сможет управлять учётными записями. Роль останется прежней."
           confirmLabel="Снять"
-          busyLabel="Сохранение…"
+          busyLabel="Снимаем"
           busy={busy}
           error={dialogError}
           onConfirm={() => void confirmDialog()}

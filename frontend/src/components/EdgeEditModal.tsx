@@ -73,7 +73,7 @@ export default function EdgeEditModal({ edgeId, onClose, onChanged }: Props) {
   if (!data) {
     return (
       <Modal onClose={onClose} boxStyle={{ width: 480 }}>
-        <div style={failText}>Загрузка…</div>
+        <div style={failText}>Загрузка</div>
       </Modal>
     );
   }
@@ -169,13 +169,13 @@ function EdgeEditForm({ data, onClose, onChanged }: {
           <span className="insp-value">
             <textarea {...noAutofill("edge-edit-modal-1")} className="insp-field insp-fieldarea" value={labelText} maxLength={256}
               onChange={(e) => setLabelText(e.target.value)}
-              onBlur={() => void commit({ label: labelText })} placeholder="запрос, событие…" />
+              onBlur={() => void commit({ label: labelText })} placeholder="например, запрос или событие" />
           </span>
         </MetaRow>
         <MetaRow icon={META_ICON.tech} label="Технология">
           <span className="insp-value">
             <input {...noAutofill("edge-edit-modal-2")} className="insp-field" value={technology} onChange={(e) => setTechnology(e.target.value)}
-              onBlur={() => void commit({ technology })} placeholder="REST, gRPC, Kafka…" />
+              onBlur={() => void commit({ technology })} placeholder="например, REST или Kafka" />
           </span>
         </MetaRow>
       </dl>
@@ -191,7 +191,7 @@ function EdgeEditForm({ data, onClose, onChanged }: {
           </p>
           <div style={footRow}>
             <button type="button" onClick={handleDelete} disabled={deleting} style={dangerBtn}>
-              {deleting ? "Удаление…" : "Удалить"}
+              {deleting ? "Удаляем" : "Удалить"}
             </button>
             <button type="button" onClick={() => setConfirmDel(false)} style={secondaryBtn}>Отмена</button>
           </div>

@@ -26,7 +26,7 @@ type Client = "cli" | "desktop";
 const CLI_STUB = "<cli>";
 
 const CLIENTS: { id: Client; label: string; hint: string }[] = [
-  { id: "cli", label: "CLI", hint: `Вместо ${CLI_STUB} — claude, qwen, gigacode…` },
+  { id: "cli", label: "CLI", hint: `Вместо ${CLI_STUB} подставьте свою программу, например claude, qwen или gigacode` },
   { id: "desktop", label: "Desktop", hint: "В файл настроек MCP приложения" },
 ];
 

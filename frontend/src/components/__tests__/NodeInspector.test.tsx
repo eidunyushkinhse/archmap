@@ -271,7 +271,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     const [, payload] = vi.mocked(nodesApi.update).mock.calls[0];
     expect(payload).toMatchObject({ name: "Hosts", base_version: 3, shape: "person", status: "existing" });
 
-    await userEvent.type(screen.getByPlaceholderText("API, воркер, шлюз…"), "агент");
+    await userEvent.type(screen.getByPlaceholderText("например, API или шлюз"), "агент");
     await userEvent.tab();
     await waitFor(() => expect(cb.onNodeSaved).toHaveBeenCalledWith(second, false, first));
     expect(vi.mocked(nodesApi.update).mock.calls[1][1]).toMatchObject({ role: "агент", base_version: 4 });
@@ -291,7 +291,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     vi.mocked(nodesApi.get).mockResolvedValue(makeNode({ role: "чужая роль", version: 7 }));
     setup(makeNode());
 
-    await userEvent.type(screen.getByPlaceholderText("API, воркер, шлюз…"), "моя роль");
+    await userEvent.type(screen.getByPlaceholderText("например, API или шлюз"), "моя роль");
     await userEvent.tab();
 
     expect(await screen.findByText(/только что изменили в другом окне/)).toBeInTheDocument();

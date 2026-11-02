@@ -30,6 +30,6 @@ export default function ProjectAccessGate({ projectId, children }: Props) {
 
   // Пока роль грузится — та же заглушка, что у страниц: пустой экран между проектами
   // выглядел как зависание (аудит R-27).
-  if (role === undefined) return <div className="np-loading">Загрузка…</div>;
+  if (role === undefined) return <div className="np-loading">Загрузка</div>;
   return <ProjectRoleContext.Provider value={role}>{children}</ProjectRoleContext.Provider>;
 }

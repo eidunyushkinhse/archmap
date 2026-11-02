@@ -172,7 +172,7 @@ export default function NodeProperties({
               value={patch.role}
               onChange={(e) => patch.setRole(e.target.value)}
               onBlur={patch.commitRole}
-              placeholder="API, воркер, шлюз…"
+              placeholder="например, API или шлюз"
             />
           ) : (
             node.role || <span className="np-value--empty">не указана</span>
@@ -188,7 +188,7 @@ export default function NodeProperties({
                 // Система сама не запускается: её технология — уникальные технологии
                 // потомков, только чтение (Р15; у контейнера технология своя).
                 techLoading ? (
-                  <span className="np-value--empty">загрузка…</span>
+                  <span className="np-value--empty">загрузка</span>
                 ) : aggTech !== "" ? (
                   aggTech
                 ) : (
@@ -201,7 +201,7 @@ export default function NodeProperties({
                   value={patch.technology}
                   onChange={(e) => patch.setTechnology(e.target.value)}
                   onBlur={patch.commitTech}
-                  placeholder="Python, Kafka, Redis…"
+                  placeholder="например, Python"
                 />
               ) : (
                 node.technology || <span className="np-value--empty">не указана</span>

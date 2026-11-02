@@ -156,6 +156,6 @@ describe("NodeProperties: строка «Тип»", () => {
 
   it("поле «Роль» подсказывает роли, а не формы", () => {
     setup();
-    expect(screen.getByPlaceholderText("API, воркер, шлюз…")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("например, API или шлюз")).toBeInTheDocument();
   });
 });

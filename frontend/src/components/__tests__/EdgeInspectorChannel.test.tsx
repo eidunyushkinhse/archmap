@@ -159,7 +159,7 @@ describe("EdgeInspector: канал связи", () => {
     setup(edge({ channel: "orders.created" }));
     await screen.findByText("Канал");
 
-    await userEvent.type(screen.getByPlaceholderText("REST, gRPC, Kafka…"), "Kafka");
+    await userEvent.type(screen.getByPlaceholderText("например, REST или Kafka"), "Kafka");
     await userEvent.tab();
 
     await waitFor(() => expect(edgesApi.update).toHaveBeenCalledOnce());

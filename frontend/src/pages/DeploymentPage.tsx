@@ -370,7 +370,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
                   Весь проект
                 </button>
                 <span className="dp-path-sep" aria-hidden>›</span>
-                <span className="dp-path-current">{path || "…"}</span>
+                <span className="dp-path-current">{path || "Загрузка"}</span>
               </>
             )}
           </nav>
@@ -428,7 +428,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
           {dep.error ? (
             <LoadError what="схему развёртывания" error={dep.error} onRetry={dep.retry} />
           ) : dep.loading || !dep.graph || !proj || !projection ? (
-            <div className="dp-note">Загрузка…</div>
+            <div className="dp-note">Загрузка</div>
           ) : !hasObjects ? (
             <div className="dp-note">Нет объектов для размещения</div>
           ) : (
@@ -502,7 +502,7 @@ export default function DeploymentPage({ isArchitect, level, onNavigateLevel, on
             lead={placingMode.confirm.siteId ? PLACE_LEAD : UNPLACE_LEAD}
             error={placingMode.confirmError}
             confirmLabel={placingMode.confirm.siteId ? "Разместить" : "Снять"}
-            busyLabel={placingMode.confirm.siteId ? "Размещение…" : "Снятие…"}
+            busyLabel={placingMode.confirm.siteId ? "Размещаем" : "Снимаем"}
             busy={placingMode.busy}
             onConfirm={() => { void placingMode.confirmPlace(); }}
             onCancel={placingMode.cancelConfirm}

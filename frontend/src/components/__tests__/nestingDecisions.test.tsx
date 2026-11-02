@@ -168,7 +168,7 @@ describe("пикер конца связи (NodeSearchPicker)", () => {
   it("глиф группы — только у сервиса с детьми", async () => {
     vi.mocked(nodesApi.search).mockResolvedValue([group(), leaf(), dbWithKids()]);
     render(<NodeSearchPicker value="" onChange={vi.fn()} />);
-    fireEvent.change(screen.getByPlaceholderText("Поиск по имени..."), { target: { value: "а" } });
+    fireEvent.change(screen.getByPlaceholderText("Поиск по имени"), { target: { value: "а" } });
     await act(async () => { await vi.advanceTimersByTimeAsync(300); });
     const item = (name: string) => screen.getByText(name).parentElement;
     expect(glyphKind(item("Ядро"))).toBe("group");
@@ -211,12 +211,12 @@ describe("инспектор узла (NodeInspector): технология", ()
     render(<NodeInspector node={group()} isArchitect {...cb} />);
     expect(await screen.findByText("Go")).toBeInTheDocument();
     expect(nodesApi.getDescendants).toHaveBeenCalledWith("Ядро");
-    expect(screen.queryByPlaceholderText("Python, Kafka, Redis…")).toBeNull();
+    expect(screen.queryByPlaceholderText("например, Python")).toBeNull();
   });
 
   it("база с детьми — своя технология полем, потомков не запрашивает", () => {
     render(<NodeInspector node={dbWithKids()} isArchitect {...cb} />);
-    expect(screen.getByPlaceholderText("Python, Kafka, Redis…")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("например, Python")).toBeInTheDocument();
     expect(nodesApi.getDescendants).not.toHaveBeenCalled();
   });
 });

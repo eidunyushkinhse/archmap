@@ -98,7 +98,7 @@ export default function DbStructureSection({ nodeId, nodeName, isArchitect }: Pr
     return (
       <div className="np-card">
         <h3 className="np-card-title">Структура</h3>
-        <p className="np-empty">Загрузка…</p>
+        <p className="np-empty">Загрузка</p>
       </div>
     );
   }

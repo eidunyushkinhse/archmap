@@ -140,7 +140,7 @@ describe("ApprovalPill", () => {
     const pill = screen.getByRole("button", { name: /В работе/ });
     expect(pill.textContent).not.toContain("из");
     fireEvent.click(pill);
-    expect(screen.getByText("Загрузка…")).toBeTruthy();
+    expect(screen.getByText("Загрузка")).toBeTruthy();
   });
 
   it("система без единиц (пустая система) — без счётчика «0 из 0», в выпадашке «нечего»", () => {
@@ -149,7 +149,7 @@ describe("ApprovalPill", () => {
     expect(pill.textContent).not.toContain("из");
     fireEvent.click(pill);
     expect(screen.getByText("Согласовывать пока нечего")).toBeTruthy();
-    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(screen.queryByText("Загрузка")).toBeNull();
   });
 
   it("Escape и клик мимо закрывают выпадашку", () => {

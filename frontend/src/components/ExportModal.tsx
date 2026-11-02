@@ -69,7 +69,7 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
     <Modal onClose={onClose} boxStyle={boxStyle}>
       <h2 style={heading}>{title}</h2>
 
-      {loading && <div style={statusBox}>Готовим экспорт…</div>}
+      {loading && <div style={statusBox}>Готовим экспорт</div>}
       {error && <div style={{ ...statusBox, color: "#dc2626" }}>{error}</div>}
       {content !== null && <pre style={pre}>{content}</pre>}
 

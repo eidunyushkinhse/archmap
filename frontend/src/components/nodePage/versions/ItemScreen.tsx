@@ -52,7 +52,7 @@ export default function ItemScreen({ nodeId, num, base, item, labels, onBack }: 
         ) : (
           <div className="vp-item">
             {detail.data === null
-              ? <p className="vp-empty">Загрузка…</p>
+              ? <p className="vp-empty">Загрузка</p>
               : <VersionViewBlock view={detail.data[view]} />}
           </div>
         )}

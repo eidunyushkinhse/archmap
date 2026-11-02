@@ -95,7 +95,7 @@ export default function LoginPage({ onLogin, notice = null }: Props) {
               )}
             </div>
             <button type="submit" className="login-btn" disabled={busy}>
-              {busy ? "Входим…" : "Войти"}
+              {busy ? "Входим" : "Войти"}
             </button>
           </form>
           <div className="login-hint">Нет учётной записи? Попросите администратора её завести.</div>

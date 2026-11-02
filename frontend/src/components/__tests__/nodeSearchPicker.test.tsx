@@ -21,7 +21,7 @@ describe("NodeSearchPicker", () => {
       .mockImplementationOnce(() => new Promise((r) => { ответПрежнего = r; }))
       .mockResolvedValueOnce([node("n2", "Заказы")]);
     render(<NodeSearchPicker value="" onChange={vi.fn()} />);
-    const поле = screen.getByPlaceholderText("Поиск по имени...");
+    const поле = screen.getByPlaceholderText("Поиск по имени");
 
     fireEvent.change(поле, { target: { value: "Зак" } });
     await act(async () => { await vi.advanceTimersByTimeAsync(300); }); // ушёл первый запрос

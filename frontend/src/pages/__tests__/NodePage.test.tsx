@@ -1572,7 +1572,7 @@ describe("NodePage: контейнер компонента и пилюля си
     const pill = await screen.findByRole("button", { name: /В работе · 1 из 1/ }, ждать);
     await userEvent.click(pill);
     expect(screen.getByText("Согласовано 1 из 1")).toBeInTheDocument();
-    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(screen.queryByText("Загрузка")).toBeNull();
   });
 
   it("пустая система — «Согласовывать пока нечего», потомков не запрашивает", async () => {
@@ -1582,7 +1582,7 @@ describe("NodePage: контейнер компонента и пилюля си
     const pill = await screen.findByRole("button", { name: "В работе" }, ждать);
     await userEvent.click(pill);
     expect(screen.getByText("Согласовывать пока нечего")).toBeInTheDocument();
-    expect(screen.queryByText("Загрузка…")).toBeNull();
+    expect(screen.queryByText("Загрузка")).toBeNull();
     expect(nodesApi.getDescendants).not.toHaveBeenCalled();
   });
 });

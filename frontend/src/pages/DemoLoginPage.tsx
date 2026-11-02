@@ -67,7 +67,7 @@ export default function DemoLoginPage({ onLogin, notice = null }: Props) {
               onClick={() => void handleStart()}
             >
               {busy && <span className="demo-spin" aria-hidden />}
-              {busy ? "Готовим песочницу…" : "Попробовать без регистрации"}
+              {busy ? "Готовим песочницу" : "Попробовать без регистрации"}
             </button>
             <a
               className="demo-btn demo-btn--secondary"

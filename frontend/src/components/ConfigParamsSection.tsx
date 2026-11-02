@@ -94,7 +94,7 @@ export default function ConfigParamsSection({
   };
 
   // Форме конфигурация не положена и записей нет — секции не существует. Пока список
-  // не приехал, тоже молчим: пустая карточка «Загрузка…» у КАЖДОЙ базы и брокера была
+  // не приехал, тоже молчим: пустая карточка «Загрузка» у КАЖДОЙ базы и брокера была
   // бы шумом ради случая, которого почти не бывает.
   const empty = (params ?? []).length === 0;
   if (!allowed && empty) return null;
@@ -106,7 +106,7 @@ export default function ConfigParamsSection({
     return (
       <div className="np-card">
         <h3 className="np-card-title">Конфигурация</h3>
-        <p className="np-empty">Загрузка…</p>
+        <p className="np-empty">Загрузка</p>
       </div>
     );
   }

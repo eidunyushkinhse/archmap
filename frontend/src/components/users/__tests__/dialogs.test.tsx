@@ -99,7 +99,7 @@ describe("NewUserDialog", () => {
     });
     await waitFor(() => expect(onCreated).toHaveBeenCalledWith(created));
     // окно закрывает родитель — до тех пор кнопка не оживает (второй щелчок не повторит запрос)
-    expect(screen.getByRole("button", { name: "Создание…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Создаём" })).toBeDisabled();
   });
 
   it("администратор — всегда архитектор: роль подставлена и закрыта", async () => {
@@ -145,7 +145,7 @@ describe("ResetPasswordDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "Сбросить" }));
     expect(adminApi.resetPassword).toHaveBeenCalledWith("u-ivan", "reset-pass-1");
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Сохранение…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Сохраняем" })).toBeDisabled();
   });
 
   it("короткий пароль: текст бэка в окне", async () => {

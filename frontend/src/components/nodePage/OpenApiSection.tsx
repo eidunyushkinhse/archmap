@@ -165,7 +165,7 @@ export default function OpenApiSection({
               Собрать с компонентов
             </button>
           )}
-          {loading && <p className="np-empty">Загрузка…</p>}
+          {loading && <p className="np-empty">Загрузка</p>}
         </>
       )}
     </div>

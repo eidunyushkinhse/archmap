@@ -67,7 +67,7 @@ export default function NodeSearchPicker({
         {...noAutofill("node-search-picker-1")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Поиск по имени..."
+        placeholder="Поиск по имени"
         style={input}
         autoFocus
       />

@@ -172,7 +172,7 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
           <button type="button" style={retryBtn} onClick={place.reload}>Повторить</button>
         </div>
       ) : place.loading ? (
-        <div style={{ ...input, color: "#94a3b8" }}>Загрузка…</div>
+        <div style={{ ...input, color: "#94a3b8" }}>Загрузка</div>
       ) : (
         <div style={typeField}>
           <TypeSelect
@@ -194,12 +194,12 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
       <textarea {...noAutofill("node-modal-2")} value={description} onChange={(e) => setDescription(e.target.value)} style={textarea} rows={2} />
 
       <label style={labelStyle}>Роль</label>
-      <input {...noAutofill("node-modal-3")} value={role} onChange={(e) => setRole(e.target.value)} placeholder="API, воркер, шлюз…" style={input} />
+      <input {...noAutofill("node-modal-3")} value={role} onChange={(e) => setRole(e.target.value)} placeholder="например, API или шлюз" style={input} />
 
       {!isPerson && (
         <>
           <label style={labelStyle}>Технология</label>
-          <input {...noAutofill("node-modal-4")} value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="Python, Kafka, Redis..." style={input} />
+          <input {...noAutofill("node-modal-4")} value={technology} onChange={(e) => setTechnology(e.target.value)} placeholder="например, Python" style={input} />
 
           <label style={toggleRow}>
             <input type="checkbox" checked={isExternal} onChange={(e) => setIsExternal(e.target.checked)} style={{ marginRight: 8, cursor: "pointer" }} />
@@ -236,7 +236,7 @@ export default function NodeModal({ parentId, type: templateType, initialPos, po
         <div style={{ display: "flex", gap: 8 }}>
           {/* Без типа объект не создаётся (Р36): кнопка ждёт выбора. */}
           <button onClick={handleSave} disabled={saving || !type} style={primaryBtn}>
-            {saving ? "Сохранение..." : "Создать"}
+            {saving ? "Создаём" : "Создать"}
           </button>
         </div>
       </div>

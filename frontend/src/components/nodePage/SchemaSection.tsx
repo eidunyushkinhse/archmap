@@ -174,7 +174,7 @@ export default function SchemaSection({
   // рендере со старым viewLayout, вызывая визуальный откат узла при отпускании драга.
   const edges = useMemo(() => (view ? toLevelEdges(view) : []), [view]);
 
-  if (loading) return <p className="np-empty">Загрузка схемы…</p>;
+  if (loading) return <p className="np-empty">Загрузка</p>;
   if (!view) {
     if (failure === null) return null;
     return (

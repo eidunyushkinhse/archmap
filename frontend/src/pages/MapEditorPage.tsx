@@ -1006,7 +1006,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           </div>
           <DemoLimitToast message={limitToast} />
           {loading ? (
-            <p style={{ color: "#6b7280", padding: 24 }}>Загрузка...</p>
+            <p style={{ color: "#6b7280", padding: 24 }}>Загрузка</p>
           ) : loadError ? (
             <LoadError what="уровень схемы" error={loadError.error} onRetry={retryLoad}
               onBack={onDone} backLabel="Закрыть редактор" />
@@ -1112,14 +1112,14 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
           subtitle={`Выберите объект внутри «${intoPicker.containerName}», к которому ведёт связь.`}
           sourceId={intoPicker.sourceId} sourceLabel={intoPicker.sourceName ?? findNodeLabel(intoPicker.sourceId)}
           loadNodes={() => nodesApi.getDescendants(intoPicker.containerId)} scopeKey={intoPicker.containerId}
-          rootParentId={intoPicker.containerId} slotPlaceholder={`Объект внутри «${intoPicker.containerName}»…`}
+          rootParentId={intoPicker.containerId} slotPlaceholder={`Объект внутри «${intoPicker.containerName}»`}
           onClose={() => setIntoPicker(null)}
           onCreated={(created) => { setIntoPicker(null); load(currentParentId); pushEdgeCreate(created); }} />
       )}
       {outPicker && (
         <CrossLevelEdgePicker title="Связь с объектом вне уровня"
           sourceId={outPicker.sourceId} sourceLabel={outPicker.sourceName ?? findNodeLabel(outPicker.sourceId)}
-          loadNodes={() => nodesApi.getAll()} scopeKey="all" rootParentId={null} slotPlaceholder="Объект вне уровня…"
+          loadNodes={() => nodesApi.getAll()} scopeKey="all" rootParentId={null} slotPlaceholder="Объект вне уровня"
           excludeIds={outExcludeIds}
           onClose={() => setOutPicker(null)}
           onCreated={(created) => { setOutPicker(null); load(currentParentId); pushEdgeCreate(created); }} />

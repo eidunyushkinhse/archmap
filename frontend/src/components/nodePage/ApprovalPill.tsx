@@ -83,7 +83,7 @@ export default function ApprovalPill({ node, isArchitect, units, onNavigateNode,
           <div className="np-approval-menu">
             {isSystem ? (
               units === null ? (
-                <div className="np-approval-head">Загрузка…</div>
+                <div className="np-approval-head">Загрузка</div>
               ) : units.length === 0 ? (
                 <div className="np-approval-head">Согласовывать пока нечего</div>
               ) : (

@@ -34,7 +34,7 @@ interface Props {
 
 export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode, onNavigateMap, onNavigateProcesses }: Props) {
   // Мета проекта + процессы (граф уровня грузит useLevelSchema). Отказ — экран с
-  // причиной и повтором, а не вечная «Загрузка…» (аудит R-2).
+  // причиной и повтором, а не вечная «Загрузка» (аудит R-2).
   const meta = useAsyncLoad(projectId, () => Promise.all([projectsApi.get(projectId), processesApi.list()]));
   const [schemaView, setSchemaView] = useState<SchemaView>(readSchemaView);
   const lvl = useLevelSchema({ containerId: null });
@@ -107,7 +107,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
     );
   }
   if (!meta.data || lvl.loading) {
-    return <div className="np-loading">Загрузка…</div>;
+    return <div className="np-loading">Загрузка</div>;
   }
   const [project, processes] = meta.data;
 
