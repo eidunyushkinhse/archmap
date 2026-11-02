@@ -323,9 +323,9 @@ describe("тур — свой проект", () => {
     expect(stepTexts(STEPS.connect, vars).action)
       .toBe("Потяните стрелку от объекта «Банк» и отпустите на объекте «Платёжный шлюз».");
     expect(stepTexts(STEPS["enter-system"], vars).action).toBe("Нажмите «Войти» на системе «Платёжный шлюз».");
-    expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» в рамку «Платёжный шлюз».");
+    expect(stepTexts(STEPS["add-child"], vars).action).toBe("Перетащите «Контейнер» внутрь раскрытой системы «Платёжный шлюз».");
     expect(stepTexts(STEPS.rehang, vars).body.startsWith("Внутри системы «Платёжный шлюз» появился контейнер.")).toBe(true);
-    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с рамки на объект «Касса».");
+    expect(stepTexts(STEPS.rehang, vars).action).toBe("Потяните конец стрелки с системы на объект «Касса».");
     expect(stepTexts(STEPS["go-up"], vars).body)
       .toBe("Связь теперь ведёт прямо к контейнеру «Касса». Посмотрим, как это выглядит на диаграмме контекста.");
     // абзац курсивом есть только у приветствия
