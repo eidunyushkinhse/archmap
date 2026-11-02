@@ -26,10 +26,10 @@ describe("RelayoutConfirm", () => {
     expect(screen.getByText("Переразложить уровень «Ярмарка»?")).toBeInTheDocument();
     // Пояснение — словами элемента архитектуры: раскрытыми бывают системы и контейнеры.
     expect(screen.getByText(/Раскрытые системы и контейнеры останутся раскрытыми, их содержимое разложится заново/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Да, переразложить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
     expect(nodesApi.relayoutLevel).toHaveBeenCalledWith("n1");
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("button", { name: "Сброс..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Расставляем" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Отмена" })).toBeDisabled();
   });
 
@@ -38,10 +38,10 @@ describe("RelayoutConfirm", () => {
     const onDone = vi.fn();
     render(<RelayoutConfirm containerId={null} onCancel={vi.fn()} onDone={onDone} />);
     expect(screen.getByText("Переразложить уровень корневой схемы?")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Да, переразложить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Переразложить" }));
     expect(nodesApi.relayoutLevel).toHaveBeenCalledWith(null);
     expect(await screen.findByText("Нет связи")).toBeInTheDocument();
     expect(onDone).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Да, переразложить" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Переразложить" })).toBeEnabled();
   });
 });

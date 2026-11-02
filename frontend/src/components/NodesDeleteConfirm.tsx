@@ -46,9 +46,8 @@ export default function NodesDeleteConfirm({ nodes, onCancel, onDeleted }: Props
       title={`Удалить ${nodes.length} ${plural(nodes.length, ["объект", "объекта", "объектов"])}?`}
       lead="Будут удалены вместе со своими дочерними объектами и связями:"
       error={error}
-      confirmLabel="Да, удалить"
-      busyLabel="Удаление..."
-      cancelLabel="Нет"
+      confirmLabel="Удалить"
+      busyLabel="Удаляем"
       busy={deleting}
       onConfirm={confirmDelete}
       onCancel={onCancel}

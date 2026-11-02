@@ -107,12 +107,11 @@ export default function NodeDeleteConfirm({ node, onCancel, onDeleted }: Props) 
 
   return (
     <ConfirmDialog
-      title={`Вы уверены, что хотите удалить «${node.name}»?`}
+      title={`Удалить «${node.name}»?`}
       lead={lead}
       error={error}
-      confirmLabel="Да, удалить"
-      busyLabel="Удаление..."
-      cancelLabel="Нет"
+      confirmLabel="Удалить"
+      busyLabel="Удаляем"
       busy={deleting}
       onConfirm={() => { if (snapshot) void confirmDelete(snapshot); }}
       onCancel={onCancel}

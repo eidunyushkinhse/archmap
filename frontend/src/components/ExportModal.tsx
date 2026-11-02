@@ -76,10 +76,11 @@ export default function ExportModal({ title, loadKey, load, onClose }: Props) {
       <div style={footer}>
         {/* «Скачать архив» переехал в меню «Действия со схемой» (П1 приёмки
             2026-09-02): в модалке экспорта СХЕМЫ он читался как «что-то в zip». */}
-        <button onClick={onClose} style={secondaryBtn}>Закрыть</button>
+        {/* Главная кнопка слева, «Закрыть» справа: правило окон. */}
         <button onClick={copy} style={primaryBtn} disabled={!content}>
           {copied ? "Скопировано ✓" : "Скопировать"}
         </button>
+        <button onClick={onClose} style={secondaryBtn}>Закрыть</button>
       </div>
     </Modal>
   );

@@ -54,7 +54,7 @@ describe("NodeDeleteConfirm", () => {
     expect(line.textContent).toContain("2 таблицы БД, в них 3 колонки");
     expect(nodesApi.delete).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByText("Да, удалить"));
+    await userEvent.click(screen.getByRole("button", { name: "Удалить" }));
     await waitFor(() => expect(nodesApi.delete).toHaveBeenCalledWith("n1"));
     // В историю уходит ТОТ ЖЕ снимок, что показали: вернётся ровно показанное.
     expect(onDeleted).toHaveBeenCalledWith("n1", snap);
@@ -67,7 +67,7 @@ describe("NodeDeleteConfirm", () => {
     render(<NodeDeleteConfirm node={node()} onCancel={() => {}} onDeleted={onDeleted} />);
 
     await waitFor(() => expect(nodesApi.delete).toHaveBeenCalledWith("n1"));
-    expect(screen.queryByText("Да, удалить")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Удалить" })).toBeNull();
     expect(onDeleted).toHaveBeenCalled();
   });
 });
