@@ -408,7 +408,7 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     </div>
                   </div>
                 </div>
-                <p style={blurbStyle}>Точная копия схемы «{source.name}» со всеми объектами и связями.</p>
+                <p style={blurbStyle}>Точная копия проекта «{source.name}» со всеми объектами и связями.</p>
               </>
             )}
 
