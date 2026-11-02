@@ -159,9 +159,9 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
   // слабая модель отвечает ампутацией, вырезая строки, на которые жалуется валидатор.
   function copyRemarks() {
     const text =
-      "Валидатор списка операций ArchMap нашёл замечания. " +
+      "ArchMap проверил список операций и нашёл замечания. " +
       "Исправь файл и сообщи, что изменилось. Строки чини по замечаниям, " +
-      "а не удаляй из перечня:\n" +
+      "а не удаляй из списка:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {
       flashRemarksCopied();

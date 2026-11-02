@@ -106,7 +106,7 @@ describe("ChannelsAgentModal", () => {
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const текст = writeText.mock.calls[0][0];
-    expect(текст).toContain("Валидатор дозаливки каналов ArchMap нашёл замечания");
+    expect(текст).toContain("ArchMap проверил файлы каналов и нашёл замечания");
     expect(текст).toContain(w);
     // «Чини, а не удаляй»: на голое «исправь» слабая модель отвечает ампутацией —
     // вырезает записи, на которые жалуется валидатор (docs/qa-sentry-brokers.md, №2).

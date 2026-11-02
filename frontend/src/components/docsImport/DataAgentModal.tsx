@@ -41,7 +41,7 @@ const DATA: FactAgentKind<DataImportReport> = {
     </>
   ),
   overwriteNote: <>По умолчанию уже описанное не меняется, новые файлы только добавляют недостающее.</>,
-  remarksFamily: "данных",
+  remarksFamily: "структуры",
   remarksItems: "Записи",
   autofillKey: "data-agent-modal-1",
   count: (r) => r.tables.length,

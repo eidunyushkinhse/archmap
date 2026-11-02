@@ -75,7 +75,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
 
   function copyRemarks() {
     const text =
-      "Валидатор дозаливки доков ArchMap нашёл замечания к пакету archmap-docs. " +
+      "ArchMap проверил файлы archmap-docs и нашёл замечания. " +
       "Исправь пакет и сообщи, какие файлы изменились:\n" +
       remarks.map((r) => `- ${r}`).join("\n");
     void copyTextOrShow(text).then(() => {

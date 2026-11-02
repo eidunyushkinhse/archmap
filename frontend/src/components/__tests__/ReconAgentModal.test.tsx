@@ -173,7 +173,7 @@ describe("ReconAgentModal", () => {
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const текст = writeText.mock.calls[0][0];
-    expect(текст).toContain("Строки чини по замечаниям, а не удаляй из перечня");
+    expect(текст).toContain("Строки чини по замечаниям, а не удаляй из списка");
     expect(текст).toContain(w);
     // Замечания уезжают агенту текстом, который пользователь видит и правит, —
     // слова «разведка» нет и здесь.

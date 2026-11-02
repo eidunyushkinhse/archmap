@@ -51,7 +51,7 @@ export interface FactAgentKind<R extends FactReport> {
   help?: (nodeName: string) => ReactNode;
   // Пояснение под тумблером «Заменять уже описанное».
   overwriteNote: ReactNode;
-  // «Валидатор дозаливки {remarksFamily} ArchMap…» и «{remarksItems} чини по замечаниям…».
+  // «ArchMap проверил файлы {remarksFamily}…» и «{remarksItems} чини по замечаниям…».
   remarksFamily: string;
   remarksItems: string;
   autofillKey: string;
@@ -133,7 +133,7 @@ export default function FactAgentModal<R extends FactReport>({
   // ампутацией — вырезает записи вместо того, чтобы искать верное имя.
   function copyRemarks() {
     const text =
-      `Валидатор дозаливки ${kind.remarksFamily} ArchMap нашёл замечания к пакету. ` +
+      `ArchMap проверил файлы ${kind.remarksFamily} и нашёл замечания. ` +
       `Исправь файлы и сообщи, какие изменились. ${kind.remarksItems} чини по замечаниям, ` +
       "а не удаляй из пакета:\n" +
       remarks.map((r) => `- ${r}`).join("\n");

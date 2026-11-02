@@ -98,7 +98,7 @@ describe("ConfigAgentModal", () => {
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const текст = writeText.mock.calls[0][0];
-    expect(текст).toContain("Валидатор дозаливки конфигурации ArchMap");
+    expect(текст).toContain("ArchMap проверил файлы конфигурации и нашёл замечания");
     expect(текст).toContain("Параметры чини по замечаниям, а не удаляй из пакета");
     expect(текст).toContain(w);
   });
