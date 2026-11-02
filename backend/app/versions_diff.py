@@ -471,22 +471,39 @@ def _prop_value(pair: _Pair, side: _Side, node: NodeSnapshot, field: str) -> str
 
 
 def _element_label(side: _Side, node: NodeSnapshot) -> str:
-    """Хранимый элемент словами. У сервиса внутри контейнера того же снимка хранимого
-    элемента нет по инварианту «тип выбран всегда»: тип задан положением, и подпись —
-    «Компонент». «Не задан» остаётся там, где хранимого нет без такой причины: у
-    не-сервиса и у сервиса в снимке до 2026-11-01 (снят до миграции типа). Контейнер-предок
-    вне среза снимок не видит, и такой компонент тоже подписан «Не задан»."""
+    """Хранимый элемент словами. У базы данных, брокера и «Пользователя» элемента
+    архитектуры нет: тип задан формой. В их перечне свойств строки нет (_shown_field), а в
+    таблице изменений, где форма сменилась с сервиса или на сервис, их ячейка — прочерк.
+    У сервиса внутри контейнера того же снимка хранимого элемента нет по инварианту «тип
+    выбран всегда»: тип задан положением, и подпись — «Компонент» (расчёт — app/element).
+    «Не задан» остаётся у сервиса без хранимого вне контейнера: снимок до 2026-11-01 (снят
+    до миграции типа). Контейнер-предок вне среза снимок не видит, и такой компонент тоже
+    подписан «Не задан»."""
+    if node.shape != "service":
+        return _NONE
     if node.element:
         return NODE_ELEMENT_LABELS[node.element]
-    if node.shape == "service" and side.elements.effective(node.id) == "component":
+    if side.elements.effective(node.id) == "component":
         return NODE_ELEMENT_EFFECTIVE_LABELS["component"]
     return ELEMENT_UNSET_LABEL
+
+
+def _shown_field(field: str, *nodes: NodeSnapshot | None) -> bool:
+    """Строка «элемент архитектуры» есть, только если хоть на одной стороне сервис: у
+    базы данных, брокера и «Пользователя» она ничего не говорит (тип задан формой).
+    Остальные поля показываются всегда. Хранимого элемента у не-сервиса функция записи не
+    оставляет, поэтому этот фильтр не прячет настоящих изменений."""
+    return field != "element" or any(n is not None and n.shape == "service" for n in nodes)
 
 
 def _prop_rows(pair: _Pair, side: _Side, node: NodeSnapshot | None) -> VersionView:
     if node is None:
         return _ABSENT
-    rows = [[label, _prop_value(pair, side, node, f)] for f, label in _PROP_LABELS.items()]
+    rows = [
+        [label, _prop_value(pair, side, node, f)]
+        for f, label in _PROP_LABELS.items()
+        if _shown_field(f, node)
+    ]
     return _table(_PROPS_BEFORE_AFTER, _plain(rows))
 
 
@@ -515,12 +532,15 @@ def _props(pair: _Pair) -> list[_Entry]:
     for nid in sorted(pair.b.nodes.keys() | pair.t.nodes.keys(), key=str):
         old, new = pair.b.nodes.get(nid), pair.t.nodes.get(nid)
         if old is not None and new is not None:
-            fields = [f for f in _PROP_LABELS if getattr(old, f) != getattr(new, f)]
+            fields = [
+                f for f in _PROP_LABELS
+                if getattr(old, f) != getattr(new, f) and _shown_field(f, old, new)
+            ]
             if not fields:
                 continue
             summary = _props_summary(old, new, fields)
         else:
-            fields = list(_PROP_LABELS)
+            fields = [f for f in _PROP_LABELS if _shown_field(f, old, new)]
             summary = "объект"
         node = _one(old, new)
 

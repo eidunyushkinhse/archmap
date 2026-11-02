@@ -868,9 +868,9 @@ def test_живые_имена_чужих_узлов_в_процессе_не_и
 
 def test_элемент_компонента_подписан_компонентом(db):
     """Тип выбран всегда (2026-11-01): у сервиса внутри контейнера хранимого элемента нет,
-    тип задан положением. Дельта подписывает его «Компонент» (расчёт — app/element), а
-    «Не задан» остаётся у не-сервиса и у сервиса без хранимого вне контейнера (снимки до
-    миграции типа)."""
+    тип задан положением. Дельта подписывает его «Компонент» (расчёт — app/element);
+    «Не задан» остаётся у сервиса без хранимого вне контейнера (снимки до миграции типа),
+    а у базы данных строки «элемент архитектуры» нет: тип задан формой."""
     s = _scene(db)
     s.orders.element = "container"
     api = Node(id=uuid.uuid4(), project_id=s.project.id, name="API", parent_id=s.orders.id)
@@ -884,12 +884,50 @@ def test_элемент_компонента_подписан_компонент
     after = _snap(db, s)
 
     items = {i.name: i for i in diff_items(before, after)}
-    элемент = {}
+    свойства = {}
     for name in ("API", "Оплаты", "БД"):
         detail = diff_item(before, after, items[name].item_id)
         assert detail is not None
-        элемент[name] = dict(r.cells for r in detail.after.rows or [])["элемент архитектуры"]
-    assert элемент == {"API": "Компонент", "Оплаты": "Не задан", "БД": "Не задан"}
+        свойства[name] = dict(r.cells for r in detail.after.rows or [])
+    assert свойства["API"]["элемент архитектуры"] == "Компонент"
+    assert свойства["Оплаты"]["элемент архитектуры"] == "Не задан"
+    assert "элемент архитектуры" not in свойства["БД"]
+    assert свойства["БД"]["форма"] == "База данных"
+
+
+def test_смена_формы_на_базу_элемент_уходит_прочерком(db):
+    """Сервис с хранимым «контейнер» стал базой данных: элемент снят (у базы его нет), и
+    строка дельты — «Контейнер → —», а не «Контейнер → Не задан». В перечне свойств базы
+    строки нет, у прежнего сервиса она есть. Новая база строки не получает и в таблице
+    изменений: на обеих сторонах прочерк ничего бы не сказал."""
+    s = _scene(db)
+    s.pay.element = "container"
+    db.commit()
+    before = _snap(db, s)
+    s.pay.shape = "database"
+    s.pay.element = None
+    db.add(Node(
+        id=uuid.uuid4(), project_id=s.project.id, name="Кэш", parent_id=s.shop.id,
+        shape="database",
+    ))
+    db.commit()
+    after = _snap(db, s)
+
+    props = {i.name: i for i in diff_items(before, after) if i.category == "props"}
+    pay = diff_item(before, after, props["Оплаты"].item_id)
+    assert pay is not None
+    assert props["Оплаты"].summary == "форма, элемент архитектуры"
+    assert _rows(pay.changes) == [
+        ("mod", ["форма", "Сервис", "База данных"]),
+        ("mod", ["элемент архитектуры", "Контейнер", "—"]),
+    ]
+    assert dict(r.cells for r in pay.before.rows or [])["элемент архитектуры"] == "Контейнер"
+    assert "элемент архитектуры" not in dict(r.cells for r in pay.after.rows or [])
+
+    cache = diff_item(before, after, props["Кэш"].item_id)
+    assert cache is not None and props["Кэш"].status == "added"
+    assert "элемент архитектуры" not in [r.cells[0] for r in cache.changes.rows or []]
+    assert "форма" in [r.cells[0] for r in cache.changes.rows or []]
 
 
 def test_перенос_в_контейнер_контейнер_стал_компонентом(db):
