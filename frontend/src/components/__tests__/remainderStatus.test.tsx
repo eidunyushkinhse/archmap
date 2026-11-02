@@ -182,7 +182,7 @@ describe("BulkBox (§7, Р10)", () => {
     const onKeepMine = vi.fn();
     const onTakeArchives = vi.fn();
     render(<BulkBox onKeepMine={onKeepMine} onTakeArchives={onTakeArchives} />);
-    expect(screen.getByText("Решить все конфликты одной кнопкой:")).toBeInTheDocument();
+    expect(screen.getByText("Ответить на все такие вопросы сразу:")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Оставить, как было в проекте" }));
     await userEvent.click(screen.getByRole("button", { name: "Взять из новых архивов" }));
     expect(onKeepMine).toHaveBeenCalledTimes(1);

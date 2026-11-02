@@ -249,10 +249,10 @@ describe("список всех вопросов и итог (§3, §8)", () => 
     expect(счётчик()).toBe("разбор пройден");
     expect(screen.getByText(/Осталось 3 вопроса без ответа/)).toBeInTheDocument();
     // Строка итога собрана из частей — смотрим её целиком.
-    const строка = screen.getByText(/перевешено связей/).parentElement;
-    expect(строка?.textContent).toContain("перевешено связей 1");
+    const строка = screen.getByText(/перенесено связей/).parentElement;
+    expect(строка?.textContent).toContain("перенесено связей 1");
     expect(строка?.textContent).toContain("оставлено как есть 1");
-    expect(строка?.textContent).not.toContain("склеек");
+    expect(строка?.textContent).not.toContain("объединено объектов");
     await userEvent.click(screen.getByRole("button", { name: "Вернуться к пропущенным" }));
     expect(счётчик()).toBe("вопрос 1 из 5");
   });
@@ -265,7 +265,7 @@ describe("список всех вопросов и итог (§3, §8)", () => 
     await userEvent.click(screen.getByText("Поллер"));
     await userEvent.click(screen.getByRole("button", { name: "Завершить →" }));
     expect(screen.getByText("Разбор пройден")).toBeInTheDocument();
-    expect(screen.getByText(/перевешено связей/).parentElement?.textContent).toBe("перевешено связей 1");
+    expect(screen.getByText(/перенесено связей/).parentElement?.textContent).toBe("перенесено связей 1");
   });
 });
 
@@ -311,18 +311,18 @@ describe("двухшаговые вопросы (§4.6)", () => {
     expect(screen.getByText("изменить")).toBeInTheDocument();
   });
 
-  it("4.5: «Один объект» → имя → «Склеить» → снова шаг 2 с выбранным", async () => {
+  it("4.5: «Один объект» → имя → «Объединить» → снова шаг 2 с выбранным", async () => {
     let состояние: { answers: Answers; resolutions: Resolutions } = { answers: {}, resolutions: {} };
     render(<Stand onState={(s) => { состояние = s; }} />);
     await userEvent.click(screen.getAllByRole("button", { name: /^вопрос \d+$/ })[4]!);
     await userEvent.click(screen.getByText("Один объект"));
-    expect(screen.getByText("Как назвать склеенный объект?")).toBeInTheDocument();
+    expect(screen.getByText("Как назвать объединённый объект?")).toBeInTheDocument();
     await userEvent.click(screen.getByText("Пользователь", { selector: "b" }));
-    await userEvent.click(screen.getByRole("button", { name: "Склеить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Объединить" }));
     expect(состояние.answers["pair|Пользователь Zabbix|Пользователь"]).toEqual({ kind: "merge", name: "Пользователь" });
     // Ответ виден и правится: шаг 2 остаётся на экране с выбранным именем,
     // возвращаться уже некуда — «Назад к вопросу» нет.
-    expect(screen.getByText("Как назвать склеенный объект?")).toBeInTheDocument();
+    expect(screen.getByText("Как назвать объединённый объект?")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Пользователь.*Из архива plugin.zip/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("button", { name: "Назад к вопросу" })).toBeNull();
   });

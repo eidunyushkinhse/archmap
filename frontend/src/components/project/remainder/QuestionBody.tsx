@@ -199,7 +199,7 @@ export default function QuestionBody(p: Props) {
     <div className="rq-opts">
       <Option
         main={<b>Один объект</b>}
-        sub={`связи обоих (${pairEdges(q.source)}) перейдут на склеенный`}
+        sub={`связи обоих (${pairEdges(q.source)}) перейдут на объединённый`}
         onClick={() => { p.onMergeDraft(mergeDraftFor(q.source, null)); p.onStage2(true); }}
       />
       <Option

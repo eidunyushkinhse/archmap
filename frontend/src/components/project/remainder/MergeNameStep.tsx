@@ -69,7 +69,7 @@ export default function MergeNameStep({ pair, draft, onDraft, onApply, onBack }:
             if (name !== "") onApply(name);
           }}
         >
-          Склеить
+          Объединить
         </button>
         {onBack !== undefined && (
           <button type="button" className="rq-link rq-link--mut" onClick={onBack}>

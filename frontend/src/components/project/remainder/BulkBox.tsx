@@ -12,7 +12,7 @@ interface Props {
 export default function BulkBox({ onKeepMine, onTakeArchives }: Props) {
   return (
     <div className="rq-root rq-bulk">
-      <span className="rq-bulk-l">Решить все конфликты одной кнопкой:</span>
+      <span className="rq-bulk-l">Ответить на все такие вопросы сразу:</span>
       <button type="button" className="rq-soft" onClick={onKeepMine}>
         Оставить, как было в проекте
       </button>

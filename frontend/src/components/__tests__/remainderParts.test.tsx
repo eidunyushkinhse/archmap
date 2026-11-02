@@ -268,11 +268,11 @@ describe("MergeNameStep (§4.5, шаг 2)", () => {
     expect(screen.getByText("Из проекта · 1 связь")).toBeInTheDocument();
   });
 
-  it("своё имя: пока пусто — «Склеить» неактивна, потом отдаёт введённое", async () => {
+  it("своё имя: пока пусто — «Объединить» неактивна, потом отдаёт введённое", async () => {
     const onApply = vi.fn();
     render(<MergeStepStand onApply={onApply} />);
     await userEvent.click(screen.getByText("Своё имя"));
-    const склеить = screen.getByRole("button", { name: "Склеить" });
+    const склеить = screen.getByRole("button", { name: "Объединить" });
     expect(склеить).toBeDisabled();
     await userEvent.type(screen.getByLabelText("Своё имя"), "Оператор мониторинга");
     await userEvent.click(склеить);
@@ -282,7 +282,7 @@ describe("MergeNameStep (§4.5, шаг 2)", () => {
   it("по умолчанию склеивает под именем A", async () => {
     const onApply = vi.fn();
     render(<MergeStepStand onApply={onApply} />);
-    await userEvent.click(screen.getByRole("button", { name: "Склеить" }));
+    await userEvent.click(screen.getByRole("button", { name: "Объединить" }));
     expect(onApply).toHaveBeenCalledWith("Пользователь Zabbix");
   });
 
