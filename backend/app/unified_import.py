@@ -335,14 +335,16 @@ class _Resolver:
         if len(hits) == 1:
             merged = self.contribs.get((self.origin, hits[0]))
             if merged is None:  # инвариант Ф0 нарушен — молчать нельзя
-                self.remarks.append(f"{fname}: узел «{path}» потерялся при слиянии — файл пропущен")
+                self.remarks.append(f"{fname}: объект «{path}» пропал при слиянии, файл пропущен")
             return merged
         if not path:
-            self.remarks.append(f"{fname}: нет адреса узла — файл пропущен")
+            self.remarks.append(f"{fname}: не указан объект, файл пропущен")
         elif not hits:
-            self.remarks.append(f"{fname}: узел «{path}» не найден — файл пропущен")
+            self.remarks.append(f"{fname}: объект «{path}» не найден, файл пропущен")
         else:
-            self.remarks.append(f"{fname}: путь «{path}» неоднозначен (узлы-тёзки) — файл пропущен")
+            self.remarks.append(
+                f"{fname}: путь «{path}» неоднозначен (есть одноимённые объекты), файл пропущен"
+            )
         return None
 
 
@@ -569,7 +571,7 @@ def _summary_of(raw: _Raw) -> str:
     v = raw.value
     if isinstance(v, DocIn):
         if not v.body.strip():
-            return "заглушка (пустое тело)"
+            return "неописанная схема"
         return _plural(_lines(v.body), "строка", "строки", "строк")
     if isinstance(v, str):
         return f"{_plural(_lines(v), 'строка', 'строки', 'строк')}, {_size(v)}"
@@ -581,7 +583,9 @@ def _summary_of(raw: _Raw) -> str:
             parts.append(v.delivery)
         return ", ".join(parts)
     parts = [f"тип {v.value_type}"] if v.value_type else []
-    parts.append(f"дефолт «{v.default_value}»" if v.default_value else "без дефолта")
+    parts.append(
+        f"по умолчанию «{v.default_value}»" if v.default_value else "без значения по умолчанию"
+    )
     if v.required:
         parts.append("обязательный")
     return ", ".join(parts)
@@ -616,8 +620,14 @@ def _dup_remark(raw: _Raw) -> str:
     замечание входу, а не конфликт эпика."""
     what = _DUP_WORD[raw.family]
     if raw.family == "spec":
-        return f"{raw.fname}: спецификация узла уже задана другим файлом этого входа — файл пропущен"
-    return f"{raw.fname}: {what} «{raw.key_str}» у узла уже описана этим входом — запись пропущена"
+        return (
+            f"{raw.fname}: спецификация объекта уже задана другим файлом этого архива, "
+            "файл пропущен"
+        )
+    return (
+        f"{raw.fname}: {what} «{raw.key_str}» у объекта уже есть в другом файле этого "
+        "архива, запись пропущена"
+    )
 
 
 # ── Сборка плана ─────────────────────────────────────────────────────────────
@@ -671,7 +681,7 @@ def build_unified_plan(
     # ── Беды чтения: адресуем входу (пользователь уберёт кривой чип), не 500-кой.
     file_errors = {i: [inp.error] for i, inp in enumerate(read) if inp.error}
     if file_errors:
-        errors = [f"вход {i + 1}: {msgs[0]}" for i, msgs in sorted(file_errors.items())]
+        errors = [f"файл {i + 1}: {msgs[0]}" for i, msgs in sorted(file_errors.items())]
         return _failed(read, errors, MergeReport(files=len(read), file_errors=file_errors))
 
     # ── C4 каждого входа — одним parse_import (архивный и голый YAML равноправны).
@@ -681,7 +691,7 @@ def build_unified_plan(
     for i, inp in enumerate(read):
         parsed, errs = parse_import(inp.c4 or "", live=i == live_origin)
         if parsed is None:
-            parse_errors.extend(f"вход {i + 1}: {e}" for e in errs)
+            parse_errors.extend(f"файл {i + 1}: {e}" for e in errs)
             parse_by_file[i] = list(errs)
         else:
             parts.append(parsed)
@@ -717,7 +727,7 @@ def build_unified_plan(
     # Поля длиннее колонок — как ошибки разбора C4: адресованы входу, план непригоден
     # (иначе превью молчит, а применение отказывает на записи без пути до поля).
     if overlong:
-        errors = [f"вход {i + 1}: {m}" for i, msgs in sorted(overlong.items()) for m in msgs]
+        errors = [f"файл {i + 1}: {m}" for i, msgs in sorted(overlong.items()) for m in msgs]
         return _failed(read, errors, MergeReport(files=len(read), file_errors=overlong))
     _warn_process_namesakes(processes, warnings)
 

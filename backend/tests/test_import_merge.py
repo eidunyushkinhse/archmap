@@ -283,7 +283,7 @@ def test_total_limit_overflow():
         return _parse("nodes:\n" + lines + "\n")
 
     _, report = merge_imports([big("a"), big("b")])
-    assert any("слишком много узлов" in e.lower() for e in report.errors)
+    assert any("слишком много объектов" in e.lower() for e in report.errors)
 
 
 def test_parents_before_children_invariant():
@@ -763,7 +763,7 @@ def test_кап_на_связях_в_контейнер():
 
     assert errors == []
     assert len([w for w in report.warnings if "уточните её до" in w]) == 10
-    assert "…ещё 2 таких связей" in report.warnings
+    assert "и ещё 2 таких связей" in report.warnings
 
 
 def test_контейнер_со_связанными_детьми_подвисшим_не_считается():
@@ -817,9 +817,9 @@ def test_связь_в_собственного_ребёнка_это_свой_�
 
     assert errors == []
     assert (
-        "связь «background-workers → email-senders»: «email-senders» — часть "
-        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
-        "перевесьте её на другой узел"
+        "связь «background-workers → email-senders»: «email-senders» и так входит в "
+        "«background-workers», поэтому связь лишняя. Удалите её или "
+        "перенесите на другой объект"
     ) in report.warnings
 
 
@@ -832,9 +832,9 @@ def test_связь_во_внука_тоже_вложенность():
 
     assert errors == []
     assert (
-        "связь «background-workers → smtp-client»: «smtp-client» — часть "
-        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
-        "перевесьте её на другой узел"
+        "связь «background-workers → smtp-client»: «smtp-client» и так входит в "
+        "«background-workers», поэтому связь лишняя. Удалите её или "
+        "перенесите на другой объект"
     ) in report.warnings
 
 
@@ -847,9 +847,9 @@ def test_связь_потомка_в_свой_контейнер_зеркаль
 
     assert errors == []
     assert (
-        "связь «smtp-client → background-workers»: «smtp-client» — часть "
-        "«background-workers», иерархия уже выражает вложенность — удалите связь или "
-        "перевесьте её на другой узел"
+        "связь «smtp-client → background-workers»: «smtp-client» и так входит в "
+        "«background-workers», поэтому связь лишняя. Удалите её или "
+        "перенесите на другой объект"
     ) in report.warnings
 
 
@@ -893,7 +893,7 @@ def test_связь_в_чужой_контейнер_остаётся_прежн
         "её до вложенных объектов: «background-workers / email-senders»; "
         "«zulip-web / django-app»"
     ) in report.warnings
-    assert not any("иерархия уже выражает вложенность" in w for w in report.warnings)
+    assert not any("поэтому связь лишняя" in w for w in report.warnings)
 
 
 def test_кап_на_связях_с_собственным_потомком():
@@ -907,8 +907,8 @@ def test_кап_на_связях_с_собственным_потомком():
     _merged, report, errors = parse_and_merge([_doc(nodes, edges)])
 
     assert errors == []
-    assert len([w for w in report.warnings if "иерархия уже выражает вложенность" in w]) == 10
-    assert "…ещё 2 таких связей с собственным потомком" in report.warnings
+    assert len([w for w in report.warnings if "поэтому связь лишняя" in w]) == 10
+    assert "и ещё 2 таких связей с собственной частью" in report.warnings
 
 
 def test_на_связи_с_потомком_молчат_и_брокерный_класс_и_перечень_каналов():
@@ -931,7 +931,7 @@ def test_на_связи_с_потомком_молчат_и_брокерный_
 
         assert errors == []
         assert len([w for w in report.warnings if "Заказы → kafka" in w]) == 1
-        assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+        assert any("поэтому связь лишняя" in w for w in report.warnings)
         assert not any("а канал не указан" in w for w in report.warnings)
         assert not any("в channel перечень" in w for w in report.warnings)
 
@@ -946,7 +946,7 @@ def test_замечание_о_потомке_адресовано_файлу_с
     файлы, _ошибки_схемы, предупреждения_схемы = split_remarks(report)
 
     assert errors == []
-    assert any("иерархия уже выражает вложенность" in w for w in файлы[1].warnings)
+    assert any("поэтому связь лишняя" in w for w in файлы[1].warnings)
     assert файлы[0].warnings == [] and предупреждения_схемы == []
 
 
@@ -1061,7 +1061,7 @@ def test_связей_в_брокер_без_канала_больше_капа_
 
     assert errors == []
     assert len([w for w in report.warnings if "а канал не указан" in w]) == 10
-    assert "…ещё 3 таких связей с брокером" in report.warnings
+    assert "и ещё 3 таких связей с брокером" in report.warnings
 
 
 # ── перечень вместо имени канала (Ф8г, находка №2 docs/qa-zulip-brokers.md) ────
@@ -1139,7 +1139,7 @@ def test_перечней_в_channel_больше_капа_свёрнуты():
 
     assert errors == []
     assert len([w for w in report.warnings if "в channel перечень" in w]) == 10
-    assert "…ещё 3 таких связей с перечнем в channel" in report.warnings
+    assert "и ещё 3 таких связей с перечнем в channel" in report.warnings
 
 
 # ── изолированные группы (Ф8з, полевая валидация Ф8) ──────────────────────────
@@ -1176,8 +1176,8 @@ def test_изолированная_группа_называется_поимё
     # Ядро (vote/redis/worker) не называем: замечание должно говорить, ЧТО прицепить,
     # а не пересказывать схему.
     assert _группы(report) == [
-        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI» — "
-        "дорисуйте связь с ядром или проверьте, не потерялась ли она"
+        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI». "
+        "Проведите связь с остальной схемой или проверьте, не потерялась ли она"
     ]
 
 
@@ -1223,7 +1223,7 @@ def test_кап_имён_в_группе_и_хвост():
     assert errors == []
     [w] = _группы(report)
     assert w.startswith("группа из 8 объектов не связана с остальной схемой: «г0», «г1»")
-    assert "«г5» и ещё 2 —" in w
+    assert "«г5» и ещё 2." in w
     assert "«г6»" not in w
 
 
@@ -1237,7 +1237,7 @@ def test_групп_больше_капа_свёрнуты():
 
     assert errors == []
     assert len(_группы(report)) == 10
-    assert "…ещё 2 таких групп" in report.warnings
+    assert "и ещё 2 таких групп" in report.warnings
 
 
 def _db_узел(db, name, parent=None):
@@ -1384,7 +1384,7 @@ def test_паритет_с_алертом_связи_в_собственного
         "Заказы",
         "kafka",
     )
-    assert any("иерархия уже выражает вложенность" in w for w in report.warnings)
+    assert any("поэтому связь лишняя" in w for w in report.warnings)
     # И обе молчат об остальном: ни «уточните конец», ни «канал».
     assert алерт.intermediate_edges == [] and алерт.broker_edge_channels == []
     assert not any("уточните её до" in w for w in report.warnings)
@@ -1519,8 +1519,8 @@ def test_лимит_слияния_это_замечание_к_слитой_с�
     _merged, report, errors = parse_and_merge([много("a"), много("b")])
     файлы, ошибки_схемы, _предупреждения = split_remarks(report)
 
-    assert any("слишком много узлов" in e.lower() for e in errors)
-    assert any("слишком много узлов" in e.lower() for e in ошибки_схемы)
+    assert any("слишком много объектов" in e.lower() for e in errors)
+    assert any("слишком много объектов" in e.lower() for e in ошибки_схемы)
     assert all(f.errors == [] for f in файлы)
 
 
@@ -1599,8 +1599,8 @@ edges:
     to: vote
 """
 _ОСТРОВ_ТЕКСТ = (
-    "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI» — "
-    "дорисуйте связь с ядром или проверьте, не потерялась ли она"
+    "группа из 2 объектов не связана с остальной схемой: «Оператор», «Admin UI». "
+    "Проведите связь с остальной схемой или проверьте, не потерялась ли она"
 )
 
 
@@ -1694,7 +1694,7 @@ def test_группа_из_узлов_разных_файлов_остаётся
 
     assert [w for w in схема if "не связана с остальной схемой" in w] == [
         "группа из 3 объектов не связана с остальной схемой: «Оператор», «Шина», "
-        "«Журнал» — дорисуйте связь с ядром или проверьте, не потерялась ли она"
+        "«Журнал». Проведите связь с остальной схемой или проверьте, не потерялась ли она"
     ]
     assert not any(
         "не связана с остальной схемой" in w for f in файлы for w in f.warnings
@@ -2162,8 +2162,8 @@ edges:
 
 def _сироты(текст: str) -> str:
     return (
-        f"объектов без единой связи: 1 («{текст}») — проверьте, не потерялись ли связи; "
-        f"такие объекты попадут в «Незавершённость схемы»"
+        f"объектов без единой связи: 1 («{текст}»). Проверьте, не потерялись ли связи. "
+        f"Такие объекты попадут в рекомендации проекта"
     )
 
 
@@ -2192,8 +2192,8 @@ def test_сироты_без_общего_файла_остаются_польз
     файлы, _ошибки, схема = _корзины(ядро, один("склад"), один("почта"), один("почта"))
 
     assert схема == [
-        "объектов без единой связи: 2 («склад», «почта») — проверьте, не потерялись "
-        "ли связи; такие объекты попадут в «Незавершённость схемы»"
+        "объектов без единой связи: 2 («склад», «почта»). Проверьте, не потерялись "
+        "ли связи. Такие объекты попадут в рекомендации проекта"
     ]
     assert all(f.warnings == [] for f in файлы)
 
@@ -2390,8 +2390,8 @@ _ГОЛЫЙ = ("service", "existing", None, None, False, None, [])  # узел �
 
 def test_снимок_одно_файлового_прогона_file_a():
     предупреждения = [
-        "объектов без единой связи: 2 («api», «charge-worker») — проверьте, не "
-        "потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
+        "объектов без единой связи: 2 («api», «charge-worker»). Проверьте, не "
+        "потерялись ли связи. Такие объекты попадут в рекомендации проекта",
         "связь «payments → payments-db»: конец в системе «payments», у которой есть "
         "вложенные объекты, поэтому уточните её до одного из них: «payments / api», "
         "«payments / charge-worker»",
@@ -2495,16 +2495,16 @@ def test_снимок_одно_файлового_прогона_со_всеми
         "Ярмарка: пользователь «Оператор» живёт вне границ системы — поднят на верхний "
         "уровень",
         "объектов без единой связи: 7 («сирота1», «сирота2», «сирота3», «сирота4», "
-        "«сирота5», «сирота6» и ещё 1) — проверьте, не потерялись ли связи; такие "
-        "объекты попадут в «Незавершённость схемы»",
+        "«сирота5», «сирота6» и ещё 1). Проверьте, не потерялись ли связи. Такие "
+        "объекты попадут в рекомендации проекта",
         "связь «orders → kafka»: конец в системе «orders», у которой есть "
         "вложенные объекты, поэтому уточните её до одного из них: «orders / api»",
         "связь «orders → kafka»: конец — брокер «kafka», а канал не указан — добавьте "
         "channel: имя топика/очереди",
         "связь «api → kafka»: в channel перечень «orders.created, orders.paid» — "
         "разделите на отдельные связи, по одной на канал",
-        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Админка» — "
-        "дорисуйте связь с ядром или проверьте, не потерялась ли она",
+        "группа из 2 объектов не связана с остальной схемой: «Оператор», «Админка». "
+        "Проведите связь с остальной схемой или проверьте, не потерялась ли она",
     ]
     assert _снимок(_ВСЕ_КЛАССЫ) == {
         "errors": [],
@@ -2564,9 +2564,9 @@ def test_предупреждение_разбора_доезжает_до_от�
 
     assert errors == []
     пары = list(zip(report.warnings, report.warning_files, strict=True))
-    свои = [(w, f) for w, f in пары if "больше не источник" in w]
-    assert свои == [("nodes[0].children[0].source: образ и деплоймент больше не источник "
-                     "— поле проигнорировано", 1)]
+    свои = [(w, f) for w, f in пары if "больше не служат источником" in w]
+    assert свои == [("nodes[0].children[0].source: образ и развёртывание больше не служат "
+                     "источником, поле пропущено", 1)]
 
 
 # ── Основание склейки словами (Ф2 docs/plan-anchor-ux.md) ────────────────────
@@ -2806,9 +2806,9 @@ def test_остаток_связей_в_контейнер_больше_капа
     assert errors == []
 
     assert len(report.container_edges) == n
-    хвост = [r for r in report.container_edges if "…ещё" in report.warnings[r.warning_idx]]
+    хвост = [r for r in report.container_edges if "и ещё" in report.warnings[r.warning_idx]]
     assert len(хвост) == 3
-    assert report.warnings[хвост[0].warning_idx] == "…ещё 3 таких связей"
+    assert report.warnings[хвост[0].warning_idx] == "и ещё 3 таких связей"
 
 
 def test_остаток_изолированные_группы_все_и_со_своей_строкой():
@@ -2830,7 +2830,7 @@ def test_остаток_изолированные_группы_все_и_со_�
     # Последние две — за счётчиком: их строка одна на обеих, это хвост.
     хвостовые = report.isolated_groups[_MAX_ISOLATED_GROUPS:]
     assert len(хвостовые) == 2
-    assert {report.warnings[g.warning_idx] for g in хвостовые} == {"…ещё 2 таких групп"}
+    assert {report.warnings[g.warning_idx] for g in хвостовые} == {"и ещё 2 таких групп"}
 
 
 def test_остаток_fuzzy_пара_с_родителем_и_строкой():
@@ -2860,7 +2860,7 @@ def test_остаток_переживает_общий_кап_предупре�
     # Пар (а с ними и вопросов) больше, чем строк помещается в отчёт.
     всего = len(report.fuzzy_pairs)
     assert всего > _MAX_WARNINGS
-    assert report.warnings[-1] == f"…и ещё {всего - _MAX_WARNINGS} предупреждений"
+    assert report.warnings[-1] == f"и ещё {всего - _MAX_WARNINGS} предупреждений"
     осиротевшие = [f for f in report.fuzzy_pairs if f.warning_idx is None]
     assert len(осиротевшие) == всего - _MAX_WARNINGS  # строки нет, вопрос задастся
     for f in report.fuzzy_pairs:
@@ -3062,9 +3062,8 @@ def test_замечание_об_объединении_детей_контей�
 
     assert _элемент(merged, "shop / orders") == "container"
     строка = (
-        "shop / orders: контейнер по файлу 1, а файл 2 положил внутрь объекты («cache» и "
-        "«worker»), не зная, что это контейнер — они стали его компонентами; проверьте, "
-        "не система ли это"
+        "shop / orders: контейнер по файлу 1, а в файле 2 внутри него лежат объекты («cache» и "
+        "«worker»). Они стали компонентами контейнера; проверьте, не система ли это"
     )
     assert строка in report.warnings
     assert report.warning_files[report.warnings.index(строка)] is None
@@ -3074,7 +3073,7 @@ def test_замечание_об_объединении_детей_контей�
 def test_замечание_об_объединении_детей_не_нужно_когда_дети_из_файла_контейнера():
     б = _parse("nodes:\n  - name: shop\n    element: system\n    children:\n      - name: orders\n")
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б])
-    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+    assert not any("Они стали компонентами контейнера" in w for w in report.warnings)
 
     # И когда второй файл тоже называет узел контейнером — он знал, куда кладёт.
     в = _parse(
@@ -3082,7 +3081,7 @@ def test_замечание_об_объединении_детей_не_нужн
         "        element: container\n        children:\n          - name: worker\n"
     )
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), в])
-    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+    assert not any("Они стали компонентами контейнера" in w for w in report.warnings)
 
 
 def test_замечание_об_объединении_детей_кап_перечня_и_два_файла():
@@ -3096,11 +3095,11 @@ def test_замечание_об_объединении_детей_кап_пер
         "          - name: z9\n"
     )
     _merged, report = merge_imports([_parse(_ОБЪЕДИНЕНИЕ_А), б, в])
-    [строка] = [w for w in report.warnings if "не зная, что это контейнер" in w]
+    [строка] = [w for w in report.warnings if "Они стали компонентами контейнера" in w]
     assert строка == (
-        "shop / orders: контейнер по файлу 1, а файлы 2 и 3 положили внутрь объекты "
-        "(«w0», «w1», «w2», «w3», «w4», «w5» и ещё 3), не зная, что это контейнер — они "
-        "стали его компонентами; проверьте, не система ли это"
+        "shop / orders: контейнер по файлу 1, а в файлах 2 и 3 внутри него лежат объекты "
+        "(«w0», «w1», «w2», «w3», «w4», «w5» и ещё 3). Они стали компонентами контейнера; "
+        "проверьте, не система ли это"
     )
 
 
@@ -3124,7 +3123,7 @@ def test_база_второго_файла_в_контейнере_первог
     )
     assert строка in report.warnings
     assert report.warning_files[report.warnings.index(строка)] is None
-    assert not any("не зная, что это контейнер" in w for w in report.warnings)
+    assert not any("Они стали компонентами контейнера" in w for w in report.warnings)
 
 
 def test_после_выноса_строки_слияния_называют_новый_путь():
@@ -3247,10 +3246,10 @@ edges:
     assert report.warnings == [
         "Ярмарка: пользователь «Оператор» живёт вне границ системы — поднят на верхний "
         "уровень",
-        "объектов без единой связи: 1 («api») — проверьте, не потерялись ли связи; такие "
-        "объекты попадут в «Незавершённость схемы»",
-        "объектов без единой связи: 1 («worker») — проверьте, не потерялись ли связи; такие "
-        "объекты попадут в «Незавершённость схемы»",
+        "объектов без единой связи: 1 («api»). Проверьте, не потерялись ли связи. Такие "
+        "объекты попадут в рекомендации проекта",
+        "объектов без единой связи: 1 («worker»). Проверьте, не потерялись ли связи. Такие "
+        "объекты попадут в рекомендации проекта",
         "связь «orders → Каталог-БД»: конец в системе «orders», у которой есть "
         "вложенные объекты, поэтому уточните её до одного из них: «orders / api», «orders / worker»",
         "связь «Оператор → orders»: конец в системе «orders», у которой есть "

@@ -72,7 +72,10 @@ from app.domain_types import NodeElement, NodeElementEffective
 from app.element import CONTAINER, SYSTEM, Elements
 from app.element_marks import ElementRow, build_elements
 
-ONLY_SERVICE_NOTE = "{path}: элемент архитектуры задаётся только у сервиса — значение пропущено"
+ONLY_SERVICE_NOTE = (
+    "{path}: элемент архитектуры бывает только у системы, контейнера и компонента, "
+    "поэтому значение пропущено"
+)
 # Правило 0а: вложенный «Пользователь» поднимается на верхний уровень. {path} — где он
 # лежал (путь родителя), как у замечаний правила 0 и выноса из контейнера.
 PERSON_LIFTED_NOTE = (

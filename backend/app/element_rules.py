@@ -29,7 +29,7 @@ from typing import Literal
 from app.domain_types import NodeElement
 from app.element_marks import ElementRow, build_elements
 
-ONLY_SERVICE = "Элемент архитектуры задаётся только у сервиса."
+ONLY_SERVICE = "Элемент архитектуры бывает только у системы, контейнера и компонента."
 INSIDE_CONTAINER = (
     "Объект «{name}» лежит внутри контейнера «{container}» и считается его компонентом. "
     "Элемент архитектуры задаётся у самого контейнера."

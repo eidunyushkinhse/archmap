@@ -171,7 +171,7 @@ async def import_unified_preview(
     проверит настоящее применение. Вне демо-режима БД по-прежнему не трогается."""
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
-    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    inputs = [(f.filename or f"файл {i + 1}", await f.read()) for i, f in enumerate(files)]
     demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         plan = build_unified_plan(inputs)
@@ -219,7 +219,7 @@ async def import_project_unified(
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     demo.check_guest_can_create(db, user)
     chosen = _parse_resolutions(resolutions)
-    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    inputs = [(f.filename or f"файл {i + 1}", await f.read()) for i, f in enumerate(files)]
     demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         ответы = parse_decisions(decisions)
@@ -251,7 +251,7 @@ async def import_archive_preview(
     project, _ = project_for(db, user, project_id, need="editor")
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
-    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    inputs = [(f.filename or f"файл {i + 1}", await f.read()) for i, f in enumerate(files)]
     demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         into = build_into_plan(db, project, inputs)
@@ -302,12 +302,12 @@ async def import_archive_apply(
     ):
         raise HTTPException(
             status_code=409,
-            detail="Проект изменился после расчёта — обновите превью и повторите",
+            detail="Проект изменился после проверки. Повторите проверку и примените изменения снова",
         )
     if not files:
         raise HTTPException(status_code=400, detail="Не передан ни один файл")
     chosen = _parse_resolutions(resolutions)
-    inputs = [(f.filename or f"вход {i + 1}", await f.read()) for i, f in enumerate(files)]
+    inputs = [(f.filename or f"файл {i + 1}", await f.read()) for i, f in enumerate(files)]
     demo_limits.check_files((label, len(data)) for label, data in inputs)
     try:
         ответы = parse_decisions(decisions)
@@ -440,7 +440,7 @@ def sync_apply(
     if payload.base_graph_rev is not None and payload.base_graph_rev != project.graph_rev:
         raise HTTPException(
             status_code=409,
-            detail="Схема изменилась после расчёта — обновите превью и повторите",
+            detail="Схема изменилась после проверки. Повторите проверку и примените изменения снова",
         )
 
     demo_limits.check_texts(_sync_files(payload))

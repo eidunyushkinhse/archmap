@@ -200,8 +200,8 @@ def test_кривой_zip_не_создаёт_проекта(db):
     план = build_unified_plan([("a.zip", b"PK\x03\x04musor")])
 
     assert not план.ok
-    assert план.errors == ["вход 1: Файл не читается как zip-архив"]
-    with pytest.raises(UnifiedImportError, match="непригоден"):
+    assert план.errors == ["файл 1: Файл не читается как zip-архив"]
+    with pytest.raises(UnifiedImportError, match="Изменения не удалось применить"):
         apply_unified_plan(db, план, {}, "П", None, ensure_architect(db).id)
     assert db.query(Project).count() == было
 
@@ -215,7 +215,7 @@ def test_архив_нового_формата_отклоняется(db):
 
     assert not план.ok
     [ошибка] = план.errors
-    assert ошибка.startswith("вход 1: ") and "обновите ArchMap" in ошибка
+    assert ошибка.startswith("файл 1: ") and "обновите ArchMap" in ошибка
 
 
 def test_неразрешённый_адрес_дока_уходит_в_замечания(db):

@@ -88,7 +88,7 @@ def apply_sync_plan(
             continue
         node = live_by_id.get(act.node_id) if act.node_id else None
         if node is None:
-            report.skipped.append(f"{act.path}: узел исчез до применения")
+            report.skipped.append(f"{act.path}: объект исчез до применения")
             continue
         by_path[act.path] = node
         if act.action != "unchanged" and act.fields:
@@ -166,7 +166,7 @@ def _mark_missing(
 ) -> None:
     node = live_by_id.get(act.node_id) if act.node_id else None
     if node is None:
-        report.skipped.append(f"{act.path}: узел исчез до применения")
+        report.skipped.append(f"{act.path}: объект исчез до применения")
         return
     # Пометка ставится только по политике — build_sync_plan оставляет действие
     # missing и без неё (пропажу показываем всегда, помечаем нет).

@@ -91,7 +91,7 @@ from app.unified_remarks import (
 
 # Превью, по которому пользователь отвечал, устарело: план считается заново по тем
 # же файлам, и если ответ не находит своего вопроса — применять «похожее» нельзя.
-STALE = "Превью устарело — обновите его и повторите"
+STALE = "Проверка устарела. Повторите её и примените изменения снова"
 
 
 @dataclass
@@ -422,11 +422,11 @@ def apply_tree_decisions(merged: ParsedImport, res: ResolvedDecisions) -> int:
 def decisions_note(res: ResolvedDecisions, merges_done: int) -> str | None:
     """Строка отчёта о применённых решениях — ОДНА, и только если что-то решено.
 
-    Нулевые части опускаем: «склеено объектов 0» это не отчёт, а шум."""
+    Нулевые части опускаем: «объединено объектов 0» это не отчёт, а шум."""
     части = [
-        (len(res.edges), "перевешено связей"),
+        (len(res.edges), "перенесено связей"),
         (len(res.new_edges), "добавлено связей"),
-        (merges_done, "склеено объектов"),
+        (merges_done, "объединено объектов"),
         (len(res.fields), "выбрано значений полей"),
     ]
     названо = [f"{слово} {n}" for n, слово in части if n]
@@ -468,8 +468,7 @@ def _winners(plan: UnifiedPlan, resolutions: dict[str, str]) -> list[_Winner]:
         conflict = by_id.get(cid)
         if conflict is None:
             raise UnifiedImportError(
-                f"Резолюция к несуществующему спору «{cid}» — превью устарело, "
-                "пересоберите его"
+                f"Спора «{cid}» в проверке нет. Проверка устарела, повторите её"
             )
         _choice_index(cid, choice, len(conflict.candidates), conflict.allow_all)
 
@@ -566,7 +565,8 @@ def apply_unified_plan(
     merged = plan.merged
     if not plan.ok or merged is None:
         raise UnifiedImportError(
-            "План непригоден к применению: " + ("; ".join(plan.errors[:5]) or "неизвестно почему")
+            "Изменения не удалось применить"
+            + (f": {'; '.join(plan.errors[:5])}" if plan.errors else "")
         )
     # Свёртка отчёта (Ф2г-2) — тот же остаток, что был в превью, и ДО правок дерева
     # решениями (перевес меняет пути — столкнувшийся id выпустил бы закрытую строку).
@@ -645,7 +645,7 @@ def apply_unified_plan(
 
     warnings: list[str] = list(plan.warnings)
     for i, remarks in enumerate(plan.input_remarks):
-        label = plan.labels[i] if i < len(plan.labels) else f"вход {i + 1}"
+        label = plan.labels[i] if i < len(plan.labels) else f"файл {i + 1}"
         warnings.extend(f"{label}: {r}" for r in remarks)
     # Отсюда начинаются строки самого применения — они и пойдут в свёртку отчёта
     # (плановые уже в ней: остаток и замечания входов — пунктами выше).

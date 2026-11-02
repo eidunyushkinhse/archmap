@@ -137,8 +137,8 @@ MAX_PREVIEW_PATHS = 8
 # Не-архив на входе догрузки. YAML к живому проекту заливается синком — это другая
 # механика (якоря, create/update, пометки пропаж), и подменять её мерджем нельзя.
 NOT_ARCHIVE = (
-    "это не архив ArchMap; YAML в существующий проект заливается через "
-    "«Импорт схемы»"
+    "это не архив ArchMap. Файлы YAML загружаются в проект пунктом меню "
+    "«Обновить из кода»"
 )
 
 _FIELD_RU: dict[str, str] = {
@@ -211,7 +211,7 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
 
     # Тип входа — по содержимому (магия zip), как у создания: имя файла может врать.
     not_archives = [
-        f"{label or f'вход {i + 1}'}: {NOT_ARCHIVE}"
+        f"{label or f'файл {i + 1}'}: {NOT_ARCHIVE}"
         for i, (label, payload) in enumerate(inputs)
         if not payload.startswith(b"PK")
     ]
@@ -246,8 +246,9 @@ def build_into_plan(db: Session, project: Project, inputs: list[tuple[str, bytes
             # Тёзки одного родителя слились в один merged-узел: знание приедет к
             # первому, второй останется как был (переклеивать и удалять нельзя).
             warnings.append(
-                f"узлы-тёзки «{plan.node_paths[m]}» слились в один — знание приедет к "
-                f"первому из них, второй ({live_order[ni].name}) остался как был"
+                f"одноимённые объекты «{plan.node_paths[m]}» слились в один. Документация "
+                f"из архива попадёт к первому из них, второй ({live_order[ni].name}) "
+                "останется как был"
             )
 
     _mark_current(plan)
@@ -287,7 +288,7 @@ def _addressed_errors(plan: UnifiedPlan) -> list[str]:
     архив пользователя), и показывать их человеку нельзя. Имена берём из плана."""
     out: list[str] = []
     for fi, msgs in sorted(plan.report.file_errors.items()):
-        label = plan.labels[fi] if fi < len(plan.labels) else f"вход {fi + 1}"
+        label = plan.labels[fi] if fi < len(plan.labels) else f"файл {fi + 1}"
         out.extend(f"{label}: {m}" for m in msgs)
     out.extend(plan.report.errors)  # схемные (лимиты слияния) — без виновника
     return out or list(plan.errors)
@@ -303,14 +304,15 @@ def _order_mismatch(
     mine = plan.origin_paths[0] if plan.origin_paths else []
     if len(mine) != len(live_order):
         return (
-            f"Архив текущего проекта не сошёлся с его схемой ({len(live_order)} узлов "
-            f"против {len(mine)} разобранных) — догрузка отменена, сообщите разработчику"
+            f"Архив текущего проекта не совпал с его схемой ({len(live_order)} объектов "
+            f"против {len(mine)} разобранных), поэтому догрузка отменена. Сообщите об этом "
+            "администратору ArchMap"
         )
     for ni, path in enumerate(mine):
         if node_path(live_by_id, live_order[ni].id) != path:
             return (
-                f"Архив текущего проекта не сошёлся с его схемой (узел «{path}») — "
-                "догрузка отменена, сообщите разработчику"
+                f"Архив текущего проекта не совпал с его схемой (объект «{path}»), поэтому "
+                "догрузка отменена. Сообщите об этом администратору ArchMap"
             )
     return None
 
@@ -346,7 +348,7 @@ def _merge_notes(plan: UnifiedPlan) -> list[str]:
     # plan.warnings — замечания ядра о тёзках процессов; догрузка считает их сама
     # (_process_notes), потому что копию живого процесса она узнаёт и не ввозит.
     for i, remarks in enumerate(plan.input_remarks):
-        label = plan.labels[i] if i < len(plan.labels) else f"вход {i + 1}"
+        label = plan.labels[i] if i < len(plan.labels) else f"файл {i + 1}"
         out.extend(f"{label}: {r}" for r in remarks)
     return out
 
@@ -391,7 +393,7 @@ def _own_notes(warnings: list[str], processes: bool = True) -> list[UnfixableOut
     тёзки процессов. processes=False — у отчёта применения: там тёзку процесса
     называет строка применения с фактическим именем («приехал под именем …»), и
     плановая строка («приедет под именем … (2)») была бы вторым пунктом о том же."""
-    prefixes = ("процесс «", "узлы-тёзки «") if processes else ("узлы-тёзки «",)
+    prefixes = ("процесс «", "одноимённые объекты «") if processes else ("одноимённые объекты «",)
     return [
         UnfixableOut(id=f"into|{j}", text=friendly_process_note(w))
         for j, w in enumerate(warnings)
@@ -521,16 +523,16 @@ def _fill_node(
             setattr(live, fld, new_raw)
             changed = True
             warnings.append(
-                f"узел «{path}»: поле «{_FIELD_RU[fld]}» заменено по вашему решению "
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» заменено по вашему решению "
                 f"(«{_cut(cur)}» → «{_cut(new)}»)"
             )
         elif not cur:
             setattr(live, fld, new_raw)
             changed = True
-            warnings.append(f"узел «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из архива")
+            warnings.append(f"объект «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из архива")
         else:
             warnings.append(
-                f"узел «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}») — "
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}») — "
                 f"оставлено живое («{_cut(cur)}»)"
             )
     # Якорь источника — не «поле», а идентичность узла для будущего синка: пустой
@@ -541,7 +543,7 @@ def _fill_node(
     for fld in ("shape", "status"):
         if getattr(imp, fld) != getattr(live, fld):
             warnings.append(
-                f"узел «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое "
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое "
                 f"(«{getattr(imp, fld)}») — оставлено живое («{getattr(live, fld)}»)"
             )
     if changed:
@@ -568,7 +570,7 @@ def _element_refused(
     if refusal is None:
         return False
     чей = "склеенного объекта" if от_склейки else "из архива"
-    warnings.append(f"узел «{path}»: элемент архитектуры {чей} не применён — {as_clause(refusal)}")
+    warnings.append(f"объект «{path}»: элемент архитектуры {чей} не применён — {as_clause(refusal)}")
     return True
 
 
@@ -598,7 +600,7 @@ def _fill_element(
     label = _FIELD_RU["element"]
     if cur is not None and "element" not in forced:
         warnings.append(
-            f"узел «{path}»: поле «{label}» в архиве другое («{new}») — оставлено живое («{cur}»)"
+            f"объект «{path}»: поле «{label}» в архиве другое («{new}») — оставлено живое («{cur}»)"
         )
         return False
     if _element_refused(live, new, rows, path, warnings, от_склейки):
@@ -607,10 +609,10 @@ def _fill_element(
     rows[live.id] = rows[live.id]._replace(element=new)
     if cur is None:
         откуда = "из склеенного объекта" if от_склейки else "из архива"
-        warnings.append(f"узел «{path}»: поле «{label}» пустовало — залито {откуда}")
+        warnings.append(f"объект «{path}»: поле «{label}» пустовало — залито {откуда}")
     else:
         warnings.append(
-            f"узел «{path}»: поле «{label}» заменено по вашему решению («{cur}» → «{new}»)"
+            f"объект «{path}»: поле «{label}» заменено по вашему решению («{cur}» → «{new}»)"
         )
     live.version += 1
     return True
@@ -637,7 +639,7 @@ def _absorb_into_live(
         if (новое or "").strip() and not (getattr(live, fld) or "").strip():
             setattr(live, fld, новое)
             warnings.append(
-                f"узел «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из склеенного объекта"
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из склеенного объекта"
             )
             changed = True
     if not live.source_ref and донор.source_keys:
@@ -690,7 +692,8 @@ def apply_into_plan(
     merged = plan.merged if plan else None
     if not into.ok or plan is None or merged is None:
         raise UnifiedImportError(
-            "План непригоден к применению: " + ("; ".join(into.errors[:5]) or "неизвестно почему")
+            "Изменения не удалось применить"
+            + (f": {'; '.join(into.errors[:5])}" if into.errors else "")
         )
     # Свёртка отчёта (Ф2г-2) — тот же остаток, что пользователь видел в превью, и
     # считается ДО правок дерева решениями: перевес концов меняет пути, и столкнувшийся
@@ -1235,7 +1238,7 @@ def _warn_extra_parts(
             if live_t is not None:
                 _extra_kept(
                     [c.name for c in live_t.columns], [c.name for c in w.value.columns],
-                    "колонок", f"таблица «{w.key}» узла «{path_of[w.node_idx]}»", warnings,
+                    "колонок", f"таблица «{w.key}» объекта «{path_of[w.node_idx]}»", warnings,
                 )
         elif isinstance(w.value, ChannelIn):
             live_c = next(
@@ -1246,7 +1249,7 @@ def _warn_extra_parts(
             if live_c is not None:
                 _extra_kept(
                     [f.name for f in live_c.fields], [f.name for f in w.value.fields],
-                    "полей", f"канал «{w.key}» узла «{path_of[w.node_idx]}»", warnings,
+                    "полей", f"канал «{w.key}» объекта «{path_of[w.node_idx]}»", warnings,
                 )
 
 

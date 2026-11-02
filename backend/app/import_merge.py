@@ -274,7 +274,7 @@ def _warn_shared_repo(nodes: list[_ImpNode], report: MergeReport) -> None:
     if hidden:
         # Хвост-счётчик — тому, чьи все скрытые источники (как у соседних классов).
         report.warn(
-            f"…ещё {hidden} таких источников", report.owner_of_nodes(hidden_idxs)
+            f"и ещё {hidden} таких источников", report.owner_of_nodes(hidden_idxs)
         )
 
 
@@ -829,7 +829,7 @@ class _Merger:
                 f"один, а их компоненты окажутся внутри него"
             )
         if hidden:
-            self.report.warn(f"…ещё {hidden} таких склеек по общему источнику")
+            self.report.warn(f"и ещё {hidden} таких объединений по общему источнику")
 
     def warn_roots(self, parts: list[ParsedImport]) -> None:
         """Ни один корень не склеился из ≥2 файлов — скорее всего, агентам задали
@@ -842,7 +842,7 @@ class _Merger:
             return
         names = ", ".join(f"«{self.nodes[i].name}»" for i in roots[:6])
         self.report.warn(
-            f"файлы не имеют общих корневых узлов ({names}) — если это одна система, "
+            f"файлы не имеют общих корневых объектов ({names}). Если это одна система, "
             f"задайте всем файлам одно имя корня и повторите"
         )
 
@@ -920,10 +920,9 @@ class _Merger:
             others = sorted({fi for c in adopted for fi in self.sources[c]})
             self.report.warn(
                 f"{self.paths[idx]}: контейнер по {_files_phrase(sorted(said), 'файлу', 'файлам')}, "
-                f"а {_files_phrase(others, 'файл', 'файлы')} "
-                f"{'положил' if len(others) == 1 else 'положили'} внутрь объекты "
-                f"({_names_phrase(self.nodes[c].name for c in adopted)}), не зная, что это "
-                f"контейнер — они стали его компонентами; проверьте, не система ли это"
+                f"а в {_files_phrase(others, 'файле', 'файлах')} внутри него лежат объекты "
+                f"({_names_phrase(self.nodes[c].name for c in adopted)}). Они стали "
+                f"компонентами контейнера; проверьте, не система ли это"
             )
 
     def finish(self, parts: list[ParsedImport]) -> tuple[ParsedImport, MergeReport]:
@@ -952,10 +951,10 @@ class _Merger:
             del self.report.warnings[_MAX_WARNINGS:]
             del self.report.warning_files[_MAX_WARNINGS:]  # разметка идёт строка в строку
             self.report.forget_cut_warnings(_MAX_WARNINGS)
-            self.report.warn(f"…и ещё {extra} предупреждений")
+            self.report.warn(f"и ещё {extra} предупреждений")
         # Лимиты — свойство СЛИТОЙ картины: один файл в них не виноват.
         if len(self.nodes) > MAX_NODES:
-            self.report.error(f"После слияния слишком много узлов (больше {MAX_NODES})")
+            self.report.error(f"После слияния слишком много объектов (больше {MAX_NODES})")
         if len(self.edges) > MAX_EDGES:
             self.report.error(f"После слияния слишком много связей (больше {MAX_EDGES})")
         roots = [n.name for n in self.nodes if n.parent_idx is None]

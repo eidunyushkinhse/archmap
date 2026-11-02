@@ -100,8 +100,8 @@ def _warn_lonely(merged: ParsedImport, report: MergeReport, lonely_idxs: list[in
         names = ", ".join(f"«{x}»" for x in lonely[:6])
         tail = f" и ещё {len(lonely) - 6}" if len(lonely) > 6 else ""
         report.warn(
-            f"объектов без единой связи: {len(lonely)} ({names}{tail}) — проверьте, "
-            f"не потерялись ли связи; такие объекты попадут в «Незавершённость схемы»",
+            f"объектов без единой связи: {len(lonely)} ({names}{tail}). Проверьте, "
+            f"не потерялись ли связи. Такие объекты попадут в рекомендации проекта",
             report.owner_of_nodes(idxs),
         )
 
@@ -161,14 +161,14 @@ def _warn_descendant_edges(merged: ParsedImport, report: MergeReport) -> set[int
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         report.warn(
-            f"связь «{a} → {b}»: «{merged.nodes[часть].name}» — часть "
-            f"«{merged.nodes[целое].name}», иерархия уже выражает вложенность — "
-            f"удалите связь или перевесьте её на другой узел",
+            f"связь «{a} → {b}»: «{merged.nodes[часть].name}» и так входит в "
+            f"«{merged.nodes[целое].name}», поэтому связь лишняя. Удалите её или "
+            f"перенесите на другой объект",
             report.owner_of_edges([ei]),
         )
     if hidden:
         report.warn(
-            f"…ещё {hidden} таких связей с собственным потомком",
+            f"и ещё {hidden} таких связей с собственной частью",
             report.owner_of_edges(hidden_idxs),
         )
     return свои
@@ -252,7 +252,7 @@ def _warn_container_edges(
         for rec in hidden_recs:
             rec.warning_idx = len(report.warnings)
         # Хвост-счётчик — тому, чьи все скрытые связи (как у соседних классов).
-        report.warn(f"…ещё {hidden} таких связей", report.owner_of_edges(hidden_idxs))
+        report.warn(f"и ещё {hidden} таких связей", report.owner_of_edges(hidden_idxs))
 
 
 def _container_edge_head(names: list[str], systems: list[bool], targets: str) -> str:
@@ -360,7 +360,7 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport, skip: set[int]
         )
     if hidden:
         report.warn(
-            f"…ещё {hidden} таких связей с брокером", report.owner_of_edges(hidden_idxs)
+            f"и ещё {hidden} таких связей с брокером", report.owner_of_edges(hidden_idxs)
         )
 
 
@@ -398,7 +398,7 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport, skip: set[int
         )
     if hidden:
         report.warn(
-            f"…ещё {hidden} таких связей с перечнем в channel",
+            f"и ещё {hidden} таких связей с перечнем в channel",
             report.owner_of_edges(hidden_idxs),
         )
 
@@ -443,8 +443,8 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
         shown = ", ".join(f"«{n}»" for n in names[:_MAX_GROUP_NAMES])
         tail = f" и ещё {len(names) - _MAX_GROUP_NAMES}" if len(names) > _MAX_GROUP_NAMES else ""
         report.warn(
-            f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail} — "
-            f"дорисуйте связь с ядром или проверьте, не потерялась ли она",
+            f"группа из {len(names)} объектов не связана с остальной схемой: {shown}{tail}. "
+            f"Проведите связь с остальной схемой или проверьте, не потерялась ли она",
             report.owner_of_nodes(comp),
         )
     hidden_comps = comps[_MAX_ISOLATED_GROUPS + 1 :]
@@ -456,6 +456,6 @@ def _warn_isolated_groups(merged: ParsedImport, report: MergeReport) -> None:
             )
         # Хвост-счётчик — только тому, чьи все скрытые группы (как у соседних классов).
         report.warn(
-            f"…ещё {len(hidden_comps)} таких групп",
+            f"и ещё {len(hidden_comps)} таких групп",
             report.owner_of_nodes([i for comp in hidden_comps for i in comp]),
         )

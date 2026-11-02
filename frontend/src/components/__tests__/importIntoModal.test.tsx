@@ -256,7 +256,7 @@ describe("догрузка архива · превью и споры", () => {
       .toHaveAttribute("aria-pressed", "true");
 
     vi.mocked(projectsApi.importIntoApply).mockRejectedValueOnce(
-      new ApiError(409, "Проект изменился после расчёта — обновите превью и повторите"),
+      new ApiError(409, "Проект изменился после проверки. Повторите проверку и примените изменения снова"),
     );
     // Свежий план после 409 — с другим fence: применение обязано уехать уже с ним.
     vi.mocked(projectsApi.importIntoPreview).mockResolvedValue(

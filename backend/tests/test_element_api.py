@@ -283,7 +283,7 @@ def test_элемент_задаётся_только_у_сервиса(client, 
         ("billing", "shop", {}),
     ])
     h = _h(owner, p)
-    only = {"detail": "Элемент архитектуры задаётся только у сервиса."}
+    only = {"detail": "Элемент архитектуры бывает только у системы, контейнера и компонента."}
 
     r = _patch(client, db, h, ids["orders-db"], {"element": "container"})
     assert (r.status_code, r.json()) == (422, only)

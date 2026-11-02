@@ -171,16 +171,16 @@ def test_ошибка_yaml_подсказывает_лечение():
         "nodes:\n  - name: A\n    description: Обработка действий: отправка\n"
     )
     assert parsed is None
-    assert any("возьмите такое значение в кавычки" in e for e in errors)
+    assert any("Такое значение нужно взять в кавычки" in e for e in errors)
 
 
 def test_unknown_edge_ref_is_error():
     parsed, errors = parse_import("nodes:\n  - name: A\nedges:\n  - from: A\n    to: B\n")
     assert parsed is None
-    assert any('узел "B" не найден' in e and "edges[0]" in e for e in errors)
+    assert any('объект «B» не найден' in e and "edges[0]" in e for e in errors)
     # СЕНТИНЕЛ: уверенного кандидата нет («B» против «A») — текст ошибки прежний
     # байт-в-байт, did-you-mean ничего к нему не приписал.
-    assert errors == ['edges[0]: узел "B" не найден']
+    assert errors == ['edges[0]: объект «B» не найден']
 
 
 def test_подсказка_находит_тот_же_компонент_в_другом_контейнере():
@@ -204,7 +204,7 @@ def test_подсказка_находит_тот_же_компонент_в_д�
     parsed, errors = parse_import(doc + "zabbix-server / web-api\n")
     assert parsed is None
     assert errors == [
-        'edges[0]: узел "zabbix-server / web-api" не найден — есть "zabbix-ui / web-api"'
+        'edges[0]: объект «zabbix-server / web-api» не найден, похоже на «zabbix-ui / web-api»'
     ]
     # Подсказка резолвится: агент чинит связь копированием предложенного пути.
     parsed, errors = parse_import(doc + "zabbix-ui / web-api\n")
@@ -229,13 +229,13 @@ def test_подсказка_на_опечатку_и_молчание_на_да�
     parsed, errors = parse_import(doc + "zabbix-server / api-gatewey\n")
     assert parsed is None
     assert errors == [
-        'edges[0]: узел "zabbix-server / api-gatewey" не найден'
-        ' — есть "zabbix-server / api-gateway"'
+        'edges[0]: объект «zabbix-server / api-gatewey» не найден'
+        ', похоже на «zabbix-server / api-gateway»'
     ]
     # «cache» не похоже ни на один узел документа — текст прежний байт-в-байт.
     parsed, errors = parse_import(doc + "cache\n")
     assert parsed is None
-    assert errors == ['edges[0]: узел "cache" не найден']
+    assert errors == ['edges[0]: объект «cache» не найден']
 
 
 def test_подсказка_детерминирована_при_нескольких_одноимённых_листьях():
@@ -258,10 +258,10 @@ def test_подсказка_детерминирована_при_несколь
         "    to: "
     )
     runs = {parse_import(doc + "ccc / api\n")[1][0] for _ in range(3)}
-    assert runs == {'edges[0]: узел "ccc / api" не найден — есть "bbb / api"'}
+    assert runs == {'edges[0]: объект «ccc / api» не найден, похоже на «bbb / api»'}
     # Когда кандидаты неравноудалены, выигрывает ближайший, а не первый.
     _, errors = parse_import(doc + "aaa-legacy / api\n")
-    assert errors == ['edges[0]: узел "aaa-legacy / api" не найден — есть "aaa / api"']
+    assert errors == ['edges[0]: объект «aaa-legacy / api» не найден, похоже на «aaa / api»']
 
 
 def test_qualified_path_resolves_and_bare_duplicate_is_ambiguous(db):
@@ -426,8 +426,8 @@ def test_незнакомый_или_чужой_ключ_уточнителя_н
         "Ярмарка / Каталог-БД @ git:github.com/org/billing",
     ))
     assert parsed is None
-    assert errors[0].startswith('edges[0]: узел "Ярмарка / Каталог-БД @ img:org/catalog:1" не найден')
-    assert errors[1].startswith('edges[1]: узел "Ярмарка / Каталог-БД @ git:github.com/org/billing" не найден')
+    assert errors[0].startswith('edges[0]: объект «Ярмарка / Каталог-БД @ img:org/catalog:1» не найден')
+    assert errors[1].startswith('edges[1]: объект «Ярмарка / Каталог-БД @ git:github.com/org/billing» не найден')
 
 
 def test_неоднозначность_тёзок_называет_готовые_ссылки_с_уточнителем():
@@ -479,9 +479,9 @@ def test_порядковый_номер_вне_группы_или_кривой
     ))
     assert parsed is None
     assert [e.split(" не найден")[0] for e in errors] == [
-        'edges[0]: узел "Ярмарка / api @ #3"',
-        'edges[1]: узел "Ярмарка / api @ #0"',
-        'edges[2]: узел "Ярмарка / api @ #01"',
+        'edges[0]: объект «Ярмарка / api @ #3»',
+        'edges[1]: объект «Ярмарка / api @ #0»',
+        'edges[2]: объект «Ярмарка / api @ #01»',
     ]
 
 
@@ -776,7 +776,7 @@ def test_preview_multi_errors_prefixed_by_file(db):
     out = _preview(_MULTI_A, "nodes:\n  - name: [оборвано")
     assert out.ok is False and out.files == 2
     # Единый путь адресует бедой ВХОД (чип панели), а не «файл»: нумерация та же.
-    assert any(e.startswith("вход 2: ") for e in out.errors)
+    assert any(e.startswith("файл 2: ") for e in out.errors)
 
 
 def test_preview_splits_remarks_by_file_and_schema(db):
@@ -848,7 +848,7 @@ def test_preview_single_file_keeps_everything_in_one_bucket(db):
     bad = _preview("nodes:\n  - name: [x")
     # Те же ошибки: в корзине файла — как есть, в плоском списке — с адресом входа.
     assert bad.ok is False and bad.file_remarks[0].errors
-    assert bad.errors == [f"вход 1: {e}" for e in bad.file_remarks[0].errors]
+    assert bad.errors == [f"файл 1: {e}" for e in bad.file_remarks[0].errors]
 
 
 def test_preview_requires_some_content():
@@ -920,7 +920,7 @@ def test_source_снятые_виды_якоря_игнорируются_с_п�
     assert errors == [] and parsed is not None
     assert parsed.nodes[0].source_keys == ["host:payments"]
     assert parsed.warnings == [
-        "nodes[0].source: образ и деплоймент больше не источник — поле проигнорировано"
+        "nodes[0].source: образ и развёртывание больше не служат источником, поле пропущено"
     ]
 
 
@@ -1434,8 +1434,10 @@ def test_элемент_у_не_сервиса_снят_с_замечанием(
     assert errors == [] and parsed is not None
     assert [n.element for n in parsed.nodes] == ["system", None, None]
     assert parsed.warnings == [
-        "Ярмарка / orders-db: элемент архитектуры задаётся только у сервиса — значение пропущено",
-        "Покупатель: элемент архитектуры задаётся только у сервиса — значение пропущено",
+        "Ярмарка / orders-db: элемент архитектуры бывает только у системы, контейнера и "
+        "компонента, поэтому значение пропущено",
+        "Покупатель: элемент архитектуры бывает только у системы, контейнера и компонента, "
+        "поэтому значение пропущено",
     ]
 
 
@@ -1949,7 +1951,7 @@ def test_тип_объекта_с_вложенными_вместе_с_друг�
     )
     assert parsed is None
     assert errors == [
-        'edges[0]: узел "склад" не найден',
+        'edges[0]: объект «склад» не найден',
         "У объекта с вложенными объектами не указан тип: «Ярмарка». Укажите element: system "
         "или element: container.",
     ]

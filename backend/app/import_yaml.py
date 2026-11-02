@@ -170,7 +170,7 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
         # Zabbix 7 — два лишних раунда). Подсказка — та же, что у дозаливки данных.
         return None, [
             f"Некорректный YAML: {_yaml_error(e)}. Частая причина — двоеточие с пробелом "
-            "внутри значения (например «действий: отправка»): возьмите такое значение "
+            "внутри значения (например «действий: отправка»). Такое значение нужно взять "
             "в кавычки"
         ]
     if not isinstance(doc, dict):
@@ -491,9 +491,9 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
     warnings: list[str] = []
     raw_nodes = doc.get("nodes")
     if raw_nodes is None:
-        return None, ["nodes: обязательный список узлов отсутствует"]
+        return None, ["nodes: нет обязательного списка объектов"]
     if not isinstance(raw_nodes, list):
-        return None, ["nodes: ожидается список узлов"]
+        return None, ["nodes: ожидается список объектов"]
     # edges опционален; явный `edges:` без значения PyYAML отдаёт как None.
     raw_edges = doc.get("edges") or []
     if not isinstance(raw_edges, list):
@@ -541,7 +541,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
             return []
         sp = f"{path}.source"
         if raw_src.get("image") is not None or raw_src.get("deployment") is not None:
-            warnings.append(f"{sp}: образ и деплоймент больше не источник — поле проигнорировано")
+            warnings.append(f"{sp}: образ и развёртывание больше не служат источником, поле пропущено")
         keys = source_keys(
             SourceRef(
                 repo=opt_str(raw_src, "repo", sp, None),
@@ -559,7 +559,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         if overflow:
             return
         if not isinstance(raw, dict):
-            errors.append(f"{path}: узел должен быть словарём (mapping)")
+            errors.append(f"{path}: объект должен быть словарём (mapping)")
             return
         name = raw.get("name")
         if not isinstance(name, str) or not name.strip():
@@ -569,7 +569,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
             errors.append(err)
             return
         if len(nodes) >= MAX_NODES:
-            errors.append(f"Слишком много узлов (больше {MAX_NODES})")
+            errors.append(f"Слишком много объектов (больше {MAX_NODES})")
             overflow = True
             return
 
@@ -631,7 +631,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         if kids is None:
             return
         if not isinstance(kids, list):
-            errors.append(f"{path}.children: ожидается список узлов")
+            errors.append(f"{path}.children: ожидается список объектов")
             return
         if not kids:
             return
@@ -717,8 +717,8 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
                 hints[ref] = _closest_node(ref, fulls, by_bare, by_path)
             hint = hints[ref]
             # Уверенного кандидата нет — текст остаётся БАЙТ-В-БАЙТ прежним.
-            suffix = f' — есть "{hint}"' if hint is not None else ""
-            errors.append(f'{path}: узел "{ref}" не найден{suffix}')
+            suffix = f", похоже на «{hint}»" if hint is not None else ""
+            errors.append(f"{path}: объект «{ref}» не найден{suffix}")
             return None
         if len(hits) > 1:
             # Кандидаты уже в руках — их же считали, чтобы обнаружить неоднозначность.
@@ -759,10 +759,10 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         src_ref = raw_e.get("from")
         dst_ref = raw_e.get("to")
         if not isinstance(src_ref, str) or not src_ref:
-            errors.append(f"{path}: from — обязательная строка с именем узла")
+            errors.append(f"{path}: from — обязательная строка с именем объекта")
             continue
         if not isinstance(dst_ref, str) or not dst_ref:
-            errors.append(f"{path}: to — обязательная строка с именем узла")
+            errors.append(f"{path}: to — обязательная строка с именем объекта")
             continue
         src_idx = resolve(src_ref, path)
         dst_idx = resolve(dst_ref, path)

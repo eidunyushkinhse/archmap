@@ -108,11 +108,11 @@ const ОТЧЁТ: ArchiveImportResult = {
   channels: null,
   config: null,
   processes: [],
-  warnings: ["docs/x.mmd: узел «Нет такого» не найден — файл пропущен"],
+  warnings: ["docs/x.mmd: объект «Нет такого» не найден, файл пропущен"],
   // Экрану — пункты свёртки (Ф2г-2), сырые warnings — для MCP.
   unfixable: [{
     id: "input|1|0", file: 1,
-    text: "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен",
+    text: "b.zip: docs/x.mmd: объект «Нет такого» не найден, файл пропущен",
   }],
   resolved_conflicts: 0,
   channel_stubs: 0,
@@ -178,7 +178,7 @@ describe("единый ввоз · создание проекта", () => {
     expect(screen.queryByText("Замечания")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
     expect(screen.getByRole("listitem")).toHaveTextContent(
-      "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен");
+      "b.zip: docs/x.mmd: объект «Нет такого» не найден, файл пропущен");
     expect(onCreated).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Открыть проект" }));
