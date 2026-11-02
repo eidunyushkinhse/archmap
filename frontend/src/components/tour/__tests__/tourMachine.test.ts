@@ -239,7 +239,7 @@ describe("тур — свой проект", () => {
     s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "k1", name: "Касса", shape: "service", element: "container", parentId: null })]);
     expect(s).toMatchObject({ step: "create-system", wrongAt: "create-system" });
     expect(stepTexts(STEPS["create-system"], s.vars, s.wrongAt === "create-system").retry)
-      .toBe("Нужна именно система — создайте её плиткой «Система».");
+      .toBe("Нужна именно система. Создайте её плиткой «Система».");
     s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "s1", name: "Шлюз", shape: "service", element: "system", parentId: null })]);
     // подсказка осталась на прежнем шаге
     expect(s.step).toBe("add-peer");
@@ -258,7 +258,7 @@ describe("тур — свой проект", () => {
     expect(s.wrongAt).toBeUndefined();
     s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "d1", name: "БД", shape: "database", element: null, parentId: "s1" })]);
     expect(s).toMatchObject({ step: "add-child", wrongAt: "add-child" });
-    expect(stepTexts(STEPS["add-child"], s.vars, true).retry).toBe("Нужен именно контейнер — создайте его плиткой «Контейнер».");
+    expect(stepTexts(STEPS["add-child"], s.vars, true).retry).toBe("Нужен именно контейнер. Создайте его плиткой «Контейнер».");
     s = run(s, [sig({ kind: "node-created", projectId: OWN, id: "c1", name: "Касса", shape: "service", element: "container", parentId: "s1" })]);
     expect(s).toMatchObject({ step: "rehang", vars: { childId: "c1" } });
   });

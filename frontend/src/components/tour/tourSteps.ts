@@ -259,7 +259,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
     needs: [YAR_ORCH, YAR_INTAKE, YAR_SAGA_STEPS], mode: "schema", treeOpen: YAR_ORCH,
     target: { kind: "yar-tree-rows", names: [YAR_INTAKE, YAR_SAGA_STEPS] },
     title: "Контейнер и его компоненты",
-    body: "«Оркестратор заказа» запускается один — это контейнер. Внутри части его кода — компоненты «Приём событий» и «Шаги саги». Схемы логики у компонентов, а конфигурация и спецификация у контейнера.",
+    body: "«Оркестратор заказа» запускается один, поэтому это контейнер. Внутри него компоненты «Приём событий» и «Шаги саги», это части его кода. Схемы логики у компонентов, а конфигурация и спецификация у контейнера.",
   },
   processes: {
     id: "processes", kind: "info", n: 12, screen: { kind: "yar-shell" }, mode: "proc",
@@ -304,7 +304,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   "create-system": {
     id: "create-system", kind: "act", n: 18, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:system" }, zone: { kind: "canvas" } },
-    lockType: true, retry: "Нужна именно система — создайте её плиткой «Система».",
+    lockType: true, retry: "Нужна именно система. Создайте её плиткой «Система».",
     title: "Создайте свою систему",
     body: "Начнём с верхнего слоя архитектуры: ваша система целиком и те, кто с ней работает.",
     action: "Перетащите «Систему» на схему и назовите её именем вашей системы.",
@@ -339,7 +339,7 @@ export const STEPS: Readonly<Record<StepId, TourStep>> = {
   "add-child": {
     id: "add-child", kind: "act", n: 23, screen: OWN_MAP,
     target: { kind: "pair", main: { kind: "tour", key: "palette:container" }, zone: { kind: "system" } },
-    lockType: true, retry: "Нужен именно контейнер — создайте его плиткой «Контейнер».",
+    lockType: true, retry: "Нужен именно контейнер. Создайте его плиткой «Контейнер».",
     title: "Соберите систему из контейнеров",
     body: "Поместите внутрь системы контейнер. Начните с того, с которым работает внешний объект: если наверху вы создали пользователя, добавьте сервис, который отдаёт ему фронтенд. А если внешнюю систему, то добавьте сервис, который с ней интегрирован.",
     action: "Перетащите «Контейнер» внутрь раскрытой системы «{system}».",

@@ -77,7 +77,7 @@ function routeFromHash(): Route {
 }
 
 // Плашка экрана входа, когда сессия закончилась сама (токен истёк), а не по выходу.
-export const SESSION_EXPIRED_NOTICE = "Сессия истекла — войдите снова.";
+export const SESSION_EXPIRED_NOTICE = "Сессия истекла. Войдите снова.";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(!!getToken());

@@ -8,7 +8,7 @@ import { primaryBtn } from "./styles";
 // сами не станем — в открытом окне может быть несохранённая правка; говорим человеку
 // и даём кнопку. Ошибку не гасим (preventDefault не зовём): загрузчик сам покажет,
 // что его часть не загрузилась.
-export const UPDATE_NOTICE = "Вышла новая версия ArchMap — обновите страницу, чтобы всё загружалось.";
+export const UPDATE_NOTICE = "Вышла новая версия ArchMap. Обновите страницу, чтобы всё загружалось.";
 
 export default function UpdateNotice() {
   const [stale, setStale] = useState(false);

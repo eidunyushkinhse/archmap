@@ -61,7 +61,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
       .catch((e: unknown) => {
         setError(
           e instanceof ApiError && e.status === 409
-            ? "Схему изменили в другом окне — список ниже устарел. Закройте это окно и откройте снова."
+            ? "Схему только что изменили в другом окне, и список ниже устарел. Закройте это окно и откройте снова."
             : "Не удалось применить. Проверьте соединение и повторите.",
         );
       })
@@ -110,7 +110,7 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
                 Удалятся вместе с ними · {preview.collateral.length}
               </div>
               <div style={{ marginBottom: 6 }}>
-                Эти объекты не помечены выводимыми — они просто лежат внутри удаляемых.
+                Эти объекты не помечены выводимыми, но лежат внутри удаляемых.
               </div>
               <ul style={list}>
                 {preview.collateral.map((n) => <li key={n.id}>{n.path}</li>)}
@@ -132,9 +132,6 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
       {error && <p style={errorText}>{error}</p>}
 
       <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-        <button type="button" style={secondaryBtn} onClick={onClose} data-autofocus>
-          Отмена
-        </button>
         <button
           type="button"
           style={preview?.delete.length ? dangerBtn : primaryBtn}
@@ -142,6 +139,9 @@ export default function TransitionConfirm({ onClose, onApplied }: Props) {
           onClick={apply}
         >
           {applying ? "Применяем" : "Принять переход"}
+        </button>
+        <button type="button" style={secondaryBtn} onClick={onClose} data-autofocus>
+          Отмена
         </button>
       </div>
     </Modal>

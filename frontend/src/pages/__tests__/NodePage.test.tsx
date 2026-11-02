@@ -216,7 +216,7 @@ describe("NodePage", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Не удалось загрузить объект");
-    expect(alert).toHaveTextContent("возможно, объект удалили");
+    expect(alert).toHaveTextContent("Возможно, объект удалили");
 
     await userEvent.click(within(alert).getByRole("button", { name: "К проекту" }));
     expect(nav.onNavigateProject).toHaveBeenCalled();

@@ -162,7 +162,7 @@ describe("DemoTour", () => {
     expect(await screen.findByRole("dialog", { name: "Создайте свою систему" })).toBeInTheDocument();
     expect(getTourTypeLock()).toBe(true);
     act(() => emitTourEvent({ type: "node-created", id: "k1", name: "Касса", shape: "service", element: "container", parentId: null }));
-    expect(await screen.findByText("Нужна именно система — создайте её плиткой «Система».")).toBeInTheDocument();
+    expect(await screen.findByText("Нужна именно система. Создайте её плиткой «Система».")).toBeInTheDocument();
     expect(stored()).toMatchObject({ step: "create-system", wrongAt: "create-system" });
     act(() => emitTourEvent({ type: "node-created", id: "s1", name: "Шлюз", shape: "service", element: "system", parentId: null }));
     // карточка нового шага — без подсказки (копия прежней ещё гаснет на старом месте)

@@ -382,7 +382,7 @@ describe("SchemaAlerts: обращения к неописанным данны�
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
     expect(screen.getByText(/Биллинг · POST \/pay/)).toBeTruthy();
-    expect(screen.getByText("„ordrs.status“")).toBeTruthy();
+    expect(screen.getByText("«ordrs.status»")).toBeTruthy();
     // Причина — не украшение: без неё непонятно, что чинить.
     expect(screen.getByText(/таблица не найдена/)).toBeTruthy();
   });
@@ -408,7 +408,7 @@ describe("SchemaAlerts: обращения к неописанным данны�
     render(<SchemaAlerts alerts={{ ...EMPTY, unresolved_data_refs: [BROKEN_REF] }} onLocate={onLocate} />);
     await openPanel();
 
-    await userEvent.click(screen.getByText("„ordrs.status“"));
+    await userEvent.click(screen.getByText("«ordrs.status»"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
   });
@@ -442,7 +442,7 @@ describe("SchemaAlerts: обращения к неописанным канал�
 
     expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
     expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
-    expect(screen.getByText("„создание“")).toBeTruthy();
+    expect(screen.getByText("«создание»")).toBeTruthy();
     expect(screen.getByText(/канал не найден у брокеров проекта/)).toBeTruthy();
   });
 
@@ -474,8 +474,8 @@ describe("SchemaAlerts: обращения к неописанным канал�
 
     expect(screen.getByText("Обращения к неописанным данным")).toBeTruthy();
     expect(screen.getByText("Обращения к неописанным каналам")).toBeTruthy();
-    expect(screen.getByText("„ordrs.status“")).toBeTruthy();
-    expect(screen.getByText("„создание“")).toBeTruthy();
+    expect(screen.getByText("«ordrs.status»")).toBeTruthy();
+    expect(screen.getByText("«создание»")).toBeTruthy();
   });
 
   it("ведёт к узлу-владельцу дока: чинится текст пометки, а не структура брокера", async () => {
@@ -485,7 +485,7 @@ describe("SchemaAlerts: обращения к неописанным канал�
     );
     await openPanel();
 
-    await userEvent.click(screen.getByText("„создание“"));
+    await userEvent.click(screen.getByText("«создание»"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
   });
@@ -651,7 +651,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
 
     expect(screen.getByText("Обращения к неописанным параметрам")).toBeTruthy();
     expect(screen.getByText(/Заказы · POST \/orders/)).toBeTruthy();
-    expect(screen.getByText("„FEATURE_Y“")).toBeTruthy();
+    expect(screen.getByText("«FEATURE_Y»")).toBeTruthy();
     // Класс ловит и прозу («зависит от: нагрузки») — подсказка обязана называть
     // второй выход, иначе такая строка читается как шум продукта.
     expect(screen.getByText(/параметра нет в конфигурации объекта/)).toBeTruthy();
@@ -709,7 +709,7 @@ describe("SchemaAlerts: обращения к неописанным парам�
     );
     await openPanel();
 
-    await userEvent.click(screen.getByText("„FEATURE_Y“"));
+    await userEvent.click(screen.getByText("«FEATURE_Y»"));
 
     expect(onLocate).toHaveBeenCalledWith({ kind: "node", id: "n1" });
   });

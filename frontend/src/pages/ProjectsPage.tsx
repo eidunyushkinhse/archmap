@@ -257,7 +257,7 @@ function EmptyState({
       <div style={emptyIcon}><LogoMark size={44} /></div>
       <h3 style={{ margin: "14px 0 4px", color: "#1e293b", fontSize: 18 }}>Пока нет ни одного проекта</h3>
       <p style={{ color: "#64748b", margin: "0 0 18px", fontSize: 14 }}>
-        Создайте первый проект — это отдельная изолированная схема системы.
+        Создайте первый проект. В каждом проекте своя изолированная схема системы.
       </p>
       {isArchitect && (
         <button style={newBtn} onClick={onCreate}><PlusIcon /> Создать первый проект</button>

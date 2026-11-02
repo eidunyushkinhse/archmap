@@ -308,7 +308,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (r) => (
       <span className="sa-line">
         <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-        <span className="sa-strong">„{r.ref}“</span>: {REF_REASON[r.reason]}
+        <span className="sa-strong">«{r.ref}»</span>: {REF_REASON[r.reason]}
       </span>
     ),
   }),
@@ -323,7 +323,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (r) => (
       <span className="sa-line">
         <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-        <span className="sa-strong">„{r.ref}“</span>: {CHANNEL_REASON[r.reason]}
+        <span className="sa-strong">«{r.ref}»</span>: {CHANNEL_REASON[r.reason]}
       </span>
     ),
   }),
@@ -341,7 +341,7 @@ const ALERT_SECTIONS: AlertSection[] = [
     body: (r) => (
       <span className="sa-line">
         <span className="sa-where">{r.node_name} · {r.doc_name}:</span>{" "}
-        <span className="sa-strong">„{r.ref}“</span>: {configReason(r)}
+        <span className="sa-strong">«{r.ref}»</span>: {configReason(r)}
       </span>
     ),
   }),
