@@ -990,7 +990,7 @@ def test_узел_несёт_размещение_и_правится_site_ids(c
 
 def test_длинное_имя_площадки_422_текстом(client, db, scene):
     r = client.post(f"{API}/deployment/sites", json={"name": "x" * 257}, headers=scene["h"])
-    assert (r.status_code, r.json()) == (422, {"detail": "Поле «name» длиннее 256 символов"})
+    assert (r.status_code, r.json()) == (422, {"detail": "Поле «Имя площадки» длиннее 256 символов"})
     r = client.post(f"{API}/deployment/sites", json={"name": "   "}, headers=scene["h"])
     assert (r.status_code, r.json()) == (422, {"detail": "Имя площадки не может быть пустым"})
     assert db.query(DeploymentSite).count() == 0

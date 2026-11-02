@@ -327,7 +327,7 @@ def test_комментарий_пустой_и_слишком_длинный_42
 
     res = client.post(s.orders_url, json={"comment": "x" * 513}, headers=s.h)
     assert res.status_code == 422
-    assert res.json() == {"detail": "Поле «comment» длиннее 512 символов"}
+    assert res.json() == {"detail": "Поле «Комментарий» длиннее 512 символов"}
     assert db.query(NodeVersion).count() == 0
 
 

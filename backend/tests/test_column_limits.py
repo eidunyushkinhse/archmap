@@ -13,7 +13,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import String
 
 from app.auth import create_access_token
-from app.column_limits import ValueTooLong, _limits_of, check_lengths, too_long
+from app.column_limits import (
+    ValueTooLong,
+    _limits_of,
+    check_lengths,
+    field_word,
+    too_long,
+)
 from app.database import Base, get_db
 from app.main import app
 from app.models.edge import Edge
@@ -37,7 +43,36 @@ def test_значение_ровно_на_пределе_проходит_дли
     check_lengths([Node(name="я" * 256)])
     with pytest.raises(ValueTooLong) as exc:
         check_lengths([Node(name="я" * 257)])
-    assert exc.value.detail == "Поле «name» длиннее 256 символов"
+    assert exc.value.detail == "Поле «Название» длиннее 256 символов"
+
+
+# Служебные колонки, которые человек не вводит: отказ по ним — без имени поля.
+SERVICE_COLUMNS = {
+    ("User", "hashed_password"), ("PersonalToken", "prefix"), ("PersonalToken", "token_hash"),
+    ("Upload", "key_hash"), ("Upload", "sha256"), ("NodeVersion", "content_hash"),
+    ("ViewLayoutItem", "item_id"), ("ProcessMessage", "leg"),
+}
+
+
+def test_у_каждой_ограниченной_колонки_есть_имя_словами_или_она_служебная() -> None:
+    # Сторож словаря FIELD_WORDS: новая колонка String(n) без подписи дала бы отказ
+    # «Значение длиннее N символов» там, где человек сам вводил поле.
+    for mapper in Base.registry.mappers:
+        cls = mapper.class_
+        for key, _limit in _limits_of(cls):
+            named = field_word(cls, key) is not None
+            assert named != ((cls.__name__, key) in SERVICE_COLUMNS), (cls.__name__, key)
+
+
+def test_отказ_записи_называет_поле_словами_а_служебное_без_имени() -> None:
+    with pytest.raises(ValueTooLong) as exc:
+        check_lengths([Edge(technology="т" * 129)])
+    assert (exc.value.field, exc.value.detail) == (
+        "technology", "Поле «Технология» длиннее 128 символов"
+    )
+    with pytest.raises(ValueTooLong) as exc:
+        check_lengths([User(username="u", hashed_password="h" * 257, role="viewer")])
+    assert exc.value.detail == "Значение длиннее 256 символов"
 
 
 def test_ошибка_разбора_берёт_предел_колонки_и_ставит_путь_впереди() -> None:
@@ -84,7 +119,7 @@ def test_слишком_длинное_имя_объекта_422_текстом(
     r = client.post(f"{API}/nodes", json={"name": "x" * 257}, headers=scene["h"])
 
     assert r.status_code == 422
-    assert r.json() == {"detail": "Поле «name» длиннее 256 символов"}
+    assert r.json() == {"detail": "Поле «Название» длиннее 256 символов"}
     assert db.query(Node).count() == 2
 
 
@@ -94,7 +129,7 @@ def test_длинная_технология_в_правке_объекта_422(
     )
 
     assert r.status_code == 422
-    assert r.json() == {"detail": "Поле «technology» длиннее 128 символов"}
+    assert r.json() == {"detail": "Поле «Технология» длиннее 128 символов"}
     db.expire_all()
     assert db.get(Node, scene["a"].id).technology is None
 
@@ -105,7 +140,7 @@ def test_длинная_подпись_связи_422(client, db, scene) -> None
     r = client.post(f"{API}/edges", json=body, headers=scene["h"])
 
     assert r.status_code == 422
-    assert r.json() == {"detail": "Поле «label» длиннее 256 символов"}
+    assert r.json() == {"detail": "Поле «Подпись» длиннее 256 символов"}
     assert db.query(Edge).count() == 0
 
 
@@ -135,5 +170,5 @@ def test_снимок_отката_мимо_схем_тоже_проверяет
     r = client.post(f"{API}/nodes/restore", json=snap, headers=h)
 
     assert r.status_code == 422
-    assert r.json() == {"detail": "Поле «name» длиннее 256 символов"}
+    assert r.json() == {"detail": "Поле «Название» длиннее 256 символов"}
     assert db.get(Node, bus) is None

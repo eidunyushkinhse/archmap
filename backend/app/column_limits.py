@@ -14,6 +14,11 @@ before_flush смотрит каждую ограниченную колонку
 берёт отсюда же помощником too_long: ошибка разбора с путём до поля в документе
 («nodes[0].children[4].technology: длиннее 128 символов»), чтобы агент чинил документ
 до применения, а не после отказа записи. Своих таблиц пределов у разборщиков нет.
+
+Отказ записи называет поле словами продукта («Поле «Технология» длиннее 128 символов»),
+а не именем колонки: имена берутся из FIELD_WORDS ниже, одной таблицы на весь сервер.
+Ошибка разбора остаётся с путём до ключа в документе: его пишет агент или человек, и
+ключ файла (technology) там и есть имя поля.
 """
 
 from collections.abc import Iterable
@@ -22,14 +27,65 @@ from typing import Any
 from sqlalchemy import String, event, inspect
 from sqlalchemy.orm import Mapper, Session
 
+# Имена полей словами интерфейса: атрибут модели → подпись, как её видит человек в окнах
+# и разделах страницы объекта. Общий словарь по атрибуту и уточнения по модели, где одно
+# имя атрибута значит разное (name таблицы — «Имя таблицы», name объекта — «Название»).
+# Атрибута нет ни там, ни там — служебное поле, которое человек не вводит: отказ без
+# имени («Значение длиннее N символов»). Вторую копию словаря в других модулях не заводить.
+FIELD_WORDS: dict[str, str] = {
+    "name": "Название",
+    "role": "Роль",
+    "technology": "Технология",
+    "label": "Подпись",
+    "channel": "Канал",
+    "source_ref": "Источник",
+    "shape": "Тип",
+    "element": "Тип",
+    "status": "Статус",
+    "approval": "Статус страницы",
+    "kind": "Вид",
+    "group_name": "Группа",
+    "partition_key": "Ключ партиции",
+    "delivery": "Доставка",
+    "retention": "Хранение",
+    "type": "Тип",
+    "value_type": "Тип значения",
+    "default_value": "Значение по умолчанию",
+    "schema_name": "Схема базы данных",
+    "operation": "Операция",
+    "comment": "Комментарий",
+    "guard": "Условие",
+    "caption": "Подпись",
+    "username": "Логин",
+}
+FIELD_WORDS_BY_MODEL: dict[tuple[str, str], str] = {
+    ("DbTable", "name"): "Имя таблицы",
+    ("DbColumn", "name"): "Имя колонки",
+    ("BrokerChannel", "name"): "Имя канала",
+    ("ChannelField", "name"): "Имя поля",
+    ("ConfigParam", "name"): "Имя параметра",
+    ("NodeDoc", "name"): "Имя схемы",
+    ("DeploymentSite", "name"): "Имя площадки",
+    ("ProcessParticipant", "name"): "Имя участника",
+}
+
+
+def field_word(cls: type, key: str) -> str | None:
+    """Подпись поля key модели cls словами интерфейса; None — служебное поле без подписи."""
+    return FIELD_WORDS_BY_MODEL.get((cls.__name__, key)) or FIELD_WORDS.get(key)
+
 
 class ValueTooLong(Exception):
-    """Значение не помещается в колонку. main.py отдаёт его как 422 {"detail": …}."""
+    """Значение не помещается в колонку. main.py отдаёт его как 422 {"detail": …}.
+    field — имя атрибута модели (для кода), detail — текст для человека."""
 
-    def __init__(self, field: str, limit: int) -> None:
+    def __init__(self, cls: type, field: str, limit: int) -> None:
         self.field = field
         self.limit = limit
-        self.detail = f"Поле «{field}» {_longer(limit)}"
+        word = field_word(cls, field)
+        self.detail = (
+            f"Поле «{word}» {_longer(limit)}" if word else f"Значение {_longer(limit)}"
+        )
         super().__init__(self.detail)
 
 
@@ -78,7 +134,7 @@ def check_lengths(objects: Iterable[object]) -> None:
         for key, limit in _limits_of(type(obj)):
             value = obj.__dict__.get(key)
             if isinstance(value, str) and len(value) > limit:
-                raise ValueTooLong(key, limit)
+                raise ValueTooLong(type(obj), key, limit)
 
 
 def _before_flush(session: Session, _ctx: object, _instances: object) -> None:
