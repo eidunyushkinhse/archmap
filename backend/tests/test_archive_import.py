@@ -215,7 +215,7 @@ def test_архив_нового_формата_отклоняется(db):
 
     assert not план.ok
     [ошибка] = план.errors
-    assert ошибка.startswith("файл 1: ") and "обновите ArchMap" in ошибка
+    assert ошибка.startswith("файл 1: ") and "Обновите ArchMap" in ошибка
 
 
 def test_неразрешённый_адрес_дока_уходит_в_замечания(db):

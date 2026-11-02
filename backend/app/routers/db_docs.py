@@ -60,8 +60,8 @@ def _writable_node(db: Session, node_id: uuid.UUID, project: Project) -> Node:
         raise HTTPException(
             status_code=400,
             detail=(
-                "У системы или контейнера не бывает собственной структуры данных — она "
-                "хранится у баз данных внутри"
+                "У системы или контейнера не бывает собственной структуры данных. Она "
+                "хранится у баз данных внутри них"
             ),
         )
     return node

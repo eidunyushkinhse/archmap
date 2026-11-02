@@ -228,7 +228,7 @@ def build_data_plan(
     for fname, pd in parsed:
         if pd.has_access:
             plan.report.warnings.append(
-                f"{fname}: раздел access больше не поддерживается — обращения описываются "
+                f"{fname}: раздел access больше не поддерживается. Обращения описываются "
                 "пометками «читает:/пишет:» в схемах логики"
             )
         # Адрес без решётки: YAML-ключ вместо ведущего комментария. Разбор прежний
@@ -363,7 +363,7 @@ def _warn_column_conflicts(
                 plan.column_conflicts_over += 1
                 continue
             plan.column_conflicts.append(
-                f"{fname}: колонка «{t.name}.{c.name}» — {спор}; оставлено значение из "
+                f"{fname}: у колонки «{t.name}.{c.name}» {спор}; оставлено значение из "
                 "ArchMap (перезапись выключена)"
             )
 
@@ -388,7 +388,7 @@ def _merge_duplicate(m: _Merged, fname: str, t: TableIn) -> None:
         # Описание — вся мета таблицы (схема и имя ушли в ключ), и молчать о том, что
         # файлы говорят о таблице разное, тут не на что: расхождение видно только здесь.
         m.meta_notes.append(
-            f"{fname}: таблица «{first.name}» — description «{t.description}», а в "
+            f"{fname}: у таблицы «{first.name}» description «{t.description}», а в "
             f"{m.source} «{first.description}»; оставлено значение из {m.source} "
             "(описана раньше)"
         )

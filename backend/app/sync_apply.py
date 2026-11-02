@@ -207,7 +207,7 @@ def _create_node(
         # таких детей уровнем выше (sync_plan._walk_from_childless); план без этого
         # правила сюда их донесёт — объект не создаётся, причина — строкой отчёта.
         report.skipped.append(
-            f"{act.path}: не создан — у «{parent.name}» вложенных объектов не бывает"
+            f"{act.path}: не создан, потому что у «{parent.name}» вложенных объектов не бывает"
         )
         return
     node = Node(

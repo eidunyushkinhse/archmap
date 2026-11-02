@@ -142,7 +142,7 @@ def _resolve_entry(
             # проекте нет. Поэтому здесь и синтаксис строки, и перечень адресов.
             plan.errors.append(
                 f"{fname}: не указан объект. Впишите ведущей строкой файла "
-                f'"%% archmap-node: <адрес>" — именно с этим именем заголовка. '
+                f'"%% archmap-node: <адрес>", именно с этим именем заголовка. '
                 f"Адреса объектов проекта: {_nodes_hint(flat)}"
             )
             return None
@@ -171,7 +171,7 @@ def _logic_note(fname: str, path: str, element: str | None) -> str:
     if element == "container":
         return (
             f"{fname}: «{path}» — контейнер с компонентами; схемы логики описывают код "
-            "компонентов — лучше адресовать их компонентам, у контейнера они попадут "
+            "компонентов, поэтому лучше адресовать их компонентам, а у контейнера они попадут "
             "в рекомендации проекта"
         )
     return (
@@ -432,8 +432,8 @@ class _DataRefCheck:
             # «ambiguous» подсказки не получает: имя там как раз НАШЛОСЬ, и лечится
             # оно квалификатором — предлагать «похожее» значило бы звать не туда.
             hint = self._hint(r, owner_params)
-            tail = f" — похоже на «{hint}»" if hint else ""
-            self.warnings.append(f"{fname}: пометка «{r.ref}» — {problem}{tail}")
+            tail = f", похоже на «{hint}»" if hint else ""
+            self.warnings.append(f"{fname}: в пометке «{r.ref}» {problem}{tail}")
 
     @staticmethod
     def _no_params_note(
@@ -450,17 +450,17 @@ class _DataRefCheck:
         if container is None and catalog.elements.effective(owner_id) == "system":
             return (
                 f"{fname}: «{where}» — система; пометки «зависит от:» ({names}) ищут "
-                "параметры у контейнера, а у системы их нет — адресуйте схему "
+                "параметры у контейнера, а у системы их нет. Адресуйте схему "
                 "контейнеру или компоненту"
             )
         if container is not None and container != owner_id:
             return (
                 f"{fname}: у контейнера «{catalog.node_paths.get(container, '?')}» "
-                f"конфигурация не описана — пометки «зависит от:» в схемах «{where}» "
+                f"конфигурация не описана, поэтому пометки «зависит от:» в схемах «{where}» "
                 f"({names}) останутся ненайденными, пока её не опишут"
             )
         return (
-            f"{fname}: у объекта «{where}» конфигурация не описана — пометки "
+            f"{fname}: у объекта «{where}» конфигурация не описана, поэтому пометки "
             f"«зависит от:» ({names}) останутся ненайденными, пока её не опишут"
         )
 
@@ -558,7 +558,7 @@ def build_docs_plan(
             plan.errors.append(f"{where}: объект «{ref}» не найден в проекте")
             return None
         if len(hits) > 1:
-            plan.errors.append(f'{where}: имя "{ref}" неоднозначно, укажите путь через " / "')
+            plan.errors.append(f"{where}: объектов с именем «{ref}» несколько, укажите путь через « / »")
             return None
         return hits[0]
 
@@ -747,7 +747,7 @@ def build_docs_plan(
             )
 
     for name in sorted(set(assets) - used_assets):
-        plan.warnings.append(f'файл "{name}" не пригодился — ни схема, ни спецификация')
+        plan.warnings.append(f'файл "{name}" не пригодился, потому что это не схема и не спецификация')
     data_refs.flush(plan)
     return plan
 

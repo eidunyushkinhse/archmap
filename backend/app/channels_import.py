@@ -460,7 +460,7 @@ def _merge_duplicate(m: _Merged, fname: str, c: ChannelIn) -> None:
             setattr(first, key, theirs)
             continue
         m.meta_notes.append(
-            f"{fname}: канал «{first.name}» — {key} «{theirs}», а в {m.source} "
+            f"{fname}: у канала «{first.name}» {key} «{theirs}», а в {m.source} "
             f"«{ours}»; оставлено значение из {m.source} (описан раньше)"
         )
     # description намеренно без замечания (как и в META_KEYS): два файла опишут канал
@@ -563,8 +563,8 @@ def _warn_wrong_broker(db: Session, plan: ChannelsPlan, flat: list[Node]) -> Non
                     f"канал «{named}» адресован брокеру "
                     f"«{plan.path_of.get(owner.id, owner.name)}», но связь "
                     f"«{name_by_id.get(e.source_id, '?')} → {name_by_id.get(e.target_id, '?')}» "
-                    f"называет его у брокера «{plan.path_of.get(b, name_by_id.get(b, '?'))}» — "
-                    "проверьте адресацию"
+                    f"называет его у брокера «{plan.path_of.get(b, name_by_id.get(b, '?'))}». "
+                    "Проверьте адресацию"
                 )
     # Порядок связей из БД произволен — сортируем, иначе список замечаний скакал бы
     # от прогона к прогону (и кап резал бы каждый раз другое).
@@ -675,7 +675,7 @@ def _warn_meta_conflicts(
         ours = str(getattr(live, key))
         if theirs and ours and theirs != ours:
             plan.report.warnings.append(
-                f"{fname}: канал «{c.name}» — {key} в пакете «{theirs}», в ArchMap "
+                f"{fname}: у канала «{c.name}» {key} в пакете «{theirs}», в ArchMap "
                 f"«{ours}»; оставлено значение из ArchMap (перезапись выключена)"
             )
 

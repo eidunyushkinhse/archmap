@@ -679,7 +679,7 @@ def test_сбор_параметр_контейнера_в_приоритете(
         CollectParamChoice(name="CRON", node_id=scheduler.id),
     ]))
     assert (code, text) == (422, (
-        "У «orders» есть свой параметр «CRON» — одноимённые параметры компонентов при сборе "
+        "У «orders» есть свой параметр «CRON», поэтому одноимённые параметры компонентов при сборе "
         "отбрасываются"
     ))
     # Ответ «контейнер» там, где вопроса нет, безвреден.
@@ -757,7 +757,7 @@ def test_сбор_своя_спецификация_контейнера_в_пр
     db.commit()
     code, text = _refusal(lambda: _collect(db, orders, spec_from=checkout.id))
     assert (code, text) == (
-        422, "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются",
+        422, "У «orders» есть своя спецификация, поэтому спецификации компонентов при сборе отбрасываются",
     )
     versions = [db.get(Node, x.id).version for x in (orders, api, checkout)]
     out = _collect(db, orders)
@@ -783,7 +783,7 @@ def test_сбор_спецификация_по_ответу_остальные_
     assert (out.spec_moved, out.dropped_specs, out.left_specs) == (True, 1, 0)
     assert _specs(db, orders, api, checkout) == ["openapi: checkout", None, None]
     code, text = _refusal(lambda: _collect(db, orders, spec_from=checkout.id))
-    assert (code, text) == (422, "У «orders» есть своя спецификация — спецификации компонентов при сборе отбрасываются")
+    assert (code, text) == (422, "У «orders» есть своя спецификация, поэтому спецификации компонентов при сборе отбрасываются")
 
 
 def test_сбор_ответ_спецификацией_без_неё_422(db):

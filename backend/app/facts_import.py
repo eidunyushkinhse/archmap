@@ -87,7 +87,7 @@ def resolve_owner(
         return None
     if len(hits) > 1:
         errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(index.paths[i] for i in hits)}) — '
+            f'{fname}: объектов с именем «{ref}» несколько ({", ".join(index.paths[i] for i in hits)}), '
             "укажите полный путь"
         )
         return None

@@ -24,7 +24,7 @@ router = APIRouter(prefix="/uploads", tags=["uploads"])
 
 # Неудачные PUT с адреса в минуту: ключ не подобрать, но и шуметь незачем.
 PUT_FAILURES_PER_MINUTE = 30
-LIMITED_DETAIL = "Слишком много неудачных попыток — подождите минуту"
+LIMITED_DETAIL = "Слишком много неудачных попыток. Подождите минуту"
 put_failures = AddressLimiter(window_seconds=60)
 
 

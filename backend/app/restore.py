@@ -215,8 +215,8 @@ class RestoreError(ValueError):
         self.status = status
 
 
-FOREIGN_REF_DETAIL = "Снимок ссылается на объекты вне проекта — восстановить его нельзя"
-CYCLE_DETAIL = "В снимке цикл родителей — восстановить его нельзя"
+FOREIGN_REF_DETAIL = "Снимок ссылается на объекты вне проекта, поэтому восстановить его нельзя"
+CYCLE_DETAIL = "В снимке цикл родителей, поэтому восстановить его нельзя"
 
 
 def _check_no_parent_cycle(snapshot: DeletionSnapshot) -> None:

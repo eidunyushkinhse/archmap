@@ -295,7 +295,7 @@ def parse_source_patch(raw: dict[str, str | None] | None) -> str | None:
     if src.host and not norm.host:
         raise AnchorError(
             "localhost, 127.0.0.1 и адреса конкретных серверов принадлежат среде, "
-            "а не продукту — укажите имя, под которым продукт называет зависимость, "
+            "а не продукту. Укажите имя, под которым продукт называет зависимость, "
             "как в docker-compose или в имени k8s Service"
         )
     if src.repo and not norm.repo:

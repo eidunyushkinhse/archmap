@@ -48,7 +48,7 @@ NO_CHILDREN = "Внутрь объекта этого типа нельзя вк
 # человек пользуется системой, а не входит в неё, и Structurizr DSL не допускает person
 # нигде, кроме модели. Одна семья текстов на три жеста — перенос внутрь объекта, создание
 # внутри него и смену формы у вложенного объекта. Вынести в корень можно всегда.
-PERSON_MOVE = "Пользователь живёт вне границ системы — его нельзя вложить в объект"
+PERSON_MOVE = "Пользователь живёт вне границ системы, поэтому его нельзя вложить в объект"
 PERSON_CREATE = "Пользователь живёт вне границ системы, создайте его на верхнем уровне"
 PERSON_SHAPE = (
     "Пользователь живёт вне границ системы, сначала перенесите «{name}» на верхний уровень"
@@ -212,27 +212,27 @@ def validate_shape_change(
         has_children = db.query(Node.id).filter(Node.parent_id == node.id).first() is not None
         if has_children:
             return (
-                "У объекта есть вложенные объекты — базой данных, брокером или "
+                "У объекта есть вложенные объекты, поэтому базой данных, брокером или "
                 "«Пользователем» ему не стать"
             )
     if node.shape == "database" and new_shape != "database":
         has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
         if has_tables:
-            return "У объекта описана структура БД — сначала перенесите или удалите её"
+            return "У объекта описана структура БД. Сначала перенесите или удалите её"
     if node.shape == "broker" and new_shape != "broker":
         has_channels = (
             db.query(BrokerChannel.id).filter(BrokerChannel.node_id == node.id).first()
             is not None
         )
         if has_channels:
-            return "У объекта описаны каналы брокера — сначала перенесите или удалите их"
+            return "У объекта описаны каналы брокера. Сначала перенесите или удалите их"
     if new_shape == "person" and node.shape != "person":
         placed = (
             db.query(DeploymentInstance.id).filter(DeploymentInstance.node_id == node.id).first()
             is not None
         )
         if placed:
-            return "У объекта указано размещение — у пользователя его нет, сначала снимите его"
+            return "У объекта указано размещение, а у пользователя его не бывает. Сначала снимите его"
     person = person_refusal(shape=new_shape, parent_id=parent_id, name=node.name, action="shape")
     if person:
         return person

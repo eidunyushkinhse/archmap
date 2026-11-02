@@ -41,7 +41,7 @@ from app.models.node import Node
 from app.models.project import Project
 from app.schemas.node import NodeSiteOut
 
-PERSON_DETAIL = "У пользователя нет размещения — он живёт вне системы"
+PERSON_DETAIL = "У пользователя нет размещения, потому что он живёт вне системы"
 EMPTY_CONTAINER = "В «{name}» нет объектов, которые можно разместить"
 # Внешняя система (Р42: внешний лист-сервис без элемента) — чёрный ящик: единиц у неё нет
 # и не ждут, отказ — без «пустоты», которую надо заполнить.

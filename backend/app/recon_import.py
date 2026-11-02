@@ -369,14 +369,14 @@ def _resolve_node(
         hits = qualified_node_hits(ref, flat)
     if not hits:
         hint = _closest_node(ref, fulls, by_bare, by_path)
-        tail = f" — похоже на «{hint}»" if hint else ""
+        tail = f", похоже на «{hint}»" if hint else ""
         plan.report.errors.append(
             f"{fname}: объект «{ref}» не найден{tail}; объекты проекта: {_node_hint(fulls)}"
         )
         return None
     if len(hits) > 1:
         plan.report.errors.append(
-            f'{fname}: имя «{ref}» неоднозначно ({", ".join(fulls[i] for i in hits)}) — '
+            f'{fname}: объектов с именем «{ref}» несколько ({", ".join(fulls[i] for i in hits)}), '
             "укажите полный путь"
         )
         return None

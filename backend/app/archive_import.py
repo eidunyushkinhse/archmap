@@ -55,8 +55,8 @@ def check_unpacked_total(payloads: list[bytes]) -> None:
     total = sum(unpacked_size(p) for p in payloads if p.startswith(b"PK"))
     if total > MAX_TOTAL_BYTES:
         raise ArchiveError(
-            f"Архивы запроса вместе распаковываются больше чем в {MAX_TOTAL_BYTES // 2**20} МБ — "
-            "ввезите их частями"
+            f"Архивы запроса вместе распаковываются больше чем в {MAX_TOTAL_BYTES // 2**20} МБ. "
+            "Ввезите их частями"
         )
 
 
@@ -81,21 +81,21 @@ def _read_zip(payload: bytes) -> _Archive:
         try:
             files[info.filename] = zf.read(info).decode("utf-8")
         except UnicodeDecodeError as e:
-            raise ArchiveError(f"Файл «{info.filename}» — не текст в UTF-8") from e
+            raise ArchiveError(f"Файл «{info.filename}» не читается как текст в UTF-8") from e
     raw = files.get("manifest.yaml")
     if raw is None:
-        raise ArchiveError("В архиве нет manifest.yaml — это не архив ArchMap")
+        raise ArchiveError("В архиве нет manifest.yaml. Это не архив ArchMap")
     try:
         manifest = yaml_io.safe_load(raw)
     except yaml.YAMLError as e:
         raise ArchiveError("manifest.yaml не разбирается как YAML") from e
     if not isinstance(manifest, dict) or "archmap-archive" not in manifest:
-        raise ArchiveError("manifest.yaml без ключа archmap-archive — это не архив ArchMap")
+        raise ArchiveError("В manifest.yaml нет ключа archmap-archive. Это не архив ArchMap")
     version = manifest.get("archmap-archive")
     if not isinstance(version, int) or version > ARCHIVE_FORMAT:
         raise ArchiveError(
-            f"Архив формата {version!r}, а этот сервер понимает до {ARCHIVE_FORMAT} — "
-            "обновите ArchMap"
+            f"Архив формата {version!r}, а этот сервер понимает до {ARCHIVE_FORMAT}. "
+            "Обновите ArchMap"
         )
     return _Archive(manifest=manifest, files=files)
 

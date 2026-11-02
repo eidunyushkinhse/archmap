@@ -94,7 +94,7 @@ def get_project_access(
     if project.archived_at is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Проект в архиве — сначала восстановите его",
+            detail="Проект в архиве. Сначала восстановите его",
         )
     return ProjectAccess(project=project, user=user, role=role)
 

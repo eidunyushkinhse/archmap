@@ -355,7 +355,7 @@ def _warn_broker_edges(merged: ParsedImport, report: MergeReport, skip: set[int]
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         report.warn(
             f"связь «{a} → {b}»: конец — брокер «{merged.nodes[ends[0]].name}», а канал "
-            f"не указан — добавьте channel: имя топика/очереди",
+            f"не указан. Добавьте channel: имя топика/очереди",
             report.owner_of_edges([ei]),
         )
     if hidden:
@@ -392,8 +392,8 @@ def _warn_channel_lists(merged: ParsedImport, report: MergeReport, skip: set[int
         shown += 1
         a, b = merged.nodes[e.source_idx].name, merged.nodes[e.target_idx].name
         report.warn(
-            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}» — разделите "
-            f"на отдельные связи, по одной на канал",
+            f"связь «{a} → {b}»: в channel перечень «{e.channel.strip()}». Разделите "
+            f"его на отдельные связи, по одной на канал",
             report.owner_of_edges([ei]),
         )
     if hidden:

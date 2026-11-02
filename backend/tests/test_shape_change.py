@@ -101,7 +101,7 @@ def test_нельзя_увести_форму_с_детьми_из_сервис�
             _set_shape(db, контейнер, shape)
         assert e.value.status_code == 400
         assert e.value.detail == (
-            "У объекта есть вложенные объекты — базой данных, брокером или "
+            "У объекта есть вложенные объекты, поэтому базой данных, брокером или "
             "«Пользователем» ему не стать"
         )
     # Отказ ничего не применил
@@ -155,7 +155,7 @@ def test_нельзя_увести_базу_с_таблицами(db):
         with pytest.raises(HTTPException) as e:
             _set_shape(db, база, shape)
         assert e.value.status_code == 400
-        assert e.value.detail == "У объекта описана структура БД — сначала перенесите или удалите её"
+        assert e.value.detail == "У объекта описана структура БД. Сначала перенесите или удалите её"
     db.refresh(база)
     assert база.shape == "database"
 
@@ -186,7 +186,7 @@ def test_нельзя_увести_брокер_с_каналами(db):
             _set_shape(db, брокер, shape)
         assert e.value.status_code == 400
         assert e.value.detail == (
-            "У объекта описаны каналы брокера — сначала перенесите или удалите их"
+            "У объекта описаны каналы брокера. Сначала перенесите или удалите их"
         )
     db.refresh(брокер)
     assert брокер.shape == "broker"

@@ -283,7 +283,7 @@ class _Matcher:
             if compare_identity(_live_keys(cand), imp.source_keys) == "different":
                 self.plan.warnings.append(
                     f"«{imp.name}»: в схеме уже есть объект с таким именем, но он относится "
-                    f"к другому {_human_source(cand.source_ref)} — добавим отдельный объект"
+                    f"к другому {_human_source(cand.source_ref)}, поэтому добавим отдельный объект"
                 )
                 continue
             return cand, "name"
@@ -340,8 +340,8 @@ class _Matcher:
             return
         if cur is not None:
             self.plan.conflicts.append(
-                f"«{live.name}»: в YAML элемент архитектуры другой "
-                f"(«{NODE_ELEMENT_LABELS[new].lower()}») — в схеме оставляем как есть"
+                f"«{live.name}»: в YAML другой тип "
+                f"(«{NODE_ELEMENT_LABELS[new].lower()}»), но в схеме оставляем как есть"
             )
             return
         # Форма — та, что будет после update: смену формы синк применяет раньше.
@@ -352,7 +352,7 @@ class _Matcher:
         )
         if refusal is not None:
             self.plan.conflicts.append(
-                f"«{live.name}»: элемент архитектуры из YAML не применён — {as_clause(refusal)}"
+                f"«{live.name}»: тип из YAML не применён: {as_clause(refusal)}"
             )
             return
         fields.append("element")
@@ -401,8 +401,8 @@ class _Matcher:
         where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
         tail = f"в схеме {pron} лежит {where}" if found else f"будет {done} {where}"
         return (
-            f"«{imp.name}»: {what} не может входить в состав контейнера «{container.name}» — "
-            f"{tail}"
+            f"«{imp.name}»: {what} не может входить в состав контейнера «{container.name}», "
+            f"поэтому {tail}"
         )
 
     def _live_elements(self) -> Elements[uuid.UUID]:
@@ -540,7 +540,7 @@ class _Matcher:
         where = f"уровнем выше, в «{parent.name}»" if parent else "на верхнем уровне"
         head = (
             f"«{holder.name}»: у {_CHILDLESS_WORDS[holder.shape]} вложенных объектов не "
-            f"бывает — «{imp.name}»"
+            f"бывает, поэтому «{imp.name}»"
         )
         live, how = self._match(imp, parent)
         if live is None:
@@ -583,13 +583,13 @@ class _Matcher:
             )
             self.plan.conflicts.append(
                 f"«{live.name}»: в YAML этот объект назван «{imp.name}» "
-                f"(узнали по {_human_source(live.source_ref)}) — {verb}"
+                f"(узнали по {_human_source(live.source_ref)}), {verb}"
             )
         live_parent = live.parent_id if live.parent_id in self.by_id else None
         if live_parent != want_parent:
             self.plan.conflicts.append(
                 f"«{live.name}»: в YAML этот объект показан в другом месте "
-                f"({self.imp_paths[i]}) — переносить не будем, вложенность в схеме "
+                f"({self.imp_paths[i]}). Переносить его не будем, вложенность в схеме "
                 f"останется прежней"
             )
         fields = self._diff_fields(live, imp)

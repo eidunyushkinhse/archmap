@@ -603,7 +603,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         if node_sites and shape == "person":
             # Пользователь живёт вне системы — размещения у него не бывает (ручка
             # отвечает на это 422). Документ из-за этого не отвергаем.
-            warnings.append(f"{path}.sites: у пользователя нет размещения — список проигнорирован")
+            warnings.append(f"{path}.sites: у пользователя нет размещения, поэтому список проигнорирован")
             node_sites = []
 
         idx = len(nodes)
@@ -736,14 +736,14 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
                 extra = len(cands) - _MAX_AMBIGUOUS_PATHS
                 tail = f" и ещё {extra}" if extra > 0 else ""
                 errors.append(
-                    f'{path}: имя "{ref}" неоднозначно (есть {shown}{tail})'
-                    " — укажите один из них"
+                    f"{path}: объектов с именем «{ref}» несколько ({shown}{tail}), "
+                    "укажите один из них"
                 )
             else:
                 # Узел-близнец повторён в документе: пути совпадают, называть нечего —
                 # такой перечень вёл бы обратно в «неоднозначно», а это хуже молчания
-                # (порог Ф8ж). Текст остаётся прежним байт-в-байт.
-                errors.append(f'{path}: имя "{ref}" неоднозначно, укажите путь через " / "')
+                # (порог Ф8ж). Поэтому текст без перечня кандидатов.
+                errors.append(f"{path}: объектов с именем «{ref}» несколько, укажите путь через « / »")
             return None
         return hits[0]
 
@@ -792,7 +792,7 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
                                     parent_idx=None, declared=False)
                 site_draft.add(implicit, "", None)
                 warnings.append(
-                    f"площадка «{name}» не объявлена в deployment — создана с видом «другое»"
+                    f"площадка «{name}» не объявлена в deployment, поэтому создана с видом «другое»"
                 )
     if len(site_draft.sites) > MAX_SITES:
         errors.append(f"Слишком много площадок (больше {MAX_SITES})")

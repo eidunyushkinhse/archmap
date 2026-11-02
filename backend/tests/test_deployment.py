@@ -593,7 +593,7 @@ def test_размещение_отказы_ничего_не_пишут(client, 
     api, buyer = str(n["API"]), str(n["Покупатель"])
 
     r = client.put(url, json={"node_ids": [api, buyer], "site_ids": [a]}, headers=h)
-    assert (r.status_code, r.json()) == (422, {"detail": "У пользователя нет размещения — он живёт вне системы"})
+    assert (r.status_code, r.json()) == (422, {"detail": "У пользователя нет размещения, потому что он живёт вне системы"})
     stranger = make_project(db, "Чужой")
     foreign_node = _node(db, stranger.id, "Чужой сервис")
     foreign_site = _site(db, stranger.id, "Чужое облако")
@@ -981,7 +981,7 @@ def test_узел_несёт_размещение_и_правится_site_ids(c
     # «Пользователь»: поставить нельзя, и размещения у него нет.
     buyer = str(n["Покупатель"])
     r = client.patch(f"{API}/nodes/{buyer}", json={"site_ids": [cloud["id"]]}, headers=h)
-    assert (r.status_code, r.json()) == (422, {"detail": "У пользователя нет размещения — он живёт вне системы"})
+    assert (r.status_code, r.json()) == (422, {"detail": "У пользователя нет размещения, потому что он живёт вне системы"})
     # Объект с размещением пользователем не становится.
     client.patch(f"{API}/nodes/{api}", json={"site_ids": [cloud["id"]]}, headers=h)
     r = client.patch(f"{API}/nodes/{api}", json={"shape": "person"}, headers=h)

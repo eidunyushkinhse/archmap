@@ -135,7 +135,7 @@ def parse_mmd_header(text: str) -> MmdHeader:
             kind = pick(value.lower(), KINDS)
             if kind is None:
                 header.problems.append(
-                    f"неизвестный вид схемы «{value}» — бывают: {', '.join(KINDS)}"
+                    f"неизвестный вид схемы «{value}», допустимы: {', '.join(KINDS)}"
                 )
             else:
                 header.kind = kind

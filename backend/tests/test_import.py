@@ -281,7 +281,7 @@ def test_qualified_path_resolves_and_bare_duplicate_is_ambiguous(db):
     )
     parsed, errors = parse_import(content + 'edges:\n  - from: A\n    to: "БД"\n')
     assert parsed is None
-    assert any("неоднозначно" in e for e in errors)
+    assert any("несколько" in e for e in errors)
 
     parsed, errors = parse_import(content + 'edges:\n  - from: A\n    to: "A / БД"\n')
     assert errors == [] and parsed is not None
@@ -321,8 +321,8 @@ def test_неоднозначность_называет_кандидатов():
     parsed, errors = parse_import(_dup_doc("zzz", "aaa", "api"))
     assert parsed is None
     assert errors == [
-        'edges[0]: имя "api" неоднозначно (есть "aaa / api", "zzz / api")'
-        " — укажите один из них"
+        'edges[0]: объектов с именем «api» несколько ("aaa / api", "zzz / api"), '
+        "укажите один из них"
     ]
 
 
@@ -334,8 +334,8 @@ def test_порядок_кандидатов_не_зависит_от_поряд
     swapped = parse_import(_dup_doc("zzz", "aaa", "api"))[1]
     assert straight == swapped
     assert straight == [
-        'edges[0]: имя "api" неоднозначно (есть "aaa / api", "zzz / api")'
-        " — укажите один из них"
+        'edges[0]: объектов с именем «api» несколько ("aaa / api", "zzz / api"), '
+        "укажите один из них"
     ]
 
 
@@ -351,7 +351,7 @@ def test_одинаковые_пути_кандидатов_не_печатаю�
     СЕНТИНЕЛ: текст остаётся прежним байт-в-байт."""
     parsed, errors = parse_import(_dup_doc("aaa", "aaa", "aaa / api"))
     assert parsed is None
-    assert errors == ['edges[0]: имя "aaa / api" неоднозначно, укажите путь через " / "']
+    assert errors == ["edges[0]: объектов с именем «aaa / api» несколько, укажите путь через « / »"]
 
 
 # ── Уточнитель-якорь: «путь @ ключ» различает законных тёзок (app/node_ref.py) ──
@@ -436,9 +436,9 @@ def test_неоднозначность_тёзок_называет_готовы
     parsed, errors = parse_import(_тёзки_doc("Ярмарка / Каталог-БД"))
     assert parsed is None
     assert errors == [
-        'edges[0]: имя "Ярмарка / Каталог-БД" неоднозначно (есть '
+        'edges[0]: объектов с именем «Ярмарка / Каталог-БД» несколько ('
         '"Ярмарка / Каталог-БД @ git:github.com/org/shop-db", '
-        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog") — укажите один из них'
+        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog"), укажите один из них'
     ]
 
 
@@ -547,16 +547,16 @@ def test_неоднозначность_детей_тёзок_называет_�
     parsed, errors = parse_import(_дети_тёзок_doc("Ярмарка / Каталог-БД / reader"))
     assert parsed is None
     assert errors == [
-        'edges[0]: имя "Ярмарка / Каталог-БД / reader" неоднозначно (есть '
+        'edges[0]: объектов с именем «Ярмарка / Каталог-БД / reader» несколько ('
         '"Ярмарка / Каталог-БД @ git:github.com/org/shop-db#a/b / reader", '
-        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader")'
-        " — укажите один из них"
+        '"Ярмарка / Каталог-БД @ git:github.com/org/warehouse-catalog / reader"), '
+        "укажите один из них"
     ]
     parsed, errors = parse_import(
         _дети_тёзок_doc("Ярмарка / Каталог-БД / reader", anchors=False)
     )
     assert errors == [
-        'edges[0]: имя "Ярмарка / Каталог-БД / reader" неоднозначно, укажите путь через " / "'
+        "edges[0]: объектов с именем «Ярмарка / Каталог-БД / reader» несколько, укажите путь через « / »"
     ]
 
 
@@ -573,7 +573,7 @@ def test_перечень_кандидатов_обрезан_с_честным_
     assert parsed is None
     shown = ", ".join(f'"c{i} / api"' for i in range(6))
     assert errors == [
-        f'edges[0]: имя "api" неоднозначно (есть {shown} и ещё 2) — укажите один из них'
+        f'edges[0]: объектов с именем «api» несколько ({shown} и ещё 2), укажите один из них'
     ]
 
 
@@ -658,7 +658,7 @@ def test_edge_ref_resolves_by_path_suffix():
         "    to: svc / api\n"
     )
     parsed, errors = parse_import(dup)
-    assert parsed is None and any("неоднозначно" in e for e in errors)
+    assert parsed is None and any("несколько" in e for e in errors)
 
 
 def test_parse_tolerates_agent_fenced_output():
@@ -1213,7 +1213,7 @@ def test_неявная_площадка_создаётся_с_предупре�
     assert ошибки == [] and parsed is not None
     assert [(s.name, s.kind, s.declared) for s in parsed.sites] == [("prod", "other", False)]
     assert parsed.warnings == [
-        "площадка «prod» не объявлена в deployment — создана с видом «другое»"
+        "площадка «prod» не объявлена в deployment, поэтому создана с видом «другое»"
     ]
 
 
@@ -1225,7 +1225,7 @@ def test_размещение_пользователя_игнорируется_
     assert ошибки == [] and parsed is not None
     assert parsed.nodes[0].sites == [] and parsed.sites == []
     assert parsed.warnings == [
-        "nodes[0].sites: у пользователя нет размещения — список проигнорирован"
+        "nodes[0].sites: у пользователя нет размещения, поэтому список проигнорирован"
     ]
 
 
@@ -1339,7 +1339,7 @@ def test_посев_размещения_по_единицам(db):
     parsed, ошибки = parse_import(РАЗМЕЩЕНИЕ_C4)
     assert ошибки == [] and parsed is not None
     assert parsed.warnings == [
-        "shop / orders / api: размещение задаётся контейнеру «orders» — площадки у компонента "
+        "shop / orders / api: размещение задаётся контейнеру «orders», поэтому площадки у компонента "
         "пропущены",
     ]
     assert {n.name: n.sites for n in parsed.nodes}["api"] == []
@@ -1472,9 +1472,9 @@ def test_база_и_брокер_из_контейнера_вынесены_у�
     }
     assert parsed.warnings == [
         "Ярмарка / orders: внутри лежит база данных «orders-db», она не может входить в "
-        "состав контейнера — вынесена на уровень выше, в «Ярмарка»",
+        "состав контейнера, поэтому вынесена на уровень выше, в «Ярмарка»",
         "Ярмарка / events: внутри лежит брокер «Kafka», он не может входить в состав "
-        "контейнера — вынесен на уровень выше, в «Ярмарка»",
+        "контейнера, поэтому вынесен на уровень выше, в «Ярмарка»",
     ]
     # Документ входа помнит, где база была записана: по этому адресу её находят
     # файлы семей своего архива (unified_import._Resolver).
@@ -1502,7 +1502,7 @@ def test_база_корневого_контейнера_вынесена_на_
     assert parsed.nodes[0].element == "container"
     assert parsed.warnings == [
         "orders: внутри лежит база данных «orders-db», она не может входить в состав "
-        "контейнера — вынесена на верхний уровень",
+        "контейнера, поэтому вынесена на верхний уровень",
     ]
 
 
@@ -1531,7 +1531,7 @@ def test_база_глубже_в_составном_компоненте_тож
     assert parsed.nodes[1].element == "container"
     assert parsed.warnings == [
         "Ярмарка / orders / api / orders-db: у базы данных «orders-db» вложенных объектов "
-        "не бывает — «orders-schema» поднят на уровень выше, в «Ярмарка / orders / api»",
+        "не бывает, поэтому «orders-schema» поднят на уровень выше, в «Ярмарка / orders / api»",
         STORE_LIFTED_NOTE["database"].format(
             path="Ярмарка / orders", name="orders-db", where="на уровень выше, в «Ярмарка»",
         ),
@@ -1560,7 +1560,7 @@ def test_у_базы_и_брокера_вложенный_объект_подн�
     }
     assert parsed.doc_parents == [None, 0, 1, 2]
     assert parsed.warnings == [
-        f"Ярмарка / {holder}: {word} «{holder}» вложенных объектов не бывает — "
+        f"Ярмарка / {holder}: {word} «{holder}» вложенных объектов не бывает, поэтому "
         "«orders-schema» поднят на уровень выше, в «Ярмарка»",
     ]
 
@@ -1584,9 +1584,9 @@ def test_дети_пользователя_остаются_у_его_родит
     }
     assert parsed.roots == ["Ярмарка", "Покупатель"]
     assert parsed.warnings == [
-        "Ярмарка / Покупатель: у пользователя «Покупатель» вложенных объектов не бывает — "
+        "Ярмарка / Покупатель: у пользователя «Покупатель» вложенных объектов не бывает, поэтому "
         "«orders-schema» поднят на уровень выше, в «Ярмарка»",
-        "Ярмарка: пользователь «Покупатель» живёт вне границ системы — поднят на верхний "
+        "Ярмарка: пользователь «Покупатель» живёт вне границ системы, поэтому поднят на верхний "
         "уровень",
     ]
 
@@ -1615,7 +1615,7 @@ def test_пользователь_внутри_объекта_поднят_на_
     assert parsed.roots[-1] == "Покупатель"
     assert parsed.warnings == [PERSON_LIFTED_NOTE.format(path=откуда, name="Покупатель")]
     assert parsed.warnings[0] == (
-        f"{откуда}: пользователь «Покупатель» живёт вне границ системы — поднят на "
+        f"{откуда}: пользователь «Покупатель» живёт вне границ системы, поэтому поднят на "
         "верхний уровень"
     )
     if place != "system":
@@ -1858,7 +1858,7 @@ def test_элемент_внутри_контейнера_снят_компон�
     ]
     assert parsed.warnings[0] == (
         "orders / api: объект лежит внутри контейнера «orders» и считается его "
-        "компонентом — элемент архитектуры пропущен"
+        "компонентом, поэтому элемент архитектуры пропущен"
     )
 
 

@@ -195,7 +195,7 @@ def test_расхождение_меты_предупреждает_и_оста�
     assert r.applied and r.errors == []
     assert _канал(db).retention == "7d"  # побеждает описанное раньше
     [w] = [w for w in r.warnings if "retention" in w]
-    assert "канал «orders.created»" in w
+    assert "у канала «orders.created»" in w
     assert "в пакете «30d»" in w and "в ArchMap «7d»" in w
     assert "оставлено значение из ArchMap" in w
 
@@ -357,8 +357,8 @@ def _превью(db, текст, node_id=None):
 
 
 def _адресные(r):
-    """Замечания эвристики адресации — по хвосту «проверьте адресацию»."""
-    return [w for w in r.warnings if "проверьте адресацию" in w]
+    """Замечания эвристики адресации — по хвосту «Проверьте адресацию»."""
+    return [w for w in r.warnings if "Проверьте адресацию" in w]
 
 
 def _пакет(*имена, адрес="kafka"):
@@ -688,7 +688,7 @@ def test_расхождение_меты_между_файлами_замеча�
 
     [w] = [w for w in r.warnings if "delivery" in w]
     assert w == (
-        "b.yaml: канал «notify_tornado» — delivery «exactly-once», а в a.yaml "
+        "b.yaml: у канала «notify_tornado» delivery «exactly-once», а в a.yaml "
         "«at-least-once»; оставлено значение из a.yaml (описан раньше)"
     )
     # Применение оставляет ровно то значение, о котором сказало превью.

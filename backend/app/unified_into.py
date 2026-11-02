@@ -342,7 +342,7 @@ def _merge_notes(plan: UnifiedPlan) -> list[str]:
     merge_lines = [*plan.report.conflicts, *plan.report.warnings]
     if merge_lines:
         if any("файл " in ln for ln in merge_lines):
-            legend = ", ".join(f"файл {i + 1} — {label}" for i, label in enumerate(plan.labels))
+            legend = ", ".join(f"файл {i + 1} ({label})" for i, label in enumerate(plan.labels))
             out.append(f"нумерация файлов в замечаниях слияния: {legend}")
         out.extend(merge_lines)
     # plan.warnings — замечания ядра о тёзках процессов; догрузка считает их сама
@@ -529,11 +529,11 @@ def _fill_node(
         elif not cur:
             setattr(live, fld, new_raw)
             changed = True
-            warnings.append(f"объект «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из архива")
+            warnings.append(f"объект «{path}»: поле «{_FIELD_RU[fld]}» было пустым и заполнено из архива")
         else:
             warnings.append(
-                f"объект «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}») — "
-                f"оставлено живое («{_cut(cur)}»)"
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое («{_cut(new)}»), "
+                f"в проекте оставлено прежнее («{_cut(cur)}»)"
             )
     # Якорь источника — не «поле», а идентичность узла для будущего синка: пустой
     # долить можно, занятый перевешивать нельзя (перевесил бы прогоны на чужой репо).
@@ -544,7 +544,7 @@ def _fill_node(
         if getattr(imp, fld) != getattr(live, fld):
             warnings.append(
                 f"объект «{path}»: поле «{_FIELD_RU[fld]}» в архиве другое "
-                f"(«{getattr(imp, fld)}») — оставлено живое («{getattr(live, fld)}»)"
+                f"(«{getattr(imp, fld)}»), в проекте оставлено прежнее («{getattr(live, fld)}»)"
             )
     if changed:
         live.version += 1
@@ -569,8 +569,8 @@ def _element_refused(
     )
     if refusal is None:
         return False
-    чей = "склеенного объекта" if от_склейки else "из архива"
-    warnings.append(f"объект «{path}»: элемент архитектуры {чей} не применён — {as_clause(refusal)}")
+    чей = "объединённого объекта" if от_склейки else "из архива"
+    warnings.append(f"объект «{path}»: тип {чей} не применён: {as_clause(refusal)}")
     return True
 
 
@@ -600,7 +600,7 @@ def _fill_element(
     label = _FIELD_RU["element"]
     if cur is not None and "element" not in forced:
         warnings.append(
-            f"объект «{path}»: поле «{label}» в архиве другое («{new}») — оставлено живое («{cur}»)"
+            f"объект «{path}»: поле «{label}» в архиве другое («{new}»), в проекте оставлено прежнее («{cur}»)"
         )
         return False
     if _element_refused(live, new, rows, path, warnings, от_склейки):
@@ -608,8 +608,8 @@ def _fill_element(
     live.element = new
     rows[live.id] = rows[live.id]._replace(element=new)
     if cur is None:
-        откуда = "из склеенного объекта" if от_склейки else "из архива"
-        warnings.append(f"объект «{path}»: поле «{label}» пустовало — залито {откуда}")
+        откуда = "из объединённого объекта" if от_склейки else "из архива"
+        warnings.append(f"объект «{path}»: поле «{label}» было пустым и заполнено {откуда}")
     else:
         warnings.append(
             f"объект «{path}»: поле «{label}» заменено по вашему решению («{cur}» → «{new}»)"
@@ -639,7 +639,7 @@ def _absorb_into_live(
         if (новое or "").strip() and not (getattr(live, fld) or "").strip():
             setattr(live, fld, новое)
             warnings.append(
-                f"объект «{path}»: поле «{_FIELD_RU[fld]}» пустовало — залито из склеенного объекта"
+                f"объект «{path}»: поле «{_FIELD_RU[fld]}» было пустым и заполнено из объединённого объекта"
             )
             changed = True
     if not live.source_ref and донор.source_keys:
@@ -1143,7 +1143,7 @@ def _replace_params(
             .first()
         )
         if param is None:  # запись исчезла между расчётом и применением
-            warnings.append(f"параметр «{w.value.name}»: живой записи уже нет — пропущен")
+            warnings.append(f"параметр «{w.value.name}» пропущен, потому что в проекте его уже нет")
             continue
         param.value_type = w.value.value_type
         param.required = w.value.required
@@ -1211,8 +1211,8 @@ def _extra_kept(
     extra = [n for n in live_names if n not in set(archive_names)]
     if extra:
         warnings.append(
-            f"{whose}: {what} {', '.join(f'«{n}»' for n in extra)} в архиве нет — "
-            "оставлены (догрузка не удаляет данные)"
+            f"{whose}: {what} {', '.join(f'«{n}»' for n in extra)} в архиве нет, "
+            "но в проекте они оставлены (догрузка не удаляет данные)"
         )
 
 

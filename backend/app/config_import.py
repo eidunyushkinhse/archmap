@@ -312,7 +312,7 @@ def _merge_duplicate(m: _Merged, fname: str, p: ParamIn) -> None:
             setattr(first, key, getattr(p, key))
             continue
         m.meta_notes.append(
-            f"{fname}: параметр «{first.name}» — {PKG_KEY[key]} «{theirs}», а в "
+            f"{fname}: у параметра «{first.name}» {PKG_KEY[key]} «{theirs}», а в "
             f"{m.source} «{ours}»; оставлено значение из {m.source} (описан раньше)"
         )
     # description намеренно без замечания (как и в META_KEYS).
@@ -361,7 +361,7 @@ def _warn_meta_conflicts(
         )
         if theirs and ours and theirs != ours:
             plan.report.warnings.append(
-                f"{fname}: параметр «{p.name}» — {PKG_KEY[key]} в пакете «{theirs}», "
+                f"{fname}: у параметра «{p.name}» {PKG_KEY[key]} в пакете «{theirs}», "
                 f"в ArchMap «{ours}»; оставлено значение из ArchMap (перезапись выключена)"
             )
 

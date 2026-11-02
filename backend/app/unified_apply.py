@@ -442,7 +442,7 @@ def _choice_index(conflict_id: str, choice: str, total: int, allow_all: bool) ->
     if choice == "all":
         if not allow_all:
             raise UnifiedImportError(
-                f"Спор «{conflict_id}»: «взять все» тут не применимо — "
+                f"Спор «{conflict_id}»: «взять все» тут не применимо, потому что "
                 "значение может быть только одно"
             )
         return None

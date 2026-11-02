@@ -415,9 +415,9 @@ def _collect(
         data = parse_data_file(content)
         if data is None:
             remarks.append(
-                f"{fname}: похоже на файл структуры данных, но YAML не разобрался — файл пропущен"
+                f"{fname}: похоже на файл структуры данных, но YAML не разобрался, поэтому файл пропущен"
                 if LOOKS_LIKE_DATA.search(content)
-                else f"{fname}: не похож на файл структуры данных — файл пропущен"
+                else f"{fname}: не похож на файл структуры данных и пропущен"
             )
             continue
         node = res.resolve(data.node_ref, fname)
@@ -431,7 +431,7 @@ def _collect(
     for fname, content in _listed(archive, "channels"):
         chans = parse_channels_file(content)
         if chans is None:
-            remarks.append(f"{fname}: не разбирается как файл каналов — файл пропущен")
+            remarks.append(f"{fname}: не разбирается как файл каналов и пропущен")
             continue
         node = res.resolve(chans.node_ref, fname)
         if node is None:
@@ -444,7 +444,7 @@ def _collect(
     for fname, content in _listed(archive, "config"):
         conf = parse_config_file(content)
         if conf is None:
-            remarks.append(f"{fname}: не разбирается как файл конфигурации — файл пропущен")
+            remarks.append(f"{fname}: не разбирается как файл конфигурации и пропущен")
             continue
         node = res.resolve(conf.node_ref, fname)
         if node is None:
@@ -788,7 +788,7 @@ def _processes_of(inp: _Input, origin: int, remarks: list[str]) -> list[ProcessI
         fname = entry.get("file")
         text = archive.files.get(fname) if isinstance(fname, str) else None
         if not text:
-            remarks.append(f"{fname}: файла процесса нет в архиве — пропущен")
+            remarks.append(f"{fname}: файла процесса нет в архиве, процесс пропущен")
             continue
         name = str(entry.get("name") or "").strip()
         if not name:
@@ -806,8 +806,8 @@ def _warn_process_namesakes(processes: list[ProcessItem], warnings: list[str]) -
     for name, labels in seen.items():
         if len(labels) > 1:
             warnings.append(
-                f"процесс «{name}» есть в нескольких входах ({', '.join(labels)}) — "
-                "процессы не сливаются, тёзка приедет с суффиксом « (2)»"
+                f"процесс «{name}» есть в нескольких входах ({', '.join(labels)}). "
+                "Процессы не сливаются, поэтому тёзка приедет с суффиксом « (2)»"
             )
 
 

@@ -267,7 +267,7 @@ def _warn_shared_repo(nodes: list[_ImpNode], report: MergeReport) -> None:
         shown += 1
         report.warn(
             f"{_names_phrase(nodes[i].name for i in idxs)} указывают один источник "
-            f"({k}) — задайте каждому свой source.path, иначе следующее обновление "
+            f"({k}). Задайте каждому свой source.path, иначе следующее обновление "
             f"из кода свяжется только с одним из них",
             report.owner_of_nodes(idxs),
         )
@@ -488,7 +488,7 @@ class _Merger:
                 # Замечание о ФАЙЛАХ (тёзки из разных прогонов) — виноватого нет.
                 self.report.warn(
                     f"«{node.name}» ({self._where(parent_m)}) встречается в файлах как РАЗНЫЕ "
-                    f"объекты (различаются источники) — оставлены раздельно"
+                    f"объекты (различаются источники), поэтому оставлены раздельно"
                 )
                 continue
             return idx
@@ -515,7 +515,7 @@ class _Merger:
                 if not _repo_no_path(k):
                     self.report.warn(
                         f"«{self.nodes[taken].name}» и «{node.name}» указывают один "
-                        f"источник ({k}) — разведите source у каждого, иначе следующие "
+                        f"источник ({k}). Разведите source у каждого, иначе следующие "
                         f"файлы свяжутся только с первым"
                     )
                 continue
@@ -652,7 +652,7 @@ class _Merger:
             kept_fi, флаг = keep_fi, "true" if winner else "false"
             self._add_conflict(
                 lambda: f"{self.paths[hit]}: external: файлы {kept_fi + 1} и {fi + 1} "
-                f"расходятся — оставлено {флаг}"
+                f"расходятся, оставлено {флаг}"
             )
             if winner != self.nodes[hit].is_external:
                 self.nodes[hit].is_external = winner
@@ -683,7 +683,7 @@ class _Merger:
                 if s.kind != cur.kind:
                     self.report.warn(
                         f"площадка «{s.name}»: вид расходится между файлами "
-                        f"({cur.kind} / {s.kind}) — взят первый"
+                        f"({cur.kind} / {s.kind}), поэтому взят первый"
                     )
                 cur.technology = cur.technology if _fill(cur.technology) else s.technology
                 cur.description = cur.description if _fill(cur.description) else s.description
@@ -702,7 +702,7 @@ class _Merger:
             if cur == name:
                 self.report.warn(
                     f"площадка «{name}»: родитель «{parent}» из файла {fi + 1} замкнул бы "
-                    f"вложенность в цикл — оставлена без него"
+                    f"вложенность в цикл, поэтому оставлена без него"
                 )
                 return
             seen.add(cur)
@@ -764,7 +764,7 @@ class _Merger:
             # Замечание существует только потому, что файлов несколько, — схемное.
             self.report.warn(
                 f"связи {self.paths[src]} → {self.paths[dst]}: разные подписи из разных "
-                f"файлов ({labels}) — проверьте, не дубли ли это"
+                f"файлов ({labels}). Проверьте, не дубли ли это"
             )
 
     def warn_fuzzy_siblings(self) -> None:
@@ -791,8 +791,8 @@ class _Merger:
                     )
                     # Пара заведомо из РАЗНЫХ файлов (условие выше) — схемное.
                     self.report.warn(
-                        f"«{self.nodes[ia].name}» и «{self.nodes[ib].name}» ({where}) похожи — "
-                        f"возможно, один объект из разных файлов; если да, приведите имена к одному"
+                        f"«{self.nodes[ia].name}» и «{self.nodes[ib].name}» ({where}) похожи. "
+                        f"Возможно, это один объект из разных файлов; если да, приведите имена к одному"
                     )
 
     def _warn_absorbed(self) -> None:
@@ -824,7 +824,7 @@ class _Merger:
             shown += 1
             self.report.warn(
                 f"{_names_phrase(names)} слиты в ОДИН объект: у них общий источник "
-                f"({k}), а path не задан — задайте каждому свой source.path и "
+                f"({k}), а path не задан. Задайте каждому свой source.path и "
                 f"повторите, иначе вместо {len(names)} объектов в схеме останется "
                 f"один, а их компоненты окажутся внутри него"
             )

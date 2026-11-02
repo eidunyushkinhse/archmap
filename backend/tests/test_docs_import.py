@@ -106,7 +106,7 @@ def test_plan_resolve_bare_suffix_ambiguous(db):
     assert "Ярмарка / orders" in paths  # голое уникальное имя
     assert "Ярмарка / billing / api" in paths  # однозначный хвост пути
     joined = "\n".join(plan.errors)
-    assert '"api" неоднозначно' in joined
+    assert "объектов с именем «api» несколько" in joined
     assert 'объект «нет-такого» не найден' in joined
 
 
@@ -440,7 +440,7 @@ def test_plan_схемы_контейнеру_с_компонентами_сов
     assert plan.errors == [] and [a.action for a in plan.logic] == ["create"]
     assert [w for w in plan.warnings if "рекомендации проекта" in w] == [
         "a.mmd: «Ярмарка / billing» — контейнер с компонентами; схемы логики описывают "
-        "код компонентов — лучше адресовать их компонентам, у контейнера они попадут "
+        "код компонентов, поэтому лучше адресовать их компонентам, а у контейнера они попадут "
         "в рекомендации проекта"
     ]
 
@@ -977,8 +977,8 @@ def test_битая_пометка_уезжает_агенту_конкретн�
 
     assert report.errors == []
     # Дедуп по (файл, ссылка, статус): слитное «читает/пишет» — один промах, не два.
-    assert [w for w in report.warnings if "пометка «" in w] == [
-        "списание.mmd: пометка «accounts.balance» — таблица не найдена в структуре проекта"
+    assert [w for w in report.warnings if "в пометке «" in w] == [
+        "списание.mmd: в пометке «accounts.balance» таблица не найдена в структуре проекта"
     ]
 
 
@@ -989,7 +989,7 @@ def test_здоровая_пометка_превью_не_беспокоит(db
 
     plan = _plan(db, [("a.mmd", _refs_mmd("читает: orders.status"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
 
 
 def test_без_структуры_бд_одна_заметка_вместо_шума_на_каждую_пометку(db):
@@ -1002,7 +1002,7 @@ def test_без_структуры_бд_одна_заметка_вместо_ш�
         ("b.mmd", _refs_mmd("читает: orders.status", name="Чтение")),
     ], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
     заметки = [w for w in plan.warnings if "структура баз данных в проекте ещё не описана" in w]
     assert len(заметки) == 1
 
@@ -1024,9 +1024,9 @@ def test_неоднозначная_и_неизвестная_колонка_н�
         ("b.mmd", _refs_mmd("пишет: accounts.balance", name="Списание")),
     ], window=orders)
 
-    тексты = [w for w in plan.warnings if "пометка «" in w]
-    assert "a.mmd: пометка «orders» — таблица с таким именем есть в нескольких базах, укажите «база / таблица»" in тексты
-    assert "b.mmd: пометка «accounts.balance» — колонки нет в таблице" in тексты
+    тексты = [w for w in plan.warnings if "в пометке «" in w]
+    assert "a.mmd: в пометке «orders» таблица с таким именем есть в нескольких базах, укажите «база / таблица»" in тексты
+    assert "b.mmd: в пометке «accounts.balance» колонки нет в таблице" in тексты
 
 
 def test_кап_пометок_и_хвост_сколько_ещё(db):
@@ -1040,7 +1040,7 @@ def test_кап_пометок_и_хвост_сколько_ещё(db):
 
     plan = _plan(db, [("a.mmd", _refs_mmd(marks))], window=orders)
 
-    assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
+    assert len([w for w in plan.warnings if "в пометке «" in w]) == MAX_DATA_REF_WARNINGS
     assert "и ещё 3 пометок не нашли таблицу, канал или параметр" in plan.warnings
 
 
@@ -1080,15 +1080,15 @@ def test_битая_канальная_пометка_названа_своим�
         ("c.mmd", _refs_mmd("публикует: созданные.total", name="Глубина")),
     ], window=orders)
 
-    тексты = [w for w in plan.warnings if "пометка «" in w]
+    тексты = [w for w in plan.warnings if "в пометке «" in w]
     # У «создание» есть уверенный сосед по каталогу — замечание несёт и подсказку
     # (Ф8б); у «созданные.total» кандидата в полях канала нет, и текст голый.
     assert (
-        "a.mmd: пометка «создание» — канал не найден у брокеров проекта — "
+        "a.mmd: в пометке «создание» канал не найден у брокеров проекта, "
         "похоже на «созданные»" in тексты
     )
-    assert "b.mmd: пометка «события» — канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in тексты
-    assert "c.mmd: пометка «созданные.total» — поля нет в канале" in тексты
+    assert "b.mmd: в пометке «события» канал с таким именем есть у нескольких брокеров, укажите «брокер / канал»" in тексты
+    assert "c.mmd: в пометке «созданные.total» поля нет в канале" in тексты
 
 
 def test_здоровая_канальная_пометка_превью_не_беспокоит(db):
@@ -1098,7 +1098,7 @@ def test_здоровая_канальная_пометка_превью_не_б
 
     plan = _plan(db, [("a.mmd", _refs_mmd("публикует: созданные.order_id"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
 
 
 def test_заметки_о_неописанной_структуре_независимы(db):
@@ -1115,7 +1115,7 @@ def test_заметки_о_неописанной_структуре_незав�
 
     # Таблицы описаны — здоровая табличная пометка молчит; каналов нет вовсе, и
     # вместо шума на каждую канальную пометку — одна заметка на пакет.
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
     assert not any("структура баз данных в проекте ещё не описана" in w for w in plan.warnings)
     каналы = [w for w in plan.warnings if "каналы брокеров в проекте ещё не описаны" in w]
     assert len(каналы) == 1
@@ -1144,12 +1144,12 @@ def test_пустая_конфигурация_владельца_не_молч�
     assert len(строки) == 1
     assert "«Ярмарка / orders»" in строки[0] and "FEATURE_X, RETRY_TIMEOUT" in строки[0]
     # Поимённых промахов нет: резолвить нечем, и дублировать заметку на пометку незачем.
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
 
     # У владельца с описанной конфигурацией промах по-прежнему называется поимённо.
     план2 = _plan(db, [("b.mmd", _refs_mmd("зависит от: RETRY_TIMEOUT", name="Другая"))],
                   window=b_api)
-    assert any("пометка «RETRY_TIMEOUT»" in w and "параметра нет" in w for w in план2.warnings)
+    assert any("в пометке «RETRY_TIMEOUT»" in w and "параметра нет" in w for w in план2.warnings)
     assert not any("конфигурация не описана" in w for w in план2.warnings)
 
 
@@ -1227,7 +1227,7 @@ def test_общий_кап_на_обе_семьи_пометок(db):
 
     plan = _plan(db, [("a.mmd", _refs_mmd(f"{данные}<br>{каналы}"))], window=orders)
 
-    assert len([w for w in plan.warnings if "пометка «" in w]) == MAX_DATA_REF_WARNINGS
+    assert len([w for w in plan.warnings if "в пометке «" in w]) == MAX_DATA_REF_WARNINGS
     assert f"и ещё {половина} пометок не нашли таблицу, канал или параметр" in plan.warnings
 
 
@@ -1247,8 +1247,8 @@ def test_битая_пометка_подсказывает_ближайшее_�
 
     plan = _plan(db, [("a.mmd", _refs_mmd("пишет: messages"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == [
-        "a.mmd: пометка «messages» — таблица не найдена в структуре проекта — "
+    assert [w for w in plan.warnings if "в пометке «" in w] == [
+        "a.mmd: в пометке «messages» таблица не найдена в структуре проекта, "
         "похоже на «zerver_message»"
     ]
 
@@ -1267,8 +1267,8 @@ def test_длинный_префикс_и_множественное_число_
 
     plan = _plan(db, [("a.mmd", _refs_mmd("пишет: queues"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == [
-        "a.mmd: пометка «queues» — таблица не найдена в структуре проекта — "
+    assert [w for w in plan.warnings if "в пометке «" in w] == [
+        "a.mmd: в пометке «queues» таблица не найдена в структуре проекта, "
         "похоже на «background_jobs_queue»"
     ]
 
@@ -1280,8 +1280,8 @@ def test_битая_канальная_пометка_подсказывает_�
 
     plan = _plan(db, [("a.mmd", _refs_mmd("публикует: notify-tornado"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == [
-        "a.mmd: пометка «notify-tornado» — канал не найден у брокеров проекта — "
+    assert [w for w in plan.warnings if "в пометке «" in w] == [
+        "a.mmd: в пометке «notify-tornado» канал не найден у брокеров проекта, "
         "похоже на «notify_tornado»"
     ]
 
@@ -1297,8 +1297,8 @@ def test_подсказка_колонки_ищется_в_найденной_т
 
     plan = _plan(db, [("a.mmd", _refs_mmd("пишет: accounts.balnce"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == [
-        "a.mmd: пометка «accounts.balnce» — колонки нет в таблице — похоже на «balance»"
+    assert [w for w in plan.warnings if "в пометке «" in w] == [
+        "a.mmd: в пометке «accounts.balnce» колонки нет в таблице, похоже на «balance»"
     ]
 
 
@@ -1312,8 +1312,8 @@ def test_далёкое_имя_подсказки_не_получает(db):
 
     plan = _plan(db, [("a.mmd", _refs_mmd("читает: query_cache"))], window=orders)
 
-    assert [w for w in plan.warnings if "пометка «" in w] == [
-        "a.mmd: пометка «query_cache» — таблица не найдена в структуре проекта"
+    assert [w for w in plan.warnings if "в пометке «" in w] == [
+        "a.mmd: в пометке «query_cache» таблица не найдена в структуре проекта"
     ]
 
 
@@ -1335,7 +1335,7 @@ def test_сосед_по_префиксу_приложения_подсказк�
         ("c.mmd", _refs_mmd("пишет: sentry_dynamicsampling", name="Сэмплирование")),
     ], window=orders)
 
-    тексты = [w for w in plan.warnings if "пометка «" in w]
+    тексты = [w for w in plan.warnings if "в пометке «" in w]
     # Сами промахи названы по-прежнему — молчать о них нельзя, нельзя лишь угадывать.
     assert len(тексты) == 3
     assert not any("похоже на" in w for w in тексты)
@@ -1355,7 +1355,7 @@ def test_то_же_имя_с_другими_разделителями_подс�
         ("b.mmd", _refs_mmd("читает: user_profile", name="Разделители")),
     ], window=orders)
 
-    тексты = [w for w in plan.warnings if "пометка «" in w]
+    тексты = [w for w in plan.warnings if "в пометке «" in w]
     # Расхождение мелкое и абсолютное: один разделитель и окончание.
     assert any("похоже на «sentry_organizationmember_teams»" in w for w in тексты)
     # Сравниваем имена БЕЗ разделителей: на сырых строках «user_profile» не узнаёт
@@ -1375,9 +1375,9 @@ def test_подсказки_не_ломают_дедуп_и_кап(db):
 
     plan = _plan(db, [("a.mmd", _refs_mmd(marks))], window=orders)
 
-    строки = [w for w in plan.warnings if "пометка «" in w]
+    строки = [w for w in plan.warnings if "в пометке «" in w]
     assert строки.count(
-        "a.mmd: пометка «messages» — таблица не найдена в структуре проекта — "
+        "a.mmd: в пометке «messages» таблица не найдена в структуре проекта, "
         "похоже на «zerver_message»"
     ) == 1
     assert len(строки) == MAX_DATA_REF_WARNINGS
@@ -1535,12 +1535,12 @@ def test_пометка_компонента_ищет_параметр_у_кон
 
     plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: TOLERANCE, TOLERANSE"))], window=api)
 
-    промахи = [w for w in plan.warnings if "пометка «" in w]
+    промахи = [w for w in plan.warnings if "в пометке «" in w]
     # Найденный параметр контейнера молчит, промах называет контейнер и подсказывает
     # имя из ЕГО конфигурации.
     assert промахи == [
-        "a.mmd: пометка «TOLERANSE» — параметра нет в конфигурации контейнера "
-        "«shop / orders» — похоже на «TOLERANCE»"
+        "a.mmd: в пометке «TOLERANSE» параметра нет в конфигурации контейнера "
+        "«shop / orders», похоже на «TOLERANCE»"
     ]
     assert not any("конфигурация не описана" in w for w in plan.warnings)
 
@@ -1552,7 +1552,7 @@ def test_пустая_конфигурация_контейнера_называ
     plan = _plan(db, [("a.mmd", _refs_mmd("зависит от: OWN_FLAG"))], window=api)
 
     assert [w for w in plan.warnings if "конфигурация не описана" in w] == [
-        "a.mmd: у контейнера «shop / orders» конфигурация не описана — пометки "
+        "a.mmd: у контейнера «shop / orders» конфигурация не описана, поэтому пометки "
         "«зависит от:» в схемах «shop / orders / api» (OWN_FLAG) останутся "
         "ненайденными, пока её не опишут"
     ]
@@ -1566,9 +1566,9 @@ def test_пометка_у_системы_зовёт_адресовать_схе
 
     assert (
         "a.mmd: «shop» — система; пометки «зависит от:» (FLAG) ищут параметры у "
-        "контейнера, а у системы их нет — адресуйте схему контейнеру или компоненту"
+        "контейнера, а у системы их нет. Адресуйте схему контейнеру или компоненту"
     ) in plan.warnings
-    assert [w for w in plan.warnings if "пометка «" in w] == []
+    assert [w for w in plan.warnings if "в пометке «" in w] == []
 
 
 def test_промпт_со_страницы_компонента_перечисляет_параметры_контейнера(db):
