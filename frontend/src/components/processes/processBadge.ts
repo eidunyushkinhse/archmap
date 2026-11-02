@@ -1,6 +1,7 @@
 // Производный бейдж процесса из статусов его участников (общий для рейла и прочих
-// списков процессов). planned+deprecated → миграция, только planned → to-be,
-// только deprecated → вывод, всё existing → бейджа нет. Вынесено из
+// списков процессов), словами видов схемы (Р10 ревизии текстов): planned+deprecated →
+// «переход», только planned → «как будет», только deprecated → «выводится», всё
+// existing → бейджа нет. Вынесено из
 // BusinessProcessSection при переезде списка процессов в рейл режима «Процессы».
 import type { CSSProperties } from "react";
 import type { NodeStatus } from "../../types";
@@ -13,13 +14,13 @@ export type BadgeTone = "planned" | "deprecated" | "neutral";
 export function processBadge(statuses: NodeStatus[]): { t: string; tone: BadgeTone } | null {
   const hasP = statuses.includes("planned");
   const hasD = statuses.includes("deprecated");
-  if (hasP && hasD) return { t: "миграция", tone: "neutral" };
-  if (hasP) return { t: "to-be", tone: "planned" };
-  if (hasD) return { t: "вывод", tone: "deprecated" };
+  if (hasP && hasD) return { t: "переход", tone: "neutral" };
+  if (hasP) return { t: "как будет", tone: "planned" };
+  if (hasD) return { t: "выводится", tone: "deprecated" };
   return null;
 }
 
-// Тинт пилюли из статусной палитры (planned/deprecated) или нейтрали (миграция).
+// Тинт пилюли из статусной палитры (planned/deprecated) или нейтрали (переход).
 export function pillStyle(tone: BadgeTone): CSSProperties {
   const base: CSSProperties = {
     flex: "none",

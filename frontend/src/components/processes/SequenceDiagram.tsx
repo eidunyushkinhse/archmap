@@ -830,7 +830,7 @@ export default function SequenceDiagram({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {m.invalidReason === "leg_gone" ? "канал без ответа" : "связь удалена"}
+                      {m.invalidReason === "leg_gone" ? "связь без ответа" : "связь удалена"}
                     </span>
                   )}
                 </span>
@@ -897,7 +897,7 @@ export default function SequenceDiagram({
             className="bp-phead"
             // Роль и признак «внешний» из шапки ушли в подсказку (2026-10-28): строка
             // роли под именем съедала высоту, а имя резалось на шести знаках.
-            title={[p.name, unbound ? "нет узла в схеме" : p.role, p.external ? "внешний" : ""].filter(Boolean).join(" · ")}
+            title={[p.name, unbound ? "нет объекта на схеме" : p.role, p.external ? "внешний" : ""].filter(Boolean).join(" · ")}
             onPointerDown={(e) => onHeaderDown(e, k)}
             style={{
               position: "absolute",
@@ -966,7 +966,7 @@ export default function SequenceDiagram({
             {unbound && onBindParticipant && (
               <button
                 type="button"
-                title={`Привязать «${p.name}» к узлу схемы`}
+                title={`Привязать «${p.name}» к объекту схемы`}
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onBindParticipant(p.id); }}
                 style={{
@@ -1027,7 +1027,7 @@ export default function SequenceDiagram({
               </div>
               {unbound && (
                 <div style={{ fontSize: 9.5, color: BPT.mut, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  нет узла в схеме
+                  нет объекта на схеме
                 </div>
               )}
             </div>
@@ -1162,7 +1162,7 @@ export default function SequenceDiagram({
               />
               <button
                 tabIndex={-1}
-                title="Рефлексивное сообщение (себе)"
+                title="Сообщение самому себе"
                 style={{
                   ...circleBase,
                   left: colX(drag.from),

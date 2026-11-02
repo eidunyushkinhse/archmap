@@ -52,11 +52,11 @@ export function fragmentEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
     await runMutation(async () => {
       await processesApi.updateFragment(id, fid, next);
       hist.push({
-        label: "Охват фрагмента",
+        label: "Границы фрагмента",
         undo: async () => { await processesApi.updateFragment(id, fid, prev); },
         redo: async () => { await processesApi.updateFragment(id, fid, next); },
       });
-    }, "Не удалось изменить охват фрагмента");
+    }, "Не удалось изменить границы фрагмента");
   }
 
   // Общая запись правки ветвей: и границы, и условия, и снятие. Ветви правятся

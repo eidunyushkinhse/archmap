@@ -126,7 +126,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
           {(result.doc_linked > 0 || result.doc_unresolved > 0) && (
             <div>Привязок к схемам логики: {result.doc_linked}
               {result.doc_unresolved > 0 && (
-                <span style={{ color: BROKEN.ink }}> · адрес не разрешился: {result.doc_unresolved}</span>
+                <span style={{ color: BROKEN.ink }}> · схема не найдена: {result.doc_unresolved}</span>
               )}
             </div>
           )}
@@ -220,8 +220,8 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
             </div>
           )}
 
+          {/* Главная кнопка слева, «Отмена» справа — правило окон (ревизия текстов, Р7). */}
           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
-            <button style={secondaryBtn} onClick={onClose}>Отмена</button>
             {preview ? (
               <button style={primaryBtn} onClick={() => void doImport()} disabled={busy}>
                 Импортировать
@@ -235,6 +235,7 @@ export default function ProcessImportModal({ onClose, onImported }: Props) {
                 Разобрать
               </button>
             )}
+            <button style={secondaryBtn} onClick={onClose}>Отмена</button>
           </div>
         </>
       )}

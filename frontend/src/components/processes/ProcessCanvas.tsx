@@ -209,13 +209,13 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             </div>
           </>
         );
-      // Самосообщение: ввод подписи внутренней операции.
+      // Сообщение самому себе: ввод подписи внутренней операции.
       case "self":
         if (!detail) return null;
         return (
           <PromptCard
-            title={`Рефлексивное сообщение · ${partById[o.pid]?.name ?? o.pid}`}
-            hint="Действие участника над самим собой (без связи в C4) — внутренняя операция."
+            title={`Сообщение самому себе · ${partById[o.pid]?.name ?? o.pid}`}
+            hint="Участник делает что-то сам, без связи с другими объектами."
             autofillKey="process-canvas-1"
             value={o.caption}
             onChange={(caption) => updateOverlay("self", (x) => ({ ...x, caption }))}
@@ -299,7 +299,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
           <PromptCard
             title={o.index == null ? "Добавить ветку «иначе»" : "Ветка «иначе»"}
             hint={o.index == null
-              ? "Граница встанет в свободном месте охвата — потом её можно перетащить."
+              ? "Граница ветки встанет в свободное место фрагмента, потом её можно перетащить."
               : `Ветка ${o.index + 2} у этого alt`}
             autofillKey="process-canvas-2"
             value={o.guard}
@@ -332,7 +332,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
             title={`Фрагмент «${o.frag}»`}
             hint={`${o.fromRow === o.toRow
               ? `Сообщение ${o.fromRow + 1}`
-              : `Сообщения ${o.fromRow + 1}–${o.toRow + 1}`} · условие (показывается у рамки)`}
+              : `Сообщения ${o.fromRow + 1}–${o.toRow + 1}`} · условие (показывается в заголовке фрагмента)`}
             autofillKey="process-canvas-3"
             value={o.guard}
             onChange={(guard) => updateOverlay("frag", (x) => ({ ...x, guard }))}
@@ -352,7 +352,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
               <ConfirmDialog
                 variant="card"
                 title="Удалить фрагмент?"
-                confirmLabel="Да, удалить"
+                confirmLabel="Удалить"
                 onConfirm={() => void removeFragment(o.fid)}
                 onCancel={() => closeOverlay("delFrag")}
               />
@@ -371,9 +371,9 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                 tone="neutral"
                 title="Имена расходятся"
                 lead={<>
-                  В диаграмме участник назывался «{o.partName}», а узел схемы —
-                  «{o.nodeName}». После привязки будет действовать имя узла:
-                  схема — источник истины.
+                  В диаграмме участник назывался «{o.partName}», а объект на схеме
+                  называется «{o.nodeName}». После привязки участник получит имя объекта
+                  со схемы.
                 </>}
                 confirmLabel="Привязать"
                 onConfirm={() => void bindParticipant(o.participantId, o.nodeId)}
@@ -400,8 +400,8 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
                   </button>
                 </div>
                 <div style={{ fontSize: 11.5, color: BPT.mut, marginBottom: 10 }}>
-                  Участник пришёл из импорта или потерял узел при удалении. Выберите, какому
-                  объекту схемы он соответствует.
+                  Участник пришёл из импорта, или его объект удалили со схемы. Выберите, какому
+                  объекту он соответствует.
                 </div>
                 <ParticipantPicker
                   added={new Set(detail.participants.flatMap((p) => (p.node_id ? [p.node_id] : [])))}
@@ -548,7 +548,7 @@ export default function ProcessCanvas({ id, isArchitect, editing, onToggleEditin
         ) : seq.participants.length === 0 ? (
           <div style={{ padding: 24, color: BPT.mut, fontSize: 14 }}>
             {editing
-              ? "Добавьте участников (узлы схемы) кнопкой «Участник», затем сообщения между ними."
+              ? "Добавьте участников (объекты схемы) кнопкой «Участник», затем сообщения между ними."
               : "В процессе пока нет участников и сообщений."}
           </div>
         ) : (

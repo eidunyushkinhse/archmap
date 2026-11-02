@@ -110,7 +110,7 @@ describe("правки фрагментов процесса", () => {
     await userEvent.click(screen.getByText("resize-1-2"));
     await waitFor(() => expect(processesApi.updateFragment).toHaveBeenCalledWith(
       "p1", "f1", { from_order: 20, to_order: 30 }));
-    expect(lastCmd()?.label).toBe("Охват фрагмента");
+    expect(lastCmd()?.label).toBe("Границы фрагмента");
     await lastCmd()?.undo();
     expect(processesApi.updateFragment).toHaveBeenLastCalledWith("p1", "f1", { from_order: 10, to_order: 30 });
   });
@@ -156,7 +156,7 @@ describe("правки фрагментов процесса", () => {
   it("удаление фрагмента: откат возвращает его вместе с ветвями", async () => {
     await open();
     await userEvent.click(screen.getByText("click-f1"));
-    await userEvent.click(await screen.findByRole("button", { name: "Да, удалить" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Удалить" }));
     await waitFor(() => expect(processesApi.removeFragment).toHaveBeenCalledWith("p1", "f1"));
     await waitFor(() => expect(screen.queryByText("Удалить фрагмент?")).toBeNull());
     expect(lastCmd()?.label).toBe("Удаление фрагмента");

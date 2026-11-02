@@ -66,7 +66,7 @@ describe("непривязанный участник", () => {
 
   it("на шапке сказано, что узла нет", () => {
     renderDiagram({ onBindParticipant: vi.fn() });
-    expect(screen.getByText("нет узла в схеме")).toBeTruthy();
+    expect(screen.getByText("нет объекта на схеме")).toBeTruthy();
   });
 
   it("линия жизни непривязанного нарисована «сломанным» цветом", () => {

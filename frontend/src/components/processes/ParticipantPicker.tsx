@@ -30,7 +30,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
     nodesApi
       .getAll()
       .then((ns) => alive && setNodes(ns))
-      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Не удалось загрузить узлы"));
+      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Не удалось загрузить объекты"));
     return () => { alive = false; };
   }, []);
 
@@ -135,7 +135,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
           {...noAutofill("participant-picker-1")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Фильтр по имени…"
+          placeholder="Поиск по имени"
           style={{ border: "none", outline: "none", fontSize: 13, flex: 1, background: "transparent", color: BPT.head }}
         />
       </div>
@@ -145,7 +145,7 @@ export default function ParticipantPicker({ added, onAdd }: Props) {
         ) : nodes === null ? (
           <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>Загрузка…</div>
         ) : roots.length === 0 ? (
-          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>В схеме нет узлов</div>
+          <div style={{ fontSize: 12, color: BPT.mut, padding: 8 }}>В схеме нет объектов</div>
         ) : (
           roots.map((r) => renderRow(r, 0))
         )}

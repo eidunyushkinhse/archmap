@@ -118,14 +118,14 @@ describe("Escape закрывает оверлеи процесса", () => {
     await waitFor(() => expect(screen.queryByText("Добавить ветку «иначе»")).toBeNull());
   });
 
-  it("карточку рефлексивного сообщения", async () => {
+  it("карточку сообщения самому себе", async () => {
     await renderCanvas();
     await userEvent.click(screen.getByText("click-self"));
-    await screen.findByText(/Рефлексивное сообщение/);
+    await screen.findByText(/Сообщение самому себе/);
 
     await userEvent.keyboard("{Escape}");
 
-    await waitFor(() => expect(screen.queryByText(/Рефлексивное сообщение/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/Сообщение самому себе/)).toBeNull());
   });
 
   it("панель участников", async () => {

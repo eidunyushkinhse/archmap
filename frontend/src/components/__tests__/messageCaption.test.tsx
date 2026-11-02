@@ -327,7 +327,7 @@ describe("карточка шага: подпись", () => {
     await screen.findByText("Шаг сценария");
 
     expect(screen.queryByText(/шаг-ответ/)).toBeNull();
-    expect(screen.queryByText(/сломается/)).toBeNull();
+    expect(screen.queryByText(/станет ошибочным/)).toBeNull();
   });
 
   it("уход в асинхрон при живом ответе сперва спрашивает подтверждение", async () => {
@@ -339,8 +339,8 @@ describe("карточка шага: подпись", () => {
 
     // Связь НЕ тронута: сначала человек должен увидеть цену решения.
     expect(edgesApi.update).not.toHaveBeenCalled();
-    expect(screen.getByText(/На канале 1 шаг-ответ/)).toBeTruthy();
-    expect(screen.getByText(/он сломается/)).toBeTruthy();
+    expect(screen.getByText(/По этой связи идёт шаг-ответ/)).toBeTruthy();
+    expect(screen.getByText(/Шаг станет ошибочным/)).toBeTruthy();
   });
 
   it("«Оставить синхронным» убирает подтверждение и связь не трогает", async () => {
@@ -348,11 +348,11 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByText("click-m1"));
     await screen.findByText("Шаг сценария");
     await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
-    await screen.findByText(/На канале 1 шаг-ответ/);
+    await screen.findByText(/По этой связи идёт шаг-ответ/);
 
     await userEvent.click(screen.getByRole("button", { name: "Оставить синхронным" }));
 
-    expect(screen.queryByText(/На канале 1 шаг-ответ/)).toBeNull();
+    expect(screen.queryByText(/По этой связи идёт шаг-ответ/)).toBeNull();
     expect(edgesApi.update).not.toHaveBeenCalled();
   });
 
@@ -361,7 +361,7 @@ describe("карточка шага: подпись", () => {
     await userEvent.click(screen.getByText("click-m1"));
     await screen.findByText("Шаг сценария");
     await userEvent.click(screen.getByRole("button", { name: "Асинхронный" }));
-    await screen.findByText(/На канале 1 шаг-ответ/);
+    await screen.findByText(/По этой связи идёт шаг-ответ/);
 
     await userEvent.click(screen.getByRole("button", { name: "Сменить всё равно" }));
 

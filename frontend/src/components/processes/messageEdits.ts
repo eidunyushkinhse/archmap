@@ -66,7 +66,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
       const created = await processesApi.addMessage(id, payload);
       let mid = created.id;
       hist.push({
-        label: "Самосообщение",
+        label: "Сообщение самому себе",
         undo: () => processesApi.removeMessage(id, mid),
         redo: async () => {
           // Участника могли пересоздать (undo его удаления) — тогда id сменился, а
@@ -81,7 +81,7 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
         },
       });
       closeOverlay("self");
-    }, "Не удалось добавить рефлексивное сообщение");
+    }, "Не удалось добавить сообщение самому себе");
   }
   // Правка подписи шага. Подпись у шага всегда СВОЯ (вывод из канала снят), поэтому
   // пустое поле означает ровно «подписи нет», а не «взять метку связи».
@@ -139,11 +139,11 @@ export function messageEdits({ id, proc, hist, overlays }: ProcessEditCtx) {
     await runMutation(async () => {
       await edgesApi.update(edgeId, { is_synchronous: next });
       hist.push({
-        label: next ? "Канал стал синхронным" : "Канал стал асинхронным",
+        label: next ? "Связь стала синхронной" : "Связь стала асинхронной",
         undo: async () => { await edgesApi.update(edgeId, { is_synchronous: !next }); },
         redo: async () => { await edgesApi.update(edgeId, { is_synchronous: next }); },
       });
-    }, "Не удалось изменить тип канала");
+    }, "Не удалось изменить тип связи");
   }
   async function removeMessage(mid: string) {
     const m = msgById.get(mid);

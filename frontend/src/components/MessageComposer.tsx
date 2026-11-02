@@ -88,7 +88,7 @@ export default function MessageComposer({
     processesApi
       .channels(processId, fromNode, toNode)
       .then((ch) => alive && setResult({ key: pairKey, data: ch }))
-      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Ошибка загрузки каналов"));
+      .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : "Не удалось загрузить связи"));
     return () => { alive = false; };
   }, [processId, fromNode, toNode, pairKey]);
 
@@ -150,7 +150,7 @@ export default function MessageComposer({
     const fromP = partByNode[leg.from_id];
     const toP = partByNode[leg.to_id];
     if (!fromP || !toP) {
-      setError("Концы плеча не среди участников");
+      setError("Не все объекты этой связи участвуют в процессе");
       return;
     }
     setBusy(true);
@@ -202,7 +202,7 @@ export default function MessageComposer({
       )}
 
       {channels === null ? (
-        <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>Загрузка каналов…</div>
+        <div style={{ fontSize: 12, color: BPT.mut, padding: "6px 14px 16px" }}>Загрузка связей</div>
       ) : channels.length === 0 ? (
         <div style={{ padding: "8px 14px 14px" }}>
           <div style={validator}>
@@ -214,8 +214,8 @@ export default function MessageComposer({
                 Между ними нет задокументированной связи
               </div>
               <div style={{ fontSize: 12, color: "#92591a", lineHeight: 1.5 }}>
-                Процесс не может отправить сообщение, которого нет в архитектуре. Опишите связь
-                «{nameOf(fromNode)} → {nameOf(toNode)}» — она появится и в схеме, и здесь как плечо.
+                Сообщение в процессе идёт только по связи из схемы. Опишите связь
+                «{nameOf(fromNode)} → {nameOf(toNode)}», и она появится на схеме и в этом списке.
               </div>
             </div>
           </div>
@@ -249,7 +249,7 @@ export default function MessageComposer({
               />
             </div>
             <div style={{ flex: "none" }}>
-              <span className="bp-field-label">Тип канала</span>
+              <span className="bp-field-label">Тип связи</span>
               <SyncSegmented value={newSync} onChange={setNewSync} disabled={busy} compact />
             </div>
           </div>

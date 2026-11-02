@@ -193,7 +193,7 @@ export default function ProcessRail({
                         className="bp-menuitem bp-menuitem--danger"
                         onClick={() => { setMenuId(null); setConfirmId(null); onDelete(p.id); }}
                       >
-                        Точно удалить?
+                        Удалить процесс?
                       </button>
                     ) : (
                       <button
@@ -211,7 +211,7 @@ export default function ProcessRail({
         )}
       </div>
 
-      <button onClick={onToggle} title="Свернуть в рейл" style={{ ...railToggle, alignSelf: "flex-end", margin: "4px 12px 10px 0" }}>
+      <button onClick={onToggle} title="Свернуть список процессов" style={{ ...railToggle, alignSelf: "flex-end", margin: "4px 12px 10px 0" }}>
         <CollapseIcon size={15} dir="left" />
       </button>
     </aside>

@@ -62,7 +62,7 @@ const DETAIL = {
   fragments: [],
 } as unknown as ProcessDetail;
 
-const CONFIRM = /Вы уверены, что хотите удалить «Покупатель»/;
+const CONFIRM = /Убрать «Покупатель» из процесса\?/;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -102,8 +102,9 @@ describe("стек оверлеев холста процесса", () => {
   it("во время удаления Escape не бросает подтверждение и не закрывает панель под ним", async () => {
     vi.mocked(processesApi.removeParticipant).mockReturnValue(new Promise<void>(() => {}));
     await openDeleteFromPanel();
-    await userEvent.click(screen.getByRole("button", { name: "Да, удалить" }));
-    await screen.findByRole("button", { name: "Удаление..." });
+    // Текстом, а не ролью: у крестиков панели участников та же подсказка «Убрать».
+    await userEvent.click(screen.getByText("Убрать", { selector: "button" }));
+    await screen.findByRole("button", { name: "Убираем" });
 
     await userEvent.keyboard("{Escape}");
 

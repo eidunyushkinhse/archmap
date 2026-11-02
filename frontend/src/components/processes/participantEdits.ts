@@ -133,7 +133,7 @@ export function participantEdits(
           redo: async () => { await processesApi.reattach(id); },
         });
       }
-    }, "Не удалось подхватить каналы");
+    }, "Не удалось восстановить связи");
   }
 
   async function bindParticipant(participantId: string, nodeId: string) {
@@ -155,7 +155,7 @@ export function participantEdits(
         undo: async () => { await processesApi.bindParticipant(id, participantId, null); },
         redo: async () => { await processesApi.bindParticipant(id, participantId, nodeId); },
       });
-    }, "Не удалось привязать участника к узлу");
+    }, "Не удалось привязать участника к объекту");
   }
 
   async function doRemoveParticipant(p: ProcessParticipant) {

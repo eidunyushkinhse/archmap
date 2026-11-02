@@ -31,7 +31,7 @@ describe("чип сломанного шага", () => {
   it("пропавшее плечо названо своим именем, а не «связь удалена»", () => {
     diagram(M({ valid: false, invalidReason: "leg_gone" }));
 
-    expect(screen.getByText("канал без ответа")).toBeTruthy();
+    expect(screen.getByText("связь без ответа")).toBeTruthy();
     expect(screen.queryByText("связь удалена")).toBeNull();
   });
 
@@ -39,7 +39,7 @@ describe("чип сломанного шага", () => {
     diagram(M({}));
 
     expect(screen.queryByText("связь удалена")).toBeNull();
-    expect(screen.queryByText("канал без ответа")).toBeNull();
+    expect(screen.queryByText("связь без ответа")).toBeNull();
   });
 
   it("причина доезжает из контракта в презентационную модель", () => {
