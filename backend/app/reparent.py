@@ -218,14 +218,14 @@ def validate_shape_change(
     if node.shape == "database" and new_shape != "database":
         has_tables = db.query(DbTable.id).filter(DbTable.node_id == node.id).first() is not None
         if has_tables:
-            return "У узла описана структура БД — сначала перенесите или удалите её"
+            return "У объекта описана структура БД — сначала перенесите или удалите её"
     if node.shape == "broker" and new_shape != "broker":
         has_channels = (
             db.query(BrokerChannel.id).filter(BrokerChannel.node_id == node.id).first()
             is not None
         )
         if has_channels:
-            return "У узла описаны каналы брокера — сначала перенесите или удалите их"
+            return "У объекта описаны каналы брокера — сначала перенесите или удалите их"
     if new_shape == "person" and node.shape != "person":
         placed = (
             db.query(DeploymentInstance.id).filter(DeploymentInstance.node_id == node.id).first()

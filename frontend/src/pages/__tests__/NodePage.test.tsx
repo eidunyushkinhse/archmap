@@ -567,7 +567,7 @@ describe("NodePage: смена типа", () => {
 
   it("отказ сервера виден на странице, а не проглатывается", async () => {
     // Отказ — на базе с описанной структурой.
-    const причина = "У узла описана структура БД — сначала перенесите или удалите её";
+    const причина = "У объекта описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
     setupType({ shape: "database" });
     await userEvent.click(await screen.findByRole("button", { name: "Тип" }));

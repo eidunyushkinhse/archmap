@@ -155,7 +155,7 @@ def test_нельзя_увести_базу_с_таблицами(db):
         with pytest.raises(HTTPException) as e:
             _set_shape(db, база, shape)
         assert e.value.status_code == 400
-        assert e.value.detail == "У узла описана структура БД — сначала перенесите или удалите её"
+        assert e.value.detail == "У объекта описана структура БД — сначала перенесите или удалите её"
     db.refresh(база)
     assert база.shape == "database"
 
@@ -186,7 +186,7 @@ def test_нельзя_увести_брокер_с_каналами(db):
             _set_shape(db, брокер, shape)
         assert e.value.status_code == 400
         assert e.value.detail == (
-            "У узла описаны каналы брокера — сначала перенесите или удалите их"
+            "У объекта описаны каналы брокера — сначала перенесите или удалите их"
         )
     db.refresh(брокер)
     assert брокер.shape == "broker"

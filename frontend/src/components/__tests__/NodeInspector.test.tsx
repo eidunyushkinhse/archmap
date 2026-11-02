@@ -114,7 +114,7 @@ describe("NodeInspector: смена типа формой", () => {
   });
 
   it("отказ сервера показан плашкой, а не проглочен", async () => {
-    const причина = "У узла описана структура БД — сначала перенесите или удалите её";
+    const причина = "У объекта описана структура БД — сначала перенесите или удалите её";
     vi.mocked(nodesApi.update).mockRejectedValue(new ApiError(400, причина));
     setup(makeNode({ shape: "database", element_effective: "container" }));
 
