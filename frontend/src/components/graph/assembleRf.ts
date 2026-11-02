@@ -149,7 +149,7 @@ export function assembleRfGraph(params: {
           draggable: false,
           selectable: false,
           zIndex: -2, // под рамками раскрытий и под узлами
-          data: {},
+          data: { name: levelFrame.name },
         }]
       : []),
     // Рамки — первыми (RF требует родителя в массиве раньше детей; guestFrames

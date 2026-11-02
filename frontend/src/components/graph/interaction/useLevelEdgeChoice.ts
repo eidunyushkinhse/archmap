@@ -20,9 +20,11 @@ interface UseLevelEdgeChoiceArgs {
   edges: AppEdge[];
   onEdgesChoice: (edges: AppEdge[], ends?: EdgeChoiceEnds) => void;
   // классификация узла холста как цели новой связи и его имя (useConnectTargets — общие
-  // с протягиванием и быстрой связью; строит владелец по rfNodes)
+  // с протягиванием и быстрой связью; строит владелец по rfNodes) и имя контейнера,
+  // показанного рамкой
   resolveTarget: (id: string) => ConnectTarget;
   displayNameOf: (id: string) => string | undefined;
+  containerFrameName: (id: string) => string | undefined;
 }
 
 export interface LevelEdgeChoice {
@@ -30,18 +32,24 @@ export interface LevelEdgeChoice {
 }
 
 export function useLevelEdgeChoice({
-  edges, onEdgesChoice, resolveTarget, displayNameOf,
+  edges, onEdgesChoice, resolveTarget, displayNameOf, containerFrameName,
 }: UseLevelEdgeChoiceArgs): LevelEdgeChoice {
   // Отображаемый конец как конец новой связи: лист — напрямую, объект с вложенными —
-  // «зона входа»; рамка, распорка и неизвестный (общий участок, null) — не цель.
+  // «зона входа». Рамка контейнера (раскрытого или уровня) — тоже зона входа: стрелка в
+  // неё — связь в сам контейнер, и прямую связь в контейнер кнопка не создаёт (решение
+  // владельца 2026-11-02). Распорка, площадка и неизвестный конец (общий участок, null) —
+  // не цель.
   const newEdgeEnd = useCallback(
     (id: string | null): NewEdgeEnd | null => {
       if (!id) return null;
       const t = resolveTarget(id);
-      if (!t) return null;
+      if (!t) {
+        const frameName = containerFrameName(id);
+        return frameName === undefined ? null : { kind: "into", id, name: frameName };
+      }
       return t.kind === "into" ? { kind: "into", id, name: t.name } : { kind: "direct", id, name: displayNameOf(id) };
     },
-    [resolveTarget, displayNameOf],
+    [resolveTarget, displayNameOf, containerFrameName],
   );
 
   // Открыть список связей по их членам — всегда через «Выберите связь», даже для

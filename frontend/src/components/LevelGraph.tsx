@@ -509,9 +509,10 @@ function LevelGraphInner({
   });
 
 
-  // Узлы холста как концы новой связи: цель протяжки («зона входа» / напрямую) и имя
-  // отображаемого узла для заголовков окон создания связи.
-  const { resolveTarget, displayNameOf } = useConnectTargets(rfNodes);
+  // Узлы холста как концы новой связи: цель протяжки («зона входа» / напрямую), имя
+  // отображаемого узла для заголовков окон создания связи и имя контейнера, показанного
+  // рамкой (концы для «+ Добавить связь» окна выбора, E97).
+  const { resolveTarget, displayNameOf, containerFrameName } = useConnectTargets(rfNodes);
 
   // Создание новой связи протягиванием стрелки (хэндл → напрямую, тело контейнера →
   // выбор потомка).
@@ -554,7 +555,7 @@ function LevelGraphInner({
   // драг. Через ref сборка зависит только от данных — без широкого eslint-disable.
   // Инспекция связей (openEdgeMembers) вынесена в useLevelEdgeChoice (Фаза 3б) —
   // колбэк кормит cbRef ниже.
-  const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, resolveTarget, displayNameOf });
+  const { openEdgeMembers } = useLevelEdgeChoice({ edges, onEdgesChoice, resolveTarget, displayNameOf, containerFrameName });
 
   const cbRef = useRef({ onDrillDown, drillWithPath, onEnterNode, onEditNode, onInspectGhost, onInspectNodeId, onClearSelection, onSelectionChange, expandContainer, expandLocalContainer, collapseContainer, openEdgeMembers, commitLayout, quickConnect: quickConnectHandlers, pickFrame });
   // Канонический latest-ref: обновляем cbRef.current в эффекте БЕЗ зависимостей (после

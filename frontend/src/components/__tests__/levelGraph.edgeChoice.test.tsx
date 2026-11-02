@@ -4,7 +4,8 @@
 //     теми же концами (даже ОДНА связь открывает «Выберите связь» — оттуда доступна
 //     дозапись новой); неизвестные id фильтруются; пусто → onEdgesChoice НЕ зовётся;
 //   • концы холст разрешает как концы НОВОЙ связи (ends.connect) той же классификацией,
-//     что протягивание: лист — direct, объект с вложенными — into, рамка — null (E97).
+//     что протягивание: лист — direct, объект с вложенными — into; рамка контейнера
+//     (раскрытого или уровня) — тоже into, рамка площадки — null (E97).
 // (Второй колбэк — модалка «общего плеча» E80 — снят вместе со стволами, 2026-10-11.)
 // RF/конвейер замоканы; колбэки оркестрации — через getCb.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -93,7 +94,7 @@ describe("LevelGraph orchestration: выбор связи (edges choice)", () =>
 
   // «+ Добавить связь» ведёт к показанной паре (E97, 2026-11-02): холст разрешает концы
   // стрелки той же классификацией, что протягивание и быстрая связь (resolveTarget).
-  it("openEdgeMembers: концы разрешены как концы новой связи (лист, система с вложенными, гость, контейнер, рамка)", async () => {
+  it("openEdgeMembers: концы разрешены как концы новой связи (лист, система с вложенными, гость, контейнер)", async () => {
     const e1 = edge("e1");
     const e2 = edge("e2");
     const { props } = await renderGraph({ edges: [e1, e2] });
@@ -107,7 +108,6 @@ describe("LevelGraph orchestration: выбор связи (edges choice)", () =>
         block("orders", "Заказы", true),
         { id: "g", type: "ghost", position: { x: 0, y: 0 }, data: { appNode: { id: "g", name: "Платежи" } } } as RFNode,
         { id: "c", type: "container", position: { x: 0, y: 0 }, data: { id: "c", name: "Склад" } } as RFNode,
-        { id: "f", type: "frame", position: { x: 0, y: 0 }, data: { name: "Доставка" } } as RFNode,
       ]);
     });
     const choice = props.edgeCallbacks.onEdgesChoice;
@@ -130,11 +130,47 @@ describe("LevelGraph orchestration: выбор связи (edges choice)", () =>
       },
     });
 
-    // рамка раскрытого объекта — не цель (E73); неизвестный конец общего участка — тоже
-    getCb().openEdgeMembers(["e1", "e2"], { source: null, target: "f" });
-    expect(choice).toHaveBeenLastCalledWith([e1, e2], {
-      source: null, target: "f", connect: { source: null, target: null },
+    // неизвестный конец общего участка — не цель
+    getCb().openEdgeMembers(["e1", "e2"], { source: null, target: "orders" });
+    expect(choice).toHaveBeenLastCalledWith([e1, e2], expect.objectContaining({
+      connect: { source: null, target: { kind: "into", id: "orders", name: "Заказы" } },
+    }));
+  });
+
+  // Стрелка в рамку — связь в сам контейнер: «+ Добавить связь» ведёт к выбору его
+  // потомка, как у свёрнутого (решение владельца 2026-11-02, E97). Целью дропа рамка
+  // по-прежнему не бывает (E73) — resolveTarget её не классифицирует.
+  it("openEdgeMembers: рамка раскрытого контейнера и рамка уровня — into, рамка площадки — не цель", async () => {
+    const e1 = edge("e1");
+    const e2 = edge("e2");
+    const { props } = await renderGraph({ edges: [e1, e2] });
+    await act(async () => {
+      rfHandles.setNodes?.([
+        { id: "user", type: "ghost", position: { x: 0, y: 0 }, data: { appNode: { id: "user", name: "Пользователь" } } } as RFNode,
+        { id: "orders", type: "frame", position: { x: 0, y: 0 }, data: { name: "Заказы" } } as RFNode,
+        { id: "lvl", type: "framedock", position: { x: 0, y: 0 }, data: { name: "Магазин" } } as RFNode,
+        { id: "site", type: "frame", position: { x: 0, y: 0 }, data: { name: "Прод", decor: { kind: "site" } } } as RFNode,
+      ]);
     });
+    const choice = props.edgeCallbacks.onEdgesChoice;
+
+    getCb().openEdgeMembers(["e1", "e2"], { source: "user", target: "orders" });
+    expect(choice).toHaveBeenLastCalledWith([e1, e2], expect.objectContaining({
+      connect: {
+        source: { kind: "direct", id: "user", name: "Пользователь" },
+        target: { kind: "into", id: "orders", name: "Заказы" },
+      },
+    }));
+
+    getCb().openEdgeMembers(["e1", "e2"], { source: "user", target: "lvl" });
+    expect(choice).toHaveBeenLastCalledWith([e1, e2], expect.objectContaining({
+      connect: expect.objectContaining({ target: { kind: "into", id: "lvl", name: "Магазин" } }),
+    }));
+
+    getCb().openEdgeMembers(["e1", "e2"], { source: "user", target: "site" });
+    expect(choice).toHaveBeenLastCalledWith([e1, e2], expect.objectContaining({
+      connect: expect.objectContaining({ target: null }),
+    }));
   });
 
   // Двойной клик по линии: концы стрелки — её собственные; соседняя стрелка общего участка

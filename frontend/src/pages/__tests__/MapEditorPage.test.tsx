@@ -992,7 +992,24 @@ describe("MapEditorPage: «+ Добавить связь» из окна выб�
     expect(screen.queryByTestId("cross-level-picker")).toBeNull();
   });
 
-  it("цель — не конец новой связи (рамка или общий участок) — цель первой связи пучка", async () => {
+  // Стрелка в рамку раскрытого контейнера — связь в сам контейнер: холст разрешает рамку
+  // как зону входа, и кнопка открывает выбор потомка, а не прямую связь в контейнер (E97).
+  it("стрелка в рамку раскрытого контейнера — выбор потомка этого контейнера", async () => {
+    const add = await openEditor();
+    act(() => add(levelEdge("u0", "user", "orders"), {
+      source: "user", target: "orders",
+      connect: {
+        source: { kind: "direct", id: "user", name: "Пользователь" },
+        target: { kind: "into", id: "orders", name: "Заказы" },
+      },
+    }));
+    const picker = screen.getByTestId("cross-level-picker");
+    expect(picker).toHaveAttribute("data-title", "Связь внутрь «Заказы»");
+    expect(picker).toHaveAttribute("data-root", "orders");
+    expect(screen.queryByTestId("edge-quick-create")).toBeNull();
+  });
+
+  it("цель — не конец новой связи (общий участок разных стрелок) — цель первой связи пучка", async () => {
     const add = await openEditor();
     act(() => add(toCatalog, {
       source: "user", target: null,
