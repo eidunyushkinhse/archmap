@@ -75,19 +75,11 @@ MAX_COVERAGE_WARNINGS = 8
 # каналов, описавший канал, заполняет заглушку целиком и без overwrite (это её
 # первое описание, а не спор с описанным раньше). Правит описание человек — маркер
 # уходит, канал считается описанным им. КОНСТАНТУ НЕ МЕНЯТЬ без миграции данных:
-# записи в БД узнаются по ней.
+# записи в БД узнаются по ней. Прежний текст (до 2026-11-02) миграция 7d2e4b9c1a35
+# переписала на этот; архив, выгруженный раньше, приносит такой канал обычным каналом.
 EDGE_STUB_DESCRIPTION = (
     "Канал создан по подписи связи на схеме, его поля ещё не описаны. Заполните их "
     "вручную или загрузите файлы каналов."
-)
-# Прежние тексты маркера (до ревизии текстов 2026-11-02). Ими помечены заглушки в базах,
-# заведённые раньше, и в архивах, выгруженных раньше: такие каналы — те же заглушки по
-# связи, поэтому узнаются наравне с текущим текстом. Новый текст сюда — только вместе с
-# прежним: убрать прежний значит перестать узнавать живые записи.
-EDGE_STUB_DESCRIPTIONS = (
-    EDGE_STUB_DESCRIPTION,
-    "Заведён импортом по связи схемы: канал назван на стрелке, но структурой брокера "
-    "ещё не описан — дозалейте пакет каналов или заполните поля.",
 )
 
 
@@ -110,7 +102,7 @@ def split_channel_names(raw: str | None) -> list[str]:
 
 def is_edge_stub(channel: BrokerChannel) -> bool:
     """Заглушка по связи, а не описание брокера (см. EDGE_STUB_DESCRIPTION)."""
-    return channel.description in EDGE_STUB_DESCRIPTIONS
+    return channel.description == EDGE_STUB_DESCRIPTION
 
 
 def seed_edge_channel_stubs(
@@ -164,7 +156,7 @@ def _stub_by_name(db: Session, node_id: uuid.UUID, name: str) -> BrokerChannel |
             BrokerChannel.node_id == node_id,
             BrokerChannel.group_name == "",
             BrokerChannel.name == name,
-            BrokerChannel.description.in_(EDGE_STUB_DESCRIPTIONS),
+            BrokerChannel.description == EDGE_STUB_DESCRIPTION,
         )
         .first()
     )

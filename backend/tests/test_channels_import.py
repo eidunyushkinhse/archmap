@@ -16,7 +16,6 @@ from conftest import ensure_architect, ensure_project
 
 from app.channels_import import (
     EDGE_STUB_DESCRIPTION,
-    EDGE_STUB_DESCRIPTIONS,
     MAX_ADDRESS_WARNINGS,
     MAX_COVERAGE_WARNINGS,
     is_edge_stub,
@@ -1046,23 +1045,6 @@ def test_пакет_описывает_заглушку_без_overwrite_и_сн
     assert заглушка.description == "заказ создан" and not is_edge_stub(заглушка)
     assert sorted(f.name for f in заглушка.fields) == ["order_id", "status"]
     assert второй.name == "orders.paid"
-
-
-def test_заглушка_с_прежним_описанием_узнаётся(db):
-    """Описание заглушки переписано словами продукта (ревизия текстов 2026-11), а каналы,
-    заведённые раньше, несут в базе прежний текст: они обязаны остаться заглушками, и
-    пакет заполняет их без overwrite, как и новые."""
-    шина, _сервис = _сцена(db)
-    db.add(BrokerChannel(node_id=шина.id, name="orders.created", description=EDGE_STUB_DESCRIPTIONS[1]))
-    db.flush()
-    [канал] = _каналы(db, шина)
-    assert is_edge_stub(канал) and канал.description != EDGE_STUB_DESCRIPTION
-
-    r = _применить(db, ПАКЕТ)
-
-    assert r.applied
-    канал = next(c for c in _каналы(db, шина) if c.name == "orders.created")
-    assert канал.description == "заказ создан" and not is_edge_stub(канал)
 
 
 def test_пакет_без_описания_снимает_маркер_заглушки(db):
