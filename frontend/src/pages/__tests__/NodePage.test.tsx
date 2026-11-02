@@ -76,6 +76,12 @@ vi.mock("../../ui/Modal", () => ({
   default: ({ children }: { children: ReactNode }) => <div data-testid="modal">{children}</div>,
 }));
 
+// Редактор связи: маркер с id — здесь проверяется, какую связь открывает строка таблицы
+// «Связи» (сам редактор покрыт edgeEditModal.test).
+vi.mock("../../components/EdgeEditModal", () => ({
+  default: ({ edgeId }: { edgeId: string }) => <div data-testid="edge-edit" data-edge-id={edgeId} />,
+}));
+
 // Окно «Список операций от агента»: маркер вместо настоящего окна — здесь проверяется вход в
 // него из меню «+ Добавить», а само окно покрыто своим тестом (ReconAgentModal.test).
 vi.mock("../../components/docsImport/ReconAgentModal", () => ({
@@ -159,8 +165,10 @@ function edgeInfo(over: Partial<NodeEdgeInfo> = {}): NodeEdgeInfo {
     direction: "outgoing",
     other_node_id: "x",
     other_node_name: "Шлюз",
+    inner_node_id: "n1",
+    inner_node_name: "Сервис оплаты",
     ...over,
-  } as NodeEdgeInfo;
+  };
 }
 
 const nav = {
@@ -188,13 +196,13 @@ function contextGraph() {
 describe("NodePage", () => {
   beforeEach(() => vi.clearAllMocks());
 
-  function setup(over: { node?: Partial<Node>; edges?: NodeEdgeInfo[]; processes?: ProcessListItem[] } = {}) {
+  function setup(over: { node?: Partial<Node>; edges?: NodeEdgeInfo[]; processes?: ProcessListItem[]; isArchitect?: boolean } = {}) {
     vi.mocked(nodesApi.get).mockResolvedValue(node("n1", over.node));
     vi.mocked(nodesApi.getAll).mockResolvedValue([node("n1", over.node)]);
     vi.mocked(nodesApi.getEdges).mockResolvedValue(over.edges ?? []);
     vi.mocked(nodesApi.getContextGraph).mockResolvedValue(contextGraph());
     vi.mocked(nodesApi.getNodeProcesses).mockResolvedValue(over.processes ?? []);
-    return render(<NodePage nodeId="n1" isArchitect {...nav} />);
+    return render(<NodePage nodeId="n1" isArchitect={over.isArchitect ?? true} {...nav} />);
   }
 
   // Аудит R-2: load без catch — 404/403/сеть оставляли «Загрузку…» навсегда.
@@ -244,6 +252,93 @@ describe("NodePage", () => {
   it("рендерит секцию связей с именем соседа", async () => {
     setup({ edges: [edgeInfo()] });
     await waitFor(() => expect(screen.getByText("Шлюз")).toBeInTheDocument());
+  });
+
+  // ── Таблица «Связи» без повторов (2026-11-02, идея владельца) ──
+  describe("таблица «Связи»", () => {
+    beforeEach(() => localStorage.clear());
+
+    const uses = (i: number, inner: string) => edgeInfo({
+      id: `u${i}`, label: "пользуется", direction: "incoming", other_node_id: "user", other_node_name: "Пользователь",
+      inner_node_id: `in-${inner}`, inner_node_name: inner,
+    });
+    const bus = [uses(1, "Каталог"), uses(2, "Корзина"), uses(3, "Оплата")];
+    const notify = edgeInfo({
+      id: "n1", label: "уведомляет", technology: "SMTP", direction: "outgoing", other_node_id: "user",
+      other_node_name: "Пользователь", inner_node_id: "in-notify", inner_node_name: "Уведомления",
+    });
+    const card = () => screen.getByRole("button", { name: /^Связи/ }).closest(".np-card") as HTMLElement;
+
+    it("одноимённые связи с одним соседом — одна строка со счётчиком «×N» и подсказкой словами", async () => {
+      setup({ edges: [bus[0], notify, bus[1], bus[2]] });
+      const toggle = await screen.findByRole("button", { name: /^Связи/ });
+      expect(toggle).toHaveTextContent("Связи· 2");
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      const rows = within(card()).getAllByRole("row").slice(1);
+      expect(rows).toHaveLength(2);
+      // порядок первого появления: сначала строка «пользуется», затем «уведомляет»
+      expect(rows[0]).toHaveTextContent("пользуется×3");
+      expect(within(rows[0]).getByText("×3")).toHaveAttribute("title", "3 связи");
+      expect(rows[0]).toHaveAttribute("title", "Выбрать связь");
+      expect(rows[1]).toHaveTextContent("уведомляет");
+      expect(rows[1]).not.toHaveTextContent("×");
+      expect(rows[1]).toHaveAttribute("title", "Редактировать связь");
+    });
+
+    it("клик по строке с несколькими связями — окно выбора по внутреннему концу, выбор открывает редактор", async () => {
+      setup({ edges: [...bus, notify] });
+      await screen.findByRole("button", { name: /^Связи/ });
+      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      await userEvent.click(within(busRow).getByText("пользуется"));
+      const modal = screen.getByTestId("modal");
+      expect(modal).toHaveTextContent("Выберите связь");
+      expect(within(modal).getByText("Пользователь → Сервис оплаты")).toBeInTheDocument();
+      const choices = within(modal).getAllByRole("button");
+      expect(choices.map((b) => b.textContent)).toEqual(["пользуется→ Каталог", "пользуется→ Корзина", "пользуется→ Оплата"]);
+      await userEvent.click(within(modal).getByRole("button", { name: "пользуется → Корзина" }));
+      expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "u2");
+    });
+
+    it("одиночная строка открывает редактор сразу", async () => {
+      setup({ edges: [...bus, notify] });
+      await screen.findByRole("button", { name: /^Связи/ });
+      await userEvent.click(within(card()).getByText("уведомляет"));
+      expect(screen.queryByText("Выберите связь")).toBeNull();
+      expect(screen.getByTestId("edge-edit")).toHaveAttribute("data-edge-id", "n1");
+    });
+
+    it("наблюдателю строки не кликабельны и окна выбора нет", async () => {
+      setup({ edges: [...bus], isArchitect: false });
+      await screen.findByRole("button", { name: /^Связи/ });
+      const [busRow] = within(card()).getAllByRole("row").slice(1);
+      expect(busRow).not.toHaveAttribute("title");
+      await userEvent.click(within(busRow).getByText("пользуется"));
+      expect(screen.queryByText("Выберите связь")).toBeNull();
+    });
+
+    it("карточка сворачивается, состояние запоминается в браузере на все страницы объектов", async () => {
+      const view = setup({ edges: [...bus] });
+      const toggle = await screen.findByRole("button", { name: /^Связи/ });
+      await userEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      expect(within(card()).queryByRole("table")).toBeNull();
+      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBe("1");
+
+      view.unmount();
+      setup({ edges: [...bus] });
+      const again = await screen.findByRole("button", { name: /^Связи/ });
+      expect(again).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(again);
+      expect(again).toHaveAttribute("aria-expanded", "true");
+      expect(within(card()).getByRole("table")).toBeInTheDocument();
+      expect(localStorage.getItem("archmap-node-edges-collapsed")).toBeNull();
+    });
+
+    it("пустая карточка — без шеврона", async () => {
+      setup({ edges: [] });
+      await screen.findByText("Связей нет");
+      expect(screen.queryByRole("button", { name: /^Связи/ })).toBeNull();
+    });
   });
 
   it("рендерит блок схемы при наличии соседей", async () => {

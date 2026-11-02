@@ -107,7 +107,8 @@ export function SpecSplitRow({ child, onOpen, onNavigateNode }: {
 }
 
 // Шеврон кнопки-группы: смотрит вниз, когда группа раскрыта, и вправо — когда свёрнута.
-function GroupChevron({ open }: { open: boolean }) {
+// Им же сворачивается карточка «Связи» (EdgesSection).
+export function GroupChevron({ open }: { open: boolean }) {
   return (
     <span className="np-doc-group-chev" style={{ transform: open ? "none" : "rotate(-90deg)" }}>
       <ChevronDownIcon />

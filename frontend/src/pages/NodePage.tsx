@@ -33,7 +33,7 @@ import NodeProperties from "../components/nodePage/NodeProperties";
 import LogicSection from "../components/nodePage/LogicSection";
 import OpenApiSection from "../components/nodePage/OpenApiSection";
 import type { DocTarget } from "../components/nodePage/docTarget";
-import EdgeRow from "../components/nodePage/EdgeRow";
+import EdgesSection from "../components/nodePage/EdgesSection";
 import HeaderGlyph from "../components/nodePage/HeaderGlyph";
 import ApprovalPill from "../components/nodePage/ApprovalPill";
 import ProcessesSection from "../components/nodePage/ProcessesSection";
@@ -517,37 +517,14 @@ function NodePageInner({
         {/* ── Документация под схемой — одним блоком: на него смотрит обучающий тур
             (шаг «Не только схема»), раскладка та же, что у колонки карточек ── */}
         <div className="np-docs" data-tour="node-docs">
-          {/* ── Связи ─────────────────────────────────────────────── */}
-          <div className="np-card">
-            <h3 className="np-card-title">Связи</h3>
-            {edges.length === 0 ? (
-              <p className="np-empty">Связей нет</p>
-            ) : (
-              <table className="np-edges-table">
-                <thead>
-                  <tr>
-                    <th>Вызывающий</th>
-                    <th className="np-edge-arrowcol" aria-hidden="true" />
-                    <th>Вызываемый</th>
-                    <th>Описание</th>
-                    <th style={{ width: 140 }}>Технология</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {edges.map((e) => (
-                    <EdgeRow
-                      key={e.id}
-                      edge={e}
-                      nodeName={node.name}
-                      isArchitect={isArchitect}
-                      onNavigateNode={onNavigateNode}
-                      onEdit={setEdgeEditId}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+          {/* ── Связи (одноимённые — строкой со счётчиком, карточка сворачивается) ── */}
+          <EdgesSection
+            edges={edges}
+            nodeName={node.name}
+            isArchitect={isArchitect}
+            onNavigateNode={onNavigateNode}
+            onEdit={setEdgeEditId}
+          />
 
           {/* ── Участвует в процессах ─────────────────────────────── */}
           <ProcessesSection nodeId={node.id} onNavigateProcess={onNavigateProcesses} />
