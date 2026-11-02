@@ -279,8 +279,9 @@ export interface SiteCardData extends Record<string, unknown> {
 // прямоугольнике рамки контейнера УРОВНЯ. Нужен только затем, чтобы RF было к чему
 // пристыковать связь, чей конец — сам контейнер: сама рамка остаётся оверлеем
 // LevelBoundary (ему нужен живой bbox-follow за драгом), а рисовать её вторым слоем
-// нельзя. Узел ничего не рендерит, кроме 12 точек стыковки.
-export type FrameDockRFNode = RFNode<Record<string, unknown>, "framedock">;
+// нельзя. Узел ничего не рендерит, кроме 12 точек стыковки. name — имя контейнера уровня:
+// по нему «+ Добавить связь» на стрелке в рамку уровня открывает выбор потомка (E97).
+export type FrameDockRFNode = RFNode<{ name: string }, "framedock">;
 
 export type BlockRFNode = RFNode<BlockData, "block">;
 export type GhostRFNode = RFNode<GhostData, "ghost">;
@@ -418,7 +419,24 @@ export interface LevelProjectionProps {
 // пару, когда настоящие концы связей пучка расходятся (свёрнутая система: «Пользователь →
 // Заказы», а связи идут в «Каталог», «Корзину»…). null — у адресованных стрелок этот
 // конец разный (двойной клик по общему участку нескольких стрелок).
-export type EdgeChoiceEnds = { source: string | null; target: string | null };
+// connect — те же концы как концы НОВОЙ связи для кнопки «+ Добавить связь» окна выбора
+// (edge.md E97): их разрешает холст (useLevelEdgeChoice) той же классификацией, что
+// протягивание и быстрая связь. null — конец не известен (общий участок) или не цель
+// (распорка, площадка). Поля нет у концов, ещё не прошедших холст (assembleRf отдаёт сырые id).
+export type EdgeChoiceEnds = {
+  source: string | null;
+  target: string | null;
+  connect?: { source: NewEdgeEnd | null; target: NewEdgeEnd | null };
+};
+
+// Отображаемый конец стрелки как конец новой связи (useConnectTargets): direct — лист
+// (блок без вложенных, база данных, брокер, гость), связь к нему напрямую; into — объект с
+// вложенными («зона входа» E73/E75: свёрнутая система или контейнер, а также рамка
+// раскрытого контейнера или контейнера уровня), связь к его потомку через выбор. name — имя
+// отображаемого узла для заголовков окон.
+export type NewEdgeEnd =
+  | { kind: "direct"; id: string; name?: string }
+  | { kind: "into"; id: string; name: string };
 
 // Колбэки создания и инспекции связей. onEdgesChoice обязателен (даже одиночная связь
 // открывает «Выберите связь»); остальные — по контексту (жесты протягивания).

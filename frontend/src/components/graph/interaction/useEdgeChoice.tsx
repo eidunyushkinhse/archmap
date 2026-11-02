@@ -22,8 +22,10 @@ interface UseEdgeChoiceArgs {
   labelOf: (id: string) => string;
   /** Связь выбрана (одиночным кликом или в модалке) — страница подсвечивает/инспектирует. */
   onPick: (edge: LevelEdge) => void;
-  /** Только архитектор редактора: дозаписать связь в том же направлении из модалки. */
-  onAddFromChoice?: (representative: LevelEdge) => void;
+  /** Только архитектор редактора: «+ Добавить связь» из модалки. representative — первая
+   *  связь пучка, ends — отображаемые концы стрелки, по которой открыто окно: новая связь
+   *  ведёт к показанной паре (edge.md E97), к концам первой связи — только без ends. */
+  onAddFromChoice?: (representative: LevelEdge, ends?: EdgeChoiceEnds) => void;
 }
 
 interface UseEdgeChoiceResult {
@@ -90,7 +92,7 @@ export function useEdgeChoice({
           targetLabel={labels.targetLabel}
           endOf={labels.endOf}
           onPick={(edge) => { setEdgeChoice(null); onPick(edge); }}
-          onAdd={onAddFromChoice ? () => { const rep = edges[0]; setEdgeChoice(null); onAddFromChoice(rep); } : undefined}
+          onAdd={onAddFromChoice ? () => { const rep = edges[0]; setEdgeChoice(null); onAddFromChoice(rep, edgeChoice.ends); } : undefined}
           onClose={() => setEdgeChoice(null)}
         />
       );

@@ -9,8 +9,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
-import type { Node, ProjectRole } from "../../types";
-import type { ViewMetaRef } from "../../components/graph/types";
+import type { LevelEdge, Node, ProjectRole } from "../../types";
+import type { EdgeChoiceEnds, ViewMetaRef } from "../../components/graph/types";
 
 // Право правки — роль в проекте, её раздаёт гейт маршрутов (ProjectAccessGate)
 // контекстом. Тесты рендерят редактор внутри провайдера с ролью role.current.
@@ -67,9 +67,16 @@ vi.mock("../useSchemaAlerts", () => ({
   PENDING_ALERT_LOCATE_KEY: "archmap.pendingAlertLocate",
   PENDING_PROCESS_KEY: "archmap.pendingProcess",
 }));
-// Выбор связи: модалка не нужна.
+// Выбор связи: модалка не нужна. Аргументы хука ловим — тесты «+ Добавить связь» зовут
+// onAddFromChoice так, как его позовёт кнопка окна (сама кнопка — useEdgeChoice.test).
+const edgeChoiceArgs = vi.hoisted(() => ({
+  current: null as { onAddFromChoice?: (rep: LevelEdge, ends?: EdgeChoiceEnds) => void } | null,
+}));
 vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
-  useEdgeChoice: () => ({ onEdgesChoice: vi.fn(), choiceModal: null }),
+  useEdgeChoice: (args: { onAddFromChoice?: (rep: LevelEdge, ends?: EdgeChoiceEnds) => void }) => {
+    edgeChoiceArgs.current = args;
+    return { onEdgesChoice: vi.fn(), choiceModal: null };
+  },
 }));
 
 // Тяжёлые/условные потомки — заглушки. Холст ловит пропсы: undo/redo-диспетчеры
@@ -100,8 +107,19 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
     return <div data-testid="object-inspector" />;
   },
 }));
-vi.mock("../../components/CrossLevelEdgePicker", () => ({ default: () => null }));
-vi.mock("../../components/EdgeQuickCreate", () => ({ default: () => null }));
+// Окна создания связи: заглушки показывают, с какими концами их открыли.
+vi.mock("../../components/CrossLevelEdgePicker", () => ({
+  default: (p: { title: string; sourceId: string; sourceLabel: string; rootParentId: string | null }) => (
+    <div data-testid="cross-level-picker" data-title={p.title} data-source={p.sourceId}
+      data-source-label={p.sourceLabel} data-root={p.rootParentId ?? ""} />
+  ),
+}));
+vi.mock("../../components/EdgeQuickCreate", () => ({
+  default: (p: { sourceId: string; targetId: string; sourceLabel: string; targetLabel: string }) => (
+    <div data-testid="edge-quick-create" data-source={p.sourceId} data-target={p.targetId}
+      data-source-label={p.sourceLabel} data-target-label={p.targetLabel} />
+  ),
+}));
 // Окно «Новый объект»: заглушка показывает, с каким родителем и шаблоном его открыли, и
 // отдаёт наружу onSaved (создание без настоящей формы).
 const nodeModalProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
@@ -884,5 +902,121 @@ describe("MapEditorPage: крошки перечитываются после п
     await screen.findByTestId("level-graph");
     await waitFor(() => expect(nodesApi.get).toHaveBeenCalledWith("b"));
     expect(nodesApi.get).not.toHaveBeenCalledWith("a");
+  });
+});
+
+// «+ Добавить связь» окна выбора (edge.md E97, 2026-11-02): новая связь к ПОКАЗАННОЙ паре
+// концов стрелки. Пучок в свёрнутую систему «Заказы» — десять «пользуется» к её вложенным
+// объектам; первая связь пучка ведёт в «Каталог», но на экране стрелка — к «Заказам».
+describe("MapEditorPage: «+ Добавить связь» из окна выбора связи", () => {
+  const user = node("user", { name: "Пользователь", shape: "person", element_effective: null });
+  const orders = node("orders", { name: "Заказы", has_children: true, child_count: 3, element: "system", element_effective: "system" });
+  const levelEdge = (id: string, s: string, t: string): LevelEdge => ({
+    id, label: "пользуется", technology: null, source_id: s, target_id: t, version: 1, created_at: "",
+    original_source_id: s, original_target_id: t, original_source_name: "", original_target_name: "",
+  }) as LevelEdge;
+  const toCatalog = levelEdge("u1", "user", "cat");
+  const endpoints = [{ id: "cat", name: "Каталог" }, { id: "gw", name: "Платёжный шлюз" }];
+
+  async function openEditor() {
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph({ nodes: [user, orders], endpoints }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const add = edgeChoiceArgs.current?.onAddFromChoice;
+    if (!add) throw new Error("onAddFromChoice не передан");
+    return add;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    edgeChoiceArgs.current = null;
+  });
+
+  it("пучок в свёрнутую систему — выбор потомка этой системы, а не быстрое создание к первой связи", async () => {
+    const add = await openEditor();
+    act(() => add(toCatalog, {
+      source: "user", target: "orders",
+      connect: {
+        source: { kind: "direct", id: "user", name: "Пользователь" },
+        target: { kind: "into", id: "orders", name: "Заказы" },
+      },
+    }));
+    const picker = screen.getByTestId("cross-level-picker");
+    expect(picker).toHaveAttribute("data-title", "Связь внутрь «Заказы»");
+    expect(picker).toHaveAttribute("data-root", "orders");
+    expect(picker).toHaveAttribute("data-source", "user");
+    expect(picker).toHaveAttribute("data-source-label", "Пользователь");
+    expect(screen.queryByTestId("edge-quick-create")).toBeNull();
+  });
+
+  it("стрелка к листу — быстрое создание с показанными концами и их именами с холста", async () => {
+    const add = await openEditor();
+    // «Корзина» лежит в раскрытой рамке: её имя знает только холст
+    act(() => add(levelEdge("u2", "user", "cart"), {
+      source: "user", target: "cart",
+      connect: {
+        source: { kind: "direct", id: "user", name: "Пользователь" },
+        target: { kind: "direct", id: "cart", name: "Корзина" },
+      },
+    }));
+    const quick = screen.getByTestId("edge-quick-create");
+    expect(quick).toHaveAttribute("data-source", "user");
+    expect(quick).toHaveAttribute("data-target", "cart");
+    expect(quick).toHaveAttribute("data-target-label", "Корзина");
+    expect(screen.queryByTestId("cross-level-picker")).toBeNull();
+  });
+
+  it("пучок из свёрнутой системы — источник берётся настоящим концом первой связи", async () => {
+    const add = await openEditor();
+    act(() => add(levelEdge("p1", "cat", "gw"), {
+      source: "orders", target: "gw",
+      connect: {
+        source: { kind: "into", id: "orders", name: "Заказы" },
+        target: { kind: "direct", id: "gw", name: "Платёжный шлюз" },
+      },
+    }));
+    const quick = screen.getByTestId("edge-quick-create");
+    expect(quick).toHaveAttribute("data-source", "cat");
+    expect(quick).toHaveAttribute("data-source-label", "Каталог");
+    expect(quick).toHaveAttribute("data-target", "gw");
+  });
+
+  it("концы стрелки не известны — прежнее поведение: концы первой связи пучка", async () => {
+    const add = await openEditor();
+    act(() => add(toCatalog));
+    const quick = screen.getByTestId("edge-quick-create");
+    expect(quick).toHaveAttribute("data-source", "user");
+    expect(quick).toHaveAttribute("data-target", "cat");
+    expect(quick).toHaveAttribute("data-target-label", "Каталог");
+    expect(screen.queryByTestId("cross-level-picker")).toBeNull();
+  });
+
+  // Стрелка в рамку раскрытого контейнера — связь в сам контейнер: холст разрешает рамку
+  // как зону входа, и кнопка открывает выбор потомка, а не прямую связь в контейнер (E97).
+  it("стрелка в рамку раскрытого контейнера — выбор потомка этого контейнера", async () => {
+    const add = await openEditor();
+    act(() => add(levelEdge("u0", "user", "orders"), {
+      source: "user", target: "orders",
+      connect: {
+        source: { kind: "direct", id: "user", name: "Пользователь" },
+        target: { kind: "into", id: "orders", name: "Заказы" },
+      },
+    }));
+    const picker = screen.getByTestId("cross-level-picker");
+    expect(picker).toHaveAttribute("data-title", "Связь внутрь «Заказы»");
+    expect(picker).toHaveAttribute("data-root", "orders");
+    expect(screen.queryByTestId("edge-quick-create")).toBeNull();
+  });
+
+  it("цель — не конец новой связи (общий участок разных стрелок) — цель первой связи пучка", async () => {
+    const add = await openEditor();
+    act(() => add(toCatalog, {
+      source: "user", target: null,
+      connect: { source: { kind: "direct", id: "user", name: "Пользователь" }, target: null },
+    }));
+    const quick = screen.getByTestId("edge-quick-create");
+    expect(quick).toHaveAttribute("data-source", "user");
+    expect(quick).toHaveAttribute("data-target", "cat");
   });
 });

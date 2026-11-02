@@ -4,12 +4,13 @@
 import { useCallback } from "react";
 import type { Node as RFNode } from "@xyflow/react";
 import { canHaveChildren } from "../../../types";
-import type { BlockData, ContainerData, GhostData } from "../types";
+import type { BlockData, ContainerData, FrameData, FrameDockRFNode, GhostData } from "../types";
 import type { ConnectTarget } from "./useEdgeConnect";
 
 export function useConnectTargets(rfNodes: RFNode[]): {
   resolveTarget: (id: string) => ConnectTarget;
   displayNameOf: (id: string) => string | undefined;
+  containerFrameName: (id: string) => string | undefined;
 } {
   // Классификация узла-цели при протягивании новой связи. Контейнер и узел с детьми —
   // «зона входа» (связь нельзя замкнуть на него самого, это алерт-кейс → выбираем
@@ -47,5 +48,23 @@ export function useConnectTargets(rfNodes: RFNode[]): {
     [rfNodes],
   );
 
-  return { resolveTarget, displayNameOf };
+  // Имя контейнера, показанного РАМКОЙ: раскрытый контейнер (frame) или контейнер уровня
+  // (framedock). Целью дропа рамка не бывает (её интерьер прозрачен, E73), но стрелка в
+  // рамку — связь в сам контейнер, и «+ Добавить связь» окна выбора ведёт от неё к выбору
+  // его потомка, как у свёрнутого (E97). Рамка площадки (декор холста развёртывания) —
+  // не контейнер: undefined.
+  const containerFrameName = useCallback(
+    (id: string): string | undefined => {
+      const n = rfNodes.find((x) => x.id === id);
+      if (n?.type === "frame") {
+        const d = n.data as FrameData;
+        return d.decor ? undefined : d.name;
+      }
+      if (n?.type === "framedock") return (n.data as FrameDockRFNode["data"]).name;
+      return undefined;
+    },
+    [rfNodes],
+  );
+
+  return { resolveTarget, displayNameOf, containerFrameName };
 }
