@@ -83,9 +83,14 @@ vi.mock("../../components/graph/interaction/useEdgeChoice", () => ({
 // редактора передаются в LevelGraph (бандл undo), а не рисуются в топбаре — тесты
 // вызывают их отсюда.
 const levelGraphProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+// Журнал рендеров холста: какие объекты он получил и какую версию вида в этот момент
+// видит очередь записей раскладки (V47б: новые данные не приходят раньше свежей версии).
+const canvasLog = vi.hoisted(() => ({ renders: [] as { ids: string[]; version: number }[] }));
 vi.mock("../../components/LevelGraph", () => ({
   default: (props: Record<string, unknown>) => {
     levelGraphProps.current = props;
+    const p = props as { nodes: { id: string }[]; persistence: { viewMeta: { current: { version: number } } } };
+    canvasLog.renders.push({ ids: p.nodes.map((n) => n.id), version: p.persistence.viewMeta.current.version });
     return <div data-testid="level-graph" />;
   },
 }));
@@ -130,7 +135,16 @@ vi.mock("../../components/NodeModal", () => ({
   },
 }));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
-vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
+// Подтверждение удаления нескольких: заглушка отдаёт наружу onDeleted (удаление без окна).
+const multiDeleteProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+vi.mock("../../components/NodesDeleteConfirm", () => ({
+  default: (p: Record<string, unknown>) => { multiDeleteProps.current = p; return null; },
+}));
+// Окно «Принять переход»: заглушка отдаёт наружу onApplied (переход без настоящего окна).
+const transitionProps = vi.hoisted(() => ({ current: null as Record<string, unknown> | null }));
+vi.mock("../../components/TransitionConfirm", () => ({
+  default: (p: Record<string, unknown>) => { transitionProps.current = p; return null; },
+}));
 vi.mock("../../components/RelayoutConfirm", () => ({ default: () => null }));
 // Кнопка «Рекомендации» (алерты): метка присутствия + кнопка, дёргающая
 // onOpenProcess — как строка процессного класса (AL26/AL27) в настоящей панели.
@@ -454,6 +468,103 @@ describe("MapEditorPage: создание объекта", () => {
 // Цель броска проверяет тип: родителя уровня страница грузит сама (один GET на уровень и
 // мутацию), раскрытые рамки сообщает холст. Бросок туда, где тип невозможен, — тост с
 // причиной, окна нет; в принимающую рамку — окно с этим типом.
+// V47б, перечень путей: удаление, перенос, восстановление и «Принять переход» тоже поднимают
+// версию вида, но холст до ответа GET графа ничего не получает (оптимистичной правки нет), и
+// конвейеру нечего записать со старой версией. Новые объекты приходят только из load, а он
+// кладёт свежую версию раньше данных. Ожидание refreshing нужно одному созданию.
+describe("MapEditorPage: своя мутация без оптимистичной правки холста (V47б)", () => {
+  const снимок = { nodes: [], edges: [], layout_items: [] };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    role.current = "owner";
+    canvasLog.renders = [];
+    vi.mocked(nodesApi.getGraph).mockResolvedValue(graph() as never);
+    vi.mocked(nodesApi.getAll).mockResolvedValue([]);
+    vi.mocked(nodesApi.movePreview).mockResolvedValue(
+      { kind: "none", before: [], after: [], docs_names: [], container_name: null } as never,
+    );
+    vi.mocked(nodesApi.moveSnapshot).mockResolvedValue(снимок as never);
+    vi.mocked(nodesApi.update).mockResolvedValue(node("b") as never);
+    vi.mocked(nodesApi.restore).mockResolvedValue(undefined as never);
+  });
+
+  async function открыть(over: Record<string, unknown> = {}) {
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(
+      graph({ version: 3, nodes: [node("a"), node("b")], ...over }) as never,
+    );
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+  }
+
+  // Мутация с перечитыванием уровня, которое висит до ответа теста. Пока ответа нет, холст
+  // видит прежние объекты; объекты из ответа приходят на холст вместе с его версией.
+  async function проверить(мутация: () => void | Promise<void>, ответ: { version: number; nodes: Node[] }) {
+    const прежние = canvasLog.renders.at(-1)!.ids.join();
+    const чтений = vi.mocked(nodesApi.getGraph).mock.calls.length;
+    let answer: (g: unknown) => void = () => {};
+    vi.mocked(nodesApi.getGraph).mockReturnValueOnce(new Promise((r) => { answer = r; }) as never);
+    const с = canvasLog.renders.length;
+    await act(async () => { await мутация(); });
+    await waitFor(() => expect(nodesApi.getGraph).toHaveBeenCalledTimes(чтений + 1));
+    expect(canvasLog.renders.slice(с).every((r) => r.ids.join() === прежние)).toBe(true);
+    const meta = (levelGraphProps.current!.persistence as { viewMeta: ViewMetaRef }).viewMeta;
+    expect(meta.current.refreshing).toBeUndefined();
+
+    await act(async () => { answer(graph(ответ)); });
+    const новые = canvasLog.renders.slice(с).filter((r) => r.ids.join() !== прежние);
+    expect(новые.length).toBeGreaterThan(0);
+    expect(новые.every((r) => r.version === ответ.version)).toBe(true);
+  }
+
+  it("удаление объекта", async () => {
+    await открыть();
+    const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
+    await проверить(() => onNodeDeleted("b", снимок), { version: 4, nodes: [node("a")] });
+  });
+
+  it("удаление нескольких объектов", async () => {
+    await открыть();
+    const del = levelGraphProps.current!.delete as { onRequestDeleteNodes: (ns: Node[]) => void };
+    act(() => { del.onRequestDeleteNodes([node("a"), node("b")]); });
+    const onDeleted = multiDeleteProps.current!.onDeleted as (ids: string[], s: unknown[]) => void;
+    await проверить(() => onDeleted(["a", "b"], [снимок, снимок]), { version: 4, nodes: [] });
+  });
+
+  it("перенос в другой родитель", async () => {
+    await открыть();
+    const onReparent = treeProps.current.onReparent as (n: Node, p: string | null) => Promise<void> | void;
+    await проверить(() => onReparent(node("b"), "x"), { version: 4, nodes: [node("a")] });
+    expect(nodesApi.update).toHaveBeenCalledWith("b", { parent_id: "x" });
+  });
+
+  it("восстановление после удаления (Undo)", async () => {
+    await открыть();
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ version: 4, nodes: [node("a")] }) as never);
+    const onNodeDeleted = inspectorProps.current.onNodeDeleted as (id: string, s: unknown) => void;
+    act(() => { onNodeDeleted("b", снимок); });
+    await waitFor(() => expect(canvasLog.renders.at(-1)!.ids).toEqual(["a"]));
+    const cmd = historyMock.push.mock.calls.at(-1)![0] as { undo: () => void };
+    await проверить(() => cmd.undo(), { version: 5, nodes: [node("a"), node("b")] });
+    expect(nodesApi.restore).toHaveBeenCalledWith(снимок);
+  });
+
+  it("«Принять переход»: холст размонтирован, пока уровень перечитывается", async () => {
+    await открыть({ has_status_info: true });
+    fireEvent.click(screen.getByRole("button", { name: "Принять переход" }));
+    let answer: (g: unknown) => void = () => {};
+    vi.mocked(nodesApi.getGraph).mockReturnValueOnce(new Promise((r) => { answer = r; }) as never);
+    const с = canvasLog.renders.length;
+    act(() => { (transitionProps.current!.onApplied as (m: string) => void)("Переход принят"); });
+    expect(screen.queryByTestId("level-graph")).toBeNull();
+    expect(canvasLog.renders.length).toBe(с);
+
+    await act(async () => { answer(graph({ version: 4, nodes: [node("a")], has_status_info: true })); });
+    expect(await screen.findByTestId("level-graph")).toBeInTheDocument();
+    expect(canvasLog.renders.slice(с).every((r) => r.version === 4)).toBe(true);
+  });
+});
+
 describe("MapEditorPage: палитра и бросок по месту назначения", () => {
   const sys = node("s1", { has_children: true, child_count: 1, element: null, element_effective: "system" });
   const ordersFrame = {
