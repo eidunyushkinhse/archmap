@@ -438,6 +438,10 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
         )}
         {mode.kind === "single" ? (
           <>
+            {/* Главная кнопка слева, вторичная правее (правило окон владельца). */}
+            <button type="button" style={applyStyle} disabled={!willWrite || applying} onClick={() => apply(false)}>
+              {applying ? "Применяем" : "Добавить"}
+            </button>
             <button
               type="button"
               style={{ ...secondaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
@@ -446,9 +450,6 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
               onClick={() => apply(true)}
             >
               Добавить ещё
-            </button>
-            <button type="button" style={applyStyle} disabled={!willWrite || applying} onClick={() => apply(false)}>
-              {applying ? "Применяем" : "Добавить"}
             </button>
           </>
         ) : (

@@ -83,6 +83,14 @@ describe("DocsAgentPanel · окно одной схемы", () => {
     expect(params.overwrite).toBe(true);
   });
 
+  it("режим «по одной»: главная «Добавить» слева, «Добавить ещё» правее", () => {
+    render(<DocsAgentPanel nodeId="n1" mode={{ kind: "single" }} onApplied={vi.fn()} />);
+    const names = screen.getAllByRole("button").map((b) => b.textContent);
+    const main = names.indexOf("Добавить");
+    expect(main).toBeGreaterThanOrEqual(0);
+    expect(names.indexOf("Добавить ещё")).toBe(main + 1);
+  });
+
   it("файл совпадает со схемой: применять нечего", async () => {
     vi.mocked(docsImportApi.preview).mockResolvedValue(report("unchanged"));
     render(<DocsAgentPanel nodeId="n1" mode={{ kind: "doc", docName: "GET /orders" }} onApplied={vi.fn()} />);
