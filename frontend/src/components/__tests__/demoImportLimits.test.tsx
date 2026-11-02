@@ -116,7 +116,7 @@ describe("Новый проект → Импорт", () => {
   });
 });
 
-describe("Импорт проекта (zip) в живой проект", () => {
+describe("Догрузить архив в живой проект", () => {
   const into = (demo_excess: IntoPreviewOut["demo_excess"]): IntoPreviewOut => ({
     ok: true, errors: [], nodes_new: 50, nodes_new_paths: [], new_nodes: [], nodes_matched: 0,
     matched_nodes: [], edges_new: 0,
@@ -146,7 +146,7 @@ describe("Импорт проекта (zip) в живой проект", () => {
   });
 });
 
-describe("Импорт схемы (синк с кодом)", () => {
+describe("Обновить из кода (синк)", () => {
   const sync = (demo_excess: SyncPreviewOut["demo_excess"]): SyncPreviewOut => ({
     ok: true, errors: [], files: 1, nodes: [], edges: [], conflicts: [], warnings: [],
     summary: { create: 70 }, is_noop: false, graph_rev: 3, demo_excess,

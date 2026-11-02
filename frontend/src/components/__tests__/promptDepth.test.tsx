@@ -61,7 +61,7 @@ const окна: Окно[] = [
     открыть: открытьСоздание,
   },
   {
-    имя: "синк «Обновить из репозитория» (SyncRepoModal)",
+    имя: "синк «Обновить из кода» (SyncRepoModal)",
     главная: "Скопировать задание для агента",
     открыть: async () => {
       render(<SyncRepoModal projectId="p1" onClose={vi.fn()} onApplied={vi.fn()} />);

@@ -258,11 +258,11 @@ describe("MapEditorPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
     expect(screen.getByRole("menuitem", { name: "Экспорт схемы" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitem", { name: "Импорт схемы" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Обновить из кода" })).toBeInTheDocument();
     // Архив проекта доступен и из редактора (корень = скоуп «вся схема»)
     expect(screen.getByRole("menuitem", { name: "Экспорт проекта (zip)" })).toBeInTheDocument();
     // Догрузка архива к живому проекту (Ф4 «единого импорта») — пункт активен
-    expect(screen.getByRole("menuitem", { name: "Импорт проекта (zip)" })).toBeEnabled();
+    expect(screen.getByRole("menuitem", { name: "Догрузить архив" })).toBeEnabled();
   });
 
   it("уровень узла: breadcrumb строит путь «Проект › Корень › Уровень B»", async () => {

@@ -370,7 +370,7 @@ describe("меню «Действия со схемой» · пункт догр
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "Импорт проекта (zip)" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "Догрузить архив" }));
 
     expect(screen.getByText("Импорт проекта из архива")).toBeInTheDocument();
     // Пустое окно превью не запрашивает — считать нечего.

@@ -107,7 +107,7 @@ export function planSections(p: SyncPreviewOut): PlanSection[] {
       rows: (p.nodes ?? []).filter((a) => a.returned).map((a) => ({
         path: a.path,
         note: a.fields?.includes("status")
-          ? "вернётся в строй"
+          ? "снимем статус «Выводится»"
           : "статус оставляем как есть",
       })),
     },
@@ -157,7 +157,7 @@ export function applySummary(r: SyncApplyOut): string {
   };
   add(r.created_nodes, "создано");
   add(r.updated_nodes, "обновлено");
-  add(r.deprecated_nodes, "помечено устаревшими");
+  add(r.deprecated_nodes, "помечено выводимыми");
   add(r.created_edges, "новых связей");
   add(r.updated_edges, "связей дополнено");
   const head = bits.length ? `Схема обновлена: ${bits.join(", ")}` : "Схема уже актуальна";

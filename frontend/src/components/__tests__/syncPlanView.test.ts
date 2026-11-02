@@ -199,7 +199,7 @@ describe("вернувшиеся объекты", () => {
 
     const [section] = planSections(p);
     expect(section.key).toBe("nodes_returned");
-    expect(section.rows[0].note).toBe("вернётся в строй");
+    expect(section.rows[0].note).toBe("снимем статус «Выводится»");
   });
 
   it("вернувшийся не дублируется в «Изменённых»", () => {
