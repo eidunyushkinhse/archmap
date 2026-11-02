@@ -55,6 +55,14 @@ export function shapeOfType(type: NodeType): NodeShape {
 }
 
 export const STATUS_ORDER: NodeStatus[] = ["existing", "planned", "deprecated"];
+// Статус объекта словами — один словарь на весь интерфейс: свойства, окна, легенда и
+// бейдж на схеме (бейдж — то же слово строчными, у существующего бейджа нет). Цвета
+// статусов живут в graph/colors.ts (STATUS_META), подписи берутся отсюда.
+export const STATUS_LABEL: Record<NodeStatus, string> = {
+  existing: "Существует",
+  planned: "Проектируется",
+  deprecated: "Выводится",
+};
 
 // Вид площадки развёртывания (docs/tasks/deployment-view.md): выпадашки окон
 // «Размещение» и «Площадки». Порядок — от облака к «другому» (ЦОД, стойка).

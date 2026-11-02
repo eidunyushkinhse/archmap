@@ -1,6 +1,7 @@
 // C4-палитра: цвет узла по типу (внутренний/внешний) и глубине уровня.
 import type { NodeColors } from "./types";
 import type { NodeStatus } from "../../types";
+import { STATUS_LABEL } from "../nodeTerms";
 
 // Статусные палитры (planned/deprecated) — без рампы по глубине. Сознательная
 // цена «варианта A»: у не-existing узла цветом кодируется статус, а глубина и
@@ -56,10 +57,12 @@ export function hexToRgba(hex: string, alpha: number): string {
 
 // Метаданные статуса для бейджа на узле, легенды и цвета рёбер. badge=null —
 // у existing бейджа нет; edge — цвет связи, конец которой носит этот статус.
+// Подпись и бейдж — из словаря nodeTerms.STATUS_LABEL (бейдж тем же словом строчными:
+// «проектируется», а не «новый» — ревизия текстов 2026-11).
 export const STATUS_META: Record<NodeStatus, {
   label: string; badge: string | null; edge: string;
 }> = {
-  existing: { label: "Существует", badge: null, edge: "#94a3b8" },
-  planned: { label: "Проектируется", badge: "новый", edge: "#3f9e6e" },
-  deprecated: { label: "Выводится", badge: "выводится", edge: "#cf6d63" },
+  existing: { label: STATUS_LABEL.existing, badge: null, edge: "#94a3b8" },
+  planned: { label: STATUS_LABEL.planned, badge: STATUS_LABEL.planned.toLowerCase(), edge: "#3f9e6e" },
+  deprecated: { label: STATUS_LABEL.deprecated, badge: STATUS_LABEL.deprecated.toLowerCase(), edge: "#cf6d63" },
 };

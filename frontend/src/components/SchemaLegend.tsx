@@ -24,6 +24,7 @@ import "./SchemaLegend.css";
 import { useDismiss } from "../ui/useDismiss";
 import { placeAboveButton, type PopoverPlace } from "../ui/popoverPlace";
 import { getNodeColors, hexToRgba } from "./graph/colors";
+import { STATUS_LABEL } from "./nodeTerms";
 
 /* ── Мини-свотчи фигур (в тех же цветах, что узлы на схеме) ────────── */
 const BLUE = "#1168bd";      // getNodeColors: internal, depth 0
@@ -239,9 +240,9 @@ export default function SchemaLegend({ variant = "schema" }: { variant?: "schema
           </Section>
 
           <Section title="Статус">
-            <Row swatch={<StatusDot color={BLUE} />} label="Существует" />
-            <Row swatch={<StatusDot color="#1f9d57" />} label="Проектируется" />
-            <Row swatch={<StatusDot color="#cb5a4f" />} label="Выводится" />
+            <Row swatch={<StatusDot color={BLUE} />} label={STATUS_LABEL.existing} />
+            <Row swatch={<StatusDot color="#1f9d57" />} label={STATUS_LABEL.planned} />
+            <Row swatch={<StatusDot color="#cb5a4f" />} label={STATUS_LABEL.deprecated} />
           </Section>
 
           {deployment ? (
