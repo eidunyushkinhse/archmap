@@ -177,7 +177,7 @@ async def test_перечень_режется_с_честным_хвостом(
     out = render.recon_report(many, applied=False)
 
     assert f"Создадим заглушки ({render.RECON_GROUP_CAP + 5})" in out
-    assert "… и ещё 5 строк" in out
+    assert "и ещё 5 строк" in out
 
 
 async def test_разведка_требует_адрес_у_промпта() -> None:

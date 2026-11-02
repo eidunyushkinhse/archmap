@@ -60,7 +60,7 @@ async def test_превью_доков_показывает_план_а_не_п�
     assert "новая: «Ярмарка / Заказы» · Оформление (операция · POST /orders)" in out
     assert "заполнит заглушку: «Ярмарка / Заказы» · Отмена (операция)" in out
     assert "Рассылка (воркер)" in out
-    assert "OPENAPI-СПЕКИ: 1" in out
+    assert "OPENAPI-СПЕЦИФИКАЦИИ: 1" in out
     assert "api.yaml · OAS 3.0.3 · synthesized" in out
     assert "Конфликты файлов (1" in out
     assert "archmap_docs_apply" in out

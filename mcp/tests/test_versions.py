@@ -244,7 +244,7 @@ async def test_дельта_режет_список_по_категориям(cl
 
     out = await tools.call("archmap_version_diff", {"project": "Ярмарка", "version": 1}, client)
 
-    assert "… и ещё 5 элементов" in out
+    assert "и ещё 5 элементов" in out
     assert f"• Процесс «Оформление заказа»: новое  item=process:{PROCESS}" in out
 
 

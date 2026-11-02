@@ -163,8 +163,8 @@ async def test_перечни_семей_обрезаются_с_честным_
     out = await tools.call("archmap_node", {"project": "Ярмарка", "node_id": NODE}, client)
 
     assert "СТРУКТУРА БД (45 таблиц):" in out
-    assert "… и ещё 5 таблиц" in out  # 45 записей при капе 40
-    assert "… и ещё 5 колонок" in out  # 25 колонок при капе 20
+    assert "и ещё 5 таблиц" in out  # 45 записей при капе 40
+    assert "и ещё 5 колонок" in out  # 25 колонок при капе 20
     assert "t44" not in out
 
 

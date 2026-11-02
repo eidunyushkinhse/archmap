@@ -273,7 +273,7 @@ def test_факты_компонента_называют_контейнер() -
     }
     backend("schemas.alerts").ComponentFactsAlert.model_validate(one)
     out = render.alerts({"component_facts": [one]})
-    assert out.startswith("Замечаний: 1\n")
+    assert out.startswith("Рекомендаций: 1\n")
     assert "Конфигурация и спецификации у компонентов (1):" in out
     collect = f" — archmap_collect_facts_preview, node_id={u(18)}"
     assert "  • orders/api · спецификация (можно собрать у контейнера «orders»)" + collect in out.splitlines()
@@ -302,11 +302,11 @@ def test_строки_называют_имена_и_детали() -> None:
 
 def test_счётчик_считает_группы_как_недостающие_связи() -> None:
     # 15 классов по записи + 2 изолированные группы, дающие 1 недостающую связь.
-    assert render.alerts(validated_payload()).startswith("Замечаний: 16\n")
+    assert render.alerts(validated_payload()).startswith("Рекомендаций: 16\n")
 
 
 def test_пустой_ответ_говорит_что_схема_завершена() -> None:
-    assert render.alerts({k: [] for k in full_payload()}) == "Замечаний нет — схема завершена."
+    assert render.alerts({k: [] for k in full_payload()}) == "Рекомендаций нет. Схема описана полностью."
 
 
 def test_ответ_старого_сервера_без_новых_списков_переживается() -> None:
@@ -314,24 +314,24 @@ def test_ответ_старого_сервера_без_новых_списко
     # упасть на отсутствующем ключе (ровно ради этого у полей бэка дефолт []).
     out = render.alerts({"disconnected_nodes": [{"node_id": u(1), "node_name": "Сирота"}]})
     assert "Объекты без связей (1)" in out and "Сирота" in out
-    assert render.alerts({}) == "Замечаний нет — схема завершена."
+    assert render.alerts({}) == "Рекомендаций нет. Схема описана полностью."
 
 
 def test_незнакомый_класс_нового_сервера_печатается_а_не_глотается() -> None:
     # Сервер новее клиента: класс, которого рендер не знает, обязан дойти до агента —
-    # иначе «Замечаний нет», пока панель горит (камень 24 docs/plan-c4-elements.md).
+    # иначе «Рекомендаций нет», пока панель горит (камень 24 docs/plan-c4-elements.md).
     records = [{"node_id": u(i), "node_name": f"Объект {i}"} for i in range(7)]
     out = render.alerts({"future_class": records})
-    assert out.startswith("Замечаний: 7\n")
+    assert out.startswith("Рекомендаций: 7\n")
     assert "«future_class» (7)" in out and "обновите MCP-сервер" in out
     assert '"node_name": "Объект 0"' in out and '"node_name": "Объект 4"' in out
-    assert "Объект 5" not in out and "… и ещё 2" in out
+    assert "Объект 5" not in out and "и ещё 2" in out
     # рядом с известными классами — свой блок после них, счётчик общий
     out = render.alerts({**validated_payload(), "future_class": records[:1]})
-    assert out.startswith("Замечаний: 17\n")
+    assert out.startswith("Рекомендаций: 17\n")
     assert out.index("«future_class» (1)") > out.index("Пользователи внутри системы (")
     # пустой незнакомый список и не-список — не замечания
-    assert render.alerts({"future_class": [], "total": 3}) == "Замечаний нет — схема завершена."
+    assert render.alerts({"future_class": [], "total": 3}) == "Рекомендаций нет. Схема описана полностью."
 
 
 async def test_инструмент_алертов_отдаёт_полную_сводку(
@@ -341,7 +341,7 @@ async def test_инструмент_алертов_отдаёт_полную_с�
 
     out = await tools.call("archmap_alerts", {"project": "Ярмарка"}, client)
 
-    assert "Проект «Ярмарка» — незавершённость схемы" in out
+    assert "Рекомендации проекта «Ярмарка»" in out
     for title in panel_titles():
         assert title in out
 

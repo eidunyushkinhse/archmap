@@ -82,7 +82,7 @@ async def test_поиск_группирует_по_объектам_и_ведё
     schema = out.index(f"  • схема «SMS: отправка»  doc_id={DOC}")
     line4 = out.index("      стр. 4: B -->|нет| E[Ошибка: SMSDevices not configured")
     line2 = out.index("      стр. 2: A[Получено задание SMS]")
-    more = out.index("      … ещё 2 строки в этой схеме")
+    more = out.index("      и ещё 2 строки в этой схеме")
     assert group < schema < line4 < line2 < more
     assert out.count("схема «SMS: отправка»") == 1
     # Шаг — в группе своего процесса, с id шага и схемой, которой он задокументирован.
@@ -133,7 +133,7 @@ async def test_поиск_спека_и_объект(client: ArchMapClient, api:
     assert "Найдено 2 (искали по: alerts, retries)" in out
     assert "  • OpenAPI-спецификация объекта (archmap_node с include_spec)" in out
     assert "      стр. 12: retries: {type: integer}" in out
-    assert "      … ещё 1 строка в спецификации" in out
+    assert "      и ещё 1 строка в спецификации" in out
     assert "  • объект: Alerter · retries alerts" in out
 
 

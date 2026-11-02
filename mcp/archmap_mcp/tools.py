@@ -295,7 +295,7 @@ async def t_deployment(client: ArchMapClient, args: dict[str, Any]) -> str:
 async def t_alerts(client: ArchMapClient, args: dict[str, Any]) -> str:
     pid, pname = await resolve_project(client, args["project"])
     data = await client.request("GET", "/nodes/alerts", project_id=pid)
-    return f"Проект «{pname}» — незавершённость схемы\n\n{render.alerts(data)}"
+    return f"Рекомендации проекта «{pname}»\n\n{render.alerts(data)}"
 
 
 async def t_processes(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -817,7 +817,7 @@ def _sync_report(data: dict[str, Any]) -> str:
             fields = f" ({', '.join(a['fields'])})" if a.get("fields") else ""
             out.append(f"  {a['action']}: {a['path']}{fields}{_sync_basis(a)}")
         if len(changed) > 60:
-            out.append(f"  … и ещё {len(changed) - 60}")
+            out.append(f"  и ещё {len(changed) - 60}")
     edges = [
         e for e in data.get("edges", []) if e.get("action") in ("create", "update", "missing")
     ]
@@ -826,7 +826,7 @@ def _sync_report(data: dict[str, Any]) -> str:
         out.append("СВЯЗИ:")
         out.extend(_sync_edge_line(e) for e in edges[:60])
         if len(edges) > 60:
-            out.append(f"  … и ещё {len(edges) - 60}")
+            out.append(f"  и ещё {len(edges) - 60}")
     for key, title in (("conflicts", "Расхождения (решены правилом)"), ("warnings", "Проверьте")):
         rows = [str(r) for r in (data.get(key) or [])]
         if rows:
@@ -862,7 +862,7 @@ def _sync_applied_report(data: dict[str, Any]) -> str:
         out.append(f"{title}: {len(rows)}")
         out.extend("  • " + r for r in rows[:40])
         if len(rows) > 40:
-            out.append(f"  … и ещё {len(rows) - 40}")
+            out.append(f"  и ещё {len(rows) - 40}")
     if not out:
         out.append("Ничего не изменилось — схема уже соответствовала присланному YAML.")
     out.append(f"\nНовый курсор схемы: graph_rev={data.get('graph_rev', 0)}.")
@@ -1413,12 +1413,12 @@ PROCESS_ID_ARG = {"type": "string", "description": "id процесса (из ar
 SHAPE_ARG = {
     "type": "string",
     "enum": ["service", "database", "broker", "person"],
-    "description": "Форма C4: service — сервис, database — база, broker — брокер, person — человек (только корневой).",
+    "description": "Форма C4: service — система, контейнер или компонент (уточняет element), database — база данных, broker — брокер, person — пользователь (только корневой).",
 }
 STATUS_ARG = {
     "type": "string",
     "enum": ["existing", "planned", "deprecated"],
-    "description": "Жизненный цикл: existing — есть, planned — планируется, deprecated — выводится.",
+    "description": "Жизненный цикл: existing — существует, planned — проектируется, deprecated — выводится.",
 }
 APPROVAL_ARG = {
     "type": "string",
@@ -1521,7 +1521,7 @@ FILES_ARG_REMOTE = {
 # как есть и встают в files под именем файла.
 TEXT_PATHS_ARG = {
     "type": "array",
-    "description": "Файлы С ДИСКА машины агента (текст в UTF-8: .yaml, .md, .mmd…) — вместо перепечатки в "
+    "description": "Файлы С ДИСКА машины агента (текст в UTF-8: .yaml, .md, .mmd и другие) — вместо перепечатки в "
     "files; имя входа — имя файла. Идут ПОСЛЕ files в нумерации входов.",
     "items": {"type": "string"},
 }
@@ -1608,7 +1608,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_schema",
         "writes": False,
-        "description": "Архитектура проекта: дерево объектов и все связи. В дереве контейнер с компонентами помечен «(контейнер)» сразу после имени, всё под ним — его компоненты; остальные объекты с вложенными — системы, объект без вложенных вне контейнера — сам контейнер, кроме пустой системы (помечена «(система без контейнеров)») и внешнего объекта без элемента — это внешняя система. Элемент одного объекта словами — строка «Элемент архитектуры» в archmap_node. node_id — показать только поддерево этого объекта.",
+        "description": "Архитектура проекта: дерево объектов и все связи. В дереве у каждого объекта в скобках строки стоит тип словами интерфейса: система, контейнер, компонент, база данных, брокер или пользователь; пустая система помечена «(система без контейнеров)» сразу после имени, внешний объект — словом «внешний» среди свойств. Элемент одного объекта словами — строка «Элемент архитектуры» в archmap_node. node_id — показать только поддерево этого объекта.",
         "schema": {
             "type": "object",
             "properties": {"project": PROJECT_ARG, "node_id": SUBTREE_ARG},
@@ -1705,7 +1705,7 @@ TOOLS: list[dict[str, Any]] = [
                     "type": ["string", "integer"],
                     "description": "С чем сравнивать: prev — с предыдущей версией (по умолчанию), live — от версии до текущего состояния, номер — с этой версией.",
                 },
-                "item": {"type": "string", "description": "item элемента из списка дельты («doc:<id>», «process:<id>»…): одна дельта текстом."},
+                "item": {"type": "string", "description": "item элемента из списка дельты (например «doc:<id>» или «process:<id>»): одна дельта текстом."},
                 "with_sides": {"type": "boolean", "description": "Вместе с item: показать ещё «было» и «стало» целиком. По умолчанию false."},
             },
             "required": ["project"],
@@ -1733,7 +1733,7 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_alerts",
         "writes": False,
-        "description": "Незавершённость схемы — те же 16 классов замечаний и те же слова, что видит человек в панели интерфейса: объекты без связей; связи в систему или контейнер; связи с собственной частью; изолированные группы; системы и контейнеры со своей документацией; конфигурация и спецификации у компонентов; обращения к неописанным данным, каналам и параметрам; связи с брокером без канала; незадокументированные сообщения; ответ на асинхронном канале; незадокументированные участники; шаги без схемы логики; объекты с неописанными схемами логики; пользователи внутри системы. У двух классов про документацию — серый совет по элементу архитектуры: что и куда перенести, и инструмент, которым это сделать, с node_id: archmap_transfer_docs_preview (перенос в состав объекта) или archmap_collect_facts_preview (сбор в контейнер). Первая строка — общий счётчик проблем.",
+        "description": "Рекомендации проекта — те же 16 классов и те же слова, что видит человек в интерфейсе: объекты без связей; связи в систему или контейнер; связи с собственной частью; изолированные группы; системы и контейнеры со своей документацией; конфигурация и спецификации у компонентов; обращения к неописанным данным, каналам и параметрам; связи с брокером без канала; незадокументированные сообщения; ответ на асинхронном канале; незадокументированные участники; шаги без схемы логики; объекты с неописанными схемами логики; пользователи внутри системы. У двух классов про документацию — серый совет по элементу архитектуры: что и куда перенести, и инструмент, которым это сделать, с node_id: archmap_transfer_docs_preview (перенос в состав объекта) или archmap_collect_facts_preview (сбор в контейнер). Первая строка — общий счётчик проблем.",
         "schema": {
             "type": "object",
             "properties": {"project": PROJECT_ARG},

@@ -108,7 +108,7 @@ async def test_схема_отдаёт_дерево_и_связи(client: ArchMa
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
     assert "• Маркетплейс" in out
-    assert "  • Сервис заказов [сервис, Python]" in out  # вложенность отступом
+    assert "  • Сервис заказов [контейнер, Python]" in out  # вложенность отступом
     assert "Покупатель → Сервис заказов [заказ, REST]" in out
 
 
@@ -182,7 +182,8 @@ async def test_пустые_алерты_говорят_что_всё_хорош
         "container_own_docs": [], "persons_inside": [], "dangling_messages": [],
     })
 
-    assert "завершена" in await tools.call("archmap_alerts", {"project": "Ярмарка"}, client)
+    out = await tools.call("archmap_alerts", {"project": "Ярмарка"}, client)
+    assert "Рекомендаций нет. Схема описана полностью." in out
 
 
 # ── Правила формата (промпты BYOA) ───────────────────────────────────────────
@@ -1016,7 +1017,7 @@ async def test_элемент_в_каталоге_тот_же_что_у_бэке
         assert arg["enum"] == list(get_args(backend("domain_types").NodeElement))
 
 
-async def test_дерево_помечает_контейнер_с_компонентами(
+async def test_дерево_называет_тип_словами_интерфейса(
     client: ArchMapClient, api: FakeApi
 ) -> None:
     api.get("/nodes/all", [
@@ -1030,12 +1031,12 @@ async def test_дерево_помечает_контейнер_с_компон�
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
     lines = out.splitlines()
-    assert "• shop [сервис]  id=n1" in lines
-    assert "  • orders (контейнер) [сервис]  id=n2" in lines
-    # Компонент, лист-контейнер и система — без маркера: дерево проекта без контейнеров
-    # с компонентами печатается как до эпика.
-    assert "    • api [сервис]  id=n3" in lines
-    assert "  • billing [сервис]  id=n4" in lines
+    # Тип стоит в скобках строки словами интерфейса (MCP 0.13.2): контейнер с
+    # компонентами и лист-контейнер — одного типа, маркера «(контейнер)» больше нет.
+    assert "• shop [система]  id=n1" in lines
+    assert "  • orders [контейнер]  id=n2" in lines
+    assert "    • api [компонент]  id=n3" in lines
+    assert "  • billing [контейнер]  id=n4" in lines
 
 
 async def test_дерево_помечает_пустую_систему(client: ArchMapClient, api: FakeApi) -> None:
@@ -1048,7 +1049,7 @@ async def test_дерево_помечает_пустую_систему(client:
 
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
-    assert "  • warehouse (система без контейнеров) [сервис]  id=n2" in out.splitlines()
+    assert "  • warehouse (система без контейнеров) [система]  id=n2" in out.splitlines()
 
 
 async def test_дерево_не_помечает_внешнюю_систему(client: ArchMapClient, api: FakeApi) -> None:
@@ -1061,4 +1062,4 @@ async def test_дерево_не_помечает_внешнюю_систему(
 
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
-    assert "• Банк [сервис, внешний]  id=n1" in out.splitlines()
+    assert "• Банк [система, внешний]  id=n1" in out.splitlines()

@@ -17,21 +17,33 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+# Форма словами интерфейса (nodeTerms.SHAPE_LABEL): поле «форма» в вопросах ввоза.
 SHAPE_WORD = {
     "service": "сервис",
-    "database": "БД",
+    "database": "база данных",
     "broker": "брокер",
     "person": "пользователь",
 }
-STATUS_WORD = {"existing": "", "planned": "запланирован", "deprecated": "выводится"}
+# Статус жизненного цикла словами интерфейса (graph/colors.STATUS_META); «существует»
+# в строке объекта не пишется.
+STATUS_WORD = {"existing": "", "planned": "проектируется", "deprecated": "выводится"}
+
+
+def type_word(node: dict[str, Any]) -> str:
+    """Тип объекта словами интерфейса (nodeTerms.typeOf): у сервиса — по действующему
+    элементу из ответа сервера, без него — «контейнер», как в интерфейсе."""
+    shape = str(node.get("shape") or "")
+    if shape != "service":
+        return SHAPE_WORD.get(shape, shape)
+    return ELEMENT_WORD.get(str(node.get("element_effective")), ELEMENT_WORD["container"])
 
 
 def node_line(node: dict[str, Any], *, with_id: bool = True, marker: str | None = None) -> str:
-    """Строка объекта: имя, форма, технология, статус, внешность, id. marker — слово
-    в скобках сразу после имени, отдельно от свойств (дерево ставит так элемент
-    архитектуры)."""
+    """Строка объекта: имя, тип, технология, статус, внешность, id. marker — слово
+    в скобках сразу после имени, отдельно от свойств (дерево ставит так пометку
+    пустой системы)."""
     bits: list[str] = []
-    shape = SHAPE_WORD.get(str(node.get("shape")), str(node.get("shape") or ""))
+    shape = type_word(node)
     if shape:
         bits.append(shape)
     if node.get("role"):
@@ -238,9 +250,9 @@ def approval_line(node: dict[str, Any], units: list[dict[str, Any]]) -> str | No
 # archmap_deployment, где площадки показываются деревом. Один словарь на модуль.
 SITE_KIND_WORD = {
     "cloud": "облако",
-    "kubernetes": "kubernetes",
-    "vm": "вм",
-    "physical": "сервер",
+    "kubernetes": "Kubernetes",
+    "vm": "виртуальная машина",
+    "physical": "физический сервер",
     "other": "другое",
 }
 NO_SITES = (
@@ -427,7 +439,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
             tail = f" (система целиком, {_containers(c)})" if whole else ""
             out.append(f"{pad}  • {path_of(str(n['id']), by_id)}{tail}  id={n['id']}")
         if len(members) > PLACEMENT_CAP:
-            out.append(f"{pad}  …и ещё {len(members) - PLACEMENT_CAP}")
+            out.append(f"{pad}  и ещё {len(members) - PLACEMENT_CAP}")
         for k in sorted(kids.get(sid, []), key=lambda s: str(s.get("name"))):
             walk(k, depth + 1)
 
@@ -447,7 +459,7 @@ def deployment_tree(sites: list[dict[str, Any]], nodes: list[dict[str, Any]]) ->
     out.append(f"Без размещения: {_objects(len(unplaced))}")
     out.extend(f"  • {u}" for u in unplaced[:PLACEMENT_CAP])
     if len(unplaced) > PLACEMENT_CAP:
-        out.append(f"  …и ещё {len(unplaced) - PLACEMENT_CAP}")
+        out.append(f"  и ещё {len(unplaced) - PLACEMENT_CAP}")
     return out
 
 
@@ -524,13 +536,9 @@ def tree(nodes: list[dict[str, Any]], *, with_ids: bool = True) -> str:
 
     def walk(parent: str | None, depth: int) -> None:
         for n in kids.get(parent, []):
-            # Маркер — у контейнера с компонентами и у пустой системы: лист-контейнер и
-            # система с вложенными — сегодняшняя картина, и дерево проекта без
-            # контейнеров не меняется; пустая система без маркера читалась бы листом.
-            container = n.get("element_effective") == "container" and n.get("has_children")
-            marker = ELEMENT_WORD["container"] if container else None
-            if empty_system(n):
-                marker = EMPTY_SYSTEM
+            # Тип стоит в скобках строки (node_line, MCP 0.13.2). Маркер — только у
+            # пустой системы: агенту важно знать, что внутри пока ничего нет.
+            marker = EMPTY_SYSTEM if empty_system(n) else None
             lines.append("  " * depth + "• " + node_line(n, with_id=with_ids, marker=marker))
             walk(str(n["id"]), depth + 1)
 
@@ -702,9 +710,9 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
             for item in value[:UNKNOWN_ALERTS_SHOWN]
         ]
         if len(value) > UNKNOWN_ALERTS_SHOWN:
-            lines.append(f"… и ещё {len(value) - UNKNOWN_ALERTS_SHOWN}")
+            lines.append(f"и ещё {len(value) - UNKNOWN_ALERTS_SHOWN}")
         head = (
-            f"«{key}» ({len(value)}). Этот класс замечаний MCP-серверу незнаком — сервер "
+            f"«{key}» ({len(value)}). Этот класс рекомендаций MCP-серверу незнаком — сервер "
             "ArchMap новее, обновите MCP-сервер. Записи как есть:"
         )
         out.append((head + "\n" + "\n".join("  • " + line for line in lines), len(value)))
@@ -712,7 +720,7 @@ def _unknown_alert_blocks(data: dict[str, Any], known: set[str]) -> list[tuple[s
 
 
 def alerts(data: dict[str, Any]) -> str:
-    """Незавершённость схемы — 16 классов в порядке, заголовках и словах панели
+    """Рекомендации проекта — 16 классов в порядке, заголовках и словах панели
     SchemaAlerts.tsx (решение 7 плана эпика «Доработка MCP-сервера»).
 
     Читается это агентом, а показывается человеку панелью — значит и называться
@@ -722,7 +730,7 @@ def alerts(data: dict[str, Any]) -> str:
     отдаёт вовсе, и рендер обязан это пережить, а не упасть на KeyError. Обратный
     случай — сервер НОВЕЕ клиента: незнакомый непустой список печатается общим
     блоком (ключ, число записей, первые записи как есть), а не глотается — иначе
-    агент прочёл бы «Замечаний нет», пока панель горит (камень 24
+    агент прочёл бы «Рекомендаций нет», пока панель горит (камень 24
     docs/plan-c4-elements.md).
     """
     known: set[str] = set()
@@ -861,7 +869,7 @@ def alerts(data: dict[str, Any]) -> str:
     blocks.extend(block for block, _ in unknown)
 
     if not blocks:
-        return "Замечаний нет — схема завершена."
+        return "Рекомендаций нет. Схема описана полностью."
 
     # Общий счётчик — как бабл панели: изолированные группы дают не число групп, а
     # число НЕДОСТАЮЩИХ связей (групп − 1), остальные классы — по записи.
@@ -872,7 +880,7 @@ def alerts(data: dict[str, Any]) -> str:
         + len(unlinked) + len(undescribed) + len(persons_inside)
         + sum(count for _, count in unknown)
     )
-    head = f"Замечаний: {total}"
+    head = f"Рекомендаций: {total}"
     return head + "\n\n" + "\n\n".join(blocks)
 
 
@@ -889,11 +897,11 @@ FACT_MEMBERS_CAP = 20
 
 
 def _capped(lines: list[str], cap: int, forms: tuple[str, str, str]) -> list[str]:
-    """Список с хвостом «… и ещё N»: обрезать молча — значит соврать о полноте."""
+    """Список с хвостом «и ещё N»: обрезать молча — значит соврать о полноте."""
     if len(lines) <= cap:
         return lines
     rest = len(lines) - cap
-    return [*lines[:cap], f"… и ещё {rest} {_plural(rest, forms)}"]
+    return [*lines[:cap], f"и ещё {rest} {_plural(rest, forms)}"]
 
 
 def docs(
@@ -1451,7 +1459,7 @@ def docs_report(data: dict[str, Any], *, applied: bool) -> str:
 
     if specs:
         out.append("")
-        out.append(f"OPENAPI-СПЕКИ: {len(specs)}")
+        out.append(f"OPENAPI-СПЕЦИФИКАЦИИ: {len(specs)}")
         lines = []
         for it in specs:
             bits = [str(it.get("source", "?"))]
@@ -1946,7 +1954,7 @@ FIELD_WORD = {
     "status": ("статус", "задан"),
     "element": ("элемент архитектуры", "задан"),
 }
-LIFECYCLE_WORD = {"existing": "есть", "planned": "запланирован", "deprecated": "выводится"}
+LIFECYCLE_WORD = {"existing": "существует", "planned": "проектируется", "deprecated": "выводится"}
 ELEMENT_END_WORD = {"system": "систему", "container": "контейнер"}
 ELEMENT_FROM_WORD = {"system": "системы", "container": "контейнера"}
 
@@ -2054,7 +2062,7 @@ def remainder(data: dict[str, Any], *, apply_tool: str) -> list[str]:
             for item in items[:REMAINDER_CAP]:
                 out.extend(build(item))
             if len(items) > REMAINDER_CAP:
-                out.append(f"  … и ещё {len(items) - REMAINDER_CAP} таких же вопросов — их удобнее разобрать в интерфейсе")
+                out.append(f"  и ещё {len(items) - REMAINDER_CAP} таких же вопросов, их удобнее разобрать в интерфейсе")
     manual = [str(u.get("text")) for u in data.get("unfixable") or []]
     if manual:
         out += ["", f"Придётся подправить вручную ({len(manual)}):"]
@@ -2156,7 +2164,7 @@ def into_preview(data: dict[str, Any]) -> str:
             path = str(m.get("path", ""))
             out.append(f"  • {path} — {basis_label(str(m.get('basis')), path)}")
         if matched > len(shown):
-            out.append(f"  … и ещё {matched - len(shown)}")
+            out.append(f"  и ещё {matched - len(shown)}")
     # Новые объекты — с их якорями: «(без якоря)» значит, что следующая догрузка
     # найдёт объект только по имени внутри контейнера.
     new_nodes = list(data.get("new_nodes") or [])
@@ -2359,7 +2367,7 @@ def search_results(data: dict[str, Any]) -> str:
             if more:
                 where = "в спецификации" if sub == "spec" else "в этой схеме"
                 lines = _plural(more, ("строка", "строки", "строк"))
-                out.append(f"      … ещё {more} {lines} {where}")
+                out.append(f"      и ещё {more} {lines} {where}")
     out.append("")
     out.append(SEARCH_NEXT)
     return "\n".join(out)
