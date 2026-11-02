@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
-  computeViewLayout, buildRouteSig,
+  computeViewLayout, buildRouteSig, edgeLabelMeta,
   type LayoutResult, type PipelineInput, type ScopeDiag, type FrozenDiag, type T4Diag,
 } from "../graph/layout/pipeline";
 import { DEFAULT_ROUTE_BUDGET, type RouteBudgetConfig } from "../graph/layout/routeBudget";
@@ -207,6 +207,33 @@ describe("computeViewLayout — композиция конвейера уров
     expect(out.layout.groupArr).toHaveLength(1);
     expect(out.layout.groupArr[0].id).toBe("merge:A->B");
     expect(out.layout.groupArr[0].members.map((m) => m.id).sort()).toEqual(["e1", "e2"]);
+  });
+
+  // E2 (2026-11-02, идея владельца «плашка шины без повторов»): одинаковые подписи
+  // членов схлопываются в один пункт — размер плашки для раскладки и роутера считается
+  // по различным текстам, а не по числу членов.
+  it("E2: три члена с двумя различными текстами → две строки, текст — самый длинный из различных", () => {
+    const g = {
+      id: "merge:A->B", source: "A", target: "B",
+      members: [edge("e1", "A", "B", "пользуется"), edge("e2", "A", "B", "смотрит"), edge("e3", "A", "B", "пользуется")],
+    };
+    expect(edgeLabelMeta(g)).toEqual({ text: "пользуется", lines: 2 });
+  });
+
+  it("E2: все члены с одной подписью → одна строка, как у одиночной связи", () => {
+    const g = {
+      id: "merge:A->B", source: "A", target: "B",
+      members: ["e1", "e2", "e3"].map((id) => edge(id, "A", "B", "пользуется")),
+    };
+    expect(edgeLabelMeta(g)).toEqual({ text: "пользуется", lines: 1 });
+  });
+
+  it("E2: десять одинаковых связей и одна другая на шине — две строки плашки, все члены в группе", async () => {
+    const same = Array.from({ length: 10 }, (_, i) => edge(`u${i}`, "A", "B", "пользуется"));
+    const out = await computeViewLayout(levelInput({ edges: [...same, edge("p", "A", "B", "платит")], endpoints: [] }));
+    expect(out.layout.groupArr).toHaveLength(1);
+    expect(out.layout.groupArr[0].members).toHaveLength(11);
+    expect(edgeLabelMeta(out.layout.groupArr[0])).toEqual({ text: "пользуется", lines: 2 });
   });
 
   it("R5: раскрытый ЛОКАЛ заменяется детьми, рамка в guestFrames, концы поднимаются к детям", async () => {

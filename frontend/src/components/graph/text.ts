@@ -28,3 +28,11 @@ export function wrapLabel(text: string, maxLen = 20): string[] {
 export function edgeText(e: { label: string | null; technology: string | null }): string {
   return [e.label, e.technology].filter(Boolean).join(" · ") || "связь";
 }
+
+/** Пункты плашки мастер-стрелки: РАЗЛИЧНЫЕ тексты членов в порядке первого появления.
+ *  Десять связей «пользуется» на одной шине — один пункт, а не десять одинаковых буллетов
+ *  (edge.md E2). Единый источник для оценки габаритов (edgeLabelMeta) и рендера (assembleRf):
+ *  плашка и её место в раскладке считаются по одному и тому же списку. */
+export function distinctEdgeTexts(members: ReadonlyArray<{ label: string | null; technology: string | null }>): string[] {
+  return [...new Set(members.map(edgeText))];
+}

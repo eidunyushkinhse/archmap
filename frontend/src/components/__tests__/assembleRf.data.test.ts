@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { assembleRfGraph, type AssembleCallbacks } from "../graph/assembleRf";
 import type { LayoutResult } from "../graph/layout/pipeline";
-import type { BlockData, ContainerData, FrameData, GhostData } from "../graph/types";
+import type { BlockData, ContainerData, FrameData, GhostData, WrappedEdgeData } from "../graph/types";
 import type { Node as AppNode, AncestorRef, GhostNode } from "../../types";
 
 const a = (id: string): AncestorRef => ({ id, name: id, is_external: false, element_effective: "system" });
@@ -165,5 +165,38 @@ describe("assembleRfGraph — данные узлов", () => {
     expect(data.element).toBe("container");
     data.onEnter?.();
     expect(cb.onEnterNode).toHaveBeenCalledWith([{ id: "x", name: "orders", is_external: true, element_effective: "container" }]);
+  });
+});
+
+// E2 (2026-11-02): плашка мастер-стрелки перечисляет РАЗЛИЧНЫЕ тексты членов, одинаковые
+// подписи схлопнуты в один пункт; выбор по клику — по-прежнему из всех членов.
+describe("assembleRfGraph — плашка мастер-стрелки", () => {
+  const e = (id: string, label: string | null, technology: string | null = null) =>
+    ({ id, label, technology, source_id: "leaf", target_id: "group", version: 1, created_at: "" }) as never;
+  function edgeData(members: ReturnType<typeof e>[]) {
+    const cb = callbacks();
+    const { nextEdges } = assembleRfGraph({
+      layout: { ...layout, groupArr: [{ id: "merge:leaf->group", source: "leaf", target: "group", members }] } as LayoutResult,
+      isArchitect: true, isReadOnly: false, drillNav: true, depth: 1, schemaView: "all", getCb: () => cb,
+    });
+    return { cb, data: nextEdges[0].data as WrappedEdgeData };
+  }
+
+  it("пункты без повторов в порядке первого появления, memberIds — все члены", () => {
+    const { data, cb } = edgeData([
+      e("u1", "пользуется"), e("p", "платит", "HTTPS"), e("u2", "пользуется"), e("u3", "пользуется"),
+    ]);
+    expect(data.items).toEqual(["пользуется", "платит · HTTPS"]);
+    expect(data.label).toBeUndefined();
+    expect(data.memberIds).toEqual(["u1", "p", "u2", "u3"]);
+    data.onOpenDetails?.();
+    expect(cb.openEdgeMembers).toHaveBeenCalledWith(["u1", "p", "u2", "u3"]);
+  });
+
+  it("одна различная подпись — плашка как у одиночной связи, выбор из всех членов", () => {
+    const { data } = edgeData([e("u1", "пользуется"), e("u2", "пользуется"), e("u3", "пользуется")]);
+    expect(data.items).toBeUndefined();
+    expect(data.label).toBe("пользуется");
+    expect(data.memberIds).toEqual(["u1", "u2", "u3"]);
   });
 });

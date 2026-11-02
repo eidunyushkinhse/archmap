@@ -13,7 +13,7 @@ import type {
   WrappedEdgeData, BlockData, GhostData, ContainerData, FrameData, FrameDecor, QuickConnectHandlers,
   SiteCardData,
 } from "./types";
-import { edgeText } from "./text";
+import { distinctEdgeTexts } from "./text";
 import { getNodeColors, STATUS_META } from "./colors";
 import { viewShows, type SchemaView } from "../schemaView";
 import type { LayoutResult } from "./layout/pipeline";
@@ -334,9 +334,17 @@ export function assembleRfGraph(params: {
     const isMaster = g.members.length > 1;
     const single = g.members[0];
     const singleText = [single.label, single.technology].filter(Boolean).join(" · ") || undefined;
-    const data: WrappedEdgeData = isMaster
-      ? { items: g.members.map((m) => edgeText(m)), memberIds: g.members.map((m) => m.id) }
-      : { label: singleText, memberIds: [single.id] };
+    // Мастер (E2): пункты плашки — различные тексты членов, одинаковые подписи схлопнуты в
+    // один пункт. Единственный различный текст — плашка как у одиночной связи (без
+    // буллета), но выбор по клику по-прежнему из ВСЕХ членов (memberIds полные). Тот же
+    // список считает габариты плашки в раскладке (edgeLabelMeta).
+    const texts = isMaster ? distinctEdgeTexts(g.members) : [];
+    const memberIds = g.members.map((m) => m.id);
+    const data: WrappedEdgeData = !isMaster
+      ? { label: singleText, memberIds }
+      : texts.length > 1
+        ? { items: texts, memberIds }
+        : { label: texts[0], memberIds };
     // Признак архитекторского канваса: плейсхолдер-плашка «•••» у безымянных
     // связей (см. edges.tsx). Ручной правки геометрии стрелок больше нет.
     if (isArchitect) data.editable = true;

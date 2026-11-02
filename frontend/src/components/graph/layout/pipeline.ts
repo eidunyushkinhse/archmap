@@ -29,7 +29,7 @@ import type {
 import type { DisplayExternal, EdgeGroup, EdgeShelf, EdgeLoop } from "../types";
 import type { LiveHandleInputs, LiveRouteInputs } from "../interaction/useLiveDragHandles";
 import { NODE_W, NODE_H, MAX_INLINE_DEPTH } from "../constants";
-import { edgeText } from "../text";
+import { distinctEdgeTexts, edgeText } from "../text";
 import { liftEdgesToLevel } from "../projection";
 import { projectGhosts } from "./projectGhosts";
 import { layoutLevel } from "./engine";
@@ -304,13 +304,17 @@ export interface FrozenDiag {
 const sameRoute = (a: readonly EdgePoint[], b: readonly EdgePoint[]): boolean =>
   a.length === b.length && a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
 
-// Текст и число строк плашки подписи группы рёбер (мастер берёт самый длинный member,
-// строк = число членов; одиночное ребро — «label · technology» в одну строку). Единый
-// источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
+// Текст и число строк плашки подписи группы рёбер. Мастер: пункты — РАЗЛИЧНЫЕ тексты
+// членов (одинаковые подписи схлопываются в один пункт, edge.md E2), текст оценки —
+// самый длинный из них, строк — по числу различных; единственный различный текст даёт
+// одну строку, и плашка оценивается как у одиночной связи (перенос по словам), ровно
+// так её и рисует assembleRf. Одиночное ребро — «label · technology» в одну строку.
+// Единый источник для оценки габаритов (labelBox) в раздвижке A10 и в размещении плашек.
 export function edgeLabelMeta(g: EdgeGroup): { text: string; lines: number } | null {
   if (g.members.length > 1) {
-    const longest = g.members.reduce((a, b) => (edgeText(b).length > edgeText(a).length ? b : a));
-    return { text: edgeText(longest), lines: g.members.length };
+    const texts = distinctEdgeTexts(g.members);
+    const longest = texts.reduce((a, b) => (b.length > a.length ? b : a));
+    return { text: longest, lines: texts.length };
   }
   const m = g.members[0];
   const t = [m.label, m.technology].filter(Boolean).join(" · ");
