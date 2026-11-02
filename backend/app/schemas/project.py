@@ -125,7 +125,7 @@ class ImportPreviewOut(BaseModel):
 class SyncPreviewIn(BaseModel):
     """YAML свежего прогона агента для dry-run синхронизации ЖИВОГО проекта.
     Формат входа тот же, что у импорта (мульти-репо сливается merge_imports);
-    отличаются только политики — что синку разрешено трогать."""
+    отличаются только политики — что обновлению из кода разрешено трогать."""
 
     contents: list[_ImportDoc] = Field(min_length=1, max_length=MAX_IMPORT_FILES)
     update_descriptions: bool = False
