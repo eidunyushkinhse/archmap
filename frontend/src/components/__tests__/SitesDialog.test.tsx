@@ -140,13 +140,13 @@ describe("SitesDialog", () => {
     expect(screen.getByText("Стойка")).toBeInTheDocument();
   });
 
-  it("правка, а площадку уже изменили в другой сессии: сообщение и перечитанное окно", async () => {
+  it("правка, а площадку уже изменили в другом окне: сообщение и перечитанное окно", async () => {
     vi.mocked(deploymentApi.updateSite).mockRejectedValue(new ApiError(409, "Площадку только что изменили в другом окне"));
     const props = setup();
     await screen.findByText("Облако");
     await userEvent.click(within(row("Стойка")).getByRole("button", { name: "Изменить площадку «Стойка»" }));
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Площадка изменена в другой сессии, окно перечитано");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Площадку только что изменили в другом окне. Показываем свежие данные.");
     await waitFor(() => expect(deploymentApi.sites).toHaveBeenCalledTimes(2));
     expect(props.onChanged).not.toHaveBeenCalled();
   });

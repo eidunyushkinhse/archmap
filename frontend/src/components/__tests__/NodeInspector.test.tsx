@@ -294,7 +294,7 @@ describe("NodeInspector: правка текстовых полей", () => {
     await userEvent.type(screen.getByPlaceholderText("API, воркер, шлюз…"), "моя роль");
     await userEvent.tab();
 
-    expect(await screen.findByText(/изменён в другой сессии/)).toBeInTheDocument();
+    expect(await screen.findByText(/только что изменили в другом окне/)).toBeInTheDocument();
     expect(screen.getByDisplayValue("чужая роль")).toBeInTheDocument();
     expect(cb.onNodeSaved).not.toHaveBeenCalled();
   });

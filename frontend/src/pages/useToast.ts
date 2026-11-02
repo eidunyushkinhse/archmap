@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 // Транзиентный тост: show() показывает его на holdMs, затем авто-скрытие.
 // Повторный show() сбрасывает таймер (удерживает видимым). Таймер чистится при
-// размонтировании. Общий паттерн тостов «Схема/Данные обновлены в другой сессии».
+// размонтировании. Общий паттерн тостов «Схему/Объект только что изменили в другом окне».
 export function useToast(holdMs = 4000): [boolean, () => void] {
   const [visible, setVisible] = useState(false);
   const timer = useRef<number | null>(null);

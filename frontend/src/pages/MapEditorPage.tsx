@@ -1000,7 +1000,7 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
                 onOpenProcess={openProcess}
               />
             )}
-            {remoteToast && <div style={remoteToastInRail}>Схема обновлена в другой сессии</div>}
+            {remoteToast && <div style={remoteToastInRail}>Схему только что изменили в другом окне</div>}
             {transitionToast && <div style={transitionToastStyle}>{transitionToast}</div>}
             {errorToast && <div role="alert" style={errorToastStyle}>{errorToast}</div>}
           </div>

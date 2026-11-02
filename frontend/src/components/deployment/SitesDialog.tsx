@@ -92,7 +92,7 @@ export default function SitesDialog({ isArchitect, onClose, onChanged }: Props) 
     } catch (e) {
       if (isConflict(e)) {
         // Чужая правка: форма закрывается, окно показывает свежие данные.
-        setError("Площадка изменена в другой сессии, окно перечитано");
+        setError("Площадку только что изменили в другом окне. Показываем свежие данные.");
         setEditing(null);
         list.reload();
       } else {

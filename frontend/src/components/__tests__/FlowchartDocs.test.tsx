@@ -192,7 +192,7 @@ describe("FlowchartDocs · «Вручную»", () => {
     await userEvent.clear(имя);
     await userEvent.type(имя, "Схема d2");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить" }));
-    expect(screen.getByText("Схема с таким именем уже есть у узла")).toBeInTheDocument();
+    expect(screen.getByText("У объекта уже есть схема с таким именем")).toBeInTheDocument();
     expect(nodeDocsApi.update).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Имя схемы")).toHaveValue("Схема d2");
   });

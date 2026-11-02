@@ -774,7 +774,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await тик();
 
     await waitFor(() => expect(typeButton()).toHaveTextContent("База данных"), ждать);
-    expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument();
+    expect(screen.getByText("Объект только что изменили в другом окне")).toBeInTheDocument();
   });
 
   it("чужая смена элемента у предка (graph_rev) освежает страницу без правки самого узла", async () => {
@@ -787,7 +787,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     vi.mocked(viewsApi.state).mockResolvedValue({ version: 1, graph_rev: 2, meta_rev: 1, process_rev: 0 });
     await тик();
 
-    await waitFor(() => expect(screen.getByText("Данные обновлены в другой сессии")).toBeInTheDocument(), ждать);
+    await waitFor(() => expect(screen.getByText("Объект только что изменили в другом окне")).toBeInTheDocument(), ждать);
   });
 
   it("чужое переименование (graph_rev) доезжает до поля имени", async () => {
@@ -823,7 +823,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await тик();
 
     expect(screen.getByDisplayValue("Сервис оплаты")).toBeInTheDocument();
-    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
+    expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 
   it("устаревший ответ страницу не откатывает: свежесть решает version", async () => {
@@ -842,7 +842,7 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await тик();
 
     expect(typeButton()).toHaveTextContent("База данных");
-    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
+    expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 
   // Размещение — не колонка узла: чужая смена площадок двигает курсоры, а version узла
@@ -884,8 +884,8 @@ describe("NodePage: чужая правка узла и «Свойства»", {
     await act(async () => { await Promise.resolve(); });
 
     await тик();
-    expect(screen.queryByText("Схема обновлена в другой сессии")).not.toBeInTheDocument();
-    expect(screen.queryByText("Данные обновлены в другой сессии")).not.toBeInTheDocument();
+    expect(screen.queryByText("Схему только что изменили в другом окне")).not.toBeInTheDocument();
+    expect(screen.queryByText("Объект только что изменили в другом окне")).not.toBeInTheDocument();
   });
 });
 

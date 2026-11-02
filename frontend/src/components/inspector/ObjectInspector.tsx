@@ -77,7 +77,7 @@ function InspectorEmpty() {
   return (
     <div className="insp-empty">
       <div className="insp-empty-title">Объект не выбран</div>
-      <div className="insp-empty-hint">Дважды кликните узел или связь на схеме, чтобы увидеть и изменить их свойства.</div>
+      <div className="insp-empty-hint">Дважды кликните объект или связь на схеме, чтобы увидеть и изменить их свойства.</div>
     </div>
   );
 }

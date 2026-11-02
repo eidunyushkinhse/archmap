@@ -67,7 +67,7 @@ const nodeSig = (n: Node): string => JSON.stringify([
 // Единиц статуса нет (лист, пустая система) — общий пустой список, без «Загрузки…».
 const NO_UNITS: Node[] = [];
 
-// Тост «Данные изменены в другой сессии» — поверх страницы (fixed).
+// Тост «Объект только что изменили в другом окне» — поверх страницы (fixed).
 const metaToastStyle: CSSProperties = {
   position: "fixed", top: 74, right: 24, zIndex: 60,
   background: "#eef2ff", border: "1px solid #c7d2fe", color: "#3730a3",
@@ -236,7 +236,7 @@ function NodePageInner({
   // (имя/форма — структурные поля, V48). Слушать только meta_rev было ошибкой:
   // чужая смена имени или типа освежала встроенную схему и не трогала «Свойства».
   // Канал один: тянем свежий узел и сверяем — совпало (своя запись уже применена
-  // локально) → молча; отличается → применяем + тост «Данные обновлены».
+  // локально) → молча; отличается → применяем + тост об изменении в другом окне.
   const [metaToast, showMetaToast] = useToast();
   const reloadChildren = container.reload;
   const handleNodeChanged = useCallback(() => {
@@ -266,7 +266,7 @@ function NodePageInner({
   // Размещение записано из строки «Размещение» (окно на одном объекте) или там заведена
   // площадка: свежий узел целиком (строка читает node.sites) и курсоры — своя запись
   // двигает graph_rev и meta_rev, без сверки курсоров тик поллинга принял бы её за чужую
-  // («Схема обновлена в другой сессии»).
+  // («Схему только что изменили в другом окне»).
   const handlePlacementChanged = useCallback(() => {
     refreshNode();
     syncCursors();
@@ -351,7 +351,7 @@ function NodePageInner({
       nodesApi.get(base.id)
         .then(applyChild)
         .catch(() => { /* ребёнка могли удалить */ });
-      setChildSpecConflict("Спецификация изменена в другой сессии — данные обновлены, повторите правку");
+      setChildSpecConflict("Спецификацию только что изменили в другом окне. Данные обновлены, повторите правку.");
       return false;
     }
   }, [container, syncCursors]);
@@ -369,7 +369,7 @@ function NodePageInner({
 
   return (
     <div className="np-page">
-      {metaToast && <div style={metaToastStyle}>Данные обновлены в другой сессии</div>}
+      {metaToast && <div style={metaToastStyle}>Объект только что изменили в другом окне</div>}
       <div className="np-inner">
         {/* ── Шапка ─────────────────────────────────────────────── */}
         <div className="np-header">

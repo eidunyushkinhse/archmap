@@ -173,7 +173,7 @@ export default function FlowchartDocs({
     // Занятое имя ловим до запроса: 409 от сервера вернул бы окно к просмотру и
     // унёс бы черновик вместе с текстом схемы.
     if (docs.some((d) => d.id !== activeId && d.name === name)) {
-      setNotice("Схема с таким именем уже есть у узла");
+      setNotice("У объекта уже есть схема с таким именем");
       return;
     }
     const operation = form.operation.trim();
@@ -215,7 +215,7 @@ export default function FlowchartDocs({
       const refusal = limitMessage(e, "save");
       // Предел демо-стенда: черновик остаётся, его можно сократить и сохранить снова.
       if (refusal) setLimit(refusal);
-      else if (isConflict(e) && active) await refetchAfterConflict(errorText(e, "Конфликт версий"));
+      else if (isConflict(e) && active) await refetchAfterConflict(errorText(e, "Схему только что изменили в другом окне"));
       // Прочие отказы (и 409 создания — занятое имя) оставляют черновик на месте.
       else setNotice(errorText(e, "Схема не сохранена"));
     } finally {
@@ -314,7 +314,7 @@ export default function FlowchartDocs({
             </select>
           </label>
           {form.kind === "operation" && (
-            <label className="doc-field doc-field--grow" title="Эндпоинт OpenAPI-спецификации узла, который обрабатывает эта схема">
+            <label className="doc-field doc-field--grow" title="Эндпоинт из спецификации объекта, который описывает эта схема">
               Эндпоинт
               <input {...noAutofill("flowchart-docs-2")} value={form.operation} onChange={(e) => edit({ operation: e.target.value })} placeholder="POST /orders" />
             </label>

@@ -166,7 +166,7 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
         <div className="np-card">
           <h3 className="np-card-title">Схема системы</h3>
           <div style={{ position: "relative" }}>
-            {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+            {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
             {/* Пустой проект: над окном схемы кнопки «Редактировать» нет (onEdit не
                 передаём) — её место занимает «Начать наполнение» внутри пустого окна,
                 и ведёт она туда же, в редактор-карту (решение пользователя 2026-09-05;
@@ -254,4 +254,4 @@ export default function ProjectHomePage({ projectId, isArchitect, onNavigateNode
   );
 }
 
-// Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.

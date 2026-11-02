@@ -59,8 +59,8 @@ describe("OpenApiPane · просмотр", () => {
   });
 
   it("конфликт от страницы — плашкой в шапке", () => {
-    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect notice="Спецификация изменена в другой сессии" onCommitOpenapi={vi.fn()} />);
-    expect(screen.getByText("Спецификация изменена в другой сессии")).toBeInTheDocument();
+    render(<OpenApiPane {...props} openapi={spec("Витрина")} isArchitect notice="Спецификацию только что изменили в другом окне" onCommitOpenapi={vi.fn()} />);
+    expect(screen.getByText("Спецификацию только что изменили в другом окне")).toBeInTheDocument();
   });
 });
 

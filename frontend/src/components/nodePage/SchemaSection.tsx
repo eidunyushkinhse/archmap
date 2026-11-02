@@ -43,7 +43,7 @@ export default function SchemaSection({
   onNavigateNode: (id: string) => void;
   onNavigateMap?: NavigateMap;
   // Узел изменён в другой сессии — страница освежает свои данные и показывает
-  // тост «Данные обновлены в другой сессии». Зовётся ОБОИМИ курсорами: meta_rev
+  // тост «Объект только что изменили в другом окне». Зовётся ОБОИМИ курсорами: meta_rev
   // (атрибуты/доки/спеки) и graph_rev (структурные имя/форма, V48).
   onNodeChanged?: () => void;
   // Общий с страницей курсор конкурентности (страница тихо обновляет его после
@@ -89,7 +89,7 @@ export default function SchemaSection({
   }, [refetch]);
 
   // Поллинг удалённых изменений (как в редакторе-карте): graph_rev вырос →
-  // тихий рефетч контекста + тост «Схема обновлена в другой сессии»; meta_rev
+  // тихий рефетч контекста + тост «Схему только что изменили в другом окне»; meta_rev
   // вырос → освежение узла (тост «Данные обновлены» — хозяин страница).
   useRemoteSync({
     currentParentId: null,
@@ -228,7 +228,7 @@ export default function SchemaSection({
 
   return (
     <div style={{ position: "relative" }}>
-      {remoteToast && <div style={remoteToastStyle}>Схема обновлена в другой сессии</div>}
+      {remoteToast && <div style={remoteToastStyle}>Схему только что изменили в другом окне</div>}
       <EmbeddedSchemaBlock
         nodes={view.nodes}
         endpoints={view.endpoints}
@@ -257,4 +257,4 @@ export default function SchemaSection({
   );
 }
 
-// Тост «схема обновлена в другой сессии» (remote-sync) — поверх окна схемы.
+// Тост «Схему только что изменили в другом окне» (remote-sync) — поверх окна схемы.
