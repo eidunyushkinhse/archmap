@@ -64,7 +64,7 @@ export default function SchemaPreview({ preview }: Props) {
   if (layout === null || layout === "failed") {
     return (
       <div style={{ ...frame, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ color: "#94a3b8", fontSize: 12 }}>{layout === null ? "Пустая схема" : "Превью недоступно"}</span>
+        <span style={{ color: "#94a3b8", fontSize: 12 }}>{layout === null ? "Пустая схема" : "Схему не удалось показать"}</span>
       </div>
     );
   }

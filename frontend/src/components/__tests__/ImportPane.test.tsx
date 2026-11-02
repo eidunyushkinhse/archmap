@@ -268,7 +268,7 @@ describe("архивные входы единой панели", () => {
 
     await userEvent.click(chip("zip 2 · archmap.zip"));
 
-    expect(screen.getByText(/полный архив знания/)).toBeInTheDocument();
+    expect(screen.getByText(/архив проекта \(zip\)/)).toBeInTheDocument();
     // Замечания архива — пунктами свёртки, в карточке их нет (правка Ф2г).
     expect(screen.queryByText("Замечания к архиву:")).toBeNull();
     expect(screen.queryByText("К архиву замечаний нет.")).toBeNull();

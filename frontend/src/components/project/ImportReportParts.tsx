@@ -31,13 +31,13 @@ export function ReportTail({ result }: { result: Tail }) {
         <div>
           Процессов: {result.processes.length} · привязок шагов: {linked}
           {unresolved > 0 && (
-            <span style={{ color: "#b45309" }}> · не разрешилось: {unresolved}</span>
+            <span style={{ color: "#b45309" }}> · схема не найдена: {unresolved}</span>
           )}
         </div>
       )}
       {/* Споры рассудил пользователь — говорим об этом вслух: выбор был, и он учтён. */}
       {result.resolved_conflicts > 0 && (
-        <div>Разрешено споров содержимого: {result.resolved_conflicts}</div>
+        <div>Решено вопросов о содержимом: {result.resolved_conflicts}</div>
       )}
       {/* Сырого списка «Замечания» нет (Ф2г-2): информация о сделанном видна по
           счётчикам выше, а то, что требует рук, — пунктами той же свёртки, что в

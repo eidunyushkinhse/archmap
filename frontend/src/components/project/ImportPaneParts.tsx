@@ -25,11 +25,11 @@ export function ArchiveCard({ file, no }: { file: File; no: number }) {
     <div style={archiveCard}>
       <div style={{ fontSize: 13.5, fontWeight: 700, color: "#0f172a" }}>{file.name}</div>
       <div style={grayLine}>
-        Вход {no} · {(file.size / 1024).toFixed(0)} КБ · полный архив знания
+        Файл {no} · {(file.size / 1024).toFixed(0)} КБ · архив проекта (zip)
       </div>
       <div style={{ ...grayLine, marginTop: 10 }}>
-        Из архива приедут схемы логики, спецификации, структуры БД и брокеров,
-        конфигурация и процессы. Раскладка пересчитается заново.
+        Из архива перенесутся схемы логики, спецификации, структура баз, каналы
+        брокеров, конфигурация и процессы. Объекты на схеме будут расставлены заново.
       </div>
     </div>
   );

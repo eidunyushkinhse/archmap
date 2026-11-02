@@ -158,7 +158,7 @@ describe("догрузка архива · превью и споры", () => {
     await открыть(zip("b.zip"));
 
     expect(await screen.findByText(/Нового: 3 объекта · 2 связи/)).toBeInTheDocument();
-    expect(screen.getByText(/Приедет:.*4 схемы логики.*2 площадки/)).toBeInTheDocument();
+    expect(screen.getByText(/Добавится:.*4 схемы логики.*2 площадки/)).toBeInTheDocument();
     expect(screen.getByText("Ярмарка / billing")).toBeInTheDocument();
     // Ф2г: сырых строк «Проверьте» в окне нет — тёзку показывает свёртка
     // «Придется подправить вручную» пунктом с бэка (remainder.unfixable).
@@ -265,7 +265,7 @@ describe("догрузка архива · превью и споры", () => {
 
     await userEvent.click(применить());
 
-    expect(await screen.findByText(/превью обновлено, проверьте и повторите/)).toBeInTheDocument();
+    expect(await screen.findByText(/проверка обновлена. Посмотрите изменения и примените снова/)).toBeInTheDocument();
     await waitFor(() => expect(projectsApi.importIntoPreview).toHaveBeenCalledTimes(2));
     // Выбор пережил перезапрос: id спора тот же, вариант остался выбранным.
     expect(screen.getByRole("button", { name: "Из архива Ярмарка" }))
@@ -294,7 +294,7 @@ describe("догрузка архива · превью и споры", () => {
     await userEvent.click(screen.getByRole("button", { name: "Придется подправить вручную (1)" }));
     expect(screen.getByRole("listitem")).toHaveTextContent(
       "b.zip: docs/x.mmd: узел «Нет такого» не найден — файл пропущен");
-    expect(screen.getByText("Разрешено споров содержимого: 1")).toBeInTheDocument();
+    expect(screen.getByText("Решено вопросов о содержимом: 1")).toBeInTheDocument();
     expect(onApplied).not.toHaveBeenCalled();
 
     await userEvent.click(screen.getByRole("button", { name: "Готово" }));
@@ -372,7 +372,7 @@ describe("меню «Действия со схемой» · пункт догр
     await userEvent.click(screen.getByRole("button", { name: "Действия со схемой" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "Догрузить архив" }));
 
-    expect(screen.getByText("Импорт проекта из архива")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Догрузить архив" })).toBeInTheDocument();
     // Пустое окно превью не запрашивает — считать нечего.
     expect(projectsApi.importIntoPreview).not.toHaveBeenCalled();
   });

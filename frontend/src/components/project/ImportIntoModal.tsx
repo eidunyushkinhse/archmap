@@ -1,4 +1,4 @@
-// Модалка «Импорт проекта (zip)» — ДОГРУЗКА полных архивов знания к ЖИВОМУ
+// Модалка «Догрузить архив» — ДОГРУЗКА полных архивов знания к ЖИВОМУ
 // проекту (Ф4, docs/plan-unified-import.md). Кебаб «Действия со схемой» открывает
 // её на любой странице проекта.
 //
@@ -10,7 +10,7 @@
 // (дефолт каждого спора — «оставить моё», его ставит бэк).
 //
 // YAML сюда не кладут принципиально: в существующий проект он заливается синком
-// («Импорт схемы» в том же меню) — там своя механика якорей и политик.
+// («Обновить из кода» в том же меню) — там своя механика якорей и политик.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { IntoApplyOut, IntoPreviewOut } from "../../types";
@@ -44,7 +44,7 @@ interface Props {
 
 // Устаревшее превью — не тупик: план пересчитывается сам, выбор пользователя цел.
 const STALE =
-  "Проект изменился — превью обновлено, проверьте и повторите.";
+  "Проект изменился, проверка обновлена. Посмотрите изменения и примените снова.";
 
 /** Отказ самого превью показываем в той же форме, что и отказ разбора архива. */
 function failedPreview(msg: string): IntoPreviewOut {
@@ -98,7 +98,7 @@ function applySummary(r: IntoApplyOut): string {
     r.config?.params_written && `${r.config.params_written} ${plural(r.config.params_written, ["параметр", "параметра", "параметров"])}`,
     r.processes.length && `${r.processes.length} ${plural(r.processes.length, ["процесс", "процесса", "процессов"])}`,
   ].filter((s): s is string => typeof s === "string");
-  return parts.length ? `Догружено: ${parts.join(", ")}` : "Догрузка завершена: нового не появилось";
+  return parts.length ? `Догружено: ${parts.join(", ")}` : "Догрузка завершена, нового не появилось";
 }
 
 /** Есть ли ради чего применять: новое, спор или хоть один вопрос разбора. */
@@ -213,17 +213,17 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
       boxStyle={{ width: 720, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}
     >
       <div style={head}>
-        <h3 style={{ margin: 0, fontSize: 16.5 }}>Импорт проекта из архива</h3>
+        <h3 style={{ margin: 0, fontSize: 16.5 }}>Догрузить архив</h3>
         <button className="modal-close" onClick={onClose} aria-label="Закрыть">
           <CloseIcon />
         </button>
       </div>
       <p style={sub}>
-        Догрузите к текущему проекту архив другого проекта (или сразу несколько). Схемы
-        смерджатся, вместе с ними перенесутся схемы логики, спецификации, структуры баз и
-        брокеров, конфигурация и процессы. Информация не затрётся без вашего выбора, ничего
-        не удаляется, расположение объектов остаётся на месте. Если вы хотите подгрузить не
-        архив, а YAML к этому проекту, то воспользуйтесь другим пунктом меню: «Импорт схемы».
+        Догрузите к проекту архив другого проекта или сразу несколько. Схемы сольются,
+        вместе с ними перенесутся схемы логики, спецификации, структура баз, каналы
+        брокеров, конфигурация и процессы. Без вашего выбора ничего не перезапишется и не
+        удалится, объекты останутся на своих местах. Файлы YAML загружаются пунктом меню
+        «Обновить из кода».
       </p>
 
       {result ? (
@@ -271,7 +271,7 @@ export default function ImportIntoModal({ projectId, onClose, onApplied }: Props
           </div>
           {drop.error && <p style={{ ...grayLine, color: "#b45309", marginTop: 6 }}>{drop.error}</p>}
 
-          {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что приедет…</p>}
+          {checking && <p style={{ ...grayLine, marginTop: 8 }}>Считаем, что добавится</p>}
           {tooBig && <div style={{ marginTop: 10 }}><FileTooBigNotice {...tooBig} /></div>}
           {/* Не помещается в демо: вместо диффа и вопросов — отказ с полоской. */}
           {excess && (
@@ -349,7 +349,7 @@ function Diff({ preview }: { preview: IntoPreviewOut }) {
         {" · "}
         {preview.edges_new} {plural(preview.edges_new, ["связь", "связи", "связей"])}
       </div>
-      {families && <div style={{ ...grayLine, marginTop: 3 }}>Приедет: {families}</div>}
+      {families && <div style={{ ...grayLine, marginTop: 3 }}>Добавится: {families}</div>}
       {/* Догрузка сопоставляет узлы ЯКОРЕМ, и до Ф2 (docs/plan-anchor-ux.md) она об
           этом молчала — показывала только новое. Самое спорное её решение («это тот
           же объект») теперь названо вслух, вместе с основанием каждой находки. */}
