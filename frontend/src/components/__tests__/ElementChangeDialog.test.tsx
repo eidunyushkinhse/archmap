@@ -119,6 +119,20 @@ describe("окно последствий", () => {
     expect(screen.getByText("«api» получит площадки «orders». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
   });
 
+  // Переносят систему с единицами внутри (как test_перенос_поддерева_в_пустую_систему_с_площадками
+  // на бэкенде): самой её среди получателей нет, подпись называет объекты внутри неё.
+  it("перенос системы с объектами внутри: площадки получают они, а не она", () => {
+    show(preview({
+      kind: "first_child",
+      before: [row("orders", ["prod-eu"]), row("gateway", ["prod-ru"])],
+      after: [row("gateway", ["prod-eu", "prod-ru"]), row("ledger", ["prod-eu"])],
+      container_name: "orders",
+    }), "billing", "orders");
+    expect(screen.getByText("Перенести «billing» в «orders»?")).toBeInTheDocument();
+    expect(screen.getByText("Площадки «orders» получат объекты внутри «billing». Лишние можно убрать на холсте «Развёртывание».")).toBeInTheDocument();
+    expect(screen.queryByText(/^«billing» получит площадки/)).not.toBeInTheDocument();
+  });
+
   it("без имени цели заголовок называет держателя", () => {
     show(preview({
       kind: "first_child",
