@@ -13,7 +13,15 @@ import type { History } from "./interaction/useHistory";
 
 // Живой снимок версий конкурентности (этап 0/1, docs/archive/plan-concurrency.md):
 // version — fence вида, graphRev — курсор изменений проекта.
-export type ViewMetaState = { version: number; graphRev: number; metaRev?: number };
+// refreshing — своя мутация уже подняла версию вида (создание объекта), а свежая версия
+// придёт с перечитыванием уровня: записи раскладки ждут его, прежде чем читать version
+// (V47б). Промис не отклоняется; снимок из ответа GET графа его снимает.
+export type ViewMetaState = {
+  version: number;
+  graphRev: number;
+  metaRev?: number;
+  refreshing?: Promise<void>;
+};
 // Ссылка на живой снимок: страница тихо обновляет его после СВОИХ записей
 // (echo-suppression, V53), холст и поллинг читают.
 export type ViewMetaRef = { current: ViewMetaState };

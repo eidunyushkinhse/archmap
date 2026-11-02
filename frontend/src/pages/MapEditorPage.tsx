@@ -629,7 +629,11 @@ export default function MapEditorPage({ projectId, nodeId, locateNodeId, onDone,
       // сессией (ложный тост «Схема обновлена в другой сессии» + принудительный
       // пересчёт, обрывающий анимацию окна мутаций). load обновляет курсор и
       // даёт авторитетное состояние с сервера.
-      load(currentParentId);
+      // Создание подняло и версию вида: запись раскладки, которую конвейер сделает
+      // до ответа GET графа, ждёт его и уходит со свежей версией, а не ловит
+      // самоконфликт 409 со старой (V47б). Снимок из ответа load снимает ожидание.
+      const refreshing = load(currentParentId).then(() => undefined, () => undefined);
+      viewMetaRef.current = { ...viewMetaRef.current, refreshing };
       setTreeReload((t) => t + 1);
       const levelAtCreate = currentParentId;
       // Откат/повтор создания в рамке отдельного канала не требует: load бампает

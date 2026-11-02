@@ -25,6 +25,10 @@
 // анимации раскрытия; репро: spawn-probe --relayout-first --slow-layout —
 // после «Переразложить» массовый derived-засев уровня висит в полёте, а клик
 // раскрытия уезжает с той же версией). Fence остаётся против ЧУЖИХ сессий.
+// Та же беда со СВОЕЙ мутацией вне батча (V47б): создание объекта поднимает версию вида,
+// а конвейер успевает записать производную раскладку раньше ответа GET графа. Пока
+// страница перечитывает уровень (viewMeta.refreshing), задача очереди ждёт его и берёт
+// версию из ответа, иначе ушла бы со старой и словила бы самоконфликт 409 и ресинк.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { viewsApi } from "../../../api/nodes";
 import { isConflict } from "../../../api/client";
@@ -91,26 +95,36 @@ export function useLevelPersistence({
       origin: CommitOrigin,
       isRetry: boolean,
     ): void => {
-      persistChainRef.current = persistChainRef.current.then(() =>
-        viewsApi
-          .saveLayout(containerId, items, viewMeta?.current.version)
-          .then((res) => {
-            if (viewMeta) viewMeta.current = { version: res.version, graphRev: res.graph_rev };
-            setPersistFailed(false);
-          })
-          .catch((e: unknown) => {
-            console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
-            if (
-              planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
-              onPersistConflict
-            ) {
-              onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
-              return;
-            }
-            setPersistFailed(true);
-            void onPersistError?.(e);
-          }),
-      );
+      persistChainRef.current = persistChainRef.current
+        .then(() => viewMeta?.current.refreshing)
+        .then(() =>
+          viewsApi
+            .saveLayout(containerId, items, viewMeta?.current.version)
+            .then((res) => {
+              // Ожидание перечитывания уровня переживает ответ записи, начатой ДО
+              // мутации: снимает его только сам ответ GET графа.
+              if (viewMeta) {
+                viewMeta.current = {
+                  version: res.version,
+                  graphRev: res.graph_rev,
+                  refreshing: viewMeta.current.refreshing,
+                };
+              }
+              setPersistFailed(false);
+            })
+            .catch((e: unknown) => {
+              console.error("Запись раскладки не прошла — ресинхронизирую уровень из БД", e);
+              if (
+                planPersistFailure(isConflict(e), origin, isRetry) === "retry-after-resync" &&
+                onPersistConflict
+              ) {
+                onPersistConflict(patch); // ресинк + возврат патча пропом — наверху
+                return;
+              }
+              setPersistFailed(true);
+              void onPersistError?.(e);
+            }),
+        );
     },
     [containerId, onPersistError, onPersistConflict, viewMeta],
   );

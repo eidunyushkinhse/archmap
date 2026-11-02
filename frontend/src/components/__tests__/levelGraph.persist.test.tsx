@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import type { ViewLayoutPayload } from "../../types";
+import type { ViewMetaRef } from "../graph/types";
 import { ApiError } from "../../api/client";
 import LevelGraph from "../LevelGraph";
 import {
@@ -87,6 +88,47 @@ describe("LevelGraph orchestration: персист раскладки", () => {
     );
     // Ответ сервера обновляет живой снимок версий.
     expect(meta.current.version).toBe(2); // mock saveLayout → version: 2
+  });
+
+  it("своя мутация подняла версию вида: запись ждёт перечитывания уровня и уходит с его версией (V47б)", async () => {
+    // Создание объекта: версия вида уже 5 на сервере, у страницы ещё 4, GET графа в полёте.
+    let landed: () => void = () => {};
+    const meta: ViewMetaRef = {
+      current: { version: 4, graphRev: 0, refreshing: new Promise<void>((r) => { landed = r; }) },
+    };
+    await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: meta } });
+
+    expect(getCb().commitLayout({ n1: { x: 10, y: 20 } }, "derived")).toBe(true);
+    await flushPersist();
+    // Со старой версией запись не уходит: ловила бы самоконфликт 409 и ресинк.
+    expect(apiNodesMock.viewsApi.saveLayout).not.toHaveBeenCalled();
+
+    // Ответ GET графа: страница кладёт свежий снимок и отпускает ожидание.
+    meta.current = { version: 5, graphRev: 1 };
+    landed();
+    await flushPersist();
+    expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledOnce();
+    expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledWith(null, { n1: { x: 10, y: 20 } }, 5);
+  });
+
+  it("ответ записи, начатой до мутации, ожидание перечитывания не снимает", async () => {
+    const meta: ViewMetaRef = viewMeta(4);
+    let reply: (r: { version: number; graph_rev: number }) => void = () => {};
+    apiNodesMock.viewsApi.saveLayout.mockImplementationOnce(
+      () => new Promise((r) => { reply = r; }),
+    );
+    await renderGraph({ persistence: { ...baseProps().persistence, viewMeta: meta } });
+    getCb().commitLayout({ n1: { x: 10, y: 20 } });
+    await flushPersist();
+    expect(apiNodesMock.viewsApi.saveLayout).toHaveBeenCalledOnce();
+
+    // Мутация случилась, пока запись в полёте; её ответ приходит позже.
+    const refreshing = new Promise<void>(() => {});
+    meta.current = { ...meta.current, refreshing };
+    reply({ version: 5, graph_rev: 1 });
+    await flushPersist();
+    expect(meta.current.version).toBe(5);
+    expect(meta.current.refreshing).toBe(refreshing);
   });
 
   it("дедуп: патч, идентичный зеркалу, не пишет и не дёргает родителя", async () => {

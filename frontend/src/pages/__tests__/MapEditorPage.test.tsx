@@ -10,6 +10,7 @@ import MapEditorPage from "../MapEditorPage";
 import { nodesApi } from "../../api/nodes";
 import { ProjectRoleContext } from "../projectRole";
 import type { Node, ProjectRole } from "../../types";
+import type { ViewMetaRef } from "../../components/graph/types";
 
 // Право правки — роль в проекте, её раздаёт гейт маршрутов (ProjectAccessGate)
 // контекстом. Тесты рендерят редактор внутри провайдера с ролью role.current.
@@ -101,11 +102,14 @@ vi.mock("../../components/inspector/ObjectInspector", () => ({
 }));
 vi.mock("../../components/CrossLevelEdgePicker", () => ({ default: () => null }));
 vi.mock("../../components/EdgeQuickCreate", () => ({ default: () => null }));
-// Окно «Новый объект»: заглушка показывает, с каким родителем и шаблоном его открыли.
+// Окно «Новый объект»: заглушка показывает, с каким родителем и шаблоном его открыли, и
+// отдаёт наружу onSaved (создание без настоящей формы).
+const nodeModalProps = vi.hoisted(() => ({ current: {} as Record<string, unknown> }));
 vi.mock("../../components/NodeModal", () => ({
-  default: ({ parentId, type }: { parentId: string | null; type?: string }) => (
-    <div data-testid="node-modal" data-parent={parentId ?? ""} data-type={type ?? ""} />
-  ),
+  default: (p: { parentId: string | null; type?: string }) => {
+    nodeModalProps.current = p;
+    return <div data-testid="node-modal" data-parent={p.parentId ?? ""} data-type={p.type ?? ""} />;
+  },
 }));
 vi.mock("../../components/NodeDeleteConfirm", () => ({ default: () => null }));
 vi.mock("../../components/NodesDeleteConfirm", () => ({ default: () => null }));
@@ -383,6 +387,38 @@ describe("MapEditorPage: создание объекта", () => {
     const modal = screen.getByTestId("node-modal");
     expect(modal).toHaveAttribute("data-parent", "box");
     expect(modal).toHaveAttribute("data-type", "component");
+  });
+
+  it("создание поднимает версию вида: запись раскладки ждёт ответа load() и берёт его версию (V47б)", async () => {
+    vi.mocked(nodesApi.getGraph).mockResolvedValueOnce(graph({ version: 3 }) as never);
+    render(<MapEditorPage {...props} nodeId={null} />);
+    await screen.findByTestId("level-graph");
+    const meta = (levelGraphProps.current!.persistence as { viewMeta: ViewMetaRef }).viewMeta;
+    expect(meta.current.version).toBe(3);
+
+    // Перечитывание уровня после создания висит, пока тест не ответит.
+    let answer: (g: unknown) => void = () => {};
+    vi.mocked(nodesApi.getGraph).mockReturnValueOnce(new Promise((r) => { answer = r; }) as never);
+    const drop = levelGraphProps.current!.drop as { onDropNode: (s: string, p: { x: number; y: number }, d: string | null) => void };
+    act(() => { drop.onDropNode("container", { x: 10, y: 20 }, null); });
+    const onSaved = nodeModalProps.current.onSaved as (n: Node, isCreate: boolean) => void;
+    act(() => { onSaved(node("new1"), true); });
+
+    // Объект уже на холсте (оптимистично), версия вида у страницы ещё старая, и записи
+    // раскладки ждут ответа: со старой версией они ловили бы самоконфликт 409.
+    expect((levelGraphProps.current!.nodes as Node[]).map((n) => n.id)).toContain("new1");
+    const gate = meta.current.refreshing;
+    expect(gate).toBeInstanceOf(Promise);
+    expect(meta.current.version).toBe(3);
+    let released = false;
+    void gate!.then(() => { released = true; });
+    await act(async () => { await Promise.resolve(); });
+    expect(released).toBe(false);
+
+    await act(async () => { answer(graph({ version: 4 })); });
+    await waitFor(() => expect(released).toBe(true));
+    expect(meta.current.version).toBe(4);
+    expect(meta.current.refreshing).toBeUndefined();
   });
 
   it("драг плитки палитры — тип уходит холсту для превью", async () => {
