@@ -213,7 +213,7 @@ describe("ConfigParamsSection", () => {
     expect(await screen.findByText("Описать конфигурацию с помощью ИИ-агента")).toBeInTheDocument();
     // И честно предупреждает, что значения в ArchMap не едут, — ДО запуска агента на
     // репозиторий с .env, а не после.
-    expect(screen.getByText(/вернет список параметров конфигурации по коду/)).toBeInTheDocument();
+    expect(screen.getByText(/найдёт в коде параметры конфигурации/)).toBeInTheDocument();
   });
 });
 

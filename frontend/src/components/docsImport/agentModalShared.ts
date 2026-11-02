@@ -5,6 +5,7 @@
 // (ItemList/NoteList) — в agentModalReport.tsx (требование react-refresh:
 // файл экспортирует только компоненты).
 import { useState } from "react";
+import { plural } from "../../ui/plural";
 import type { CSSProperties } from "react";
 
 // Бейдж действия превью/применения (action из отчёта бэка)
@@ -12,7 +13,7 @@ export const ACTION_LABEL: Record<string, string> = {
   create: "новая",
   // Заполнение ЗАГЛУШКИ разведки (пустая схема): безопасно и галки не требует —
   // отличать от настоящей перезаписи пользователь обязан с одного взгляда.
-  fill: "заполнит заглушку",
+  fill: "опишет неописанную схему",
   overwrite: "перезапись",
   skip: "пропуск (занято)",
   unchanged: "без изменений",
@@ -58,9 +59,12 @@ export async function checkMermaid(
       hidden += 1;
       return;
     }
-    remarks.push(`${row.source}: mermaid не парсится — ${err.split("\n")[0].trim()}`);
+    remarks.push(`${row.source}: схема не читается как Mermaid. ${err.split("\n")[0].trim()}`);
   });
-  if (hidden > 0) remarks.push(`…ещё ${hidden} схем не парсятся`);
+  if (hidden > 0) {
+    const n = plural(hidden, ["схема не читается", "схемы не читаются", "схем не читаются"]);
+    remarks.push(`и ещё ${hidden} ${n} как Mermaid`);
+  }
   return { errs, remarks };
 }
 

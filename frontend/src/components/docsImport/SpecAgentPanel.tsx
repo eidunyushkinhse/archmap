@@ -122,7 +122,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
 
       {/* Отчёт превью / применения */}
       <div style={{ marginTop: 10, minHeight: 20 }}>
-        {checking && <div style={grayLine}>Проверяю пакет…</div>}
+        {checking && <div style={grayLine}>Проверяем файлы</div>}
         {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
             повторится, и чинить надо не его, а разговор с агентом. */}
         {repeatedInput && <UnchangedInputNote />}
@@ -154,7 +154,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
               text: `«${s.node_path}» · ${s.source}${s.oas_version ? ` · OAS ${s.oas_version}` : ""}`,
               badge: `${ACTION_LABEL[s.action] ?? s.action}${s.origin ? ` · ${s.origin}` : ""}`,
               bad: !s.valid_yaml
-                ? "невалидный YAML"
+                ? "YAML не читается"
                 : s.origin === "synthesized"
                   ? "синтезирована из кода — проверьте глазами"
                   : !s.looks_openapi ? "не похожа на OpenAPI" : null,
@@ -189,7 +189,7 @@ export default function SpecAgentPanel({ nodeId, onApplied }: Props) {
           disabled={!willWrite || applying}
           onClick={apply}
         >
-          {applying ? "Применяю…" : "Применить"}
+          {applying ? "Применяем" : "Применить"}
         </button>
       </div>
     </div>

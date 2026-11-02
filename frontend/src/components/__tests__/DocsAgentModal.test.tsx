@@ -1,4 +1,4 @@
-// Окно «Описать логику с помощью агента»: дифф числа пометок между попытками и
+// Окно «Описать схемы логики с помощью ИИ-агента»: дифф числа пометок между попытками и
 // запрет удалять пометки в тексте замечаний.
 //
 // Оба — лечение находки №2 полевого QA (docs/qa-sentry-brokers.md): по списку из
@@ -90,7 +90,7 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     expect(screen.getByText(/Пометок каналов было 29 → стало 26/)).toBeInTheDocument();
     // Подсказка называет причину, а не только числа: иначе она читается как норма.
     expect(
-      screen.getAllByText(/агент мог удалить их вместо починки/).length,
+      screen.getAllByText(/не удалил ли агент пометки вместо того, чтобы исправить их/).length,
     ).toBe(2);
   });
 
@@ -193,12 +193,12 @@ describe("DocsAgentModal · дифф пометок между попыткам�
     await вставить("graph TD");
     await попытка(report({ warnings: ["замечание бэка"] }), " A");
 
-    expect(await screen.findByText(/Не парсятся mermaid: 1 из 1 схем/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 из 1 схем не читаются как Mermaid/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const текст = writeText.mock.calls[0][0];
-    expect(текст).toContain("вставка-1: mermaid не парсится — Parse error on line 7:");
+    expect(текст).toContain("вставка-1: схема не читается как Mermaid. Parse error on line 7:");
     // Замечание бэка при этом не потерялось — списки складываются.
     expect(текст).toContain("замечание бэка");
   });
@@ -237,7 +237,7 @@ describe("DocsAgentModal · режим «по одной»", () => {
 
 // ── Заполнение заглушек разведки ────────────────────────────────────────────
 // Заглушка занимает слот, но работы в ней нет: пакет из одних заполнений обязан
-// применяться БЕЗ галки «Обновлять готовые диаграммы» — иначе единственный путь
+// применяться БЕЗ галки «Заменять уже описанное» — иначе единственный путь
 // наружу требовал бы снять предохранитель, разрешив заодно затирать настоящие схемы.
 describe("DocsAgentModal · заглушки разведки", () => {
   beforeEach(() => {
@@ -260,10 +260,10 @@ describe("DocsAgentModal · заглушки разведки", () => {
     );
 
     // Подпись действия отличает безопасное заполнение от настоящей перезаписи.
-    expect(screen.getByText("заполнит заглушку")).toBeInTheDocument();
+    expect(screen.getByText("опишет неописанную схему")).toBeInTheDocument();
     const применить = screen.getByText("Применить");
     expect(применить).not.toBeDisabled();
-    expect(screen.getByText(/заглушек 1/)).toBeInTheDocument();
+    expect(screen.getByText(/заполнение неописанных 1/)).toBeInTheDocument();
 
     await userEvent.click(применить);
     await waitFor(() => expect(docsImportApi.apply).toHaveBeenCalled());
@@ -284,7 +284,7 @@ describe("DocsAgentModal · заглушки разведки", () => {
 
     await userEvent.click(screen.getByText("Применить"));
     await waitFor(() =>
-      expect(screen.getByText(/заполнено заглушек\s*7/)).toBeInTheDocument(),
+      expect(screen.getByText(/неописанных схем заполнено\s*7/)).toBeInTheDocument(),
     );
     expect(screen.getByText(/перезаписано 0/)).toBeInTheDocument();
   });

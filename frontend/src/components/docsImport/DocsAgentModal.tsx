@@ -62,18 +62,17 @@ export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }:
   return (
     <Modal onClose={onClose} closeButton={false} boxStyle={{ width: 1060, maxWidth: "calc(100vw - 48px)", maxHeight: "92vh", overflowY: "auto" }}>
       <div style={head}>
-        <h2 style={{ margin: 0, fontSize: 17 }}>Описать логику с помощью агента</h2>
+        <h2 style={{ margin: 0, fontSize: 17 }}>Описать схемы логики с помощью ИИ-агента</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        ИИ-агент поможет дополнить документацию объекта «{nodeName}» логическими диаграммами
-        в Mermaid. Скопируйте промпт, запустите своим агентом в репозитории сервиса и загрузите
-        сюда полученные файлы пакета archmap-docs/.
+        ИИ-агент опишет по коду схемы логики объекта «{nodeName}». Скопируйте промпт,
+        запустите его своим агентом в репозитории и загрузите сюда файлы, которые он создаст.
       </p>
 
       {/* Переключатель режимов */}
       <div style={segWrap}>
-        <div style={seg} role="tablist" aria-label="Режим дозаливки">
+        <div style={seg} role="tablist" aria-label="Как описывать">
           <button type="button" role="tab" aria-selected={mode === "batch"} style={mode === "batch" ? segBtnOn : segBtn} onClick={() => setMode("batch")}>
             Пакетом
           </button>
@@ -111,7 +110,7 @@ export default function DocsAgentModal({ nodeId, nodeName, onClose, onApplied }:
               <input type="radio" checked={lang === "ru"} onChange={() => setLang("ru")} /> Русский
             </label>
             <label style={radioRow}>
-              <input type="radio" checked={lang === "en"} onChange={() => setLang("en")} /> English
+              <input type="radio" checked={lang === "en"} onChange={() => setLang("en")} /> Английский
             </label>
           </div>
 

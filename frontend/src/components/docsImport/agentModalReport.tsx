@@ -64,13 +64,13 @@ export function StaleFilesConfirm({ onKeep, onClear, text, clearLabel }: {
   return (
     <div style={confirmBox}>
       <span style={{ color: "#475569" }}>
-        {text ?? "Агент вернёт исправленную версию — текущие файлы в панели устареют. Оставить их?"}
+        {text ?? "Агент пришлёт исправленные файлы, и те, что сейчас в окне, станут не нужны. Оставить их?"}
       </span>
       <button type="button" className="btn-soft" style={confirmBtn} onClick={onKeep}>
         Оставить
       </button>
       <button type="button" className="btn-soft" style={confirmBtn} onClick={onClear}>
-        {clearLabel ?? "Убрать из панели"}
+        {clearLabel ?? "Убрать из окна"}
       </button>
     </div>
   );

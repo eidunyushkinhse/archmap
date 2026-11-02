@@ -36,8 +36,8 @@ import { useToast } from "../../pages/useToast";
 // Группы превью — в порядке «что сделаем → что уже есть → расхождение». Подписи
 // русские и говорят действием, а не кодом: человек читает их, а не Literal бэка.
 const GROUPS: { action: ReconAction; title: string; note?: string }[] = [
-  { action: "create", title: "Создадим заглушки" },
-  { action: "unchanged", title: "Заглушки уже есть" },
+  { action: "create", title: "Создадим неописанные схемы" },
+  { action: "unchanged", title: "Неописанные схемы уже есть" },
   {
     action: "described",
     title: "Уже описаны — не тронем",
@@ -46,7 +46,7 @@ const GROUPS: { action: ReconAction; title: string; note?: string }[] = [
   {
     action: "vanished",
     title: "Есть в документации, но не найдено в коде",
-    note: "Ничего не удаляем — это показ расхождения. Схему уберёт человек, если сочтёт нужным.",
+    note: "ArchMap ничего не удаляет. Если схема больше не нужна, удалите её сами.",
   },
 ];
 
@@ -212,11 +212,10 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
       <p style={sub}>
-        ArchMap различает два типа логических схем: воркеры (работают регулярно) и операции
-        (работают по запросу). Чтобы ваш ИИ-агент мог задокументировать каждую схему
-        сервиса, сначала нужно собрать их список. Запустите агента с этим промптом в
-        репозитории сервиса «{nodeName}», он проведет разведку и вернет перечень всех
-        воркеров и операций.
+        Схемы логики бывают двух видов: операции (работают по запросу) и воркеры (работают
+        сами, в фоне или по расписанию). Чтобы агент описал каждую, сначала нужен их список.
+        Запустите агента с этим промптом в репозитории «{nodeName}», и он перечислит все
+        операции и воркеры.
       </p>
 
       <div style={cols}>
@@ -268,8 +267,8 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
               />
             ) : (
               <button type="button" style={dropHint} onClick={() => fileRef.current?.click()}>
-                Перетащите сюда перечень, который подготовил агент, или нажмите, чтобы
-                выбрать его на диске. Содержимое можно и вставить текстом.
+                Перетащите сюда список операций и воркеров, который подготовил агент, или
+                нажмите, чтобы выбрать его на диске. Содержимое можно и вставить текстом.
               </button>
             )}
           </div>
@@ -277,23 +276,23 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
           {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
-            {checking && <div style={grayLine}>Проверяю перечень…</div>}
+            {checking && <div style={grayLine}>Проверяем список</div>}
             {/* Вход тот же, что в прошлый заход, — заметка над сводкой. */}
             {repeatedInput && <UnchangedInputNote />}
             {!checking && report !== null && report.applied && (
               <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-                Применено: заглушек создано {report.created}.
+                Применено: неописанных схем создано {report.created}.
               </div>
             )}
             {!checking && report !== null && !report.applied && report.errors.length === 0 && (
               <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
-                Точек входа в перечне: {listedCount} (новых {createCount})
+                Операций и воркеров в списке: {listedCount} (новых {createCount})
                 {report.node_path && <span style={{ fontWeight: 400, color: "#64748b" }}> · объект «{report.node_path}»</span>}
               </div>
             )}
             {!checking && report !== null && report.errors.length > 0 && (
               <div style={{ fontSize: 12.5, color: "#dc2626" }}>
-                <div style={{ fontWeight: 600, marginBottom: 3 }}>Перечень не применить:</div>
+                <div style={{ fontWeight: 600, marginBottom: 3 }}>Список не применить:</div>
                 {report.errors.slice(0, 6).map((e, i) => <div key={i} style={{ marginTop: 2 }}>{e}</div>)}
                 {report.errors.length > 6 && <div>…ещё {report.errors.length - 6}</div>}
               </div>
@@ -323,7 +322,7 @@ export default function ReconAgentModal({ nodeId, nodeName, onClose, onApplied }
               style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
               disabled={!willWrite || applying}
               onClick={apply}>
-              {applying ? "Применяю…" : "Применить"}
+              {applying ? "Применяем" : "Применить"}
             </button>
           </div>
         </div>

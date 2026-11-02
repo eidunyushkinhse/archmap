@@ -22,6 +22,7 @@ import PromptCopyButton from "./PromptCopyButton";
 import Modal from "../../ui/Modal";
 import { CloseIcon } from "../../ui/icons";
 import { primaryBtn, secondaryBtn } from "../../ui/styles";
+import InfoPopover from "../../ui/InfoPopover";
 import { noAutofill } from "../../ui/noAutofill";
 import { copyText, copyTextOrShow } from "../../lib/copyText";
 import { useToast } from "../../pages/useToast";
@@ -44,9 +45,11 @@ export interface FactAgentKind<R extends FactReport> {
     apply: (p: DataImportParams) => Promise<R>;
   };
   title: string;
-  // Подзаголовок: где запускать агента и куда уедут записи без адреса.
+  // Подзаголовок: где запускать агента (и куда уедут записи без адреса).
   intro: (nodeName: string) => ReactNode;
-  // Пояснение под тумблером «Перезаписывать заполненное».
+  // Механика за «?» в конце подзаголовка: адрес «# archmap-node:» и слияние файлов.
+  help?: (nodeName: string) => ReactNode;
+  // Пояснение под тумблером «Заменять уже описанное».
   overwriteNote: ReactNode;
   // «Валидатор дозаливки {remarksFamily} ArchMap…» и «{remarksItems} чини по замечаниям…».
   remarksFamily: string;
@@ -170,7 +173,18 @@ export default function FactAgentModal<R extends FactReport>({
         <h2 style={{ margin: 0, fontSize: 17 }}>{kind.title}</h2>
         <button onClick={onClose} className="modal-close" aria-label="Закрыть"><CloseIcon /></button>
       </div>
-      <p style={sub}>{kind.intro(nodeName)}</p>
+      {/* div, а не p: панель «?» — блок, а блок внутри абзаца HTML не допускает. */}
+      <div style={sub}>
+        {kind.intro(nodeName)}
+        {kind.help && (
+          <>
+            {" "}
+            <InfoPopover label="Как ArchMap разбирает файлы" width={380}>
+              {kind.help(nodeName)}
+            </InfoPopover>
+          </>
+        )}
+      </div>
 
       <div style={cols}>
         <div style={leftCol}>
@@ -182,7 +196,7 @@ export default function FactAgentModal<R extends FactReport>({
           />
           <label style={{ ...radioRow, marginTop: 14 }}>
             <input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />
-            Перезаписывать заполненное
+            Заменять уже описанное
           </label>
           <p style={leftNote}>{kind.overwriteNote}</p>
         </div>
@@ -235,7 +249,7 @@ export default function FactAgentModal<R extends FactReport>({
           {pkg.sizeError && <p style={{ ...grayLine, color: "#b91c1c", marginTop: 6 }}>{pkg.sizeError}</p>}
 
           <div style={{ marginTop: 10, minHeight: 20 }}>
-            {checking && <div style={grayLine}>Проверяю пакет…</div>}
+            {checking && <div style={grayLine}>Проверяем файлы</div>}
             {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
                 повторится, и чинить надо не его, а разговор с агентом. */}
             {repeatedInput && <UnchangedInputNote />}
@@ -280,7 +294,7 @@ export default function FactAgentModal<R extends FactReport>({
               style={{ ...primaryBtn, opacity: willWrite && !applying ? 1 : 0.55 }}
               disabled={!willWrite || applying}
               onClick={apply}>
-              {applying ? "Применяю…" : "Применить"}
+              {applying ? "Применяем" : "Применить"}
             </button>
           </div>
         </div>

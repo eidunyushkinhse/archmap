@@ -96,8 +96,8 @@ describe("DataAgentModal", () => {
     );
     open();
     expect(screen.getByText("Описать структуру с помощью ИИ-агента")).toBeInTheDocument();
-    // Адресация названа точно: к объекту окна уедет файл БЕЗ «# archmap-node:».
-    expect(screen.getByText(/без адреса .* приедут к объекту «Хранилище»/)).toBeInTheDocument();
+    // Куда уедет файл без указания объекта, сказано на виду; синтаксис адреса — за «?».
+    expect(screen.getByText(/Таблицы без указания объекта попадут к «Хранилище»/)).toBeInTheDocument();
     await вставить("tables:");
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(screen.getByText(/Таблиц: 1/)).toBeInTheDocument());
@@ -146,7 +146,7 @@ describe("DataAgentModal", () => {
     await userEvent.click(screen.getByText("Скопировать замечания для агента"));
     await waitFor(() => expect(screen.getByText(/Оставить их\?/)).toBeInTheDocument());
 
-    await userEvent.click(screen.getByText("Убрать из панели"));
+    await userEvent.click(screen.getByText("Убрать из окна"));
     // Пакета в панели нет: ни чипа файла, ни редактора — снова зона приёма.
     expect(screen.queryByPlaceholderText("вставьте содержимое файла")).toBeNull();
     expect(screen.queryByText("вставка-1")).toBeNull();
@@ -177,7 +177,7 @@ describe("DataAgentModal", () => {
     vi.mocked(dataImportApi.preview).mockResolvedValue(report({ tables: [table()] }));
     open();
     await вставить("tables:");
-    await userEvent.click(screen.getByLabelText(/Перезаписывать заполненное/));
+    await userEvent.click(screen.getByLabelText(/Заменять уже описанное/));
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(
       vi.mocked(dataImportApi.preview).mock.calls.at(-1)?.[0].overwrite,

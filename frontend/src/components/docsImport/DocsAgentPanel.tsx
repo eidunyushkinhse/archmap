@@ -2,7 +2,7 @@
 // превью (dry-run), отчёт и применение. Вынесена из DocsAgentModal, чтобы жить в
 // двух окнах:
 //   • модалка «Доки от агента» (DocsAgentModal) — «Пакетом» и «По одной схеме»:
-//     галка «Обновлять готовые диаграммы», имя и вид правятся в строках превью;
+//     галка «Заменять уже описанное», имя и вид правятся в строках превью;
 //   • окно одной схемы (DocOverlay → «Изменить → Через ИИ-агента», режим «doc»):
 //     пакет ОБНОВЛЯЕТ открытую схему — имя принудительно её (поле overrides),
 //     перезапись разрешена: человек сам выбрал «изменить эту схему».
@@ -310,7 +310,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
 
       {/* Отчёт превью / применения */}
       <div style={{ marginTop: 10, minHeight: 20 }}>
-        {checking && <div style={grayLine}>Проверяю пакет…</div>}
+        {checking && <div style={grayLine}>Проверяем файлы</div>}
         {/* Вход тот же, что в прошлый заход, — заметка над сводкой: замечание
             повторится, и чинить надо не его, а разговор с агентом. */}
         {repeatedInput && <UnchangedInputNote />}
@@ -318,23 +318,23 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
             попытками — НАД сводкой, до зелёного «Схем: N». */}
         {!checking && shrank.map((line) => (
           <div key={line} style={shrankLine}>
-            {line} Проверьте: агент мог удалить их вместо починки
+            {line} Проверьте, не удалил ли агент пометки вместо того, чтобы исправить их
           </div>
         ))}
         {/* Непарсящиеся схемы — строкой НАД сводкой, а не только значком ✗ в
             строке файла: в пакете на три десятка схем значок в списке теряется,
             и пакет применяют целиком (полевая находка Zulip v2). Применение не
             блокируем: схема с битым mermaid — всё ещё текст, который правят. */}
-        {!checking && mmdPending && <div style={grayLine}>Проверяю схемы mermaid…</div>}
+        {!checking && mmdPending && <div style={grayLine}>Проверяем схемы</div>}
         {!checking && report !== null && mmdBroken > 0 && (
           <div style={shrankLine}>
-            Не парсятся mermaid: {mmdBroken} из {report.logic.length} схем — применение
-            их не оживит, почините пакет и загрузите снова
+            {mmdBroken} из {report.logic.length} схем не читаются как Mermaid. Исправьте эти
+            файлы и загрузите их снова.
           </div>
         )}
         {!checking && report !== null && report.applied && (
           <div style={{ fontSize: 13, fontWeight: 600, color: "#15803d" }}>
-            Применено: схем создано {report.created_docs}, заполнено заглушек{" "}
+            Применено: схем создано {report.created_docs}, неописанных схем заполнено{" "}
             {report.filled_docs}, перезаписано {report.updated_docs}.
           </div>
         )}
@@ -346,7 +346,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
           ) : (
             <div style={{ fontSize: 13, fontWeight: 600, color: willWrite ? "#15803d" : "#475569" }}>
               Схем: {report.logic.length} (новых {countAction(report.logic, "create")},
-              заглушек {countAction(report.logic, "fill")},
+              заполнение неописанных {countAction(report.logic, "fill")},
               перезапись {countAction(report.logic, "overwrite")}, пропуск {countAction(report.logic, "skip")},
               без изменений {countAction(report.logic, "unchanged")})
             </div>
@@ -430,10 +430,10 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
         {docName === null && (
           <label
             style={{ ...radioRow, marginRight: "auto" }}
-            title="Если имя схемы от агента совпадёт с именем схемы, задокументированной в ArchMap, сервис по умолчанию пропустит её. Поставьте галочку, чтобы новые схемы автоматически перезаписывали старые"
+            title="Если в ArchMap уже есть схема с таким именем, новая по умолчанию пропускается. Отметьте, чтобы новые схемы заменяли старые"
           >
             <input type="checkbox" checked={overwriteFlag} onChange={(e) => setOverwriteFlag(e.target.checked)} />
-            Обновлять готовые диаграммы
+            Заменять уже описанное
           </label>
         )}
         {mode.kind === "single" ? (
@@ -448,7 +448,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
               Добавить ещё
             </button>
             <button type="button" style={applyStyle} disabled={!willWrite || applying} onClick={() => apply(false)}>
-              {applying ? "Применяю…" : "Добавить"}
+              {applying ? "Применяем" : "Добавить"}
             </button>
           </>
         ) : (
@@ -458,7 +458,7 @@ export default function DocsAgentPanel({ nodeId, mode, onApplied }: Props) {
             disabled={!willWrite || applying}
             onClick={() => apply(false)}
           >
-            {applying ? "Применяю…" : "Применить"}
+            {applying ? "Применяем" : "Применить"}
           </button>
         )}
       </div>

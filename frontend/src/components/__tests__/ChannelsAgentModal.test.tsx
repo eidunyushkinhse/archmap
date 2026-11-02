@@ -67,9 +67,11 @@ describe("ChannelsAgentModal", () => {
     // не работает, — поэтому правило стоит в подзаголовке, до кнопки промпта.
     open();
     expect(screen.getByText("Описать каналы с помощью ИИ-агента")).toBeInTheDocument();
-    expect(screen.getByText(/КАЖДОМ репозитории, который ходит в брокер/)).toBeInTheDocument();
-    // Адресация названа точно: к объекту окна уедет файл БЕЗ «# archmap-node:».
-    expect(screen.getByText(/без\s+адреса .* приедут к объекту «Шина»/)).toBeInTheDocument();
+    expect(screen.getByText(/в каждом таком репозитории и загрузите сюда все файлы/)).toBeInTheDocument();
+    // Адресация названа точно, но за «?»: к объекту окна уедет файл БЕЗ «# archmap-node:».
+    expect(screen.queryByText(/archmap-node/)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Как ArchMap разбирает файлы" }));
+    expect(screen.getByText(/без такой строки попадут к объекту «Шина»/)).toBeInTheDocument();
   });
 
   it("пакет с ошибками применить нельзя", async () => {
@@ -129,7 +131,7 @@ describe("ChannelsAgentModal", () => {
     vi.mocked(channelsImportApi.preview).mockResolvedValue(report({ channels: [channel()] }));
     open();
     await вставить("channels:");
-    await userEvent.click(screen.getByLabelText(/Перезаписывать заполненное/));
+    await userEvent.click(screen.getByLabelText(/Заменять уже описанное/));
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(
       vi.mocked(channelsImportApi.preview).mock.calls.at(-1)?.[0].overwrite,

@@ -31,7 +31,7 @@ describe("checkMermaid · замечания о непарсящихся схе�
     // В первой строке парсера есть номер строки — по нему агент чинит за один заход
     // (тот же приём, что закрыл классы битого YAML).
     expect(remarks).toEqual([
-      "01-create-order.mmd: mermaid не парсится — Parse error on line 7:",
+      "01-create-order.mmd: схема не читается как Mermaid. Parse error on line 7:",
     ]);
     // Ошибки по схемам остаются отдельно: из них рисуется значок ✗ в строке файла.
     expect(errs).toEqual([ОШИБКА, null]);
@@ -57,7 +57,7 @@ describe("checkMermaid · замечания о непарсящихся схе�
     const { remarks } = await checkMermaid(пакет, () => Promise.resolve(ОШИБКА));
 
     expect(remarks).toHaveLength(MAX_MERMAID_REMARKS + 1);
-    expect(remarks[MAX_MERMAID_REMARKS]).toBe("…ещё 3 схем не парсятся");
+    expect(remarks[MAX_MERMAID_REMARKS]).toBe("и ещё 3 схемы не читаются как Mermaid");
   });
 });
 

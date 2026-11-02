@@ -58,8 +58,8 @@ describe("ReconAgentModal", () => {
   afterEach(() => vi.useRealTimers());
 
   it("окно названо по семье — «Составить список операций с помощью ИИ-агента»", () => {
-    // Форма заголовка — общая с четырьмя соседними окнами («Описать логику с помощью
-    // агента» и прочие), а первые три слова дословно совпадают с пунктом меню:
+    // Форма заголовка — общая с четырьмя соседними окнами («Описать схемы логики с
+    // помощью ИИ-агента» и прочие), а первые три слова дословно совпадают с пунктом меню:
     // разъедутся — человек не поймёт, куда попал.
     open();
     expect(screen.getByRole("heading", { name: "Составить список операций с помощью ИИ-агента" }))
@@ -77,7 +77,7 @@ describe("ReconAgentModal", () => {
       ],
     }));
     await waitFor(() => expect(screen.getByText(/Повторный сбор списка не затирает работу/)).toBeInTheDocument());
-    const sub = screen.getByText(/проведет разведку/);
+    const sub = screen.getByText(/он перечислит все операции и воркеры/);
     const rest = (document.body.textContent ?? "").replace(sub.textContent ?? "", "");
     expect(rest).not.toMatch(/разведк/i);
   });
@@ -93,9 +93,9 @@ describe("ReconAgentModal", () => {
       ],
     }));
 
-    await waitFor(() => expect(screen.getByText(/Точек входа в перечне: 4 \(новых 2\)/)).toBeInTheDocument());
-    expect(screen.getByRole("button", { name: /^Создадим заглушки\s*2$/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^Заглушки уже есть\s*1$/ })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Операций и воркеров в списке: 4 \(новых 2\)/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*2$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Неописанные схемы уже есть\s*1$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Уже описаны — не тронем\s*1$/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Есть в документации, но не найдено в коде\s*1$/ })).toBeInTheDocument();
     // Объект, которому уедет перечень, назван: адрес мог прийти из самого файла.
@@ -104,8 +104,8 @@ describe("ReconAgentModal", () => {
 
   it("группы с нулём строк не показываются вовсе", async () => {
     await превью(report({ items: [item({ name: "POST /messages" })] }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Создадим заглушки\s*1$/ })).toBeInTheDocument());
-    expect(screen.queryByText("Заглушки уже есть")).toBeNull();
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*1$/ })).toBeInTheDocument());
+    expect(screen.queryByText("Неописанные схемы уже есть")).toBeNull();
     expect(screen.queryByText("Уже описаны — не тронем")).toBeNull();
     expect(screen.queryByText("Есть в документации, но не найдено в коде")).toBeNull();
   });
@@ -123,7 +123,7 @@ describe("ReconAgentModal", () => {
 
   it("«исчезло из кода» говорит, что ничего не удаляется", async () => {
     await превью(report({ items: [item({ name: "DELETE /legacy", action: "vanished" })] }));
-    await waitFor(() => expect(screen.getByText(/Ничего не удаляем/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/ArchMap ничего не удаляет/)).toBeInTheDocument());
     // Строк перечня нет — применять нечего.
     expect(screen.getByText("Применить")).toBeDisabled();
   });
@@ -131,16 +131,16 @@ describe("ReconAgentModal", () => {
   it("длинная группа стартует свёрнутой: двести строк не выталкивают «Применить»", async () => {
     const много = Array.from({ length: 40 }, (_, i) => item({ name: `GET /r${i}` }));
     await превью(report({ items: много }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /^Создадим заглушки\s*40$/ })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*40$/ })).toBeInTheDocument());
     expect(screen.queryByText("GET /r0")).toBeNull();
 
-    await userEvent.click(screen.getByRole("button", { name: /^Создадим заглушки\s*40$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Создадим неописанные схемы\s*40$/ }));
     expect(screen.getByText("GET /r0")).toBeInTheDocument();
   });
 
   it("перечень с ошибками применить нельзя", async () => {
     await превью(report({ errors: ["recon.yaml: объект «Х» не найден"] }));
-    await waitFor(() => expect(screen.getByText(/Перечень не применить/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Список не применить/)).toBeInTheDocument());
     expect(screen.getByText("Применить")).toBeDisabled();
   });
 

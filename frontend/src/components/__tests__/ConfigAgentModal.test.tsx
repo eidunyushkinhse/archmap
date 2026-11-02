@@ -107,7 +107,7 @@ describe("ConfigAgentModal", () => {
     vi.mocked(configImportApi.preview).mockResolvedValue(report({ params: [param()] }));
     open();
     await вставить("config:");
-    await userEvent.click(screen.getByLabelText(/Перезаписывать заполненное/));
+    await userEvent.click(screen.getByLabelText(/Заменять уже описанное/));
     await act(async () => { await vi.advanceTimersByTimeAsync(700); });
     await waitFor(() => expect(
       vi.mocked(configImportApi.preview).mock.calls.at(-1)?.[0].overwrite,

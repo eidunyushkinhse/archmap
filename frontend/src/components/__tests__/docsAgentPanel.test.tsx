@@ -53,7 +53,7 @@ describe("DocsAgentPanel · окно одной схемы", () => {
     expect(params.overwrite).toBe(true);
     expect(params.overrides).toEqual([{ file: "вставка-1", name: "GET /orders" }]);
     // Галки модалки и правки имени в строках здесь нет: схема уже выбрана.
-    expect(screen.queryByText("Обновлять готовые диаграммы")).toBeNull();
+    expect(screen.queryByText("Заменять уже описанное")).toBeNull();
     expect(screen.queryByLabelText(/Имя схемы из файла/)).toBeNull();
   });
 
