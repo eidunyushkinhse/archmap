@@ -44,7 +44,14 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app import yaml_io
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
+from app.facts_import import (
+    as_bool,
+    as_str,
+    nodes_hint,
+    overlong,
+    resolve_owner,
+    warn_duplicates,
+)
 from app.models.db_column import DbColumn
 from app.models.db_table import DbTable
 from app.models.node import Node
@@ -95,6 +102,9 @@ class ParsedData:
     # стал невидимым (полевой QA Zabbix 7 — записи молча уехали к объекту окна).
     # Адресом ключ не считаем (поведение прежнее), но молчать о нём нельзя.
     has_node_key: bool = False
+    # Поля длиннее своих колонок — «путь в файле: длиннее N символов» (facts_import.overlong).
+    # Читает превью единого ввоза: такой файл делает план непригодным.
+    overlong: list[str] = field(default_factory=list)
 
 
 def parse_data_file(content: str) -> ParsedData | None:
@@ -116,7 +126,7 @@ def parse_data_file(content: str) -> ParsedData | None:
         has_node_key="archmap-node" in doc,
     )
 
-    for raw in doc.get("tables") or []:
+    for i, raw in enumerate(doc.get("tables") or []):
         if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         t = TableIn(
@@ -124,8 +134,10 @@ def parse_data_file(content: str) -> ParsedData | None:
             schema_name=as_str(raw.get("schema")),
             description=as_str(raw.get("description")) or None,
         )
+        overlong(f"tables[{i}]", DbTable,
+                 (("name", "name", t.name), ("schema", "schema_name", t.schema_name)), out.overlong)
         seen_columns: set[str] = set()
-        for rc in raw.get("columns") or []:
+        for j, rc in enumerate(raw.get("columns") or []):
             if not isinstance(rc, dict) or not as_str(rc.get("name")):
                 continue
             col_name = as_str(rc.get("name"))
@@ -136,16 +148,17 @@ def parse_data_file(content: str) -> ParsedData | None:
             if col_name in seen_columns:
                 continue
             seen_columns.add(col_name)
-            t.columns.append(
-                ColumnIn(
-                    name=col_name,
-                    type=as_str(rc.get("type")),
-                    pk=as_bool(rc.get("pk")),
-                    required=as_bool(rc.get("required")),
-                    references=as_str(rc.get("references")) or None,
-                    description=as_str(rc.get("description")) or None,
-                )
+            col = ColumnIn(
+                name=col_name,
+                type=as_str(rc.get("type")),
+                pk=as_bool(rc.get("pk")),
+                required=as_bool(rc.get("required")),
+                references=as_str(rc.get("references")) or None,
+                description=as_str(rc.get("description")) or None,
             )
+            overlong(f"tables[{i}].columns[{j}]", DbColumn,
+                     (("name", "name", col.name), ("type", "type", col.type)), out.overlong)
+            t.columns.append(col)
         out.tables.append(t)
 
     return out

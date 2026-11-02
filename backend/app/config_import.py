@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app import yaml_io
 from app.data_import import NODE_HEADER
 from app.element_marks import build_elements, element_rows_of
-from app.facts_import import as_bool, as_str, resolve_owner, warn_duplicates
+from app.facts_import import as_bool, as_str, overlong, resolve_owner, warn_duplicates
 from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.node_ref import NodeIndex
@@ -91,6 +91,9 @@ class ParsedConfig:
     # В YAML верхнего уровня есть КЛЮЧ «archmap-node»: агент потерял решётку, и адрес
     # стал невидимым (урок Н11 полевого QA — записи молча уехали к объекту окна).
     has_node_key: bool = False
+    # Поля длиннее своих колонок — «путь в файле: длиннее N символов» (facts_import.overlong).
+    # Читает превью единого ввоза: такой файл делает план непригодным.
+    overlong: list[str] = field(default_factory=list)
 
 
 def parse_config_file(content: str) -> ParsedConfig | None:
@@ -107,18 +110,21 @@ def parse_config_file(content: str) -> ParsedConfig | None:
         node_ref=m.group(1) if m else None,
         has_node_key="archmap-node" in doc,
     )
-    for raw in doc.get("config") or []:
+    for i, raw in enumerate(doc.get("config") or []):
         if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
-        out.params.append(
-            ParamIn(
-                name=as_str(raw.get("name")),
-                value_type=as_str(raw.get("type")),
-                required=as_bool(raw.get("required")),
-                default_value=as_str(raw.get("default")),
-                description=as_str(raw.get("description")) or None,
-            )
+        p = ParamIn(
+            name=as_str(raw.get("name")),
+            value_type=as_str(raw.get("type")),
+            required=as_bool(raw.get("required")),
+            default_value=as_str(raw.get("default")),
+            description=as_str(raw.get("description")) or None,
         )
+        overlong(f"config[{i}]", ConfigParam, (
+            ("name", "name", p.name), ("type", "value_type", p.value_type),
+            ("default", "default_value", p.default_value),
+        ), out.overlong)
+        out.params.append(p)
     return out
 
 

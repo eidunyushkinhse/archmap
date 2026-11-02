@@ -43,6 +43,7 @@ from app.archive_import import (
     check_unpacked_total,
 )
 from app.channels_import import ChannelIn, parse_channels_file
+from app.column_limits import too_long
 from app.config_import import ParamIn, parse_config_file
 from app.data_import import LOOKS_LIKE_DATA, NODE_HEADER, TableIn, parse_data_file
 from app.domain_types import NodeDocKind
@@ -53,6 +54,7 @@ from app.merge_report import (
 )
 from app.merge_warnings import warn_content
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
+from app.models.node_doc import NodeDoc
 from app.node_ref import RefIndex
 
 # Максимум входов за раз — тот же щедрый предел, что у голого мульти-YAML импорта
@@ -368,8 +370,14 @@ def _strip_node_comment(text: str) -> str:
     )
 
 
-def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> list[_Raw]:
-    """Все вклады семей одного архива, привязанные к узлам слитого дерева."""
+def _collect(
+    inp: _Input, origin: int, res: _Resolver, remarks: list[str], too_long_out: list[str]
+) -> list[_Raw]:
+    """Все вклады семей одного архива, привязанные к узлам слитого дерева.
+
+    too_long_out — поля файлов, не помещающиеся в колонки («файл: путь: длиннее N
+    символов»): применение отказало бы на записи, поэтому план с ними непригоден.
+    Считаются только у файлов, которые нашли свой узел: пропущенный файл не пишется."""
     archive = inp.archive
     if archive is None:  # вызывается только для читаемых архивов
         raise RuntimeError("_collect: вход без архива")
@@ -387,6 +395,10 @@ def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> li
         if node is None:
             continue
         name = header.name or fname.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        for where, value, attr in ((f"{fname}: archmap-name" if header.name else fname, name, "name"),
+                                   (f"{fname}: archmap-operation", header.operation, "operation")):
+            if err := too_long(where, value, NodeDoc, attr):
+                too_long_out.append(err)
         add("doc", node, ("doc", name), name, fname, DocIn(
             name=name,
             kind=header.kind or "operation",
@@ -409,6 +421,7 @@ def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> li
         node = res.resolve(data.node_ref, fname)
         if node is None:
             continue
+        too_long_out.extend(f"{fname}: {e}" for e in data.overlong)
         for t in data.tables:
             key_str = f"{t.schema_name}.{t.name}" if t.schema_name else t.name
             add("table", node, ("table", t.schema_name, t.name), key_str, fname, t)
@@ -421,6 +434,7 @@ def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> li
         node = res.resolve(chans.node_ref, fname)
         if node is None:
             continue
+        too_long_out.extend(f"{fname}: {e}" for e in chans.overlong)
         for c in chans.channels:
             key_str = f"{c.group_name}/{c.name}" if c.group_name else c.name
             add("channel", node, ("channel", c.group_name, c.name), key_str, fname, c)
@@ -433,6 +447,7 @@ def _collect(inp: _Input, origin: int, res: _Resolver, remarks: list[str]) -> li
         node = res.resolve(conf.node_ref, fname)
         if node is None:
             continue
+        too_long_out.extend(f"{fname}: {e}" for e in conf.overlong)
         for p in conf.params:
             add("config", node, ("config", p.name), p.name, fname, p)
 
@@ -689,12 +704,21 @@ def build_unified_plan(
     raws: list[_Raw] = []
     processes: list[ProcessItem] = []
     warnings: list[str] = []
+    overlong: dict[int, list[str]] = {}
     for i, inp in enumerate(read):
         if inp.archive is None:
             continue
         res = _Resolver(i, parts[i], contribs, remarks[i])
-        raws.extend(_collect(inp, i, res, remarks[i]))
+        found: list[str] = []
+        raws.extend(_collect(inp, i, res, remarks[i], found))
+        if found:
+            overlong[i] = found
         processes.extend(_processes_of(inp, i, remarks[i]))
+    # Поля длиннее колонок — как ошибки разбора C4: адресованы входу, план непригоден
+    # (иначе превью молчит, а применение отказывает на записи без пути до поля).
+    if overlong:
+        errors = [f"вход {i + 1}: {m}" for i, msgs in sorted(overlong.items()) for m in msgs]
+        return _failed(read, errors, MergeReport(files=len(read), file_errors=overlong))
     _warn_process_namesakes(processes, warnings)
 
     dup_echoes: dict[tuple[int, int], set[int]] = {}

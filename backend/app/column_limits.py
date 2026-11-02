@@ -9,6 +9,11 @@ before_flush смотрит каждую ограниченную колонку
 
 Почему не max_length в схемах: отказ pydantic — 422 со СПИСКОМ ошибок, а фронт
 показывает detail строкой (вышел бы «[object Object]»); здесь detail — текст.
+
+Превью ввоза объектов не создаёт и до flush не доходит, поэтому те же пределы оно
+берёт отсюда же помощником too_long: ошибка разбора с путём до поля в документе
+(«nodes[0].children[4].technology: длиннее 128 символов»), чтобы агент чинил документ
+до применения, а не после отказа записи. Своих таблиц пределов у разборщиков нет.
 """
 
 from collections.abc import Iterable
@@ -24,7 +29,7 @@ class ValueTooLong(Exception):
     def __init__(self, field: str, limit: int) -> None:
         self.field = field
         self.limit = limit
-        self.detail = f"Поле «{field}» длиннее {limit} символов"
+        self.detail = f"Поле «{field}» {_longer(limit)}"
         super().__init__(self.detail)
 
 
@@ -45,6 +50,26 @@ def _limits_of(cls: type) -> list[tuple[str, int]]:
                 cached.append((prop.key, col_type.length))
         _LIMITS[cls] = cached
     return cached
+
+
+def _longer(limit: int) -> str:
+    """Общая часть отказа записи и ошибки разбора: текст один на оба пути."""
+    return f"длиннее {limit} символов"
+
+
+def column_limit(cls: type, key: str) -> int | None:
+    """Предел строковой колонки key модели cls; None — без предела (Text, не строка)."""
+    return dict(_limits_of(cls)).get(key)
+
+
+def too_long(path: str, value: object, cls: type, key: str) -> str | None:
+    """Ошибка разбора «путь: длиннее N символов», если строка value не поместится в
+    колонку key модели cls, иначе None. Предел — тот же, что проверит запись
+    (check_lengths); путь — до поля в документе ввоза."""
+    limit = column_limit(cls, key)
+    if limit is not None and isinstance(value, str) and len(value) > limit:
+        return f"{path}: {_longer(limit)}"
+    return None
 
 
 def check_lengths(objects: Iterable[object]) -> None:

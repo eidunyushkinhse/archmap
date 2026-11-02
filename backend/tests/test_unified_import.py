@@ -1401,6 +1401,106 @@ def test_эндпоинт_применения_отвергает_кривой_j
     assert db.query(Project).count() == было
 
 
+# ── Длины строк: превью называет то, на чём отказало бы применение ───────────
+# Пределы — колонки моделей (app/column_limits); превью объектов не создаёт, поэтому
+# проверяет их разбор и называет путь до поля в документе (tasks.md, 2026-11-01).
+
+
+def _c4_с_технологией(длина: int) -> bytes:
+    return f"""
+nodes:
+  - name: Ярмарка
+    element: system
+    children:
+      - name: orders
+        technology: {"т" * длина}
+""".encode()
+
+
+def _yaml_вход(payload: bytes) -> list:
+    return [("files", ("a.yaml", payload, "application/x-yaml"))]
+
+
+def test_поле_длиннее_колонки_превью_и_применение_называют_путём(клиент_с_бд, db):
+    было = db.query(Project).count()
+    ошибка = "вход 1: nodes[0].children[0].technology: длиннее 128 символов"
+
+    превью = клиент_с_бд.post(РУЧКА, files=_yaml_вход(_c4_с_технологией(129)))
+    assert превью.status_code == 200, превью.text
+    assert превью.json()["ok"] is False and превью.json()["errors"] == [ошибка]
+
+    # Применение того же документа — тот же текст с путём, а не отказ записи без него.
+    применение = клиент_с_бд.post(
+        ПРИМЕНЕНИЕ, files=_yaml_вход(_c4_с_технологией(129)), data={"name": "П"}
+    )
+    assert применение.status_code == 400
+    assert применение.json()["detail"] == f"План непригоден к применению: {ошибка}"
+    assert db.query(Project).count() == было
+
+
+def test_поле_ровно_на_пределе_колонки_проходит(клиент_с_бд, db):
+    превью = клиент_с_бд.post(РУЧКА, files=_yaml_вход(_c4_с_технологией(128)))
+    assert превью.status_code == 200 and превью.json()["ok"] is True, превью.text
+
+    применение = клиент_с_бд.post(
+        ПРИМЕНЕНИЕ, files=_yaml_вход(_c4_с_технологией(128)), data={"name": "П"}
+    )
+    assert применение.status_code == 201, применение.text
+    [orders] = db.query(Node).filter(Node.name == "orders").all()
+    assert orders.technology == "т" * 128
+
+
+def test_источник_длиннее_колонки_назван_блоком_source():
+    # В колонку source_ref ложится один ключ «git:repo#path»: предел — у него целиком.
+    c4 = f"""
+nodes:
+  - name: Ярмарка
+    element: system
+    children:
+      - name: orders
+        source:
+          repo: github.com/org/{"r" * 250}
+          path: {"p" * 250}
+"""
+    план = build_unified_plan([("a.yaml", c4.encode())])
+
+    assert план.ok is False
+    assert план.errors == ["вход 1: nodes[0].children[0].source: длиннее 512 символов"]
+
+
+def test_факты_архива_длиннее_колонок_адресованы_входу_файлу_и_полю():
+    архив = _архив(
+        docs=(("docs/a.mmd", _док("Ярмарка / orders", "ok", "graph TD\n A\n", "POST /" + "о" * 251)),),
+        db=(("db/catalog.yaml", _таблица("Ярмарка / Каталог-БД", "т" * 129)),),
+        config=(("config/orders.yaml", _конфиг("Ярмарка / orders", "д" * 513)),),
+    )
+    с_брокером = _архив(
+        c4=C4_С_БРОКЕРОМ, channels=(("channels/kafka.yaml", _канал("Ярмарка / Kafka", "д" * 65)),)
+    )
+
+    план = build_unified_plan([("a.zip", архив), ("b.zip", с_брокером)])
+
+    assert план.ok is False
+    assert план.errors == [
+        "вход 1: docs/a.mmd: archmap-operation: длиннее 256 символов",
+        "вход 1: db/catalog.yaml: tables[0].columns[0].type: длиннее 128 символов",
+        "вход 1: config/orders.yaml: config[0].default: длиннее 512 символов",
+        "вход 2: channels/kafka.yaml: channels[0].delivery: длиннее 64 символов",
+    ]
+    # Чипу — его ошибки: превью раскладывает их по входам (file_errors).
+    assert sorted(план.report.file_errors) == [0, 1]
+
+
+def test_факты_архива_ровно_на_пределе_проходят():
+    архив = _архив(
+        docs=(("docs/a.mmd", _док("Ярмарка / orders", "ok", "graph TD\n A\n", "POST /" + "о" * 250)),),
+        db=(("db/catalog.yaml", _таблица("Ярмарка / Каталог-БД", "т" * 128)),),
+        config=(("config/orders.yaml", _конфиг("Ярмарка / orders", "д" * 512)),),
+    )
+
+    assert build_unified_plan([("a.zip", архив)]).ok
+
+
 # ── Заглушки каналов по связям (решение пользователя 2026-09-06) ─────────────
 
 

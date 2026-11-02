@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import String
 
 from app.auth import create_access_token
-from app.column_limits import ValueTooLong, _limits_of, check_lengths
+from app.column_limits import ValueTooLong, _limits_of, check_lengths, too_long
 from app.database import Base, get_db
 from app.main import app
 from app.models.edge import Edge
@@ -38,6 +38,18 @@ def test_значение_ровно_на_пределе_проходит_дли
     with pytest.raises(ValueTooLong) as exc:
         check_lengths([Node(name="я" * 257)])
     assert exc.value.detail == "Поле «name» длиннее 256 символов"
+
+
+def test_ошибка_разбора_берёт_предел_колонки_и_ставит_путь_впереди() -> None:
+    # Превью ввоза объектов не создаёт: предел оно берёт из той же колонки, а текст
+    # тот же, что у отказа записи, только с путём до поля в документе.
+    assert too_long("nodes[0].technology", "т" * 128, Node, "technology") is None
+    assert (
+        too_long("nodes[0].technology", "т" * 129, Node, "technology")
+        == "nodes[0].technology: длиннее 128 символов"
+    )
+    # Text (описание) — без предела.
+    assert too_long("nodes[0].description", "т" * 10_000, Node, "description") is None
 
 
 @pytest.fixture()

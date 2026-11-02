@@ -31,7 +31,14 @@ from sqlalchemy.orm import Session
 
 from app import yaml_io
 from app.data_import import NODE_HEADER
-from app.facts_import import as_bool, as_str, nodes_hint, resolve_owner, warn_duplicates
+from app.facts_import import (
+    as_bool,
+    as_str,
+    nodes_hint,
+    overlong,
+    resolve_owner,
+    warn_duplicates,
+)
 from app.models.broker_channel import BrokerChannel
 from app.models.channel_field import ChannelField
 from app.models.edge import Edge
@@ -211,6 +218,9 @@ class ParsedChannels:
     # стал невидимым (урок Н11 полевого QA — записи молча уехали к объекту окна).
     # Адресом ключ не считаем (поведение прежнее), но молчать о нём нельзя.
     has_node_key: bool = False
+    # Поля длиннее своих колонок — «путь в файле: длиннее N символов» (facts_import.overlong).
+    # Читает превью единого ввоза: такой файл делает план непригодным.
+    overlong: list[str] = field(default_factory=list)
 
 
 def parse_channels_file(content: str) -> ParsedChannels | None:
@@ -228,7 +238,7 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
         has_node_key="archmap-node" in doc,
     )
 
-    for raw in doc.get("channels") or []:
+    for i, raw in enumerate(doc.get("channels") or []):
         if not isinstance(raw, dict) or not as_str(raw.get("name")):
             continue
         c = ChannelIn(
@@ -240,8 +250,13 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
             retention=as_str(raw.get("retention")),
             description=as_str(raw.get("description")) or None,
         )
+        overlong(f"channels[{i}]", BrokerChannel, (
+            ("name", "name", c.name), ("group", "group_name", c.group_name),
+            ("kind", "kind", c.kind), ("partition_key", "partition_key", c.partition_key),
+            ("delivery", "delivery", c.delivery), ("retention", "retention", c.retention),
+        ), out.overlong)
         seen_fields: set[str] = set()
-        for rf in raw.get("fields") or []:
+        for j, rf in enumerate(raw.get("fields") or []):
             if not isinstance(rf, dict) or not as_str(rf.get("name")):
                 continue
             field_name = as_str(rf.get("name"))
@@ -252,14 +267,15 @@ def parse_channels_file(content: str) -> ParsedChannels | None:
             if field_name in seen_fields:
                 continue
             seen_fields.add(field_name)
-            c.fields.append(
-                FieldIn(
-                    name=field_name,
-                    type=as_str(rf.get("type")),
-                    required=as_bool(rf.get("required")),
-                    description=as_str(rf.get("description")) or None,
-                )
+            fi = FieldIn(
+                name=field_name,
+                type=as_str(rf.get("type")),
+                required=as_bool(rf.get("required")),
+                description=as_str(rf.get("description")) or None,
             )
+            overlong(f"channels[{i}].fields[{j}]", ChannelField,
+                     (("name", "name", fi.name), ("type", "type", fi.type)), out.overlong)
+            c.fields.append(fi)
         out.channels.append(c)
 
     return out

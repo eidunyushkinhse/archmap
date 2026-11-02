@@ -36,6 +36,7 @@ import yaml
 from sqlalchemy.orm import Session
 
 from app import yaml_io
+from app.column_limits import too_long
 from app.deployment import unit_placements
 from app.domain_types import (
     NODE_ELEMENTS,
@@ -177,16 +178,20 @@ def _load_doc(content: str) -> tuple[dict | None, list[str]]:
     return doc, []
 
 
-def _opt_str(raw: dict, key: str, path: str, max_len: int | None, errors: list[str]) -> str | None:
-    """Опциональное строковое поле (None — отсутствует или кривое, ошибка — в errors)."""
+def _opt_str(raw: dict, key: str, path: str, model: type | None, errors: list[str]) -> str | None:
+    """Опциональное строковое поле (None — отсутствует или кривое, ошибка — в errors).
+
+    model — модель, в одноимённую колонку которой ляжет значение: предел длины берётся
+    из её колонки (app/column_limits), а не своей таблицей. None — без предела (Text
+    или поле, которое в колонку как есть не пишется)."""
     val = raw.get(key)
     if val is None:
         return None
     if not isinstance(val, str):
         errors.append(f"{path}.{key}: ожидается строка")
         return None
-    if max_len is not None and len(val) > max_len:
-        errors.append(f"{path}.{key}: длиннее {max_len} символов")
+    if model is not None and (err := too_long(f"{path}.{key}", val, model, key)):
+        errors.append(err)
         return None
     return val
 
@@ -231,8 +236,8 @@ def _parse_site(raw: object, path: str, draft: _SiteDraft, errors: list[str]) ->
     if name is None:
         errors.append(f"{path}: name — обязательная непустая строка")
         return
-    if len(name) > 256:
-        errors.append(f"{path}: name длиннее 256 символов")
+    if err := too_long(f"{path}.name", name, DeploymentSite, "name"):
+        errors.append(err)
         return
     if name in draft.index:
         errors.append(f"{path}: площадка «{name}» объявлена дважды")
@@ -249,7 +254,7 @@ def _parse_site(raw: object, path: str, draft: _SiteDraft, errors: list[str]) ->
     site = _ImpSite(
         name=name,
         kind=kind,
-        technology=_opt_str(raw, "technology", path, 128, errors),
+        technology=_opt_str(raw, "technology", path, DeploymentSite, errors),
         description=_opt_str(raw, "description", path, None, errors),
         parent_idx=None,
     )
@@ -323,8 +328,8 @@ def _site_refs(raw: dict, path: str, errors: list[str]) -> list[str]:
         name = _site_name(item)
         if name is None:
             errors.append(f"{path}.sites[{j}]: ожидается имя площадки строкой")
-        elif len(name) > 256:
-            errors.append(f"{path}.sites[{j}]: имя площадки длиннее 256 символов")
+        elif err := too_long(f"{path}.sites[{j}]", name, DeploymentSite, "name"):
+            errors.append(err)
         elif name not in out:
             out.append(name)
     return out
@@ -508,9 +513,9 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
     hints: dict[str, str | None] = {}
     overflow = False  # превысили MAX_NODES — обход остановлен, ошибка уже в списке
 
-    def opt_str(raw: dict, key: str, path: str, max_len: int | None) -> str | None:
+    def opt_str(raw: dict, key: str, path: str, model: type | None) -> str | None:
         """Опциональное строковое поле узла/связи (None — отсутствует или кривое)."""
-        return _opt_str(raw, key, path, max_len, errors)
+        return _opt_str(raw, key, path, model, errors)
 
     # Площадки раздела deployment — до узлов: их sites ссылаются на имена отсюда.
     site_draft = _parse_sites(doc, errors)
@@ -524,7 +529,10 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         image/deployment — поля СНЯТЫХ видов якоря (образ и объект k8s, убраны
         2026-09-04, docs/plan-anchor-ux.md). Они не ошибка: пакеты, собранные
         прежним промптом, обязаны ввозиться. Но и не ключ — только предупреждение,
-        одно на узел."""
+        одно на узел.
+
+        Длину проверяем у ключа, который ляжет в колонку (сильнейший, «git:repo#path»
+        или «host:имя»), а не у полей по отдельности: предел — у колонки source_ref."""
         raw_src = raw.get("source")
         if raw_src is None:
             return []
@@ -534,13 +542,17 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         sp = f"{path}.source"
         if raw_src.get("image") is not None or raw_src.get("deployment") is not None:
             warnings.append(f"{sp}: образ и деплоймент больше не источник — поле проигнорировано")
-        return source_keys(
+        keys = source_keys(
             SourceRef(
-                repo=opt_str(raw_src, "repo", sp, 512),
-                path=opt_str(raw_src, "path", sp, 512),
-                host=opt_str(raw_src, "host", sp, 256),
+                repo=opt_str(raw_src, "repo", sp, None),
+                path=opt_str(raw_src, "path", sp, None),
+                host=opt_str(raw_src, "host", sp, None),
             )
         )
+        if keys and (err := too_long(sp, keys[0], Node, "source_ref")):
+            errors.append(err)
+            return []
+        return keys
 
     def walk(raw: object, path: str, parent_idx: int | None, prefix: str, depth: int) -> None:
         nonlocal overflow
@@ -553,8 +565,8 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
         if not isinstance(name, str) or not name.strip():
             errors.append(f"{path}: name — обязательная непустая строка")
             return
-        if len(name) > 256:
-            errors.append(f"{path}: name длиннее 256 символов")
+        if err := too_long(f"{path}.name", name, Node, "name"):
+            errors.append(err)
             return
         if len(nodes) >= MAX_NODES:
             errors.append(f"Слишком много узлов (больше {MAX_NODES})")
@@ -600,8 +612,8 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
                 name=name,
                 shape=shape,
                 status=status,
-                role=opt_str(raw, "role", path, 128),
-                technology=opt_str(raw, "technology", path, 128),
+                role=opt_str(raw, "role", path, Node),
+                technology=opt_str(raw, "technology", path, Node),
                 is_external=ext,
                 description=opt_str(raw, "description", path, None),
                 parent_idx=parent_idx,
@@ -764,9 +776,9 @@ def parse_import(content: str, *, live: bool = False) -> tuple[ParsedImport | No
             _ImpEdge(
                 source_idx=src_idx,
                 target_idx=dst_idx,
-                label=opt_str(raw_e, "label", path, 256),
-                technology=opt_str(raw_e, "technology", path, 128),
-                channel=opt_str(raw_e, "channel", path, 256),
+                label=opt_str(raw_e, "label", path, Edge),
+                technology=opt_str(raw_e, "technology", path, Edge),
+                channel=opt_str(raw_e, "channel", path, Edge),
                 is_synchronous=sync,
             )
         )

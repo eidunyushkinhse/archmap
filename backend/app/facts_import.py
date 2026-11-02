@@ -9,9 +9,10 @@
 """
 
 import uuid
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from typing import Protocol
 
+from app.column_limits import too_long
 from app.models.node import Node
 from app.node_ref import NodeIndex, qualified_node_hits
 
@@ -26,6 +27,16 @@ def as_str(v: object) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     return "" if v is None else str(v).strip()
+
+
+def overlong(path: str, model: type, fields: Iterable[tuple[str, str, str]], out: list[str]) -> None:
+    """Поля записи файла, не помещающиеся в колонки model, уходят в out текстами «путь.ключ:
+    длиннее N символов» (предел — колонки, app/column_limits). fields — (ключ в файле,
+    атрибут модели, значение после разбора). Нужно превью единого ввоза: применение
+    отказало бы на записи, а путь до поля называет только разбор."""
+    for key, attr, value in fields:
+        if err := too_long(f"{path}.{key}", value, model, attr):
+            out.append(err)
 
 
 def nodes_hint(index: NodeIndex, shape: str) -> str:
