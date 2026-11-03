@@ -333,6 +333,71 @@ def _build_objects(findings: Findings) -> list[Obj]:
     return list(by_name.values())
 
 
+def _programs(obj: Obj) -> dict[str, Loc]:
+    """Программы, которые запускают команды контейнера: имя → место команды."""
+    out: dict[str, Loc] = {}
+    for u in obj.units:
+        program = vocab.command_program(u.command)
+        loc = u.command_loc or u.loc
+        if program is not None and (program not in out or loc < out[program]):
+            out[program] = loc
+    return out
+
+
+def _duplicate(
+    objs: list[Obj], programs: dict[int, dict[str, Loc]],
+) -> tuple[Obj, Obj, Loc] | None:
+    """Пара дублей (ТЗ §13.5): контейнеры разных манифестов с одним каталогом кода, команда
+    первого запускает программу с именем второго. Возвращает их и место этой команды."""
+    for runner in objs:
+        for named in objs:
+            if runner is named or not (runner.is_container and named.is_container):
+                continue
+            if runner.code_dir is None or runner.code_dir != named.code_dir:
+                continue
+            if set(runner.parsers) & set(named.parsers):
+                continue
+            command = programs[id(runner)].get(named.name)
+            if command is not None:
+                return runner, named, command
+    return None
+
+
+def _absorb(kept: Obj, gone: Obj) -> None:
+    """Источники, разборщики и окружение второго контейнера переходят первому; имя,
+    технология и роль остаются его."""
+    kept.units = sorted(kept.units + gone.units, key=lambda u: (PRIORITY.get(u.parser, 99), u.loc))
+    kept.locs |= gone.locs
+    kept.parsers.extend(p for p in gone.parsers if p not in kept.parsers)
+    kept.env.extend(gone.env)
+    kept.package_locs.extend(loc for loc in gone.package_locs if loc not in kept.package_locs)
+    kept.host = kept.host or gone.host
+    kept.dockerfile = kept.dockerfile or gone.dockerfile
+    kept.technology = kept.technology or gone.technology
+    kept.language = kept.language or gone.language
+
+
+def _merge_duplicates(model: Model) -> None:
+    """Один процесс, описанный двумя манифестами, даёт один контейнер (ТЗ §13.5). Grafana:
+    корневой Dockerfile даёт grafana, а systemd запускает /usr/share/grafana/bin/grafana
+    под именем grafana-server. Остаётся контейнер из Dockerfile, иначе с более коротким
+    именем; склейка записана в hints.merged с источниками обоих."""
+    programs = {id(o): _programs(o) for o in model.objects}
+    while (pair := _duplicate(model.objects, programs)) is not None:
+        runner, named, command = pair
+        kept, gone = sorted(
+            (runner, named), key=lambda o: (o.dockerfile is None, len(o.name), o.name),
+        )
+        _absorb(kept, gone)
+        programs[id(kept)] = _programs(kept)
+        model.objects.remove(gone)
+        model.hint("merged", {
+            "kind": "container", "name": gone.name, "object": kept.name,
+            "reason": texts.REASON_MERGED,
+            "source": [str(loc) for loc in sorted({min(u.loc for u in named.units), command})],
+        })
+
+
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
     """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7)."""
     roots = [p for p in findings.packages if p.dir == ctx.scope]
@@ -435,6 +500,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     for hint in findings.hints:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)
+    _merge_duplicates(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный
         # контейнер корня (ТЗ §7).

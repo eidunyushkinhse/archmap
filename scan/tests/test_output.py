@@ -52,7 +52,7 @@ def test_hints_sections_always_present(tmp_path: Path) -> None:
     hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
     assert list(hints) == [
         "depends_on", "dynamic_names", "unassigned", "unsupported", "openapi_files",
-        "profiles", "shared_code", "clients", "unparsed", "external_repos",
+        "profiles", "shared_code", "clients", "unparsed", "external_repos", "merged",
     ]
     assert all(v == [] for v in hints.values())
 

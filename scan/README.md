@@ -102,7 +102,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   каталогам Go `cmd/<имя>/` с `func main()` (ТЗ §13.4).
 - `assemble.py` и `owners.py` — объекты, связи, отнесение таблиц и параметров к владельцу;
   `vocab.py` — словари образов, фреймворков и ролей; `secrets.py` — что из значений можно
-  писать.
+  писать. Один процесс, описанный двумя манифестами (Dockerfile и юнит systemd с тем же
+  каталогом кода), склеивается в один контейнер с записью в `hints.merged` (ТЗ §13.5).
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
