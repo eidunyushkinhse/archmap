@@ -97,10 +97,16 @@ def test_summary_words(tmp_path: Path) -> None:
 
 
 def test_summary_empty_repo(tmp_path: Path) -> None:
+    """Находка фазы 1б на Zabbix: «Ничего не найдено.», а ниже совет импортировать пустую
+    схему. Без объектов нет ни раздела «Как импортировать», ни абзаца про связи: остаётся
+    только совет про .gitignore."""
     out = _scan(tree(tmp_path / "repo", {"README.md": "x"}), tmp_path / "out")
     text = _read(out, "summary.txt")
     assert "Ничего не найдено." in text
     assert "Искали и не нашли: контейнеры" in text
+    for absent in ("Как импортировать", "schema.yaml", "Каталог agent", "Связи сборщик видит"):
+        assert absent not in text
+    assert text.endswith("\n\nКаталог с результатом стоит добавить в .gitignore репозитория.\n")
 
 
 def test_summary_counts_only_written(tmp_path: Path) -> None:

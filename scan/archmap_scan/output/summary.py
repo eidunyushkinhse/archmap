@@ -15,6 +15,8 @@ from archmap_scan.output.coverage import Coverage
 EXCLUDED_SHOWN = 12
 # Семьи, непрочитанное в которых — код на языке или фреймворке (ТЗ §6.2).
 CODE_FAMILIES = frozenset({"config", "channels", "http_routes", "schedules"})
+# Семьи объектов схемы: без них schema.yaml пуста и советовать её импорт нечего.
+OBJECT_FAMILIES = ("containers", "databases", "brokers")
 
 
 def _found(cov: Coverage) -> list[str]:
@@ -86,8 +88,16 @@ def _excluded(cov: Coverage) -> list[str]:
     return lines
 
 
+def has_objects(cov: Coverage) -> bool:
+    """В schema.yaml записан хотя бы один объект: контейнер, база или брокер."""
+    return any(cov.families[fam].found for fam in OBJECT_FAMILIES)
+
+
 def _how_to(cov: Coverage) -> list[str]:
-    lines = [texts.HOW_TO_IMPORT_TITLE, *texts.HOW_TO_IMPORT]
+    """«Как импортировать» только по записанным файлам (ТЗ §8): пункт про schema.yaml, когда
+    в схеме есть объект, файлы фактов по семьям, каталог agent — вместе с разделом. Ничего
+    не записано — раздела нет: импорт пустой схемы не советуем."""
+    lines = list(texts.HOW_TO_IMPORT) if has_objects(cov) else []
     facts = False
     for fam, block in (
         ("tables", texts.HOW_TO_IMPORT_TABLES),
@@ -99,8 +109,9 @@ def _how_to(cov: Coverage) -> list[str]:
             facts = True
     if facts:
         lines += texts.HOW_TO_IMPORT_FACTS
-    lines += texts.HOW_TO_IMPORT_AGENT
-    return lines
+    if not lines:
+        return []
+    return [texts.HOW_TO_IMPORT_TITLE, *lines, *texts.HOW_TO_IMPORT_AGENT]
 
 
 def render(cov: Coverage) -> str:
@@ -112,6 +123,6 @@ def render(cov: Coverage) -> str:
         _excluded(cov),
         [texts.unread_phrase(cov.too_large, cov.binary)] if cov.too_large or cov.binary else [],
         _how_to(cov),
-        texts.TAIL,
+        [*(texts.TAIL_EDGES if has_objects(cov) else []), texts.TAIL_GITIGNORE],
     ]
     return "\n\n".join("\n".join(b) for b in blocks if b) + "\n"
