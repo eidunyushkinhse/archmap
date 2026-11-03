@@ -1,0 +1,7 @@
+# archmap-node: Ярмарка / billing-worker
+# archmap-scan 0.1.0
+# repo:
+# commit:
+config:
+- name: CELERY_BROKER_URL
+- name: ORDERS_API

@@ -1,0 +1,6 @@
+# archmap-node: Ярмарка / storefront
+# archmap-scan 0.1.0
+# repo:
+# commit:
+config:
+- name: API_URL

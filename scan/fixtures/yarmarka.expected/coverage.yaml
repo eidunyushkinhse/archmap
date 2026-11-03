@@ -1,0 +1,23 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+scanner: 0.1.0
+repo: ''
+commit: ''
+stacks: [Python, Python + FastAPI, Node.js + React, PostgreSQL, Kafka, Redis]
+families:
+  containers: {status: covered, found: 3, parsers: [compose, dockerfile, procfile]}
+  databases: {status: covered, found: 1, parsers: [compose]}
+  brokers: {status: covered, found: 2, parsers: [compose]}
+  edges: {status: covered, found: 5, parsers: [compose, env-example]}
+  tables: {status: covered, found: 2, parsers: [alembic], dropped: 1}
+  config: {status: partial, found: 11, parsers: [compose, env-example], unsupported: [Node.js, Python]}
+  channels: {status: unsupported, parsers: [], unsupported: [celery, kafka-python]}
+  http_routes: {status: unsupported, parsers: [], unsupported: [FastAPI]}
+  workers: {status: covered, found: 1, parsers: [compose]}
+  schedules: {status: unsupported, parsers: [k8s], unsupported: [Celery beat]}
+excluded:
+- {path: docs/, files: 2, reason: convention}
+- {path: tests/, files: 2, reason: convention}
+- {path: tools/sandbox/, files: 1, reason: archmapignore}
+unread: {too_large: 0, binary: 0}

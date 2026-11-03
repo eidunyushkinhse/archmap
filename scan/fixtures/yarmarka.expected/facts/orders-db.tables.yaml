@@ -1,0 +1,42 @@
+# archmap-node: Ярмарка / orders-db
+# archmap-scan 0.1.0
+# repo:
+# commit:
+tables:
+- name: order_items
+  columns:
+  - name: id
+    type: bigint
+    pk: true
+    required: true
+  - name: order_id
+    type: bigint
+    required: true
+    references: orders.id
+  - name: sku
+    type: varchar(64)
+    required: true
+  - name: qty
+    type: integer
+    required: true
+- name: orders
+  columns:
+  - name: id
+    type: bigint
+    pk: true
+    required: true
+  - name: customer_email
+    type: varchar(255)
+    required: true
+  - name: total
+    type: numeric(12, 2)
+    required: true
+  - name: created_at
+    type: timestamp with time zone
+    required: true
+  - name: status
+    type: varchar(16)
+    required: true
+  - name: comment
+    type: text
+    required: false

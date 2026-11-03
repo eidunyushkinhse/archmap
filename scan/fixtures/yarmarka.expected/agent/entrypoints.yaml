@@ -1,0 +1,22 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+containers:
+  billing-worker:
+    http: []
+    workers:
+    - command: celery -A billing.app worker -Q billing,invoices --concurrency 4
+      queues: [billing, invoices]
+      source: docker-compose.yml:22
+    schedules: []
+    consumers: []
+  orders:
+    http: []
+    workers: []
+    schedules: []
+    consumers: []
+  storefront:
+    http: []
+    workers: []
+    schedules: []
+    consumers: []

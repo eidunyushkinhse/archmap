@@ -1,0 +1,69 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+nodes/Ярмарка / billing-worker:
+- docker-compose.yml:20
+- docker-compose.yml:22
+- services/billing-worker/Dockerfile:1
+- services/billing-worker/requirements.txt:1
+nodes/Ярмарка / orders:
+- docker-compose.yml:9
+- services/orders/Dockerfile:1
+- services/orders/Procfile:1
+- services/orders/pyproject.toml:2
+nodes/Ярмарка / storefront:
+- docker-compose.yml:2
+- frontend/Dockerfile:1
+- frontend/package.json:2
+nodes/Ярмарка / orders-db:
+- docker-compose.yml:28
+nodes/Ярмарка / events:
+- docker-compose.yml:33
+nodes/Ярмарка / redis:
+- docker-compose.yml:24
+- docker-compose.yml:36
+edges/billing-worker→orders:
+- docker-compose.yml:25
+edges/billing-worker→redis:
+- docker-compose.yml:24
+- docker-compose.yml:26
+edges/orders→events:
+- docker-compose.yml:14
+- docker-compose.yml:18
+- services/orders/.env.example:3
+edges/orders→orders-db:
+- docker-compose.yml:17
+- services/orders/.env.example:2
+edges/storefront→orders:
+- docker-compose.yml:6
+tables/orders-db/order_items:
+- services/orders/migrations/versions/0001_init.py:16
+tables/orders-db/orders:
+- services/orders/migrations/versions/0001_init.py:9
+- services/orders/migrations/versions/0002_status.py:9
+- services/orders/migrations/versions/0002_status.py:10
+config/billing-worker/CELERY_BROKER_URL:
+- docker-compose.yml:24
+config/billing-worker/ORDERS_API:
+- docker-compose.yml:25
+config/orders/DATABASE_URL:
+- docker-compose.yml:13
+- services/orders/.env.example:2
+config/orders/FEATURE_FAST_CHECKOUT:
+- services/orders/.env.example:8
+config/orders/JWT_SECRET:
+- services/orders/.env.example:5
+config/orders/KAFKA_BOOTSTRAP:
+- docker-compose.yml:14
+- services/orders/.env.example:3
+config/orders/LOG_LEVEL:
+- docker-compose.yml:15
+- services/orders/.env.example:6
+config/orders/PAYMENT_API_TOKEN:
+- services/orders/.env.example:4
+config/orders/REQUEST_TIMEOUT:
+- services/orders/.env.example:7
+config/orders/WORKERS:
+- services/orders/.env.example:9
+config/storefront/API_URL:
+- docker-compose.yml:6

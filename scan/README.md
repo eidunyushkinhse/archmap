@@ -34,6 +34,7 @@ Python 3.10: ruff и mypy проверяют именно эту версию (`
 
 Тот же гейт гоняет pre-commit при правке файлов `scan/`. Фикстуры (`scan/fixtures/`) это
 чужой код для разбора: ruff, mypy и pytest их не трогают, сборщик их только читает.
+Покрытие: `./venv/bin/python -m pytest -q --cov --cov-report=term-missing`.
 
 ## Запуск из исходников
 
@@ -44,3 +45,47 @@ scan/venv/bin/python -m archmap_scan --help
 
 Тесты на деревьях внутри репозитория ArchMap запускают сборщик с `--no-git`: иначе корнем
 git окажется сам ArchMap, и пути в выводе будут от его корня.
+
+## Сборка файла
+
+```bash
+python3 scan/build.py            # → scan/dist/archmap-scan.pyz, печатает размер и sha256
+python3 scan/build.py --out ПУТЬ
+python3 -I -S scan/dist/archmap-scan.pyz scan/fixtures/yarmarka --out /tmp/y --no-git
+```
+
+`build.py` кладёт в архив пакет `archmap_scan`, чистую Python-часть PyYAML из
+site-packages того интерпретатора, которым запущен (без `_yaml*.so`, `__pycache__` и
+`dist-info`), текст лицензии PyYAML, если он есть в метаданных пакета, и `__main__.py`.
+Даты и права записей одинаковые, записи отсортированы: одинаковые исходники и одна версия
+PyYAML дают одинаковый sha256. Запуск с `-I -S` проверяет, что файлу не нужно ничего вне
+архива. `scan/dist/` в `.gitignore`.
+
+## Фикстуры и ожидаемый вывод
+
+`scan/fixtures/<разборщик>/` — малые деревья на каждый разборщик. `scan/fixtures/yarmarka/` —
+синтетический монорепо по ТЗ §9 с ловушками в `tests/`, `docs/` и `.archmapignore`; его
+полный вывод лежит в `scan/fixtures/yarmarka.expected/`, тест сравнивает байт в байт.
+После осознанной правки вывода:
+
+```bash
+( cd scan && UPDATE_SCAN_EXPECTED=1 ./venv/bin/python -m pytest -q tests/test_yarmarka.py )
+git diff scan/fixtures/yarmarka.expected/   # это ревью правки; коммитить вместе с ней
+```
+
+## Устройство
+
+- `cli.py` — ключи и коды выхода; `scan.py` — конвейер «контекст → обход → разборщики →
+  сборка → вывод».
+- `context.py` — корень, область, адрес origin и коммит; единственная внешняя команда —
+  git из перечня `GIT_COMMANDS`. `walk.py` — обход, соглашения, `.archmapignore`, пределы
+  чтения файлов.
+- `parsers/*.py` — по модулю на источник, функция `parse(files, ctx) -> Findings`;
+  `registry.py` — реестр разборщиков по семьям, по нему же считается покрытие.
+- `assemble.py` и `owners.py` — объекты, связи, отнесение таблиц и параметров к владельцу;
+  `vocab.py` — словари образов, фреймворков и ролей; `secrets.py` — что из значений можно
+  писать.
+- `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
+  с пределами против враждебного входа.
+- `output/` — писатели `schema.yaml`, `facts/`, `agent/`, `coverage.yaml`, `summary.txt` и
+  маркера каталога; `texts.py` — все строки для людей.
