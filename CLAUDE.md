@@ -124,8 +124,10 @@ archmap/
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
 │   ├── .env.example       # ARCHMAP_URL + ARCHMAP_TOKEN (или USERNAME/PASSWORD) → копировать в mcp/.env (в .gitignore)
 │   └── README.md          # удалённое и локальное подключение, токен, строки клиентов, каталог, HTTPS с корпоративным CA
+├── scan/                  # сборщик фактов archmap-scan.pyz (эпик docs/tasks/fact-collector.md): репозиторий → schema.yaml,
+│                          # facts/, coverage, сводка и agent/; Python 3.10, PyYAML внутри файла; README.md, фикстуры fixtures/
 ├── scripts/
-│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
+│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp / scan
 │   ├── setup-hooks.sh     # установка хука
 │   ├── agent-docs.py      # сборка QWEN.md из CLAUDE.md (--check — сверка в хуке и CI)
 │   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
@@ -199,6 +201,9 @@ archmap/
 - Типизация бэкенда:     cd backend && ./venv/bin/mypy app/
 - Мёртвый код фронта:    cd frontend && npm run knip
 - Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
+- Гейт сборщика фактов:  cd scan && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
+    (venv: python3 -m venv scan/venv && scan/venv/bin/pip install -r scan/requirements-dev.txt)
+- Собрать сборщик фактов: python3 scan/build.py   (→ scan/dist/archmap-scan.pyz, печатает размер и sha256)
 - Снапшоты промптов:     ПОСЛЕ ОСОЗНАННОЙ правки любого промпта (app/*_prompt.py):
     cd backend && UPDATE_PROMPT_SNAPSHOTS=1 ./venv/bin/python -m pytest tests/test_prompt_snapshots.py -q
     Затем ОБЯЗАТЕЛЬНО посмотреть `git diff backend/tests/snapshots/` — это ревью правки —
