@@ -2653,6 +2653,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scan Info
+         * @description Версия, sha256 и размер файла сборщика, который раздаёт этот сервер.
+         */
+        get: operations["scan_info_api_v1_scan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/archmap-scan.pyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scan Download
+         * @description Файл archmap-scan.pyz: запускается python3 archmap-scan.pyz в репозитории.
+         */
+        get: operations["scan_download_api_v1_scan_archmap_scan_pyz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/versions": {
         parameters: {
             query?: never;
@@ -7413,6 +7453,19 @@ export interface components {
             deleted_nodes: number;
             /** Has Processes */
             has_processes: boolean;
+        };
+        /**
+         * ScanInfo
+         * @description Файл archmap-scan.pyz, который раздаёт этот сервер: версия сборщика, sha256 и размер
+         *     в байтах. Тот же sha256 стоит в ETag ответа с файлом.
+         */
+        ScanInfo: {
+            /** Version */
+            version: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
         };
         /**
          * SearchHit
@@ -13682,6 +13735,78 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scan_info_api_v1_scan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanInfo"];
+                };
+            };
+            /** @description Сборщик фактов в эту поставку не входит */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scan_download_api_v1_scan_archmap_scan_pyz_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "if-none-match"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Файл сборщика фактов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Файл не изменился (If-None-Match) */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Сборщик фактов в эту поставку не входит */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

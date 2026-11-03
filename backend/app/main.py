@@ -35,6 +35,7 @@ from app.routers import (
     processes,
     projects,
     recon,
+    scan,
     search,
     tokens,
     uploads,
@@ -125,6 +126,7 @@ app.include_router(uploads.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(processes.router, prefix="/api/v1")
 app.include_router(search.router, prefix="/api/v1")
+app.include_router(scan.router, prefix="/api/v1")
 app.include_router(versions.node_router, prefix="/api/v1")
 app.include_router(versions.project_router, prefix="/api/v1")
 

@@ -72,11 +72,12 @@ archmap/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
 │   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
 │   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры)
-│   │   ├── routers/       # 26 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
+│   │   ├── routers/       # 27 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment,
-│   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки)
-│   │   ├── schemas/       # Pydantic-контракт API (30 модулей; из него генерируется api.gen.ts)
+│   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки),
+│   │   │                  # scan (раздача сборщика фактов archmap-scan.pyz без входа)
+│   │   ├── schemas/       # Pydantic-контракт API (31 модуль; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
@@ -107,6 +108,7 @@ archmap/
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
+│   │   ├── scan_file.py   # файл сборщика фактов для раздачи (/api/v1/scan): версия, sha256, кэш по mtime
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
 │   ├── tests/             # pytest (87 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
