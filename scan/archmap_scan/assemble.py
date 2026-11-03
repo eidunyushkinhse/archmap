@@ -237,16 +237,13 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
     if obj.shape != SERVICE:
         return
     pkgs = _code_packages(obj, packages)
-    deps = tuple(d for p in pkgs for d in p.deps)
-    language = next((p.language for p in pkgs), None)
+    language, server, front = stack_of(pkgs)
     if language is None and obj.dockerfile is not None:
         language = next(
             (lang for img in obj.dockerfile.images if (lang := vocab.image_language(img))), None
         )
     if language is None:
         language = next((u.language for u in units if u.language), None)
-    server = vocab.find_framework(deps, vocab.SERVER_FRAMEWORKS)
-    front = vocab.find_framework(deps, vocab.FRONTEND_FRAMEWORKS)
     if obj.technology is None:
         obj.technology = vocab.technology(language, server or front)
     for p in pkgs:
@@ -258,10 +255,30 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
             obj.role = explicit
         elif by_cmd:
             obj.role = by_cmd
-        elif front and not server:
+        elif front and not server and all(p.language == "Node.js" for p in pkgs):
             obj.role = vocab.ROLE_FRONTEND
         else:
             obj.role = vocab.ROLE_SERVICE
+
+
+def stack_of(pkgs: list[Package]) -> tuple[str | None, str | None, str | None]:
+    """Язык, серверный фреймворк и фреймворк интерфейса каталога кода.
+
+    Фреймворк пишется вместе с языком своего манифеста: в корне с package.json (Koa) и
+    pyproject.toml (Django) получится «Python + Django», а не «Node.js + Django». Без
+    серверного фреймворка язык — первый язык не Node.js, если такой есть: Go-сервер с
+    React-интерфейсом — «Go + React», и это сервис, а не фронтенд."""
+    for key, name in vocab.SERVER_FRAMEWORKS:
+        for p in pkgs:
+            if vocab.find_framework(p.deps, ((key, name),)):
+                front = vocab.find_framework(
+                    tuple(d for q in pkgs for d in q.deps), vocab.FRONTEND_FRAMEWORKS
+                )
+                return p.language, name, front
+    front = vocab.find_framework(tuple(d for p in pkgs for d in p.deps), vocab.FRONTEND_FRAMEWORKS)
+    backend = next((p.language for p in pkgs if p.language != "Node.js"), None)
+    language = backend or next((p.language for p in pkgs), None)
+    return language, None, front
 
 
 def _drop_dev_units(units: list[Unit], model: Model) -> list[Unit]:

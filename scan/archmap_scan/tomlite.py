@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 _QUOTED = re.compile(r"\"((?:[^\"\\]|\\.)*)\"|'([^']*)'")
+# Встроенная таблица без вложенных скобок: в массиве зависимостей это
+# {include-group = "prod"} (PEP 735), её строки именами пакетов не являются.
+_INLINE_TABLE = re.compile(r"\{[^{}]*\}")
 
 
 @dataclass
@@ -40,6 +43,26 @@ def _unquote(raw: str) -> str:
     return raw
 
 
+def _strip_comment(line: str) -> str:
+    """Строка без комментария «# …» вне кавычек (линейный проход, экранирование в "")."""
+    quote = ""
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote:
+            if ch == "\\" and quote == '"':
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+        elif ch == "#":
+            return line[:i]
+        i += 1
+    return line
+
+
 def _strings(text: str) -> list[str]:
     return [m.group(1) if m.group(1) is not None else m.group(2) for m in _QUOTED.finditer(text)]
 
@@ -64,17 +87,17 @@ def parse_lite(text: str) -> Toml:
         if not eq:
             continue
         key = _unquote(key)
-        value = value.strip()
+        value = _strip_comment(value).strip()
         parsed: Any
         if value.startswith("["):
             buf = value
             depth = buf.count("[") - buf.count("]")
             while depth > 0 and i < len(lines):
-                nxt = lines[i].split("#", 1)[0] if "\"" not in lines[i] else lines[i]
+                nxt = _strip_comment(lines[i])
                 buf += "\n" + nxt
                 depth += nxt.count("[") - nxt.count("]")
                 i += 1
-            parsed = _strings(buf)
+            parsed = _strings(_INLINE_TABLE.sub("", buf))
         elif value.startswith("{"):
             inner = value.strip("{} ")
             parsed = {_unquote(part.split("=", 1)[0]): "" for part in inner.split(",") if "=" in part}

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
+
+import pytest
 
 from archmap_scan import stats
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
-from tests.helpers import FIXTURES, files_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, tree
 
 
 def _packages() -> dict[str, Package]:
@@ -65,8 +68,6 @@ def test_code_unsupported_stacks() -> None:
 
 
 def test_pom_with_doctype_is_refused() -> None:
-    import pytest
-
     with pytest.raises(ValueError):
         manifests._pom("pom.xml", '<!DOCTYPE x [<!ENTITY a "b">]><project/>')
 
@@ -79,3 +80,66 @@ def test_oversized_manifest_is_named_not_parsed(tmp_path: Path) -> None:
     assert time.perf_counter() - started < 0.1
     assert found.packages == []
     assert [h.data["reason"] for h in found.hints] == ["манифест сборки больше предела разбора"]
+
+
+ZULIP_LIKE: dict[str, str | bytes] = {
+    "pyproject.toml": (
+        '[project]\nname = "zulip-server"\n\n'
+        "[dependency-groups]\n"
+        "prod = [\n  # Django itself\n  \"django[argon2]==5.2.*\",\n"
+        "  \"ipython<9\",  # \"9.0\" requires a newer Python\n]\n"
+        'dev = [{include-group = "prod"}, "pytest"]\n\n'
+        "[project.optional-dependencies]\n"
+        'mail = ["aiosmtpd>=1.4"]\n'
+    ),
+    "package.json": (
+        '{"name": "zulip", "dependencies": {"koa": "3", "react": "19"},'
+        ' "devDependencies": {"express": "5"}}'
+    ),
+    "requirements/prod.txt": "Django==5.2 \\\n    --hash=sha256:abc\ncelery[redis]\n",
+}
+
+
+def test_dependency_groups_and_requirements_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Находка фазы 1а на Zulip: Django не опознан, потому что живёт в [dependency-groups]
+    (PEP 735). Читаются все группы и [project.optional-dependencies]; requirements/*.txt —
+    манифест каталога выше; devDependencies стек не задают."""
+    tree(tmp_path, ZULIP_LIKE)
+    for version in ((3, 12, 0, "final", 0), (3, 10, 0, "final", 0)):
+        monkeypatch.setattr(sys, "version_info", version)
+        ctx, files = files_of(tmp_path)
+        pkgs = {p.path: p for p in manifests.parse(files, ctx).packages}
+        assert pkgs["pyproject.toml"].deps == ("django", "ipython", "pytest", "aiosmtpd"), version
+        req = pkgs["requirements/prod.txt"]
+        assert (req.dir, req.deps) == ("", ("django", "celery"))
+        assert pkgs["package.json"].deps == ("koa", "react")
+
+
+def test_root_stack_pairs_framework_with_its_language(tmp_path: Path) -> None:
+    tree(tmp_path, {**ZULIP_LIKE, "Dockerfile": "FROM python:3.12\n"})
+    # Имя корня — из package.json (первый по старшинству манифест), стек — по Django.
+    zulip = model_of(tmp_path, system=None).obj("zulip")
+    assert zulip is not None and zulip.technology == "Python + Django"
+    assert zulip.role == "сервис"
+
+
+def test_express_only_in_dev_dependencies_sets_no_stack(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "package.json": '{"name": "tools", "devDependencies": {"express": "5"}}',
+        "Dockerfile": "FROM node:20\n",
+    })
+    tools = model_of(tmp_path, system=None).obj("tools")
+    assert tools is not None and tools.technology == "Node.js"
+
+
+def test_backend_with_frontend_framework_is_a_service(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "go.mod": "module github.com/grafana/grafana\n",
+        "package.json": '{"name": "grafana", "dependencies": {"react": "18"}}',
+        "Dockerfile": "FROM golang:1.22\n",
+    })
+    grafana = model_of(tmp_path, system=None).obj("grafana")
+    assert grafana is not None
+    assert (grafana.technology, grafana.role) == ("Go + React", "сервис")

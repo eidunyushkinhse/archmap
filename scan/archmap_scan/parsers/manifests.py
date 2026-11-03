@@ -31,12 +31,17 @@ _GRADLE_COORD = re.compile(r"""["']([\w.-]+):([\w.-]+)(?::[^"'\s]*)?["']""")
 _GRADLE_SPRING = re.compile(r"org\.springframework\.boot")
 
 
+def _in_requirements_dir(rel: str) -> bool:
+    """requirements/prod.txt и подобные: каталог зависимостей пакета, а не свой пакет."""
+    return rel.endswith(".txt") and paths.name(paths.parent(rel)) == "requirements"
+
+
 def kind_of(rel: str) -> str | None:
     """Вид манифеста по имени файла (ключ словаря vocab.MANIFEST_LANGUAGE)."""
     name = paths.name(rel)
     if name in vocab.MANIFEST_LANGUAGE:
         return name
-    if name.startswith("requirements") and name.endswith(".txt"):
+    if (name.startswith("requirements") and name.endswith(".txt")) or _in_requirements_dir(rel):
         return "requirements.txt"
     if name in ("build.gradle.kts",):
         return "build.gradle"
@@ -95,6 +100,13 @@ def _pyproject(rel: str, text: str) -> Package:
     listed = doc.get("project", "dependencies")
     if isinstance(listed, list):
         deps += [n for n in (_req_name(str(d)) for d in listed) if n]
+    # Группы зависимостей PEP 735 и необязательные зависимости: фреймворк бывает только
+    # там (Zulip держит Django в [dependency-groups] prod).
+    for table in ("dependency-groups", "project.optional-dependencies"):
+        for group in doc.keys(table):
+            items = doc.get(table, group)
+            if isinstance(items, list):
+                deps += [n for n in (_req_name(d) for d in items if isinstance(d, str)) if n]
     deps += [_norm(k) for k in doc.keys("tool.poetry.dependencies") if _norm(k) != "python"]
     pkg.deps = tuple(dict.fromkeys(deps))
     return pkg
@@ -109,7 +121,11 @@ def _requirements(rel: str, text: str) -> Package:
         name = _req_name(line)
         if name:
             deps.append(name)
-    return Package(path=rel, dir=paths.parent(rel), kind="requirements.txt",
+    # requirements/prod.txt — манифест пакета каталогом выше (ТЗ §6.1, находка на Zulip).
+    folder = paths.parent(rel)
+    if _in_requirements_dir(rel):
+        folder = paths.parent(folder)
+    return Package(path=rel, dir=folder, kind="requirements.txt",
                    language="Python", deps=tuple(dict.fromkeys(deps)))
 
 
