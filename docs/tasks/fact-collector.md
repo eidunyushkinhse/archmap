@@ -1,0 +1,437 @@
+# Сборщик фактов (эпик, после релиза, 2026-11-03)
+
+Ветка `feat/fact-collector`, слияние в main через `--no-ff`. Эпик идёт после релиза: записи в
+tasks.md «АВТОМАТИКА ПЕРЕД АГЕНТОМ» и «ПЕРЕСОБРАТЬ ЭТАЛОНЫ» (сомнение владельца про
+bullshit-proof эталоны). Обсуждение с владельцем 2026-11-02…03, решение владельца 2026-11-03:
+«Сборщик одним файлом, пиши ТЗ на нулевую версию».
+
+## 0. Решения владельца и границы
+
+- BYOA полагается на агента даже там, где хватает автоматики. Сборщик фактов вытаскивает из
+  репозитория пользователя всё, что не требует суждения: единицы развёртывания, базы, брокеры,
+  зависимости, структуру таблиц из миграций, параметры конфигурации, каналы брокера, точки
+  входа. Агент получает скелет и факты, а сам делает то, что автоматикой не вытащить: смысл,
+  границы контейнеров, имена, описания, подписи связей, непокрытые стеки.
+- Форма: **один файл** `archmap-scan.pyz`, который отдаёт сам сервер ArchMap. Агент запускает
+  его первым шагом промпта (фаза 3), пользователь без агента запускает руками, CI запускает
+  как шаг пайплайна. Ставить на машину ничего не нужно, кроме Python 3.
+- Сервер ArchMap код пользователя не получает ни в одном сценарии. Сборщик работает там, где
+  лежит репозиторий, и отдаёт файлы в тех форматах, которые ArchMap уже ввозит.
+- Нулевая версия (этот документ, фазы 1а…1в) не трогает промпты агенту и интерфейс. Её
+  результат ввозится сегодняшними окнами и инструментами. Интеграция с агентом (шаг промпта,
+  инструмент MCP, пометки «по сборщику» в превью) идёт отдельной фазой после замера на
+  эталонах, потому что любая правка промпта проверяется замером.
+- Редкий стек: сборщик отдаёт ярус манифестов, семьи кода помечает «не покрыто», агент
+  работает по ним как сегодня. Хуже, чем сегодня, не становится ни для кого.
+
+## 1. Путь пользователя (куда идём, не всё в нулевой версии)
+
+Описано владельцу 2026-11-03, коротко:
+
+- Новый проект: «Построй схему системы по этому репозиторию и создай проект «Ярмарка»».
+  Агент запускает сборщик, читает его сводку («покрыто / не покрыто / исключено»), по скелету
+  проверяет границы и дописывает смысл, показывает план. Потом «Структура БД, каналы и
+  конфигурация по сборщику готовы. Записать?».
+- Обновление: «Обнови схему проекта «Ярмарка» по свежему коду». Сканерная часть сравнения
+  детерминирована, агент читает код только для нового и непокрытого. Запуск без изменений
+  в коде даёт пустой план.
+- Без агента: скачать файл с ArchMap, запустить, ввезти `schema.yaml` в окне **Новый проект**
+  способом **Импорт**, файлы фактов окнами фактов. Скелет без описаний и без исходящих связей.
+- Служебный контур с запретом стороннего ПО на устройстве: тот же файл запускает CI на образе
+  ArchMap, который компания уже зеркалирует (фаза 4, не здесь).
+
+В нулевой версии из этого работает путь «без агента» и ручной запуск сборщика агентом по
+просьбе пользователя.
+
+## 2. Инварианты сборщика
+
+1. **Чистая функция «каталог репозитория → каталог файлов».** Без сети, без выполнения кода
+   репозитория (Python разбирается через `ast`, никаких `import` чужих модулей), без записи
+   куда-либо, кроме каталога вывода. Единственная внешняя команда: `git` с фиксированными
+   аргументами (список файлов, адрес origin, хэш HEAD); без git работает обход каталога.
+2. **Детерминизм.** Один и тот же каталог и одна версия сборщика дают байт в байт одинаковый
+   вывод. Порядок везде отсортирован, времени и случайных значений в выводе нет.
+3. **Молчание не двусмысленно.** У каждой семьи фактов в отчёте один из статусов: `covered`
+   (разборщики запускались, найдено N), `empty` (разборщики запускались, не найдено ничего),
+   `unsupported` (стек опознан, разборщика нет: назван стек), `unknown` (стек не опознан).
+   «Маршрутов нет» и «маршруты не умею» выглядят по-разному.
+4. **Ничего не выдумывает.** Каждая запись вывода имеет основание `файл:строка` в
+   `agent/evidence.yaml`. Описаний, подписей со смыслом и ролей сверх словаря сборщик не пишет:
+   поле остаётся пустым, его заполняет агент или человек.
+5. **Ничего не выбрасывает молча.** Исключённые каталоги, неразобранные файлы, динамические
+   имена, неотнесённые записи перечислены в отчёте с числами и примерами.
+6. **Секреты не пишутся.** Файлы `.env`, `.env.local`, `.env.production` и любые без суффикса
+   `example|sample|template|dist` не открываются вовсе. Из примеров берутся имена; значение
+   пишется как дефолт только если имя не похоже на секрет (`PASSWORD|SECRET|TOKEN|KEY|DSN|
+   PRIVATE|CREDENTIAL|URL` с учётными данными) и значение не похоже на ключ (длинная
+   случайная строка, строка подключения с паролем).
+7. **Форматы вывода равны форматам ввоза ArchMap.** `schema.yaml` в формате единого ввоза
+   (`nodes`/`edges`/`source`), файлы фактов в формате пакетов «Доки от агента» с первой
+   строкой `# archmap-node: …`. ArchMap ради сборщика в нулевой версии не меняется; неизвестные
+   ключи ввоз игнорирует, поэтому дополнительные ключи сборщика допустимы, но в нулевой
+   версии их нет: основания лежат отдельно в `agent/`.
+8. **Тексты по правилам продукта.** Сводка и сообщения сборщика читает пользователь:
+   слова продукта («объект», «контейнер», «спецификация»), без «, —», тире только по
+   грамматике, без многоточий, без имён панелей и внутреннего словаря. Все такие тексты
+   лежат в одном модуле `texts.py`, по нему проходит сторож из CLAUDE.md.
+9. **Версия.** У сборщика своя версия `archmap_scan.__version__` (нулевая: `0.1.0`), она
+   печатается в шапке каждого файла вывода и отдаётся сервером вместе с файлом.
+
+## 3. Форма и поставка
+
+- Код: новый верхний каталог `scan/`: пакет `archmap_scan/`, `tests/`, `fixtures/`,
+  `requirements.txt` (PyYAML тем же пином, что mcp и backend), `requirements-dev.txt`
+  (pytest, ruff, mypy теми же пинами, что `mcp/requirements-dev.txt`), `pyproject.toml`
+  (ruff и mypy; `target-version`/`python_version` **3.10**), `build.py`, `README.md`.
+- Совместимость: синтаксис и стандартная библиотека в пределах Python 3.10 (на машине
+  пользователя Python новее не обещан). Зависимость одна: PyYAML, чистая Python-реализация
+  кладётся внутрь файла (`yaml/` без `_yaml*.so` и `*.dist-info`).
+- Сборка файла: `python3 scan/build.py` собирает `scan/dist/archmap-scan.pyz` средствами
+  `zipapp` (точка входа `archmap_scan.cli:main`, shebang `/usr/bin/env python3`), копируя
+  пакет `yaml` из site-packages того интерпретатора, которым запущен скрипт. Один скрипт на
+  три поставки: Dockerfile (после `pip install` стадии бэкенда, результат в
+  `/opt/archmap/scan/archmap-scan.pyz`), `deploy/build-bundle.sh` (в `backend/../scan/` стейджа,
+  рядом с `backend/`), `./dev.sh` (собирает, если файла нет или исходники новее). Желательно
+  воспроизводимо (фиксированные даты записей zip), минимум: `build.py` печатает размер и sha256.
+- Раздача сервером: `GET /api/v1/scan/archmap-scan.pyz` без аутентификации (как `/health`;
+  содержимое публичное, AGPL), `Content-Type: application/octet-stream`,
+  `Content-Disposition: attachment; filename="archmap-scan.pyz"`, `ETag` по sha256,
+  `Cache-Control: no-cache`, заголовок `X-ArchMap-Scan-Version`. `GET /api/v1/scan` отдаёт JSON
+  `{version, sha256, size}`. Путь к файлу: настройка `scan_file` в `app/config.py` (по умолчанию
+  `../scan/dist/archmap-scan.pyz` от `backend/`, в образе `/opt/archmap/scan/archmap-scan.pyz`,
+  в серверной поставке соответствующий путь релиза). Файла нет: 404 с текстом «Сборщик фактов в
+  эту поставку не входит». Демо-режим раздачу не запрещает. nginx поставки ничего нового не
+  требует (`/api/` уже идёт в бэкенд), `standalone.py` тоже.
+- Запуск пользователем: `python3 archmap-scan.pyz [ПУТЬ] [--system ИМЯ] [--out КАТАЛОГ]
+  [--exclude ШАБЛОН]… [--include ШАБЛОН]… [--no-git] [--json] [--version]`. Справка на русском.
+  Коды выхода: 0 успех (даже если найдено мало), 1 ошибка (пути нет, каталог вывода занят чужими
+  файлами, разбор упал). Падение одного разборщика не валит запуск: семья получает статус
+  `error` с текстом, остальное пишется.
+
+## 4. Вход
+
+- `ПУТЬ` (по умолчанию текущий каталог) должен быть корнем репозитория или его подкаталогом;
+  корень git определяется через `git rev-parse --show-toplevel`, без git корень равен `ПУТЬ`.
+  Обход всегда ограничен `ПУТЬ`; git даёт семантику `.gitignore`, адрес origin и HEAD. Пути в
+  выводе (`source.path`, evidence) относительны корня git, чтобы совпадать с тем, что пишет
+  агент; без git относительны `ПУТЬ`. Ключ `--no-git` отключает git полностью (тесты на
+  фикстурах внутри репозитория ArchMap запускаются с ним, `repo` и `commit` тогда пусты).
+- Перечень файлов: `git ls-files -z --cached --others --exclude-standard` (учитывает
+  `.gitignore`), без git обход каталога с встроенным списком пропусков: `.git`, `node_modules`,
+  `vendor`, `dist`, `build`, `target`, `.venv`, `venv`, `__pycache__`, `.tox`, `.mypy_cache`,
+  `.idea`, `.vscode`, `coverage`.
+- Исключение по соглашению (всегда, независимо от git): сегменты пути `test`, `tests`,
+  `__tests__`, `testing`, `spec`, `specs`, `testdata`, `fixtures`, `mocks`, `__mocks__`, `e2e`,
+  `docs`, `doc`, `examples`, `example`, `samples`, `benchmarks`; имена файлов `test_*.py`,
+  `*_test.py`, `*_test.go`, `*.test.*`, `*.spec.*`, `conftest.py`; compose-файлы с сегментом
+  `test|ci|e2e` в имени. Исключённое перечисляется в отчёте по каталогам с числом файлов.
+- Файл `.archmapignore` в корне репозитория и ключ `--exclude`: по шаблону на строку,
+  синтаксис подмножества `.gitignore`: `*`, `**`, `?`, ведущий `/` привязывает к корню,
+  хвостовой `/` означает каталог, строки с `#` и пустые пропускаются; отрицаний `!` нет.
+  `--include` возвращает в обход каталог, исключённый соглашением (например `fixtures/`).
+- Открываются только файлы, которые нужны какому-то разборщику по имени или расширению, не
+  длиннее 2 МБ, в UTF-8 (ошибки декодирования заменяются). Всё остальное не читается.
+
+## 5. Выход
+
+Каталог `--out` (по умолчанию `./archmap-scan` в текущем каталоге). Если каталог существует и
+в нём нет маркера `.archmap-scan`, сборщик отказывает (код 1) и просит другой путь; с маркером
+перезаписывает целиком. В конце печатает путь и сводку.
+
+```
+archmap-scan/
+  .archmap-scan            маркер владения каталогом
+  summary.txt              сводка для человека и агента: что найдено, покрытие, как ввезти
+  coverage.yaml            покрытие по семьям для машины (раздел 8)
+  schema.yaml              скелет схемы в формате ввоза ArchMap
+  facts/
+    <контейнер>.config.yaml       # archmap-node: Система / контейнер  ·  config: […]
+    <база>.tables.yaml            # archmap-node: Система / база      ·  tables: […]
+    <брокер>.channels.yaml        # archmap-node: Система / брокер    ·  channels: […]
+  agent/
+    entrypoints.yaml       точки входа по контейнерам: маршруты, воркеры, расписания, потребители
+    evidence.yaml          основания каждой записи schema и facts: список «файл:строка»
+    hints.yaml             неопределимое и подсказки: depends_on сервис→сервис, динамические имена,
+                           неотнесённые параметры, стеки без разборщика, найденные файлы OpenAPI
+```
+
+В ArchMap ввозятся `schema.yaml` и `facts/`. Каталог `agent/` читает агент (и человек), ArchMap
+его не ввозит. Имена файлов в `facts/` строятся из имени объекта транслитерацией латиницей,
+чтобы файлы одинаково назывались на любой ОС.
+
+### 5.1 `schema.yaml`
+
+- Корень: один объект-система с именем `--system`, иначе имя из корневого манифеста сборки
+  (`name` в package.json, `[project].name` в pyproject.toml, последний сегмент `module` в go.mod),
+  иначе имя каталога репозитория. `element: system`. Описания нет.
+- Дети корня: контейнеры (`shape: service`), базы (`shape: database`), брокеры (`shape:
+  broker`) по разделу 6.1. Компонентов, внешних систем (SaaS) и людей сборщик не создаёт.
+- У каждого объекта: `name` как в манифесте дословно; `technology` по словарю (раздел 6.5);
+  `role` из короткого словаря: «сервис», «фронтенд», «воркер», «БД», «кэш», «брокер», «прокси»,
+  «хранилище», «планировщик»; `status: existing`; `description` пустое (ключ не пишется).
+- `source`: `repo` из адреса origin (как есть, нормализует ArchMap), `path` по каталогу кода
+  контейнера (контекст сборки compose, каталог Dockerfile, каталог сервиса в монорепо), `host`
+  по имени сервиса compose или k8s Service. Правила: `repo`+`path` ставятся только тем
+  контейнерам, у которых каталог кода свой и ни с кем не совпадает; контейнеры, собранные из
+  одного каталога (web и worker из одного Dockerfile), получают только `host` и запись в
+  `hints.yaml`. Базам и брокерам только `host`. Корню `source` не нужен. Код в корне
+  репозитория у единственного контейнера: `repo` без `path`.
+- `edges`: только то, что видно в манифестах и литералах кода (раздел 6.3); подписи из словаря:
+  «использует» (база, кэш, хранилище, сервис по адресу из конфигурации), «публикует» и
+  «потребляет» (канал с известным направлением), `technology` по виду цели («PostgreSQL»,
+  «Kafka», «HTTP»), `channel` у связей с брокером дословно. Направление: от того, кто
+  обращается. Одна пара и один канал: одна связь.
+- Ввоз покажет замечания «без единой связи» у контейнеров, связи которых сборщик не увидел.
+  Это ожидаемо и в сводке объяснено: связи дописывает агент или человек.
+
+### 5.2 `facts/`
+
+Форматы ровно те, что в промптах семей (`backend/app/*_prompt.py`, снимки
+`backend/tests/snapshots/prompts/{data,channels,config}--builder.txt`): `tables` с
+`columns` (`name`, `type`, `pk`, `required`, `references`, `schema`), `channels` (`name`,
+`kind`, остальное только из кода), `config` (`name`, `type`, `required`, `default`,
+`description` пустое). Адрес владельца первой строкой `# archmap-node: <Система> / <объект>`
+именами из `schema.yaml`. Записи без владельца в `facts/` не пишутся, а идут в `hints.yaml`
+(раздел 7). Значения с «: » внутри в двойных кавычках, как требуют промпты.
+
+### 5.3 `agent/`
+
+- `entrypoints.yaml`: по контейнеру список `http` (`method`, `path`, `file`, `line`,
+  `framework`), `workers` (команда запуска из Procfile/compose/supervisor, очереди из её
+  аргументов), `schedules` (Celery beat, crontab, CronJob: имя, расписание, задача),
+  `consumers` (канал, файл, строка).
+- `evidence.yaml`: ключи вида `nodes/<путь объекта>`, `edges/<from>→<to>[#channel]`,
+  `tables/<база>/<таблица>`, `channels/<брокер>/<канал>`, `config/<контейнер>/<имя>`, каждому
+  список строк `файл:строка` (для манифестов строка ключа). Этот файл и есть основание для
+  «bullshit-proof» эталона: запись без основания в выводе невозможна по построению.
+- `hints.yaml`: разделы `depends_on` (пары сервис→сервис из compose, в связи не попали),
+  `dynamic_names` (места, где имя канала или переменной не литерал), `unassigned`
+  (параметры, таблицы, каналы без владельца с причиной), `unsupported` (опознанные стеки без
+  разборщика), `openapi_files` (пути найденных файлов OpenAPI), `profiles` (сервисы compose под
+  `profiles:` или только в dev/local-файлах).
+
+## 6. Разборщики нулевой версии
+
+Каждый разборщик: отдельный модуль `archmap_scan/parsers/<имя>.py` с одной функцией
+`parse(files, ctx) -> Findings`, без состояния, покрыт тестами на фикстуре. Реестр разборщиков
+по семьям один (`registry.py`), по нему же считается покрытие.
+
+### 6.1 Ярус 1, манифесты (не зависят от языка)
+
+| Источник | Что берёт | Куда кладёт |
+|---|---|---|
+| `docker-compose*.y*ml`, `compose*.y*ml` (все, кроме исключённых соглашением; `extends`/`include` не раскрываются, в hints) | сервисы: имя, `image`, `build.context`/`dockerfile`, `command`, `depends_on`, ключи `environment` (имена; значения только для адресов зависимостей), `ports`, `profiles` | объекты (вид по образу, раздел 6.5), `host` = имя сервиса, связи по адресам из `environment` (`postgres://db:5432`, `REDIS_HOST=redis`, `http://orders:8080` → объект с таким `host`), связи по `depends_on` только к базам и брокерам, пары сервис→сервис в hints; параметры: имена из `environment` контейнера в семью config без дефолтов |
+| `Dockerfile*` | базовый образ (`FROM`) → язык/рантайм; каталог файла → каталог кода контейнера; `CMD`/`ENTRYPOINT` | `technology`, `source.path`, команда для `entrypoints` |
+| `Procfile` | `имя: команда` | контейнер на строку: `web` → «сервис», остальные → «воркер»/«планировщик» по слову в команде (`worker`, `consumer`, `beat`, `scheduler`, `cron`) |
+| supervisor: `*.conf`, `*.conf.template*`, `*.ini` с секциями `[program:имя]` (включая шаблоны erb/jinja, разбор построчно) | имя программы, `command`, `numprocs` | контейнер на программу; очереди из аргументов команды в `entrypoints.workers` |
+| systemd `*.service` | `Description`, `ExecStart` | контейнер на юнит |
+| k8s без шаблонов: `*.y*ml` с `apiVersion`+`kind` в `Deployment\|StatefulSet\|DaemonSet\|Job\|CronJob\|Service\|ConfigMap` (несколько документов в файле) | имя, образы контейнеров пода, `env`/`envFrom` (имена), `schedule` у CronJob, имя Service | объекты, `host` = имя Service (сопоставление по `selector`/`metadata.name`), расписания в `entrypoints.schedules`, параметры в config |
+| Helm: `Chart.yaml`, `values.yaml` | имя чарта, образы в values (`image.repository`) | объекты по образам; `templates/` не разбираются (Go-шаблоны), в coverage `partial` с пояснением |
+| манифесты сборки: `package.json`, `pyproject.toml`, `requirements*.txt`, `Pipfile`, `go.mod`, `Cargo.toml`, `pom.xml`, `build.gradle*`, `Gemfile`, `composer.json`, `mix.exs` | имя пакета, зависимости (имена, без версий), workspaces/монорепо | `technology` контейнера (язык + фреймворк по словарю 6.5), опознание стека для статусов `unsupported`, клиентские библиотеки как подсказка вида зависимости (драйвер Postgres, клиент Kafka) |
+| `.env.example`, `.env.sample`, `.env.template`, `.env.dist`, `env.example` | имена, значения как дефолты по инварианту 6 | семья config контейнера, к которому отнесён файл (раздел 7) |
+| файлы OpenAPI: `openapi*.y*ml\|json`, `swagger*.y*ml\|json` с ключом `openapi:`/`swagger:` | путь, число операций | `hints.openapi_files`; содержимое не ввозится (в ArchMap спецификация живёт в разделе «OpenAPI» объекта и едет пакетом доков, это фаза 3) |
+
+### 6.2 Ярус 2, код (по фреймворкам)
+
+| Семья | Стек | Что ищет (только литералы) |
+|---|---|---|
+| маршруты HTTP → `entrypoints.http` | Python: FastAPI/Starlette (`@app.get("/p")`, `@router.post`, `APIRouter(prefix=)`, `include_router(r, prefix=)` в пределах одного файла и по импорту имени из того же репозитория), Flask (`@app.route`, `@bp.route`, `Blueprint(url_prefix=)`, `add_url_rule`), Django (`urls.py`: `path`, `re_path`, `url`, вложенные `include()` по модулю, DRF `router.register(prefix, ViewSet)` → `/prefix/` и `/prefix/{id}/`) | `ast`: декораторы и вызовы с литеральным первым аргументом; метод из имени; префиксы складываются, нерешённый префикс помечается `prefix_unresolved: true` |
+| | Node: Express/Koa-router/Fastify (`app.get('/p'`, `router.post(`, `app.use('/prefix', router)` в одном файле), NestJS (`@Controller('prefix')` + `@Get('p')`) | регулярные выражения по строкам без оглядки назад, литералы в одинарных, двойных и обратных кавычках без подстановок |
+| | Go: `net/http` (`http.HandleFunc("/p"`, `mux.Handle(`), gorilla, chi (`r.Get("/p"`), gin/echo/fiber (`r.GET("/p"`, `e.POST(`), группы `r.Group("/v1")` в одном файле | регулярные выражения |
+| параметры конфигурации → `facts/*.config.yaml` | Python: `os.getenv("X", default)`, `os.environ["X"]`, `os.environ.get("X", default)`, классы `BaseSettings` (имя поля в верхнем регистре, дефолт из присваивания, `Field(alias=)`/`env=`), `decouple.config("X", default=)`, `environ.Env`; Node: `process.env.X` (дефолт из `\|\| 'v'` и `?? 'v'` на той же строке); Go: `os.Getenv("X")`, `os.LookupEnv("X")`, `envconfig` теги `env:"X"` | тип по дефолту (`bool`/`int`/`duration`/`string`), `required` = нет дефолта и чтение через `[]`/`LookupEnv`/`Field(...)` без дефолта; один параметр из N мест чтения: одна запись, все места в evidence |
+| каналы брокера → `facts/*.channels.yaml` и связи с `channel` | Celery (`@app.task(queue="q")`, `@shared_task(queue=)`, `task_routes`, `Queue("q")` kombu, `apply_async(queue=)`, `task_default_queue`, аргументы `-Q q1,q2` в командах воркеров) → `kind: queue`; Kafka: kafka-python/confluent/aiokafka (`send("t"`, `produce("t"`, `KafkaConsumer("t"`, `subscribe([…])`), kafkajs (`send({ topic: 't'`, `subscribe({ topic: 't'`), Go sarama/segmentio (`Topic: "t"`) → `kind: topic`; RabbitMQ: pika (`queue_declare(queue="q")`, `basic_publish(exchange="e", routing_key="k")`, `basic_consume(queue="q")`), amqplib (`assertQueue('q')`, `sendToQueue('q'`, `consume('q'`) → `kind: queue`/`exchange`; NATS (`subscribe("s")`, `publish("s"`) → `kind: subject` | имя дословно; направление по вызову (publish → контейнер→брокер, consume → брокер→контейнер); поля сообщений не извлекаются (пусто); нелитеральное имя → `hints.dynamic_names` |
+| воркеры и расписания → `entrypoints` | Celery beat (`beat_schedule`, `CELERYBEAT_SCHEDULE`, `@periodic_task`), `crontab`-файлы и `cron.d/`, k8s CronJob (6.1), `node-cron`/`schedule`-литералы не ищутся | имя, расписание как написано, задача |
+
+### 6.3 Миграции → `facts/*.tables.yaml`
+
+| Источник | Разбор |
+|---|---|
+| SQL DDL: `*.sql` в каталогах `migrations`, `migrate`, `db`, `sql`, `schema`, `database`, Flyway `V*__*.sql`, golang-migrate `*.up.sql`, Diesel `up.sql`, sqlx | токенизатор DDL ограниченной грамматики: `CREATE TABLE [IF NOT EXISTS] [схема.]имя (колонка тип [NOT NULL] [PRIMARY KEY] [REFERENCES т(к)] …, PRIMARY KEY (…), FOREIGN KEY (…) REFERENCES …)`, `ALTER TABLE … ADD [COLUMN]`, `DROP COLUMN`, `RENAME [COLUMN]`, `DROP TABLE`, `ALTER TABLE … RENAME TO`; кавычки `"`, `` ` ``, `[]`; порядок файлов по имени (версии Flyway/golang-migrate по числу); `*.down.sql` пропускаются; непонятная инструкция пропускается со счётчиком в coverage |
+| Alembic: каталог с `env.py` и `versions/*.py` | `ast`: `op.create_table("t", sa.Column("c", sa.Type(…), nullable=, primary_key=), sa.PrimaryKeyConstraint, sa.ForeignKeyConstraint, schema=)`, `op.add_column`, `op.drop_column`, `op.drop_table`, `op.rename_table`, `op.alter_column(new_column_name=, nullable=)`, `op.create_foreign_key`; порядок по цепочке `down_revision` (ветвления: объединение по `merge`-ревизиям; цикл или обрыв → `error` семьи с текстом); только функция `upgrade()`; `op.execute("…")` с DDL отдаётся SQL-разборщику |
+| Django: `*/migrations/0*.py` | `ast`: `CreateModel(name=, fields=[(имя, models.Тип(null=, primary_key=, to=…))], options={"db_table": …})`, `AddField`, `RemoveField`, `DeleteModel`, `RenameModel`, `RenameField`, `AlterField(null=)`; имя таблицы `app_label + "_" + lower(model)` или `db_table`; `ForeignKey(to="app.Model")` → `references: таблица.id`; порядок по `dependencies` внутри приложения и между приложениями; `RunPython`/`RunSQL` пропускаются (счётчик) |
+
+Для не покрытых владельцем таблиц (раздел 7) записи идут в `hints.unassigned`.
+
+### 6.4 Не в нулевой версии (в coverage как `unsupported` с именем стека, где стек опознан)
+
+Prisma `schema.prisma`, Rails `schema.rb`/`structure.sql` (SQL-часть разберёт 6.3), Liquibase (снят
+владельцем), Helm `templates/`, маршруты Spring/Rails/Laravel/Phoenix/.NET, ключи viper и Spring
+`@Value`, исходящие HTTP-вызовы в коде, компоненты, внешние SaaS и люди, описания и подписи со
+смыслом, поля сообщений каналов, содержимое OpenAPI, Redis/SQS/Pub/Sub как каналы, «мёртвый
+код» и проверка «объявлено и подключено» (фаза 3: ярусы свидетельств), Terraform.
+
+### 6.5 Словари (стартовые, пополняются по находкам, один модуль `vocab.py`)
+
+- Образ → вид и технология: `postgres`→database «PostgreSQL», `mysql`→database «MySQL»,
+  `mariadb`→«MariaDB», `mongo`→«MongoDB», `clickhouse`→«ClickHouse», `elasticsearch`→
+  «Elasticsearch», `opensearch`→«OpenSearch», `redis`/`valkey`→database «Redis» (роль «кэш»;
+  становится broker «Redis», если на него указывает `CELERY_BROKER_URL`/`BROKER_URL`/`RQ_*`),
+  `memcached`→database «Memcached» (роль «кэш»), `minio`→database «MinIO» (роль «хранилище»),
+  `rabbitmq`→broker «RabbitMQ», `kafka`/`cp-kafka`/`bitnami/kafka`→broker «Kafka»,
+  `redpanda`→broker «Redpanda», `nats`→broker «NATS», `pulsar`→broker «Pulsar»,
+  `zookeeper`→service «ZooKeeper» (роль «сервис»), `nginx`/`traefik`/`haproxy`/`envoy`→service
+  (роль «прокси»), `mailhog`/`mailpit` → service. Неизвестный образ без `build` → service,
+  `technology` = имя образа без тега.
+- Базовый образ Dockerfile и манифест сборки → `technology`: «Python», «Node.js», «Go»,
+  «Java», «Ruby», «PHP», «Rust», «.NET», «Elixir»; плюс фреймворк: fastapi→«FastAPI»,
+  django→«Django», flask→«Flask», starlette, express→«Express», @nestjs/core→«NestJS», fastify,
+  koa, next→«Next.js», react/vue/@angular/core/svelte → роль «фронтенд» при отсутствии
+  серверного фреймворка, gin/echo/chi/fiber, spring-boot (pom/gradle), rails (Gemfile),
+  laravel (composer.json), phoenix (mix.exs). Запись: «Python + FastAPI».
+- Клиентские библиотеки → подсказка вида зависимости: psycopg/asyncpg/pg/pgx → PostgreSQL,
+  mysqlclient/pymysql/mysql2 → MySQL, redis/ioredis → Redis, kafka-python/confluent-kafka/
+  aiokafka/kafkajs/sarama → Kafka, pika/aio-pika/amqplib → RabbitMQ, celery → Celery, nats.
+
+## 7. Отнесение к владельцу
+
+- **Контейнер файла.** Каждый контейнер со своим кодом имеет каталог кода (контекст сборки
+  compose, каталог Dockerfile, каталог сервиса в монорепо по workspaces/`services/*`). Файл
+  принадлежит контейнеру с самым длинным каталогом-префиксом. Репозиторий без манифестов
+  контейнеров: один неявный контейнер с именем корня (по манифесту сборки или каталогу), в
+  coverage пометка «контейнер определён по репозиторию, не по манифесту». Файл вне каталогов
+  всех контейнеров (общая библиотека) → записи в `hints.unassigned` с причиной «общий код».
+- **База для миграций.** Цепочка: (1) контейнер, владеющий каталогом миграций, и адрес базы в
+  его `environment`/дефолтах → объект-база с таким `host`; (2) единственная реляционная база в
+  манифестах; (3) иначе `hints.unassigned` с причиной «несколько баз, владелец не определим».
+- **Брокер для каналов.** Та же цепочка по виду брокера (Kafka-клиент → объект «Kafka»): адрес
+  в конфигурации контейнера, единственный брокер этого вида, иначе `unassigned`. Celery без
+  брокера в манифестах: брокер не создаётся, очереди в `unassigned` с причиной «брокер не
+  найден в манифестах».
+- **Контейнер для параметров.** По файлу чтения (контейнер файла); `environment` compose
+  даёт владельца напрямую. Один параметр, прочитанный в нескольких контейнерах: по записи у
+  каждого (правило продукта: владелец параметра контейнер, одинаковый параметр у двух
+  контейнеров это две записи).
+
+## 8. Отчёт о покрытии
+
+`coverage.yaml`:
+
+```yaml
+scanner: 0.1.0
+repo: github.com/org/yarmarka      # как в origin; без git: пусто
+commit: 1a2b3c4d                   # HEAD; без git: пусто
+stacks: [Python + FastAPI, Node.js + React, PostgreSQL, Kafka]
+families:
+  containers: {status: covered, found: 7, parsers: [compose, dockerfile], notes: []}
+  databases:  {status: covered, found: 2, parsers: [compose]}
+  brokers:    {status: covered, found: 1, parsers: [compose]}
+  edges:      {status: covered, found: 9, parsers: [compose-env, kafka-python]}
+  tables:     {status: covered, found: 14, parsers: [alembic], skipped: {sql_statements: 3}}
+  config:     {status: covered, found: 23, parsers: [python-env, compose-env]}
+  channels:   {status: covered, found: 4, parsers: [kafka-python], dynamic_names: 2}
+  http_routes: {status: partial, found: 31, parsers: [fastapi], unsupported: [Next.js]}
+  workers:    {status: covered, found: 2, parsers: [procfile, celery]}
+  schedules:  {status: empty, parsers: [celery-beat, crontab]}
+excluded:
+  - {path: tests/, files: 412, reason: convention}
+  - {path: docs/, files: 58, reason: convention}
+unread: {too_large: 3, binary: 0}
+```
+
+Статусы: `covered`, `partial` (часть стека покрыта, остальное названо в `unsupported`),
+`empty`, `unsupported` (стек опознан, разборщика нет), `unknown` (стек не опознан), `error`
+(разборщик упал, текст). `summary.txt` пересказывает то же словами по правилам продукта и
+заканчивается разделом «Как ввезти»: `schema.yaml` в окне **Новый проект** способом **Импорт**
+или к открытому проекту через **Обновить из кода**; файлы `facts/` окнами фактов (структура
+БД, каналы, конфигурация) или инструментами агента; каталог `agent/` для агента.
+
+## 9. Качество
+
+- **Фикстура «Ярмарка»** `scan/fixtures/yarmarka/`: синтетический монорепо: `docker-compose.yml`
+  (storefront, orders, billing-worker, orders-db postgres, events kafka, redis, mailhog под
+  `profiles`), Dockerfile у каждого сервиса, `Procfile` у orders, `services/orders` (FastAPI с
+  `APIRouter(prefix="/orders")` и `include_router`, pydantic Settings, `os.getenv` с дефолтами,
+  Alembic с тремя ревизиями включая `add_column` и `drop_table`, kafka-python `send("orders.created")`),
+  `services/billing-worker` (Celery: очереди, beat, `apply_async(queue=)`), `frontend`
+  (package.json с react, `process.env.API_URL || 'http://orders:8080'`), `.env.example` с
+  секретами по имени, `tests/` и `docs/` с ловушками (compose с лишними сервисами, миграция,
+  маршруты), `.archmapignore`. Ожидаемый вывод закоммичен целиком (`fixtures/yarmarka.expected/`),
+  тест сравнивает байт в байт; тест «ловушки не попали»; тест «секреты не попали» (grep по
+  выводу на значения из `.env.example`).
+- Фикстуры поменьше на каждый разборщик (Django-миграции с переименованиями, SQL DDL в
+  разных диалектах, Express/Nest, Go-роутеры, RabbitMQ, supervisor-шаблон, k8s-манифесты,
+  Procfile, Helm values).
+- **Детерминизм**: два запуска подряд байт в байт; запуск без git (переименованный `.git`)
+  даёт тот же вывод, кроме `repo`/`commit`.
+- **Враждебный вход**: файл с одной строкой в 2 МБ, YAML с якорями-бомбой (`yaml.safe_load`
+  плюс предел размера), миграции с циклом ревизий, глубоко вложенный JSON; каждый разборщик
+  укладывается в секунду на таком входе (тест времени).
+- **Производительность**: репозиторий Sentry (около 50 тысяч файлов) за десятки секунд,
+  не минуты; замер в отчёте фазы 2.
+- **Без побочных эффектов**: тест подменяет `socket.socket` и `subprocess.run` и проверяет,
+  что сеть не трогается, а `subprocess` зовётся только с `git` и фиксированными аргументами.
+- Гейт `scan/`: `ruff check .`, `mypy`, `pytest -q`; покрытие разборщиков не ниже 85 %.
+
+## 10. Интеграция в репозиторий
+
+- `scripts/git-hooks/pre-commit`: четвёртая зона `scan/*` по образцу `mcp/*` (venv `scan/venv`);
+  правка `backend/app/routers/scan.py` гоняет бэк-гейт как обычно.
+- `.github/workflows/ci.yml`: джоба `scan` (ruff + mypy + pytest + `build.py` и запуск
+  собранного файла на фикстуре под Python 3.10 и 3.12), в джобе `compose` проверка
+  `GET /api/v1/scan` (200, версия).
+- `Dockerfile`, `deploy/build-bundle.sh`, `dev.sh`, `compose.yaml` (ничего, путь по умолчанию),
+  `deploy/helm` (ничего), `deploy/install.sh` (путь релиза в `archmap.env`, если нужен).
+- Документы в тех же коммитах: `spec.md` (раздел «Сборщик фактов»: что это, что собирает,
+  что не делает, как получить файл), `docs/docs-delta.md` (новая возможность для сайта: путь
+  без агента), `tasks.md` (эпик, фазы, статус), `CLAUDE.md` (структура: каталог `scan/`,
+  команды гейта и сборки) и `QWEN.md` через `scripts/agent-docs.py`, `mcp/README.md` не
+  трогать (фаза 3), `DEPLOY.md` одной фразой про файл в поставке.
+
+## 11. Фазы
+
+### Фаза 1а (исполнитель): ядро и ярус манифестов
+Каталог `scan/`, обход и исключения, отнесение к владельцу, разборщики 6.1 целиком, миграции
+6.3 (SQL DDL, Alembic, Django), словари 6.5, вывод всех файлов раздела 5 (разделы `agent/`
+заполняются тем, что уже есть), coverage и summary, CLI, `build.py`, фикстура «Ярмарка» с
+ожидаемым выводом, тесты раздела 9, гейт и хук. Семьи яруса 2 в этой фазе получают статус
+`unsupported` с именем стека: сводка уже честная.
+
+### Фаза 1б (исполнитель): ярус кода
+Разборщики 6.2 (маршруты, параметры, каналы, воркеры и расписания) с фикстурами, связи по
+каналам в `schema.yaml`, обновление ожидаемого вывода «Ярмарки».
+
+### Фаза 1в (исполнитель): поставка и раздача
+`app/routers/scan.py`, настройка `scan_file`, Dockerfile, bundle, dev.sh, CI, документы по
+разделу 10. Проверка руками: `curl -o archmap-scan.pyz http://localhost:8000/api/v1/scan/archmap-scan.pyz
+&& python3 archmap-scan.pyz scan/fixtures/yarmarka --out /tmp/…` и ввоз `schema.yaml` в окне
+**Новый проект** на dev-стенде без ошибок; файлы `facts/` окнами фактов без ошибок адреса.
+
+### Фаза 2 (архитектор, исполнитель только читает): замер на эталонах
+Клоны на коммитах эталонов: `~/archmap-etalons-2026-08-19/repos/{sentry,zulip,grafana,zabbix}`
+(sentry 49ce20c3, zulip 94f9096, grafana 00c02e4c, zabbix 167ebfa), эталоны
+`~/archmap-etalons-2026-08-19/exports-2026-09-04/etalon-*.yaml`. Для каждого: запуск сборщика,
+время, `coverage.yaml`; сверка по семьям: контейнеры, базы, брокеры против детей корня эталона
+(полнота и точность по именам через лестницу `scripts/c4-compare`, только уровень контейнеров,
+без компонентов); каналы против `channel` у связей эталона (Sentry 40, Zulip 15); таблицы и
+параметры выборочно: по 20 записей на репозиторий сверяются с кодом по `evidence.yaml` второй
+парой глаз (другая модель или владелец). Ориентиры для решения, не гейт: каналы полнота ≥ 80 %
+и точность ≥ 90 % на Sentry и Zulip; таблицы Django без ложных записей; контейнеры: всё, что
+есть в compose/Procfile/supervisor репозитория, найдено, недостижимое названо (Zabbix: реестр
+процессов в C, Grafana: миграции в Go-коде). Отчёт `docs/qa-scan-v0.md`. По нему владелец
+решает про фазу 3 и про пересборку эталонов на основе `evidence.yaml`.
+
+### Фаза 3 (после решения владельца): агент
+Шаг промпта ввоза и обновления (с замером по правилу 2026-10-31), инструмент `archmap_scan` в
+локальном MCP для агентов без терминала, пометки «по сборщику» с основанием в превью и плане
+обновления, ссылка на файл в окне **Новый проект** способом **Из репозитория** для пути без
+агента, страница сайта документации, `mcp/README.md`.
+
+### Фаза 4 (после решения владельца): служебный контур
+Шаг CI на образе ArchMap, служебная учётка с токеном, место приёма результата в проекте без
+человека в пайплайне (входящий файл, который открывает архитектор).
+
+## 12. Риски и решения архитектора (владелец может отменить)
+
+- Раздача файла без аутентификации: содержимое публичное, нагрузки нет; иначе агенту по адресу
+  пришлось бы носить токен в curl. Решение: без аутентификации.
+- Каталог вывода по умолчанию `./archmap-scan` в текущем каталоге, то есть обычно внутри
+  репозитория пользователя. Сборщик пишет туда маркер, а сводка советует добавить каталог в
+  `.gitignore`. В репозиторий ArchMap он не попадает.
+- Имя файла исключений `.archmapignore`, синтаксис подмножества `.gitignore` без отрицаний.
+- Regex по чужому коду только без оглядки назад и с тестом времени: правило CLAUDE.md про
+  регулярные выражения на пользовательском тексте.
+- Python 3.10 на машине пользователя: более старый даёт понятную ошибку при старте (проверка
+  версии первой строкой `main`), а не трассировку синтаксиса.
+- Ложные связи из `depends_on` между сервисами не рисуются (только в hints): compose
+  описывает порядок старта, а не вызовы. Связи к базам и брокерам по `depends_on` рисуются,
+  потому что иных отношений к ним не бывает.
