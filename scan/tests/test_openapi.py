@@ -49,3 +49,62 @@ def test_too_large_and_hostile(tmp_path: Path) -> None:
     assert time.perf_counter() - started < 1.0
     assert [(s.path, s.operations) for s in found.openapi] == [("big/openapi.yaml", None)]
     assert [h.data["path"] for h in found.hints] == ["deep/openapi.json"]
+
+
+def test_paths_by_file_refs(tmp_path: Path) -> None:
+    """Находка фазы 1а на Sentry: api-docs/openapi.json, 0 операций, потому что пути —
+    ссылки $ref на paths/*.json. Ссылки на файлы репозитория разворачиваются на один
+    уровень; неразворачиваемая ссылка — операции не посчитаны, причина в подсказке."""
+    import json
+
+    tree(tmp_path, {
+        "api-docs/openapi.json": json.dumps({"openapi": "3.0.0", "paths": {
+            "/a/": {"$ref": "paths/a.json"},
+            "/b/": {"$ref": "paths/b.json#/item"},
+            "/c/": {"$ref": "#/components/pathItems/c"},
+            "/d/": {"get": {}},
+        }, "components": {"pathItems": {"c": {"put": {}, "summary": "x"}}}}),
+        "api-docs/paths/a.json": json.dumps({"get": {}, "post": {}, "parameters": []}),
+        "api-docs/paths/b.json": json.dumps({"item": {"delete": {}}}),
+        "whole/openapi.yaml": "openapi: 3.1.0\npaths:\n  $ref: ./routes.yaml\n",
+        "whole/routes.yaml": "/x:\n  get: {}\n  patch: {}\n",
+        "broken/openapi.yaml": (
+            "openapi: 3.0.0\npaths:\n  /a:\n    $ref: missing.yaml\n  /b:\n    get: {}\n"
+        ),
+        "remote/openapi.yaml": "openapi: 3.0.0\npaths:\n  /a:\n    $ref: https://x/y.yaml\n",
+        "chain/openapi.yaml": "openapi: 3.0.0\npaths:\n  /a:\n    $ref: one.yaml\n",
+        "chain/one.yaml": "$ref: two.yaml\n",
+        "chain/two.yaml": "get: {}\n",
+    })
+    ctx, files = files_of(tmp_path)
+    found = openapi.parse(files, ctx)
+    got = {s.path: (s.operations, s.reason) for s in found.openapi}
+    refs = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
+    assert got == {
+        "api-docs/openapi.json": (5, None),
+        "whole/openapi.yaml": (2, None),
+        "broken/openapi.yaml": (None, refs),
+        "remote/openapi.yaml": (None, refs),
+        # Один уровень, без рекурсии: ссылка из целевого файла не разворачивается.
+        "chain/openapi.yaml": (None, refs),
+    }
+    out = tmp_path / "out"
+    run(Options(path=str(tmp_path), out=str(out), use_git=False))
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    assert {"path": "broken/openapi.yaml", "reason": refs} in hints["openapi_files"]
+
+
+def test_ref_file_limit(tmp_path: Path) -> None:
+    files_map: dict[str, str | bytes] = {
+        "api/openapi.yaml": "openapi: 3.0.0\npaths:\n" + "".join(
+            f"  /p{i}:\n    $ref: p/{i}.yaml\n" for i in range(openapi.MAX_REF_FILES + 1)
+        ),
+    }
+    for i in range(openapi.MAX_REF_FILES + 1):
+        files_map[f"api/p/{i}.yaml"] = "get: {}\n"
+    tree(tmp_path, files_map)
+    ctx, files = files_of(tmp_path)
+    started = time.perf_counter()
+    [spec] = openapi.parse(files, ctx).openapi
+    assert time.perf_counter() - started < 2.0
+    assert spec.operations is None and spec.reason is not None

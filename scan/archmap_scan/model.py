@@ -93,7 +93,8 @@ class EnvFile:
 @dataclass
 class OpenApi:
     path: str
-    operations: int | None  # None — файл больше предела разбора, операции не посчитаны
+    operations: int | None  # None — операции не посчитаны, причина в reason
+    reason: str | None = None  # None при operations None — файл больше предела разбора
 
 
 @dataclass

@@ -545,7 +545,7 @@ def _openapi(model: Model, findings: Findings) -> None:
         if len(found) == 1:
             data["container"] = found[0].name
         if spec.operations is None:
-            data["reason"] = texts.REASON_OPENAPI_TOO_LARGE
+            data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
         else:
             data["operations"] = spec.operations
         model.hint("openapi_files", data)
