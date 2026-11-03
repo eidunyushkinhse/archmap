@@ -386,6 +386,9 @@ def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Li
                 if dst is None or dst is src:
                     continue
                 if dst.shape == SERVICE:
+                    if (src.name, dst.name) in links:
+                        # Связь уже нарисована по адресу из окружения: подсказка лишняя.
+                        continue
                     model.hint("depends_on", {
                         "from": src.name, "to": dst.name, "reason": texts.REASON_DEPENDS_ON,
                         "source": str(loc),

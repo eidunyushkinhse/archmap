@@ -156,3 +156,18 @@ def test_no_manifests_no_implicit_container(tmp_path: Path) -> None:
     tree(tmp_path, {"main.c": "int main(){}\n"})
     model = model_of(tmp_path, system=None)
     assert model.objects == [] and model.system == tmp_path.name
+
+
+def test_depends_on_hint_only_without_edge(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "docker-compose.yml": (
+            "services:\n"
+            "  web:\n    build: web\n    environment: [API=http://api:8080]\n"
+            "    depends_on: [api, auth]\n"
+            "  api:\n    build: api\n"
+            "  auth:\n    build: auth\n"
+        ),
+    })
+    model = model_of(tmp_path)
+    assert _links(model) == {("web", "api", "HTTP")}
+    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [("web", "auth")]
