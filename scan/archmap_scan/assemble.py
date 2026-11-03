@@ -15,7 +15,7 @@ from archmap_scan import owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
 from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Table, Unit
-from archmap_scan.walk import Pattern, name_tokens
+from archmap_scan.walk import Pattern, is_dev_path
 
 SERVICE, DATABASE, BROKER = "service", "database", "broker"
 SHAPE_ORDER = {SERVICE: 0, DATABASE: 1, BROKER: 2}
@@ -24,9 +24,9 @@ PRIORITY = {
     "compose": 0, "k8s": 1, "helm": 2, "supervisor": 3, "systemd": 4, "procfile": 5,
     "dockerfile": 6, "implicit": 7,
 }
-_DEV_TOKENS = frozenset({
-    "dev", "development", "local", "test", "tests", "ci", "e2e", "devcontainer", "vagrant",
-})
+# Манифесты, у которых путь для разработки (walk.is_dev_path) уводит объект в подсказки.
+# compose решает это сам: у него есть основные файлы, которые перекрывают dev-файлы.
+_DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s"})
 _VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
 
 
@@ -149,10 +149,6 @@ def system_name(ctx: Context, packages: list[Package]) -> tuple[str, list[Loc]]:
     return ctx.root.name, []
 
 
-def _is_dev_path(rel: str) -> bool:
-    return any(name_tokens(seg) & _DEV_TOKENS for seg in rel.split("/"))
-
-
 def _variant(rel: str) -> str | None:
     """Суффикс варианта Dockerfile: Dockerfile-postgresql и worker.Dockerfile → имя."""
     low = paths.name(rel)
@@ -177,9 +173,9 @@ def _dockerfile_units(
     for d in sorted(dockerfiles, key=lambda x: x.path):
         if d.path in used:
             continue
-        if _is_dev_path(d.path):
+        if is_dev_path(d.path):
             model.hint("profiles", {
-                "service": d.path, "profiles": [], "reason": texts.REASON_DEV_DOCKERFILE,
+                "service": d.path, "profiles": [], "reason": texts.REASON_DEV_FILE,
                 "source": str(d.from_loc),
             })
             continue
@@ -264,9 +260,24 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
             obj.role = vocab.ROLE_SERVICE
 
 
+def _drop_dev_units(units: list[Unit], model: Model) -> list[Unit]:
+    """Процессы и нагрузки из манифестов для разработки — в подсказки, не в схему (ТЗ §4)."""
+    kept: list[Unit] = []
+    for u in units:
+        if u.parser in _DEV_MANIFESTS and is_dev_path(u.loc.path):
+            model.hint("profiles", {
+                "service": u.name, "profiles": [], "reason": texts.REASON_DEV_FILE,
+                "source": str(u.loc),
+            })
+            continue
+        kept.append(u)
+    return kept
+
+
 def _objects(
     units: list[Unit], findings: Findings, model: Model, ctx: Context
 ) -> list[Obj]:
+    units = _drop_dev_units(units, model)
     units = units + _dockerfile_units(units, findings.dockerfiles, model.system, model)
     _procfile_web(units)
     by_name: dict[str, Obj] = {}

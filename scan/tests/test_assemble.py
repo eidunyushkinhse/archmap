@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from archmap_scan.assemble import Model, Obj
-from tests.helpers import FIXTURES, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, tree
 
 
 def _obj(model: Model, name: str) -> Obj:
@@ -171,3 +171,48 @@ def test_depends_on_hint_only_without_edge(tmp_path: Path) -> None:
     model = model_of(tmp_path)
     assert _links(model) == {("web", "api", "HTTP")}
     assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [("web", "auth")]
+
+
+def test_dev_manifests_are_hints_not_objects(tmp_path: Path) -> None:
+    """Манифесты в каталогах и файлах для разработки объектов не дают (ТЗ §4, находка
+    фазы 1а на Grafana: devenv/docker/blocks/*), а код в этих каталогах читается."""
+    deployment = (
+        "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: {name}\nspec:\n"
+        "  template:\n    spec:\n      containers:\n        - image: ghcr.io/org/{name}:1\n"
+    )
+    tree(tmp_path, {
+        "go.mod": "module github.com/grafana/grafana\n",
+        "package.json": '{"name": "grafana", "dependencies": {"react": "18"}}',
+        "Dockerfile": "FROM node:20 AS js\nFROM golang:1.22\n",
+        "devenv/docker/blocks/pg/docker-compose.yaml": (
+            "services:\n  pg:\n    image: postgres\n  tool:\n    build: .\n"
+        ),
+        "devenv/docker/blocks/pg/Dockerfile": "FROM golang:1.22\n",
+        "hack/Dockerfile": "FROM node:20\n",
+        "ops/Dockerfile.ci": "FROM node:20\n",
+        "contrib/supervisor/helper.conf": "[program:helper]\ncommand=python3 helper.py\n",
+        "deploy/sandbox/app.service": "[Service]\nExecStart=/usr/bin/app\n",
+        "deploy/playground.yaml": deployment.format(name="play"),
+        "deploy/k8s.yaml": deployment.format(name="prod"),
+        "devenv/tool/main.go": "package main\n",
+    })
+    model = model_of(tmp_path, system=None)
+    assert sorted(o.name for o in model.objects) == ["grafana", "prod"]
+    grafana = _obj(model, "grafana")
+    assert grafana.technology == "Go + React" and grafana.code_dir == ""
+    dev = {str(h["service"]): str(h["source"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "pg": "devenv/docker/blocks/pg/docker-compose.yaml:2",
+        "tool": "devenv/docker/blocks/pg/docker-compose.yaml:4",
+        "devenv/docker/blocks/pg/Dockerfile": "devenv/docker/blocks/pg/Dockerfile:1",
+        "hack/Dockerfile": "hack/Dockerfile:1",
+        "ops/Dockerfile.ci": "ops/Dockerfile.ci:1",
+        "helper": "contrib/supervisor/helper.conf:1",
+        "app": "deploy/sandbox/app.service:1",
+        "play": "deploy/playground.yaml:4",
+    }
+    reasons = {str(h["reason"]) for h in model.hints["profiles"]}
+    assert len(reasons) == 1
+    # Каталоги для разработки из обхода не исключаются: код в них читается.
+    _ctx, files = files_of(tmp_path)
+    assert "devenv/tool/main.go" in files.paths

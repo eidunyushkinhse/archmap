@@ -49,6 +49,23 @@ def name_tokens(name: str) -> set[str]:
     return {t for t in _NAME_TOKENS.split(name.lower()) if t}
 
 
+# Манифесты для разработки (ТЗ §4): compose, Dockerfile, supervisor, systemd и k8s, у
+# которых в пути есть каталог или в имени файла есть часть из этого перечня, объектов в
+# схему не дают. Перечень один на все разборщики; сами каталоги из обхода не исключаются,
+# код в них читается. «.devcontainer» после разбиения имени даёт часть «devcontainer»;
+# tests и e2e исключены соглашением целиком, но бывают частью имени файла
+# (Dockerfile.e2e).
+DEV_TOKENS = frozenset({
+    "dev", "devenv", "development", "local", "hack", "contrib", "sandbox", "demo",
+    "playground", "devcontainer", "vagrant", "ci", "test", "tests", "e2e",
+})
+
+
+def is_dev_path(rel: str) -> bool:
+    """Манифест для разработки: часть из DEV_TOKENS в любом каталоге пути или в имени."""
+    return any(name_tokens(seg) & DEV_TOKENS for seg in rel.split("/"))
+
+
 def _name_rule(name: str) -> str | None:
     """Правило соглашения по имени файла: шаблон для отчёта или None."""
     low = name.lower()

@@ -16,11 +16,10 @@ from typing import Any
 from archmap_scan import paths, texts
 from archmap_scan.context import Context
 from archmap_scan.model import EnvVar, Findings, Hint, Loc, Unit
-from archmap_scan.walk import Files, is_compose_name, name_tokens
+from archmap_scan.walk import Files, is_compose_name, is_dev_path
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
 NAME = "compose"
-_DEV_TOKENS = frozenset({"dev", "local", "development"})
 # Подстановка переменной compose: ${VAR}, ${VAR:-x}, $VAR (но не экранированное $$).
 _DYNAMIC = re.compile(r"\$\{|\$[A-Za-z_]")
 
@@ -163,10 +162,11 @@ def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
     dev_only: dict[str, Loc] = {}
-    # Файлы для разработки (dev, local) читаются после остальных и в схему не добавляют
-    # ничего: их сервисы, которых нет в основных файлах, уходят в подсказки.
+    # Файлы для разработки (dev, local, devenv в пути или в имени, walk.is_dev_path)
+    # читаются после остальных и в схему не добавляют ничего: их сервисы, которых нет в
+    # основных файлах, уходят в подсказки.
     ordered = sorted(files.select(lambda p: is_compose_name(paths.name(p))), key=_order)
-    dev_files = [r for r in ordered if name_tokens(paths.name(r)) & _DEV_TOKENS]
+    dev_files = [r for r in ordered if is_dev_path(r)]
     for rel in [r for r in ordered if r not in dev_files] + dev_files:
         services = _load_services(files, rel, found)
         if services is None:
