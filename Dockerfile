@@ -42,6 +42,12 @@ COPY backend/alembic ./alembic
 COPY backend/app ./app
 # Пакет MCP-сервера (mcp/archmap_mcp) — рядом с app/: эндпоинт /mcp импортирует его прямо
 COPY mcp/archmap_mcp ./archmap_mcp
+# Сборщик фактов (docs/tasks/fact-collector.md): исходники нужны только на время сборки
+# файла, в образе остаётся один archmap-scan.pyz, его раздаёт /api/v1/scan. PyYAML для
+# архива берётся из уже установленного по lock пакета, вместе с его лицензией
+COPY scan/build.py /tmp/scan/build.py
+COPY scan/archmap_scan /tmp/scan/archmap_scan
+RUN python3 /tmp/scan/build.py --out /opt/archmap/scan/archmap-scan.pyz && rm -rf /tmp/scan
 COPY deploy/preflight.py /opt/archmap/deploy/
 COPY deploy/docker/secret.sh deploy/docker/entrypoint.sh /opt/archmap/deploy/
 COPY deploy/docker/archmap-admin /usr/local/bin/
@@ -53,6 +59,7 @@ RUN python3 -m compileall -q /opt/archmap/backend/app /opt/archmap/backend/archm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     FRONTEND_DIR=/opt/archmap/frontend \
+    SCAN_FILE=/opt/archmap/scan/archmap-scan.pyz \
     WEB_CONCURRENCY=2 \
     TRUST_FORWARDED_FOR=false
 

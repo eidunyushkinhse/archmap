@@ -3,9 +3,10 @@
 # Запуск на машине с интернетом (Linux x86_64, git, Node.js 22+, curl):
 #   deploy/build-bundle.sh              → dist-bundle/archmap-<дата>-<коммит>-linux-x86_64.tar.gz
 #   deploy/build-bundle.sh --worktree   → пробная сборка из рабочего дерева (с незакоммиченным)
-# Внутри: переносной CPython со всеми зависимостями, бэкенд, собранный фронт и скрипты
-# установки. Серверу не нужны ни интернет, ни свой Python, ни Node.js. Образ для Docker и
-# Kubernetes собирается не отсюда, а из исходников (Dockerfile в корне).
+# Внутри: переносной CPython со всеми зависимостями, бэкенд, собранный фронт, сборщик
+# фактов archmap-scan.pyz и скрипты установки. Серверу не нужны ни интернет, ни свой
+# Python, ни Node.js. Образ для Docker и Kubernetes собирается не отсюда, а из исходников
+# (Dockerfile в корне).
 set -euo pipefail
 
 ROOT="$(git -C "$(dirname "${BASH_SOURCE[0]}")" rev-parse --show-toplevel)"
@@ -51,7 +52,7 @@ STAGE="$WORK/$NAME"
 mkdir -p "$SRC" "$STAGE"
 
 say "Исходники ($([ "$FROM_WORKTREE" = 1 ] && echo "рабочее дерево" || echo "HEAD $COMMIT"))"
-PATHS=(backend frontend deploy DEPLOY.md mcp/archmap_mcp)
+PATHS=(backend frontend deploy DEPLOY.md mcp/archmap_mcp scan/build.py scan/archmap_scan)
 if [ "$FROM_WORKTREE" = 1 ]; then
   git ls-files -z --cached --others --exclude-standard -- "${PATHS[@]}" \
     | tar --null -T - -cf - | tar -xf - -C "$SRC"
@@ -82,6 +83,11 @@ say "Зависимости бэкенда (только готовые бина
 # находки сканеров уязвимостей
 "$STAGE/python/bin/python3" -m pip uninstall --quiet --yes pip
 rm -rf "$STAGE/python/lib/python${PY_VERSION%.*}/ensurepip" "$STAGE"/python/bin/pip*
+
+say "Сборщик фактов archmap-scan.pyz"
+# Рядом с backend/: служба раздаёт его по /api/v1/scan (SCAN_FILE в archmap.service). PyYAML
+# для архива — из переносного Python поставки, той же версии, что у бэкенда
+"$STAGE/python/bin/python3" "$SRC/scan/build.py" --out "$STAGE/scan/archmap-scan.pyz"
 
 say "Бэкенд и скрипты установки"
 mkdir -p "$STAGE/backend"

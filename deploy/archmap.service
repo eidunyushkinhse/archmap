@@ -11,7 +11,7 @@ Type=simple
 User=__USER__
 Group=__USER__
 # Значения по умолчанию; archmap.env их переопределяет
-Environment=ARCHMAP_PORT=8000 ARCHMAP_WORKERS=2
+Environment=ARCHMAP_PORT=8000 ARCHMAP_WORKERS=2 SCAN_FILE=__PREFIX__/current/scan/archmap-scan.pyz
 EnvironmentFile=__ETC__/archmap.env
 WorkingDirectory=__PREFIX__/current/backend
 ExecStart=__PREFIX__/current/python/bin/python3 -m uvicorn app.main:app \
