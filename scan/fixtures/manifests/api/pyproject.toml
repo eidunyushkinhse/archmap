@@ -1,0 +1,10 @@
+[project]
+name = "shop-api"
+dependencies = [
+  "fastapi>=0.110",
+  "SQLAlchemy[asyncio]~=2.0",  # ORM
+  "psycopg2-binary",
+]
+
+[tool.ruff]
+line-length = 100

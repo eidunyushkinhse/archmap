@@ -9,7 +9,7 @@ from pathlib import Path
 from archmap_scan import registry, stats
 from archmap_scan.assemble import assemble
 from archmap_scan.context import make_context
-from archmap_scan.output import agent, outdir, schema, summary
+from archmap_scan.output import agent, facts, outdir, schema, summary
 from archmap_scan.output.coverage import Coverage
 from archmap_scan.walk import Files, list_files
 
@@ -45,7 +45,7 @@ def run(opts: Options) -> Result:
         repo=ctx.repo,
         commit=ctx.commit,
         stacks=stats.stacks(model),
-        families=stats.families(model, errors, findings.unsupported, findings.notes),
+        families=stats.families(model, findings, errors),
         excluded=listing.excluded,
         too_large=len(files.too_large),
         binary=len(files.binary),
@@ -58,4 +58,6 @@ def run(opts: Options) -> Result:
     outdir.write(out, "agent/evidence.yaml", agent.render_evidence(model, ctx))
     outdir.write(out, "agent/hints.yaml", agent.render_hints(model, ctx))
     outdir.write(out, "agent/entrypoints.yaml", agent.render_entrypoints(model, ctx))
+    for rel, body in facts.config_files(model, ctx).items():
+        outdir.write(out, rel, body)
     return Result(out=out, coverage=cov, summary=text)

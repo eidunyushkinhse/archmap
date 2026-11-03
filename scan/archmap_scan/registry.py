@@ -15,8 +15,10 @@ from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     compose,
     dockerfile,
+    envexample,
     helm,
     k8s,
+    manifests,
     procfile,
     supervisor,
     systemd,
@@ -41,13 +43,15 @@ _MANIFEST_FAMILIES = ("containers", "databases", "brokers", "edges")
 _PROCESS_FAMILIES = ("containers", "workers")
 
 PARSERS: tuple[ParserSpec, ...] = (
-    ParserSpec(compose.NAME, (*_MANIFEST_FAMILIES, "workers"), compose.parse),
+    ParserSpec(compose.NAME, (*_MANIFEST_FAMILIES, "config", "workers"), compose.parse),
     ParserSpec(dockerfile.NAME, ("containers",), dockerfile.parse),
     ParserSpec(procfile.NAME, _PROCESS_FAMILIES, procfile.parse),
     ParserSpec(supervisor.NAME, _PROCESS_FAMILIES, supervisor.parse),
     ParserSpec(systemd.NAME, _PROCESS_FAMILIES, systemd.parse),
-    ParserSpec(k8s.NAME, (*_MANIFEST_FAMILIES, "workers", "schedules"), k8s.parse),
+    ParserSpec(k8s.NAME, (*_MANIFEST_FAMILIES, "config", "workers", "schedules"), k8s.parse),
     ParserSpec(helm.NAME, ("containers", "databases", "brokers"), helm.parse),
+    ParserSpec(manifests.NAME, ("containers",), manifests.parse),
+    ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
 )
 
 

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from archmap_scan import registry, texts
+from archmap_scan import registry, texts, vocab
 from archmap_scan.assemble import BROKER, DATABASE, SERVICE, Model, Obj
+from archmap_scan.model import Findings
 from archmap_scan.output.coverage import FamilyStat
 
 
@@ -22,12 +23,7 @@ def _objects_stat(objs: list[Obj], stat: FamilyStat) -> None:
     stat.contributed = _ordered(used)
 
 
-def families(
-    model: Model,
-    errors: dict[str, str],
-    findings_unsupported: dict[str, list[str]],
-    findings_notes: dict[str, list[str]],
-) -> dict[str, FamilyStat]:
+def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[str, FamilyStat]:
     out: dict[str, FamilyStat] = {}
     for fam in registry.FAMILIES:
         names = registry.parsers_for(fam)
@@ -48,11 +44,15 @@ def families(
     schedules = [sch for ss in model.schedules.values() for sch in ss]
     out["schedules"].found = len(schedules)
     out["schedules"].contributed = _ordered({sch.parser for sch in schedules})
-    for fam, stacks in findings_unsupported.items():
+    params = [p for table in model.params.values() for p in table.values()]
+    out["config"].found = len(params)
+    out["config"].contributed = _ordered({x for p in params for x in p.parsers})
+    unsupported = code_unsupported(findings)
+    for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:
         for stack in stacks:
             if stack not in out[fam].unsupported:
                 out[fam].unsupported.append(stack)
-    for fam, notes in findings_notes.items():
+    for fam, notes in findings.notes.items():
         for note in notes:
             if note not in out[fam].notes:
                 out[fam].notes.append(note)
@@ -66,3 +66,36 @@ def stacks(model: Model) -> list[str]:
         if obj.technology and obj.technology not in out:
             out.append(obj.technology)
     return out
+
+
+def code_unsupported(findings: Findings) -> dict[str, list[str]]:
+    """Стеки, опознанные по манифестам сборки, для семей яруса кода, которых в этой версии
+    нет (ТЗ §6.2, §6.4): маршруты по фреймворкам, параметры в коде по языкам, каналы по
+    клиентским библиотекам, расписания Celery и crontab, описания схем без разборщика."""
+    frameworks: list[str] = []
+    languages: list[str] = []
+    channel_libs: list[str] = []
+    schema_stacks: list[str] = []
+    celery = False
+    for pkg in sorted(findings.packages, key=lambda p: p.path):
+        server = vocab.find_framework(pkg.deps, vocab.SERVER_FRAMEWORKS)
+        if server and server not in frameworks:
+            frameworks.append(server)
+        if pkg.language not in languages:
+            languages.append(pkg.language)
+        for lib, kind in vocab.clients_of(pkg.deps):
+            shown = lib.rsplit("/", 1)[-1] if lib.startswith("github.com/") else lib
+            if kind in vocab.CHANNEL_CLIENTS and shown not in channel_libs:
+                channel_libs.append(shown)
+            celery = celery or kind == "Celery"
+        schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
+        if schema and schema not in schema_stacks:
+            schema_stacks.append(schema)
+    found = {
+        "http_routes": frameworks,
+        "config": languages,
+        "channels": channel_libs,
+        "schedules": ["Celery beat"] if celery else [],
+        "tables": schema_stacks,
+    }
+    return {fam: sorted(items, key=str.lower) for fam, items in found.items() if items}

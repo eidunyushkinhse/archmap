@@ -1,0 +1,3 @@
+[packages]
+flask = "*"
+"redis" = "==5.0"

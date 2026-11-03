@@ -108,3 +108,51 @@ def test_service_links_and_dynamic(tmp_path: Path) -> None:
     assert {str(loc) for loc in front_back.locs} == {"docker-compose.yml:5", "docker-compose.yml:6"}
     assert _obj(model, "queue").shape == "broker"
     assert _obj(model, "memo").role == "кэш"
+
+
+def test_technology_from_manifests_and_frontend(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "docker-compose.yml": "services:\n  storefront:\n    build: ./frontend\n",
+        "frontend/package.json": '{"name": "storefront", "dependencies": {"react": "18"}}',
+        "frontend/Dockerfile": "FROM node:20 AS b\nFROM nginx\n",
+    })
+    store = _obj(model_of(tmp_path), "storefront")
+    assert (store.technology, store.role) == ("Node.js + React", "фронтенд")
+    assert {str(loc) for loc in store.locs} == {
+        "docker-compose.yml:2", "frontend/Dockerfile:1", "frontend/package.json:1",
+    }
+
+
+def test_workspace_dir_for_image_only_workload(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "k8s/orders.yaml": (
+            "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: orders\nspec:\n"
+            "  template:\n    spec:\n      containers:\n        - image: ghcr.io/org/orders:1\n"
+        ),
+        "services/orders/pyproject.toml": '[project]\nname = "orders"\ndependencies = ["fastapi"]\n',
+    })
+    orders = _obj(model_of(tmp_path), "orders")
+    assert orders.code_dir == "services/orders" and orders.path == "services/orders"
+    assert orders.technology == "Python + FastAPI"
+
+
+def test_implicit_container(tmp_path: Path) -> None:
+    tree(tmp_path, {
+        "pyproject.toml": '[project]\nname = "notes"\ndependencies = ["flask", "redis"]\n',
+        ".env.example": "PORT=8000\n",
+    })
+    model = model_of(tmp_path, system=None)
+    assert model.system == "notes" and model.implicit
+    notes = _obj(model, "notes")
+    assert notes.technology == "Python + Flask" and notes.code_dir == ""
+    assert list(model.params["notes"]) == ["PORT"]
+    assert model.hints["clients"] == [{
+        "container": "notes", "library": "redis", "kind": "Redis",
+        "source": "pyproject.toml:2",
+    }]
+
+
+def test_no_manifests_no_implicit_container(tmp_path: Path) -> None:
+    tree(tmp_path, {"main.c": "int main(){}\n"})
+    model = model_of(tmp_path, system=None)
+    assert model.objects == [] and model.system == tmp_path.name

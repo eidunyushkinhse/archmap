@@ -32,6 +32,9 @@ def evidence(model: Model, ctx: Context) -> dict[str, list[str]]:
     names = refs(model)
     for link in model.links:
         out[f"edges/{names[link.src.name]}→{names[link.dst.name]}"] = _locs(link.locs)
+    for obj in model.objects:
+        for name in sorted(model.params.get(obj.name, {})):
+            out[f"config/{obj.name}/{name}"] = _locs(model.params[obj.name][name].locs)
     return out
 
 

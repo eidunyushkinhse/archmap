@@ -11,11 +11,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from archmap_scan import paths, texts, vocab
+from archmap_scan import owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
 from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Unit
-from archmap_scan.walk import name_tokens
+from archmap_scan.walk import Pattern, name_tokens
 
 SERVICE, DATABASE, BROKER = "service", "database", "broker"
 SHAPE_ORDER = {SERVICE: 0, DATABASE: 1, BROKER: 2}
@@ -87,6 +87,17 @@ class Schedule:
 
 
 @dataclass
+class Param:
+    """Параметр конфигурации контейнера: имя, тип и дефолт только из примера окружения."""
+
+    name: str
+    type: str | None = None
+    default: str | None = None
+    locs: set[Loc] = field(default_factory=set)
+    parsers: set[str] = field(default_factory=set)
+
+
+@dataclass
 class Model:
     system: str
     system_locs: list[Loc]
@@ -96,6 +107,8 @@ class Model:
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     workers: dict[str, list[Worker]] = field(default_factory=dict)
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)
+    # Параметры по контейнерам: имя контейнера → имя параметра → параметр.
+    params: dict[str, dict[str, Param]] = field(default_factory=dict)
 
     def obj(self, name: str) -> Obj | None:
         return next((o for o in self.objects if o.name == name), None)
@@ -259,10 +272,41 @@ def _objects(
             obj.code_dir = u.build_dir if u.build_dir is not None else u.home_dir
         obj.env.extend(u.env)
     by_path = {d.path: d for d in findings.dockerfiles}
+    spaces = _workspace_dirs(findings, ctx)
     for obj in by_name.values():
+        if obj.code_dir is None:
+            obj.code_dir = _workspace_dir(obj, spaces)
         _attach_dockerfile(obj, by_path)
         _classify(obj, findings.packages)
     return list(by_name.values())
+
+
+def _workspace_dirs(findings: Findings, ctx: Context) -> list[str]:
+    """Каталоги сервисов монорепо: workspaces корневого package.json и services/*, apps/*."""
+    globs = ["services/*", "apps/*"]
+    for pkg in findings.packages:
+        if pkg.kind == "package.json" and pkg.dir == ctx.scope:
+            globs += list(pkg.workspaces)
+    patterns = [Pattern("/" + g.strip("./")) for g in globs if g.strip("./")]
+    prefix = ctx.scope + "/" if ctx.scope else ""
+    dirs = {p.dir for p in findings.packages} | {d.dir for d in findings.dockerfiles}
+    out = []
+    for folder in sorted(dirs):
+        if not folder or not folder.startswith(prefix):
+            continue
+        inner = folder[len(prefix):]
+        if inner and any(p.matches(inner, True) for p in patterns):
+            out.append(folder)
+    return out
+
+
+def _workspace_dir(obj: Obj, spaces: list[str]) -> str | None:
+    """Каталог кода объекта без каталога сборки: каталог монорепо с тем же именем."""
+    image = next((u.image for u in obj.units if u.image), None)
+    if image is not None and vocab.image_kind(image) is not None:
+        return None
+    same = [d for d in spaces if paths.name(d) == obj.name]
+    return same[0] if len(same) == 1 else None
 
 
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
@@ -370,12 +414,61 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     for obj in model.objects:
         for u in obj.units:
             env_of.setdefault(obj.name, []).extend((v, u.parser) for v in u.env)
-    _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs])
+    containers = [o for o in model.objects if o.is_container]
+    for env_file in findings.env_files:
+        for obj in owners.code_owners(env_file.path, containers):
+            env_of.setdefault(obj.name, []).extend((v, "env-example") for v in env_file.vars)
+    _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs]
+                   + [v for ef in findings.env_files for v in ef.vars])
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
     model.links = _links(model, env_of)
     _sources(model, ctx)
     _entrypoints(model)
+    _params(model, findings, env_of)
+    _clients(model, findings)
     return model
+
+
+def _params(
+    model: Model, findings: Findings, env_of: dict[str, list[tuple[EnvVar, str]]]
+) -> None:
+    """Параметры конфигурации (ТЗ §7): environment манифеста — прямо его контейнеру, пример
+    окружения — контейнеру своего каталога; одинаковый параметр у двух контейнеров — две
+    записи. Дефолт и тип только из примера и только по инварианту 6."""
+    containers = [o for o in model.objects if o.is_container]
+    for obj in containers:
+        for var, parser in env_of.get(obj.name, []):
+            table = model.params.setdefault(obj.name, {})
+            param = table.setdefault(var.name, Param(name=var.name))
+            param.locs.add(var.loc)
+            param.parsers.add(parser)
+            if parser != "env-example":
+                continue
+            if param.type is None:
+                param.type = secrets.value_type(var.value)
+            if param.default is None and not var.dynamic:
+                param.default = secrets.safe_default(var.name, var.value)
+    for env_file in findings.env_files:
+        if owners.code_owners(env_file.path, containers):
+            continue
+        for var in env_file.vars:
+            model.hint("unassigned", {
+                "kind": "config", "name": var.name, "reason": texts.REASON_SHARED_LIB,
+                "source": str(var.loc),
+            })
+
+
+def _clients(model: Model, findings: Findings) -> None:
+    """Клиентские библиотеки контейнера — подсказка вида его зависимостей (ТЗ §6.1)."""
+    for obj in model.objects:
+        if not obj.is_container:
+            continue
+        for pkg in _code_packages(obj, findings.packages):
+            for lib, kind in vocab.clients_of(pkg.deps):
+                model.hint("clients", {
+                    "container": obj.name, "library": lib, "kind": kind,
+                    "source": str(pkg.name_loc or Loc(pkg.path, 1)),
+                })
 
 
 def _entrypoints(model: Model) -> None:

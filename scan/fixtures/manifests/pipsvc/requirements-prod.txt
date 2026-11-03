@@ -1,0 +1,5 @@
+# зависимости поставки
+-r requirements-base.txt
+gunicorn==22.0.0
+confluent_kafka>=2.3 ; python_version >= "3.10"
+git+https://github.com/org/private.git#egg=private

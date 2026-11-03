@@ -253,3 +253,7 @@ REASON_TEMPLATE_NAME = "имя программы задаётся шаблон�
 REASON_HELM_DISABLED = "компонент чарта выключен в values.yaml (enabled: false)"
 NOTE_HELM_TEMPLATES = "шаблоны Helm (каталог templates) не разбираются"
 STACK_HELM_TEMPLATES = "Helm templates"
+REASON_BAD_MANIFEST = "манифест сборки не разбирается"
+REASON_SHARED_LIB = "общий код: файл вне каталогов кода всех контейнеров"
+REASON_NO_DATABASE = "база не найдена в манифестах"
+REASON_MANY_DATABASES = "несколько баз, владелец не определим"

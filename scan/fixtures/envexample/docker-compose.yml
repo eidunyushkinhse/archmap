@@ -1,0 +1,9 @@
+services:
+  orders:
+    build: services/orders
+    environment:
+      LOG_LEVEL: debug
+  orders-db:
+    image: postgres:16
+  queue:
+    image: redis:7
