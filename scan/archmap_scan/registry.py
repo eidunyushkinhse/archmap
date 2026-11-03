@@ -19,11 +19,13 @@ from archmap_scan.parsers import (
     djangourls,
     dockerfile,
     envexample,
+    express,
     fastapi,
     flask,
     helm,
     k8s,
     manifests,
+    nest,
     openapi,
     procfile,
     sql,
@@ -70,6 +72,8 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(fastapi.NAME, ("http_routes",), fastapi.parse, code=True),
     ParserSpec(flask.NAME, ("http_routes",), flask.parse, code=True),
     ParserSpec(djangourls.NAME, ("http_routes",), djangourls.parse, code=True),
+    ParserSpec(express.NAME, ("http_routes",), express.parse, code=True),
+    ParserSpec(nest.NAME, ("http_routes",), nest.parse, code=True),
 )
 
 

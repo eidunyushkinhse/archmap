@@ -17,6 +17,7 @@ A = "a" * PAYLOAD
 
 MANIFESTS: dict[str, str | bytes] = {
     "py/requirements.txt": "fastapi\nflask\ndjango\n",
+    "js/package.json": '{"dependencies": {"express": "*", "@nestjs/core": "*"}}',
 }
 
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
@@ -25,6 +26,11 @@ STARTS: dict[str, tuple[str, ...]] = {
         '@app.get("', "@app.route('", "@", "@a.", 'app.include_router(r, prefix="',
         'r = APIRouter(prefix="', 'urlpatterns = [path("', 'ROOT_URLCONF = "',
         "urlpatterns = [path('', include('",
+    ),
+    "js/app.js": (
+        "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
+        "const app = express(", "app.use('", "app.use(", "/*", "'", "`", "\\", ".",
+        "app.get(", "app.setGlobalPrefix(",
     ),
 }
 
@@ -64,6 +70,7 @@ def test_whole_file(tmp_path: Path, kind: str) -> None:
 # Синтаксически верный код с литералом в 2 МБ: разбор доходит до ast и до вывода.
 VALID: dict[str, str] = {
     "py/app.py": '@app.get("/' + A + '")\ndef f():\n    return 1\n',
+    "js/app.js": "const app = express();\napp.get('/" + A + "', h);\n",
 }
 
 

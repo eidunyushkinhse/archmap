@@ -1,0 +1,148 @@
+"""Текст кода JavaScript/TypeScript и Go для разборщиков на регулярных выражениях (ТЗ §6.2).
+
+Маска — текст той же длины, где комментарии заменены пробелами, а содержимое строк —
+пробелами между сохранёнными кавычками (переводы строк сохраняются). Регулярные выражения
+ищут конструкции по маске, а значение литерала берут из исходного текста по тем же
+позициям: строка в комментарии не находится, кавычки и скобки внутри строк не мешают.
+
+Токенизатор — одно регулярное выражение, у каждой ветки которого есть успешный исход
+(строка без закрывающей кавычки кончается на конце строки, комментарий — на конце
+файла), поэтому разбор линейный и на враждебном входе. Все выражения разборщиков
+начинаются с литерала («.», «@», «process.env») и не перебирают с возвратами.
+"""
+
+from __future__ import annotations
+
+import re
+from bisect import bisect_right
+
+from archmap_scan.walk import Files
+
+JS, GO = "js", "go"
+
+_TOKENS = {
+    JS: re.compile(
+        r"//[^\n]*"
+        r"|/\*[\s\S]*?(?:\*/|\Z)"
+        r"|'(?:[^'\\\n]|\\[\s\S])*'?"
+        r'|"(?:[^"\\\n]|\\[\s\S])*"?'
+        r"|`(?:[^`\\]|\\[\s\S])*`?"
+    ),
+    GO: re.compile(
+        r"//[^\n]*"
+        r"|/\*[\s\S]*?(?:\*/|\Z)"
+        r"|'(?:[^'\\\n]|\\[\s\S])*'?"
+        r'|"(?:[^"\\\n]|\\[\s\S])*"?'
+        r"|`[^`]*`?"
+    ),
+}
+_NOT_NEWLINE = re.compile(r"[^\n]")
+
+# Строковый литерал в маске (содержимое уже пробелы): одинарные, двойные, обратные кавычки.
+STR = r"""(?:'[ ]*'|"[ ]*"|`[ \n]*`)"""
+# Пробелы между частями конструкции: ограничены, чтобы перебор был коротким.
+SP = r"[ \t\r\n]{0,200}"
+
+_IDENT_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$")
+_MAX_IDENT = 100
+
+
+# Сколько кавычек и начал комментариев допустимо в одном файле. Каждая — токен, а разбор
+# токена стоит времени; настоящий код (и даже сжатый) далёк от предела, а файл из одних
+# кавычек — враждебный вход: такой файл не читается и считается непрочитанным.
+MAX_MARKS = 600_000
+
+
+class TooDense(ValueError):
+    """В файле слишком много строк и комментариев для разбора за разумное время."""
+
+
+def mask(text: str, lang: str) -> str:
+    marks = (
+        text.count("'") + text.count('"') + text.count("`") + text.count("/*")
+        + text.count("//")
+    )
+    if marks > MAX_MARKS:
+        raise TooDense
+    out: list[str] = []
+    pos = 0
+    for m in _TOKENS[lang].finditer(text):
+        start, end = m.span()
+        if start > pos:
+            out.append(text[pos:start])
+        tok = m.group()
+        if end - start <= 2:
+            # Пустая строка или пустой комментарий: в маске то же, что в тексте, кроме
+            # знаков комментария.
+            out.append("  " if tok[0] == "/" else tok)
+        elif tok[0] == "/":
+            out.append(_NOT_NEWLINE.sub(" ", tok))
+        else:
+            first = tok[0]
+            closing = first if tok[-1] == first else ""
+            inner = tok[1:len(tok) - len(closing)]
+            out.append(first + _NOT_NEWLINE.sub(" ", inner) + closing)
+        pos = end
+    out.append(text[pos:])
+    return "".join(out)
+
+
+def load(files: Files, rel: str, text: str, lang: str) -> Code | None:
+    """Код файла для разбора; слишком плотный файл отмечается непрочитанным (None)."""
+    try:
+        return Code(text, lang)
+    except TooDense:
+        files.refuse(rel)
+        return None
+
+
+class Code:
+    """Исходный текст, его маска и номера строк по позиции."""
+
+    def __init__(self, text: str, lang: str) -> None:
+        self.text = text
+        self.mask = mask(text, lang)
+        self._breaks: list[int] | None = None
+
+    def line(self, pos: int) -> int:
+        if self._breaks is None:
+            self._breaks = [m.start() for m in re.finditer("\n", self.text)]
+        return bisect_right(self._breaks, pos - 1) + 1
+
+    def literal(self, start: int, end: int) -> tuple[str, bool]:
+        """Значение строкового литерала по позициям в маске (с кавычками) и признак
+        подстановки: шаблонная строка с ${…} известна только при запуске."""
+        quote = self.text[start]
+        value = self.text[start + 1:end - 1]
+        return value, quote == "`" and "${" in value
+
+    def receiver(self, dot: int) -> str | None:
+        """Имя перед точкой вызова: «router» в «router.get(», «app» в «this.app.get(»."""
+        i = dot - 1
+        while i >= 0 and self.mask[i] in " \t":
+            i -= 1
+        end = i + 1
+        while i >= 0 and end - i <= _MAX_IDENT and self.mask[i] in _IDENT_CHARS:
+            i -= 1
+        name = self.mask[i + 1:end]
+        if not name or name[0].isdigit() or end - i > _MAX_IDENT:
+            return None
+        return name
+
+    def expression(self, start: int, limit: int = 80) -> str:
+        """Короткий текст выражения от позиции start до запятой или скобки (для подсказки
+        о динамическом имени)."""
+        out = []
+        depth = 0
+        for i in range(start, min(len(self.mask), start + limit)):
+            ch = self.mask[i]
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif ch in ",;\n" and depth == 0:
+                break
+            out.append(self.text[i])
+        return "".join(out).strip()

@@ -203,7 +203,9 @@ CHANNEL_CLIENTS = frozenset({"Kafka", "RabbitMQ", "Celery", "NATS"})
 
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
-ROUTE_FRAMEWORKS = frozenset({"FastAPI", "Starlette", "Flask", "Django"})
+ROUTE_FRAMEWORKS = frozenset({
+    "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS",
+})
 
 # ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (
