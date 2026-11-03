@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
+    alembic,
     compose,
     dockerfile,
     envexample,
@@ -54,6 +55,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(manifests.NAME, ("containers",), manifests.parse),
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
+    ParserSpec(alembic.NAME, ("tables",), alembic.parse),
 )
 
 

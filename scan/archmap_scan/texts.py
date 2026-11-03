@@ -258,4 +258,22 @@ REASON_SHARED_LIB = "общий код: файл вне каталогов ко�
 REASON_NO_DATABASE = "база не найдена в манифестах"
 REASON_MANY_DATABASES = "несколько баз, владелец не определим"
 REASON_SKIPPED_STATEMENT = "инструкция миграции не разобрана, её изменения в таблицы не попали"
-REASON_MIGRATION_ERROR = "цепочка миграций не разобрана"
+
+
+def migration_error_in(folder: str, error: str) -> str:
+    return f"в каталоге {folder} {error}"
+
+
+def migration_failed(error: str) -> str:
+    return f"{error}; таблицы из этих миграций не собраны"
+
+
+def alembic_cycle(revisions: list[str]) -> str:
+    return "цикл ревизий Alembic: " + ", ".join(revisions[:5])
+
+
+def alembic_broken(revision: str, parent: str) -> str:
+    return f"обрыв цепочки Alembic: ревизия {revision} ссылается на неизвестную ревизию {parent}"
+
+
+REASON_BAD_PYTHON = "файл миграции не разбирается как Python"

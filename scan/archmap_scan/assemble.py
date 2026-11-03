@@ -459,10 +459,10 @@ def _tables(
     stats = model.table_stats
     for ts in sorted(findings.table_sets, key=lambda t: (t.dir, t.parser)):
         if ts.error:
-            stats.errors.append(f"{ts.parser} {paths.show_dir(ts.dir)}: {ts.error}")
+            stats.errors.append(texts.migration_error_in(paths.show_dir(ts.dir), ts.error))
             model.hint("unassigned", {
                 "kind": ts.parser, "name": paths.show_dir(ts.dir),
-                "reason": f"{texts.REASON_MIGRATION_ERROR}: {ts.error}", "source": ts.dir or ".",
+                "reason": texts.migration_failed(ts.error), "source": ts.dir or ".",
             })
             continue
         if ts.tables:

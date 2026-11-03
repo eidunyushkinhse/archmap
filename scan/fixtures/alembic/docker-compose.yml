@@ -1,0 +1,7 @@
+services:
+  orders:
+    build: services/orders
+    environment:
+      DATABASE_URL: postgresql+psycopg://orders:pw@orders-db:5432/orders
+  orders-db:
+    image: postgres:16
