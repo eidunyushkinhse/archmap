@@ -285,3 +285,5 @@ def django_cycle(migrations: list[str]) -> str:
 
 def django_broken(migration: str, parent: str) -> str:
     return f"обрыв цепочки Django: миграция {migration} ссылается на неизвестную миграцию {parent}"
+REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора YAML, операции не посчитаны"
+REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"

@@ -21,6 +21,7 @@ from archmap_scan.parsers import (
     helm,
     k8s,
     manifests,
+    openapi,
     procfile,
     sql,
     supervisor,
@@ -58,6 +59,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
     ParserSpec(django.NAME, ("tables",), django.parse),
+    ParserSpec(openapi.NAME, (), openapi.parse),
 )
 
 

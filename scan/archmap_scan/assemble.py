@@ -440,7 +440,23 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _params(model, findings, env_of)
     _clients(model, findings)
     _tables(model, findings, env_of)
+    _openapi(model, findings)
     return model
+
+
+def _openapi(model: Model, findings: Findings) -> None:
+    """Файлы OpenAPI — подсказка агенту с контейнером-владельцем, если он один (ТЗ §6.1)."""
+    containers = [o for o in model.objects if o.is_container]
+    for spec in sorted(findings.openapi, key=lambda s: s.path):
+        data: dict[str, object] = {"path": spec.path}
+        found = owners.code_owners(spec.path, containers)
+        if len(found) == 1:
+            data["container"] = found[0].name
+        if spec.operations is None:
+            data["reason"] = texts.REASON_OPENAPI_TOO_LARGE
+        else:
+            data["operations"] = spec.operations
+        model.hint("openapi_files", data)
 
 
 _SKIPPED_KEY = {"sql": "sql_statements", "alembic": "alembic_operations",
