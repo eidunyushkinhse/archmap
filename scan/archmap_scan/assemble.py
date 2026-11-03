@@ -9,7 +9,7 @@ depends_on в связи не идут (порядок запуска не вы�
 
 from __future__ import annotations
 
-from archmap_scan import owners, paths, secrets, texts, vocab
+from archmap_scan import codefacts, owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
 from archmap_scan.model import (
@@ -440,6 +440,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _clients(model, findings)
     _tables(model, findings, env_of)
     _openapi(model, findings)
+    codefacts.attach(model, findings)
     return model
 
 

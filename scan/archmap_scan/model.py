@@ -139,6 +139,56 @@ class TableSet:
 
 
 @dataclass
+class Route:
+    """Маршрут HTTP из кода (ТЗ §6.2): метод, путь со сложенными префиксами, основание."""
+
+    method: str
+    path: str
+    loc: Loc
+    framework: str
+    parser: str
+    prefix_unresolved: bool = False  # префикс подключения не виден в коде
+
+
+@dataclass
+class CodeParam:
+    """Чтение параметра конфигурации в коде (ТЗ §6.2). Дефолт — текст литерала как есть;
+    писать ли его, решает secrets.safe_default при сборке."""
+
+    name: str
+    loc: Loc
+    parser: str
+    default: str | None = None
+    has_default: bool = False  # дефолт есть, даже если не литерал
+    required: bool | None = None
+    type: str | None = None
+
+
+@dataclass
+class ChannelUse:
+    """Канал брокера в коде (ТЗ §6.2): имя дословно, вид, клиент и направление вызова."""
+
+    name: str
+    kind: str  # queue | topic | exchange | subject
+    client: str  # вид брокера по библиотеке: Kafka, RabbitMQ, NATS, Celery
+    direction: str | None  # publish | consume; None — объявление без направления
+    loc: Loc
+    parser: str
+    broker_host: str | None = None  # адрес брокера литералом в том же файле
+
+
+@dataclass
+class CodeSchedule:
+    """Расписание из кода или crontab (ТЗ §6.2): имя, расписание как написано, задача."""
+
+    name: str
+    schedule: str
+    task: str | None
+    loc: Loc
+    parser: str
+
+
+@dataclass
 class Hint:
     """Запись hints.yaml: раздел и данные как есть (тексты причин — из texts.py)."""
 
@@ -159,6 +209,14 @@ class Findings:
     notes: dict[str, list[str]] = field(default_factory=dict)
     # Опознанные стеки без разборщика по семьям: семья → имена стеков.
     unsupported: dict[str, list[str]] = field(default_factory=dict)
+    # Ярус кода (ТЗ §6.2).
+    routes: list[Route] = field(default_factory=list)
+    code_params: list[CodeParam] = field(default_factory=list)
+    channels: list[ChannelUse] = field(default_factory=list)
+    schedules: list[CodeSchedule] = field(default_factory=list)
+    # Разборщики кода, чей стек в репозитории есть (они читали файлы): по ним семья «пусто»
+    # отличается от «не опознан стек».
+    applied: set[str] = field(default_factory=set)
 
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
@@ -172,3 +230,8 @@ class Findings:
             self.notes.setdefault(fam, []).extend(items)
         for fam, items in other.unsupported.items():
             self.unsupported.setdefault(fam, []).extend(items)
+        self.routes.extend(other.routes)
+        self.code_params.extend(other.code_params)
+        self.channels.extend(other.channels)
+        self.schedules.extend(other.schedules)
+        self.applied |= other.applied

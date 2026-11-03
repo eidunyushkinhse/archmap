@@ -159,6 +159,19 @@ UNASSIGNED_WORDS = {
 }
 
 
+# Имена из кода, заданные выражением: «Маршрутов HTTP с путём, заданным выражением в коде: 2».
+DYNAMIC_WORDS = {
+    "http_routes": "Маршрутов HTTP с путём",
+    "config": "Параметров конфигурации с именем",
+    "channels": "Каналов с именем",
+}
+
+
+def dynamic_line(family: str, n: int) -> str:
+    word = DYNAMIC_WORDS.get(family, FAMILY_LABEL.get(family, family))
+    return f"{word}, заданным выражением в коде: {n}, перечень в agent/hints.yaml."
+
+
 def unassigned_line(family: str, n: int) -> str:
     word = UNASSIGNED_WORDS.get(family, FAMILY_LABEL.get(family, family))
     return f"{word} без владельца: {n}, перечень в agent/hints.yaml."
@@ -320,3 +333,13 @@ def django_broken(migration: str, parent: str) -> str:
 REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора YAML, операции не посчитаны"
 REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"
 REASON_OPENAPI_REFS = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
+
+# Ярус кода (ТЗ §6.2): причины в hints.yaml.
+REASON_DYNAMIC_ROUTE = "путь маршрута задан выражением, а не строкой, и известен только при запуске"
+REASON_DYNAMIC_PARAM = (
+    "имя параметра задано выражением, а не строкой, и известно только при запуске"
+)
+REASON_DYNAMIC_CHANNEL = "имя канала задано выражением, а не строкой, и известно только при запуске"
+REASON_MANY_OWNERS = "файл в каталоге нескольких контейнеров, владелец не определим"
+REASON_NO_BROKER = "брокер не найден в манифестах"
+REASON_MANY_BROKERS = "несколько брокеров этого вида, владелец не определим"

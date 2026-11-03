@@ -63,6 +63,12 @@ def _notes(cov: Coverage) -> list[str]:
         for fam, stat in cov.families.items()
         if stat.unassigned
     ]
+    # Имена из кода, заданные выражением, ничего не дали, но молча не пропадают (инвариант 5).
+    lines += [
+        "  " + texts.dynamic_line(fam, stat.dynamic_names)
+        for fam, stat in cov.families.items()
+        if stat.dynamic_names and fam in CODE_FAMILIES
+    ]
     return [texts.NOTES_TITLE, *lines] if lines else []
 
 

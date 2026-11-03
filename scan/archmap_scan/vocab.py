@@ -201,6 +201,10 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 # Библиотеки каналов брокера: их наличие делает семью каналов «не умею» (ярус 2, фаза 1б).
 CHANNEL_CLIENTS = frozenset({"Kafka", "RabbitMQ", "Celery", "NATS"})
 
+# Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
+# из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
+ROUTE_FRAMEWORKS = frozenset({"FastAPI", "Starlette", "Flask"})
+
 # ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (
     ("prisma", "Prisma"), ("@prisma/client", "Prisma"), ("typeorm", "TypeORM"),
@@ -224,6 +228,16 @@ def find_framework(deps: tuple[str, ...], table: tuple[tuple[str, str], ...]) ->
         if any(_dep_match(d, key) for d in low):
             return name
     return None
+
+
+def frameworks_in(deps: tuple[str, ...], table: tuple[tuple[str, str], ...]) -> list[str]:
+    """Все фреймворки словаря среди зависимостей, в порядке словаря."""
+    low = tuple(d.lower() for d in deps)
+    out: list[str] = []
+    for key, name in table:
+        if name not in out and any(_dep_match(d, key) for d in low):
+            out.append(name)
+    return out
 
 
 def clients_of(deps: tuple[str, ...]) -> list[tuple[str, str]]:

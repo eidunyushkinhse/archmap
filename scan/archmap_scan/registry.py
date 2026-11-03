@@ -18,6 +18,8 @@ from archmap_scan.parsers import (
     django,
     dockerfile,
     envexample,
+    fastapi,
+    flask,
     helm,
     k8s,
     manifests,
@@ -41,6 +43,10 @@ class ParserSpec:
     name: str
     families: tuple[str, ...]
     parse: Callable[[Files, Context], Findings]
+    # Разборщик яруса кода (ТЗ §6.2): считается работавшим, только если его стек есть в
+    # репозитории (он отмечает себя в Findings.applied). Так «искали и не нашли»
+    # отличается от «стек не опознан».
+    code: bool = False
 
 
 _MANIFEST_FAMILIES = ("containers", "databases", "brokers", "edges")
@@ -60,12 +66,23 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
     ParserSpec(django.NAME, ("tables",), django.parse),
     ParserSpec(openapi.NAME, (), openapi.parse),
+    ParserSpec(fastapi.NAME, ("http_routes",), fastapi.parse, code=True),
+    ParserSpec(flask.NAME, ("http_routes",), flask.parse, code=True),
 )
 
 
 def parsers_for(family: str) -> list[str]:
     """Имена разборщиков семьи в порядке реестра."""
     return [p.name for p in PARSERS if family in p.families]
+
+
+def ran(family: str, findings: Findings, errors: dict[str, str]) -> list[str]:
+    """Разборщики семьи, которые отработали: без ошибки, а у яруса кода — со своим стеком."""
+    return [
+        p.name for p in PARSERS
+        if family in p.families and p.name not in errors
+        and (not p.code or p.name in findings.applied)
+    ]
 
 
 def collect(files: Files, ctx: Context) -> tuple[Findings, dict[str, str]]:

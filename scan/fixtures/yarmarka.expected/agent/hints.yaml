@@ -7,6 +7,14 @@ dynamic_names:
   name: DATABASE_URL
   reason: значение с подстановкой переменной, адрес из него не взят
   source: docker-compose.yml:13
+- kind: route
+  name: ADMIN_PREFIX
+  reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
+  source: services/orders/orders/main.py:13
+- kind: route
+  name: STATUS_PATH
+  reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
+  source: services/orders/orders/api/routes.py:23
 unassigned:
 - kind: container
   name: release

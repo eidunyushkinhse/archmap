@@ -321,6 +321,9 @@ class Files:
         self.paths: tuple[str, ...] = tuple(sorted(paths))
         self._cache: dict[str, str | None] = {}
         self._dirs: frozenset[str] | None = None
+        # Производное от перечня на время запуска (индекс манифестов, модулей Python):
+        # считается один раз и общее для разборщиков кода (codebase.py).
+        self.memo: dict[str, object] = {}
         self.too_large: set[str] = set()
         self.binary: set[str] = set()
 
@@ -335,8 +338,9 @@ class Files:
             self._dirs = frozenset(dirs)
         return bool(self.paths) if folder == "" else folder in self._dirs
 
-    def read(self, rel: str) -> str | None:
-        """Текст файла или None: больше предела, двоичный, не читается."""
+    def read(self, rel: str, keep: bool = True) -> str | None:
+        """Текст файла или None: больше предела, двоичный, не читается. keep=False — не
+        держать текст в кэше: так читают файлы кода, их много, а нужны они по разу."""
         if rel in self._cache:
             return self._cache[rel]
         text: str | None = None
@@ -355,7 +359,8 @@ class Files:
                     text = data.decode("utf-8-sig", "replace")
         except OSError:
             text = None
-        self._cache[rel] = text
+        if keep or text is None:
+            self._cache[rel] = text
         return text
 
     def refuse(self, rel: str) -> None:

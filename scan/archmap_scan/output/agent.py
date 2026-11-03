@@ -63,9 +63,22 @@ def render_hints(model: Model, ctx: Context) -> str:
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(doc)
 
 
+def _http(model: Model, name: str) -> list[dict[str, object]]:
+    out: list[dict[str, object]] = []
+    for entry in model.http.get(name, []):
+        item: dict[str, object] = {
+            "method": entry.method, "path": entry.path, "framework": entry.framework,
+        }
+        if entry.prefix_unresolved:
+            item["prefix_unresolved"] = True
+        item["source"] = str(entry.loc)
+        out.append(item)
+    return out
+
+
 def entrypoints(model: Model) -> dict[str, object]:
-    """Точки входа по контейнерам: маршруты, воркеры, расписания, потребители (ТЗ §5.3).
-    Маршруты HTTP и потребители ищутся в коде (ярус 2), в этой версии они пусты."""
+    """Точки входа по контейнерам: маршруты HTTP из кода, воркеры, расписания,
+    потребители каналов (ТЗ §5.3)."""
     doc: dict[str, object] = {}
     for obj in model.objects:
         if not obj.is_container:
@@ -86,7 +99,10 @@ def entrypoints(model: Model) -> dict[str, object]:
                 entry["task"] = sch.task
             entry["source"] = str(sch.loc)
             schedules.append(entry)
-        doc[obj.name] = {"http": [], "workers": workers, "schedules": schedules, "consumers": []}
+        doc[obj.name] = {
+            "http": _http(model, obj.name), "workers": workers, "schedules": schedules,
+            "consumers": [],
+        }
     return {"containers": doc}
 
 

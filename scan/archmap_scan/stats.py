@@ -27,7 +27,7 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     out: dict[str, FamilyStat] = {}
     for fam in registry.FAMILIES:
         names = registry.parsers_for(fam)
-        stat = FamilyStat(ran=[p for p in names if p not in errors])
+        stat = FamilyStat(ran=registry.ran(fam, findings, errors))
         failed = [p for p in names if p in errors]
         if failed:
             stat.error = "; ".join(texts.parser_failed(p, errors[p]) for p in failed)
@@ -61,6 +61,8 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         1 for h in model.hints.get("unassigned", []) if h.get("kind") == "config"
     )
     out["config"].contributed = _ordered({x for p in params for x in p.parsers})
+    _code_family(out["http_routes"], model, findings, "route",
+                 sum(len(v) for v in model.http.values()), {r.parser for r in findings.routes})
     unsupported = code_unsupported(findings)
     for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:
         for stack in stacks:
@@ -73,6 +75,22 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     return out
 
 
+def _hints_of(model: Model, section: str, kind: str) -> int:
+    return sum(1 for h in model.hints.get(section, []) if h.get("kind") == kind)
+
+
+def _code_family(
+    stat: FamilyStat, model: Model, findings: Findings, kind: str, found: int,
+    parsers: set[str],
+) -> None:
+    """Семья яруса кода: записанное, без владельца, динамические имена и разборщики."""
+    stat.found = found
+    stat.unassigned = _hints_of(model, "unassigned", kind)
+    stat.dynamic_names = _hints_of(model, "dynamic_names", kind)
+    stat.contributed = _ordered(parsers)
+    stat.from_code = bool(parsers)
+
+
 def stacks(model: Model) -> list[str]:
     """Технологии объектов в порядке схемы, без повторов."""
     out: list[str] = []
@@ -83,18 +101,18 @@ def stacks(model: Model) -> list[str]:
 
 
 def code_unsupported(findings: Findings) -> dict[str, list[str]]:
-    """Стеки, опознанные по манифестам сборки, для семей яруса кода, которых в этой версии
-    нет (ТЗ §6.2, §6.4): маршруты по фреймворкам, параметры в коде по языкам, каналы по
-    клиентским библиотекам, расписания Celery и crontab, описания схем без разборщика."""
+    """Стеки, опознанные по манифестам сборки, которые ярус кода в этой версии не читает
+    (ТЗ §6.2, §6.4): фреймворки без разборщика маршрутов, параметры в коде по языкам,
+    каналы по клиентским библиотекам, расписания Celery, описания схем без разборщика."""
     frameworks: list[str] = []
     languages: list[str] = []
     channel_libs: list[str] = []
     schema_stacks: list[str] = []
     celery = False
     for pkg in sorted(findings.packages, key=lambda p: p.path):
-        server = vocab.find_framework(pkg.deps, vocab.SERVER_FRAMEWORKS)
-        if server and server not in frameworks:
-            frameworks.append(server)
+        for server in vocab.frameworks_in(pkg.deps, vocab.SERVER_FRAMEWORKS):
+            if server not in vocab.ROUTE_FRAMEWORKS and server not in frameworks:
+                frameworks.append(server)
         if pkg.language not in languages:
             languages.append(pkg.language)
         for lib, kind in vocab.clients_of(pkg.deps):

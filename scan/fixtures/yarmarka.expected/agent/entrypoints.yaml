@@ -11,7 +11,20 @@ containers:
     schedules: []
     consumers: []
   orders:
-    http: []
+    http:
+    - method: DELETE
+      path: /admin/cache
+      framework: FastAPI
+      prefix_unresolved: true
+      source: services/orders/orders/api/admin.py:6
+    - method: POST
+      path: /api/orders
+      framework: FastAPI
+      source: services/orders/orders/api/routes.py:13
+    - method: GET
+      path: /api/orders/{order_id}
+      framework: FastAPI
+      source: services/orders/orders/api/routes.py:8
     workers: []
     schedules: []
     consumers: []
