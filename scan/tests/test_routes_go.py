@@ -51,3 +51,49 @@ def test_dynamic_only_on_known_routers(tmp_path: Path) -> None:
     found = gohttp.parse(files, ctx)
     assert found.routes == []
     assert [h.data["name"] for h in found.hints] == ['toPath("/api/x")']
+
+
+def test_dev_code_not_read(tmp_path: Path) -> None:
+    """Находка фазы 1б на Grafana: 439 маршрутов из devenv/docker/blocks/*/main.go ушли в
+    подсказки. Код в каталогах для разработки разборщики кода не читают: ни в entrypoints,
+    ни в hints его нет, а семья считает пропуск в skipped.dev_code (ТЗ §4). Каталоги demo
+    и local на код не действуют."""
+    import yaml
+
+    from archmap_scan.scan import Options, run
+
+    root = tree(tmp_path / "repo", {
+        "Dockerfile": "FROM golang:1.22\n",
+        "go.mod": "module github.com/org/shop\n",
+        "main.go": 'package main\nfunc main() { http.HandleFunc("/live", h) }\n',
+        "devenv/x/main.go": 'package main\nfunc main() { http.HandleFunc("/dev-only", h) }\n',
+        ".devcontainer/tool/main.go": (
+            'package main\nfunc main() { http.HandleFunc("/container-only", h) }\n'
+        ),
+        "src/demo_mode/main.go": 'package demo\nfunc f() { http.HandleFunc("/demo", h) }\n',
+        "local/main.go": 'package local\nfunc f() { http.HandleFunc("/local", h) }\n',
+        "dev/cron.d/cleanup": "0 3 * * * root /usr/bin/cleanup\n",
+    })
+    out = tmp_path / "out"
+    run(Options(path=str(root), out=str(out), system="shop", use_git=False))
+    text = "".join(
+        (out / rel).read_text(encoding="utf-8")
+        for rel in ("agent/entrypoints.yaml", "agent/hints.yaml", "schema.yaml")
+    )
+    assert "/live" in text and "/demo" in text and "/local" in text
+    assert "/dev-only" not in text and "/container-only" not in text and "cleanup" not in text
+    families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
+    assert families["http_routes"]["skipped"] == {"dev_code": 2}
+    assert families["config"]["skipped"] == {"dev_code": 2}
+    assert families["schedules"]["skipped"] == {"dev_code": 1}
+    assert "skipped" not in families["containers"]
+
+
+def test_dev_code_tokens() -> None:
+    from archmap_scan.walk import is_dev_code
+
+    assert is_dev_code("devenv/docker/blocks/x/main.go")
+    assert is_dev_code(".devcontainer/x.py") and is_dev_code("tools/hack/gen.go")
+    assert not is_dev_code("src/sentry/demo_mode/views.py")
+    assert not is_dev_code("zproject/dev_urls.py")  # имя файла не в счёт
+    assert not is_dev_code("contrib/x.py") and not is_dev_code("ci/x.py")

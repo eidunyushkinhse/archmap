@@ -3,8 +3,9 @@ cron.d. Строка — «расписание команда»: пять по�
 cron.d и /etc/crontab после расписания идёт пользователь. Комментарии, пустые строки и
 присваивания (MAILTO=, SHELL=) пропускаются. Имени у строки crontab нет, поэтому имя
 записи — имя файла без расширения, а при нескольких строках в файле к нему добавляется
-номер строки по порядку («crontab-2»). Файлы в каталогах для разработки и тестов не
-читаются; файл больше чем с _MAX_ENTRIES записями считается непрочитанным. Разбор
+номер строки по порядку («crontab-2»). Файлы в каталогах для разработки не читаются
+по тому же перечню, что и код (walk.CODE_DEV_TOKENS), и считаются в покрытии; файл больше
+чем с _MAX_ENTRIES записями считается непрочитанным. Разбор
 построчный, без регулярных выражений."""
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 from archmap_scan import paths
 from archmap_scan.context import Context
 from archmap_scan.model import CodeSchedule, Findings, Loc
-from archmap_scan.walk import SKIP_DIRS, Files, is_dev_path
+from archmap_scan.walk import SKIP_DIRS, Files
 
 NAME = "crontab"
 # Символы полей расписания: числа, *, шаги, диапазоны, списки и имена месяцев и дней.
@@ -34,8 +35,7 @@ def is_crontab(rel: str) -> bool:
     name = paths.name(rel)
     if not (name == "crontab" or name.endswith((".crontab", ".cron")) or _cron_d(rel)):
         return False
-    folder = paths.parent(rel)
-    return not is_dev_path(folder) and not any(seg in SKIP_DIRS for seg in folder.split("/"))
+    return not any(seg in SKIP_DIRS for seg in paths.parent(rel).split("/"))
 
 
 def _stem(rel: str) -> str:
@@ -83,6 +83,8 @@ def _entry(raw: str, system: bool) -> tuple[str, str] | None:
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     for rel in files.select(is_crontab):
+        if files.skip_dev_code(rel):
+            continue
         text = files.read(rel)
         if text is None:
             continue

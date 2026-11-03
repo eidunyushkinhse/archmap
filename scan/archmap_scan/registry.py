@@ -117,10 +117,14 @@ def collect(files: Files, ctx: Context) -> tuple[Findings, dict[str, str]]:
     found = Findings()
     errors: dict[str, str] = {}
     for spec in PARSERS:
+        files.dev_code = set()
         try:
             part = spec.parse(files, ctx)
         except Exception as exc:  # падение одного не валит запуск (ТЗ §3)
             errors[spec.name] = type(exc).__name__
             continue
+        if files.dev_code:
+            # Пропущенный код в каталогах для разработки — этому разборщику (его семьям).
+            part.dev_code[spec.name] = files.dev_code
         found.extend(part)
     return found, errors

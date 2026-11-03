@@ -8,6 +8,8 @@ from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+# Семьи яруса кода: им считается пропущенный код в каталогах для разработки (ТЗ §4).
+_DEV_CODE_FAMILIES = ("config", "channels", "http_routes", "schedules")
 
 
 def _ordered(names: set[str]) -> list[str]:
@@ -81,6 +83,12 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         for note in notes:
             if note not in out[fam].notes:
                 out[fam].notes.append(note)
+    for fam in _DEV_CODE_FAMILIES:
+        skipped = {
+            rel for name in registry.parsers_for(fam) for rel in findings.dev_code.get(name, ())
+        }
+        if skipped:
+            out[fam].skipped["dev_code"] = len(skipped)
     return out
 
 

@@ -225,6 +225,9 @@ class Findings:
     # Разборщики кода, чей стек в репозитории есть (они читали файлы): по ним семья «пусто»
     # отличается от «не опознан стек».
     applied: set[str] = field(default_factory=set)
+    # Файлы кода в каталогах для разработки, которые разборщик не читал: имя разборщика →
+    # файлы (ТЗ §4, покрытие skipped.dev_code по семьям).
+    dev_code: dict[str, set[str]] = field(default_factory=dict)
 
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
@@ -243,3 +246,5 @@ class Findings:
         self.channels.extend(other.channels)
         self.schedules.extend(other.schedules)
         self.applied |= other.applied
+        for parser, rels in other.dev_code.items():
+            self.dev_code.setdefault(parser, set()).update(rels)

@@ -100,13 +100,17 @@ def code_files(
     files: Files, ctx: Context, language: str, wanted: frozenset[str] | None = None,
 ) -> list[str]:
     """Файлы кода языка, ближайший пакет которых на нужном стеке (wanted — зависимости,
-    хотя бы одна из которых нужна; None — любой пакет этого языка)."""
+    хотя бы одна из которых нужна; None — любой пакет этого языка). Код в каталогах для
+    разработки сюда не попадает, а пропуск считается в покрытии (ТЗ §4): это одно место
+    отбора для всех разборщиков яруса кода."""
     out: list[str] = []
     for rel in files.paths:
         if not is_code_file(rel, language):
             continue
         pkgs = owner_packages(files, ctx, rel, language)
-        if pkgs and _matches((d for p in pkgs for d in p.deps), wanted):
+        if not pkgs or not _matches((d for p in pkgs for d in p.deps), wanted):
+            continue
+        if not files.skip_dev_code(rel):
             out.append(rel)
     return out
 

@@ -51,10 +51,10 @@ def name_tokens(name: str) -> set[str]:
 
 # Манифесты для разработки (ТЗ §4): compose, Dockerfile, supervisor, systemd и k8s, у
 # которых в пути есть каталог или в имени файла есть часть из этого перечня, объектов в
-# схему не дают. Перечень один на все разборщики; сами каталоги из обхода не исключаются,
-# код в них читается. «.devcontainer» после разбиения имени даёт часть «devcontainer»;
-# tests и e2e исключены соглашением целиком, но бывают частью имени файла
-# (Dockerfile.e2e).
+# схему не дают. Перечень один на все разборщики манифестов; сами каталоги из обхода не
+# исключаются, манифесты в них читаются ради подсказок. «.devcontainer» после разбиения
+# имени даёт часть «devcontainer»; tests и e2e исключены соглашением целиком, но бывают
+# частью имени файла (Dockerfile.e2e).
 DEV_TOKENS = frozenset({
     "dev", "devenv", "development", "local", "hack", "contrib", "sandbox", "demo",
     "playground", "devcontainer", "vagrant", "ci", "test", "tests", "e2e",
@@ -64,6 +64,21 @@ DEV_TOKENS = frozenset({
 def is_dev_path(rel: str) -> bool:
     """Манифест для разработки: часть из DEV_TOKENS в любом каталоге пути или в имени."""
     return any(name_tokens(seg) & DEV_TOKENS for seg in rel.split("/"))
+
+
+# Код в каталогах для разработки (ТЗ §4) разборщики кода не читают: Grafana держит в
+# devenv/docker/blocks/*/main.go сотни маршрутов тестовых стендов. Перечень уже DEV_TOKENS:
+# local, contrib, demo, ci и test на код не действуют (src/sentry/demo_mode/ — рабочий код
+# продукта). Части имени каталога сравниваются так же, как у манифестов.
+CODE_DEV_TOKENS = frozenset({
+    "dev", "devenv", "development", "devcontainer", "vagrant", "hack", "sandbox", "playground",
+})
+
+
+def is_dev_code(rel: str) -> bool:
+    """Файл кода в каталоге для разработки: часть из CODE_DEV_TOKENS в имени одного из
+    каталогов пути. Имя самого файла не в счёт: dev_urls.py рядом с рабочим кодом читается."""
+    return any(name_tokens(seg) & CODE_DEV_TOKENS for seg in rel.split("/")[:-1])
 
 
 def _name_rule(name: str) -> str | None:
@@ -326,6 +341,10 @@ class Files:
         self.memo: dict[str, object] = {}
         self.too_large: set[str] = set()
         self.binary: set[str] = set()
+        # Файлы кода в каталогах для разработки, которые пропустил разборщик, работающий
+        # сейчас: registry.collect забирает перечень после каждого разборщика (покрытие
+        # skipped.dev_code по семьям).
+        self.dev_code: set[str] = set()
 
     def has_dir(self, folder: str) -> bool:
         """В каталоге folder есть хотя бы один файл обхода (корень «» — если обход не пуст)."""
@@ -362,6 +381,13 @@ class Files:
         if keep or text is None:
             self._cache[rel] = text
         return text
+
+    def skip_dev_code(self, rel: str) -> bool:
+        """Файл кода в каталоге для разработки: не читать, а пропуск записать (ТЗ §4)."""
+        if not is_dev_code(rel):
+            return False
+        self.dev_code.add(rel)
+        return True
 
     def refuse(self, rel: str) -> None:
         """Файл прочитан, но разбирать его разборщик отказался по своему пределу размера."""
