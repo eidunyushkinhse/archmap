@@ -58,6 +58,6 @@ def run(opts: Options) -> Result:
     outdir.write(out, "agent/evidence.yaml", agent.render_evidence(model, ctx))
     outdir.write(out, "agent/hints.yaml", agent.render_hints(model, ctx))
     outdir.write(out, "agent/entrypoints.yaml", agent.render_entrypoints(model, ctx))
-    for rel, body in facts.config_files(model, ctx).items():
+    for rel, body in {**facts.tables_files(model, ctx), **facts.config_files(model, ctx)}.items():
         outdir.write(out, rel, body)
     return Result(out=out, coverage=cov, summary=text)

@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from archmap_scan import owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
-from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Unit
+from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Table, Unit
 from archmap_scan.walk import Pattern, name_tokens
 
 SERVICE, DATABASE, BROKER = "service", "database", "broker"
@@ -98,6 +98,16 @@ class Param:
 
 
 @dataclass
+class TableStats:
+    found: int = 0
+    unassigned: int = 0
+    dropped: int = 0
+    skipped: dict[str, int] = field(default_factory=dict)
+    parsers: set[str] = field(default_factory=set)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Model:
     system: str
     system_locs: list[Loc]
@@ -109,6 +119,9 @@ class Model:
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)
     # Параметры по контейнерам: имя контейнера → имя параметра → параметр.
     params: dict[str, dict[str, Param]] = field(default_factory=dict)
+    # Таблицы по базам: имя базы → таблицы; счёт для покрытия — в table_stats.
+    tables: dict[str, list[Table]] = field(default_factory=dict)
+    table_stats: TableStats = field(default_factory=lambda: TableStats())
 
     def obj(self, name: str) -> Obj | None:
         return next((o for o in self.objects if o.name == name), None)
@@ -426,7 +439,63 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _entrypoints(model)
     _params(model, findings, env_of)
     _clients(model, findings)
+    _tables(model, findings, env_of)
     return model
+
+
+_SKIPPED_KEY = {"sql": "sql_statements", "alembic": "alembic_operations",
+                "django": "django_operations"}
+_NO_OWNER = {"no_database": texts.REASON_NO_DATABASE,
+             "many_databases": texts.REASON_MANY_DATABASES}
+
+
+def _tables(
+    model: Model, findings: Findings, env_of: dict[str, list[tuple[EnvVar, str]]]
+) -> None:
+    """Таблицы наборов миграций — базе-владельцу (ТЗ §7), без владельца — в подсказки."""
+    containers = [o for o in model.objects if o.is_container]
+    databases = [o for o in model.objects if o.shape == DATABASE]
+    plain = {name: [v for v, _ in pairs] for name, pairs in env_of.items()}
+    stats = model.table_stats
+    for ts in sorted(findings.table_sets, key=lambda t: (t.dir, t.parser)):
+        if ts.error:
+            stats.errors.append(f"{ts.parser} {paths.show_dir(ts.dir)}: {ts.error}")
+            model.hint("unassigned", {
+                "kind": ts.parser, "name": paths.show_dir(ts.dir),
+                "reason": f"{texts.REASON_MIGRATION_ERROR}: {ts.error}", "source": ts.dir or ".",
+            })
+            continue
+        if ts.tables:
+            stats.parsers.add(ts.parser)
+        stats.found += len(ts.tables)
+        stats.dropped += ts.dropped
+        if ts.skipped:
+            key = _SKIPPED_KEY.get(ts.parser, ts.parser)
+            stats.skipped[key] = stats.skipped.get(key, 0) + ts.skipped
+        for loc, text in ts.skipped_examples:
+            model.hint("unassigned", {
+                "kind": ts.parser, "name": text, "reason": texts.REASON_SKIPPED_STATEMENT,
+                "source": str(loc),
+            })
+        db, why = owners.database_for(ts.dir, containers, databases, plain)
+        if db is None:
+            stats.unassigned += len(ts.tables)
+            for table in ts.tables:
+                model.hint("unassigned", {
+                    "kind": "table", "name": table.name, "reason": _NO_OWNER[why or ""],
+                    "source": str(min(table.locs)),
+                })
+            continue
+        bucket = model.tables.setdefault(db.name, [])
+        for table in ts.tables:
+            same = next((t for t in bucket if (t.schema, t.name) == (table.schema, table.name)), None)
+            if same is None:
+                bucket.append(table)
+                continue
+            same.locs.extend(table.locs)
+            for col in table.columns:
+                if same.column(col.name) is None:
+                    same.columns.append(col)
 
 
 def _params(

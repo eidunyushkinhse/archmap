@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from archmap_scan.assemble import Model
 from archmap_scan.context import Context
+from archmap_scan.model import Column
 from archmap_scan.output import yamlio
 
 _TRANSLIT = {
@@ -71,4 +72,34 @@ def config_files(model: Model, ctx: Context) -> dict[str, str]:
                 item["default"] = param.default
             items.append(item)
         out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"config": items})
+    return out
+
+
+def _column(col: Column) -> dict[str, object]:
+    item: dict[str, object] = {"name": col.name}
+    if col.type:
+        item["type"] = col.type
+    if col.pk:
+        item["pk"] = True
+    if col.required is not None:
+        item["required"] = col.required
+    if col.references:
+        item["references"] = col.references
+    return item
+
+
+def tables_files(model: Model, ctx: Context) -> dict[str, str]:
+    """facts/<база>.tables.yaml: таблицы базы после всей цепочки миграций."""
+    owners = [o.name for o in model.objects if model.tables.get(o.name)]
+    names = file_names(model, owners, "tables")
+    out: dict[str, str] = {}
+    for owner in owners:
+        items: list[dict[str, object]] = []
+        for table in sorted(model.tables[owner], key=lambda t: (t.schema or "", t.name)):
+            item: dict[str, object] = {"name": table.name}
+            if table.schema:
+                item["schema"] = table.schema
+            item["columns"] = [_column(c) for c in table.columns]
+            items.append(item)
+        out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"tables": items})
     return out

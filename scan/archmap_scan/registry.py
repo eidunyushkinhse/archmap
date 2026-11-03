@@ -20,6 +20,7 @@ from archmap_scan.parsers import (
     k8s,
     manifests,
     procfile,
+    sql,
     supervisor,
     systemd,
 )
@@ -52,6 +53,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(helm.NAME, ("containers", "databases", "brokers"), helm.parse),
     ParserSpec(manifests.NAME, ("containers",), manifests.parse),
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
+    ParserSpec(sql.NAME, ("tables",), sql.parse),
 )
 
 

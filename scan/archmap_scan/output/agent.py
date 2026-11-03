@@ -33,6 +33,11 @@ def evidence(model: Model, ctx: Context) -> dict[str, list[str]]:
     for link in model.links:
         out[f"edges/{names[link.src.name]}→{names[link.dst.name]}"] = _locs(link.locs)
     for obj in model.objects:
+        for table in sorted(model.tables.get(obj.name, []), key=lambda t: (t.schema or "", t.name)):
+            shown = f"{table.schema}.{table.name}" if table.schema else table.name
+            locs = list(table.locs) + [loc for c in table.columns for loc in c.locs]
+            out[f"tables/{obj.name}/{shown}"] = _locs(locs)
+    for obj in model.objects:
         for name in sorted(model.params.get(obj.name, {})):
             out[f"config/{obj.name}/{name}"] = _locs(model.params[obj.name][name].locs)
     return out

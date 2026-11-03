@@ -44,6 +44,13 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     schedules = [sch for ss in model.schedules.values() for sch in ss]
     out["schedules"].found = len(schedules)
     out["schedules"].contributed = _ordered({sch.parser for sch in schedules})
+    tables = out["tables"]
+    tables.found = model.table_stats.found
+    tables.contributed = _ordered(model.table_stats.parsers)
+    tables.skipped = dict(sorted(model.table_stats.skipped.items()))
+    tables.dropped = model.table_stats.dropped
+    if model.table_stats.errors:
+        tables.error = "; ".join(model.table_stats.errors)
     params = [p for table in model.params.values() for p in table.values()]
     out["config"].found = len(params)
     out["config"].contributed = _ordered({x for p in params for x in p.parsers})
