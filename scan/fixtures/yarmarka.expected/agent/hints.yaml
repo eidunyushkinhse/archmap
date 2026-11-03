@@ -65,3 +65,4 @@ clients:
   source: services/billing-worker/requirements.txt:1
   technology: Redis
 unparsed: []
+external_repos: []

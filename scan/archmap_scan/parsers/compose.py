@@ -9,6 +9,14 @@ profiles и сервисы, которые есть только в файлах
 образ с ними технологию не даёт, а место уходит в подсказки.
 Один сервис в нескольких файлах (основной и override) — один кандидат: поля поздних файлов
 перекрывают ранние, как у самого compose.
+
+Compose по содержимому (ТЗ §13.3): файл YAML не с именем compose, у которого на верхнем
+уровне services со словарём и хотя бы у одного сервиса image или build (Sentry
+devservices/config.yml), читается по тем же правилам; покрытие называет его «compose по
+содержимому: путь». Чтобы не разбирать все YAML репозитория, сначала текст проверяется на
+строку «services:» с начала строки. Записи с repo_link или repo_name где угодно в документе
+compose (расширения x-*, dependencies) — сервисы других репозиториев: объектов из них нет, они
+лежат в hints.external_repos для агента.
 """
 
 from __future__ import annotations
@@ -25,6 +33,12 @@ from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, loa
 NAME = "compose"
 # Подстановка переменной compose: ${VAR}, ${VAR:-x}, $VAR (но не экранированное $$).
 _DYNAMIC = re.compile(r"\$\{|\$[A-Za-z_]")
+# Быстрая проверка файла YAML до разбора: ключ services верхнего уровня.
+_SERVICES_LINE = re.compile(r"^services:[ \t]*(?:#[^\n]*)?$", re.MULTILINE)
+# Ключи ссылки на другой репозиторий и обёртки, под которыми она лежит у сервиса
+# (dependencies: snuba: remote: {repo_name, repo_link}): имя сервиса — ключ выше обёртки.
+_REPO_KEYS = ("repo_link", "repo_name")
+_REPO_WRAPPERS = frozenset({"remote", "source", "repo", "repository", "git", "origin"})
 
 
 def _is_base(name: str) -> bool:
@@ -247,19 +261,93 @@ def _merge(into: Unit, other: Unit) -> None:
     into.extra_locs.append(other.loc)
 
 
+def _is_yaml(rel: str) -> bool:
+    return paths.name(rel).lower().endswith((".yaml", ".yml"))
+
+
+def _by_content(files: Files) -> list[str]:
+    """Файлы YAML не с именем compose, похожие на compose по тексту: строка «services:» с
+    начала строки. Каталоги чартов Helm сюда не попадают: их читает helm.py, а манифесты k8s
+    отсекаются после разбора по apiVersion и kind."""
+    charts = [paths.parent(p) for p in files.paths if paths.name(p) == "Chart.yaml"]
+    out: list[str] = []
+    for rel in files.select(_is_yaml):
+        if is_compose_name(paths.name(rel)) or any(paths.under(rel, c) for c in charts):
+            continue
+        text = files.read(rel)
+        if text is not None and _SERVICES_LINE.search(text) is not None:
+            out.append(rel)
+    return out
+
+
+def _compose_like(doc: LineDict) -> LineDict | None:
+    """Сервисы документа, если он compose по содержимому (ТЗ §13.3): services со словарём на
+    верхнем уровне, хотя бы у одного сервиса image или build, и это не манифест k8s."""
+    if "apiVersion" in doc and "kind" in doc:
+        return None
+    services = doc.get("services")
+    if not isinstance(services, LineDict) or not any(
+        isinstance(v, LineDict) and ("image" in v or "build" in v) for v in services.values()
+    ):
+        return None
+    return services
+
+
+def _repo_key(node: LineDict) -> str | None:
+    return next((k for k in _REPO_KEYS if isinstance(node.get(k), str) and node.get(k)), None)
+
+
+def _external_repos(doc: LineDict, rel: str, found: Findings) -> None:
+    """Сервисы других репозиториев: словарь с repo_link или repo_name где угодно в документе.
+    Имя — ключ, под которым лежит словарь, а у обёртки (remote, source) — ключ выше; у
+    элемента списка — его ключ name, иначе сама ссылка. Обход без рекурсии в порядке
+    документа; документ уже прошёл пределы yamlload."""
+    stack: list[tuple[object, list[str | None]]] = [(doc, [])]
+    seen: set[int] = set()
+    while stack:
+        node, keys = stack.pop()
+        if id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, LineDict):
+            key = _repo_key(node)
+            if key is not None:
+                names = [k for k in keys if k is None or k.lower() not in _REPO_WRAPPERS]
+                own = node.get("name")
+                if names and names[-1] is not None:
+                    name = names[-1]
+                elif isinstance(own, str) and own:
+                    name = own
+                else:
+                    name = str(node[key])
+                link = node.get("repo_link")
+                found.hints.append(Hint("external_repos", {
+                    "kind": "repo", "name": name, "reason": texts.REASON_EXTERNAL_REPO,
+                    "source": str(Loc(rel, node.line_of(key))),
+                    "repo": link if isinstance(link, str) and link else str(node[key]),
+                }))
+            stack.extend((v, [*keys, str(k)]) for k, v in reversed(list(node.items())))
+        elif isinstance(node, LineList):
+            stack.extend((v, [*keys, None]) for v in reversed(node))
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
     dev_only: dict[str, Loc] = {}
     # Файлы для разработки (dev, local, devenv в пути или в имени, walk.is_dev_path)
     # читаются после остальных и в схему не добавляют ничего: их сервисы, которых нет в
-    # основных файлах, уходят в подсказки.
-    ordered = sorted(files.select(lambda p: is_compose_name(paths.name(p))), key=_order)
+    # основных файлах, уходят в подсказки. Compose по содержимому идёт тем же путём.
+    content = set(_by_content(files))
+    named = files.select(lambda p: is_compose_name(paths.name(p)))
+    ordered = sorted([*named, *content], key=_order)
     dev_files = [r for r in ordered if is_dev_path(r)]
     for rel in [r for r in ordered if r not in dev_files] + dev_files:
-        services = _load_services(files, rel, found)
+        services = _load_services(files, rel, found, by_content=rel in content)
         if services is None:
             continue
+        if rel in content:
+            found.notes.setdefault("containers", []).append(texts.compose_by_content(rel))
         dev = rel in dev_files
         for key, svc in services.items():
             if not isinstance(svc, LineDict):
@@ -298,7 +386,12 @@ def parse(files: Files, ctx: Context) -> Findings:
     return found
 
 
-def _load_services(files: Files, rel: str, found: Findings) -> LineDict | None:
+def _load_services(
+    files: Files, rel: str, found: Findings, by_content: bool = False,
+) -> LineDict | None:
+    """Сервисы файла compose. by_content — файл не с именем compose, отобранный по тексту:
+    он не compose, пока разбор не покажет services со словарём (ошибка разбора тогда не
+    подсказка, у чужого YAML бывают свои расширения)."""
     text = files.read(rel)
     if text is None:
         return None
@@ -308,13 +401,18 @@ def _load_services(files: Files, rel: str, found: Findings) -> LineDict | None:
         files.refuse(rel)
         return None
     except BadYaml:
-        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
+        if not by_content:
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
         return None
     if not isinstance(doc, LineDict):
         return None
+    services = _compose_like(doc) if by_content else _services(doc)
+    if by_content and services is None:
+        return None
+    _external_repos(doc, rel, found)
     if "include" in doc:
         found.hints.append(Hint("unassigned", {
             "kind": "compose", "name": paths.name(rel), "reason": texts.REASON_INCLUDE,
             "source": str(Loc(rel, doc.line_of("include"))),
         }))
-    return _services(doc)
+    return services
