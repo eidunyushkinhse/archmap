@@ -161,3 +161,12 @@ def test_columns_named_like_keywords() -> None:
         ("check", "boolean", False, True, None),
     ]
     assert schema.skipped == 0
+
+
+def test_statistics_are_not_table_structure() -> None:
+    schema = sqlddl.Schema()
+    sqlddl.apply_text(
+        "CREATE STATISTICS IF NOT EXISTS s (dependencies) ON a, b FROM t;\n"
+        "DROP STATISTICS s;\n", "x.sql", schema,
+    )
+    assert schema.skipped == 0

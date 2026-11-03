@@ -33,7 +33,11 @@ def test_fixture_tables() -> None:
     assert sorted(sets) == ["accounts", "billing", "shop"]
     shop = {t.name: t for t in sets["shop"].tables}
     # label из apps.py, AlterModelTable, RenameModel, proxy и managed=False без таблиц.
-    assert sorted(shop) == ["customers", "store_purchase"]
+    # shop_audit создан литеральным RunSQL: его разобрал SQL-разборщик.
+    assert sorted(shop) == ["customers", "shop_audit", "store_purchase"]
+    assert _cols(shop["shop_audit"]) == [
+        ("id", "bigserial", True, True, None), ("note", "text", False, True, None),
+    ]
     assert _cols(shop["customers"]) == [
         ("id", "serial", True, True, None),
         ("full_name", "varchar(100)", False, True, None),
@@ -51,10 +55,12 @@ def test_fixture_tables() -> None:
         ("weight", "double precision", False, False, None),
         ("_order", "integer", False, True, None),
     ]
+    # RunPython — миграция данных, а не пропуск; RunSQL с переменной — пропуск.
     assert sets["shop"].dropped == 1 and sets["shop"].skipped == 2
+    assert sets["shop"].data_migrations == 1
     assert [(str(loc), text) for loc, text in sets["shop"].skipped_examples] == [
-        ("shop/migrations/0002_rename.py:26", "RunPython"),
         ("shop/migrations/0002_rename.py:36", "CustomOperation"),
+        ("shop/migrations/0002_rename.py:45", "RunSQL"),
     ]
     # Squash заменил 0001 и 0002, 0003 зависит от заменённой и идёт после squash.
     [invoice] = sets["billing"].tables
@@ -75,18 +81,21 @@ def test_fixture_tables() -> None:
 def test_owner_and_facts(tmp_path: Path) -> None:
     model = model_of(FIXTURES / "django")
     assert list(model.tables) == ["db"]
-    assert model.table_stats.skipped == {"django_operations": 2}
+    assert model.table_stats.skipped == {"django_operations": 2, "data_migrations": 1}
     out = tmp_path / "out"
     run(Options(path=str(FIXTURES / "django"), out=str(out), system="Ярмарка", use_git=False))
     coverage = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))
     assert coverage["families"]["tables"] == {
-        "status": "covered", "found": 4, "parsers": ["django"],
-        "skipped": {"django_operations": 2}, "dropped": 1,
+        "status": "covered", "found": 5, "parsers": ["django"],
+        "skipped": {"data_migrations": 1, "django_operations": 2}, "dropped": 1,
     }
     doc = yaml.safe_load((out / "facts" / "db.tables.yaml").read_text(encoding="utf-8"))
     assert [t["name"] for t in doc["tables"]] == [
-        "accounts_user", "billing_invoice", "customers", "store_purchase",
+        "accounts_user", "billing_invoice", "customers", "shop_audit", "store_purchase",
     ]
+    # Миграция данных в подсказки не идёт: это не пропуск.
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    assert all(h["name"] != "RunPython" for h in hints["unassigned"])
 
 
 def _migration(deps: str, ops: str = "") -> str:

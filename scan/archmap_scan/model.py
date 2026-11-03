@@ -127,6 +127,9 @@ class TableSet:
     dropped: int = 0
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
+    # Миграции данных (RunPython): структуру таблиц не меняют, поэтому это не пропуск, но
+    # счёт в покрытии виден отдельно.
+    data_migrations: int = 0
     error: str | None = None
     # Диалект базы по признакам миграций (dialect.py) и его основание: из него строится
     # объект-база, если базы в манифестах нет (ТЗ §7, пункт 3).

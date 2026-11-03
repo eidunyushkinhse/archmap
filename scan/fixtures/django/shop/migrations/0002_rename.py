@@ -34,4 +34,13 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterOrderWithRespectTo(name="purchase", order_with_respect_to="buyer"),
         CustomOperation(),
+        migrations.RunSQL(
+            "CREATE TABLE shop_audit (id bigserial PRIMARY KEY, note text NOT NULL);",
+            reverse_sql="DROP TABLE shop_audit;",
+        ),
+        migrations.RunSQL([
+            "CREATE INDEX shop_status ON store_purchase (status);",
+            ("UPDATE store_purchase SET status = %s", ["new"]),
+        ]),
+        migrations.RunSQL(SQL_FROM_ELSEWHERE),
     ]

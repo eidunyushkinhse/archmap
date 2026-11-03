@@ -580,6 +580,10 @@ def _tables(
         if ts.skipped:
             key = _SKIPPED_KEY.get(ts.parser, ts.parser)
             stats.skipped[key] = stats.skipped.get(key, 0) + ts.skipped
+        if ts.data_migrations:
+            stats.skipped["data_migrations"] = (
+                stats.skipped.get("data_migrations", 0) + ts.data_migrations
+            )
         for loc, text in ts.skipped_examples:
             model.hint("unassigned", {
                 "kind": ts.parser, "name": text, "reason": texts.REASON_SKIPPED_STATEMENT,

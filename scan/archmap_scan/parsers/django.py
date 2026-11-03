@@ -4,9 +4,11 @@
 вне репозитория не учитываются; squash-миграция с replaces заменяет перечисленные);
 цикл или ссылка на неизвестную миграцию известного приложения — ошибка семьи. Состояние
 моделей ведётся по операциям; таблица — db_table или app_label + "_" + имя модели в нижнем
-регистре; внешний ключ даёт колонку <поле>_id со ссылкой на таблицу.ключ цели. RunPython,
-RunSQL и незнакомые операции считаются пропущенными. Ничего не исполняется и не
-импортируется: только ast и литералы.
+регистре; внешний ключ даёт колонку <поле>_id со ссылкой на таблицу.ключ цели. RunPython —
+миграция данных: структуры не меняет и считается отдельно (data_migrations), а не
+пропуском. RunSQL с литеральным SQL разбирает SQL-разборщик (таблицы, созданные им,
+добавляются к таблицам приложения); RunSQL без литерала и незнакомые операции считаются
+пропущенными. Ничего не исполняется и не импортируется: только ast и литералы.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import ast
 import heapq
 from dataclasses import dataclass, field
 
-from archmap_scan import dialect, paths, pyast, texts
+from archmap_scan import dialect, paths, pyast, sqlddl, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Column, Findings, Hint, Loc, Table, TableSet
 from archmap_scan.walk import Files
@@ -123,7 +125,10 @@ class _Migration:
 class _AppStats:
     dropped: int = 0
     skipped: int = 0
+    data_migrations: int = 0
     examples: list[tuple[Loc, str]] = field(default_factory=list)
+    # Таблицы из RunSQL с литеральным SQL: их ведёт SQL-разборщик (sqlddl).
+    sql: sqlddl.Schema = field(default_factory=sqlddl.Schema)
 
     def skip(self, loc: Loc, text: str) -> None:
         self.skipped += 1
@@ -381,12 +386,38 @@ def _operation(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
             model.fields.append(_Field("_order", "_order", True, "integer", False, True, None,
                                        [loc]))
         return name is not None
+    if kind.endswith("RunPython"):
+        state.app_stats(app).data_migrations += 1
+        return True
+    if kind.endswith("RunSQL"):
+        return _run_sql(call, app, state, loc)
     if kind == "SeparateDatabaseAndState":
         # База меняется только database_operations; state_operations — модель Django.
         ops = _arg(call, "database_operations", 0)
         _apply(ops, app, state, loc.path)
         return True
     return False
+
+
+def _run_sql(call: ast.Call, app: str, state: _State, loc: Loc) -> bool:
+    """RunSQL("…") и RunSQL(["…", ("…", params)]): литеральный SQL — SQL-разборщику, как
+    op.execute у Alembic. Нелитеральный — пропуск с подсказкой."""
+    node = _arg(call, "sql", 0)
+    if node is None:
+        return False
+    items = node.elts if isinstance(node, (ast.List, ast.Tuple)) else [node]
+    sql: list[tuple[str, int]] = []
+    for item in items:
+        if isinstance(item, ast.Tuple) and item.elts:
+            item = item.elts[0]
+        text = pyast.value(item)
+        if not isinstance(text, str):
+            return False
+        sql.append((text, item.lineno))
+    schema = state.app_stats(app).sql
+    for text, line in sql:
+        sqlddl.apply_text(text, loc.path, schema, line_offset=line - 1)
+    return True
 
 
 def _apply(ops: ast.expr | None, app: str, state: _State, path: str) -> None:
@@ -579,6 +610,13 @@ def _user_model(files: Files) -> tuple[str, str]:
 
 
 def _tables(state: _State, app: str) -> list[Table]:
+    out: list[Table] = _model_tables(state, app)
+    names = {t.name.lower() for t in out}
+    out += [t for t in state.app_stats(app).sql.tables.values() if t.name.lower() not in names]
+    return out
+
+
+def _model_tables(state: _State, app: str) -> list[Table]:
     out: list[Table] = []
     for model in state.models.values():
         if model.app != app or not model.managed:
@@ -638,11 +676,15 @@ def parse(files: Files, ctx: Context) -> Findings:
     for app, app_dir in sorted(app_dirs.items()):
         stats = state.app_stats(app)
         tables = _tables(state, app)
-        if not tables and not stats.skipped and not stats.dropped:
+        sql = stats.sql
+        skipped = stats.skipped + sql.skipped
+        examples = (stats.examples + sql.examples)[:3]
+        dropped = stats.dropped + sql.dropped
+        if not tables and not skipped and not dropped and not stats.data_migrations:
             continue
         found.table_sets.append(TableSet(
-            parser=NAME, dir=app_dir, tables=tables, dropped=stats.dropped,
-            skipped=stats.skipped, skipped_examples=list(stats.examples),
+            parser=NAME, dir=app_dir, tables=tables, dropped=dropped,
+            skipped=skipped, skipped_examples=examples, data_migrations=stats.data_migrations,
             dialect=engine[0] if engine else None, dialect_loc=engine[1] if engine else None,
         ))
     return found
