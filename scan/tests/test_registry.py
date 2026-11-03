@@ -279,3 +279,5 @@ def test_edge_without_owner_goes_to_hints(tmp_path: Path) -> None:
     }]
     fams = stats.families(model, Findings(), {})
     assert fams["edges"].unassigned == 1
+    # Разборщик, давший связь без владельца, назван в покрытии связей.
+    assert "rabbitmq" in fams["edges"].contributed

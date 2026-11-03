@@ -336,6 +336,7 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         container = owners.primary(file_owners, prefer)
         if container is None:
             # Канал записан брокеру, а чья это публикация или подписка, не известно.
+            model.code_parsers.setdefault("edges", set()).add(use.parser)
             model.hint("unassigned", {
                 "kind": "edge", "name": use.name, "object": broker.name,
                 "reason": texts.REASON_MANY_OWNERS if file_owners else texts.REASON_SHARED_LIB,

@@ -50,7 +50,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     out["edges"].found = len(model.links)
     # Связи по каналу, чей контейнер не определим: канал записан, связи нет (ТЗ §13.2).
     out["edges"].unassigned = _hints_of(model, "unassigned", "edge")
-    out["edges"].contributed = _ordered({p for lk in model.links for p in lk.parsers})
+    out["edges"].contributed = _ordered(
+        {p for lk in model.links for p in lk.parsers} | model.code_parsers.get("edges", set())
+    )
     workers = [w for ws in model.workers.values() for w in ws]
     out["workers"].found = len(workers)
     out["workers"].contributed = _ordered({w.parser for w in workers})
