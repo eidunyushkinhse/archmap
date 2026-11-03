@@ -18,6 +18,7 @@ A = "a" * PAYLOAD
 MANIFESTS: dict[str, str | bytes] = {
     "py/requirements.txt": "fastapi\nflask\ndjango\n",
     "js/package.json": '{"dependencies": {"express": "*", "@nestjs/core": "*"}}',
+    "go/go.mod": "module x\n\nrequire github.com/gin-gonic/gin v1.0.0\n",
 }
 
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
@@ -31,6 +32,11 @@ STARTS: dict[str, tuple[str, ...]] = {
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
         "const app = express(", "app.use('", "app.use(", "/*", "'", "`", "\\", ".",
         "app.get(", "app.setGlobalPrefix(",
+    ),
+    "go/main.go": (
+        'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',
+        'r.HandleFunc("/p", h).Methods(', "r.GET(", "x := gin.Default(", "`", "{",
+        'r.Handle("GET", ',
     ),
 }
 
@@ -71,6 +77,7 @@ def test_whole_file(tmp_path: Path, kind: str) -> None:
 VALID: dict[str, str] = {
     "py/app.py": '@app.get("/' + A + '")\ndef f():\n    return 1\n',
     "js/app.js": "const app = express();\napp.get('/" + A + "', h);\n",
+    "go/main.go": 'package main\nfunc main() {\n\tr := gin.Default()\n\tr.GET("/' + A + '", h)\n}\n',
 }
 
 

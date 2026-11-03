@@ -188,3 +188,8 @@ def sources(
 def has_dep(files: Files, ctx: Context, rel: str, language: str, dep: str) -> bool:
     """В манифесте пакета файла есть зависимость dep."""
     return _matches(deps_of(files, ctx, rel, language), frozenset({dep}))
+
+
+def depends(deps: Iterable[str], dep: str) -> bool:
+    """Среди зависимостей есть dep (модуль Go — и с версией в пути)."""
+    return _matches(deps, frozenset({dep}))

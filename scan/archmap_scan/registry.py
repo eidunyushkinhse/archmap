@@ -22,6 +22,7 @@ from archmap_scan.parsers import (
     express,
     fastapi,
     flask,
+    gohttp,
     helm,
     k8s,
     manifests,
@@ -74,6 +75,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(djangourls.NAME, ("http_routes",), djangourls.parse, code=True),
     ParserSpec(express.NAME, ("http_routes",), express.parse, code=True),
     ParserSpec(nest.NAME, ("http_routes",), nest.parse, code=True),
+    ParserSpec(gohttp.NAME, ("http_routes",), gohttp.parse, code=True),
 )
 
 
