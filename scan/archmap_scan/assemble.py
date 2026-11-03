@@ -353,7 +353,7 @@ def _add_link(
     key = (src.name, dst.name)
     link = links.get(key)
     if link is None:
-        link = links[key] = Link(src=src, dst=dst, label="использует", technology=tech)
+        link = links[key] = Link(src=src, dst=dst, label=texts.LABEL_USES, technology=tech)
     if link.technology is None and tech:
         link.technology = tech
     link.locs.add(loc)
@@ -545,7 +545,7 @@ def _migration_database(model: Model, ts: TableSet, containers: list[Obj]) -> Ob
         links = {(lk.src.name, lk.dst.name): lk for lk in model.links}
         link = links.get((owner.name, db.name))
         if link is None:
-            link = Link(src=owner, dst=db, label="использует", technology=db.technology)
+            link = Link(src=owner, dst=db, label=texts.LABEL_USES, technology=db.technology)
             model.links.append(link)
             model.links.sort(key=lambda lk: (lk.src.name, lk.dst.name))
         link.locs.add(first)

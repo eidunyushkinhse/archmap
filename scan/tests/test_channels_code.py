@@ -124,7 +124,7 @@ def test_channel_edges_replace_uses_link(tmp_path: Path) -> None:
     links = [(lk.src.name, lk.dst.name, lk.label, lk.channel, lk.sync) for lk in model.links]
     assert links == [
         ("api", "bus", "публикует", "orders", False),
-        ("bus", "api", "потребляет", "payments", False),
+        ("bus", "api", "доставляет", "payments", False),
     ]
     assert sorted(model.channels["bus"]) == ["orders", "payments"]
     assert [c.channel for c in model.consumers["api"]] == ["payments"]

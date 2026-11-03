@@ -65,7 +65,7 @@ edges:
   sync: false
 - from: events
   to: orders
-  label: потребляет
+  label: доставляет
   technology: Kafka
   channel: payments.completed
   sync: false
@@ -81,13 +81,13 @@ edges:
   technology: PostgreSQL
 - from: redis
   to: billing-worker
-  label: потребляет
+  label: доставляет
   technology: Redis
   channel: billing
   sync: false
 - from: redis
   to: billing-worker
-  label: потребляет
+  label: доставляет
   technology: Redis
   channel: invoices
   sync: false

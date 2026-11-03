@@ -33,7 +33,7 @@ def test_compose_fixture_model() -> None:
         "cache": ("broker", "Redis", "брокер"),
     }
     # DATABASE_URL с подстановкой не даёт адреса, но depends_on к базе связь рисует.
-    # Очереди -Q воркера Celery — связи «потребляет» от брокера, они сильнее «использует».
+    # Очереди -Q воркера Celery — связи «доставляет» от брокера, они сильнее «использует».
     assert _links(model) == {
         ("api", "cache", "Redis"),
         ("api", "db", "PostgreSQL"),
