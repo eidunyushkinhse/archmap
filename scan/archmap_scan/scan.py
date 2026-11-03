@@ -6,10 +6,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archmap_scan import registry
+from archmap_scan import registry, stats
+from archmap_scan.assemble import assemble
 from archmap_scan.context import make_context
-from archmap_scan.output import outdir, summary
-from archmap_scan.output.coverage import Coverage, FamilyStat
+from archmap_scan.output import agent, outdir, schema, summary
+from archmap_scan.output.coverage import Coverage
 from archmap_scan.walk import Files, list_files
 
 
@@ -37,26 +38,24 @@ def run(opts: Options) -> Result:
     outdir.check(out)
     listing = list_files(ctx, excludes=opts.excludes, includes=opts.includes, skip=(out,))
     files = Files(ctx.root, listing.files)
-    _findings, errors = registry.collect(files, ctx)
+    findings, errors = registry.collect(files, ctx)
+    model = assemble(findings, ctx)
 
-    families: dict[str, FamilyStat] = {}
-    for fam in registry.FAMILIES:
-        stat = FamilyStat(ran=[p for p in registry.parsers_for(fam) if p not in errors])
-        failed = [p for p in registry.parsers_for(fam) if p in errors]
-        if failed:
-            stat.error = ", ".join(f"{p}: {errors[p]}" for p in failed)
-        families[fam] = stat
     cov = Coverage(
         repo=ctx.repo,
         commit=ctx.commit,
-        stacks=[],
-        families=families,
+        stacks=stats.stacks(model),
+        families=stats.families(model, errors),
         excluded=listing.excluded,
         too_large=len(files.too_large),
         binary=len(files.binary),
     )
     text = summary.render(cov)
     outdir.prepare(out)
+    outdir.write(out, "schema.yaml", schema.render(model, ctx))
     outdir.write(out, "coverage.yaml", cov.render())
     outdir.write(out, "summary.txt", text)
+    outdir.write(out, "agent/evidence.yaml", agent.render_evidence(model, ctx))
+    outdir.write(out, "agent/hints.yaml", agent.render_hints(model, ctx))
+    outdir.write(out, "agent/entrypoints.yaml", agent.render_entrypoints(model, ctx))
     return Result(out=out, coverage=cov, summary=text)

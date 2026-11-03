@@ -1,0 +1,353 @@
+"""Сборка схемы из находок разборщиков (ТЗ §5.1, §7, уточнения задания §3).
+
+Кандидаты из разных манифестов с одним именем — один объект (compose «orders» и Deployment
+«orders»). Вид объекта: свой код (каталог сборки) — контейнер; образ без кода — по словарю
+образов (база, брокер, сервис). Связи «использует» — только к тому, что видно в манифестах:
+адреса в переменных окружения и depends_on к базам и брокерам. Пары сервис→сервис из
+depends_on в связи не идут (порядок запуска не вызов), они в подсказках.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from archmap_scan import paths, texts, vocab
+from archmap_scan.context import Context
+from archmap_scan.links import hosts_in, link_technology
+from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Unit
+from archmap_scan.walk import name_tokens
+
+SERVICE, DATABASE, BROKER = "service", "database", "broker"
+SHAPE_ORDER = {SERVICE: 0, DATABASE: 1, BROKER: 2}
+# Старшинство манифестов при слиянии кандидатов с одним именем.
+PRIORITY = {
+    "compose": 0, "k8s": 1, "helm": 2, "supervisor": 3, "systemd": 4, "procfile": 5,
+    "dockerfile": 6, "implicit": 7,
+}
+_DEV_TOKENS = frozenset({
+    "dev", "development", "local", "test", "tests", "ci", "e2e", "devcontainer", "vagrant",
+})
+_VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
+
+
+@dataclass
+class Obj:
+    """Объект схемы: контейнер, база или брокер (дети корня-системы)."""
+
+    name: str
+    shape: str = SERVICE
+    role: str | None = None
+    technology: str | None = None
+    host: str | None = None
+    code_dir: str | None = None  # каталог кода контейнера от корня репозитория
+    path: str | None = None  # source.path после правила уникальности каталога
+    repo: bool = False  # ставить ли source.repo
+    locs: set[Loc] = field(default_factory=set)
+    parsers: list[str] = field(default_factory=list)
+    units: list[Unit] = field(default_factory=list)
+    env: list[EnvVar] = field(default_factory=list)
+    dockerfile: Dockerfile | None = None
+    package_locs: list[Loc] = field(default_factory=list)
+
+    @property
+    def is_container(self) -> bool:
+        return self.shape == SERVICE
+
+
+@dataclass
+class Link:
+    src: Obj
+    dst: Obj
+    label: str
+    technology: str | None
+    locs: set[Loc] = field(default_factory=set)
+    parsers: set[str] = field(default_factory=set)
+
+
+@dataclass
+class Model:
+    system: str
+    system_locs: list[Loc]
+    objects: list[Obj]
+    links: list[Link]
+    implicit: bool = False
+    hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+
+    def obj(self, name: str) -> Obj | None:
+        return next((o for o in self.objects if o.name == name), None)
+
+    def hint(self, section: str, data: dict[str, object]) -> None:
+        self.hints.setdefault(section, []).append(data)
+
+
+def _go_module_name(module: str) -> str:
+    parts = [p for p in module.split("/") if p]
+    if len(parts) > 1 and parts[-1][:1] == "v" and parts[-1][1:].isdigit():
+        parts = parts[:-1]
+    return parts[-1] if parts else module
+
+
+def system_name(ctx: Context, packages: list[Package]) -> tuple[str, list[Loc]]:
+    """Имя корня: --system, имя корневого манифеста сборки, иначе имя каталога."""
+    if ctx.system:
+        return ctx.system, []
+    for kind in ("package.json", "pyproject.toml", "go.mod"):
+        for pkg in packages:
+            if pkg.dir == ctx.scope and pkg.kind == kind and pkg.name:
+                name = _go_module_name(pkg.name) if kind == "go.mod" else pkg.name
+                return name, [pkg.name_loc] if pkg.name_loc else []
+    return ctx.root.name, []
+
+
+def _is_dev_path(rel: str) -> bool:
+    return any(name_tokens(seg) & _DEV_TOKENS for seg in rel.split("/"))
+
+
+def _variant(rel: str) -> str | None:
+    """Суффикс варианта Dockerfile: Dockerfile-postgresql и worker.Dockerfile → имя."""
+    low = paths.name(rel)
+    for sep in ("Dockerfile.", "Dockerfile-", "dockerfile.", "dockerfile-"):
+        if low.startswith(sep):
+            rest = low[len(sep):]
+            return None if rest.lower() in _VARIANT_IGNORED else rest or None
+    for sep in (".Dockerfile", "-Dockerfile", ".dockerfile", "-dockerfile"):
+        if low.endswith(sep):
+            rest = low[: -len(sep)]
+            return None if rest.lower() in _VARIANT_IGNORED else rest or None
+    return None
+
+
+def _dockerfile_units(
+    units: list[Unit], dockerfiles: list[Dockerfile], root_name: str, model: Model
+) -> list[Unit]:
+    """Dockerfile, на который не ссылается ни один манифест, сам задаёт контейнер."""
+    used = {u.dockerfile for u in units if u.dockerfile}
+    claimed = {u.build_dir for u in units if u.build_dir is not None}
+    out: list[Unit] = []
+    for d in sorted(dockerfiles, key=lambda x: x.path):
+        if d.path in used:
+            continue
+        if _is_dev_path(d.path):
+            model.hint("profiles", {
+                "service": d.path, "profiles": [], "reason": texts.REASON_DEV_DOCKERFILE,
+                "source": str(d.from_loc),
+            })
+            continue
+        variant = _variant(d.path)
+        if variant is None and d.dir in claimed:
+            continue
+        name = variant or (paths.name(d.dir) if d.dir else root_name)
+        kind = vocab.image_kind(d.images[-1])
+        out.append(Unit(
+            name=name, parser="dockerfile", loc=d.from_loc, build_dir=d.dir,
+            dockerfile=d.path, command=d.command, command_loc=d.command_loc,
+            shape=kind.shape if kind and kind.shape != SERVICE else None,
+        ))
+    return out
+
+
+def _procfile_web(units: list[Unit]) -> None:
+    """Procfile «web» в каталоге кода другого контейнера — это сам контейнер."""
+    homes = {u.build_dir: u.name for u in units if u.parser != "procfile" and u.build_dir is not None}
+    for u in units:
+        if u.parser == "procfile" and u.name == "web" and u.home_dir in homes:
+            u.name = homes[u.home_dir]
+
+
+def _attach_dockerfile(obj: Obj, by_path: dict[str, Dockerfile]) -> None:
+    for u in obj.units:
+        if u.dockerfile and u.dockerfile in by_path:
+            obj.dockerfile = by_path[u.dockerfile]
+            obj.locs.add(obj.dockerfile.from_loc)
+            return
+
+
+def _code_packages(obj: Obj, packages: list[Package]) -> list[Package]:
+    if obj.code_dir is None:
+        return []
+    return [p for p in packages if p.dir == obj.code_dir]
+
+
+def _classify(obj: Obj, packages: list[Package]) -> None:
+    """Вид, технология и роль объекта по кандидатам, Dockerfile и манифестам сборки."""
+    units = obj.units
+    image = next((u.image for u in units if u.image), None)
+    shape_hint = next((u.shape for u in units if u.shape), None)
+    own_code = obj.code_dir is not None
+    if shape_hint is None and not own_code and image:
+        kind = vocab.image_kind(image)
+        if kind is not None:
+            obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
+        else:
+            obj.shape, obj.technology = SERVICE, vocab.image_name(image) or None
+    elif shape_hint is not None and obj.dockerfile is not None:
+        kind = vocab.image_kind(obj.dockerfile.images[-1])
+        if kind is not None:
+            obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
+    if obj.shape != SERVICE:
+        return
+    pkgs = _code_packages(obj, packages)
+    deps = tuple(d for p in pkgs for d in p.deps)
+    language = next((p.language for p in pkgs), None)
+    if language is None and obj.dockerfile is not None:
+        language = next(
+            (lang for img in obj.dockerfile.images if (lang := vocab.image_language(img))), None
+        )
+    if language is None:
+        language = next((u.language for u in units if u.language), None)
+    server = vocab.find_framework(deps, vocab.SERVER_FRAMEWORKS)
+    front = vocab.find_framework(deps, vocab.FRONTEND_FRAMEWORKS)
+    if obj.technology is None:
+        obj.technology = vocab.technology(language, server or front)
+    for p in pkgs:
+        obj.locs.add(p.name_loc or Loc(p.path, 1))
+    if obj.role is None:
+        explicit = next((u.role for u in units if u.role), None)
+        by_cmd = next((r for u in units if (r := vocab.role_by_command(u.command))), None)
+        if explicit:
+            obj.role = explicit
+        elif by_cmd:
+            obj.role = by_cmd
+        elif front and not server:
+            obj.role = vocab.ROLE_FRONTEND
+        else:
+            obj.role = vocab.ROLE_SERVICE
+
+
+def _objects(
+    units: list[Unit], findings: Findings, model: Model, ctx: Context
+) -> list[Obj]:
+    units = units + _dockerfile_units(units, findings.dockerfiles, model.system, model)
+    _procfile_web(units)
+    by_name: dict[str, Obj] = {}
+    for u in sorted(units, key=lambda x: (PRIORITY.get(x.parser, 99), x.loc)):
+        obj = by_name.setdefault(u.name, Obj(name=u.name))
+        obj.units.append(u)
+        obj.locs.add(u.loc)
+        obj.locs.update(u.extra_locs)
+        if u.command_loc:
+            obj.locs.add(u.command_loc)
+        if u.parser not in obj.parsers:
+            obj.parsers.append(u.parser)
+        if obj.host is None and u.host:
+            obj.host = u.host
+        if obj.code_dir is None:
+            obj.code_dir = u.build_dir if u.build_dir is not None else u.home_dir
+        obj.env.extend(u.env)
+    by_path = {d.path: d for d in findings.dockerfiles}
+    for obj in by_name.values():
+        _attach_dockerfile(obj, by_path)
+        _classify(obj, findings.packages)
+    return list(by_name.values())
+
+
+def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
+    """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7)."""
+    roots = [p for p in findings.packages if p.dir == ctx.scope]
+    if not roots:
+        return None
+    obj = Obj(name=model.system, code_dir=ctx.scope, parsers=["implicit"])
+    obj.units.append(Unit(name=model.system, parser="implicit", loc=roots[0].name_loc
+                          or Loc(roots[0].path, 1)))
+    _classify(obj, findings.packages)
+    return obj
+
+
+def _redis_brokers(objects: list[Obj], env_vars: list[EnvVar]) -> None:
+    """Redis, на который указывает адрес брокера задач, считается брокером, а не кэшем."""
+    by_host = {o.host: o for o in objects if o.host}
+    for var in env_vars:
+        name = var.name.upper()
+        if var.dynamic or var.value is None:
+            continue
+        if name not in vocab.REDIS_BROKER_VARS and not name.startswith(vocab.REDIS_BROKER_PREFIX):
+            continue
+        for host, _scheme in hosts_in(var.name, var.value):
+            obj = by_host.get(host)
+            if obj is not None and obj.technology == "Redis":
+                obj.shape, obj.role = BROKER, vocab.ROLE_BROKER
+                obj.locs.add(var.loc)
+
+
+def _add_link(
+    links: dict[tuple[str, str], Link], src: Obj, dst: Obj, tech: str | None, loc: Loc,
+    parser: str,
+) -> None:
+    key = (src.name, dst.name)
+    link = links.get(key)
+    if link is None:
+        link = links[key] = Link(src=src, dst=dst, label="использует", technology=tech)
+    if link.technology is None and tech:
+        link.technology = tech
+    link.locs.add(loc)
+    link.parsers.add(parser)
+
+
+def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Link]:
+    by_host = {o.host.lower(): o for o in model.objects if o.host}
+    by_name = {o.name: o for o in model.objects}
+    links: dict[tuple[str, str], Link] = {}
+    for src in model.objects:
+        if not src.is_container:
+            continue
+        for var, parser in env_of.get(src.name, []):
+            if var.dynamic or var.value is None:
+                continue
+            for host, scheme in hosts_in(var.name, var.value):
+                dst = by_host.get(host)
+                if dst is None or dst is src:
+                    continue
+                tech = dst.technology if dst.shape != SERVICE else link_technology(scheme)
+                _add_link(links, src, dst, tech, var.loc, parser)
+        for unit in src.units:
+            for dep, loc in unit.depends_on:
+                dst = by_name.get(dep)
+                if dst is None or dst is src:
+                    continue
+                if dst.shape == SERVICE:
+                    model.hint("depends_on", {
+                        "from": src.name, "to": dst.name, "reason": texts.REASON_DEPENDS_ON,
+                        "source": str(loc),
+                    })
+                    continue
+                _add_link(links, src, dst, dst.technology, loc, unit.parser)
+    return sorted(links.values(), key=lambda lk: (lk.src.name, lk.dst.name))
+
+
+def _sources(model: Model, ctx: Context) -> None:
+    """repo + path только контейнерам со своим неповторимым каталогом кода (ТЗ §5.1)."""
+    by_dir: dict[str, list[Obj]] = {}
+    for obj in model.objects:
+        if obj.is_container and obj.code_dir is not None:
+            by_dir.setdefault(obj.code_dir, []).append(obj)
+    for folder, objs in sorted(by_dir.items()):
+        if len(objs) == 1:
+            objs[0].repo = bool(ctx.repo)
+            objs[0].path = folder or None
+            continue
+        model.hint("shared_code", {
+            "path": paths.show_dir(folder), "containers": sorted(o.name for o in objs),
+            "reason": texts.REASON_SHARED_CODE,
+        })
+
+
+def assemble(findings: Findings, ctx: Context) -> Model:
+    system, system_locs = system_name(ctx, findings.packages)
+    model = Model(system=system, system_locs=system_locs, objects=[], links=[])
+    for hint in findings.hints:
+        model.hint(hint.section, hint.data)
+    model.objects = _objects(list(findings.units), findings, model, ctx)
+    if not any(o.is_container for o in model.objects):
+        implicit = _implicit(model, findings, ctx)
+        if implicit is not None:
+            model.objects.append(implicit)
+            model.implicit = True
+    env_of: dict[str, list[tuple[EnvVar, str]]] = {}
+    for obj in model.objects:
+        for u in obj.units:
+            env_of.setdefault(obj.name, []).extend((v, u.parser) for v in u.env)
+    _redis_brokers(model.objects, [v for vs in env_of.values() for v, _ in vs])
+    model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
+    model.links = _links(model, env_of)
+    _sources(model, ctx)
+    return model

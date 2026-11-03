@@ -1,4 +1,9 @@
-"""summary.txt (ТЗ §8): сводка словами для человека и агента."""
+"""summary.txt (ТЗ §8): сводка словами для человека и агента.
+
+Начало — одной фразой, что найдено (числа по семьям), затем семьи, где искали и не нашли,
+«Не покрыто» с именами стеков, пояснения, «Исключено» с каталогами, непрочитанное и «Как
+ввезти» с настоящими названиями окон ArchMap. Части строки разделяет «·».
+"""
 
 from __future__ import annotations
 
@@ -9,14 +14,87 @@ from archmap_scan.output.coverage import Coverage
 EXCLUDED_SHOWN = 12
 
 
+def _found(cov: Coverage) -> list[str]:
+    lines = []
+    parts = []
+    empty = []
+    for fam, stat in cov.families.items():
+        if stat.found:
+            one, few, many = texts.FAMILY_WORDS[fam]
+            parts.append(texts.plural(stat.found, one, few, many))
+        elif stat.status == "empty":
+            empty.append(texts.FAMILY_LABEL[fam].lower())
+    lines.append(texts.found_phrase(parts))
+    if empty:
+        lines.append(texts.empty_phrase(empty))
+    return lines
+
+
+def _not_covered(cov: Coverage) -> list[str]:
+    lines = []
+    for fam, stat in cov.families.items():
+        label = texts.FAMILY_LABEL[fam]
+        status = stat.status
+        if status == "unsupported":
+            lines.append("  " + texts.family_unsupported(label, stat.unsupported))
+        elif status == "partial":
+            lines.append("  " + texts.family_partial(label, stat.unsupported))
+        elif status == "unknown":
+            lines.append("  " + texts.family_unknown(label))
+        elif status == "error":
+            lines.append("  " + texts.family_error(label, stat.error or ""))
+    return [texts.NOT_COVERED_TITLE, *lines] if lines else []
+
+
+def _notes(cov: Coverage) -> list[str]:
+    lines = [
+        f"  {texts.FAMILY_LABEL[fam]}: {note}."
+        for fam, stat in cov.families.items()
+        for note in stat.notes
+    ]
+    return [texts.NOTES_TITLE, *lines] if lines else []
+
+
+def _excluded(cov: Coverage) -> list[str]:
+    if not cov.excluded:
+        return []
+    lines = [texts.EXCLUDED_TITLE]
+    top = sorted(cov.excluded, key=lambda e: (-e.files, e.path, e.reason))
+    for e in top[:EXCLUDED_SHOWN]:
+        lines.append(
+            f"  {e.path} · {texts.files_count(e.files)} · {texts.EXCLUDE_REASON[e.reason]}"
+        )
+    if len(top) > EXCLUDED_SHOWN:
+        lines.append(texts.excluded_more(len(top) - EXCLUDED_SHOWN))
+    return lines
+
+
+def _how_to(cov: Coverage) -> list[str]:
+    lines = [texts.HOW_TO_IMPORT_TITLE, *texts.HOW_TO_IMPORT]
+    facts = False
+    for fam, block in (
+        ("tables", texts.HOW_TO_IMPORT_TABLES),
+        ("config", texts.HOW_TO_IMPORT_CONFIG),
+        ("channels", texts.HOW_TO_IMPORT_CHANNELS),
+    ):
+        if cov.families[fam].found:
+            lines += block
+            facts = True
+    if facts:
+        lines += texts.HOW_TO_IMPORT_FACTS
+    lines += texts.HOW_TO_IMPORT_AGENT
+    return lines
+
+
 def render(cov: Coverage) -> str:
-    lines = [texts.summary_head(__version__, cov.repo, cov.commit), ""]
-    lines.append(texts.NOTHING_FOUND)
-    if cov.excluded:
-        lines += ["", texts.EXCLUDED_TITLE]
-        top = sorted(cov.excluded, key=lambda e: (-e.files, e.path))[:EXCLUDED_SHOWN]
-        for e in top:
-            lines.append(
-                f"  {e.path} · {texts.files_count(e.files)} · {texts.EXCLUDE_REASON[e.reason]}"
-            )
-    return "\n".join(lines) + "\n"
+    blocks = [
+        [texts.summary_head(__version__, cov.repo, cov.commit)],
+        _found(cov),
+        _not_covered(cov),
+        _notes(cov),
+        _excluded(cov),
+        [texts.unread_phrase(cov.too_large, cov.binary)] if cov.too_large or cov.binary else [],
+        _how_to(cov),
+        texts.TAIL,
+    ]
+    return "\n\n".join("\n".join(b) for b in blocks if b) + "\n"

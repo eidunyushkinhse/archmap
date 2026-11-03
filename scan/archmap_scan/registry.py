@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
+from archmap_scan.parsers import compose, dockerfile
 from archmap_scan.walk import Files
 
 # Семьи покрытия в порядке отчёта (ТЗ §8).
@@ -28,7 +29,12 @@ class ParserSpec:
     parse: Callable[[Files, Context], Findings]
 
 
-PARSERS: tuple[ParserSpec, ...] = ()
+_MANIFEST_FAMILIES = ("containers", "databases", "brokers", "edges")
+
+PARSERS: tuple[ParserSpec, ...] = (
+    ParserSpec(compose.NAME, _MANIFEST_FAMILIES, compose.parse),
+    ParserSpec(dockerfile.NAME, ("containers",), dockerfile.parse),
+)
 
 
 def parsers_for(family: str) -> list[str]:

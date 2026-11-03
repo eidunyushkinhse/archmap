@@ -1,0 +1,242 @@
+"""Словари сборщика (ТЗ §6.5): образ → вид и технология, манифест → язык и фреймворк,
+клиентские библиотеки → вид зависимости, роли из короткого словаря (§5.1).
+
+Словари стартовые и пополняются по находкам; сборщик не пишет технологию и роль, которых
+здесь нет, кроме имени неизвестного образа (его технология и есть это имя).
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+# Роли объектов (ТЗ §5.1): других сборщик не пишет.
+ROLE_SERVICE = "сервис"
+ROLE_FRONTEND = "фронтенд"
+ROLE_WORKER = "воркер"
+ROLE_DB = "БД"
+ROLE_CACHE = "кэш"
+ROLE_BROKER = "брокер"
+ROLE_PROXY = "прокси"
+ROLE_STORAGE = "хранилище"
+ROLE_SCHEDULER = "планировщик"
+ROLES = frozenset({
+    ROLE_SERVICE, ROLE_FRONTEND, ROLE_WORKER, ROLE_DB, ROLE_CACHE, ROLE_BROKER, ROLE_PROXY,
+    ROLE_STORAGE, ROLE_SCHEDULER,
+})
+
+
+@dataclass(frozen=True)
+class ImageKind:
+    shape: str  # service | database | broker
+    technology: str
+    role: str
+
+
+_DB = "database"
+_BROKER = "broker"
+_SERVICE = "service"
+
+# Последний сегмент имени образа (без реестра, тега и дайджеста) → вид объекта.
+IMAGES: dict[str, ImageKind] = {}
+
+
+def _images(names: str, kind: ImageKind) -> None:
+    for name in names.split():
+        IMAGES[name] = kind
+
+
+_images("postgres postgresql postgis timescaledb pgvector",
+        ImageKind(_DB, "PostgreSQL", ROLE_DB))
+_images("mysql mysql-server", ImageKind(_DB, "MySQL", ROLE_DB))
+_images("mariadb", ImageKind(_DB, "MariaDB", ROLE_DB))
+_images("mongo mongodb mongodb-community-server", ImageKind(_DB, "MongoDB", ROLE_DB))
+_images("clickhouse clickhouse-server", ImageKind(_DB, "ClickHouse", ROLE_DB))
+_images("elasticsearch", ImageKind(_DB, "Elasticsearch", ROLE_DB))
+_images("opensearch", ImageKind(_DB, "OpenSearch", ROLE_DB))
+_images("redis redis-stack redis-stack-server valkey", ImageKind(_DB, "Redis", ROLE_CACHE))
+_images("memcached", ImageKind(_DB, "Memcached", ROLE_CACHE))
+_images("minio", ImageKind(_DB, "MinIO", ROLE_STORAGE))
+_images("rabbitmq", ImageKind(_BROKER, "RabbitMQ", ROLE_BROKER))
+_images("kafka cp-kafka cp-server", ImageKind(_BROKER, "Kafka", ROLE_BROKER))
+_images("redpanda", ImageKind(_BROKER, "Redpanda", ROLE_BROKER))
+_images("nats nats-streaming", ImageKind(_BROKER, "NATS", ROLE_BROKER))
+_images("pulsar pulsar-all", ImageKind(_BROKER, "Pulsar", ROLE_BROKER))
+_images("zookeeper cp-zookeeper", ImageKind(_SERVICE, "ZooKeeper", ROLE_SERVICE))
+_images("nginx nginx-unprivileged", ImageKind(_SERVICE, "nginx", ROLE_PROXY))
+_images("traefik", ImageKind(_SERVICE, "Traefik", ROLE_PROXY))
+_images("haproxy", ImageKind(_SERVICE, "HAProxy", ROLE_PROXY))
+_images("envoy", ImageKind(_SERVICE, "Envoy", ROLE_PROXY))
+_images("mailhog", ImageKind(_SERVICE, "MailHog", ROLE_SERVICE))
+_images("mailpit", ImageKind(_SERVICE, "Mailpit", ROLE_SERVICE))
+
+# Реляционные базы: им принадлежат миграции (ТЗ §7).
+RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
+
+# Переменные, адрес в которых делает Redis брокером (очередь задач), а не кэшем.
+REDIS_BROKER_VARS = frozenset({"CELERY_BROKER_URL", "BROKER_URL"})
+REDIS_BROKER_PREFIX = "RQ_"
+
+
+def image_name(image: str) -> str:
+    """Имя образа без реестра, тега и дайджеста: ghcr.io/org/thing:1.2 → thing."""
+    ref = image.strip().split("@", 1)[0]
+    last = ref.rsplit("/", 1)[-1]
+    return last.split(":", 1)[0].lower()
+
+
+def image_path(image: str) -> str:
+    """Путь образа без тега и дайджеста (для .NET: mcr.microsoft.com/dotnet/aspnet)."""
+    ref = image.strip().split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    return (head + "/" if head else "") + last.split(":", 1)[0].lower()
+
+
+def image_kind(image: str) -> ImageKind | None:
+    """Вид по образу: точное имя или последняя часть имени через дефис
+    (zulip-postgresql → PostgreSQL), но не первая: postgres-exporter базой не считается."""
+    name = image_name(image)
+    kind = IMAGES.get(name)
+    if kind is None and "-" in name:
+        kind = IMAGES.get(name.rsplit("-", 1)[1])
+    return kind
+
+
+# Базовый образ Dockerfile → язык: по началу последнего сегмента имени.
+_LANG_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("python", "Python"), ("pypy", "Python"), ("node", "Node.js"), ("golang", "Go"),
+    ("openjdk", "Java"), ("eclipse-temurin", "Java"), ("amazoncorretto", "Java"),
+    ("maven", "Java"), ("gradle", "Java"), ("ibm-semeru-runtimes", "Java"),
+    ("ruby", "Ruby"), ("php", "PHP"), ("rust", "Rust"), ("elixir", "Elixir"),
+)
+
+
+def image_language(image: str) -> str | None:
+    if "/dotnet/" in image_path(image) + "/":
+        return ".NET"
+    name = image_name(image)
+    for prefix, lang in _LANG_PREFIXES:
+        if name.startswith(prefix):
+            return lang
+    return None
+
+
+# Манифест сборки → язык.
+MANIFEST_LANGUAGE: dict[str, str] = {
+    "package.json": "Node.js",
+    "pyproject.toml": "Python",
+    "requirements.txt": "Python",
+    "Pipfile": "Python",
+    "go.mod": "Go",
+    "Cargo.toml": "Rust",
+    "pom.xml": "Java",
+    "build.gradle": "Java",
+    "Gemfile": "Ruby",
+    "composer.json": "PHP",
+    "mix.exs": "Elixir",
+}
+
+# Серверные фреймворки по имени зависимости, в порядке старшинства (FastAPI раньше
+# Starlette: первый тянет второго за собой).
+SERVER_FRAMEWORKS: tuple[tuple[str, str], ...] = (
+    ("fastapi", "FastAPI"),
+    ("django", "Django"),
+    ("flask", "Flask"),
+    ("starlette", "Starlette"),
+    ("@nestjs/core", "NestJS"),
+    ("next", "Next.js"),
+    ("express", "Express"),
+    ("fastify", "Fastify"),
+    ("koa", "Koa"),
+    ("github.com/gin-gonic/gin", "Gin"),
+    ("github.com/labstack/echo", "Echo"),
+    ("github.com/go-chi/chi", "chi"),
+    ("github.com/gofiber/fiber", "Fiber"),
+    ("spring-boot", "Spring Boot"),
+    ("rails", "Rails"),
+    ("laravel/framework", "Laravel"),
+    ("phoenix", "Phoenix"),
+)
+
+# Фреймворки интерфейса: роль «фронтенд», если серверного фреймворка нет.
+FRONTEND_FRAMEWORKS: tuple[tuple[str, str], ...] = (
+    ("react", "React"),
+    ("vue", "Vue"),
+    ("@angular/core", "Angular"),
+    ("svelte", "Svelte"),
+)
+
+# Клиентские библиотеки → вид зависимости (подсказка агенту и опознание стека каналов).
+CLIENTS: tuple[tuple[str, str], ...] = (
+    ("psycopg", "PostgreSQL"), ("psycopg2", "PostgreSQL"), ("psycopg2-binary", "PostgreSQL"),
+    ("asyncpg", "PostgreSQL"), ("pg", "PostgreSQL"), ("github.com/jackc/pgx", "PostgreSQL"),
+    ("mysqlclient", "MySQL"), ("pymysql", "MySQL"), ("mysql2", "MySQL"),
+    ("redis", "Redis"), ("ioredis", "Redis"),
+    ("kafka-python", "Kafka"), ("confluent-kafka", "Kafka"), ("aiokafka", "Kafka"),
+    ("kafkajs", "Kafka"), ("github.com/ibm/sarama", "Kafka"),
+    ("github.com/shopify/sarama", "Kafka"), ("github.com/segmentio/kafka-go", "Kafka"),
+    ("pika", "RabbitMQ"), ("aio-pika", "RabbitMQ"), ("amqplib", "RabbitMQ"),
+    ("celery", "Celery"),
+    ("nats", "NATS"), ("nats-py", "NATS"), ("github.com/nats-io/nats.go", "NATS"),
+)
+
+# Библиотеки каналов брокера: их наличие делает семью каналов «не умею» (ярус 2, фаза 1б).
+CHANNEL_CLIENTS = frozenset({"Kafka", "RabbitMQ", "Celery", "NATS"})
+
+# ORM и описания схем, которые сборщик пока не разбирает (ТЗ §6.4) → имя стека.
+UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (
+    ("prisma", "Prisma"), ("@prisma/client", "Prisma"), ("typeorm", "TypeORM"),
+    ("sequelize", "Sequelize"), ("gorm.io/gorm", "GORM"), ("ecto_sql", "Ecto"),
+)
+
+
+def _dep_match(dep: str, key: str) -> bool:
+    """Зависимость совпадает с ключом словаря: точно или модуль Go с версией (/v5)."""
+    if dep == key:
+        return True
+    if key.startswith("github.com/"):
+        return dep.startswith(key + "/v")
+    # spring-boot-starter-web и прочие стартеры Spring Boot.
+    return key == "spring-boot" and dep.startswith("spring-boot")
+
+
+def find_framework(deps: tuple[str, ...], table: tuple[tuple[str, str], ...]) -> str | None:
+    low = tuple(d.lower() for d in deps)
+    for key, name in table:
+        if any(_dep_match(d, key) for d in low):
+            return name
+    return None
+
+
+def clients_of(deps: tuple[str, ...]) -> list[tuple[str, str]]:
+    """(библиотека, вид зависимости) в порядке словаря, без повторов."""
+    low = {d.lower() for d in deps}
+    out: list[tuple[str, str]] = []
+    for key, kind in CLIENTS:
+        if any(_dep_match(d, key) for d in low) and (key, kind) not in out:
+            out.append((key, kind))
+    return out
+
+
+# Слова в команде запуска процесса → роль (Procfile, compose, supervisor, systemd).
+_WORKER_WORDS = frozenset({"worker", "consumer"})
+_SCHEDULER_WORDS = frozenset({"beat", "scheduler", "cron"})
+_WORDS = re.compile(r"[a-z]+")
+
+
+def role_by_command(command: str | None) -> str | None:
+    if not command:
+        return None
+    words = set(_WORDS.findall(command.lower()))
+    if words & _WORKER_WORDS:
+        return ROLE_WORKER
+    if words & _SCHEDULER_WORDS:
+        return ROLE_SCHEDULER
+    return None
+
+
+def technology(language: str | None, framework: str | None) -> str | None:
+    """Запись технологии контейнера: «Python + FastAPI», «Node.js», «React»."""
+    if language and framework:
+        return f"{language} + {framework}"
+    return language or framework

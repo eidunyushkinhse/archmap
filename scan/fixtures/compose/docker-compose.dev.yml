@@ -1,0 +1,6 @@
+services:
+  mailpit:
+    image: axllent/mailpit
+  api:
+    environment:
+      DEV_ONLY_FLAG: "1"

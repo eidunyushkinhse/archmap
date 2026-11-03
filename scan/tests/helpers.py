@@ -6,8 +6,13 @@ import os
 import subprocess
 from pathlib import Path
 
+from archmap_scan import registry
+from archmap_scan.assemble import Model, assemble
 from archmap_scan.context import Context, make_context
 from archmap_scan.walk import Files, list_files
+
+# Фикстуры сборщика: чужой код, который сборщик только читает.
+FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
 
 def tree(root: Path, files: dict[str, str | bytes]) -> Path:
@@ -41,3 +46,12 @@ def git(cwd: Path, *args: str) -> None:
         ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
         cwd=cwd, check=True, capture_output=True, env=env,
     )
+
+
+def model_of(root: Path, system: str | None = "Ярмарка") -> Model:
+    """Все разборщики реестра и сборка схемы по дереву root (без git)."""
+    ctx = ctx_of(root, system)
+    files = Files(ctx.root, list_files(ctx).files)
+    findings, errors = registry.collect(files, ctx)
+    assert errors == {}
+    return assemble(findings, ctx)
