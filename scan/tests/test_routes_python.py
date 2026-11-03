@@ -151,3 +151,35 @@ def test_same_hint_written_once() -> None:
         model.hint("profiles", {"kind": "container", "name": "a", "profiles": ["dev"]})
     model.hint("profiles", {"kind": "container", "name": "b", "profiles": ["dev"]})
     assert [h["name"] for h in model.hints["profiles"]] == ["a", "b"]
+
+
+def test_sole_container_owns_shared_code(tmp_path: Path) -> None:
+    """Находка фазы 1б на Sentry: контейнер self-hosted один, а 950 маршрутов и 165
+    параметров из src/ ушли в подсказки «общий код». Единственный контейнер владеет и
+    кодом вне своего каталога своего языка; при двух контейнерах — как раньше (ТЗ §7)."""
+    files: dict[str, str | bytes] = {
+        "app/Dockerfile": "FROM python:3.12\nCMD uvicorn main:app\n",
+        "app/requirements.txt": "fastapi\n",
+        "lib/requirements.txt": "fastapi\n",
+        "lib/x.py": (
+            "import os\nfrom fastapi import FastAPI\napp = FastAPI()\n"
+            'LEVEL = os.getenv("LEVEL", "info")\n\n\n@app.get("/shared")\ndef f():\n    pass\n'
+        ),
+        "web/main.go": 'package main\nfunc main() { http.HandleFunc("/go", h) }\n',
+        "web/go.mod": "module github.com/org/web\n",
+    }
+    model = model_of(tree(tmp_path / "one", files), system="shop")
+    assert [o.name for o in model.objects if o.is_container] == ["app"]
+    assert [(e.path, str(e.loc)) for e in model.http["app"]] == [("/shared", "lib/x.py:7")]
+    assert list(model.params["app"]) == ["LEVEL"]
+    # Код другого языка единственному контейнеру не достаётся.
+    assert [h["name"] for h in model.hints["unassigned"]] == ["ANY /go"]
+
+    two = dict(files)
+    two["worker/Dockerfile"] = "FROM python:3.12\nCMD celery -A tasks worker\n"
+    two["worker/requirements.txt"] = "celery\n"
+    model = model_of(tree(tmp_path / "two", two), system="shop")
+    assert model.http.get("app", []) == [] and "app" not in model.params
+    assert {(h["kind"], h["name"]) for h in model.hints["unassigned"]} >= {
+        ("route", "GET /shared"), ("config", "LEVEL"),
+    }

@@ -2,9 +2,11 @@
 
 Контейнер файла — контейнер с самым длинным каталогом кода, содержащим файл; если таких
 несколько (собраны из одного каталога), владельцев несколько. Файл вне каталогов всех
-контейнеров — общий код, его записи уходят в подсказки. База для миграций: база по адресу в
-окружении контейнера-владельца каталога миграций, иначе единственная реляционная база в
-манифестах, иначе владелец не определим.
+контейнеров — общий код, его записи уходят в подсказки; но единственный контейнер
+репозитория владеет и кодом вне своего каталога, если язык файла совпадает с его языком или
+его язык не определён (Sentry: контейнер self-hosted один, а код продукта лежит в src/).
+База для миграций: база по адресу в окружении контейнера-владельца каталога миграций, иначе
+единственная реляционная база в манифестах, иначе владелец не определим.
 """
 
 from __future__ import annotations
@@ -52,11 +54,30 @@ def file_language(rel: str) -> str | None:
     return _EXT_LANGUAGE.get(name[dot:].lower()) if dot > 0 else None
 
 
+def sole_owner(containers: Sequence[Obj], language: str | None) -> list[Obj]:
+    """Единственный контейнер репозитория для кода вне его каталога (ТЗ §7): язык файла
+    совпадает с языком контейнера или язык контейнера не определён. Контейнер без своего
+    каталога кода (только образ) чужой код не забирает; при двух и более контейнерах
+    общий код остаётся без владельца."""
+    if len(containers) != 1:
+        return []
+    sole = containers[0]
+    if sole.code_dir is None:
+        return []
+    if sole.language is None or sole.language == language:
+        return [sole]
+    return []
+
+
 def file_owners(rel: str, containers: Sequence[Obj], language: str | None = None) -> list[Obj]:
     """Контейнеры файла кода: code_owners, а среди нескольких — те, чей язык совпадает с
-    языком файла (если такие есть)."""
+    языком файла (если такие есть). Файл вне каталогов всех контейнеров — единственному
+    контейнеру по sole_owner. Одно место для маршрутов, параметров, каналов, расписаний и
+    владельца миграций."""
     found = code_owners(rel, containers)
     lang = language or file_language(rel)
+    if not found:
+        return sole_owner(containers, lang)
     if len(found) > 1 and lang is not None:
         same = [o for o in found if o.language == lang]
         if same:
@@ -78,13 +99,15 @@ def primary(owners: Sequence[Obj], prefer: str | None = None) -> Obj | None:
 
 def database_for(
     folder: str, containers: Sequence[Obj], databases: Sequence[Obj],
-    env_of: dict[str, list[EnvVar]],
+    env_of: dict[str, list[EnvVar]], language: str | None = None,
 ) -> tuple[Obj | None, str | None]:
-    """База для набора миграций в каталоге folder и причина, если владелец не определим."""
+    """База для набора миграций в каталоге folder и причина, если владелец не определим.
+    language — язык миграций (Alembic и Django — Python): по нему владелец каталога
+    выбирается так же, как у файла кода (file_owners)."""
     relational = [d for d in databases if d.technology in vocab.RELATIONAL]
     by_host = {d.host: d for d in relational if d.host}
     pointed: list[Obj] = []
-    for owner in code_owners(folder, containers):
+    for owner in file_owners(folder, containers, language):
         for var in env_of.get(owner.name, []):
             if var.dynamic or var.value is None:
                 continue

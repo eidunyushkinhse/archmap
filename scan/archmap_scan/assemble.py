@@ -503,7 +503,9 @@ def _tables(
                 "kind": ts.parser, "name": text, "reason": texts.REASON_SKIPPED_STATEMENT,
                 "source": str(loc),
             })
-        db, why = owners.database_for(ts.dir, containers, databases, plain)
+        db, why = owners.database_for(
+            ts.dir, containers, databases, plain, _MIGRATION_LANGUAGE.get(ts.parser),
+        )
         if db is None and why == "no_database" and ts.tables:
             db = _migration_database(model, ts, containers)
         if db is None:

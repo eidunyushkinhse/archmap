@@ -85,7 +85,9 @@ COMPOSE = """services:
 
 def test_merge_with_manifest_params(tmp_path: Path) -> None:
     tree(tmp_path, {
-        "docker-compose.yml": COMPOSE,
+        # Второй контейнер: при единственном общий код достался бы ему (owners.sole_owner).
+        "docker-compose.yml": COMPOSE + "  worker:\n    build: ./worker\n",
+        "worker/requirements.txt": "celery\n",
         "api/requirements.txt": "fastapi\n",
         "api/.env.example": "TIMEOUT=10s\n",
         "api/app.py": "import os\n"
