@@ -48,6 +48,7 @@ class Obj:
     env: list[EnvVar] = field(default_factory=list)
     dockerfile: Dockerfile | None = None
     package_locs: list[Loc] = field(default_factory=list)
+    language: str | None = None  # язык кода контейнера: по нему отбираются манифесты и файлы
 
     @property
     def is_container(self) -> bool:
@@ -236,7 +237,10 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
             obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
     if obj.shape != SERVICE:
         return
-    pkgs = _code_packages(obj, packages)
+    pkgs = [
+        p for p in _code_packages(obj, packages)
+        if obj.language is None or p.language == obj.language
+    ]
     language, server, front = stack_of(pkgs)
     if language is None and obj.dockerfile is not None:
         language = next(
@@ -244,6 +248,8 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
         )
     if language is None:
         language = next((u.language for u in units if u.language), None)
+    if obj.language is None:
+        obj.language = language
     if obj.technology is None:
         obj.technology = vocab.technology(language, server or front)
     for p in pkgs:
@@ -318,12 +324,50 @@ def _objects(
         obj.env.extend(u.env)
     by_path = {d.path: d for d in findings.dockerfiles}
     spaces = _workspace_dirs(findings, ctx)
+    go_binaries = frozenset(
+        _go_module_name(p.name) for p in findings.packages if p.kind == "go.mod" and p.name
+    )
     for obj in by_name.values():
         if obj.code_dir is None:
             obj.code_dir = _workspace_dir(obj, spaces)
         _attach_dockerfile(obj, by_path)
+        _process_stack(obj, findings.packages, ctx, go_binaries)
         _classify(obj, findings.packages)
     return list(by_name.values())
+
+
+_PROCESS_PARSERS = frozenset({"supervisor", "systemd", "procfile"})
+
+
+def _process_stack(
+    obj: Obj, packages: list[Package], ctx: Context, go_binaries: frozenset[str],
+) -> None:
+    """Процесс supervisor, systemd или Procfile без каталога кода и образа (находка фазы 1а
+    на Zulip: 28 программ без технологии). Команда, которая запускает рантайм языка
+    (python3, manage.py, uwsgi, node, бинарь модуля Go), даёт технологию корневого пакета
+    этого языка с фреймворком, и процесс владеет корнем как каталогом кода (ТЗ §7). Без
+    корневого манифеста этого языка технология — сам язык. Команда, которая запускает
+    программу вне репозитория (nginx, cron), даёт технологию по словарю образов."""
+    if obj.code_dir is not None or obj.dockerfile is not None:
+        return
+    if any(u.image for u in obj.units) or any(u.parser not in _PROCESS_PARSERS for u in obj.units):
+        return
+    command = next((u.command for u in obj.units if u.command), None)
+    language = vocab.command_language(command, go_binaries)
+    if language is not None:
+        obj.language = language
+        root = [p for p in packages if p.dir == ctx.scope and p.language == language]
+        if root:
+            lang, server, front = stack_of(root)
+            obj.technology = vocab.technology(lang, server or front)
+            obj.code_dir = ctx.scope
+        else:
+            obj.technology = language
+        return
+    program = vocab.command_program(command)
+    kind = vocab.image_kind(program) if program else None
+    if kind is not None:
+        obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
 
 
 def _workspace_dirs(findings: Findings, ctx: Context) -> list[str]:

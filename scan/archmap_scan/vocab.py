@@ -69,6 +69,8 @@ _images("haproxy", ImageKind(_SERVICE, "HAProxy", ROLE_PROXY))
 _images("envoy", ImageKind(_SERVICE, "Envoy", ROLE_PROXY))
 _images("mailhog", ImageKind(_SERVICE, "MailHog", ROLE_SERVICE))
 _images("mailpit", ImageKind(_SERVICE, "Mailpit", ROLE_SERVICE))
+# Не образ, а программа, которую процесс supervisor или systemd запускает вне репозитория.
+_images("cron crond", ImageKind(_SERVICE, "cron", ROLE_SCHEDULER))
 
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
@@ -248,6 +250,74 @@ def role_by_command(command: str | None) -> str | None:
         return ROLE_WORKER
     if words & _SCHEDULER_WORDS:
         return ROLE_SCHEDULER
+    return None
+
+
+# Команда запуска процесса → язык: программа, которая исполняет код репозитория
+# (ТЗ §7, находка фазы 1а на Zulip: программы supervisor без технологии). Имя бинаря Go
+# берётся из module в go.mod и передаётся отдельно.
+COMMAND_LANGUAGE: dict[str, str] = {
+    "python": "Python", "python2": "Python", "python3": "Python", "manage.py": "Python",
+    "uwsgi": "Python", "gunicorn": "Python", "uvicorn": "Python", "celery": "Python",
+    "tornado": "Python",
+    "node": "Node.js", "npm": "Node.js", "npx": "Node.js",
+    "ruby": "Ruby", "bundle": "Ruby", "rails": "Ruby", "puma": "Ruby", "sidekiq": "Ruby",
+    "php": "PHP", "php-fpm": "PHP", "artisan": "PHP",
+    "java": "Java",
+}
+# Обёртки запуска: сами программой процесса не являются.
+_WRAPPERS = frozenset({
+    "nice", "ionice", "exec", "env", "sudo", "su", "timeout", "stdbuf", "chpst", "setsid",
+    "nohup", "dumb-init", "tini", "uv", "run", "poetry", "pipenv", "--", "bash", "sh",
+    "-c", "time",
+})
+_TEMPLATE = ("<%", "%>", "{{", "}}", "$")
+_MAX_COMMAND_TOKENS = 64
+
+
+def _command_tokens(command: str) -> list[str]:
+    return [t.strip("'\"") for t in command.split()[:_MAX_COMMAND_TOKENS]]
+
+
+def _base(token: str) -> str:
+    return token.rsplit("/", 1)[-1]
+
+
+def command_language(command: str | None, go_binaries: frozenset[str] = frozenset()) -> str | None:
+    """Язык кода, который запускает команда: python3, manage.py, uwsgi → Python, node →
+    Node.js, имя бинаря модуля Go → Go. Программа может стоять за обёрткой (nice, uv run,
+    secret-env-wrapper ИМЯ=значение), поэтому просматриваются все слова команды."""
+    if not command:
+        return None
+    for token in _command_tokens(command):
+        if any(mark in token for mark in _TEMPLATE):
+            continue
+        base = _base(token)
+        if base in COMMAND_LANGUAGE:
+            return COMMAND_LANGUAGE[base]
+        if base.startswith("python") and base[6:].replace(".", "").isdigit():
+            return "Python"
+        if base.endswith(".py") and len(base) > 3:
+            return "Python"
+        if base in go_binaries:
+            return "Go"
+    return None
+
+
+def command_program(command: str | None) -> str | None:
+    """Имя программы процесса: первое слово команды после обёрток, переменных и ключей.
+    Шаблонная вставка вместо программы (<%= @bin %>) — программа неизвестна."""
+    if not command:
+        return None
+    for token in _command_tokens(command):
+        if any(mark in token for mark in _TEMPLATE):
+            return None
+        if token in _WRAPPERS or token.startswith("-") or token.isdigit():
+            continue
+        name, eq, _value = token.partition("=")
+        if eq and name and "/" not in name:
+            continue
+        return _base(token) or None
     return None
 
 
