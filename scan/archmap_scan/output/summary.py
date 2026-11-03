@@ -62,8 +62,8 @@ def _notes(cov: Coverage) -> list[str]:
         for note in stat.notes
     ]
     config = cov.families["config"]
-    if config.distinct and config.found > config.distinct:
-        lines.append("  " + texts.shared_params_line(config.holders, config.found))
+    if config.shared_records:
+        lines.append("  " + texts.shared_params_line(config.holders, config.shared_records))
     # Найденное без владельца в «Найдено» не входит: оно названо здесь отдельной строкой.
     lines += [
         "  " + texts.unassigned_line(fam, stat.unassigned)

@@ -66,7 +66,7 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     params = [p for table in model.params.values() for p in table.values()]
     config = out["config"]
     config.found = len(params)
-    config.distinct, config.holders = _shared_params(model)
+    config.distinct, config.holders, config.shared_records = _shared_params(model)
     config.unassigned = _hints_of(model, "unassigned", "config")
     config.dynamic_names = _hints_of(model, "dynamic_names", "config")
     code_parsers = model.code_parsers.get("config", set())
@@ -92,16 +92,17 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     return out
 
 
-def _shared_params(model: Model) -> tuple[int, int]:
-    """Разных имён параметров и число контейнеров, у которых записан параметр, общий с
-    другим контейнером (код общего каталога: Zulip — 26 имён, 140 записей у 8
-    контейнеров)."""
+def _shared_params(model: Model) -> tuple[int, int, int]:
+    """Разных имён параметров, число контейнеров, у которых записан параметр, общий с
+    другим контейнером, и число таких записей (код общего каталога: у Zulip 26 имён, из
+    них 19 общих у 7 контейнеров, 133 записи, и 7 своих у восьмого)."""
     holders: dict[str, set[str]] = {}
     for owner, table in model.params.items():
         for name in table:
             holders.setdefault(name, set()).add(owner)
-    shared = {owner for owners in holders.values() if len(owners) > 1 for owner in owners}
-    return len(holders), len(shared)
+    common = [owners for owners in holders.values() if len(owners) > 1]
+    shared = {owner for owners in common for owner in owners}
+    return len(holders), len(shared), sum(len(owners) for owners in common)
 
 
 def _hints_of(model: Model, section: str, kind: str) -> int:
