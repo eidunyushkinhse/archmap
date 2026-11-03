@@ -56,3 +56,15 @@ def test_инструменты_гейта_mcp_те_же_что_у_бэкенд�
     common = {"pytest", "ruff", "mypy"}
     drift = {n: (mcp_dev.get(n), backend_dev.get(n)) for n in common if mcp_dev.get(n) != backend_dev.get(n)}
     assert drift == {}, f"инструменты гейта расходятся (mcp, бэкенд): {drift}"
+
+
+def test_рантайм_сборщика_фактов_той_же_версии_что_в_поставке() -> None:
+    """archmap-scan.pyz собирается из PyYAML интерпретатора поставки (scan/build.py кладёт в
+    архив пакет yaml того Python, которым запущен: образ, build-bundle.sh, dev.sh), а гейт
+    сборщика проверяет код на пинах scan/requirements.txt. Расхождение значило бы, что
+    пользователю едет не та версия PyYAML, на которой сборщик тестировали."""
+    wanted = _pins(BACKEND.parent / "scan" / "requirements.txt")
+    shipped = _pins(BACKEND / "requirements-prod.txt")
+    assert wanted, "в scan/requirements.txt нет пинов"
+    drift = {name: (ver, shipped.get(name)) for name, ver in wanted.items() if shipped.get(name) != ver}
+    assert drift == {}, f"пины расходятся (сборщик, поставка бэкенда): {drift}"
