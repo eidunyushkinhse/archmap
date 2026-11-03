@@ -16,14 +16,15 @@ PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
 
 MANIFESTS: dict[str, str | bytes] = {
-    "py/requirements.txt": "fastapi\nflask\n",
+    "py/requirements.txt": "fastapi\nflask\ndjango\n",
 }
 
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
 STARTS: dict[str, tuple[str, ...]] = {
     "py/app.py": (
         '@app.get("', "@app.route('", "@", "@a.", 'app.include_router(r, prefix="',
-        'r = APIRouter(prefix="',
+        'r = APIRouter(prefix="', 'urlpatterns = [path("', 'ROOT_URLCONF = "',
+        "urlpatterns = [path('', include('",
     ),
 }
 

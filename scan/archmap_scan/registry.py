@@ -16,6 +16,7 @@ from archmap_scan.parsers import (
     alembic,
     compose,
     django,
+    djangourls,
     dockerfile,
     envexample,
     fastapi,
@@ -68,6 +69,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(openapi.NAME, (), openapi.parse),
     ParserSpec(fastapi.NAME, ("http_routes",), fastapi.parse, code=True),
     ParserSpec(flask.NAME, ("http_routes",), flask.parse, code=True),
+    ParserSpec(djangourls.NAME, ("http_routes",), djangourls.parse, code=True),
 )
 
 
