@@ -14,6 +14,15 @@ def test_image_name_and_kind() -> None:
     assert pg is not None and pg.technology == "PostgreSQL"
     assert vocab.image_kind("prometheuscommunity/postgres-exporter") is None
     assert vocab.image_kind("unknown/thing") is None
+    # Организация, тег и хвост сборки не мешают опознанию.
+    for image in ("bitnami/postgresql:16", "postgres-alpine", "library/postgres:16-alpine",
+                  "groonga/pgroonga:latest-alpine-14-slim", "org/postgis-bookworm:3"):
+        found = vocab.image_kind(image)
+        assert found is not None and found.technology == "PostgreSQL", image
+    redis = vocab.image_kind("redis-bookworm")
+    assert redis is not None and redis.technology == "Redis"
+    assert vocab.image_kind("grafana/mimir-alpine") is None
+    assert vocab.image_kind("alpine") is None
 
 
 def test_image_language() -> None:

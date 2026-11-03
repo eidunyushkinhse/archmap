@@ -74,9 +74,10 @@ def test_standalone_dockerfiles(tmp_path: Path) -> None:
     kinds = {o.name: (o.shape, o.technology, o.role, o.code_dir) for o in model.objects}
     assert kinds == {
         "orders": ("service", "Python", "сервис", "services/orders"),
-        "worker": ("service", "Python", "воркер", "services/orders"),
+        # Dockerfile с суффиксом каталогом кода не владеет (ТЗ §5.1).
+        "worker": ("service", "Python", "воркер", None),
         "Ярмарка": ("service", "Node.js", "сервис", ""),
-        "postgresql": ("database", "PostgreSQL", "БД", ""),
+        "postgresql": ("database", "PostgreSQL", "БД", None),
     }
     dev = {str(h["service"]) for h in model.hints["profiles"]}
     assert dev == {"tools/ci/Dockerfile", ".devcontainer/Dockerfile"}
@@ -216,3 +217,24 @@ def test_dev_manifests_are_hints_not_objects(tmp_path: Path) -> None:
     # Каталоги для разработки из обхода не исключаются: код в них читается.
     _ctx, files = files_of(tmp_path)
     assert "devenv/tool/main.go" in files.paths
+
+
+def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:
+    """Находка фазы 1а на Zulip: Dockerfile-postgresql стал контейнером «postgresql» с
+    технологией корня «Node.js + Koa» и repo. Контейнер из Dockerfile с суффиксом
+    получает вид и технологию только по FROM, без каталога кода."""
+    tree(tmp_path, {
+        "package.json": '{"name": "zulip", "dependencies": {"koa": "3"}}',
+        "Dockerfile-postgresql": (
+            "ARG PGROONGA_VERSION=latest\n"
+            "FROM groonga/pgroonga:$PGROONGA_VERSION-alpine-14-slim\n"
+        ),
+        "services/report/Dockerfile.report": "FROM python:3.12\nCMD python -m report\n",
+        "services/report/pyproject.toml": '[project]\nname = "x"\ndependencies = ["flask"]\n',
+    })
+    model = model_of(tmp_path, system=None)
+    pg = _obj(model, "postgresql")
+    assert (pg.shape, pg.technology, pg.role) == ("database", "PostgreSQL", "БД")
+    assert pg.code_dir is None and not pg.repo and pg.path is None
+    report = _obj(model, "report")
+    assert (report.technology, report.code_dir, report.path) == ("Python", None, None)

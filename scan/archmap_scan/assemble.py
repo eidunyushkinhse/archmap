@@ -184,8 +184,12 @@ def _dockerfile_units(
             continue
         name = variant or (paths.name(d.dir) if d.dir else root_name)
         kind = vocab.image_kind(d.images[-1])
+        # Dockerfile с суффиксом (Dockerfile-postgresql, worker.Dockerfile) каталогом кода
+        # не владеет (ТЗ §5.1): вид и технология только по FROM, стек и repo/path каталога
+        # ему не достаются.
         out.append(Unit(
-            name=name, parser="dockerfile", loc=d.from_loc, build_dir=d.dir,
+            name=name, parser="dockerfile", loc=d.from_loc,
+            build_dir=None if variant else d.dir,
             dockerfile=d.path, command=d.command, command_loc=d.command_loc,
             shape=kind.shape if kind and kind.shape != SERVICE else None,
         ))
@@ -325,7 +329,10 @@ def _workspace_dirs(findings: Findings, ctx: Context) -> list[str]:
 
 
 def _workspace_dir(obj: Obj, spaces: list[str]) -> str | None:
-    """Каталог кода объекта без каталога сборки: каталог монорепо с тем же именем."""
+    """Каталог кода объекта без каталога сборки: каталог монорепо с тем же именем.
+    Контейнер из Dockerfile с суффиксом каталогом кода не владеет (ТЗ §5.1)."""
+    if any(u.parser == "dockerfile" for u in obj.units):
+        return None
     image = next((u.image for u in obj.units if u.image), None)
     if image is not None and vocab.image_kind(image) is not None:
         return None

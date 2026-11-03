@@ -46,7 +46,7 @@ def _images(names: str, kind: ImageKind) -> None:
         IMAGES[name] = kind
 
 
-_images("postgres postgresql postgis timescaledb pgvector",
+_images("postgres postgresql postgis timescaledb pgvector pgroonga",
         ImageKind(_DB, "PostgreSQL", ROLE_DB))
 _images("mysql mysql-server", ImageKind(_DB, "MySQL", ROLE_DB))
 _images("mariadb", ImageKind(_DB, "MariaDB", ROLE_DB))
@@ -92,13 +92,29 @@ def image_path(image: str) -> str:
     return (head + "/" if head else "") + last.split(":", 1)[0].lower()
 
 
+# Хвостовые части имени образа, которые называют сборку, а не программу: postgres-alpine
+# и redis-bookworm — те же PostgreSQL и Redis.
+_IMAGE_VARIANTS = frozenset({
+    "alpine", "slim", "bullseye", "bookworm", "buster", "trixie", "jammy", "focal", "noble",
+    "debian", "ubuntu", "distroless", "latest",
+})
+
+
 def image_kind(image: str) -> ImageKind | None:
-    """Вид по образу: точное имя или последняя часть имени через дефис
-    (zulip-postgresql → PostgreSQL), но не первая: postgres-exporter базой не считается."""
+    """Вид по образу: точное имя, имя без хвоста сборки (postgres-alpine → PostgreSQL) или
+    последняя часть имени через дефис (zulip-postgresql → PostgreSQL), но не первая:
+    postgres-exporter базой не считается. Реестр и организация не важны:
+    bitnami/postgresql и groonga/pgroonga:14-alpine — PostgreSQL."""
     name = image_name(image)
     kind = IMAGES.get(name)
-    if kind is None and "-" in name:
-        kind = IMAGES.get(name.rsplit("-", 1)[1])
+    if kind is not None:
+        return kind
+    parts = name.split("-")
+    while len(parts) > 1 and parts[-1] in _IMAGE_VARIANTS:
+        parts.pop()
+    kind = IMAGES.get("-".join(parts))
+    if kind is None and len(parts) > 1:
+        kind = IMAGES.get(parts[-1])
     return kind
 
 
