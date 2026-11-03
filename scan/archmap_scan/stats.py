@@ -40,6 +40,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         _objects_stat([o for o in model.objects if o.shape == shape], out[fam])
     if model.implicit:
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
+    if model.by_buildfiles:
+        out["containers"].notes.append(texts.NOTE_BUILDFILES)
+        out["containers"].unsupported.extend(model.build_unsupported)
     if model.db_by_migrations:
         out["databases"].notes.append(texts.NOTE_DB_BY_MIGRATIONS)
     if model.broker_by_client:

@@ -14,6 +14,7 @@ from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     alembic,
+    buildfiles,
     celery,
     celerybeat,
     compose,
@@ -75,6 +76,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(k8s.NAME, (*_MANIFEST_FAMILIES, "config", "workers", "schedules"), k8s.parse),
     ParserSpec(helm.NAME, ("containers", "databases", "brokers"), helm.parse),
     ParserSpec(manifests.NAME, ("containers",), manifests.parse),
+    ParserSpec(buildfiles.NAME, ("containers",), buildfiles.parse),
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),

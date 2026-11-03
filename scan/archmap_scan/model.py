@@ -231,6 +231,10 @@ class Findings:
     # Файлы кода в каталогах для разработки, которые разборщик не читал: имя разборщика →
     # файлы (ТЗ §4, покрытие skipped.dev_code по семьям).
     dev_code: dict[str, set[str]] = field(default_factory=dict)
+    # Процессы по файлам сборки (ТЗ §13.4): сборка берёт их, только если ярус манифестов
+    # не дал ни одного контейнера; тогда же в покрытии названы непрочитанные файлы сборки.
+    build_units: list[Unit] = field(default_factory=list)
+    build_unsupported: list[str] = field(default_factory=list)
 
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
@@ -251,3 +255,7 @@ class Findings:
         self.applied |= other.applied
         for parser, rels in other.dev_code.items():
             self.dev_code.setdefault(parser, set()).update(rels)
+        self.build_units.extend(other.build_units)
+        for stack in other.build_unsupported:
+            if stack not in self.build_unsupported:
+                self.build_unsupported.append(stack)

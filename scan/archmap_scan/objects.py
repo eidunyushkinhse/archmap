@@ -141,6 +141,9 @@ class Model:
     implicit: bool = False
     db_by_migrations: bool = False  # есть база, определённая по миграциям (ТЗ §7, пункт 3)
     broker_by_client: bool = False  # есть брокер, определённый по клиенту в коде (ТЗ §13.2)
+    # Контейнеры определены по файлам сборки (ТЗ §13.4) и стеки сборки без разборщика.
+    by_buildfiles: bool = False
+    build_unsupported: list[str] = field(default_factory=list)
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     workers: dict[str, list[Worker]] = field(default_factory=dict)
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)

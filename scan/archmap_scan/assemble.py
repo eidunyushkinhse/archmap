@@ -38,7 +38,7 @@ from archmap_scan.walk import Pattern, is_dev_path
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
     "compose": 0, "k8s": 1, "helm": 2, "supervisor": 3, "systemd": 4, "procfile": 5,
-    "dockerfile": 6, "implicit": 7,
+    "dockerfile": 6, "buildfiles": 7, "implicit": 8,
 }
 # Манифесты, у которых путь для разработки (walk.is_dev_path) уводит объект в подсказки.
 # compose решает это сам: у него есть основные файлы, которые перекрывают dev-файлы.
@@ -318,6 +318,21 @@ def _workspace_dir(obj: Obj, spaces: list[str]) -> str | None:
     return same[0] if len(same) == 1 else None
 
 
+def _build_objects(findings: Findings) -> list[Obj]:
+    """Контейнеры по файлам сборки (ТЗ §13.4): программы autotools и cmd/<имя>/ Go, когда
+    манифестов нет. Одно имя в нескольких местах — один объект с каталогом первого."""
+    by_name: dict[str, Obj] = {}
+    for u in sorted(findings.build_units, key=lambda x: (x.loc, x.name)):
+        obj = by_name.setdefault(u.name, Obj(name=u.name, code_dir=u.build_dir))
+        obj.units.append(u)
+        obj.locs.add(u.loc)
+        if u.parser not in obj.parsers:
+            obj.parsers.append(u.parser)
+    for obj in by_name.values():
+        _classify(obj, findings.packages)
+    return list(by_name.values())
+
+
 def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
     """Репозиторий без манифестов контейнеров: один контейнер с именем корня (ТЗ §7)."""
     roots = [p for p in findings.packages if p.dir == ctx.scope]
@@ -421,8 +436,15 @@ def assemble(findings: Findings, ctx: Context) -> Model:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)
     if not any(o.is_container for o in model.objects):
-        implicit = _implicit(model, findings, ctx)
-        if implicit is not None:
+        # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный
+        # контейнер корня (ТЗ §7).
+        built = _build_objects(findings)
+        implicit = None if built else _implicit(model, findings, ctx)
+        if built:
+            model.objects.extend(built)
+            model.by_buildfiles = True
+            model.build_unsupported = list(findings.build_unsupported)
+        elif implicit is not None:
             model.objects.append(implicit)
             model.implicit = True
     env_of: dict[str, list[tuple[EnvVar, str]]] = {}

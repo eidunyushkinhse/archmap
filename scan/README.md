@@ -97,7 +97,9 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   чтения файлов.
 - `parsers/*.py` — по модулю на источник, функция `parse(files, ctx) -> Findings`;
   `registry.py` — реестр разборщиков по семьям, по нему же считается покрытие. `compose.py`
-  читает и YAML не с именем compose, если он compose по содержимому (ТЗ §13.3).
+  читает и YAML не с именем compose, если он compose по содержимому (ТЗ §13.3). Когда
+  манифестов нет, `buildfiles.py` даёт контейнеры по `*_PROGRAMS` в `Makefile.am` и по
+  каталогам Go `cmd/<имя>/` с `func main()` (ТЗ §13.4).
 - `assemble.py` и `owners.py` — объекты, связи, отнесение таблиц и параметров к владельцу;
   `vocab.py` — словари образов, фреймворков и ролей; `secrets.py` — что из значений можно
   писать.
