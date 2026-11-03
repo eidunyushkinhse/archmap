@@ -63,8 +63,10 @@ PyYAML дают одинаковый sha256. Запуск с `-I -S` прове�
 
 ## Фикстуры и ожидаемый вывод
 
-`scan/fixtures/<разборщик>/` — малые деревья на каждый разборщик. `scan/fixtures/yarmarka/` —
-синтетический монорепо по ТЗ §9 с ловушками в `tests/`, `docs/` и `.archmapignore`; его
+`scan/fixtures/<разборщик>/` — малые деревья на каждый разборщик, у яруса кода — с
+ловушками: файл в `tests/`, строка в комментарии, имя выражением. `scan/fixtures/yarmarka/` —
+синтетический монорепо по ТЗ §9 с ловушками в `tests/`, `docs/` и `.archmapignore`, а в коде
+сервисов — маршрут и топик выражением и секрет с дефолтом; его
 полный вывод лежит в `scan/fixtures/yarmarka.expected/`, тест сравнивает байт в байт.
 После осознанной правки вывода:
 
@@ -87,5 +89,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   писать.
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
+- Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
+  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, расписания `celerybeat`,
+  `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
 - `output/` — писатели `schema.yaml`, `facts/`, `agent/`, `coverage.yaml`, `summary.txt` и
   маркера каталога; `texts.py` — все строки для людей.
