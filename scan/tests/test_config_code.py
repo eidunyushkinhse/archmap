@@ -23,6 +23,8 @@ def _params(parser: object, root: Path) -> list[Row]:
 
 
 def test_python_fixture() -> None:
+    # os.environ.setdefault("DJANGO_SETTINGS_MODULE", …) в строке 20 — запись значения по
+    # умолчанию, а не чтение (ТЗ §13.1): ни параметра, ни подсказки.
     assert _params(pyenv, FIXTURES / "python-env") == [
         ("ALLOWED_HOSTS", None, True, None, None, "app/settings.py:10"),
         ("APP_API_KEY", "dev-key-not-for-output", True, None, "string", "app/settings.py:32"),
@@ -34,7 +36,6 @@ def test_python_fixture() -> None:
         ("DATABASE_URL", None, False, True, "string", "app/settings.py:14"),
         ("DEBUG", "false", True, None, "bool", "app/settings.py:10"),
         ("DEBUG", None, False, True, "string", "app/settings.py:12"),
-        ("DJANGO_SETTINGS_MODULE", "app.settings", True, None, "string", "app/settings.py:20"),
         ("FAST_MODE", "true", True, None, "bool", "app/settings.py:17"),
         ("HOME_DIR", "/srv", True, None, "string", "app/settings.py:18"),
         ("REGION", None, False, None, None, "app/settings.py:19"),

@@ -19,6 +19,11 @@ hints.unassigned. Направление даёт связь: публикаци
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
 нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
 Воркеров из кода сборщик не заводит: только из манифестов.
+
+Записи разборщиков кода из служебных каталогов и конфигов инструментов
+(codebase.tooling_reason) и переменные операционной системы или CI (vocab.is_os_variable)
+фактами не считаются (ТЗ §13.1): они уходят в hints.unassigned со своей причиной, в
+facts/ и entrypoints их нет, а файлы служебных каталогов считаются в покрытии.
 """
 
 from __future__ import annotations
@@ -26,7 +31,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from archmap_scan import owners, secrets, texts, vocab
+from archmap_scan import codebase, owners, registry, secrets, texts, vocab
 from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc
 from archmap_scan.objects import (
@@ -54,6 +59,9 @@ _WEB_WORDS = frozenset({
     "waitress-serve",
 })
 _WORDS = re.compile(r"[a-z][a-z-]*")
+# Разборщики яруса кода: только их записи бывают из служебных каталогов (файл crontab и
+# команды воркеров из манифестов — не код).
+_CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
 
 
 def _serves_http(obj: Obj) -> bool:
@@ -82,6 +90,17 @@ def _unassigned(model: Model, kind: str, name: str, reason: str, loc: Loc) -> No
     model.hint("unassigned", {"kind": kind, "name": name, "reason": reason, "source": str(loc)})
 
 
+def _tooling(model: Model, family: str, parser: str, loc: Loc) -> str | None:
+    """Причина, если запись разборщика кода из служебного каталога или конфига инструмента
+    (файл тогда считается в покрытии семьи), иначе None."""
+    if parser not in _CODE_PARSERS:
+        return None
+    reason = codebase.tooling_reason(loc.path)
+    if reason is not None:
+        model.tooling_files.setdefault(family, set()).add(loc.path)
+    return reason
+
+
 def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
     """Маршруты владельцам. Одинаковые записи (метод, путь, фреймворк, префикс, источник)
     пишутся один раз (ТЗ §5.3): Zulip подключает i18n_urls дважды, маршрут от этого не
@@ -93,6 +112,10 @@ def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
         if key in seen:
             continue
         seen.add(key)
+        aside = _tooling(model, "http_routes", route.parser, route.loc)
+        if aside is not None:
+            _unassigned(model, "route", f"{route.method} {route.path}", aside, route.loc)
+            continue
         owner, why = route_owner(route.loc.path, containers)
         if owner is None:
             _unassigned(model, "route", f"{route.method} {route.path}", why or "", route.loc)
@@ -128,8 +151,16 @@ def _merge(param: Param, reads: list[CodeParam]) -> None:
 def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
     by_owner: dict[str, dict[str, list[CodeParam]]] = {}
     shared: dict[str, list[CodeParam]] = {}
+    aside: dict[tuple[str, str], list[Loc]] = {}
     for read in findings.code_params:
         model.code_parsers.setdefault("config", set()).add(read.parser)
+        if vocab.is_os_variable(read.name):
+            model.os_vars.setdefault(read.name, set()).add(read.loc)
+            continue
+        why = _tooling(model, "config", read.parser, read.loc)
+        if why is not None:
+            aside.setdefault((read.name, why), []).append(read.loc)
+            continue
         found = owners.file_owners(read.loc.path, containers)
         if not found:
             shared.setdefault(read.name, []).append(read)
@@ -141,6 +172,15 @@ def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
             _merge(table.setdefault(name, Param(name=name)), reads)
     for name, reads in sorted(shared.items()):
         _unassigned(model, "config", name, texts.REASON_SHARED_LIB, min(r.loc for r in reads))
+    for (name, why), locs in sorted(aside.items()):
+        _unassigned(model, "config", name, why, min(locs))
+
+
+def _os_variables(model: Model) -> None:
+    """Переменные операционной системы или CI из манифестов и кода: одна подсказка на имя
+    с первым местом (ТЗ §13.1)."""
+    for name, locs in sorted(model.os_vars.items()):
+        _unassigned(model, "config", name, texts.REASON_OS_VARIABLE, min(locs))
 
 
 def _broker(
@@ -211,6 +251,10 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
     uses = [(u, None) for u in findings.channels] + _worker_queues(model)
     for use, worker in sorted(uses, key=lambda item: (item[0].loc, item[0].name)):
         model.code_parsers.setdefault("channels", set()).add(use.parser)
+        aside = _tooling(model, "channels", use.parser, use.loc)
+        if aside is not None:
+            _unassigned(model, "channel", use.name, aside, use.loc)
+            continue
         file_owners = [worker] if worker else owners.file_owners(use.loc.path, containers)
         broker, why = _broker(model, use, file_owners, env_of)
         if broker is None:
@@ -246,6 +290,10 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
 def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
     for sch in sorted(findings.schedules, key=lambda s: (s.loc, s.name)):
         model.code_parsers.setdefault("schedules", set()).add(sch.parser)
+        aside = _tooling(model, "schedules", sch.parser, sch.loc)
+        if aside is not None:
+            _unassigned(model, "schedule", sch.name, aside, sch.loc)
+            continue
         found = owners.file_owners(sch.loc.path, containers)
         owner = owners.primary(found, vocab.ROLE_SCHEDULER)
         if owner is None:
@@ -262,5 +310,6 @@ def attach(model: Model, findings: Findings, env_of: EnvOf) -> None:
     containers = [o for o in model.objects if o.is_container]
     _routes(model, findings, containers)
     _params(model, findings, containers)
+    _os_variables(model)
     _channels(model, findings, containers, env_of)
     _schedules(model, findings, containers)

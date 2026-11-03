@@ -154,6 +154,11 @@ class Model:
     channels: dict[str, dict[str, Channel]] = field(default_factory=dict)
     # Семья яруса кода → разборщики, давшие записи (с владельцем и без): для coverage.
     code_parsers: dict[str, set[str]] = field(default_factory=dict)
+    # Записи не факты (ТЗ §13.1): семья кода → файлы служебных каталогов и конфигов
+    # инструментов, записи которых ушли в подсказки (coverage skipped.tooling); имя
+    # переменной операционной системы или CI → места, где её читают или задают.
+    tooling_files: dict[str, set[str]] = field(default_factory=dict)
+    os_vars: dict[str, set[Loc]] = field(default_factory=dict)
     # Уже записанные подсказки по разделам: одинаковая запись пишется один раз, поэтому
     # счёт подсказок в покрытии совпадает с hints.yaml.
     _hint_keys: set[tuple[str, str]] = field(default_factory=set, init=False, repr=False)

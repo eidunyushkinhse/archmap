@@ -70,6 +70,12 @@ def _notes(cov: Coverage) -> list[str]:
         for fam, stat in cov.families.items()
         if stat.unassigned
     ]
+    # Записи служебных каталогов и переменные ОС не факты, но и не пропадают (ТЗ §13.1).
+    tooling = sum(stat.tooling for stat in cov.families.values())
+    if tooling:
+        lines.append("  " + texts.tooling_line(tooling))
+    if config.os_variables:
+        lines.append("  " + texts.os_variables_line(config.os_variables))
     # Имена из кода, заданные выражением, ничего не дали, но молча не пропадают (инвариант 5).
     lines += [
         "  " + texts.dynamic_line(fam, stat.dynamic_names)

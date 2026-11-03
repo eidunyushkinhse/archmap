@@ -82,6 +82,38 @@ def is_dev_code(rel: str) -> bool:
     return any(name_tokens(seg) & CODE_DEV_TOKENS for seg in rel.split("/")[:-1])
 
 
+# Служебные каталоги (ТЗ §13.1): код в них читается, но его записи (параметры, маршруты,
+# каналы, расписания) не факты сервиса, а окружение разработчика и CI: у Zulip
+# DIGITALOCEAN_API_KEY из tools/oneclickapps/, у Sentry TOTAL_TEST_GROUPS из
+# src/sentry/testutils/. Сравнивается сегмент пути целиком без учёта регистра, а не части
+# имени: test_utils и testutils — имена каталогов. Гарантии, что кода сервиса там нет, нет,
+# поэтому записи не удаляются, а уходят в подсказки (codebase.tooling_reason).
+TOOLING_TOKENS = frozenset({
+    "tools", "scripts", "bin", ".github", ".gitlab", ".circleci", "deploy", "deployment",
+    "puppet", "ansible", "terraform", "testutils", "testing", "test_utils",
+})
+# Конфиги инструментов по имени файла: jest.config.js, playwright.config.ts, vite.config.mts.
+_TOOL_CONFIG_EXTS = frozenset({"js", "cjs", "mjs", "ts", "mts", "cts"})
+_TOOL_CONFIG_SUFFIX = ".config"
+TOOLING_DIR = "dir"
+TOOL_CONFIG = "config"
+
+
+def tooling_kind(rel: str) -> str | None:
+    """Файл в служебном каталоге (TOOLING_DIR), конфиг инструмента по имени (TOOL_CONFIG)
+    или None — обычный файл кода."""
+    parts = rel.split("/")
+    if any(seg.lower() in TOOLING_TOKENS for seg in parts[:-1]):
+        return TOOLING_DIR
+    stem, dot, ext = parts[-1].lower().rpartition(".")
+    if (
+        dot and ext in _TOOL_CONFIG_EXTS and stem.endswith(_TOOL_CONFIG_SUFFIX)
+        and len(stem) > len(_TOOL_CONFIG_SUFFIX)
+    ):
+        return TOOL_CONFIG
+    return None
+
+
 def _name_rule(name: str) -> str | None:
     """Правило соглашения по имени файла: шаблон для отчёта или None."""
     low = name.lower()

@@ -14,11 +14,11 @@ import re
 from collections.abc import Iterable, Iterator
 from typing import cast
 
-from archmap_scan import paths
+from archmap_scan import paths, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
-from archmap_scan.walk import SKIP_DIRS, Files
+from archmap_scan.walk import SKIP_DIRS, TOOL_CONFIG, TOOLING_DIR, Files, tooling_kind
 
 PYTHON, NODE, GO = "Python", "Node.js", "Go"
 
@@ -113,6 +113,22 @@ def code_files(
         if not files.skip_dev_code(rel):
             out.append(rel)
     return out
+
+
+_TOOLING_REASONS = {
+    TOOLING_DIR: texts.REASON_TOOLING_DIR,
+    TOOL_CONFIG: texts.REASON_TOOL_CONFIG,
+}
+
+
+def tooling_reason(rel: str) -> str | None:
+    """Файл кода в служебном каталоге или конфиг инструмента (ТЗ §13.1): причина для
+    hints.unassigned, иначе None. Такой файл читается как обычный (code_files его не
+    отсеивает: гарантии, что кода сервиса там нет, нет), но его записи сборка кладёт в
+    подсказки, а не в факты и точки входа (codefacts.py). Одно место правила для всех
+    разборщиков яруса кода."""
+    kind = tooling_kind(rel)
+    return _TOOLING_REASONS.get(kind) if kind is not None else None
 
 
 def _paths(files: Files) -> frozenset[str]:

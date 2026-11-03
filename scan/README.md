@@ -105,5 +105,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
   `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
+  Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
+  ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1).
 - `output/` — писатели `schema.yaml`, `facts/`, `agent/`, `coverage.yaml`, `summary.txt` и
   маркера каталога; `texts.py` — все строки для людей.

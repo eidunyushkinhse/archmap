@@ -89,7 +89,30 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         }
         if skipped:
             out[fam].skipped["dev_code"] = len(skipped)
+        # Файлы служебных каталогов и конфигов инструментов, записи которых ушли в
+        # подсказки (ТЗ §13.1): прочитаны, но не факты.
+        tooling = model.tooling_files.get(fam, set())
+        if tooling:
+            out[fam].skipped["tooling"] = len(tooling)
+        out[fam].tooling = _aside_of(model, _FAMILY_KINDS[fam], texts.TOOLING_REASONS)
+    out["config"].os_variables = _aside_of(
+        model, "config", frozenset({texts.REASON_OS_VARIABLE}),
+    )
     return out
+
+
+# Вид записи подсказки по семье кода.
+_FAMILY_KINDS = {
+    "config": "config", "channels": "channel", "http_routes": "route", "schedules": "schedule",
+}
+
+
+def _aside_of(model: Model, kind: str, reasons: frozenset[str]) -> int:
+    """Подсказки unassigned вида kind с причиной из reasons: записи, которые не факты."""
+    return sum(
+        1 for h in model.hints.get("unassigned", [])
+        if h.get("kind") == kind and h.get("reason") in reasons
+    )
 
 
 def _shared_params(model: Model) -> tuple[int, int, int]:
@@ -106,7 +129,12 @@ def _shared_params(model: Model) -> tuple[int, int, int]:
 
 
 def _hints_of(model: Model, section: str, kind: str) -> int:
-    return sum(1 for h in model.hints.get(section, []) if h.get("kind") == kind)
+    """Подсказки раздела вида kind. Записи служебных каталогов и переменные ОС ушли в
+    подсказки не из-за владельца, поэтому в счёт «без владельца» не входят (ТЗ §13.1)."""
+    return sum(
+        1 for h in model.hints.get(section, [])
+        if h.get("kind") == kind and h.get("reason") not in texts.ASIDE_REASONS
+    )
 
 
 _KIND_FAMILY = {"route": "http_routes", "channel": "channels", "schedule": "schedules"}

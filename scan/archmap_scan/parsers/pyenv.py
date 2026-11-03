@@ -1,5 +1,5 @@
 """Параметры конфигурации в коде Python (ТЗ §6.2): os.getenv("X", дефолт),
-os.environ["X"], os.environ.get("X", дефолт), os.environ.setdefault, классы BaseSettings
+os.environ["X"], os.environ.get("X", дефолт), классы BaseSettings
 (поле в верхнем регистре с env_prefix, дефолт присваиванием, Field(default=, alias=,
 validation_alias=, env=)), decouple.config("X", default=, cast=), django-environ
 (env = environ.Env(X=(bool, False)), env("X"), env.bool("X", default=)).
@@ -7,7 +7,8 @@ validation_alias=, env=)), decouple.config("X", default=, cast=), django-environ
 required ставится чтению, которое без значения не обходится: os.environ["X"], поле
 BaseSettings без дефолта, config и env без default. Тип — по явному приведению или
 аннотации поля, иначе по дефолту. Дефолт — текст литерала; пишется ли он, решает сборка
-по правилу секретов. Имя не строкой уходит в hints.dynamic_names.
+по правилу секретов. Имя не строкой уходит в hints.dynamic_names. os.environ.setdefault
+не чтение, а запись значения по умолчанию для процесса (ТЗ §13.1): ни параметр, ни подсказка.
 """
 
 from __future__ import annotations
@@ -26,11 +27,11 @@ NAME = "python-env"
 _NEEDLES = ("getenv", "environ.", "environ[", "BaseSettings", "decouple")
 # Последние имена вызовов, среди которых бывают чтения параметров: остальные вызовы не
 # разбираются дальше (так быстрее на больших репозиториях).
-_CALL_NAMES = frozenset({"getenv", "get", "setdefault", "config", *(
+_CALL_NAMES = frozenset({"getenv", "get", "config", *(
     "str bool int float list tuple dict json url db_url db cache_url cache email_url email "
     "search_url path decimal"
 ).split()})
-_GETTERS = frozenset({"os.getenv", "os.environ.get", "os.environ.setdefault"})
+_GETTERS = frozenset({"os.getenv", "os.environ.get"})
 _VAR = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,199}")
 _CAST_TYPES = {"bool": "bool", "int": "int", "str": "string", "timedelta": "duration"}
 # Методы django-environ → тип значения.

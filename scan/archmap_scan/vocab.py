@@ -214,6 +214,27 @@ UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
 )
 
+# Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
+# какого бы файла ни читались (HOME и USER в команде управления Zulip, TZ в jest.config.js
+# Grafana, GITHUB_ACTIONS в помощниках тестов Sentry). Имена сравниваются точно, кроме
+# прокси (http_proxy и HTTP_PROXY — одна переменная) и масок по началу имени.
+OS_VARIABLES = frozenset({
+    "HOME", "USER", "LOGNAME", "PATH", "PWD", "SHELL", "TMPDIR", "TMP", "TEMP", "TZ", "LANG",
+    "TERM", "HOSTNAME", "CI", "CODESPACES", "NODE_OPTIONS",
+})
+_OS_PROXY_VARIABLES = frozenset({"http_proxy", "https_proxy", "no_proxy"})
+_OS_VARIABLE_PREFIXES = ("LC_", "GITHUB_", "GITLAB_", "PYTHON")
+
+
+def is_os_variable(name: str) -> bool:
+    """Переменная операционной системы или CI, а не параметр конфигурации продукта.
+    NODE_ENV и DJANGO_SETTINGS_MODULE сюда не входят: их задаёт сам продукт."""
+    return (
+        name in OS_VARIABLES or name.lower() in _OS_PROXY_VARIABLES
+        or name.startswith(_OS_VARIABLE_PREFIXES)
+    )
+
+
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
 # Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки

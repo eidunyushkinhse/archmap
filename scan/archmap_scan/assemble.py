@@ -570,6 +570,11 @@ def _params(
     containers = [o for o in model.objects if o.is_container]
     for obj in containers:
         for var, parser in env_of.get(obj.name, []):
+            if vocab.is_os_variable(var.name):
+                # PYTHONUNBUFFERED и TZ в environment — окружение процесса, а не параметр
+                # продукта (ТЗ §13.1): в подсказки, адрес из значения связи всё равно даёт.
+                model.os_vars.setdefault(var.name, set()).add(var.loc)
+                continue
             table = model.params.setdefault(obj.name, {})
             param = table.setdefault(var.name, Param(name=var.name))
             param.locs.add(var.loc)
@@ -584,6 +589,9 @@ def _params(
         if owners.code_owners(env_file.path, containers):
             continue
         for var in env_file.vars:
+            if vocab.is_os_variable(var.name):
+                model.os_vars.setdefault(var.name, set()).add(var.loc)
+                continue
             model.hint("unassigned", {
                 "kind": "config", "name": var.name, "reason": texts.REASON_SHARED_LIB,
                 "source": str(var.loc),
