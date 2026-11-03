@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import time
 from pathlib import Path
@@ -110,7 +111,12 @@ def test_dependency_groups_and_requirements_dir(
     (PEP 735). Читаются все группы и [project.optional-dependencies]; requirements/*.txt —
     манифест каталога выше; devDependencies стек не задают."""
     tree(tmp_path, ZULIP_LIKE)
-    for version in ((3, 12, 0, "final", 0), (3, 10, 0, "final", 0)):
+    # Ветка tomllib (3.11+) проверяется только там, где он есть: на Python 3.10 (джоба CI
+    # scan) подмена версии на 3.12 привела бы к импорту модуля, которого нет.
+    versions = [(3, 10, 0, "final", 0)]
+    if importlib.util.find_spec("tomllib") is not None:
+        versions.insert(0, (3, 12, 0, "final", 0))
+    for version in versions:
         monkeypatch.setattr(sys, "version_info", version)
         ctx, files = files_of(tmp_path)
         pkgs = {p.path: p for p in manifests.parse(files, ctx).packages}
