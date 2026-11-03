@@ -14,6 +14,7 @@ from archmap_scan.context import Context
 from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     alembic,
+    celery,
     compose,
     django,
     djangourls,
@@ -26,12 +27,15 @@ from archmap_scan.parsers import (
     gohttp,
     helm,
     k8s,
+    kafka,
     manifests,
+    nats,
     nest,
     nodeenv,
     openapi,
     procfile,
     pyenv,
+    rabbitmq,
     sql,
     supervisor,
     systemd,
@@ -58,6 +62,7 @@ class ParserSpec:
 
 _MANIFEST_FAMILIES = ("containers", "databases", "brokers", "edges")
 _PROCESS_FAMILIES = ("containers", "workers")
+_CHANNEL_FAMILIES = ("channels", "edges")
 
 PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(compose.NAME, (*_MANIFEST_FAMILIES, "config", "workers"), compose.parse),
@@ -82,6 +87,10 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(pyenv.NAME, ("config",), pyenv.parse, code=True),
     ParserSpec(nodeenv.NAME, ("config",), nodeenv.parse, code=True),
     ParserSpec(goenv.NAME, ("config",), goenv.parse, code=True),
+    ParserSpec(celery.NAME, _CHANNEL_FAMILIES, celery.parse, code=True),
+    ParserSpec(kafka.NAME, _CHANNEL_FAMILIES, kafka.parse, code=True),
+    ParserSpec(rabbitmq.NAME, _CHANNEL_FAMILIES, rabbitmq.parse, code=True),
+    ParserSpec(nats.NAME, _CHANNEL_FAMILIES, nats.parse, code=True),
 )
 
 

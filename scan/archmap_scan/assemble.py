@@ -440,7 +440,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     _clients(model, findings)
     _tables(model, findings, env_of)
     _openapi(model, findings)
-    codefacts.attach(model, findings)
+    codefacts.attach(model, findings, env_of)
     return model
 
 

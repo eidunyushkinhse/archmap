@@ -198,8 +198,12 @@ CLIENTS: tuple[tuple[str, str], ...] = (
     ("nats", "NATS"), ("nats-py", "NATS"), ("github.com/nats-io/nats.go", "NATS"),
 )
 
-# Библиотеки каналов брокера: их наличие делает семью каналов «не умею» (ярус 2, фаза 1б).
-CHANNEL_CLIENTS = frozenset({"Kafka", "RabbitMQ", "Celery", "NATS"})
+# Клиенты брокеров, каналы которых ярус кода не читает (ТЗ §6.4: SQS, Pub/Sub). Каналы
+# Kafka, RabbitMQ, NATS и очереди Celery читаются разборщиками kafka, rabbitmq, nats, celery.
+UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
+    ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
+    ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
+)
 
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.

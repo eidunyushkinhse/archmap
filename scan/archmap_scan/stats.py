@@ -60,11 +60,11 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     config.found = len(params)
     config.unassigned = _hints_of(model, "unassigned", "config")
     config.dynamic_names = _hints_of(model, "dynamic_names", "config")
-    code_parsers = {r.parser for r in findings.code_params}
+    code_parsers = model.code_parsers.get("config", set())
     config.contributed = _ordered({x for p in params for x in p.parsers} | code_parsers)
     config.from_code = bool(code_parsers)
-    _code_family(out["http_routes"], model, findings, "route",
-                 sum(len(v) for v in model.http.values()), {r.parser for r in findings.routes})
+    _code_family(out["http_routes"], model, "route", sum(len(v) for v in model.http.values()))
+    _code_family(out["channels"], model, "channel", sum(len(v) for v in model.channels.values()))
     unsupported = code_unsupported(findings)
     for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:
         for stack in stacks:
@@ -81,11 +81,12 @@ def _hints_of(model: Model, section: str, kind: str) -> int:
     return sum(1 for h in model.hints.get(section, []) if h.get("kind") == kind)
 
 
-def _code_family(
-    stat: FamilyStat, model: Model, findings: Findings, kind: str, found: int,
-    parsers: set[str],
-) -> None:
+_KIND_FAMILY = {"route": "http_routes", "channel": "channels", "schedule": "schedules"}
+
+
+def _code_family(stat: FamilyStat, model: Model, kind: str, found: int) -> None:
     """Семья яруса кода: записанное, без владельца, динамические имена и разборщики."""
+    parsers = model.code_parsers.get(_KIND_FAMILY[kind], set())
     stat.found = found
     stat.unassigned = _hints_of(model, "unassigned", kind)
     stat.dynamic_names = _hints_of(model, "dynamic_names", kind)
@@ -120,11 +121,10 @@ def code_unsupported(findings: Findings) -> dict[str, list[str]]:
         viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
         if viper and viper not in languages:
             languages.append(viper)
-        for lib, kind in vocab.clients_of(pkg.deps):
-            shown = lib.rsplit("/", 1)[-1] if lib.startswith("github.com/") else lib
-            if kind in vocab.CHANNEL_CLIENTS and shown not in channel_libs:
-                channel_libs.append(shown)
-            celery = celery or kind == "Celery"
+        for lib in vocab.frameworks_in(pkg.deps, vocab.UNSUPPORTED_CHANNEL_DEPS):
+            if lib not in channel_libs:
+                channel_libs.append(lib)
+        celery = celery or any(kind == "Celery" for _lib, kind in vocab.clients_of(pkg.deps))
         schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
         if schema and schema not in schema_stacks:
             schema_stacks.append(schema)

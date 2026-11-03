@@ -1,0 +1,9 @@
+# archmap-node: Ярмарка / redis
+# archmap-scan 0.1.0
+# repo:
+# commit:
+channels:
+- name: billing
+  kind: queue
+- name: invoices
+  kind: queue

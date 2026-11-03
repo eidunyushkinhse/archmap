@@ -1,7 +1,8 @@
 """schema.yaml (ТЗ §5.1): скелет схемы в формате единого ввоза ArchMap.
 
 Порядок ключей как в примере промпта ввоза: name, shape, status, element, role, technology,
-external, description, source, children; у связей from, to, label, technology, channel.
+external, description, source, children; у связей from, to, label, technology, channel, sync (канал и sync — у связей с брокером,
+найденных в коде).
 Описаний сборщик не пишет. element ставится только корню-системе: листы без вложенных
 объектов ввоз считает контейнерами.
 """
@@ -64,6 +65,10 @@ def render(model: Model, ctx: Context) -> str:
         }
         if link.technology:
             edge["technology"] = link.technology
+        if link.channel:
+            edge["channel"] = link.channel
+        if link.sync is not None:
+            edge["sync"] = link.sync
         edges.append(edge)
     if edges:
         doc["edges"] = edges

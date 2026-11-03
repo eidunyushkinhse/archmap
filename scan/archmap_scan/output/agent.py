@@ -31,12 +31,18 @@ def evidence(model: Model, ctx: Context) -> dict[str, list[str]]:
         out[f"nodes/{model.system} / {obj.name}"] = _locs(obj.locs)
     names = refs(model)
     for link in model.links:
-        out[f"edges/{names[link.src.name]}→{names[link.dst.name]}"] = _locs(link.locs)
+        key = f"edges/{names[link.src.name]}→{names[link.dst.name]}"
+        if link.channel:
+            key += f"#{link.channel}"
+        out[key] = sorted(set(out.get(key, [])) | set(_locs(link.locs)))
     for obj in model.objects:
         for table in sorted(model.tables.get(obj.name, []), key=lambda t: (t.schema or "", t.name)):
             shown = f"{table.schema}.{table.name}" if table.schema else table.name
             locs = list(table.locs) + [loc for c in table.columns for loc in c.locs]
             out[f"tables/{obj.name}/{shown}"] = _locs(locs)
+    for obj in model.objects:
+        for name in sorted(model.channels.get(obj.name, {})):
+            out[f"channels/{obj.name}/{name}"] = _locs(model.channels[obj.name][name].locs)
     for obj in model.objects:
         for name in sorted(model.params.get(obj.name, {})):
             out[f"config/{obj.name}/{name}"] = _locs(model.params[obj.name][name].locs)
@@ -99,9 +105,16 @@ def entrypoints(model: Model) -> dict[str, object]:
                 entry["task"] = sch.task
             entry["source"] = str(sch.loc)
             schedules.append(entry)
+        consumers: list[dict[str, object]] = []
+        for c in model.consumers.get(obj.name, []):
+            consumer: dict[str, object] = {"channel": c.channel, "kind": c.kind}
+            if c.broker:
+                consumer["broker"] = c.broker
+            consumer["source"] = str(c.loc)
+            consumers.append(consumer)
         doc[obj.name] = {
             "http": _http(model, obj.name), "workers": workers, "schedules": schedules,
-            "consumers": [],
+            "consumers": consumers,
         }
     return {"containers": doc}
 

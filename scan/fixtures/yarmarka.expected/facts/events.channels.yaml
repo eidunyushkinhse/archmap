@@ -1,0 +1,9 @@
+# archmap-node: Ярмарка / events
+# archmap-scan 0.1.0
+# repo:
+# commit:
+channels:
+- name: orders.created
+  kind: topic
+- name: payments.completed
+  kind: topic

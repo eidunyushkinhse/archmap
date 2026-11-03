@@ -16,9 +16,15 @@ PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
 
 MANIFESTS: dict[str, str | bytes] = {
-    "py/requirements.txt": "fastapi\nflask\ndjango\n",
-    "js/package.json": '{"dependencies": {"express": "*", "@nestjs/core": "*"}}',
-    "go/go.mod": "module x\n\nrequire github.com/gin-gonic/gin v1.0.0\n",
+    "py/requirements.txt": "fastapi\nflask\ndjango\ncelery\nkafka-python\npika\nnats-py\n",
+    "js/package.json": (
+        '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
+        ' "nats": "*"}}'
+    ),
+    "go/go.mod": (
+        "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
+        "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
+    ),
 }
 
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
@@ -27,19 +33,24 @@ STARTS: dict[str, tuple[str, ...]] = {
         '@app.get("', "@app.route('", "@", "@a.", 'app.include_router(r, prefix="',
         'r = APIRouter(prefix="', 'urlpatterns = [path("', 'ROOT_URLCONF = "',
         "urlpatterns = [path('', include('", 'os.getenv("', 'os.environ["',
-        "class S(BaseSettings):\n    x: int = ",
+        "class S(BaseSettings):\n    x: int = ", '@app.task(queue="', "import kafka\np.send(\"",
+        "import pika\nch.queue_declare(queue='", "import nats\nnc.subscribe('",
+        "app.conf.task_routes = {'a': {'queue': '",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
         "const app = express(", "app.use('", "app.use(", "/*", "'", "`", "\\", ".",
         "app.get(", "app.setGlobalPrefix(", "process.env.", "process.env['",
-        "process.env.X || '", "process.env[",
+        "process.env.X || '", "process.env[", "producer.send({ topic: '",
+        "consumer.subscribe({ topics: ['", "producer.send({", "ch.assertQueue('",
+        "ch.publish('', '", "nc.subscribe('",
     ),
     "go/main.go": (
         'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',
         'r.HandleFunc("/p", h).Methods(', "r.GET(", "x := gin.Default(", "`", "{",
         'r.Handle("GET", ', 'os.Getenv("', "type C struct {\n\tA string `env:\"",
-        "os.LookupEnv(",
+        "os.LookupEnv(", 'w := kafka.Writer{Topic: "', 'g.Consume(ctx, []string{"',
+        'nc.Subscribe("', "Topics: []string{",
     ),
 }
 

@@ -152,6 +152,8 @@ class Model:
     http: dict[str, list[HttpEntry]] = field(default_factory=dict)
     consumers: dict[str, list[Consumer]] = field(default_factory=dict)
     channels: dict[str, dict[str, Channel]] = field(default_factory=dict)
+    # Семья яруса кода → разборщики, давшие записи (с владельцем и без): для coverage.
+    code_parsers: dict[str, set[str]] = field(default_factory=dict)
 
     def obj(self, name: str) -> Obj | None:
         return next((o for o in self.objects if o.name == name), None)

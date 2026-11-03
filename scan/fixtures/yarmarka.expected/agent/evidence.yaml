@@ -24,16 +24,19 @@ nodes/Ярмарка / redis:
 - docker-compose.yml:36
 edges/billing-worker→orders:
 - docker-compose.yml:25
-edges/billing-worker→redis:
-- docker-compose.yml:24
-- docker-compose.yml:26
-edges/orders→events:
-- docker-compose.yml:14
-- docker-compose.yml:18
-- services/orders/.env.example:3
+edges/billing-worker→redis#billing:
+- services/billing-worker/billing/app.py:13
+edges/events→orders#payments.completed:
+- services/orders/orders/events.py:5
+edges/orders→events#orders.created:
+- services/orders/orders/api/routes.py:15
 edges/orders→orders-db:
 - docker-compose.yml:17
 - services/orders/.env.example:2
+edges/redis→billing-worker#billing:
+- docker-compose.yml:22
+edges/redis→billing-worker#invoices:
+- docker-compose.yml:22
 edges/storefront→orders:
 - docker-compose.yml:6
 tables/orders-db/order_items:
@@ -42,6 +45,17 @@ tables/orders-db/orders:
 - services/orders/migrations/versions/0001_init.py:9
 - services/orders/migrations/versions/0002_status.py:9
 - services/orders/migrations/versions/0002_status.py:10
+channels/events/orders.created:
+- services/orders/orders/api/routes.py:15
+channels/events/payments.completed:
+- services/orders/orders/events.py:5
+channels/redis/billing:
+- docker-compose.yml:22
+- services/billing-worker/billing/app.py:5
+- services/billing-worker/billing/app.py:13
+channels/redis/invoices:
+- docker-compose.yml:22
+- services/billing-worker/billing/app.py:11
 config/billing-worker/CELERY_BROKER_URL:
 - docker-compose.yml:24
 config/billing-worker/INVOICE_CURRENCY:

@@ -33,12 +33,16 @@ def test_compose_fixture_model() -> None:
         "cache": ("broker", "Redis", "брокер"),
     }
     # DATABASE_URL с подстановкой не даёт адреса, но depends_on к базе связь рисует.
+    # Очереди -Q воркера Celery — связи «потребляет» от брокера, они сильнее «использует».
     assert _links(model) == {
         ("api", "cache", "Redis"),
         ("api", "db", "PostgreSQL"),
         ("api", "search", "Elasticsearch"),
-        ("worker", "cache", "Redis"),
+        ("cache", "worker", "Redis"),
     }
+    assert sorted(lk.channel or "" for lk in model.links if lk.src.name == "cache") == [
+        "default", "emails",
+    ]
     assert model.hints["depends_on"][0]["to"] == "worker"
     # api и worker собраны из одного каталога: пути к коду нет ни у кого.
     assert _obj(model, "api").path is None and _obj(model, "worker").path is None

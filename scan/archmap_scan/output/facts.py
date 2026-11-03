@@ -105,3 +105,18 @@ def tables_files(model: Model, ctx: Context) -> dict[str, str]:
             items.append(item)
         out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"tables": items})
     return out
+
+
+def channels_files(model: Model, ctx: Context) -> dict[str, str]:
+    """facts/<брокер>.channels.yaml: каналы брокера (имя дословно и вид). Поля сообщений
+    из кода не извлекаются (ТЗ §6.4), ключ fields не пишется."""
+    owners = [o.name for o in model.objects if model.channels.get(o.name)]
+    names = file_names(model, owners, "channels")
+    out: dict[str, str] = {}
+    for owner in owners:
+        items: list[dict[str, object]] = [
+            {"name": ch.name, "kind": ch.kind}
+            for ch in sorted(model.channels[owner].values(), key=lambda c: c.name)
+        ]
+        out[names[owner]] = _head(model, owner, ctx) + yamlio.dump({"channels": items})
+    return out

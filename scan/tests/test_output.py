@@ -43,7 +43,8 @@ def test_evidence_covers_every_record(tmp_path: Path) -> None:
         locs = evidence[f"nodes/Ярмарка / {child['name']}"]
         assert locs and all(":" in loc for loc in locs)
     for edge in schema["edges"]:
-        assert evidence[f"edges/{edge['from']}→{edge['to']}"]
+        channel = f"#{edge['channel']}" if "channel" in edge else ""
+        assert evidence[f"edges/{edge['from']}→{edge['to']}{channel}"]
 
 
 def test_hints_sections_always_present(tmp_path: Path) -> None:
@@ -89,7 +90,7 @@ def test_colon_values_are_double_quoted() -> None:
 def test_summary_words(tmp_path: Path) -> None:
     out = _scan(FIXTURES / "compose", tmp_path / "out")
     text = _read(out, "summary.txt")
-    assert "Найдено: 5 контейнеров, 2 базы данных, 1 брокер, 4 связи, 8 параметров" in text
+    assert "Найдено: 5 контейнеров, 2 базы данных, 1 брокер, 5 связей, 8 параметров" in text
     assert "«Новый проект»" in text and "«Импорт»" in text and "«Обновить из кода»" in text
     for bad in (", " + "\u2014", "." * 3, "\u2026"):
         assert bad not in text

@@ -59,16 +59,38 @@ edges:
   technology: HTTP
 - from: billing-worker
   to: redis
-  label: использует
+  label: публикует
   technology: Redis
+  channel: billing
+  sync: false
+- from: events
+  to: orders
+  label: потребляет
+  technology: Kafka
+  channel: payments.completed
+  sync: false
 - from: orders
   to: events
-  label: использует
+  label: публикует
   technology: Kafka
+  channel: orders.created
+  sync: false
 - from: orders
   to: orders-db
   label: использует
   technology: PostgreSQL
+- from: redis
+  to: billing-worker
+  label: потребляет
+  technology: Redis
+  channel: billing
+  sync: false
+- from: redis
+  to: billing-worker
+  label: потребляет
+  technology: Redis
+  channel: invoices
+  sync: false
 - from: storefront
   to: orders
   label: использует

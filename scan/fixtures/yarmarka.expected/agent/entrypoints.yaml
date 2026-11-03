@@ -9,7 +9,15 @@ containers:
       queues: [billing, invoices]
       source: docker-compose.yml:22
     schedules: []
-    consumers: []
+    consumers:
+    - channel: billing
+      kind: queue
+      broker: redis
+      source: docker-compose.yml:22
+    - channel: invoices
+      kind: queue
+      broker: redis
+      source: docker-compose.yml:22
   orders:
     http:
     - method: DELETE
@@ -27,7 +35,11 @@ containers:
       source: services/orders/orders/api/routes.py:8
     workers: []
     schedules: []
-    consumers: []
+    consumers:
+    - channel: payments.completed
+      kind: topic
+      broker: events
+      source: services/orders/orders/events.py:5
   storefront:
     http: []
     workers: []

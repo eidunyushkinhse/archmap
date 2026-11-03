@@ -62,7 +62,8 @@ def test_code_unsupported_stacks() -> None:
     assert stacks["http_routes"] == ["Laravel", "Phoenix", "Rails", "Spring Boot"]
     # Параметры в коде Python, Node.js и Go читает ярус кода.
     assert stacks["config"] == ["Elixir", "Java", "PHP", "Ruby", "Rust"]
-    assert stacks["channels"] == ["celery", "confluent-kafka", "kafkajs", "sarama"]
+    # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода: «не умею» нет.
+    assert "channels" not in stacks
     assert stacks["schedules"] == ["Celery beat"]
     assert stacks["tables"] == ["Ecto"]
 
