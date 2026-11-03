@@ -1,0 +1,8 @@
+# Окружение разработки сборщика: рантайм (requirements.txt) + тесты и линтеры.
+# Пины те же, что у mcp/requirements-dev.txt и backend/requirements.txt, чтобы гейт
+# pre-commit проверял одним и тем же инструментом.
+-r requirements.txt
+pytest==9.1.1
+pytest-cov==7.1.0
+ruff==0.17.0
+mypy==2.4.0

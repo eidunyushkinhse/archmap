@@ -1,0 +1,29 @@
+# Сборщик фактов ArchMap (docs/tasks/fact-collector.md). Код обязан работать на Python 3.10:
+# на машине пользователя новее не обещан, поэтому ruff и mypy проверяют именно эту версию.
+[tool.ruff]
+target-version = "py310"
+# Фикстуры — чужой код: его читает сборщик, гейт по нему не идёт.
+extend-exclude = ["fixtures", "dist"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_unused_ignores = true
+files = ["archmap_scan", "tests"]
+exclude = ["^fixtures/"]
+
+# Чистая Python-часть PyYAML едет внутри собранного файла, стабов к ней нет.
+[[tool.mypy.overrides]]
+module = ["yaml", "yaml.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["fixtures", "dist", "venv"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["archmap_scan"]
