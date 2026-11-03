@@ -3,7 +3,10 @@
 Сервис compose — кандидат в объект: имя, образ, каталог сборки, команда, переменные
 окружения (имена; значения только ради адресов зависимостей), depends_on. Сервисы под
 profiles и сервисы, которые есть только в файлах для разработки (dev, local), в схему не
-идут, а перечисляются в подсказках. extends, include и подстановки ${VAR} не раскрываются.
+идут, а перечисляются в подсказках. extends и include не раскрываются. Подстановки с
+дефолтом (${VAR:-x}, ${VAR-x}) в image, environment и command раскрываются в дефолт,
+остальные (${VAR}, $VAR) известны только при запуске: адрес из такого значения не берётся,
+образ с ними технологию не даёт, а место уходит в подсказки.
 Один сервис в нескольких файлах (основной и override) — один кандидат: поля поздних файлов
 перекрывают ранние, как у самого compose.
 """
@@ -35,8 +38,73 @@ def _order(rel: str) -> tuple[str, int, str]:
     return (paths.parent(rel), 0 if _is_base(paths.name(rel)) else 1, rel)
 
 
+# Подстановки с дефолтом раскрываются на глубину не больше этой и ищут закрывающую
+# скобку не дальше этого числа символов: значения из чужого репозитория бывают
+# враждебными, а разбор обязан оставаться линейным.
+_MAX_NESTING = 8
+_MAX_SPAN = 4096
+
+
 def is_dynamic(value: str) -> bool:
     return _DYNAMIC.search(value.replace("$$", "")) is not None
+
+
+def _closing(value: str, start: int) -> int:
+    """Позиция «}», закрывающей подстановку, тело которой начинается в start; -1 — нет."""
+    depth = 1
+    i = start
+    stop = min(len(value), start + _MAX_SPAN)
+    while i < stop:
+        if value.startswith("${", i):
+            depth += 1
+            i += 2
+            continue
+        if value[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+
+def expand(value: str, depth: int = 0) -> str:
+    """Раскрыть подстановки compose с дефолтом: ${VAR:-x} и ${VAR-x} дают x. Остальные
+    (${VAR}, $VAR, ${VAR:?ошибка}, ${VAR:+x}) известны только при запуске и остаются как
+    есть; экранированное $$ не трогается."""
+    out: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        if value.startswith("$$", i):
+            out.append("$$")
+            i += 2
+            continue
+        if not value.startswith("${", i):
+            nxt = value.find("$", i + 1)
+            nxt = n if nxt == -1 else nxt
+            out.append(value[i:nxt])
+            i = nxt
+            continue
+        end = _closing(value, i + 2)
+        if end == -1:
+            out.append(value[i:])
+            break
+        body = value[i + 2:end]
+        j = 0
+        while j < len(body) and (body[j].isalnum() or body[j] == "_"):
+            j += 1
+        rest = body[j:]
+        default: str | None = None
+        if j and rest.startswith(":-"):
+            default = rest[2:]
+        elif j and rest.startswith("-"):
+            default = rest[1:]
+        if default is None or depth >= _MAX_NESTING:
+            out.append(value[i:end + 1])
+        else:
+            out.append(expand(default, depth + 1))
+        i = end + 1
+    return "".join(out)
 
 
 def _env(svc: LineDict, rel: str, out: list[EnvVar]) -> None:
@@ -44,7 +112,7 @@ def _env(svc: LineDict, rel: str, out: list[EnvVar]) -> None:
     if isinstance(env, LineDict):
         for key, value in env.items():
             loc = Loc(rel, env.line_of(key))
-            text = None if value is None else _scalar(value)
+            text = None if value is None else expand(_scalar(value))
             out.append(EnvVar(str(key), loc, text, text is not None and is_dynamic(text)))
     elif isinstance(env, LineList):
         for i, item in enumerate(env):
@@ -52,7 +120,7 @@ def _env(svc: LineDict, rel: str, out: list[EnvVar]) -> None:
                 continue
             key, eq, value = item.partition("=")
             loc = Loc(rel, env.line_at(i))
-            text = value if eq else None
+            text = expand(value) if eq else None
             out.append(EnvVar(key.strip(), loc, text, text is not None and is_dynamic(text)))
 
 
@@ -66,9 +134,9 @@ def _command(svc: LineDict) -> tuple[str | None, int | None]:
     for key in ("command", "entrypoint"):
         value = svc.get(key)
         if isinstance(value, str) and value.strip():
-            return " ".join(value.split()), svc.line_of(key)
+            return expand(" ".join(value.split())), svc.line_of(key)
         if isinstance(value, list) and value:
-            return " ".join(_scalar(v) for v in value), svc.line_of(key)
+            return expand(" ".join(_scalar(v) for v in value)), svc.line_of(key)
     return None, None
 
 
@@ -131,14 +199,23 @@ def _services(doc: LineDict) -> LineDict | None:
 def _unit(
     name: str, svc: LineDict, rel: str, line: int, found: Findings, files: Files,
 ) -> Unit:
-    image = svc.get("image")
+    raw_image = svc.get("image")
+    image = expand(raw_image) if isinstance(raw_image, str) else None
     folder, docker = _build(svc, rel, name, found, files)
+    if image is not None and is_dynamic(image):
+        # Имя образа известно только при запуске: технологию по нему не угадываем.
+        if folder is None:
+            found.hints.append(Hint("dynamic_names", {
+                "object": name, "name": "image", "reason": texts.REASON_DYNAMIC_IMAGE,
+                "source": str(Loc(rel, svc.line_of("image"))),
+            }))
+        image = None
     command, cmd_line = _command(svc)
     unit = Unit(
         name=name,
         parser=NAME,
         loc=Loc(rel, line),
-        image=image if isinstance(image, str) else None,
+        image=image,
         build_dir=folder,
         dockerfile=docker,
         command=command,

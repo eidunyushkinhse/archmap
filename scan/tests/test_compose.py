@@ -146,3 +146,60 @@ def test_files_has_dir(tmp_path: Path) -> None:
     assert files.has_dir("") and files.has_dir("a") and files.has_dir("a/b")
     assert not files.has_dir("a/b/c.txt") and not files.has_dir("x")
     assert not Files(tmp_path, []).has_dir("")
+
+
+def test_substitutions_with_defaults(tmp_path: Path) -> None:
+    """Находка фазы 1а на Grafana: «technology: server}» из образа с подстановками.
+    ${VAR:-x} и ${VAR-x} раскрываются в дефолт; оставшаяся подстановка в image —
+    технологии нет, место в подсказках."""
+    tree(tmp_path, {
+        "docker-compose.yml": (
+            "services:\n"
+            "  authentik:\n"
+            "    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${TAG:-2024.2}\n"
+            "    environment:\n"
+            "      PG_URL: postgres://u:${PW-secret}@db:${PG_PORT:-5432}/x\n"
+            "      OTHER: http://${HOST}:80\n"
+            "    command: celery worker -Q ${QUEUES:-mail,push}\n"
+            "  custom:\n    image: ${REGISTRY}/thing:1\n"
+            "  bare:\n    image: $IMAGE\n"
+            "  built:\n    image: ${REGISTRY}/built\n    build: .\n"
+            "  nested:\n    image: ${A:-${B:-redis}}:7\n"
+            "  escaped:\n    image: nginx\n    command: sh -c 'echo $$HOME ${X:?нужен}'\n"
+        ),
+    })
+    found = _parse(tmp_path)
+    auth = _unit(found, "authentik")
+    assert auth.image == "ghcr.io/goauthentik/server:2024.2"
+    env = {e.name: e for e in auth.env}
+    assert env["PG_URL"].value == "postgres://u:secret@db:5432/x" and not env["PG_URL"].dynamic
+    assert env["OTHER"].dynamic
+    assert auth.command == "celery worker -Q mail,push"
+    assert _unit(found, "custom").image is None and _unit(found, "bare").image is None
+    assert _unit(found, "built").image is None and _unit(found, "built").build_dir == ""
+    assert _unit(found, "nested").image == "redis:7"
+    assert _unit(found, "escaped").command == "sh -c 'echo $$HOME ${X:?нужен}'"
+    dynamic = sorted(
+        (str(h.data["object"]), str(h.data["name"]))
+        for h in found.hints if h.section == "dynamic_names"
+    )
+    assert dynamic == [("authentik", "OTHER"), ("bare", "image"), ("custom", "image")]
+
+
+def test_expand_is_bounded() -> None:
+    assert compose.expand("${A:-x}${B-y}${C}$D") == "xy${C}$D"
+    assert compose.expand("${A:-") == "${A:-"
+    assert compose.expand("${:-x}") == "${:-x}"
+    deep = "${A:-" * 50 + "v" + "}" * 50
+    assert "v" in compose.expand(deep)
+    hostile = "${A:-" * 200_000
+    assert compose.expand(hostile) == hostile
+
+
+def test_expand_hostile_in_time() -> None:
+    import time
+
+    for value in ("${A}" * 60_000, "${A:-" * 60_000, "a$" * 120_000, "${A:-x" + "}" * 240_000):
+        started = time.perf_counter()
+        compose.expand(value)
+        assert time.perf_counter() - started < 1.0
