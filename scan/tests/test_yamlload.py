@@ -41,12 +41,24 @@ def test_alias_bomb() -> None:
         refs = ", ".join([f"*a{i - 1}"] * 10)
         lines.append(f"a{i}: &a{i} [{refs}]")
     started = time.perf_counter()
-    doc = load("\n".join(lines))  # псевдонимы не копируются: документ маленький
-    assert isinstance(doc, LineDict)
+    # В памяти псевдонимы не копируются, но любой обход значения раскрыл бы 10^9 элементов.
+    with pytest.raises(BadYaml):
+        load("\n".join(lines))
     many = "\n".join(f"k{i}: *a0" for i in range(1100))
     with pytest.raises(BadYaml):
         load("a0: &a0 [x]\n" + many)
+    with pytest.raises(BadYaml):
+        load("a: &a [x, *a]\n")
     assert time.perf_counter() - started < 1.0
+
+
+def test_shared_anchors_within_limits() -> None:
+    # Обычный приём compose: общий кусок настроек у многих сервисов.
+    common = "x-common: &common {restart: always, environment: [A=1, B=2], labels: {a: b}}\n"
+    services = "".join(f"  s{i}:\n    <<: *common\n    image: x\n" for i in range(200))
+    doc = load(common + "services:\n" + services)
+    assert isinstance(doc, LineDict)
+    assert doc["services"]["s199"]["restart"] == "always"
 
 
 def test_merge_bomb() -> None:

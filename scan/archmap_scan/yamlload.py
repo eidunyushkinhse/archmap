@@ -3,7 +3,10 @@
 Отображения и списки приходят с номерами строк ключей и элементов (LineDict, LineList):
 из них строятся основания «файл:строка». Пределы защищают от враждебного входа (ТЗ §9):
 размер документа, число ссылок-псевдонимов и объём, добавленный ключами слияния «<<»
-(«бомба» из вложенных слияний растёт экспоненциально). Используется чистая Python-часть
+(«бомба» из вложенных слияний растёт экспоненциально) и объём документа с раскрытыми
+псевдонимами: PyYAML делит общий объект между ссылками и в памяти бомбу не раскрывает, но
+любой обход значения (str, join, рекурсия разборщика) раскрыл бы её целиком. Документ с
+циклом из псевдонимов (&a [*a]) отвергается по той же причине. Используется чистая Python-часть
 PyYAML, как в собранном файле, поэтому поведение у разработчика и у пользователя одно.
 """
 
@@ -18,6 +21,9 @@ import yaml
 MAX_YAML_BYTES = 256 * 1024
 MAX_ALIASES = 1000
 MAX_MERGED = 100_000
+# Элементов документа с раскрытыми псевдонимами: общий элемент считается при каждом
+# использовании.
+MAX_EXPANDED = 200_000
 # Вложенность [ и { в стиле потока: разборщик PyYAML тратит на неё квадратичное время, а в
 # манифестах глубже нескольких уровней она не встречается.
 MAX_FLOW_DEPTH = 64
@@ -74,12 +80,51 @@ class _Loader(yaml.SafeLoader):  # type: ignore[misc]
                 raise _Limited
         return super().compose_node(parent, index)
 
+    def compose_document(self) -> Any:
+        node = super().compose_document()
+        if self._aliases:
+            _check_expanded(node)
+        return node
+
     def flatten_mapping(self, node: Any) -> None:
         before = len(node.value)
         super().flatten_mapping(node)
         self._merged += max(len(node.value) - before, 0)
         if self._merged > MAX_MERGED:
             raise _Limited
+
+
+def _children(node: Any) -> list[Any]:
+    if isinstance(node, yaml.SequenceNode):
+        return list(node.value)
+    if isinstance(node, yaml.MappingNode):
+        return [part for pair in node.value for part in pair]
+    return []
+
+
+def _check_expanded(root: Any) -> None:
+    """_Limited, если документ с раскрытыми псевдонимами больше MAX_EXPANDED элементов или в
+    нём цикл. Обход без рекурсии, каждый элемент один раз (размеры общих запоминаются)."""
+    sizes: dict[int, int] = {}
+    on_path: set[int] = set()
+    stack: list[tuple[Any, bool]] = [(root, False)]
+    while stack:
+        node, done = stack.pop()
+        key = id(node)
+        if done:
+            on_path.discard(key)
+            total = 1 + sum(sizes[id(child)] for child in _children(node))
+            if total > MAX_EXPANDED:
+                raise _Limited
+            sizes[key] = total
+            continue
+        if key in sizes:
+            continue
+        if key in on_path:
+            raise _Limited
+        on_path.add(key)
+        stack.append((node, True))
+        stack.extend((child, False) for child in _children(node) if id(child) not in sizes)
 
 
 def _construct_map(loader: _Loader, node: Any) -> Any:
