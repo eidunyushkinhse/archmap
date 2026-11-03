@@ -63,6 +63,19 @@ fi
 say "Применяю миграции Alembic (upgrade head)."
 ( cd backend && ./venv/bin/alembic upgrade head )
 
+# --- 3b. Сборщик фактов (docs/tasks/fact-collector.md) ---
+# Бэкенд раздаёт scan/dist/archmap-scan.pyz по /api/v1/scan. Собираем, если файла нет или исходники новее; питоном backend/venv, в нём
+# есть PyYAML (у системного python3 его может не быть). Сбой сборки стек не валит: адрес
+# тогда отвечает 404, остальное работает.
+SCAN_PYZ="scan/dist/archmap-scan.pyz"
+if [ ! -f "$SCAN_PYZ" ] || [ -n "$(find scan/archmap_scan scan/build.py -name __pycache__ -prune \
+     -o -type f -newer "$SCAN_PYZ" -print -quit 2>/dev/null)" ]; then
+  say "Собираю сборщик фактов ($SCAN_PYZ)."
+  if ! backend/venv/bin/python scan/build.py >/dev/null; then
+    err "Сборщик фактов не собрался: /api/v1/scan ответит 404, остальное работает."
+  fi
+fi
+
 # --- 4. Фронтенд: зависимости ---
 if [ ! -d frontend/node_modules ]; then
   say "Ставлю зависимости фронта (npm install) — это один раз."

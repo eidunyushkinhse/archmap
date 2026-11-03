@@ -61,6 +61,18 @@ site-packages того интерпретатора, которым запуще
 PyYAML дают одинаковый sha256. Запуск с `-I -S` проверяет, что файлу не нужно ничего вне
 архива. `scan/dist/` в `.gitignore`.
 
+## Раздача
+
+Собранный файл раздаёт сам ArchMap без входа: `GET /api/v1/scan/archmap-scan.pyz` (ETag по
+sha256, заголовок `X-ArchMap-Scan-Version`, `If-None-Match` даёт 304) и `GET /api/v1/scan`
+(`{version, sha256, size}`); код в `backend/app/routers/scan.py` и `backend/app/scan_file.py`.
+Путь к файлу задаёт настройка `SCAN_FILE` (по умолчанию `../scan/dist/archmap-scan.pyz` от
+рабочего каталога бэкенда `backend/`). Во всех трёх поставках файл собирает тот же
+`build.py`: в образе он лежит в `/opt/archmap/scan/archmap-scan.pyz` (Dockerfile задаёт
+`SCAN_FILE`), в серверной поставке в `scan/archmap-scan.pyz` рядом с `backend/` (путь задаёт
+служба `deploy/archmap.service`), в разработке `./dev.sh` сам собирает `scan/dist/archmap-scan.pyz`
+питоном `backend/venv`, если файла нет или исходники новее. Без файла оба адреса отвечают 404.
+
 ## Фикстуры и ожидаемый вывод
 
 `scan/fixtures/<разборщик>/` — малые деревья на каждый разборщик, у яруса кода — с
