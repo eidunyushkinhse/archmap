@@ -100,3 +100,27 @@ def test_summary_empty_repo(tmp_path: Path) -> None:
     text = _read(out, "summary.txt")
     assert "Ничего не найдено." in text
     assert "Искали и не нашли: контейнеры" in text
+
+
+def test_summary_counts_only_written(tmp_path: Path) -> None:
+    """Находка фазы 1а: сводка обещала «Найдено: 311 таблиц» и инструкцию импорта таблиц,
+    а все таблицы лежали в hints.unassigned. Найденное без владельца в «Найдено» не входит,
+    названо строкой в «Пояснениях», инструкции для незаписанных файлов нет."""
+    root = tree(tmp_path / "repo", {
+        "docker-compose.yml": (
+            "services:\n  a-db:\n    image: postgres\n  b-db:\n    image: mysql\n"
+        ),
+        "db/migrations/V1__init.sql": "CREATE TABLE t (id int);\nCREATE TABLE u (id int);\n",
+    })
+    out = _scan(root, tmp_path / "out")
+    summary = _read(out, "summary.txt")
+    assert "Найдено: 2 базы данных." in summary
+    assert "таблиц" not in summary.split("\n\n")[1]
+    assert "Искали и не нашли" in summary and "таблицы" not in summary.split("Не покрыто")[0]
+    assert "  Таблиц без владельца: 2, перечень в agent/hints.yaml." in summary
+    assert "facts/*.tables.yaml" not in summary
+    assert not (out / "facts").exists()
+    coverage = yaml.safe_load(_read(out, "coverage.yaml"))
+    assert coverage["families"]["tables"] == {
+        "status": "covered", "parsers": ["sql"], "unassigned": 2,
+    }

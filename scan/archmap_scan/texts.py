@@ -149,6 +149,21 @@ FAMILY_WORDS = {
 }
 
 
+# Найдено, но не записано: «Таблиц без владельца: 12, перечень в agent/hints.yaml.»
+UNASSIGNED_WORDS = {
+    "tables": "Таблиц",
+    "config": "Параметров конфигурации",
+    "channels": "Каналов",
+    "http_routes": "Маршрутов HTTP",
+    "schedules": "Расписаний",
+}
+
+
+def unassigned_line(family: str, n: int) -> str:
+    word = UNASSIGNED_WORDS.get(family, FAMILY_LABEL.get(family, family))
+    return f"{word} без владельца: {n}, перечень в agent/hints.yaml."
+
+
 def found_phrase(parts: list[str]) -> str:
     """«Найдено: 3 контейнера, 1 база данных и 4 связи.»"""
     if not parts:

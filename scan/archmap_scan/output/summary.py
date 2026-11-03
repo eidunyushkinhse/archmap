@@ -52,6 +52,12 @@ def _notes(cov: Coverage) -> list[str]:
         for fam, stat in cov.families.items()
         for note in stat.notes
     ]
+    # Найденное без владельца в «Найдено» не входит: оно названо здесь отдельной строкой.
+    lines += [
+        "  " + texts.unassigned_line(fam, stat.unassigned)
+        for fam, stat in cov.families.items()
+        if stat.unassigned
+    ]
     return [texts.NOTES_TITLE, *lines] if lines else []
 
 

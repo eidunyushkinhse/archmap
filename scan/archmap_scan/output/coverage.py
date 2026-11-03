@@ -27,13 +27,16 @@ class FamilyStat:
     skipped: dict[str, int] = field(default_factory=dict)
     dropped: int = 0
     dynamic_names: int = 0
+    # Найдено, но не записано в файлы: владелец не определён, записи в hints.unassigned.
+    # В found они не входят: сводка считает найденным только записанное (ТЗ §7).
+    unassigned: int = 0
     error: str | None = None
 
     @property
     def status(self) -> str:
         if self.error:
             return "error"
-        if self.found > 0:
+        if self.found > 0 or self.unassigned > 0:
             return "partial" if self.unsupported else "covered"
         if self.unsupported:
             return "unsupported"
@@ -45,13 +48,15 @@ class FamilyStat:
         out = Flow(status=self.status)
         if self.found:
             out["found"] = self.found
-        out["parsers"] = FlowSeq(self.contributed if self.found else self.ran)
+        out["parsers"] = FlowSeq(self.contributed if self.found or self.unassigned else self.ran)
         if self.unsupported:
             out["unsupported"] = FlowSeq(self.unsupported)
         if self.skipped:
             out["skipped"] = Flow(self.skipped)
         if self.dropped:
             out["dropped"] = self.dropped
+        if self.unassigned:
+            out["unassigned"] = self.unassigned
         if self.dynamic_names:
             out["dynamic_names"] = self.dynamic_names
         if self.notes:

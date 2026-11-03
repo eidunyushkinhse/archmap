@@ -47,7 +47,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     out["schedules"].found = len(schedules)
     out["schedules"].contributed = _ordered({sch.parser for sch in schedules})
     tables = out["tables"]
-    tables.found = model.table_stats.found
+    # Найдено — только записанное в facts/; без владельца — отдельным числом.
+    tables.found = sum(len(items) for items in model.tables.values())
+    tables.unassigned = model.table_stats.unassigned
     tables.contributed = _ordered(model.table_stats.parsers)
     tables.skipped = dict(sorted(model.table_stats.skipped.items()))
     tables.dropped = model.table_stats.dropped
@@ -55,6 +57,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         tables.error = "; ".join(model.table_stats.errors)
     params = [p for table in model.params.values() for p in table.values()]
     out["config"].found = len(params)
+    out["config"].unassigned = sum(
+        1 for h in model.hints.get("unassigned", []) if h.get("kind") == "config"
+    )
     out["config"].contributed = _ordered({x for p in params for x in p.parsers})
     unsupported = code_unsupported(findings)
     for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:

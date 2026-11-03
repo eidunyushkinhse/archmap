@@ -99,9 +99,10 @@ def test_owners_and_facts(tmp_path: Path) -> None:
         "services/billing/migrations/V2__accounts.sql:2",
     ]
     coverage = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))
+    # Найдено — только записанное в facts/; две таблицы без владельца названы отдельно.
     assert coverage["families"]["tables"] == {
-        "status": "covered", "found": 6, "parsers": ["sql"],
-        "skipped": {"sql_statements": 2}, "dropped": 1,
+        "status": "covered", "found": 4, "parsers": ["sql"],
+        "skipped": {"sql_statements": 2}, "dropped": 1, "unassigned": 2,
     }
 
 
