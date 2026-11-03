@@ -20,6 +20,13 @@ from archmap_scan.walk import Excluded
 @dataclass
 class FamilyStat:
     found: int = 0
+    # Разных имён среди found (семья config): одинаковый параметр у двух контейнеров —
+    # две записи (правило продукта), а «Найдено» в сводке считает имена (ТЗ §7). В
+    # coverage.yaml пишется, только когда расходится с found.
+    distinct: int = 0
+    # Контейнеров, у которых записан параметр, общий с другим контейнером: для строки
+    # пояснений сводки. В coverage.yaml не пишется.
+    holders: int = 0
     ran: list[str] = field(default_factory=list)  # разборщики семьи, которые отработали
     contributed: list[str] = field(default_factory=list)  # разборщики, давшие записи
     unsupported: list[str] = field(default_factory=list)
@@ -51,6 +58,8 @@ class FamilyStat:
         out = Flow(status=self.status)
         if self.found:
             out["found"] = self.found
+        if self.distinct and self.distinct != self.found:
+            out["distinct"] = self.distinct
         out["parsers"] = FlowSeq(self.contributed if self.found or self.unassigned else self.ran)
         if self.unsupported:
             out["unsupported"] = FlowSeq(self.unsupported)

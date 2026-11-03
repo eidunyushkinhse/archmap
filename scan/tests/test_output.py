@@ -148,3 +148,33 @@ def test_texts_lists_and_partial() -> None:
     assert texts.family_partial("Контейнеры", ["Helm templates"], False, False) == (
         "Контейнеры: найдено не всё, Helm templates сборщик пока не читает."
     )
+
+
+def test_shared_params_counted_by_name(tmp_path: Path) -> None:
+    """Находка фазы 1б на Zulip: 26 имён общего кода записаны каждому из 8 контейнеров, а
+    сводка говорила «140 параметров». «Найдено» считает имена, записи названы строкой в
+    «Пояснениях», в coverage found — записи, distinct — имена (ТЗ §7)."""
+    root = tree(tmp_path / "repo", {
+        "docker-compose.yml": (
+            "services:\n  web:\n    build: ./app\n  worker:\n    build: ./app\n"
+        ),
+        "app/requirements.txt": "flask\n",
+        "app/main.py": 'import os\nA = os.getenv("A", "1")\nB = os.environ["B"]\n',
+    })
+    result = run(Options(path=str(root), out=str(tmp_path / "out"), use_git=False))
+    summary = result.summary
+    assert "2 параметра конфигурации" in summary.split("\n\n")[1]
+    assert "  Параметры общего кода записаны каждому из 2 контейнеров: записей 4." in summary
+    coverage = yaml.safe_load(_read(tmp_path / "out", "coverage.yaml"))
+    assert coverage["families"]["config"]["found"] == 4
+    assert coverage["families"]["config"]["distinct"] == 2
+    as_json = result.coverage.as_json()["families"]
+    assert isinstance(as_json, dict)
+    assert as_json["config"]["found"] == 4 and as_json["config"]["distinct"] == 2
+
+
+def test_distinct_absent_when_names_equal_records(tmp_path: Path) -> None:
+    out = _scan(FIXTURES / "compose", tmp_path / "out")
+    coverage = yaml.safe_load(_read(out, "coverage.yaml"))
+    assert "distinct" not in coverage["families"]["config"]
+    assert "Параметры общего кода" not in _read(out, "summary.txt")

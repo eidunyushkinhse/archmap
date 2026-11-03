@@ -26,7 +26,9 @@ def _found(cov: Coverage) -> list[str]:
     for fam, stat in cov.families.items():
         if stat.found:
             one, few, many = texts.FAMILY_WORDS[fam]
-            parts.append(texts.plural(stat.found, one, few, many))
+            # Параметры считаются по именам: запись общего кода у каждого контейнера —
+            # не новый параметр (ТЗ §7); записи названы строкой в «Пояснениях».
+            parts.append(texts.plural(stat.distinct or stat.found, one, few, many))
         elif stat.status == "empty":
             empty.append(texts.FAMILY_LABEL[fam].lower())
     lines.append(texts.found_phrase(parts))
@@ -59,6 +61,9 @@ def _notes(cov: Coverage) -> list[str]:
         for fam, stat in cov.families.items()
         for note in stat.notes
     ]
+    config = cov.families["config"]
+    if config.distinct and config.found > config.distinct:
+        lines.append("  " + texts.shared_params_line(config.holders, config.found))
     # Найденное без владельца в «Найдено» не входит: оно названо здесь отдельной строкой.
     lines += [
         "  " + texts.unassigned_line(fam, stat.unassigned)

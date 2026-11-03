@@ -173,6 +173,12 @@ def dynamic_line(family: str, n: int) -> str:
     return f"{word}, заданным выражением в коде: {n}, перечень в agent/hints.yaml."
 
 
+def shared_params_line(containers: int, records: int) -> str:
+    """«Параметры общего кода записаны каждому из 8 контейнеров: записей 140.»"""
+    holders = plural(containers, "контейнера", "контейнеров", "контейнеров")
+    return f"Параметры общего кода записаны каждому из {holders}: записей {records}."
+
+
 def unassigned_line(family: str, n: int) -> str:
     word = UNASSIGNED_WORDS.get(family, FAMILY_LABEL.get(family, family))
     return f"{word} без владельца: {n}, перечень в agent/hints.yaml."
