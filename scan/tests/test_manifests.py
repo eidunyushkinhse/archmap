@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import time
+from pathlib import Path
+
 from archmap_scan import stats
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
-from tests.helpers import FIXTURES, files_of
+from tests.helpers import FIXTURES, files_of, tree
 
 
 def _packages() -> dict[str, Package]:
@@ -66,3 +69,13 @@ def test_pom_with_doctype_is_refused() -> None:
 
     with pytest.raises(ValueError):
         manifests._pom("pom.xml", '<!DOCTYPE x [<!ENTITY a "b">]><project/>')
+
+
+def test_oversized_manifest_is_named_not_parsed(tmp_path: Path) -> None:
+    tree(tmp_path, {"pyproject.toml": '[project]\nname = "' + "a" * 600_000 + '"\n'})
+    ctx, files = files_of(tmp_path)
+    started = time.perf_counter()
+    found = manifests.parse(files, ctx)
+    assert time.perf_counter() - started < 0.1
+    assert found.packages == []
+    assert [h.data["reason"] for h in found.hints] == ["манифест сборки больше предела разбора"]

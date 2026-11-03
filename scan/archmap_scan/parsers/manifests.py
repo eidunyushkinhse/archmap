@@ -18,6 +18,10 @@ from archmap_scan.context import Context
 from archmap_scan.model import Findings, Hint, Loc, Package
 from archmap_scan.walk import Files
 
+# Предел манифеста сборки: чистый Python-разборщик TOML тратит на 2 МБ четверть секунды, а
+# настоящие манифесты в сотни раз меньше.
+MAX_MANIFEST_CHARS = 512 * 1024
+
 NAME = "manifests"
 _REQ_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 _GEM = re.compile(r"""^\s*gem\s+["']([^"']+)["']""")
@@ -265,6 +269,9 @@ def parse(files: Files, ctx: Context) -> Findings:
         kind = kind_of(rel)
         text = files.read(rel)
         if text is None or kind is None:
+            continue
+        if len(text) > MAX_MANIFEST_CHARS:
+            found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_MANIFEST_TOO_LARGE}))
             continue
         try:
             pkg = _READERS[kind](rel, text)
