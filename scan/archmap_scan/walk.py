@@ -68,10 +68,11 @@ def is_dev_path(rel: str) -> bool:
 
 # Код в каталогах для разработки (ТЗ §4) разборщики кода не читают: Grafana держит в
 # devenv/docker/blocks/*/main.go сотни маршрутов тестовых стендов. Перечень уже DEV_TOKENS:
-# local, contrib, demo, ci и test на код не действуют (src/sentry/demo_mode/ — рабочий код
+# local, contrib, demo, ci, test и sandbox на код не действуют (src/sentry/demo_mode/ и
+# песочница плагинов Grafana pkg/services/pluginsintegration/sandbox/ — рабочий код
 # продукта). Части имени каталога сравниваются так же, как у манифестов.
 CODE_DEV_TOKENS = frozenset({
-    "dev", "devenv", "development", "devcontainer", "vagrant", "hack", "sandbox", "playground",
+    "dev", "devenv", "development", "devcontainer", "vagrant", "hack", "playground",
 })
 
 
