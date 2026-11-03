@@ -87,6 +87,18 @@ def mask(text: str, lang: str) -> str:
     return "".join(out)
 
 
+def imports(text: str, modules: frozenset[str], lang: str) -> bool:
+    """Файл подключает один из модулей. Go: путь импорта в кавычках без учёта регистра
+    («github.com/IBM/sarama»), с подпакетом или без. JS: спецификатор модуля в кавычках,
+    сам или с подпутём (require('kafkajs'), from "nats/lib"). Имена методов клиентов
+    (publish, subscribe, consume) общие с другими библиотеками, поэтому без подключения
+    клиента файл не читается."""
+    if lang == GO:
+        low = text.lower()
+        return any(f'"{m}' in low for m in modules)
+    return any(f"{q}{m}{end}" in text for m in modules for q in "'\"" for end in (q, "/"))
+
+
 def load(files: Files, rel: str, text: str, lang: str) -> Code | None:
     """Код файла для разбора; слишком плотный файл отмечается непрочитанным (None)."""
     try:

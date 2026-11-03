@@ -1,6 +1,6 @@
 """Темы NATS в коде (ТЗ §6.2): subscribe("s") и QueueSubscribe — потребление,
-publish("s") и Request — публикация. Python (nats-py, файл импортирует nats), Node
-(nats), Go (nats.go). Адрес брокера литералом в том же файле (connect("nats://…"))
+publish("s") и Request — публикация. Файл подключает клиент: Python (nats-py, import
+nats), Node (nats), Go (nats.go). Адрес брокера литералом в том же файле (connect("nats://…"))
 помогает найти брокер-владелец. Имя не строкой — в hints.dynamic_names."""
 
 from __future__ import annotations
@@ -119,6 +119,8 @@ def parse(files: Files, ctx: Context) -> Findings:
         if not present:
             continue
         for rel, text in codebase.sources(files, ctx, lang, wanted, needles):
+            if not codetext.imports(text, wanted, kind):
+                continue  # publish и subscribe есть у многих библиотек, не только у NATS
             code = codetext.load(files, rel, text, kind)
             if code is not None:
                 _code(rel, code, found, lang == codebase.GO)

@@ -39,12 +39,12 @@ def test_celery_fixture() -> None:
 def test_kafka_fixture() -> None:
     rows, hints = _uses(kafka, FIXTURES / "kafka")
     assert rows == [
-        ("orders.created", "topic", "publish", "kafka", "go/main.go:4"),
-        ("payments", "topic", "consume", "kafka", "go/main.go:5"),
-        ("audit", "topic", "publish", "kafka", "go/main.go:6"),
-        ("refunds", "topic", "consume", "kafka", "go/main.go:7"),
-        ("payments", "topic", "consume", "kafka", "go/main.go:8"),
-        ("refunds", "topic", "consume", "kafka", "go/main.go:8"),
+        ("orders.created", "topic", "publish", "kafka", "go/main.go:9"),
+        ("payments", "topic", "consume", "kafka", "go/main.go:10"),
+        ("audit", "topic", "publish", "kafka", "go/main.go:11"),
+        ("refunds", "topic", "consume", "kafka", "go/main.go:12"),
+        ("payments", "topic", "consume", "kafka", "go/main.go:13"),
+        ("refunds", "topic", "consume", "kafka", "go/main.go:13"),
         ("orders.created", "topic", "publish", "kafka", "js/src/kafka.js:6"),
         ("payments", "topic", "consume", "kafka", "js/src/kafka.js:7"),
         ("refunds", "topic", "consume", "kafka", "js/src/kafka.js:7"),
@@ -93,6 +93,8 @@ def test_nats_fixture() -> None:
         ("orders.*", "subject", "consume", "nats", "py/svc.py:6"),
         ("orders.created", "subject", "publish", "nats", "py/svc.py:7"),
     ]
+    # Своя шина в Go и подписка RxJS без подключения клиента NATS не дали ни каналов, ни
+    # подсказок.
     assert hints == [("subject", "py/svc.py:8"), ("subj", "go/main.go:10")]
 
 
@@ -180,3 +182,15 @@ def test_unsupported_channel_library_is_named(tmp_path: Path) -> None:
     result = run(Options(path=str(tmp_path / "repo"), out=str(tmp_path / "out"), use_git=False))
     stat = result.coverage.families["channels"]
     assert stat.status == "unsupported" and stat.unsupported == ["Pub/Sub"]
+
+
+def test_client_import_check() -> None:
+    from archmap_scan import codetext
+
+    sarama = frozenset({"github.com/ibm/sarama"})
+    assert codetext.imports('import "github.com/IBM/sarama"\n', sarama, codetext.GO)
+    assert not codetext.imports('import "github.com/x/y"\n', sarama, codetext.GO)
+    nats_js = frozenset({"nats"})
+    assert codetext.imports("import { connect } from 'nats/lib/x';\n", nats_js, codetext.JS)
+    assert codetext.imports('const n = require("nats");\n', nats_js, codetext.JS)
+    assert not codetext.imports("require('natsx'); // 'nats", nats_js, codetext.JS)

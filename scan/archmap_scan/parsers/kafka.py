@@ -1,6 +1,6 @@
 """Топики Kafka в коде (ТЗ §6.2).
 
-Python (kafka-python, confluent-kafka, aiokafka; файл импортирует одну из них):
+Файл подключает клиент Kafka. Python (kafka-python, confluent-kafka, aiokafka):
 KafkaConsumer("t", …) и AIOKafkaConsumer, consumer.subscribe(["t"]) — потребление;
 producer.send("t", …), send_and_wait, produce("t") — публикация; NewTopic("t") —
 объявление. kafkajs: producer.send({ topic: 't' }), sendBatch, consumer.subscribe({ topic
@@ -262,6 +262,8 @@ def parse(files: Files, ctx: Context) -> Findings:
         needles = ("topic",) if lang == codebase.NODE else ("Topic", "Consume")
         kind = codetext.JS if lang == codebase.NODE else codetext.GO
         for rel, text in codebase.sources(files, ctx, lang, wanted, needles):
+            if not codetext.imports(text, wanted, kind):
+                continue
             code = codetext.load(files, rel, text, kind)
             if code is not None:
                 (_js if lang == codebase.NODE else _go)(rel, code, found)

@@ -1,5 +1,10 @@
 package main
 
+import (
+	"github.com/IBM/sarama"
+	"github.com/segmentio/kafka-go"
+)
+
 func run() {
 	w := &kafka.Writer{Addr: kafka.TCP("kafka:9092"), Topic: "orders.created"}
 	r := kafka.NewReader(kafka.ReaderConfig{Brokers: []string{"kafka:9092"}, Topic: "payments", GroupID: "g"})

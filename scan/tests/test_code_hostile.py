@@ -27,6 +27,10 @@ MANIFESTS: dict[str, str | bytes] = {
     ),
 }
 
+# Подключение клиента: без него разборщики каналов JS и Go файл не читают.
+KJS, AMQP, NJS = "require('kafkajs');\n", "require('amqplib');\n", "require('nats');\n"
+KGO, NGO = 'import "github.com/segmentio/kafka-go"\n', 'import "github.com/nats-io/nats.go"\n'
+
 # Начала строк, после которых разборщик доходит до содержимого: имя файла → начала.
 STARTS: dict[str, tuple[str, ...]] = {
     "py/app.py": (
@@ -43,16 +47,16 @@ STARTS: dict[str, tuple[str, ...]] = {
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
         "const app = express(", "app.use('", "app.use(", "/*", "'", "`", "\\", ".",
         "app.get(", "app.setGlobalPrefix(", "process.env.", "process.env['",
-        "process.env.X || '", "process.env[", "producer.send({ topic: '",
-        "consumer.subscribe({ topics: ['", "producer.send({", "ch.assertQueue('",
-        "ch.publish('', '", "nc.subscribe('",
+        "process.env.X || '", "process.env[", KJS + "producer.send({ topic: '",
+        KJS + "consumer.subscribe({ topics: ['", KJS + "producer.send({", AMQP + "ch.assertQueue('",
+        AMQP + "ch.publish('', '", NJS + "nc.subscribe('",
     ),
     "go/main.go": (
         'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',
         'r.HandleFunc("/p", h).Methods(', "r.GET(", "x := gin.Default(", "`", "{",
         'r.Handle("GET", ', 'os.Getenv("', "type C struct {\n\tA string `env:\"",
-        "os.LookupEnv(", 'w := kafka.Writer{Topic: "', 'g.Consume(ctx, []string{"',
-        'nc.Subscribe("', "Topics: []string{",
+        "os.LookupEnv(", KGO + 'w := kafka.Writer{Topic: "', KGO + 'g.Consume(ctx, []string{"',
+        NGO + 'nc.Subscribe("', KGO + "Topics: []string{",
     ),
 }
 

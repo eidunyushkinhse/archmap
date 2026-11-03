@@ -5,8 +5,9 @@ declare_queue("q") — объявление очереди, exchange_declare(exc
 declare_exchange("e") — обменника, queue_bind — обоих; basic_publish(exchange="e",
 routing_key="k") — публикация в обменник, а с пустым exchange — в очередь k;
 default_exchange.publish(…, routing_key="q") — в очередь; basic_consume(queue="q") —
-потребление. amqplib: assertQueue('q'), assertExchange('e'), bindQueue, sendToQueue('q'),
-publish('e', 'k') и consume('q'). Адрес брокера литералом в том же файле
+потребление. amqplib (файл подключает amqplib или amqp-connection-manager):
+assertQueue('q'), assertExchange('e'), bindQueue, sendToQueue('q'), publish('e', 'k') и
+consume('q'). Адрес брокера литералом в том же файле
 (URLParameters, ConnectionParameters(host=), connect('amqp://…')) помогает найти
 брокер-владелец. Имя не строкой — в hints.dynamic_names.
 """
@@ -212,6 +213,8 @@ def parse(files: Files, ctx: Context) -> Findings:
     if js:
         needles = ("Queue(", "Exchange(", "consume(", "publish(", "sendToQueue(")
         for rel, text in codebase.sources(files, ctx, codebase.NODE, JS_WANTED, needles):
+            if not codetext.imports(text, JS_WANTED, codetext.JS):
+                continue  # consume и publish есть у многих библиотек
             code = codetext.load(files, rel, text, codetext.JS)
             if code is not None:
                 _js(rel, code, found)
