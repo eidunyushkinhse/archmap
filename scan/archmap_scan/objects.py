@@ -140,6 +140,7 @@ class Model:
     links: list[Link]
     implicit: bool = False
     db_by_migrations: bool = False  # есть база, определённая по миграциям (ТЗ §7, пункт 3)
+    broker_by_client: bool = False  # есть брокер, определённый по клиенту в коде (ТЗ §13.2)
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     workers: dict[str, list[Worker]] = field(default_factory=dict)
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)

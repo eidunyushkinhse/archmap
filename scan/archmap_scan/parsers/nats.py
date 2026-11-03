@@ -1,14 +1,16 @@
 """Темы NATS в коде (ТЗ §6.2): subscribe("s") и QueueSubscribe — потребление,
 publish("s") и Request — публикация. Файл подключает клиент: Python (nats-py, import
 nats), Node (nats), Go (nats.go). Адрес брокера литералом в том же файле (connect("nats://…"))
-помогает найти брокер-владелец. Имя не строкой — в hints.dynamic_names."""
+помогает найти брокер-владелец. Имя не строкой — в hints.dynamic_names. Python: реестры тем
+(часть subject в имени) дают темы без направления, член реестра в вызове раскрывается
+(pyregistry.py)."""
 
 from __future__ import annotations
 
 import ast
 import re
 
-from archmap_scan import codebase, codetext, pyast, pycode, texts
+from archmap_scan import codebase, codetext, pyast, pycode, pyregistry, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in
@@ -28,6 +30,7 @@ _GO_CALL = re.compile(
 )
 _CONNECT = re.compile(rf"\.[ \t]*(?:connect|Connect)[ \t]*\({SP}({STR})")
 _STR = re.compile(STR)
+PY_SPEC = pyregistry.Spec(NAME, CLIENT, "subject", frozenset({"subject", "subjects"}))
 
 
 def _use(name: str, direction: str, rel: str, line: int) -> ChannelUse:
@@ -47,8 +50,9 @@ def _host(value: str | None) -> str | None:
     return hosts[0][0] if hosts else None
 
 
-def _python(rel: str, tree: ast.Module, found: Findings) -> None:
-    if not pycode.imports_any(pycode.imports(tree), ("nats",)):
+def _python(rel: str, tree: ast.Module, found: Findings, regs: pyregistry.Registries) -> None:
+    imps = pycode.imports(tree)
+    if not pycode.imports_any(imps, ("nats",)):
         return
     uses: list[ChannelUse] = []
     host: str | None = None
@@ -63,7 +67,7 @@ def _python(rel: str, tree: ast.Module, found: Findings) -> None:
             raw = pycode.arg(node, 0, "subject")
             if raw is None:
                 continue
-            name = pycode.string(raw)
+            name = regs.string(rel, imps, raw)
             if name is None:
                 _hint(found, pycode.short(raw), rel, node.lineno)
             elif name:
@@ -108,10 +112,11 @@ def parse(files: Files, ctx: Context) -> Findings:
         return found
     found.applied.add(NAME)
     if py:
+        regs = pyregistry.scan(files, ctx, PY_SPEC, PY_WANTED, ("nats",), found)
         for rel, text in codebase.sources(files, ctx, codebase.PYTHON, PY_WANTED, ("nats",)):
             tree = pyast.parse(text)
             if tree is not None:
-                _python(rel, tree, found)
+                _python(rel, tree, found, regs)
     for present, lang, wanted, kind, needles in (
         (js, codebase.NODE, JS_WANTED, codetext.JS, ("subscribe(", "publish(", "request(")),
         (go, codebase.GO, GO_WANTED, codetext.GO, ("Subscribe", "Publish", "Request(")),

@@ -106,6 +106,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
-  ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1).
+  ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
+  (`class Topic(Enum)`, словарь с частью `topic`/`queue`/`subject` в имени) и декоратор
+  потребителя очереди — `pyregistry.py`, одно правило для четырёх разборщиков каналов.
 - `output/` — писатели `schema.yaml`, `facts/`, `agent/`, `coverage.yaml`, `summary.txt` и
   маркера каталога; `texts.py` — все строки для людей.

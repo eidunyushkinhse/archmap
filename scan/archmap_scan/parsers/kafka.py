@@ -9,7 +9,8 @@ Topic: "t" в ProducerMessage, Writer, Message (публикация) и ReaderC
 GroupTopics и Topics, ConsumePartition("t"), Consume(ctx, []string{…}),
 SubscribeTopics([]string{…}). Адрес брокера литералом в том же файле (bootstrap_servers,
 brokers, Brokers) помогает найти брокер-владелец. Имя топика не строкой — в
-hints.dynamic_names.
+hints.dynamic_names. Python: реестры топиков (class Topic(Enum), словарь KAFKA_TOPICS) дают
+топики без направления, а Topic.X в вызове клиента раскрывается в строку (pyregistry.py).
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from __future__ import annotations
 import ast
 import re
 
-from archmap_scan import codebase, codetext, pyast, pycode, texts
+from archmap_scan import codebase, codetext, pyast, pycode, pyregistry, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in
@@ -35,6 +36,7 @@ GO_WANTED = frozenset({
 _PY_MODULES = ("kafka", "confluent_kafka", "aiokafka")
 _PY_CONSUMERS = frozenset({"KafkaConsumer", "AIOKafkaConsumer"})
 _PY_PUBLISH = frozenset({"send", "send_and_wait", "produce"})
+PY_SPEC = pyregistry.Spec(NAME, CLIENT, "topic", frozenset({"topic", "topics"}))
 
 _JS_CALL = re.compile(rf"\.[ \t]*(send|sendBatch|subscribe|createTopics)[ \t]*\({SP}\{{")
 _JS_TOPIC = re.compile(rf"topics?[ \t]*:{SP}(\[?)")
@@ -65,11 +67,22 @@ def _use(name: str, direction: str | None, rel: str, line: int) -> ChannelUse:
 
 # Python
 
-def _py_topics(node: ast.AST | None, at: ast.AST, rel: str, found: Findings,
+class _Py:
+    """Файл Python с клиентом Kafka: импорты и реестры для раскрытия Topic.X."""
+
+    def __init__(self, rel: str, tree: ast.Module, regs: pyregistry.Registries) -> None:
+        self.rel = rel
+        self.tree = tree
+        self.imps = pycode.imports(tree)
+        self.regs = regs
+
+
+def _py_topics(node: ast.AST | None, at: ast.AST, py: _Py, found: Findings,
                direction: str | None, uses: list[ChannelUse]) -> None:
     if node is None:
         return
-    names = pycode.strings(node)
+    rel = py.rel
+    names = py.regs.strings(rel, py.imps, node)
     if names is None:
         _hint(found, pycode.short(node), rel, getattr(at, "lineno", 1))
         return
@@ -88,12 +101,12 @@ def _py_host(call: ast.Call) -> str | None:
     return hosts[0][0] if hosts else None
 
 
-def _python(rel: str, tree: ast.Module, found: Findings) -> None:
-    if not pycode.imports_any(pycode.imports(tree), _PY_MODULES):
+def _python(py: _Py, found: Findings) -> None:
+    if not pycode.imports_any(py.imps, _PY_MODULES):
         return
     uses: list[ChannelUse] = []
     host: str | None = None
-    for node in ast.walk(tree):
+    for node in ast.walk(py.tree):
         if not isinstance(node, ast.Call):
             continue
         host = host or _py_host(node)
@@ -101,14 +114,14 @@ def _python(rel: str, tree: ast.Module, found: Findings) -> None:
         if last in _PY_CONSUMERS:
             for arg in node.args:
                 if not isinstance(arg, ast.Starred):
-                    _py_topics(arg, node, rel, found, "consume", uses)
+                    _py_topics(arg, node, py, found, "consume", uses)
         elif not isinstance(node.func, ast.Attribute):
             if last == "NewTopic":
-                _py_topics(pycode.arg(node, 0, "name"), node, rel, found, None, uses)
+                _py_topics(pycode.arg(node, 0, "name"), node, py, found, None, uses)
         elif last == "subscribe":
-            _py_topics(pycode.arg(node, 0, "topics"), node, rel, found, "consume", uses)
+            _py_topics(pycode.arg(node, 0, "topics"), node, py, found, "consume", uses)
         elif last in _PY_PUBLISH:
-            _py_topics(pycode.arg(node, 0, "topic"), node, rel, found, "publish", uses)
+            _py_topics(pycode.arg(node, 0, "topic"), node, py, found, "publish", uses)
     for use in uses:
         use.broker_host = host
     found.channels.extend(uses)
@@ -254,10 +267,11 @@ def parse(files: Files, ctx: Context) -> Findings:
     found.applied.add(NAME)
     for lang, wanted in stacks:
         if lang == codebase.PYTHON:
+            regs = pyregistry.scan(files, ctx, PY_SPEC, wanted, _PY_MODULES, found)
             for rel, text in codebase.sources(files, ctx, lang, wanted, _PY_MODULES):
                 tree = pyast.parse(text)
                 if tree is not None:
-                    _python(rel, tree, found)
+                    _python(_Py(rel, tree, regs), found)
             continue
         needles = ("topic",) if lang == codebase.NODE else ("Topic", "Consume")
         kind = codetext.JS if lang == codebase.NODE else codetext.GO

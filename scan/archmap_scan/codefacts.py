@@ -11,10 +11,15 @@
 
 Канал принадлежит брокеру (ТЗ §7): брокер по адресу литералом в том же файле или в
 окружении контейнера файла, иначе единственный брокер этого вида, иначе канал уходит в
-hints.unassigned. Направление даёт связь: публикация — контейнер → брокер «публикует»,
-потребление — брокер → контейнер «доставляет» (подпись называет действие источника
-связи), с channel и sync: false; одна связь на пару, направление и канал. Связь «использует» той же пары из манифестов при этом не
-рисуется: связь с каналом сильнее.
+hints.unassigned. Брокера этого вида в манифестах нет вовсе, а клиент в зависимостях и
+каналы в коде есть (Sentry: Kafka, Zulip: RabbitMQ) — объект-брокер по клиенту с именем
+технологии, без host, по образцу базы по миграциям (ТЗ §13.2); у Celery технологию называет
+схема адреса брокера (redis://, amqp://), без неё брокер не создаётся. Направление даёт
+связь: публикация — контейнер → брокер «публикует», потребление — брокер → контейнер
+«доставляет» (подпись называет действие источника связи), с channel и sync: false; одна
+связь на пару, направление и канал. Связь «использует» той же пары из манифестов при этом
+не рисуется: связь с каналом сильнее. Связь, контейнер которой не определим, уходит в
+hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
 нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
@@ -36,6 +41,7 @@ from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, CodeParam, EnvVar, Findings, Loc
 from archmap_scan.objects import (
     BROKER,
+    SHAPE_ORDER,
     Channel,
     Consumer,
     HttpEntry,
@@ -45,6 +51,7 @@ from archmap_scan.objects import (
     Param,
     Schedule,
 )
+from archmap_scan.parsers import celery
 
 EnvOf = dict[str, list[tuple[EnvVar, str]]]
 # Вид клиента → технологии брокера, который его обслуживает.
@@ -52,6 +59,10 @@ _CLIENT_TECH = {
     "Kafka": frozenset({"Kafka", "Redpanda"}), "RabbitMQ": frozenset({"RabbitMQ"}),
     "NATS": frozenset({"NATS"}), "Celery": frozenset({"Redis", "RabbitMQ"}),
 }
+# Клиент → технология брокера по клиенту в порядке создания: Celery последним, его брокер
+# бывает тот же RabbitMQ.
+_CLIENT_BROKER = {"Kafka": "Kafka", "RabbitMQ": "RabbitMQ", "NATS": "NATS"}
+_CLIENT_ORDER = ("Kafka", "RabbitMQ", "NATS", "Celery")
 _LABEL = {"publish": texts.LABEL_PUBLISHES, "consume": texts.LABEL_DELIVERS}
 # Слова команды запуска, по которым контейнер считается веб-сервером своего кода.
 _WEB_WORDS = frozenset({
@@ -213,6 +224,58 @@ def _broker(
     return None, texts.REASON_MANY_BROKERS if brokers else texts.REASON_NO_BROKER
 
 
+def _client_tech(
+    uses: Sequence[ChannelUse], containers: Sequence[Obj], env_of: EnvOf,
+) -> str | None:
+    """Технология брокера для каналов одного клиента: Kafka, RabbitMQ, NATS по клиенту, у
+    Celery — по схеме адреса брокера литералом в коде или в окружении контейнера файла."""
+    client = uses[0].client
+    if client in _CLIENT_BROKER:
+        return _CLIENT_BROKER[client]
+    for use in uses:
+        if use.broker_tech:
+            return use.broker_tech
+    for use in uses:
+        for owner in owners.file_owners(use.loc.path, containers):
+            for var, _parser in env_of.get(owner.name, []):
+                if var.dynamic or var.value is None:
+                    continue
+                if var.name.upper() not in vocab.REDIS_BROKER_VARS:
+                    continue
+                for _host, scheme in hosts_in(var.name, var.value):
+                    tech = celery.SCHEMES.get(scheme or "")
+                    if tech:
+                        return tech
+    return None
+
+
+def _client_brokers(
+    model: Model, uses: Sequence[ChannelUse], containers: Sequence[Obj], env_of: EnvOf,
+) -> None:
+    """Объекты-брокеры по клиенту (ТЗ §13.2): брокера этого вида в манифестах нет, а клиент в
+    зависимостях (иначе разборщик не читал бы файл) и каналы строкой в коде есть. Объект с
+    той же технологией другого вида (Redis-кэш) брокером по клиенту не подменяется: тогда
+    каналы остаются без владельца, как раньше."""
+    by_client: dict[str, list[ChannelUse]] = {}
+    for use in uses:
+        if use.parser in _CODE_PARSERS:
+            by_client.setdefault(use.client, []).append(use)
+    for client in _CLIENT_ORDER:
+        found = sorted(by_client.get(client, []), key=lambda u: (u.loc, u.name))
+        techs = _CLIENT_TECH.get(client, frozenset())
+        if not found or any(o.technology in techs for o in model.objects if o.shape == BROKER):
+            continue
+        tech = _client_tech(found, containers, env_of)
+        if tech is None or any(o.technology == tech or o.name == tech for o in model.objects):
+            continue
+        broker = Obj(name=tech, shape=BROKER, role=vocab.ROLE_BROKER, technology=tech)
+        broker.parsers.append(found[0].parser)
+        broker.locs.add(found[0].loc)
+        model.objects.append(broker)
+        model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
+        model.broker_by_client = True
+
+
 def _worker_queues(model: Model) -> list[tuple[ChannelUse, Obj]]:
     """Очереди из «-Q» в командах воркеров Celery: потребление этим контейнером."""
     out: list[tuple[ChannelUse, Obj]] = []
@@ -249,6 +312,9 @@ def _link(
 def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_of: EnvOf) -> None:
     index: dict[tuple[str, str, str, str], Link] = {}
     uses = [(u, None) for u in findings.channels] + _worker_queues(model)
+    _client_brokers(model, [
+        u for u, _w in uses if codebase.tooling_reason(u.loc.path) is None
+    ], containers, env_of)
     for use, worker in sorted(uses, key=lambda item: (item[0].loc, item[0].name)):
         model.code_parsers.setdefault("channels", set()).add(use.parser)
         aside = _tooling(model, "channels", use.parser, use.loc)
@@ -269,6 +335,12 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
         container = owners.primary(file_owners, prefer)
         if container is None:
+            # Канал записан брокеру, а чья это публикация или подписка, не известно.
+            model.hint("unassigned", {
+                "kind": "edge", "name": use.name, "object": broker.name,
+                "reason": texts.REASON_MANY_OWNERS if file_owners else texts.REASON_SHARED_LIB,
+                "source": str(use.loc),
+            })
             continue
         _link(model, index, container, broker, use)
         if use.direction == "consume":

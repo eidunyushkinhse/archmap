@@ -42,6 +42,10 @@ STARTS: dict[str, tuple[str, ...]] = {
         "app.conf.task_routes = {'a': {'queue': '",
         "app.conf.beat_schedule = {'", "CELERYBEAT_SCHEDULE = {'a': {'schedule': '",
         "@periodic_task(run_every=", "app.add_periodic_task(1, '",
+        # Реестры каналов и декоратор потребителя (pyregistry.py).
+        "class Topic(Enum):\n    A = '", "KAFKA_TOPICS = {'", "TOPICS: dict[str, str] = {'",
+        "@assign_queue('", "@assign_queue(", "@a.b.queue_", "class Queue:\n    X = '",
+        "import kafka\nfrom t import Topic\np.send(Topic.",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",

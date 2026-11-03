@@ -4,17 +4,22 @@ task_routes (значение {"queue": "q"} или строка), kombu Queue("
 CELERY_DEFAULT_QUEUE — объявления очередей; apply_async(queue=) и send_task(…, queue=) —
 публикация. Адрес брокера литералом в том же файле (Celery(broker=…), broker_url) помогает
 найти брокер-владелец. Очереди из «-Q» в командах воркеров собирает сборка из
-entrypoints (codefacts.py). Имя очереди не строкой уходит в hints.dynamic_names.
+entrypoints (codefacts.py). Имя очереди не строкой уходит в hints.dynamic_names. Реестры
+очередей и декоратор потребителя (pyregistry.py) читает этот разборщик, только если клиента
+RabbitMQ в репозитории нет (иначе их объявляет разборщик rabbitmq); член реестра в вызове
+раскрывается в строку всегда. Схема адреса брокера (redis://, amqp://) называет брокер,
+если его нет в манифестах (ТЗ §13.2).
 """
 
 from __future__ import annotations
 
 import ast
 
-from archmap_scan import codebase, pyast, pycode, texts
+from archmap_scan import codebase, pyast, pycode, pyregistry, texts
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in
 from archmap_scan.model import ChannelUse, Findings, Hint, Loc
+from archmap_scan.parsers import rabbitmq
 from archmap_scan.walk import Files
 
 NAME = "celery"
@@ -30,21 +35,32 @@ _DEFAULT_QUEUE = frozenset({
     "task_default_queue", "celery_default_queue", "celery_task_default_queue",
 })
 _BROKER = frozenset({"broker_url", "celery_broker_url", "broker"})
+PY_SPEC = pyregistry.Spec(NAME, CLIENT, "queue", frozenset({"queue", "queues"}), decorators=True)
+_MODULES = ("celery", "kombu")
+# Схема адреса брокера Celery → технология брокера.
+SCHEMES = {
+    "redis": "Redis", "rediss": "Redis", "amqp": "RabbitMQ", "amqps": "RabbitMQ",
+    "pyamqp": "RabbitMQ",
+}
 
 
 class _File:
-    def __init__(self, rel: str, tree: ast.Module, found: Findings) -> None:
+    def __init__(
+        self, rel: str, tree: ast.Module, found: Findings, regs: pyregistry.Registries,
+    ) -> None:
         self.rel = rel
         self.tree = tree
         self.found = found
         self.imps = pycode.imports(tree)
+        self.regs = regs
         self.uses: list[ChannelUse] = []
         self.host: str | None = None
+        self.scheme: str | None = None
 
     def queue(self, node: ast.AST | None, at: ast.AST, direction: str | None) -> None:
         if node is None:
             return
-        name = pycode.string(node)
+        name = self.regs.string(self.rel, self.imps, node)
         if name is None:
             self.found.hints.append(Hint("dynamic_names", {
                 "kind": "channel", "name": pycode.short(node),
@@ -63,7 +79,8 @@ class _File:
         if value and self.host is None:
             hosts = hosts_in("CELERY_BROKER_URL", value)
             if hosts:
-                self.host = hosts[0][0]
+                self.host, scheme = hosts[0]
+                self.scheme = SCHEMES.get(scheme or "")
 
 
 def _routes(f: _File, value: ast.AST, at: ast.AST) -> None:
@@ -116,6 +133,7 @@ def _scan(f: _File) -> None:
                         _assign(f, ast.Name(id=kw.arg), kw.value, node)
     for use in f.uses:
         use.broker_host = f.host
+        use.broker_tech = f.scheme
     f.found.channels.extend(f.uses)
 
 
@@ -124,8 +142,11 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not codebase.stack_present(files, ctx, codebase.PYTHON, WANTED):
         return found
     found.applied.add(NAME)
+    # Очереди реестров и декораторов объявляет разборщик RabbitMQ, если его клиент есть.
+    own = not codebase.stack_present(files, ctx, codebase.PYTHON, rabbitmq.PY_WANTED)
+    regs = pyregistry.scan(files, ctx, PY_SPEC, WANTED, _MODULES, found, declare=own)
     for rel, text in codebase.sources(files, ctx, codebase.PYTHON, WANTED, _NEEDLES):
         tree = pyast.parse(text)
         if tree is not None:
-            _scan(_File(rel, tree, found))
+            _scan(_File(rel, tree, found, regs))
     return found

@@ -175,6 +175,9 @@ class ChannelUse:
     loc: Loc
     parser: str
     broker_host: str | None = None  # адрес брокера литералом в том же файле
+    # Технология брокера по схеме адреса литералом в том же файле (Celery: redis:// →
+    # Redis): нужна, когда брокера в манифестах нет (ТЗ §13.2).
+    broker_tech: str | None = None
 
 
 @dataclass

@@ -9,7 +9,9 @@ default_exchange.publish(…, routing_key="q") — в очередь; basic_cons
 assertQueue('q'), assertExchange('e'), bindQueue, sendToQueue('q'), publish('e', 'k') и
 consume('q'). Адрес брокера литералом в том же файле
 (URLParameters, ConnectionParameters(host=), connect('amqp://…')) помогает найти
-брокер-владелец. Имя не строкой — в hints.dynamic_names.
+брокер-владелец. Имя не строкой — в hints.dynamic_names. Python: реестры очередей (класс или
+словарь с частью queue в имени) дают очереди без направления, член реестра в вызове клиента
+раскрывается в строку, декоратор вида @assign_queue("q") — потребитель (pyregistry.py).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from __future__ import annotations
 import ast
 import re
 
-from archmap_scan import codebase, codetext, pyast, pycode, texts
+from archmap_scan import codebase, codetext, pyast, pycode, pyregistry, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in
@@ -29,6 +31,7 @@ CLIENT = "RabbitMQ"
 PY_WANTED = frozenset({"pika", "aio-pika"})
 JS_WANTED = frozenset({"amqplib", "amqp-connection-manager"})
 _PY_MODULES = ("pika", "aio_pika")
+PY_SPEC = pyregistry.Spec(NAME, CLIENT, "queue", frozenset({"queue", "queues"}), decorators=True)
 _JS_ONE = re.compile(
     rf"\.[ \t]*(assertQueue|assertExchange|sendToQueue|consume|checkQueue)[ \t]*\({SP}"
 )
@@ -43,9 +46,14 @@ _JS_KIND = {
 
 
 class _Uses:
-    def __init__(self, rel: str, found: Findings) -> None:
+    def __init__(
+        self, rel: str, found: Findings, imps: dict[str, pycode.Imported] | None = None,
+        regs: pyregistry.Registries | None = None,
+    ) -> None:
         self.rel = rel
         self.found = found
+        self.imps = imps or {}
+        self.regs = regs
         self.items: list[ChannelUse] = []
         self.host: str | None = None
 
@@ -81,6 +89,8 @@ def _py_name(uses: _Uses, node: ast.AST | None, at: ast.AST) -> str | None:
     if node is None:
         return None
     value = pycode.string(node)
+    if value is None and uses.regs is not None:
+        value = uses.regs.value(uses.rel, uses.imps, node)
     if value is None:
         uses.dynamic(pycode.short(node), getattr(at, "lineno", 1))
     return value
@@ -101,10 +111,11 @@ def _py_publish(uses: _Uses, call: ast.Call, exchange: ast.AST | None) -> None:
         uses.add(queue, "queue", "publish", line)
 
 
-def _python(rel: str, tree: ast.Module, found: Findings) -> None:
-    if not pycode.imports_any(pycode.imports(tree), _PY_MODULES):
+def _python(rel: str, tree: ast.Module, found: Findings, regs: pyregistry.Registries) -> None:
+    imps = pycode.imports(tree)
+    if not pycode.imports_any(imps, _PY_MODULES):
         return
-    uses = _Uses(rel, found)
+    uses = _Uses(rel, found, imps, regs)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -206,10 +217,11 @@ def parse(files: Files, ctx: Context) -> Findings:
         return found
     found.applied.add(NAME)
     if py:
+        regs = pyregistry.scan(files, ctx, PY_SPEC, PY_WANTED, _PY_MODULES, found)
         for rel, text in codebase.sources(files, ctx, codebase.PYTHON, PY_WANTED, _PY_MODULES):
             tree = pyast.parse(text)
             if tree is not None:
-                _python(rel, tree, found)
+                _python(rel, tree, found, regs)
     if js:
         needles = ("Queue(", "Exchange(", "consume(", "publish(", "sendToQueue(")
         for rel, text in codebase.sources(files, ctx, codebase.NODE, JS_WANTED, needles):

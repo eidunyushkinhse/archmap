@@ -42,7 +42,11 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
     if model.db_by_migrations:
         out["databases"].notes.append(texts.NOTE_DB_BY_MIGRATIONS)
+    if model.broker_by_client:
+        out["brokers"].notes.append(texts.NOTE_BROKER_BY_CLIENT)
     out["edges"].found = len(model.links)
+    # Связи по каналу, чей контейнер не определим: канал записан, связи нет (ТЗ §13.2).
+    out["edges"].unassigned = _hints_of(model, "unassigned", "edge")
     out["edges"].contributed = _ordered({p for lk in model.links for p in lk.parsers})
     workers = [w for ws in model.workers.values() for w in ws]
     out["workers"].found = len(workers)
