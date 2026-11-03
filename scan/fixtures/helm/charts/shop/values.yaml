@@ -1,0 +1,14 @@
+image:
+  repository: ghcr.io/org/shop
+  tag: 1.0.0
+worker:
+  replicas: 2
+  image:
+    registry: ghcr.io
+    repository: org/shop-worker
+cache:
+  enabled: false
+  image: redis:7
+sidecars:
+  - name: envoy
+    image: envoyproxy/envoy:v1.30

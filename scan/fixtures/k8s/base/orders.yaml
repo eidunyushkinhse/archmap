@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders
+spec:
+  template:
+    metadata:
+      labels:
+        app: orders
+    spec:
+      containers:
+        - name: orders
+          image: ghcr.io/org/orders:1.4.2
+          command: ["uvicorn"]
+          args: ["orders.main:app"]
+          env:
+            - name: DATABASE_URL
+              value: postgres://orders-db:5432/orders
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef: {name: orders, key: token}
+            - name: SELF
+              value: $(POD_IP)
+          envFrom:
+            - configMapRef:
+                name: orders-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-api
+spec:
+  selector:
+    app: orders
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orders-config
+data:
+  KAFKA_BOOTSTRAP: events:9092
+  LOG_LEVEL: info

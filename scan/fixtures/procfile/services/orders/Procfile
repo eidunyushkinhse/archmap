@@ -1,0 +1,6 @@
+# Процессы сервиса заказов
+web: uvicorn orders.main:app --host 0.0.0.0 --port $PORT
+worker: celery -A orders worker --queues=orders,emails
+beat: celery -A orders beat
+release: alembic upgrade head
+not a process line

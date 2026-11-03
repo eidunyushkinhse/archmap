@@ -22,7 +22,12 @@ def _objects_stat(objs: list[Obj], stat: FamilyStat) -> None:
     stat.contributed = _ordered(used)
 
 
-def families(model: Model, errors: dict[str, str]) -> dict[str, FamilyStat]:
+def families(
+    model: Model,
+    errors: dict[str, str],
+    findings_unsupported: dict[str, list[str]],
+    findings_notes: dict[str, list[str]],
+) -> dict[str, FamilyStat]:
     out: dict[str, FamilyStat] = {}
     for fam in registry.FAMILIES:
         names = registry.parsers_for(fam)
@@ -37,6 +42,20 @@ def families(model: Model, errors: dict[str, str]) -> dict[str, FamilyStat]:
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
     out["edges"].found = len(model.links)
     out["edges"].contributed = _ordered({p for lk in model.links for p in lk.parsers})
+    workers = [w for ws in model.workers.values() for w in ws]
+    out["workers"].found = len(workers)
+    out["workers"].contributed = _ordered({w.parser for w in workers})
+    schedules = [sch for ss in model.schedules.values() for sch in ss]
+    out["schedules"].found = len(schedules)
+    out["schedules"].contributed = _ordered({sch.parser for sch in schedules})
+    for fam, stacks in findings_unsupported.items():
+        for stack in stacks:
+            if stack not in out[fam].unsupported:
+                out[fam].unsupported.append(stack)
+    for fam, notes in findings_notes.items():
+        for note in notes:
+            if note not in out[fam].notes:
+                out[fam].notes.append(note)
     return out
 
 

@@ -248,3 +248,8 @@ NOTE_IMPLICIT_CONTAINER = "контейнер определён по репоз
 
 def parser_failed(parser: str, err: str) -> str:
     return f"разборщик {parser} остановился с ошибкой {err}"
+REASON_RELEASE_PHASE = "фаза выпуска Heroku выполняется один раз при выкладке, это не процесс"
+REASON_TEMPLATE_NAME = "имя программы задаётся шаблоном и известно только при развёртывании"
+REASON_HELM_DISABLED = "компонент чарта выключен в values.yaml (enabled: false)"
+NOTE_HELM_TEMPLATES = "шаблоны Helm (каталог templates) не разбираются"
+STACK_HELM_TEMPLATES = "Helm templates"

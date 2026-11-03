@@ -54,6 +54,7 @@ class Unit:
     home_dir: str | None = None  # каталог манифеста процесса (Procfile): код этого процесса
     language: str | None = None  # язык по базовому образу Dockerfile
     extra_locs: list[Loc] = field(default_factory=list)  # тот же объект в других файлах
+    replicas: int | None = None  # numprocs supervisor: сколько копий процесса
 
 
 @dataclass

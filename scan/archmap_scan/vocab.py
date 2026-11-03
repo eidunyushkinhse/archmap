@@ -240,3 +240,40 @@ def technology(language: str | None, framework: str | None) -> str | None:
     if language and framework:
         return f"{language} + {framework}"
     return language or framework
+
+
+_QUEUE_OPTS = frozenset({"-Q", "--queues", "--queue", "--queue_name", "--queue-name"})
+
+
+def queues_in(command: str | None) -> list[str]:
+    """Очереди из аргументов команды воркера: celery -Q a,b, --queues=a,b, --queue x,
+    --queue_name=x, rq worker a b. Шаблонные вставки (<%= q %>, {{ q }}) не берутся."""
+    if not command:
+        return []
+    tokens = command.split()
+    out: list[str] = []
+
+    def add(raw: str) -> None:
+        for q in raw.split(","):
+            q = q.strip().strip("'\"")
+            if q and not any(m in q for m in ("<%", "%>", "{{", "}}", "$")) and q not in out:
+                out.append(q)
+
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        name, eq, value = tok.partition("=")
+        if name in _QUEUE_OPTS and eq:
+            add(value)
+        elif tok in _QUEUE_OPTS and i + 1 < len(tokens):
+            add(tokens[i + 1])
+            i += 1
+        elif tok.startswith("-Q") and len(tok) > 2:
+            add(tok[2:])
+        i += 1
+    if len(tokens) >= 2 and tokens[0].endswith("rq") and tokens[1] == "worker":
+        for tok in tokens[2:]:
+            if tok.startswith("-"):
+                break
+            add(tok)
+    return out

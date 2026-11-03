@@ -65,6 +65,28 @@ class Link:
 
 
 @dataclass
+class Worker:
+    """Процесс-воркер или планировщик: команда запуска и очереди из её аргументов."""
+
+    command: str
+    queues: list[str]
+    loc: Loc
+    parser: str
+    replicas: int | None = None
+
+
+@dataclass
+class Schedule:
+    """Расписание из манифеста (CronJob): имя, расписание как написано, задача."""
+
+    name: str
+    schedule: str
+    task: str | None
+    loc: Loc
+    parser: str
+
+
+@dataclass
 class Model:
     system: str
     system_locs: list[Loc]
@@ -72,6 +94,8 @@ class Model:
     links: list[Link]
     implicit: bool = False
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
+    workers: dict[str, list[Worker]] = field(default_factory=dict)
+    schedules: dict[str, list[Schedule]] = field(default_factory=dict)
 
     def obj(self, name: str) -> Obj | None:
         return next((o for o in self.objects if o.name == name), None)
@@ -350,4 +374,29 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
     model.links = _links(model, env_of)
     _sources(model, ctx)
+    _entrypoints(model)
     return model
+
+
+def _entrypoints(model: Model) -> None:
+    """Воркеры и планировщики с командами запуска, расписания CronJob (ТЗ §5.3)."""
+    for obj in model.objects:
+        if not obj.is_container:
+            continue
+        workers: list[Worker] = []
+        if obj.role in (vocab.ROLE_WORKER, vocab.ROLE_SCHEDULER):
+            for u in obj.units:
+                if u.command and all(w.command != u.command for w in workers):
+                    workers.append(Worker(
+                        command=u.command, queues=vocab.queues_in(u.command),
+                        loc=u.command_loc or u.loc, parser=u.parser, replicas=u.replicas,
+                    ))
+        if workers:
+            model.workers[obj.name] = workers
+        schedules = [
+            Schedule(name=u.name, schedule=u.schedule, task=u.command, loc=u.loc, parser=u.parser)
+            for u in obj.units
+            if u.schedule
+        ]
+        if schedules:
+            model.schedules[obj.name] = schedules

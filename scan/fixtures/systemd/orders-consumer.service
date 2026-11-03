@@ -1,0 +1,9 @@
+[Unit]
+Description=Потребитель событий заказов
+
+[Service]
+ExecStart=-/usr/bin/python3 -m orders.consumer
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

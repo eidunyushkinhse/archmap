@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: orders-db
+spec:
+  template:
+    spec:
+      containers:
+        - name: pg
+          image: postgres:16
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-db
+spec:
+  clusterIP: None
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cleanup
+spec:
+  schedule: "0 3 * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: cleanup
+              image: ghcr.io/org/orders:1.4.2
+              command: ["python", "-m", "orders.cleanup"]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events
+spec:
+  template:
+    spec:
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.7

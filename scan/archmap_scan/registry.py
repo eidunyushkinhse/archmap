@@ -12,7 +12,15 @@ from dataclasses import dataclass
 
 from archmap_scan.context import Context
 from archmap_scan.model import Findings
-from archmap_scan.parsers import compose, dockerfile
+from archmap_scan.parsers import (
+    compose,
+    dockerfile,
+    helm,
+    k8s,
+    procfile,
+    supervisor,
+    systemd,
+)
 from archmap_scan.walk import Files
 
 # Семьи покрытия в порядке отчёта (ТЗ §8).
@@ -30,10 +38,16 @@ class ParserSpec:
 
 
 _MANIFEST_FAMILIES = ("containers", "databases", "brokers", "edges")
+_PROCESS_FAMILIES = ("containers", "workers")
 
 PARSERS: tuple[ParserSpec, ...] = (
-    ParserSpec(compose.NAME, _MANIFEST_FAMILIES, compose.parse),
+    ParserSpec(compose.NAME, (*_MANIFEST_FAMILIES, "workers"), compose.parse),
     ParserSpec(dockerfile.NAME, ("containers",), dockerfile.parse),
+    ParserSpec(procfile.NAME, _PROCESS_FAMILIES, procfile.parse),
+    ParserSpec(supervisor.NAME, _PROCESS_FAMILIES, supervisor.parse),
+    ParserSpec(systemd.NAME, _PROCESS_FAMILIES, systemd.parse),
+    ParserSpec(k8s.NAME, (*_MANIFEST_FAMILIES, "workers", "schedules"), k8s.parse),
+    ParserSpec(helm.NAME, ("containers", "databases", "brokers"), helm.parse),
 )
 
 

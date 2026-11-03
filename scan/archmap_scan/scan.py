@@ -45,7 +45,7 @@ def run(opts: Options) -> Result:
         repo=ctx.repo,
         commit=ctx.commit,
         stacks=stats.stacks(model),
-        families=stats.families(model, errors),
+        families=stats.families(model, errors, findings.unsupported, findings.notes),
         excluded=listing.excluded,
         too_large=len(files.too_large),
         binary=len(files.binary),

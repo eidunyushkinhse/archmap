@@ -1,0 +1,6 @@
+<% @queues.each do |queue| -%>
+[program:zulip_events_<%= queue %>]
+command=/home/zulip/deployments/current/manage.py process_queue --queue_name=<%= queue %>
+<% end -%>
+[program:smokescreen]
+command=/usr/local/bin/smokescreen --listen-ip=127.0.0.1

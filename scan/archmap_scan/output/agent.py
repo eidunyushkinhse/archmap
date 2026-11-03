@@ -55,10 +55,32 @@ def render_hints(model: Model, ctx: Context) -> str:
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(doc)
 
 
-def render_entrypoints(model: Model, ctx: Context) -> str:
+def entrypoints(model: Model) -> dict[str, object]:
+    """Точки входа по контейнерам: маршруты, воркеры, расписания, потребители (ТЗ §5.3).
+    Маршруты HTTP и потребители ищутся в коде (ярус 2), в этой версии они пусты."""
     doc: dict[str, object] = {}
     for obj in model.objects:
         if not obj.is_container:
             continue
-        doc[obj.name] = {"http": [], "workers": [], "schedules": [], "consumers": []}
-    return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump({"containers": doc})
+        workers: list[dict[str, object]] = []
+        for w in model.workers.get(obj.name, []):
+            item: dict[str, object] = {"command": w.command}
+            if w.queues:
+                item["queues"] = yamlio.FlowSeq(w.queues)
+            if w.replicas and w.replicas > 1:
+                item["replicas"] = w.replicas
+            item["source"] = str(w.loc)
+            workers.append(item)
+        schedules: list[dict[str, object]] = []
+        for sch in model.schedules.get(obj.name, []):
+            entry: dict[str, object] = {"name": sch.name, "schedule": sch.schedule}
+            if sch.task:
+                entry["task"] = sch.task
+            entry["source"] = str(sch.loc)
+            schedules.append(entry)
+        doc[obj.name] = {"http": [], "workers": workers, "schedules": schedules, "consumers": []}
+    return {"containers": doc}
+
+
+def render_entrypoints(model: Model, ctx: Context) -> str:
+    return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(entrypoints(model))
