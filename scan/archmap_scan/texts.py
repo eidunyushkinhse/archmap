@@ -234,6 +234,7 @@ REASON_EXTENDS = "extends не раскрывается: сервис описа
 REASON_INCLUDE = "include не раскрывается: подключённые файлы compose не читаются"
 REASON_ENV_FILE = "env_file не читается: в файлах окружения бывают секреты"
 REASON_BUILD_OUTSIDE = "каталог сборки вне области обхода"
+REASON_BUILD_MISSING = "каталог сборки не найден в репозитории"
 REASON_BAD_YAML = "файл не разбирается как YAML или превышает пределы разбора"
 REASON_DYNAMIC_VALUE = "значение с подстановкой переменной, адрес из него не взят"
 REASON_PROFILE = "сервис включается только профилем compose"

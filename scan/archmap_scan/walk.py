@@ -320,8 +320,20 @@ class Files:
         self.root = root
         self.paths: tuple[str, ...] = tuple(sorted(paths))
         self._cache: dict[str, str | None] = {}
+        self._dirs: frozenset[str] | None = None
         self.too_large: set[str] = set()
         self.binary: set[str] = set()
+
+    def has_dir(self, folder: str) -> bool:
+        """В каталоге folder есть хотя бы один файл обхода (корень «» — если обход не пуст)."""
+        if self._dirs is None:
+            dirs: set[str] = set()
+            for rel in self.paths:
+                parts = rel.split("/")[:-1]
+                for i in range(len(parts)):
+                    dirs.add("/".join(parts[: i + 1]))
+            self._dirs = frozenset(dirs)
+        return bool(self.paths) if folder == "" else folder in self._dirs
 
     def read(self, rel: str) -> str | None:
         """Текст файла или None: больше предела, двоичный, не читается."""

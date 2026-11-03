@@ -116,3 +116,33 @@ def test_unreadable_listed_file_is_skipped(tmp_path: Path) -> None:
     files = Files(tmp_path, ["docker-compose.yml"])
     ctx, _ = files_of(tmp_path)
     assert compose.parse(files, ctx).units == []
+
+
+def test_missing_build_context_is_not_code_dir(tmp_path: Path) -> None:
+    """Контекст сборки, которого нет в обходе (находка фазы 1а на Grafana: путь,
+    записанный относительно другого корня), каталогом кода не становится: path не
+    ставится, причина — в подсказках."""
+    tree(tmp_path, {
+        "deploy/docker-compose.yml": (
+            "services:\n"
+            "  api:\n    build: ../services/api\n"
+            "  ghost:\n    build:\n      context: docker/blocks/ghost\n"
+        ),
+        "services/api/main.py": "print('api')\n",
+    })
+    found = _parse(tmp_path)
+    assert _unit(found, "api").build_dir == "services/api"
+    ghost = _unit(found, "ghost")
+    assert ghost.build_dir is None and ghost.dockerfile is None
+    hints = [h.data for h in found.hints if h.section == "unassigned"]
+    assert hints == [{
+        "kind": "container", "name": "ghost", "reason": "каталог сборки не найден в репозитории",
+        "source": "deploy/docker-compose.yml:5",
+    }]
+
+
+def test_files_has_dir(tmp_path: Path) -> None:
+    files = Files(tmp_path, ["a/b/c.txt", "d.txt"])
+    assert files.has_dir("") and files.has_dir("a") and files.has_dir("a/b")
+    assert not files.has_dir("a/b/c.txt") and not files.has_dir("x")
+    assert not Files(tmp_path, []).has_dir("")

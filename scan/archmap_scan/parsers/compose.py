@@ -82,7 +82,11 @@ def _depends(svc: LineDict, rel: str) -> list[tuple[str, Loc]]:
     return out
 
 
-def _build(svc: LineDict, rel: str, name: str, found: Findings) -> tuple[str | None, str | None]:
+def _build(
+    svc: LineDict, rel: str, name: str, found: Findings, files: Files,
+) -> tuple[str | None, str | None]:
+    """Каталог кода и путь Dockerfile из build. Каталог, которого нет в обходе (контекст
+    относительно другого корня, удалённый каталог), каталогом кода не считается (ТЗ §5.1)."""
     build = svc.get("build")
     if build is None:
         return None, None
@@ -102,6 +106,12 @@ def _build(svc: LineDict, rel: str, name: str, found: Findings) -> tuple[str | N
             "source": str(Loc(rel, svc.line_of("build"))),
         }))
         return None, None
+    if not files.has_dir(folder):
+        found.hints.append(Hint("unassigned", {
+            "kind": "container", "name": name, "reason": texts.REASON_BUILD_MISSING,
+            "source": str(Loc(rel, svc.line_of("build"))),
+        }))
+        return None, None
     docker = paths.join(folder, dockerfile) if isinstance(dockerfile, str) else None
     return folder, docker
 
@@ -118,9 +128,11 @@ def _services(doc: LineDict) -> LineDict | None:
     return None
 
 
-def _unit(name: str, svc: LineDict, rel: str, line: int, found: Findings) -> Unit:
+def _unit(
+    name: str, svc: LineDict, rel: str, line: int, found: Findings, files: Files,
+) -> Unit:
     image = svc.get("image")
-    folder, docker = _build(svc, rel, name, found)
+    folder, docker = _build(svc, rel, name, found, files)
     command, cmd_line = _command(svc)
     unit = Unit(
         name=name,
@@ -188,7 +200,7 @@ def parse(files: Files, ctx: Context) -> Findings:
                 if name not in units:
                     dev_only.setdefault(name, Loc(rel, line))
                 continue
-            unit = _unit(name, svc, rel, line, found)
+            unit = _unit(name, svc, rel, line, found, files)
             if name in units:
                 _merge(units[name], unit)
             else:
