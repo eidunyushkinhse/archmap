@@ -277,3 +277,11 @@ def alembic_broken(revision: str, parent: str) -> str:
 
 
 REASON_BAD_PYTHON = "файл миграции не разбирается как Python"
+
+
+def django_cycle(migrations: list[str]) -> str:
+    return "цикл миграций Django: " + ", ".join(migrations[:5])
+
+
+def django_broken(migration: str, parent: str) -> str:
+    return f"обрыв цепочки Django: миграция {migration} ссылается на неизвестную миграцию {parent}"

@@ -15,6 +15,7 @@ from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     alembic,
     compose,
+    django,
     dockerfile,
     envexample,
     helm,
@@ -56,6 +57,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(envexample.NAME, ("edges", "config"), envexample.parse),
     ParserSpec(sql.NAME, ("tables",), sql.parse),
     ParserSpec(alembic.NAME, ("tables",), alembic.parse),
+    ParserSpec(django.NAME, ("tables",), django.parse),
 )
 
 

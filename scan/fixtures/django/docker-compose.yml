@@ -1,0 +1,7 @@
+services:
+  web:
+    build: .
+    environment:
+      DATABASE_URL: postgres://web:pw@db:5432/web
+  db:
+    image: postgres:16

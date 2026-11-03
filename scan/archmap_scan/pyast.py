@@ -49,18 +49,6 @@ def kwargs(call: ast.Call) -> dict[str, ast.expr]:
     return {kw.arg: kw.value for kw in call.keywords if kw.arg}
 
 
-def dotted(node: ast.AST) -> str | None:
-    """sa.types.String → «sa.types.String»; не цепочка имён — None."""
-    parts: list[str] = []
-    while isinstance(node, ast.Attribute):
-        parts.append(node.attr)
-        node = node.value
-    if isinstance(node, ast.Name):
-        parts.append(node.id)
-        return ".".join(reversed(parts))
-    return None
-
-
 def last_name(node: ast.AST) -> str | None:
     """Последнее имя вызываемого: sa.Column → Column, models.CharField → CharField."""
     target = node.func if isinstance(node, ast.Call) else node
