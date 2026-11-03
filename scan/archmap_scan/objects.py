@@ -154,9 +154,16 @@ class Model:
     channels: dict[str, dict[str, Channel]] = field(default_factory=dict)
     # Семья яруса кода → разборщики, давшие записи (с владельцем и без): для coverage.
     code_parsers: dict[str, set[str]] = field(default_factory=dict)
+    # Уже записанные подсказки по разделам: одинаковая запись пишется один раз, поэтому
+    # счёт подсказок в покрытии совпадает с hints.yaml.
+    _hint_keys: set[tuple[str, str]] = field(default_factory=set, init=False, repr=False)
 
     def obj(self, name: str) -> Obj | None:
         return next((o for o in self.objects if o.name == name), None)
 
     def hint(self, section: str, data: dict[str, object]) -> None:
+        key = (section, repr(sorted(data.items())))
+        if key in self._hint_keys:
+            return
+        self._hint_keys.add(key)
         self.hints.setdefault(section, []).append(data)

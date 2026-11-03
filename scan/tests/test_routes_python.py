@@ -113,3 +113,41 @@ def test_framework_without_routes_is_empty(tmp_path: Path) -> None:
     result = run(Options(path=str(tmp_path / "repo"), out=str(tmp_path / "out"), use_git=False))
     stat = result.coverage.families["http_routes"]
     assert stat.status == "empty" and stat.ran == ["flask"]
+
+
+def test_same_route_included_twice_written_once(tmp_path: Path) -> None:
+    """Находка фазы 1б на Zulip: i18n_urls подключён дважды, и маршрут «ANY /» с одним
+    источником был записан два раза. Одинаковая запись пишется один раз, счёт — по
+    записанному (ТЗ §5.3)."""
+    root = tree(tmp_path / "repo", {
+        "Dockerfile": "FROM python:3.12\nCMD gunicorn proj.wsgi\n",
+        "requirements.txt": "django\n",
+        "proj/__init__.py": "",
+        "proj/settings.py": 'ROOT_URLCONF = "proj.urls"\n',
+        "proj/urls.py": (
+            "from django.urls import include, path\nurlpatterns = [\n"
+            '    path("", include("proj.i18n_urls")),\n'
+            '    path("", include("proj.i18n_urls")),\n]\n'
+        ),
+        "proj/i18n_urls.py": (
+            "from django.urls import path\nfrom proj import views\n"
+            'urlpatterns = [path("", views.home)]\n'
+        ),
+        "proj/views.py": "def home(r):\n    return r\n",
+    })
+    model = model_of(root, system="shop")
+    assert [(e.method, e.path, str(e.loc)) for es in model.http.values() for e in es] == [
+        ("ANY", "/", "proj/i18n_urls.py:3"),
+    ]
+    result = run(Options(path=str(root), out=str(tmp_path / "out"), use_git=False))
+    assert result.coverage.families["http_routes"].found == 1
+
+
+def test_same_hint_written_once() -> None:
+    from archmap_scan.objects import Model
+
+    model = Model(system="s", system_locs=[], objects=[], links=[])
+    for _ in range(2):
+        model.hint("profiles", {"kind": "container", "name": "a", "profiles": ["dev"]})
+    model.hint("profiles", {"kind": "container", "name": "b", "profiles": ["dev"]})
+    assert [h["name"] for h in model.hints["profiles"]] == ["a", "b"]

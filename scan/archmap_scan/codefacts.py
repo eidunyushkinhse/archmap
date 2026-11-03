@@ -82,8 +82,16 @@ def _unassigned(model: Model, kind: str, name: str, reason: str, loc: Loc) -> No
 
 
 def _routes(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
+    """Маршруты владельцам. Одинаковые записи (метод, путь, фреймворк, префикс, источник)
+    пишутся один раз (ТЗ §5.3): Zulip подключает i18n_urls дважды, маршрут от этого не
+    удваивается; счёт в покрытии идёт по записанному."""
+    seen: set[tuple[str, str, str, bool, Loc]] = set()
     for route in sorted(findings.routes, key=lambda r: (r.loc, r.path, r.method)):
         model.code_parsers.setdefault("http_routes", set()).add(route.parser)
+        key = (route.method, route.path, route.framework, route.prefix_unresolved, route.loc)
+        if key in seen:
+            continue
+        seen.add(key)
         owner, why = route_owner(route.loc.path, containers)
         if owner is None:
             _unassigned(model, "route", f"{route.method} {route.path}", why or "", route.loc)

@@ -58,14 +58,11 @@ def _sort_key(item: dict[str, object]) -> tuple[str, ...]:
 
 
 def render_hints(model: Model, ctx: Context) -> str:
-    doc: dict[str, object] = {}
-    for section in HINT_SECTIONS:
-        items = model.hints.get(section, [])
-        unique: list[dict[str, object]] = []
-        for item in sorted(items, key=_sort_key):
-            if item not in unique:
-                unique.append(item)
-        doc[section] = unique
+    """Разделы подсказок в постоянном порядке; повторов нет по построению (Model.hint)."""
+    doc: dict[str, object] = {
+        section: sorted(model.hints.get(section, []), key=_sort_key)
+        for section in HINT_SECTIONS
+    }
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(doc)
 
 
