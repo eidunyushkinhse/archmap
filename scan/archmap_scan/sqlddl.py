@@ -65,6 +65,17 @@ _TABLE_CONSTRAINTS = frozenset({
     "CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "KEY", "INDEX", "FULLTEXT",
     "SPATIAL", "EXCLUDE", "LIKE", "PERIOD",
 })
+# Типы, по которым «key text», «index integer», «check boolean» — колонка с именем
+# ключевого слова, а не ограничение таблицы.
+_COLUMN_TYPES = frozenset({
+    "INT", "INTEGER", "BIGINT", "SMALLINT", "TINYINT", "MEDIUMINT", "SERIAL", "BIGSERIAL",
+    "SMALLSERIAL", "TEXT", "VARCHAR", "VARCHAR2", "CHAR", "CHARACTER", "NVARCHAR", "NCHAR",
+    "NTEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT", "CLOB", "BLOB", "BYTEA", "BINARY",
+    "VARBINARY", "UUID", "UNIQUEIDENTIFIER", "JSON", "JSONB", "BOOLEAN", "BOOL", "BIT",
+    "DATE", "TIME", "TIMESTAMP", "TIMESTAMPTZ", "DATETIME", "DATETIME2", "INTERVAL",
+    "NUMERIC", "DECIMAL", "NUMBER", "REAL", "FLOAT", "DOUBLE", "MONEY", "INET", "CIDR",
+    "CITEXT", "ENUM", "XML", "STRING", "INT2", "INT4", "INT8", "FLOAT4", "FLOAT8", "HSTORE",
+})
 
 
 @dataclass(frozen=True)
@@ -425,7 +436,7 @@ def _create(p: _Parser, schema: Schema, loc: Loc) -> bool:
             break
         if p.op(","):
             continue
-        if p.up() in _TABLE_CONSTRAINTS:
+        if p.up() in _TABLE_CONSTRAINTS and p.up(1) not in _COLUMN_TYPES:
             _table_constraint(p, table, schema)
             continue
         col = column_def(p, schema, loc)
@@ -442,7 +453,8 @@ def _create(p: _Parser, schema: Schema, loc: Loc) -> bool:
 def _alter_action(p: _Parser, table: Table, schema: Schema, loc: Loc) -> bool:
     """Одно действие ALTER TABLE; False — действие не понято."""
     if p.take("ADD"):
-        if p.up() in ("CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "INDEX", "KEY"):
+        if p.up() in ("CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "INDEX", "KEY") \
+                and p.up(1) not in _COLUMN_TYPES:
             _table_constraint(p, table, schema)
             return True
         p.take("COLUMN")

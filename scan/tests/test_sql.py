@@ -143,3 +143,20 @@ def test_is_migration() -> None:
     assert not sql.is_migration("migrations/1.down.sql")
     assert not sql.is_migration("reports/query.sql")
     assert sql.natural_key("V2__a.sql") < sql.natural_key("V10__a.sql")
+
+
+def test_columns_named_like_keywords() -> None:
+    schema = sqlddl.Schema()
+    sqlddl.apply_text(
+        "CREATE TABLE settings (key text PRIMARY KEY, index integer, check boolean NOT NULL,"
+        " KEY idx_index (index), CHECK (index > 0), UNIQUE (key));"
+        "ALTER TABLE settings ADD key varchar(10), ADD KEY idx_check (check);",
+        "s.sql", schema,
+    )
+    table = schema.tables[("", "settings")]
+    assert _cols(table) == [
+        ("key", "text", True, True, None),
+        ("index", "integer", False, False, None),
+        ("check", "boolean", False, True, None),
+    ]
+    assert schema.skipped == 0
