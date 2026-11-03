@@ -245,6 +245,9 @@ REASON_SHARED_CODE = (
 )
 REASON_DEPENDS_ON = "depends_on задаёт порядок запуска, а не вызов, поэтому связь не нарисована"
 NOTE_IMPLICIT_CONTAINER = "контейнер определён по репозиторию, не по манифесту"
+NOTE_DB_BY_MIGRATIONS = "база определена по миграциям, не по манифесту"
+# Имя объекта-базы, диалект которой по миграциям не опознан (ТЗ §7, пункт 3).
+UNKNOWN_DATABASE = "База данных"
 
 
 def parser_failed(parser: str, err: str) -> str:

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 import re
 
-from archmap_scan import paths, sqlddl
+from archmap_scan import dialect, paths, sqlddl
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, TableSet
+from archmap_scan.model import Findings, Loc, TableSet
 from archmap_scan.walk import Files
 
 NAME = "sql"
@@ -57,16 +57,22 @@ def parse(files: Files, ctx: Context) -> Findings:
         sets.setdefault(set_dir(rel), []).append(rel)
     for folder in sorted(sets):
         schema = sqlddl.Schema()
+        found_dialect: tuple[str, Loc] | None = None
         for rel in sorted(sets[folder], key=natural_key):
             text = files.read(rel)
             if text is None:
                 continue
             sqlddl.apply_text(text, rel, schema)
+            if found_dialect is None:
+                hit = dialect.sql_types(text)
+                found_dialect = (hit[0], Loc(rel, hit[1])) if hit else None
         if not schema.tables and not schema.skipped and not schema.dropped:
             continue
         found.table_sets.append(TableSet(
             parser=NAME, dir=folder, tables=list(schema.tables.values()),
             dropped=schema.dropped, skipped=schema.skipped,
             skipped_examples=list(schema.examples),
+            dialect=found_dialect[0] if found_dialect else None,
+            dialect_loc=found_dialect[1] if found_dialect else None,
         ))
     return found

@@ -15,7 +15,7 @@ import ast
 import heapq
 from dataclasses import dataclass, field
 
-from archmap_scan import paths, pyast, texts
+from archmap_scan import dialect, paths, pyast, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Column, Findings, Hint, Loc, Table, TableSet
 from archmap_scan.walk import Files
@@ -534,14 +534,37 @@ def _label(files: Files, app_dir: str) -> str:
     return paths.name(app_dir) or "app"
 
 
-def _user_model(files: Files) -> tuple[str, str]:
-    """AUTH_USER_MODEL из файлов настроек (каталог или имя со словом settings, каталог conf)."""
+def _settings_files(files: Files) -> list[str]:
+    """Файлы настроек Django: каталог или имя со словом settings, каталог conf."""
+    out = []
     for rel in files.paths:
         if not rel.endswith(".py"):
             continue
         parts = rel.lower().split("/")
-        if not any("settings" in p or p == "conf" for p in parts):
+        if any("settings" in p or p == "conf" for p in parts):
+            out.append(rel)
+    return out
+
+
+def _engine(files: Files) -> tuple[str, Loc] | None:
+    """Диалект базы по DATABASES[…]["ENGINE"] в настройках (ТЗ §7, пункт 3). SQLite уступает
+    другим движкам: обычно это настройки разработки и тестов."""
+    found: list[tuple[str, Loc]] = []
+    for rel in _settings_files(files):
+        text = files.read(rel)
+        if text is None or "ENGINE" not in text:
             continue
+        hit = dialect.django_engine(text)
+        if hit is not None:
+            found.append((hit[0], Loc(rel, hit[1])))
+    real = [f for f in found if f[0] != dialect.SQLITE]
+    best = real or found
+    return best[0] if best else None
+
+
+def _user_model(files: Files) -> tuple[str, str]:
+    """AUTH_USER_MODEL из файлов настроек (каталог или имя со словом settings, каталог conf)."""
+    for rel in _settings_files(files):
         text = files.read(rel)
         if text is None or "AUTH_USER_MODEL" not in text:
             continue
@@ -611,6 +634,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         return found
     for m in ordered:
         _apply(m.operations, m.app, state, m.path)
+    engine = _engine(files)
     for app, app_dir in sorted(app_dirs.items()):
         stats = state.app_stats(app)
         tables = _tables(state, app)
@@ -619,6 +643,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         found.table_sets.append(TableSet(
             parser=NAME, dir=app_dir, tables=tables, dropped=stats.dropped,
             skipped=stats.skipped, skipped_examples=list(stats.examples),
+            dialect=engine[0] if engine else None, dialect_loc=engine[1] if engine else None,
         ))
     return found
 

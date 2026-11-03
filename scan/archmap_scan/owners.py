@@ -36,6 +36,46 @@ def code_owners(rel: str, containers: Sequence[Obj]) -> list[Obj]:
     return owners
 
 
+# Расширение файла → язык кода: им отбираются владельцы среди контейнеров одного каталога
+# (корень Zulip — и процессы Python, и процесс Node.js).
+_EXT_LANGUAGE = {
+    ".py": "Python", ".js": "Node.js", ".mjs": "Node.js", ".cjs": "Node.js", ".ts": "Node.js",
+    ".mts": "Node.js", ".cts": "Node.js", ".jsx": "Node.js", ".tsx": "Node.js", ".go": "Go",
+    ".rb": "Ruby", ".php": "PHP", ".java": "Java", ".kt": "Java", ".rs": "Rust",
+    ".ex": "Elixir", ".exs": "Elixir", ".cs": ".NET",
+}
+
+
+def file_language(rel: str) -> str | None:
+    name = paths.name(rel)
+    dot = name.rfind(".")
+    return _EXT_LANGUAGE.get(name[dot:].lower()) if dot > 0 else None
+
+
+def file_owners(rel: str, containers: Sequence[Obj], language: str | None = None) -> list[Obj]:
+    """Контейнеры файла кода: code_owners, а среди нескольких — те, чей язык совпадает с
+    языком файла (если такие есть)."""
+    found = code_owners(rel, containers)
+    lang = language or file_language(rel)
+    if len(found) > 1 and lang is not None:
+        same = [o for o in found if o.language == lang]
+        if same:
+            return same
+    return found
+
+
+def primary(owners: Sequence[Obj], prefer: str | None = None) -> Obj | None:
+    """Единственный владелец или единственный с ролью prefer среди нескольких; None —
+    владелец не определим (контейнеры собраны из одного каталога)."""
+    if len(owners) == 1:
+        return owners[0]
+    if prefer is not None:
+        picked = [o for o in owners if o.role == prefer]
+        if len(picked) == 1:
+            return picked[0]
+    return None
+
+
 def database_for(
     folder: str, containers: Sequence[Obj], databases: Sequence[Obj],
     env_of: dict[str, list[EnvVar]],

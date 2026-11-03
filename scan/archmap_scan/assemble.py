@@ -14,7 +14,16 @@ from dataclasses import dataclass, field
 from archmap_scan import owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
-from archmap_scan.model import Dockerfile, EnvVar, Findings, Loc, Package, Table, Unit
+from archmap_scan.model import (
+    Dockerfile,
+    EnvVar,
+    Findings,
+    Loc,
+    Package,
+    Table,
+    TableSet,
+    Unit,
+)
 from archmap_scan.walk import Pattern, is_dev_path
 
 SERVICE, DATABASE, BROKER = "service", "database", "broker"
@@ -115,6 +124,7 @@ class Model:
     objects: list[Obj]
     links: list[Link]
     implicit: bool = False
+    db_by_migrations: bool = False  # есть база, определённая по миграциям (ТЗ §7, пункт 3)
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     workers: dict[str, list[Worker]] = field(default_factory=dict)
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)
@@ -576,6 +586,8 @@ def _tables(
                 "source": str(loc),
             })
         db, why = owners.database_for(ts.dir, containers, databases, plain)
+        if db is None and why == "no_database" and ts.tables:
+            db = _migration_database(model, ts, containers)
         if db is None:
             stats.unassigned += len(ts.tables)
             for table in ts.tables:
@@ -594,6 +606,39 @@ def _tables(
             for col in table.columns:
                 if same.column(col.name) is None:
                     same.columns.append(col)
+
+
+_MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python"}
+
+
+def _migration_database(model: Model, ts: TableSet, containers: list[Obj]) -> Obj:
+    """Базы в манифестах нет, а миграции есть (Sentry, Zulip): объект-база по признакам
+    миграций (ТЗ §7, пункт 3). Имя — имя диалекта, диалект не опознан — «База данных» без
+    технологии; source нет. Контейнер-владелец каталога миграций, если он определён,
+    получает связь «использует»."""
+    name = ts.dialect or texts.UNKNOWN_DATABASE
+    db = model.obj(name)
+    if db is None:
+        db = Obj(name=name, shape=DATABASE, role=vocab.ROLE_DB, technology=ts.dialect)
+        model.objects.append(db)
+        model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
+        model.db_by_migrations = True
+    if ts.parser not in db.parsers:
+        db.parsers.append(ts.parser)
+    first = min(loc for table in ts.tables for loc in table.locs)
+    db.locs.add(ts.dialect_loc or first)
+    found = owners.file_owners(ts.dir or ".", containers, _MIGRATION_LANGUAGE.get(ts.parser))
+    owner = owners.primary(found, vocab.ROLE_SERVICE)
+    if owner is not None:
+        links = {(lk.src.name, lk.dst.name): lk for lk in model.links}
+        link = links.get((owner.name, db.name))
+        if link is None:
+            link = Link(src=owner, dst=db, label="использует", technology=db.technology)
+            model.links.append(link)
+            model.links.sort(key=lambda lk: (lk.src.name, lk.dst.name))
+        link.locs.add(first)
+        link.parsers.add(ts.parser)
+    return db
 
 
 def _params(

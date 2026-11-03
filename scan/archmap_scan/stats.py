@@ -36,6 +36,8 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         _objects_stat([o for o in model.objects if o.shape == shape], out[fam])
     if model.implicit:
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
+    if model.db_by_migrations:
+        out["databases"].notes.append(texts.NOTE_DB_BY_MIGRATIONS)
     out["edges"].found = len(model.links)
     out["edges"].contributed = _ordered({p for lk in model.links for p in lk.parsers})
     workers = [w for ws in model.workers.values() for w in ws]

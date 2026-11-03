@@ -128,6 +128,10 @@ class TableSet:
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
     error: str | None = None
+    # Диалект базы по признакам миграций (dialect.py) и его основание: из него строится
+    # объект-база, если базы в манифестах нет (ТЗ §7, пункт 3).
+    dialect: str | None = None
+    dialect_loc: Loc | None = None
 
 
 @dataclass

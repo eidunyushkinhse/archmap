@@ -14,7 +14,7 @@ import ast
 import heapq
 from dataclasses import dataclass, field
 
-from archmap_scan import paths, pyast, sqlddl, texts
+from archmap_scan import dialect, paths, pyast, sqlddl, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Column, Findings, Hint, Loc, Table, TableSet
 from archmap_scan.walk import Files
@@ -423,6 +423,26 @@ def alembic_dirs(files: Files) -> list[str]:
     return sorted(dirs)
 
 
+def _dialect(files: Files, base: str) -> tuple[str, Loc] | None:
+    """Диалект набора: sqlalchemy.url в alembic.ini каталога миграций или выше по дереву,
+    иначе адрес базы литералом в env.py."""
+    present = set(files.paths)
+    folder: str | None = base
+    for _ in range(16):
+        if folder is None:
+            break
+        ini = f"{folder}/alembic.ini" if folder else "alembic.ini"
+        text = files.read(ini) if ini in present else None
+        hit = dialect.alembic_url(text) if text else None
+        if hit is not None:
+            return hit[0], Loc(ini, hit[1])
+        folder = paths.parent(folder) if folder else None
+    env = f"{base}/env.py" if base else "env.py"
+    text = files.read(env) if env in present else None
+    hit = dialect.url_literal(text) if text else None
+    return (hit[0], Loc(env, hit[1])) if hit else None
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     for base in alembic_dirs(files):
@@ -452,9 +472,11 @@ def parse(files: Files, ctx: Context) -> Findings:
         for rev in ordered:
             if rev.upgrade is not None:
                 _apply_body(rev.upgrade.body, state, rev.path, ("op",), None)
+        hit = _dialect(files, base)
         found.table_sets.append(TableSet(
             parser=NAME, dir=base, tables=list(state.schema.tables.values()),
             dropped=state.schema.dropped, skipped=state.schema.skipped,
             skipped_examples=list(state.schema.examples),
+            dialect=hit[0] if hit else None, dialect_loc=hit[1] if hit else None,
         ))
     return found
