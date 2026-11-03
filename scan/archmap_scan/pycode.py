@@ -115,11 +115,12 @@ def text_of(value: object) -> str | None:
 
 
 def literal_default(node: ast.AST | None) -> tuple[bool, str | None]:
-    """(дефолт есть, его текст): нелитерал — дефолт есть, текста нет; None — дефолта нет."""
+    """(дефолт есть, его текст). Нет выражения или «...» (обязательное поле pydantic):
+    дефолта нет. None и нелитерал: дефолт есть, но текста у него нет."""
     if node is None:
         return False, None
     if isinstance(node, ast.Constant):
-        if node.value is None or node.value is Ellipsis:
+        if node.value is Ellipsis:
             return False, None
         return True, text_of(node.value)
     return True, None

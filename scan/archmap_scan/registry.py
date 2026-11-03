@@ -22,13 +22,16 @@ from archmap_scan.parsers import (
     express,
     fastapi,
     flask,
+    goenv,
     gohttp,
     helm,
     k8s,
     manifests,
     nest,
+    nodeenv,
     openapi,
     procfile,
+    pyenv,
     sql,
     supervisor,
     systemd,
@@ -76,6 +79,9 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(express.NAME, ("http_routes",), express.parse, code=True),
     ParserSpec(nest.NAME, ("http_routes",), nest.parse, code=True),
     ParserSpec(gohttp.NAME, ("http_routes",), gohttp.parse, code=True),
+    ParserSpec(pyenv.NAME, ("config",), pyenv.parse, code=True),
+    ParserSpec(nodeenv.NAME, ("config",), nodeenv.parse, code=True),
+    ParserSpec(goenv.NAME, ("config",), goenv.parse, code=True),
 )
 
 

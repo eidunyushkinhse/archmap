@@ -203,6 +203,10 @@ CHANNEL_CLIENTS = frozenset({"Kafka", "RabbitMQ", "Celery", "NATS"})
 
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
+# Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки
+# конфигурации, которые он не читает (ТЗ §6.4: ключи viper).
+CONFIG_LANGUAGES = frozenset({"Python", "Node.js", "Go"})
+UNSUPPORTED_CONFIG_DEPS: tuple[tuple[str, str], ...] = (("github.com/spf13/viper", "viper"),)
 ROUTE_FRAMEWORKS = frozenset({
     "FastAPI", "Starlette", "Flask", "Django", "Express", "Fastify", "Koa", "NestJS", "Gin",
     "Echo", "chi", "Fiber",

@@ -26,17 +26,20 @@ STARTS: dict[str, tuple[str, ...]] = {
     "py/app.py": (
         '@app.get("', "@app.route('", "@", "@a.", 'app.include_router(r, prefix="',
         'r = APIRouter(prefix="', 'urlpatterns = [path("', 'ROOT_URLCONF = "',
-        "urlpatterns = [path('', include('",
+        "urlpatterns = [path('', include('", 'os.getenv("', 'os.environ["',
+        "class S(BaseSettings):\n    x: int = ",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
         "const app = express(", "app.use('", "app.use(", "/*", "'", "`", "\\", ".",
-        "app.get(", "app.setGlobalPrefix(",
+        "app.get(", "app.setGlobalPrefix(", "process.env.", "process.env['",
+        "process.env.X || '", "process.env[",
     ),
     "go/main.go": (
         'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',
         'r.HandleFunc("/p", h).Methods(', "r.GET(", "x := gin.Default(", "`", "{",
-        'r.Handle("GET", ',
+        'r.Handle("GET", ', 'os.Getenv("', "type C struct {\n\tA string `env:\"",
+        "os.LookupEnv(",
     ),
 }
 

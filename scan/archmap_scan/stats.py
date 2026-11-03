@@ -56,11 +56,13 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     if model.table_stats.errors:
         tables.error = "; ".join(model.table_stats.errors)
     params = [p for table in model.params.values() for p in table.values()]
-    out["config"].found = len(params)
-    out["config"].unassigned = sum(
-        1 for h in model.hints.get("unassigned", []) if h.get("kind") == "config"
-    )
-    out["config"].contributed = _ordered({x for p in params for x in p.parsers})
+    config = out["config"]
+    config.found = len(params)
+    config.unassigned = _hints_of(model, "unassigned", "config")
+    config.dynamic_names = _hints_of(model, "dynamic_names", "config")
+    code_parsers = {r.parser for r in findings.code_params}
+    config.contributed = _ordered({x for p in params for x in p.parsers} | code_parsers)
+    config.from_code = bool(code_parsers)
     _code_family(out["http_routes"], model, findings, "route",
                  sum(len(v) for v in model.http.values()), {r.parser for r in findings.routes})
     unsupported = code_unsupported(findings)
@@ -113,8 +115,11 @@ def code_unsupported(findings: Findings) -> dict[str, list[str]]:
         for server in vocab.frameworks_in(pkg.deps, vocab.SERVER_FRAMEWORKS):
             if server not in vocab.ROUTE_FRAMEWORKS and server not in frameworks:
                 frameworks.append(server)
-        if pkg.language not in languages:
+        if pkg.language not in vocab.CONFIG_LANGUAGES and pkg.language not in languages:
             languages.append(pkg.language)
+        viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
+        if viper and viper not in languages:
+            languages.append(viper)
         for lib, kind in vocab.clients_of(pkg.deps):
             shown = lib.rsplit("/", 1)[-1] if lib.startswith("github.com/") else lib
             if kind in vocab.CHANNEL_CLIENTS and shown not in channel_libs:

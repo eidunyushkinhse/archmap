@@ -44,26 +44,42 @@ tables/orders-db/orders:
 - services/orders/migrations/versions/0002_status.py:10
 config/billing-worker/CELERY_BROKER_URL:
 - docker-compose.yml:24
+config/billing-worker/INVOICE_CURRENCY:
+- services/billing-worker/billing/config.py:3
 config/billing-worker/ORDERS_API:
 - docker-compose.yml:25
+config/billing-worker/RETRY_LIMIT:
+- services/billing-worker/billing/config.py:4
+config/orders/ADMIN_PREFIX:
+- services/orders/orders/main.py:8
 config/orders/DATABASE_URL:
 - docker-compose.yml:13
 - services/orders/.env.example:2
+- services/orders/orders/settings.py:7
 config/orders/FEATURE_FAST_CHECKOUT:
 - services/orders/.env.example:8
 config/orders/JWT_SECRET:
 - services/orders/.env.example:5
+- services/orders/orders/settings.py:16
 config/orders/KAFKA_BOOTSTRAP:
 - docker-compose.yml:14
 - services/orders/.env.example:3
+- services/orders/orders/settings.py:8
 config/orders/LOG_LEVEL:
 - docker-compose.yml:15
 - services/orders/.env.example:6
+- services/orders/orders/settings.py:13
 config/orders/PAYMENT_API_TOKEN:
 - services/orders/.env.example:4
+- services/orders/orders/settings.py:17
 config/orders/REQUEST_TIMEOUT:
 - services/orders/.env.example:7
+- services/orders/orders/settings.py:9
 config/orders/WORKERS:
 - services/orders/.env.example:9
+- services/orders/orders/settings.py:14
 config/storefront/API_URL:
 - docker-compose.yml:6
+- frontend/src/api.js:1
+config/storefront/PAGE_SIZE:
+- frontend/src/api.js:2

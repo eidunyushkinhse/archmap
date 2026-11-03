@@ -4,4 +4,10 @@
 # commit:
 config:
 - name: CELERY_BROKER_URL
+- name: INVOICE_CURRENCY
+  type: string
+  default: RUB
 - name: ORDERS_API
+- name: RETRY_LIMIT
+  type: int
+  default: '5'

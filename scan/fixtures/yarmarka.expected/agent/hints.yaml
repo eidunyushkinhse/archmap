@@ -3,6 +3,10 @@
 # commit:
 depends_on: []
 dynamic_names:
+- kind: config
+  name: f'FEATURE_{name.upper()}'
+  reason: имя параметра задано выражением, а не строкой, и известно только при запуске
+  source: services/orders/orders/settings.py:22
 - object: orders
   name: DATABASE_URL
   reason: значение с подстановкой переменной, адрес из него не взят

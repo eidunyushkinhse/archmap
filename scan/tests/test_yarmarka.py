@@ -88,6 +88,8 @@ def test_secrets_not_in_output(tmp_path: Path) -> None:
         assert value not in text, value
     # Пароль из адреса не просочился и по частям.
     assert "orders-example-pw" not in text
+    # Дефолт секрета в коде (os.getenv("JWT_SECRET", "…")) тоже не пишется.
+    assert "dev-jwt-signing-secret-in-code" not in text
 
 
 def test_git_and_no_git_differ_only_in_repo_and_commit(tmp_path: Path) -> None:

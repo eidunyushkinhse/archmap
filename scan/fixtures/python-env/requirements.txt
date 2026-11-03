@@ -1,0 +1,3 @@
+django-environ
+python-decouple
+pydantic-settings

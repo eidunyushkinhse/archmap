@@ -68,6 +68,8 @@ def config_files(model: Model, ctx: Context) -> dict[str, str]:
             item: dict[str, object] = {"name": param.name}
             if param.type:
                 item["type"] = param.type
+            if param.required:
+                item["required"] = True
             if param.default is not None:
                 item["default"] = param.default
             items.append(item)

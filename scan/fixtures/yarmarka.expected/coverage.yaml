@@ -11,7 +11,7 @@ families:
   brokers: {status: covered, found: 2, parsers: [compose]}
   edges: {status: covered, found: 5, parsers: [compose, env-example]}
   tables: {status: covered, found: 2, parsers: [alembic], dropped: 1}
-  config: {status: partial, found: 11, parsers: [compose, env-example], unsupported: [Node.js, Python]}
+  config: {status: covered, found: 15, parsers: [compose, env-example, python-env, node-env], dynamic_names: 1}
   channels: {status: unsupported, parsers: [], unsupported: [celery, kafka-python]}
   http_routes: {status: covered, found: 3, parsers: [fastapi], dynamic_names: 2}
   workers: {status: covered, found: 1, parsers: [compose]}

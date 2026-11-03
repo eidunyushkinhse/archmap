@@ -60,7 +60,8 @@ def test_code_unsupported_stacks() -> None:
     stacks = stats.code_unsupported(found)
     # Маршруты FastAPI, Flask, Django и chi читает ярус кода: в «не умею» их нет.
     assert stacks["http_routes"] == ["Laravel", "Phoenix", "Rails", "Spring Boot"]
-    assert stacks["config"] == ["Elixir", "Go", "Java", "Node.js", "PHP", "Python", "Ruby", "Rust"]
+    # Параметры в коде Python, Node.js и Go читает ярус кода.
+    assert stacks["config"] == ["Elixir", "Java", "PHP", "Ruby", "Rust"]
     assert stacks["channels"] == ["celery", "confluent-kafka", "kafkajs", "sarama"]
     assert stacks["schedules"] == ["Celery beat"]
     assert stacks["tables"] == ["Ecto"]

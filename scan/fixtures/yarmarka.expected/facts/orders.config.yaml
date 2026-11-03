@@ -3,8 +3,12 @@
 # repo:
 # commit:
 config:
+- name: ADMIN_PREFIX
+  type: string
+  default: /internal
 - name: DATABASE_URL
   type: string
+  required: true
 - name: FEATURE_FAST_CHECKOUT
   type: bool
   default: 'true'
@@ -17,6 +21,7 @@ config:
   default: info
 - name: PAYMENT_API_TOKEN
   type: string
+  required: true
 - name: REQUEST_TIMEOUT
   type: duration
   default: 30s
