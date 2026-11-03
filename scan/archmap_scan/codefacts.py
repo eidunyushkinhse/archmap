@@ -14,6 +14,10 @@ hints.unassigned. Направление даёт связь: публикаци
 потребление — брокер → контейнер «потребляет», с channel и sync: false; одна связь на
 пару, направление и канал. Связь «использует» той же пары из манифестов при этом не
 рисуется: связь с каналом сильнее.
+
+Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
+нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
+Воркеров из кода сборщик не заводит: только из манифестов.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from archmap_scan.objects import (
     Model,
     Obj,
     Param,
+    Schedule,
 )
 
 EnvOf = dict[str, list[tuple[EnvVar, str]]]
@@ -229,9 +234,24 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         items.sort(key=lambda c: (c.channel, c.loc))
 
 
+def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
+    for sch in sorted(findings.schedules, key=lambda s: (s.loc, s.name)):
+        model.code_parsers.setdefault("schedules", set()).add(sch.parser)
+        found = owners.file_owners(sch.loc.path, containers)
+        owner = owners.primary(found, vocab.ROLE_SCHEDULER)
+        if owner is None:
+            why = texts.REASON_MANY_OWNERS if found else texts.REASON_SHARED_LIB
+            _unassigned(model, "schedule", sch.name, why, sch.loc)
+            continue
+        model.schedules.setdefault(owner.name, []).append(Schedule(
+            name=sch.name, schedule=sch.schedule, task=sch.task, loc=sch.loc, parser=sch.parser,
+        ))
+
+
 def attach(model: Model, findings: Findings, env_of: EnvOf) -> None:
     """Записи яруса кода — владельцам модели; без владельца — в подсказки."""
     containers = [o for o in model.objects if o.is_container]
     _routes(model, findings, containers)
     _params(model, findings, containers)
     _channels(model, findings, containers, env_of)
+    _schedules(model, findings, containers)

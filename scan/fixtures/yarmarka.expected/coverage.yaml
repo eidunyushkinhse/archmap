@@ -15,7 +15,7 @@ families:
   channels: {status: covered, found: 4, parsers: [compose, celery, kafka], dynamic_names: 1}
   http_routes: {status: covered, found: 3, parsers: [fastapi], dynamic_names: 2}
   workers: {status: covered, found: 1, parsers: [compose]}
-  schedules: {status: unsupported, parsers: [k8s], unsupported: [Celery beat]}
+  schedules: {status: covered, found: 2, parsers: [celery-beat, crontab]}
 excluded:
 - {path: docs/, files: 2, reason: convention}
 - {path: tests/, files: 2, reason: convention}

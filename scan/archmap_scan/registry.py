@@ -15,7 +15,9 @@ from archmap_scan.model import Findings
 from archmap_scan.parsers import (
     alembic,
     celery,
+    celerybeat,
     compose,
+    crontab,
     django,
     djangourls,
     dockerfile,
@@ -91,6 +93,8 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(kafka.NAME, _CHANNEL_FAMILIES, kafka.parse, code=True),
     ParserSpec(rabbitmq.NAME, _CHANNEL_FAMILIES, rabbitmq.parse, code=True),
     ParserSpec(nats.NAME, _CHANNEL_FAMILIES, nats.parse, code=True),
+    ParserSpec(celerybeat.NAME, ("schedules",), celerybeat.parse, code=True),
+    ParserSpec(crontab.NAME, ("schedules",), crontab.parse),
 )
 
 

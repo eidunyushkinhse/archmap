@@ -7,6 +7,8 @@ from archmap_scan.model import Findings
 from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
+_CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+
 
 def _ordered(names: set[str]) -> list[str]:
     order = {p.name: i for i, p in enumerate(registry.PARSERS)}
@@ -44,8 +46,12 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     out["workers"].found = len(workers)
     out["workers"].contributed = _ordered({w.parser for w in workers})
     schedules = [sch for ss in model.schedules.values() for sch in ss]
-    out["schedules"].found = len(schedules)
-    out["schedules"].contributed = _ordered({sch.parser for sch in schedules})
+    _code_family(out["schedules"], model, "schedule", len(schedules))
+    out["schedules"].contributed = _ordered(
+        {sch.parser for sch in schedules} | model.code_parsers.get("schedules", set())
+    )
+    # Из кода — только Celery beat: файл crontab, как и CronJob, описывает развёртывание.
+    out["schedules"].from_code = bool(model.code_parsers.get("schedules", set()) & _CODE_PARSERS)
     tables = out["tables"]
     # Найдено — только записанное в facts/; без владельца — отдельным числом.
     tables.found = sum(len(items) for items in model.tables.values())
@@ -106,12 +112,12 @@ def stacks(model: Model) -> list[str]:
 def code_unsupported(findings: Findings) -> dict[str, list[str]]:
     """Стеки, опознанные по манифестам сборки, которые ярус кода в этой версии не читает
     (ТЗ §6.2, §6.4): фреймворки без разборщика маршрутов, параметры в коде по языкам,
-    каналы по клиентским библиотекам, расписания Celery, описания схем без разборщика."""
+    каналы и расписания по библиотекам, описания схем без разборщика."""
     frameworks: list[str] = []
     languages: list[str] = []
     channel_libs: list[str] = []
     schema_stacks: list[str] = []
-    celery = False
+    schedulers: list[str] = []
     for pkg in sorted(findings.packages, key=lambda p: p.path):
         for server in vocab.frameworks_in(pkg.deps, vocab.SERVER_FRAMEWORKS):
             if server not in vocab.ROUTE_FRAMEWORKS and server not in frameworks:
@@ -124,7 +130,9 @@ def code_unsupported(findings: Findings) -> dict[str, list[str]]:
         for lib in vocab.frameworks_in(pkg.deps, vocab.UNSUPPORTED_CHANNEL_DEPS):
             if lib not in channel_libs:
                 channel_libs.append(lib)
-        celery = celery or any(kind == "Celery" for _lib, kind in vocab.clients_of(pkg.deps))
+        for lib in vocab.frameworks_in(pkg.deps, vocab.UNSUPPORTED_SCHEDULE_DEPS):
+            if lib not in schedulers:
+                schedulers.append(lib)
         schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
         if schema and schema not in schema_stacks:
             schema_stacks.append(schema)
@@ -132,7 +140,7 @@ def code_unsupported(findings: Findings) -> dict[str, list[str]]:
         "http_routes": frameworks,
         "config": languages,
         "channels": channel_libs,
-        "schedules": ["Celery beat"] if celery else [],
+        "schedules": schedulers,
         "tables": schema_stacks,
     }
     return {fam: sorted(items, key=str.lower) for fam, items in found.items() if items}

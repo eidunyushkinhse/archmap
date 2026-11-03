@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from archmap_scan import registry
-from tests.helpers import files_of, tree
+from tests.helpers import files_of, time_limit, tree
 
 PAYLOAD = 2_000_000
 A = "a" * PAYLOAD
@@ -36,6 +36,8 @@ STARTS: dict[str, tuple[str, ...]] = {
         "class S(BaseSettings):\n    x: int = ", '@app.task(queue="', "import kafka\np.send(\"",
         "import pika\nch.queue_declare(queue='", "import nats\nnc.subscribe('",
         "app.conf.task_routes = {'a': {'queue': '",
+        "app.conf.beat_schedule = {'", "CELERYBEAT_SCHEDULE = {'a': {'schedule': '",
+        "@periodic_task(run_every=", "app.add_periodic_task(1, '",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",
@@ -65,7 +67,7 @@ def _check(root: Path) -> None:
         started = time.perf_counter()
         spec.parse(files, ctx)
         took = time.perf_counter() - started
-        assert took < 1.0, f"{spec.name}: {took:.2f} с"
+        assert took < time_limit(), f"{spec.name}: {took:.2f} с"
 
 
 @pytest.mark.parametrize(("name", "start"), CASES)

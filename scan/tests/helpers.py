@@ -12,6 +12,18 @@ from archmap_scan.context import Context, make_context
 from archmap_scan.objects import Model
 from archmap_scan.walk import Files, list_files
 
+
+def time_limit() -> float:
+    """Предел времени на враждебный вход (ТЗ §9: секунда на 2 МБ). Под замером покрытия
+    трассировка замедляет разбор в разы, поэтому там предел втрое шире: секунда
+    относится к запуску сборщика, а не к коду под трассировкой."""
+    try:
+        import coverage
+    except ImportError:  # pragma: no cover
+        return 1.0
+    return 3.0 if coverage.Coverage.current() is not None else 1.0
+
+
 # Фикстуры сборщика: чужой код, который сборщик только читает.
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 

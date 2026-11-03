@@ -1,0 +1,2 @@
+PATH=/usr/bin:/bin
+30 6 * * mon-fri app /opt/app/bin/report weekday

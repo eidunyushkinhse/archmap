@@ -265,9 +265,7 @@ def _markers(files: Files, found: Findings) -> None:
     for rel in files.paths:
         name = paths.name(rel)
         stack: tuple[str, str] | None = None
-        if name == "crontab" or paths.name(paths.parent(rel)) == "cron.d":
-            stack = ("schedules", "crontab")
-        elif name == "schema.prisma":
+        if name == "schema.prisma":
             stack = ("tables", "Prisma")
         elif rel.endswith("db/schema.rb") or rel == "schema.rb":
             stack = ("tables", "Rails schema.rb")

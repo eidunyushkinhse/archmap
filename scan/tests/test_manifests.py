@@ -50,7 +50,8 @@ def test_each_manifest_kind() -> None:
 def test_markers_and_unparsed() -> None:
     ctx, files = files_of(FIXTURES / "manifests")
     found = manifests.parse(files, ctx)
-    assert found.unsupported == {"schedules": ["crontab"], "tables": ["Prisma"]}
+    # crontab читает свой разборщик: в «не умею» остался только Prisma.
+    assert found.unsupported == {"tables": ["Prisma"]}
     assert [h.data["path"] for h in found.hints] == ["broken/package.json"]
 
 
@@ -64,7 +65,8 @@ def test_code_unsupported_stacks() -> None:
     assert stacks["config"] == ["Elixir", "Java", "PHP", "Ruby", "Rust"]
     # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода: «не умею» нет.
     assert "channels" not in stacks
-    assert stacks["schedules"] == ["Celery beat"]
+    # Расписания Celery beat читает разборщик celery-beat.
+    assert "schedules" not in stacks
     assert stacks["tables"] == ["Ecto"]
 
 

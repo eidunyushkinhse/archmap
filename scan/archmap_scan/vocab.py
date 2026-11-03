@@ -205,6 +205,15 @@ UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
 )
 
+# Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
+# и schedule не ищутся); Celery beat читает разборщик celery-beat.
+UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
+    ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
+    ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
+    ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
+    ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
+)
+
 # Фреймворки, маршруты которых читает ярус кода (ТЗ §6.2); остальные серверные фреймворки
 # из SERVER_FRAMEWORKS опознаются, но в coverage названы стеком без разборщика.
 # Языки, параметры конфигурации в коде которых читает ярус кода, и библиотеки

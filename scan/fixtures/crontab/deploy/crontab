@@ -1,0 +1,8 @@
+# Резервные копии и чистка
+MAILTO=ops@example.org
+SHELL=/bin/bash
+
+0 2 * * * /usr/local/bin/backup.sh --full
+*/10 * * * * root /usr/local/bin/rotate-logs
+@daily python -m app.cleanup
+0 2 * * /usr/local/bin/broken

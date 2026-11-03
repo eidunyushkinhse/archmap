@@ -9,7 +9,7 @@ import pytest
 
 from archmap_scan import codetext
 from archmap_scan.parsers import express, nest
-from tests.helpers import FIXTURES, files_of
+from tests.helpers import FIXTURES, files_of, time_limit
 
 
 def _routes(parser: object, root: Path) -> list[tuple[str, str, bool, str, str]]:
@@ -86,7 +86,7 @@ def test_mask_is_linear_on_hostile_input(name: str) -> None:
     for lang in (codetext.JS, codetext.GO):
         started = time.perf_counter()
         assert len(codetext.mask(payload, lang)) == len(payload)
-        assert time.perf_counter() - started < 1.0
+        assert time.perf_counter() - started < time_limit()
 
 
 def test_too_dense_file_is_refused(tmp_path: Path) -> None:
@@ -97,5 +97,5 @@ def test_too_dense_file_is_refused(tmp_path: Path) -> None:
     ctx, files = files_of(root)
     started = time.perf_counter()
     assert express.parse(files, ctx).routes == []
-    assert time.perf_counter() - started < 1.0
+    assert time.perf_counter() - started < time_limit()
     assert files.too_large == {"src/app.js"}
