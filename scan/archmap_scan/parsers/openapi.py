@@ -1,5 +1,5 @@
 """Файлы OpenAPI (ТЗ §6.1): openapi*.y(a)ml|json и swagger*.y(a)ml|json с ключом openapi или
-swagger. Только путь и число операций для hints.openapi_files; содержимое не ввозится."""
+swagger. Только путь и число операций для hints.openapi_files; содержимое не импортируется."""
 
 from __future__ import annotations
 

@@ -124,3 +124,20 @@ def test_summary_counts_only_written(tmp_path: Path) -> None:
     assert coverage["families"]["tables"] == {
         "status": "covered", "parsers": ["sql"], "unassigned": 2,
     }
+
+
+def test_texts_lists_and_partial() -> None:
+    from archmap_scan import texts
+
+    assert texts.and_list([]) == "" and texts.and_list(["a"]) == "a"
+    assert texts.and_list(["a", "b", "c"]) == "a, b и c"
+    assert texts.family_partial("Параметры конфигурации", ["Node.js", "Python"], True, False) == (
+        "Параметры конфигурации: найдено в манифестах, код на Node.js и Python сборщик пока "
+        "не читает."
+    )
+    assert texts.family_partial("Маршруты HTTP", ["Next.js"], True, True) == (
+        "Маршруты HTTP: найдено не всё, код на Next.js сборщик пока не читает."
+    )
+    assert texts.family_partial("Контейнеры", ["Helm templates"], False, False) == (
+        "Контейнеры: найдено не всё, Helm templates сборщик пока не читает."
+    )

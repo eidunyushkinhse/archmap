@@ -2,7 +2,8 @@
 
 Начало — одной фразой, что найдено (числа по семьям), затем семьи, где искали и не нашли,
 «Не покрыто» с именами стеков, пояснения, «Исключено» с каталогами, непрочитанное и «Как
-ввезти» с настоящими названиями окон ArchMap. Части строки разделяет «·».
+импортировать» с настоящими названиями окон ArchMap (способ «Импорт»). Части строки
+разделяет «·».
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from archmap_scan.output.coverage import Coverage
 
 # Сколько строк исключённого показывать в сводке; полный перечень лежит в coverage.yaml.
 EXCLUDED_SHOWN = 12
+# Семьи, непрочитанное в которых — код на языке или фреймворке (ТЗ §6.2).
+CODE_FAMILIES = frozenset({"config", "channels", "http_routes", "schedules"})
 
 
 def _found(cov: Coverage) -> list[str]:
@@ -38,7 +41,9 @@ def _not_covered(cov: Coverage) -> list[str]:
         if status == "unsupported":
             lines.append("  " + texts.family_unsupported(label, stat.unsupported))
         elif status == "partial":
-            lines.append("  " + texts.family_partial(label, stat.unsupported))
+            lines.append("  " + texts.family_partial(
+                label, stat.unsupported, fam in CODE_FAMILIES, stat.from_code,
+            ))
         elif status == "unknown":
             lines.append("  " + texts.family_unknown(label))
         elif status == "error":

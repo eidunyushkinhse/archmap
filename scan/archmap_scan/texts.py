@@ -119,7 +119,7 @@ NOTHING_FOUND = "Ничего не найдено."
 EXCLUDED_TITLE = "Исключено"
 NOT_COVERED_TITLE = "Не покрыто"
 NOTES_TITLE = "Пояснения"
-HOW_TO_IMPORT_TITLE = "Как ввезти"
+HOW_TO_IMPORT_TITLE = "Как импортировать"
 
 # Семьи покрытия словами (порядок задаёт registry.FAMILIES).
 FAMILY_LABEL = {
@@ -177,12 +177,24 @@ def empty_phrase(labels: list[str]) -> str:
     return "Искали и не нашли: " + ", ".join(labels) + "."
 
 
+def and_list(items: list[str]) -> str:
+    """Перечень через «и»: «a», «a и b», «a, b и c»."""
+    if len(items) <= 1:
+        return "".join(items)
+    return f"{', '.join(items[:-1])} и {items[-1]}"
+
+
 def family_unsupported(label: str, stacks: list[str]) -> str:
-    return f"{label}: сборщик пока не читает {', '.join(stacks)}."
+    return f"{label}: сборщик пока не читает {and_list(stacks)}."
 
 
-def family_partial(label: str, stacks: list[str]) -> str:
-    return f"{label}: найдено в манифестах, а {', '.join(stacks)} сборщик пока не читает."
+def family_partial(label: str, stacks: list[str], code: bool, from_code: bool) -> str:
+    """Семья найдена не целиком. code — непрочитанное в ней код на языке или фреймворке;
+    from_code — найденное пришло и из кода, а не только из манифестов."""
+    what = f"код на {and_list(stacks)}" if code else and_list(stacks)
+    if code and not from_code:
+        return f"{label}: найдено в манифестах, {what} сборщик пока не читает."
+    return f"{label}: найдено не всё, {what} сборщик пока не читает."
 
 
 def family_unknown(label: str) -> str:
@@ -229,11 +241,11 @@ HOW_TO_IMPORT_FACTS = [
 ]
 HOW_TO_IMPORT_AGENT = [
     "  Каталог agent читает ИИ-агент: там основания каждой записи, точки входа и подсказки.",
-    "  ArchMap его не ввозит.",
+    "  ArchMap его не импортирует.",
 ]
 TAIL = [
     "Связи сборщик видит только в манифестах. Объекты, связи которых там не видны, ArchMap",
-    "при ввозе отметит замечанием «объектов без единой связи», а у связей с брокером",
+    "при импорте отметит замечанием «объектов без единой связи», а у связей с брокером",
     "отметит, что канал не указан. Связи и каналы допишет агент или человек.",
     "Каталог с результатом стоит добавить в .gitignore репозитория.",
 ]
