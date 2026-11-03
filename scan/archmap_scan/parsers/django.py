@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 from archmap_scan import dialect, paths, pyast, sqlddl, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Column, Findings, Hint, Loc, Table, TableSet
+from archmap_scan.model import Column, Findings, Loc, Table, TableSet, unparsed_hint
 from archmap_scan.walk import Files
 
 NAME = "django"
@@ -657,7 +657,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         tree = pyast.parse(text) if text is not None else None
         if tree is None:
             if text is not None:
-                found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_PYTHON}))
+                found.hints.append(unparsed_hint(rel, texts.REASON_BAD_PYTHON))
             continue
         made = _migration(rel, app, tree, state)
         if made is not None:

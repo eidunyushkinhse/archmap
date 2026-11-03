@@ -96,7 +96,7 @@ def test_yaml_bomb_and_whole_run(tmp_path: Path) -> None:
     assert all(f["status"] != "error" for f in coverage["families"].values())
     hints = yaml.safe_load((tmp_path / "out" / "agent" / "hints.yaml").read_text(encoding="utf-8"))
     # Бомба отвергается пределом раскрытых псевдонимов: файл назван, разбор не начат.
-    assert sorted(h["path"] for h in hints["unparsed"]) == [
+    assert sorted(h["name"] for h in hints["unparsed"]) == [
         "api/openapi.yaml", "chart/values.yaml", "docker-compose.prod.yml",
         "docker-compose.yml", "k8s/bomb.yaml", "package.json",
     ]

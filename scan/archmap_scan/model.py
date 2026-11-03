@@ -190,10 +190,18 @@ class CodeSchedule:
 
 @dataclass
 class Hint:
-    """Запись hints.yaml: раздел и данные как есть (тексты причин — из texts.py)."""
+    """Запись hints.yaml: раздел и данные (тексты причин — из texts.py). У записи любого
+    раздела один набор ключей (ТЗ §5.3): kind, name, reason, source, при необходимости
+    object — имя сервиса или контейнера, к которому относится запись, — и дальше
+    ключи раздела; порядок ключей ставит output/agent.py."""
 
     section: str
     data: dict[str, object]
+
+
+def unparsed_hint(rel: str, reason: str) -> Hint:
+    """Файл, который разборщик не смог прочитать: раздел unparsed."""
+    return Hint("unparsed", {"kind": "file", "name": rel, "reason": reason, "source": rel})
 
 
 @dataclass

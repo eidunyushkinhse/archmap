@@ -93,8 +93,8 @@ def _dockerfile_units(
             continue
         if is_dev_path(d.path):
             model.hint("profiles", {
-                "service": d.path, "profiles": [], "reason": texts.REASON_DEV_FILE,
-                "source": str(d.from_loc),
+                "kind": "dockerfile", "name": d.path, "reason": texts.REASON_DEV_FILE,
+                "source": str(d.from_loc), "profiles": [],
             })
             continue
         variant = _variant(d.path)
@@ -210,8 +210,8 @@ def _drop_dev_units(units: list[Unit], model: Model) -> list[Unit]:
     for u in units:
         if u.parser in _DEV_MANIFESTS and is_dev_path(u.loc.path):
             model.hint("profiles", {
-                "service": u.name, "profiles": [], "reason": texts.REASON_DEV_FILE,
-                "source": str(u.loc),
+                "kind": "container", "name": u.name, "reason": texts.REASON_DEV_FILE,
+                "source": str(u.loc), "profiles": [],
             })
             continue
         kept.append(u)
@@ -386,8 +386,9 @@ def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Li
                         # Связь уже нарисована по адресу из окружения: подсказка лишняя.
                         continue
                     model.hint("depends_on", {
-                        "from": src.name, "to": dst.name, "reason": texts.REASON_DEPENDS_ON,
-                        "source": str(loc),
+                        "kind": "edge", "name": f"{src.name}→{dst.name}",
+                        "reason": texts.REASON_DEPENDS_ON, "source": str(loc),
+                        "from": src.name, "to": dst.name,
                     })
                     continue
                 _add_link(links, src, dst, dst.technology, loc, unit.parser)
@@ -405,9 +406,11 @@ def _sources(model: Model, ctx: Context) -> None:
             objs[0].repo = bool(ctx.repo)
             objs[0].path = folder or None
             continue
+        shown = paths.show_dir(folder)
         model.hint("shared_code", {
-            "path": paths.show_dir(folder), "containers": sorted(o.name for o in objs),
-            "reason": texts.REASON_SHARED_CODE,
+            "kind": "directory", "name": shown, "reason": texts.REASON_SHARED_CODE,
+            "source": str(min(u.loc for o in objs for u in o.units)),
+            "containers": sorted(o.name for o in objs),
         })
 
 
@@ -448,13 +451,16 @@ def _openapi(model: Model, findings: Findings) -> None:
     """Файлы OpenAPI — подсказка агенту с контейнером-владельцем, если он один (ТЗ §6.1)."""
     containers = [o for o in model.objects if o.is_container]
     for spec in sorted(findings.openapi, key=lambda s: s.path):
-        data: dict[str, object] = {"path": spec.path}
+        data: dict[str, object] = {"kind": "openapi", "name": spec.path}
         found = owners.code_owners(spec.path, containers)
         if len(found) == 1:
-            data["container"] = found[0].name
+            data["object"] = found[0].name
         if spec.operations is None:
             data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
         else:
+            data["reason"] = texts.REASON_OPENAPI_FILE
+        data["source"] = spec.path
+        if spec.operations is not None:
             data["operations"] = spec.operations
         model.hint("openapi_files", data)
 
@@ -590,8 +596,9 @@ def _clients(model: Model, findings: Findings) -> None:
         for pkg in _code_packages(obj, findings.packages):
             for lib, kind in vocab.clients_of(pkg.deps):
                 model.hint("clients", {
-                    "container": obj.name, "library": lib, "kind": kind,
-                    "source": str(pkg.name_loc or Loc(pkg.path, 1)),
+                    "kind": "library", "name": lib, "object": obj.name,
+                    "reason": texts.REASON_CLIENT_LIBRARY,
+                    "source": str(pkg.name_loc or Loc(pkg.path, 1)), "technology": kind,
                 })
 
 

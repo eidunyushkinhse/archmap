@@ -69,8 +69,9 @@ def test_chain_with_merge_batch_and_execute() -> None:
         ("services/orders/migrations/versions/5a6b_merge.py:15", "op.create_table_if_absent"),
     ]
     assert [h.data for h in found.hints] == [{
-        "path": "services/orders/migrations/versions/6c7d_broken.py",
+        "kind": "file", "name": "services/orders/migrations/versions/6c7d_broken.py",
         "reason": "файл миграции не разбирается как Python",
+        "source": "services/orders/migrations/versions/6c7d_broken.py",
     }]
 
 

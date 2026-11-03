@@ -178,3 +178,27 @@ def test_distinct_absent_when_names_equal_records(tmp_path: Path) -> None:
     coverage = yaml.safe_load(_read(out, "coverage.yaml"))
     assert "distinct" not in coverage["families"]["config"]
     assert "Параметры общего кода" not in _read(out, "summary.txt")
+
+
+def test_hints_share_one_key_set(tmp_path: Path) -> None:
+    """У записи любого раздела hints.yaml один набор ключей (ТЗ §5.3): kind, name, reason,
+    source, при необходимости object, затем ключи раздела; порядок постоянный."""
+    from archmap_scan.output.agent import HINT_KEYS
+
+    seen: set[str] = set()
+    for fixture in (
+        "yarmarka", "compose", "supervisor", "k8s", "helm", "openapi", "manifests", "procfile",
+        "alembic", "django", "celery", "kafka",
+    ):
+        out = _scan(FIXTURES / fixture, tmp_path / fixture)
+        hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
+        for section, items in hints.items():
+            for item in items:
+                keys = list(item)
+                assert {"kind", "name", "reason", "source"} <= set(keys), (fixture, section, item)
+                common = [k for k in keys if k in HINT_KEYS]
+                assert keys[: len(common)] == [k for k in HINT_KEYS if k in item], item
+                seen.add(section)
+    # Проверка не пустая: подсказки нашлись в большинстве разделов.
+    assert {"depends_on", "dynamic_names", "unassigned", "profiles", "openapi_files", "clients",
+            "unparsed", "shared_code"} <= seen

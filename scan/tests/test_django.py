@@ -75,7 +75,7 @@ def test_fixture_tables() -> None:
     assert _cols(user) == [
         ("id", "bigserial", True, True, None), ("email", "varchar(254)", False, True, None),
     ]
-    assert [h.data["path"] for h in found.hints] == ["billing/migrations/0004_broken.py"]
+    assert [h.data["name"] for h in found.hints] == ["billing/migrations/0004_broken.py"]
 
 
 def test_owner_and_facts(tmp_path: Path) -> None:

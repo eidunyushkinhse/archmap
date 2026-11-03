@@ -349,6 +349,8 @@ def django_broken(migration: str, parent: str) -> str:
 REASON_OPENAPI_TOO_LARGE = "файл больше предела разбора YAML, операции не посчитаны"
 REASON_BAD_OPENAPI = "файл OpenAPI не разбирается"
 REASON_OPENAPI_REFS = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
+REASON_OPENAPI_FILE = "спецификацию сборщик не импортирует, её добавляют в разделе «OpenAPI» объекта"
+REASON_CLIENT_LIBRARY = "клиентская библиотека в манифесте сборки подсказывает вид зависимости"
 
 # Ярус кода (ТЗ §6.2): причины в hints.yaml.
 REASON_DYNAMIC_ROUTE = "путь маршрута задан выражением, а не строкой, и известен только при запуске"

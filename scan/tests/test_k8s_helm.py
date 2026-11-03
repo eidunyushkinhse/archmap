@@ -49,6 +49,6 @@ def test_helm_units_and_templates() -> None:
         "envoy": "envoyproxy/envoy:v1.30",
     }
     assert found.unsupported == {"containers": ["Helm templates"]}
-    assert [h.data["service"] for h in found.hints] == ["cache"]
+    assert [h.data["name"] for h in found.hints] == ["cache"]
     model = model_of(FIXTURES / "helm")
     assert {o.name: o.shape for o in model.objects}["postgresql"] == "database"

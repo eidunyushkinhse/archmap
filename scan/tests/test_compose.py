@@ -54,7 +54,7 @@ def test_fixture_hints() -> None:
     by_section: dict[str, list[dict[str, object]]] = {}
     for h in found.hints:
         by_section.setdefault(h.section, []).append(h.data)
-    profiles = {str(h["service"]): h for h in by_section["profiles"]}
+    profiles = {str(h["name"]): h for h in by_section["profiles"]}
     assert profiles["adminer"]["profiles"] == ["debug"]
     assert profiles["mailpit"]["profiles"] == []
     reasons = {(h["name"], h["reason"]) for h in by_section["unassigned"]}
@@ -62,10 +62,15 @@ def test_fixture_hints() -> None:
     assert any(name == "worker" and "env_file" in str(r) for name, r in reasons)
     assert any(name == "compose.yaml" and "include" in str(r) for name, r in reasons)
     assert by_section["unparsed"] == [
-        {"path": "docker-compose.broken.yml", "reason": by_section["unparsed"][0]["reason"]}
+        {
+            "kind": "file", "name": "docker-compose.broken.yml",
+            "reason": by_section["unparsed"][0]["reason"], "source": "docker-compose.broken.yml",
+        }
     ]
     dynamic = by_section["dynamic_names"]
-    assert [(h["object"], h["name"]) for h in dynamic] == [("api", "DATABASE_URL")]
+    assert [(h["kind"], h["object"], h["name"]) for h in dynamic] == [
+        ("env", "api", "DATABASE_URL"),
+    ]
     # Значение подстановки в подсказки не попадает.
     assert "API_DB_PASSWORD" not in repr(by_section)
 

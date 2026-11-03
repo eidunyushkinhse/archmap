@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from archmap_scan import texts
 from archmap_scan.objects import Model, Obj
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
@@ -47,8 +48,8 @@ def test_compose_fixture_model() -> None:
     # api и worker собраны из одного каталога: пути к коду нет ни у кого.
     assert _obj(model, "api").path is None and _obj(model, "worker").path is None
     assert model.hints["shared_code"] == [{
-        "path": "services/api/", "containers": ["api", "worker"],
-        "reason": model.hints["shared_code"][0]["reason"],
+        "kind": "directory", "name": "services/api/", "reason": texts.REASON_SHARED_CODE,
+        "source": model.hints["shared_code"][0]["source"], "containers": ["api", "worker"],
     }]
     assert [o.name for o in model.objects][:5] == ["api", "legacy", "proxy", "web", "worker"]
 
@@ -83,7 +84,7 @@ def test_standalone_dockerfiles(tmp_path: Path) -> None:
         "Ярмарка": ("service", "Node.js", "сервис", ""),
         "postgresql": ("database", "PostgreSQL", "БД", None),
     }
-    dev = {str(h["service"]) for h in model.hints["profiles"]}
+    dev = {str(h["name"]) for h in model.hints["profiles"]}
     assert dev == {"tools/ci/Dockerfile", ".devcontainer/Dockerfile"}
 
 
@@ -152,8 +153,9 @@ def test_implicit_container(tmp_path: Path) -> None:
     assert notes.technology == "Python + Flask" and notes.code_dir == ""
     assert list(model.params["notes"]) == ["PORT"]
     assert model.hints["clients"] == [{
-        "container": "notes", "library": "redis", "kind": "Redis",
-        "source": "pyproject.toml:2",
+        "kind": "library", "name": "redis", "object": "notes",
+        "reason": texts.REASON_CLIENT_LIBRARY, "source": "pyproject.toml:2",
+        "technology": "Redis",
     }]
 
 
@@ -205,7 +207,7 @@ def test_dev_manifests_are_hints_not_objects(tmp_path: Path) -> None:
     assert sorted(o.name for o in model.objects) == ["grafana", "prod"]
     grafana = _obj(model, "grafana")
     assert grafana.technology == "Go + React" and grafana.code_dir == ""
-    dev = {str(h["service"]): str(h["source"]) for h in model.hints["profiles"]}
+    dev = {str(h["name"]): str(h["source"]) for h in model.hints["profiles"]}
     assert dev == {
         "pg": "devenv/docker/blocks/pg/docker-compose.yaml:2",
         "tool": "devenv/docker/blocks/pg/docker-compose.yaml:4",

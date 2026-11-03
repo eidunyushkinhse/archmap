@@ -53,6 +53,18 @@ def render_evidence(model: Model, ctx: Context) -> str:
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(evidence(model, ctx))
 
 
+# Общий набор ключей подсказки любого раздела (ТЗ §5.3) в постоянном порядке; ключи
+# раздела (profiles, operations, containers и подобные) идут после них.
+HINT_KEYS: tuple[str, ...] = ("kind", "name", "object", "reason", "source")
+
+
+def ordered_hint(item: dict[str, object]) -> dict[str, object]:
+    """Ключи подсказки: kind, name, object, reason, source, затем остальные как записаны."""
+    out = {key: item[key] for key in HINT_KEYS if key in item}
+    out.update((key, value) for key, value in item.items() if key not in out)
+    return out
+
+
 def _sort_key(item: dict[str, object]) -> tuple[str, ...]:
     return tuple(str(v) for v in item.values())
 
@@ -60,7 +72,7 @@ def _sort_key(item: dict[str, object]) -> tuple[str, ...]:
 def render_hints(model: Model, ctx: Context) -> str:
     """Разделы подсказок в постоянном порядке; повторов нет по построению (Model.hint)."""
     doc: dict[str, object] = {
-        section: sorted(model.hints.get(section, []), key=_sort_key)
+        section: sorted((ordered_hint(h) for h in model.hints.get(section, [])), key=_sort_key)
         for section in HINT_SECTIONS
     }
     return yamlio.header(ctx.repo, ctx.commit) + yamlio.dump(doc)

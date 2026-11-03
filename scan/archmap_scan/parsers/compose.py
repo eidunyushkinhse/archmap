@@ -18,7 +18,7 @@ from typing import Any
 
 from archmap_scan import paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import EnvVar, Findings, Hint, Loc, Unit
+from archmap_scan.model import EnvVar, Findings, Hint, Loc, Unit, unparsed_hint
 from archmap_scan.walk import Files, is_compose_name, is_dev_path
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
@@ -206,8 +206,8 @@ def _unit(
         # Имя образа известно только при запуске: технологию по нему не угадываем.
         if folder is None:
             found.hints.append(Hint("dynamic_names", {
-                "object": name, "name": "image", "reason": texts.REASON_DYNAMIC_IMAGE,
-                "source": str(Loc(rel, svc.line_of("image"))),
+                "kind": "image", "name": "image", "object": name,
+                "reason": texts.REASON_DYNAMIC_IMAGE, "source": str(Loc(rel, svc.line_of("image"))),
             }))
         image = None
     command, cmd_line = _command(svc)
@@ -269,8 +269,8 @@ def parse(files: Files, ctx: Context) -> Findings:
             profiles = svc.get("profiles")
             if isinstance(profiles, list) and profiles:
                 found.hints.append(Hint("profiles", {
-                    "service": name, "profiles": sorted(str(p) for p in profiles),
-                    "reason": texts.REASON_PROFILE, "source": str(Loc(rel, line)),
+                    "kind": "container", "name": name, "reason": texts.REASON_PROFILE,
+                    "source": str(Loc(rel, line)), "profiles": sorted(str(p) for p in profiles),
                 }))
                 continue
             if dev:
@@ -284,15 +284,15 @@ def parse(files: Files, ctx: Context) -> Findings:
                 units[name] = unit
     for name, loc in dev_only.items():
         found.hints.append(Hint("profiles", {
-            "service": name, "profiles": [], "reason": texts.REASON_DEV_FILE,
-            "source": str(loc),
+            "kind": "container", "name": name, "reason": texts.REASON_DEV_FILE,
+            "source": str(loc), "profiles": [],
         }))
     found.units.extend(units.values())
     for unit in found.units:
         for var in unit.env:
             if var.dynamic:
                 found.hints.append(Hint("dynamic_names", {
-                    "object": unit.name, "name": var.name,
+                    "kind": "env", "name": var.name, "object": unit.name,
                     "reason": texts.REASON_DYNAMIC_VALUE, "source": str(var.loc),
                 }))
     return found
@@ -308,7 +308,7 @@ def _load_services(files: Files, rel: str, found: Findings) -> LineDict | None:
         files.refuse(rel)
         return None
     except BadYaml:
-        found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_YAML}))
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
         return None
     if not isinstance(doc, LineDict):
         return None

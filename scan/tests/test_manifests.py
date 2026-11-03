@@ -52,7 +52,7 @@ def test_markers_and_unparsed() -> None:
     found = manifests.parse(files, ctx)
     # crontab читает свой разборщик: в «не умею» остался только Prisma.
     assert found.unsupported == {"tables": ["Prisma"]}
-    assert [h.data["path"] for h in found.hints] == ["broken/package.json"]
+    assert [h.data["name"] for h in found.hints] == ["broken/package.json"]
 
 
 def test_code_unsupported_stacks() -> None:

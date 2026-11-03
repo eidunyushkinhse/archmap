@@ -10,7 +10,7 @@ import re
 
 from archmap_scan import paths, texts, yamlload
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, OpenApi
+from archmap_scan.model import Findings, OpenApi, unparsed_hint
 from archmap_scan.walk import Files
 
 NAME = "openapi"
@@ -130,7 +130,7 @@ def parse(files: Files, ctx: Context) -> Findings:
             found.openapi.append(OpenApi(path=rel, operations=None))
             continue
         except (ValueError, RecursionError, yamlload.BadYaml):
-            found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_OPENAPI}))
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_OPENAPI))
             continue
         if isinstance(doc, dict) and ("openapi" in doc or "swagger" in doc):
             count, reason = _counted(files, rel, doc)

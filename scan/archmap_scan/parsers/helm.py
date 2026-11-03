@@ -12,7 +12,7 @@ from typing import Any
 
 from archmap_scan import paths, texts, vocab
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Unit
+from archmap_scan.model import Findings, Hint, Loc, Unit, unparsed_hint
 from archmap_scan.walk import Files
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
@@ -29,7 +29,7 @@ def _load(files: Files, rel: str, found: Findings) -> Any:
     except YamlTooLarge:
         files.refuse(rel)
     except BadYaml:
-        found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_YAML}))
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
     return None
 
 
@@ -55,8 +55,8 @@ def _walk(
     seen.add(id(node))
     if node.get("enabled") is False:
         found.hints.append(Hint("profiles", {
-            "service": owner, "profiles": [], "reason": texts.REASON_HELM_DISABLED,
-            "source": str(Loc(rel, node.line)),
+            "kind": "container", "name": owner, "reason": texts.REASON_HELM_DISABLED,
+            "source": str(Loc(rel, node.line)), "profiles": [],
         }))
         return
     image = _image_of(node.get("image"))

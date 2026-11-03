@@ -7,6 +7,7 @@ from pathlib import Path
 
 import yaml
 
+from archmap_scan import texts
 from archmap_scan.parsers import openapi
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, tree
@@ -26,14 +27,21 @@ def test_fixture_and_hints(tmp_path: Path) -> None:
     assert [(s.path, s.operations) for s in found.openapi] == [
         ("api/swagger.json", 1), ("services/orders/openapi.yaml", 3),
     ]
-    assert [h.data["path"] for h in found.hints] == ["web/openapi.json"]
+    assert [h.data["name"] for h in found.hints] == ["web/openapi.json"]
 
     out = tmp_path / "out"
     run(Options(path=str(FIXTURES / "openapi"), out=str(out), system="Ярмарка", use_git=False))
     hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
     assert hints["openapi_files"] == [
-        {"path": "api/swagger.json", "operations": 1},
-        {"path": "services/orders/openapi.yaml", "container": "orders", "operations": 3},
+        {
+            "kind": "openapi", "name": "api/swagger.json", "reason": texts.REASON_OPENAPI_FILE,
+            "source": "api/swagger.json", "operations": 1,
+        },
+        {
+            "kind": "openapi", "name": "services/orders/openapi.yaml", "object": "orders",
+            "reason": texts.REASON_OPENAPI_FILE, "source": "services/orders/openapi.yaml",
+            "operations": 3,
+        },
     ]
 
 
@@ -48,7 +56,7 @@ def test_too_large_and_hostile(tmp_path: Path) -> None:
     found = openapi.parse(files, ctx)
     assert time.perf_counter() - started < 1.0
     assert [(s.path, s.operations) for s in found.openapi] == [("big/openapi.yaml", None)]
-    assert [h.data["path"] for h in found.hints] == ["deep/openapi.json"]
+    assert [h.data["name"] for h in found.hints] == ["deep/openapi.json"]
 
 
 def test_paths_by_file_refs(tmp_path: Path) -> None:
@@ -91,7 +99,10 @@ def test_paths_by_file_refs(tmp_path: Path) -> None:
     out = tmp_path / "out"
     run(Options(path=str(tmp_path), out=str(out), use_git=False))
     hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
-    assert {"path": "broken/openapi.yaml", "reason": refs} in hints["openapi_files"]
+    assert {
+        "kind": "openapi", "name": "broken/openapi.yaml", "reason": refs,
+        "source": "broken/openapi.yaml",
+    } in hints["openapi_files"]
 
 
 def test_ref_file_limit(tmp_path: Path) -> None:

@@ -15,7 +15,7 @@ from typing import Any
 
 from archmap_scan import paths, texts, tomlite, vocab
 from archmap_scan.context import Context
-from archmap_scan.model import Findings, Hint, Loc, Package
+from archmap_scan.model import Findings, Loc, Package, unparsed_hint
 from archmap_scan.walk import Files
 
 # Предел манифеста сборки: чистый Python-разборщик TOML тратит на 2 МБ четверть секунды, а
@@ -285,12 +285,12 @@ def parse(files: Files, ctx: Context) -> Findings:
         if text is None or kind is None:
             continue
         if len(text) > MAX_MANIFEST_CHARS:
-            found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_MANIFEST_TOO_LARGE}))
+            found.hints.append(unparsed_hint(rel, texts.REASON_MANIFEST_TOO_LARGE))
             continue
         try:
             pkg = _READERS[kind](rel, text)
         except (ValueError, RecursionError, ET.ParseError):
-            found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_MANIFEST}))
+            found.hints.append(unparsed_hint(rel, texts.REASON_BAD_MANIFEST))
             continue
         found.packages.append(pkg)
     return found

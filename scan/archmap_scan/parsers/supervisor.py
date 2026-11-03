@@ -39,7 +39,7 @@ def parse_text(rel: str, text: str, found: Findings) -> None:
                 continue
             if is_template(name):
                 found.hints.append(Hint("dynamic_names", {
-                    "object": name, "name": name, "reason": texts.REASON_TEMPLATE_NAME,
+                    "kind": "container", "name": name, "reason": texts.REASON_TEMPLATE_NAME,
                     "source": str(Loc(rel, no)),
                 }))
                 continue

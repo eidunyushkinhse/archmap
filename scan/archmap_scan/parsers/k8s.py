@@ -15,7 +15,7 @@ from typing import Any
 
 from archmap_scan import paths, texts, vocab
 from archmap_scan.context import Context
-from archmap_scan.model import EnvVar, Findings, Hint, Loc, Unit
+from archmap_scan.model import EnvVar, Findings, Loc, Unit, unparsed_hint
 from archmap_scan.parsers.compose import is_dynamic
 from archmap_scan.walk import Files, is_compose_name
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load_all
@@ -136,7 +136,7 @@ def _docs(files: Files, rel: str, found: Findings) -> list[LineDict]:
         files.refuse(rel)
         return []
     except BadYaml:
-        found.hints.append(Hint("unparsed", {"path": rel, "reason": texts.REASON_BAD_YAML}))
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
         return []
     return [d for d in docs if isinstance(d, LineDict) and "apiVersion" in d and "kind" in d]
 
