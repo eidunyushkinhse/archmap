@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from archmap_scan.assemble import Model, Obj
 from archmap_scan.context import Context
+from archmap_scan.objects import Model, Obj
 from archmap_scan.output import yamlio
 
 

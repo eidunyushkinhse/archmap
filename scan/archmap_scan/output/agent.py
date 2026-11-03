@@ -5,9 +5,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from archmap_scan.assemble import Model
 from archmap_scan.context import Context
 from archmap_scan.model import Loc
+from archmap_scan.objects import Model
 from archmap_scan.output import yamlio
 from archmap_scan.output.schema import refs
 

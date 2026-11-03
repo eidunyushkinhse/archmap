@@ -8,9 +8,9 @@ orders.config.yaml. Так файлы называются одинаково н
 
 from __future__ import annotations
 
-from archmap_scan.assemble import Model
 from archmap_scan.context import Context
 from archmap_scan.model import Column
+from archmap_scan.objects import Model
 from archmap_scan.output import yamlio
 
 _TRANSLIT = {

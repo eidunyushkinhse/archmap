@@ -9,8 +9,6 @@ depends_on в связи не идут (порядок запуска не вы�
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-
 from archmap_scan import owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.links import hosts_in, link_technology
@@ -20,14 +18,23 @@ from archmap_scan.model import (
     Findings,
     Loc,
     Package,
-    Table,
     TableSet,
     Unit,
 )
+from archmap_scan.objects import (
+    BROKER,
+    DATABASE,
+    SERVICE,
+    SHAPE_ORDER,
+    Link,
+    Model,
+    Obj,
+    Param,
+    Schedule,
+    Worker,
+)
 from archmap_scan.walk import Pattern, is_dev_path
 
-SERVICE, DATABASE, BROKER = "service", "database", "broker"
-SHAPE_ORDER = {SERVICE: 0, DATABASE: 1, BROKER: 2}
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
     "compose": 0, "k8s": 1, "helm": 2, "supervisor": 3, "systemd": 4, "procfile": 5,
@@ -39,106 +46,6 @@ _DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s"})
 _VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
 
 
-@dataclass
-class Obj:
-    """Объект схемы: контейнер, база или брокер (дети корня-системы)."""
-
-    name: str
-    shape: str = SERVICE
-    role: str | None = None
-    technology: str | None = None
-    host: str | None = None
-    code_dir: str | None = None  # каталог кода контейнера от корня репозитория
-    path: str | None = None  # source.path после правила уникальности каталога
-    repo: bool = False  # ставить ли source.repo
-    locs: set[Loc] = field(default_factory=set)
-    parsers: list[str] = field(default_factory=list)
-    units: list[Unit] = field(default_factory=list)
-    env: list[EnvVar] = field(default_factory=list)
-    dockerfile: Dockerfile | None = None
-    package_locs: list[Loc] = field(default_factory=list)
-    language: str | None = None  # язык кода контейнера: по нему отбираются манифесты и файлы
-
-    @property
-    def is_container(self) -> bool:
-        return self.shape == SERVICE
-
-
-@dataclass
-class Link:
-    src: Obj
-    dst: Obj
-    label: str
-    technology: str | None
-    locs: set[Loc] = field(default_factory=set)
-    parsers: set[str] = field(default_factory=set)
-
-
-@dataclass
-class Worker:
-    """Процесс-воркер или планировщик: команда запуска и очереди из её аргументов."""
-
-    command: str
-    queues: list[str]
-    loc: Loc
-    parser: str
-    replicas: int | None = None
-
-
-@dataclass
-class Schedule:
-    """Расписание из манифеста (CronJob): имя, расписание как написано, задача."""
-
-    name: str
-    schedule: str
-    task: str | None
-    loc: Loc
-    parser: str
-
-
-@dataclass
-class Param:
-    """Параметр конфигурации контейнера: имя, тип и дефолт только из примера окружения."""
-
-    name: str
-    type: str | None = None
-    default: str | None = None
-    locs: set[Loc] = field(default_factory=set)
-    parsers: set[str] = field(default_factory=set)
-
-
-@dataclass
-class TableStats:
-    found: int = 0
-    unassigned: int = 0
-    dropped: int = 0
-    skipped: dict[str, int] = field(default_factory=dict)
-    parsers: set[str] = field(default_factory=set)
-    errors: list[str] = field(default_factory=list)
-
-
-@dataclass
-class Model:
-    system: str
-    system_locs: list[Loc]
-    objects: list[Obj]
-    links: list[Link]
-    implicit: bool = False
-    db_by_migrations: bool = False  # есть база, определённая по миграциям (ТЗ §7, пункт 3)
-    hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
-    workers: dict[str, list[Worker]] = field(default_factory=dict)
-    schedules: dict[str, list[Schedule]] = field(default_factory=dict)
-    # Параметры по контейнерам: имя контейнера → имя параметра → параметр.
-    params: dict[str, dict[str, Param]] = field(default_factory=dict)
-    # Таблицы по базам: имя базы → таблицы; счёт для покрытия — в table_stats.
-    tables: dict[str, list[Table]] = field(default_factory=dict)
-    table_stats: TableStats = field(default_factory=lambda: TableStats())
-
-    def obj(self, name: str) -> Obj | None:
-        return next((o for o in self.objects if o.name == name), None)
-
-    def hint(self, section: str, data: dict[str, object]) -> None:
-        self.hints.setdefault(section, []).append(data)
 
 
 def _go_module_name(module: str) -> str:

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from archmap_scan import registry, texts, vocab
-from archmap_scan.assemble import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.model import Findings
+from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
 

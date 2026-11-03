@@ -16,8 +16,8 @@ from archmap_scan import paths, vocab
 from archmap_scan.links import hosts_in
 
 if TYPE_CHECKING:
-    from archmap_scan.assemble import Obj
     from archmap_scan.model import EnvVar
+    from archmap_scan.objects import Obj
 
 
 def code_owners(rel: str, containers: Sequence[Obj]) -> list[Obj]:

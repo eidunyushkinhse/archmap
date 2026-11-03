@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from archmap_scan.assemble import Model, Obj
+from archmap_scan.objects import Model, Obj
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
 

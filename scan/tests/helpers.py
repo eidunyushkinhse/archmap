@@ -7,8 +7,9 @@ import subprocess
 from pathlib import Path
 
 from archmap_scan import registry
-from archmap_scan.assemble import Model, assemble
+from archmap_scan.assemble import assemble
 from archmap_scan.context import Context, make_context
+from archmap_scan.objects import Model
 from archmap_scan.walk import Files, list_files
 
 # Фикстуры сборщика: чужой код, который сборщик только читает.
