@@ -1,6 +1,6 @@
 # Окружение разработки: рантайм (requirements-prod.txt) + тесты и линтеры.
 -r requirements-prod.txt
-pytest==9.1.1
+pytest==9.2.0
 pytest-cov==7.1.0  # покрытие в CI: python -m pytest --cov (порог — pyproject.toml)
 ruff==0.17.0
 mypy==2.4.0  # dev: статическая типизация
