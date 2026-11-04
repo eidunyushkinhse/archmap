@@ -63,6 +63,9 @@ STARTS: dict[str, tuple[str, ...]] = {
         'r.Handle("GET", ', 'os.Getenv("', "type C struct {\n\tA string `env:\"",
         "os.LookupEnv(", KGO + 'w := kafka.Writer{Topic: "', KGO + 'g.Consume(ctx, []string{"',
         NGO + 'nc.Subscribe("', KGO + "Topics: []string{",
+        # Путь в обёртке на известном получателе (ТЗ §15 п. 2).
+        'x := gin.Default()\nx.GET(toPath("', "x := gin.Default()\nx.GET(toPath(",
+        "x := gin.Default()\nx.GET(toPath(`",
     ),
 }
 

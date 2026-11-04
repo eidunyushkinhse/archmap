@@ -10,6 +10,11 @@ http.NewServeMux()) или до пакета http; иначе маршрут п�
 Вызовы клиентов (client.Get("/api/…")) отсеиваются по имени получателя. Поиск идёт по
 маске кода (codetext.py), выражения начинаются с «.», имя слева от точки берётся
 ручным просмотром назад.
+
+Путь в обёртке (ТЗ §15 п. 2): аргумент вида ИМЯ("/литерал") на известном объекте
+маршрутизации (корень, группа, параметр замыкания группы) даёт маршрут с этим литералом
+(group.Delete(toMacaronPath("/api/v1/…")) у Grafana); на неизвестном получателе или в
+другом виде путь остаётся подсказкой «путь задан выражением».
 """
 
 from __future__ import annotations
@@ -40,6 +45,8 @@ _GROUP = re.compile(rf"\.[ \t]*(Group|PathPrefix|Route)[ \t]*\({SP}({STR})")
 _ROOT = re.compile(r"\.[ \t]*(Default|New|NewRouter|NewServeMux)[ \t]*\(")
 _FUNC = re.compile(r"func[ \t]*\([ \t]*([A-Za-z_][A-Za-z0-9_]{0,99})")
 _METHODS_CALL = re.compile(r"[ \t]*\.[ \t]*Methods[ \t]*\(")
+# Путь в обёртке: ИМЯ( строковый литерал ) с одним аргументом.
+_WRAPPED = re.compile(rf"[A-Za-z_][A-Za-z0-9_]{{0,99}}[ \t]*\({SP}({STR}){SP}\)")
 _STR = re.compile(STR)
 _NEEDLES = (
     ".HandleFunc(", ".Handle(", ".GET(", ".POST(", ".PUT(", ".DELETE(", ".PATCH(", ".Get(",
@@ -224,11 +231,33 @@ def _methods(f: _File, end: int) -> list[str] | None:
     return out or None
 
 
+def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int) -> None:
+    """Путь не строкой. Подсказка — только если это точно маршрут: получатель — известный
+    объект маршрутизации или в выражении есть путь («toPath("/api…")»); иначе это
+    Get(ctx, key) хранилища или кэша."""
+    mask = f.code.mask
+    ch = mask[arg:arg + 1]
+    if ch and (ch.isalpha() or ch == "_") and not mask.startswith("func", arg):
+        if _known(f, recv, at) or '"/' in f.code.expression(arg):
+            _dynamic(f, found, arg)
+
+
 def _dynamic(f: _File, found: Findings, start: int) -> None:
     found.hints.append(Hint("dynamic_names", {
         "kind": "route", "name": f.code.expression(start), "reason": texts.REASON_DYNAMIC_ROUTE,
         "source": str(Loc(f.rel, f.code.line(start))),
     }))
+
+
+def _wrapped(f: _File, recv: str, at: int, arg: int) -> tuple[int, int, int] | None:
+    """Путь в обёртке toPath("/p") на известном объекте маршрутизации: позиции литерала
+    в маске и конец обёртки; иначе None."""
+    if not _known(f, recv, at):
+        return None
+    w = _WRAPPED.match(f.code.mask, arg)
+    if w is None:
+        return None
+    return w.start(1), w.end(1), w.end()
 
 
 def _scan(f: _File, found: Findings) -> None:
@@ -239,22 +268,23 @@ def _scan(f: _File, found: Findings) -> None:
         if recv is None or recv in _CLIENTS:
             continue
         verb = m.group(1)
+        arg = m.end()
+        wrapped = None
         if m.group(2) is None:
-            # Путь не строкой. Подсказка — только если это точно маршрут: получатель —
-            # известный объект маршрутизации или в выражении есть путь («toPath("/api…")»);
-            # иначе это Get(ctx, key) хранилища или кэша.
-            arg = m.end()
-            ch = mask[arg:arg + 1]
-            if ch and (ch.isalpha() or ch == "_") and not mask.startswith("func", arg):
-                if _known(f, recv, m.start()) or '"/' in code.expression(arg):
-                    _dynamic(f, found, arg)
-            continue
-        value, _dyn = code.literal(m.start(2), m.end(2))
+            wrapped = _wrapped(f, recv, m.start(), arg)
+            if wrapped is None:
+                _not_string(f, found, recv, m.start(), arg)
+                continue
+            start, end, after = wrapped
+        else:
+            start, end = m.start(2), m.end(2)
+            after = end
+        value, _dyn = code.literal(start, end)
         method = _METHODS[verb]
         path = value
         if verb == "Handle" and value in _VERBS:
             # gin: r.Handle("GET", "/p", h) — метод первым аргументом.
-            nxt = _STR.match(mask, _skip_comma(mask, m.end(2)))
+            nxt = _STR.match(mask, _skip_comma(mask, after))
             if nxt is None:
                 continue
             method = value
@@ -264,10 +294,12 @@ def _scan(f: _File, found: Findings) -> None:
             if sep and head in _VERBS:
                 method, path = head, tail.strip()  # шаблон Go 1.22: «GET /items/{id}»
         if not path.startswith("/"):
+            if wrapped is not None:
+                _dynamic(f, found, arg)  # обёртка не над путём: как прежде, подсказка
             continue
         methods = [method]
         if verb in ("HandleFunc", "Handle") and method == "ANY":
-            methods = _methods(f, m.end(2)) or methods
+            methods = _methods(f, after) or methods
         base, ok = _prefix(f, recv, m.start())
         for meth in methods:
             found.routes.append(Route(

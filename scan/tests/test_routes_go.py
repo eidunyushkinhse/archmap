@@ -1,5 +1,6 @@
 """Маршруты Go (ТЗ §6.2): net/http, gin, chi и gorilla по фикстуре, группы присваиванием и
-замыканием, клиенты и Get хранилищ не маршруты."""
+замыканием, клиенты и Get хранилищ не маршруты; путь в обёртке toPath("/p") на известном
+объекте маршрутизации (ТЗ §15 п. 2)."""
 
 from __future__ import annotations
 
@@ -23,12 +24,14 @@ def test_fixture() -> None:
         ("ANY", "/static/", False, "net/http", "cmd/std/main.go:9"),
         ("DELETE", "/api/v2/users/{id}", False, "chi", "internal/chiapi/router.go:11"),
         ("DELETE", "/v1/admin/cache", False, "Gin", "internal/ginapi/router.go:11"),
+        ("DELETE", "/v1/alerts/{id}", False, "chi", "internal/alertapi/routes.go:21"),
         ("GET", "/", False, "chi", "internal/chiapi/router.go:7"),
         ("GET", "/admin/stats", False, "gorilla/mux", "internal/muxapi/router.go:9"),
         ("GET", "/items/{id}", False, "net/http", "cmd/std/main.go:8"),
         ("GET", "/ping", False, "Gin", "internal/ginapi/router.go:7"),
         ("GET", "/plugin", True, "Gin", "internal/ginapi/router.go:21"),
         ("GET", "/products", False, "gorilla/mux", "internal/muxapi/router.go:7"),
+        ("GET", "/v1/alerts/{id}", False, "chi", "internal/alertapi/routes.go:17"),
         ("PATCH", "/legacy", False, "Gin", "internal/ginapi/router.go:12"),
         ("POST", "/api/users", False, "chi", "internal/chiapi/router.go:9"),
         ("POST", "/products", False, "gorilla/mux", "internal/muxapi/router.go:7"),
@@ -51,6 +54,35 @@ def test_dynamic_only_on_known_routers(tmp_path: Path) -> None:
     found = gohttp.parse(files, ctx)
     assert found.routes == []
     assert [h.data["name"] for h in found.hints] == ['toPath("/api/x")']
+
+
+def test_wrapped_path(tmp_path: Path) -> None:
+    """Обёртка с одним строковым литералом пути на известном получателе — маршрут (и с
+    методами gorilla после неё); выражение в обёртке, литерал не с «/» и неизвестный
+    получатель — подсказка, как раньше."""
+    tree(tmp_path, {
+        "go.mod": "module x\n\nrequire github.com/gorilla/mux v1.8.1\n",
+        "routes.go": 'package x\nimport "github.com/gorilla/mux"\nfunc f() {\n'
+        "\tr := mux.NewRouter()\n"
+        '\tr.HandleFunc(toPath("/items"), h).Methods("PUT", "PATCH")\n'
+        '\tr.HandleFunc(toPath(`/raw`), h)\n'
+        '\tr.HandleFunc(toPath(base + "/x"), h)\n'
+        '\tr.HandleFunc(toPath("items"), h)\n'
+        '\tr.HandleFunc(pkg.ToPath("/q"), h)\n'
+        '\tother.Put(toPath("/unknown"), h)\n'
+        "}\n",
+    })
+    assert _routes(tmp_path) == [
+        ("ANY", "/raw", False, "gorilla/mux", "routes.go:6"),
+        ("PATCH", "/items", False, "gorilla/mux", "routes.go:5"),
+        ("PUT", "/items", False, "gorilla/mux", "routes.go:5"),
+    ]
+    ctx, files = files_of(tmp_path)
+    hints = gohttp.parse(files, ctx).hints
+    assert [(h.data["name"], h.data["source"]) for h in hints] == [
+        ('toPath(base + "/x")', "routes.go:7"), ('toPath("items")', "routes.go:8"),
+        ('pkg.ToPath("/q")', "routes.go:9"), ('toPath("/unknown")', "routes.go:10"),
+    ]
 
 
 def test_dev_code_not_read(tmp_path: Path) -> None:
