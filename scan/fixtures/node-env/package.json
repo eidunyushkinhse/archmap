@@ -1,0 +1,4 @@
+{
+  "name": "node-env-fixture",
+  "dependencies": {"dotenv": "^16.0.0"}
+}

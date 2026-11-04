@@ -1,0 +1,1 @@
+{"name": "shop/php", "require": {"php": "^8.2", "ext-json": "*", "laravel/framework": "^11.0"}}

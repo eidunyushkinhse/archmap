@@ -70,6 +70,7 @@ def preview_from_plan(plan: UnifiedPlan) -> UnifiedPreviewOut:
             file=f.file,
             errors=f.errors,
             warnings=[*f.warnings, *plan.input_remarks[i]],
+            scanner=plan.scanners[i] if i < len(plan.scanners) else None,
         )
         for i, f in enumerate(file_remarks)
     ]

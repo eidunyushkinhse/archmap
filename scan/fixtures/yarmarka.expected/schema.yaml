@@ -1,0 +1,97 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+nodes:
+- name: Ярмарка
+  shape: service
+  status: existing
+  element: system
+  children:
+  - name: billing-worker
+    shape: service
+    status: existing
+    role: воркер
+    technology: Python
+    source:
+      path: services/billing-worker
+      host: billing-worker
+  - name: orders
+    shape: service
+    status: existing
+    role: сервис
+    technology: Python + FastAPI
+    source:
+      path: services/orders
+      host: orders
+  - name: storefront
+    shape: service
+    status: existing
+    role: фронтенд
+    technology: Node.js + React
+    source:
+      path: frontend
+      host: storefront
+  - name: orders-db
+    shape: database
+    status: existing
+    role: БД
+    technology: PostgreSQL
+    source:
+      host: orders-db
+  - name: events
+    shape: broker
+    status: existing
+    role: брокер
+    technology: Kafka
+    source:
+      host: events
+  - name: redis
+    shape: broker
+    status: existing
+    role: брокер
+    technology: Redis
+    source:
+      host: redis
+edges:
+- from: billing-worker
+  to: orders
+  label: использует
+  technology: HTTP
+- from: billing-worker
+  to: redis
+  label: публикует
+  technology: Redis
+  channel: billing
+  sync: false
+- from: events
+  to: orders
+  label: доставляет
+  technology: Kafka
+  channel: payments.completed
+  sync: false
+- from: orders
+  to: events
+  label: публикует
+  technology: Kafka
+  channel: orders.created
+  sync: false
+- from: orders
+  to: orders-db
+  label: использует
+  technology: PostgreSQL
+- from: redis
+  to: billing-worker
+  label: доставляет
+  technology: Redis
+  channel: billing
+  sync: false
+- from: redis
+  to: billing-worker
+  label: доставляет
+  technology: Redis
+  channel: invoices
+  sync: false
+- from: storefront
+  to: orders
+  label: использует
+  technology: HTTP

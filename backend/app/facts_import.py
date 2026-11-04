@@ -15,6 +15,13 @@ from typing import Protocol
 from app.column_limits import too_long
 from app.models.node import Node
 from app.node_ref import NodeIndex, qualified_node_hits
+from app.scan_origin import facts_note
+
+
+def scanner_notes(files: Iterable[tuple[str, str]]) -> list[str]:
+    """Файлы пакета, собранные сборщиком фактов (шапка «# archmap-scan …» после строки
+    адреса): «Файл X собран сборщиком фактов …», по строке на такой файл."""
+    return [note for fname, content in files if (note := facts_note(fname, content))]
 
 
 def as_bool(v: object) -> bool:

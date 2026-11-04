@@ -29,18 +29,22 @@ def test_флаг_writes_у_каждого_и_локальные_имена_бе
 def test_удалённый_набор_без_локальных_и_только_чтение_без_пишущих() -> None:
     full = [t["name"] for t in tools.remote_catalog(read_only=False)]
     reader = [t["name"] for t in tools.remote_catalog(read_only=True)]
-    # Числа — от флагов, а не руками: 41 − 3 локальных = 38, читающих среди них — 17
-    # (0.12.0: четыре пишущих инструмента переноса и сбора доступны и удалённо).
+    # Числа — от флагов, а не руками: 42 − 4 локальных = 38, читающих среди них — 17
+    # (0.12.0: четыре пишущих инструмента переноса и сбора доступны и удалённо; 0.14.0:
+    # archmap_scan читающий, но только локальный, — локально читающих 19).
     assert full == [t["name"] for t in tools.TOOLS if t["name"] not in tools.LOCAL_ONLY]
     assert reader == [n for n in full if not tools.BY_NAME[n]["writes"]]
     assert (len(full), len(reader)) == (38, 17)
+    assert (len(tools.TOOLS), sum(not t["writes"] for t in tools.TOOLS)) == (42, 19)
+    assert "archmap_scan" in tools.LOCAL_ONLY and not tools.BY_NAME["archmap_scan"]["writes"]
     assert set(reader) <= set(full) and not set(full) & tools.LOCAL_ONLY
 
 
 def test_удалённые_описания_и_схемы_не_зовут_к_диску() -> None:
     for t in tools.remote_catalog(read_only=False):
         text = json.dumps({"d": t["description"], "s": t["schema"]}, ensure_ascii=False)
-        for word in [*tools.LOCAL_ONLY, "paths", "out_path", "с диска", "С ДИСКА"]:
+        # archmap_scan входит в LOCAL_ONLY: удалённые описания не зовут и к сборщику на диске.
+        for word in [*tools.LOCAL_ONLY, "archmap_scan", "paths", "out_path", "out_dir", "с диска", "С ДИСКА"]:
             assert word not in text, (t["name"], word)
 
 
@@ -83,6 +87,9 @@ def no_disk(monkeypatch: pytest.MonkeyPatch) -> None:
         ("archmap_import_apply", {"name": "Новый", "paths": ["/etc/shadow"]}),
         ("archmap_export", {"project": "Ярмарка", "out_path": "/tmp/x.yaml"}),
         ("archmap_projects", {"paths": []}),
+        ("archmap_scan", {"path": "/srv/archmap", "out_dir": "/etc/archmap"}),
+        ("archmap_projects", {"path": "/etc"}),
+        ("archmap_import_prompt", {"system_name": "X", "out_dir": "/tmp/x"}),
     ],
 )
 async def test_диск_в_удалённом_вызове_отказ_до_обработчика(
@@ -109,3 +116,11 @@ async def test_удалённый_вызов_чтения_работает(clien
 async def test_неизвестный_инструмент_в_удалённом_режиме(client: ArchMapClient) -> None:
     with pytest.raises(ArchMapError, match="Неизвестный инструмент: archmap_nope"):
         await tools.call_remote("archmap_nope", {}, client, read_only=False)
+
+
+async def test_сборщик_удалённо_отказ_называет_команды_промпта(client: ArchMapClient, api: FakeApi) -> None:
+    with pytest.raises(ArchMapError) as exc:
+        await tools.call_remote("archmap_scan", {"path": "/srv"}, client, read_only=False)
+    assert "командами из промпта archmap_import_prompt" in str(exc.value)
+    assert "локального MCP-сервера ArchMap" in str(exc.value)
+    assert api.calls == []

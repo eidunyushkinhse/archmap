@@ -1,0 +1,30 @@
+# archmap-node: Ярмарка / orders
+# archmap-scan 0.1.0
+# repo:
+# commit:
+config:
+- name: ADMIN_PREFIX
+  type: string
+  default: /internal
+- name: DATABASE_URL
+  type: string
+  required: true
+- name: FEATURE_FAST_CHECKOUT
+  type: bool
+  default: 'true'
+- name: JWT_SECRET
+  type: string
+- name: KAFKA_BOOTSTRAP
+  type: string
+- name: LOG_LEVEL
+  type: string
+  default: info
+- name: PAYMENT_API_TOKEN
+  type: string
+  required: true
+- name: REQUEST_TIMEOUT
+  type: duration
+  default: 30s
+- name: WORKERS
+  type: int
+  default: '4'

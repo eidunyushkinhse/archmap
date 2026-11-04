@@ -1,8 +1,10 @@
 # Зеркало локального pre-commit-гейта (scripts/git-hooks/pre-commit):
 # фронт — tsc + eslint + vitest, бэк — ruff + mypy + pytest (in-memory SQLite, сервисы не нужны),
-# mcp — ruff + mypy + pytest (тесты идут поверх подменённого транспорта httpx).
+# mcp — ruff + mypy + pytest (тесты идут поверх подменённого транспорта httpx),
+# scan — ruff + mypy + pytest сборщика фактов под Python 3.10 и 3.12.
 # Сверх хука (аудит 2026-10, P-18…P-20): продакшн-сборки фронта, дрейф api.gen.ts против
-# app.openapi(), аудит зависимостей поставки, синтаксис скриптов поставки.
+# app.openapi(), аудит зависимостей поставки, синтаксис скриптов поставки, собранный
+# archmap-scan.pyz на фикстуре и его раздача образом.
 # Actions — по SHA коммита (тег в комментарии): тег можно перевесить, SHA — нет; обновляет
 # их Dependabot (.github/dependabot.yml).
 name: CI
@@ -139,6 +141,43 @@ jobs:
       - name: Tests
         run: python -m pytest -q
 
+  scan:
+    # Сборщик фактов (docs/tasks/fact-collector.md): код обязан работать на Python 3.10, а
+    # кроме этой джобы 3.10 его нигде не запускает. Собранный файл гоняется изолированно
+    # (-I -S: ничего вне архива) на фикстуре «Ярмарка» и сверяется с ожидаемым выводом.
+    name: Scan (ruff + mypy + pytest + archmap-scan.pyz, Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    defaults:
+      run:
+        working-directory: scan
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            scan/requirements.txt
+            scan/requirements-dev.txt
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Lint
+        run: ruff check .
+      - name: Type check
+        run: mypy
+      - name: Tests
+        run: python -m pytest -q
+      - name: Собранный файл на фикстуре «Ярмарка»
+        run: |
+          python build.py --out /tmp/archmap-scan.pyz
+          python -I -S /tmp/archmap-scan.pyz fixtures/yarmarka --out /tmp/y --no-git --system Ярмарка
+          diff -r fixtures/yarmarka.expected /tmp/y
+
   scripts:
     name: Scripts (bash -n + shellcheck + ruff + agent-docs)
     runs-on: ubuntu-latest
@@ -200,6 +239,13 @@ jobs:
             -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
             --data "$list")" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/.well-known/oauth-protected-resource)" = 404
+      - name: Сборщик фактов раздаётся
+        run: |
+          version="$(curl -fsS http://localhost:8080/api/v1/scan |
+            python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          test -n "$version"
+          curl -fsS -o /tmp/archmap-scan.pyz http://localhost:8080/api/v1/scan/archmap-scan.pyz
+          test "$(python3 /tmp/archmap-scan.pyz --version)" = "$version"
       - name: Журнал контейнеров
         if: failure()
         run: docker compose logs --no-color

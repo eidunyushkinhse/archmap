@@ -56,6 +56,7 @@ from app.merge_warnings import warn_content
 from app.mmd_header import fix_unpaired_brackets, parse_mmd_header, strip_header
 from app.models.node_doc import NodeDoc
 from app.node_ref import RefIndex
+from app.scan_origin import schema_note
 
 # Максимум входов за раз — тот же щедрый предел, что у голого мульти-YAML импорта
 # (MAX_IMPORT_FILES): мульти-репо BYOA присылает файл на репозиторий, и системе из
@@ -211,6 +212,8 @@ class UnifiedPlan:
     # быть не должен. Само замечание остаётся в сырых строках входа (MCP).
     dup_echoes: dict[tuple[int, int], set[int]] = field(default_factory=dict)
     counts: FamilyCounts = field(default_factory=FamilyCounts)
+    # По записи на вход: строка «собрано сборщиком фактов …» или None (app/scan_origin).
+    scanners: list[str | None] = field(default_factory=list)
     name_source: Literal["manifest", "fields"] = "fields"
     manifest_name: str | None = None
     manifest_description: str | None = None
@@ -226,6 +229,8 @@ class _Input:
     archive: _Archive | None = None
     c4: str | None = None
     error: str | None = None
+    # YAML собран сборщиком фактов: строка пометки для превью (app/scan_origin).
+    scanner: str | None = None
 
 
 def _read_input(label: str, payload: bytes) -> _Input:
@@ -253,7 +258,8 @@ def _read_input(label: str, payload: bytes) -> _Input:
             label=label, kind="yaml",
             error="Файл не читается ни как zip-архив, ни как текст в UTF-8",
         )
-    return _Input(label=label, kind="yaml", c4=text.lstrip("﻿"))
+    c4 = text.lstrip("﻿")
+    return _Input(label=label, kind="yaml", c4=c4, scanner=schema_note(c4))
 
 
 # ── Пути и происхождение ─────────────────────────────────────────────────────
@@ -641,6 +647,7 @@ def _failed(inputs: list[_Input], errors: list[str], report: MergeReport) -> Uni
         errors=errors,
         report=report,
         input_remarks=[[] for _ in inputs],
+        scanners=[i.scanner for i in inputs],
     )
 
 
@@ -765,6 +772,7 @@ def build_unified_plan(
         input_remarks=remarks,
         dup_echoes=dup_echoes,
         counts=counts,
+        scanners=[i.scanner for i in read],
         name_source=name_source,
         manifest_name=_text_or_none(manifest_project.get("name")),
         manifest_description=_text_or_none(manifest_project.get("description")),

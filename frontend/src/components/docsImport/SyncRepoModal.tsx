@@ -16,9 +16,10 @@ import { projectsApi } from "../../api/projects";
 import { ApiError, isDemoLimit } from "../../api/client";
 import { useDocsFiles, MAX_FILES } from "./useDocsFiles";
 import { useFileDrop } from "./useFileDrop";
-import { planSections, planSummary, applySummary } from "./syncPlanView";
+import { planSections, planSummary, applySummary, scannerLines } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
 import PromptCopyButton from "./PromptCopyButton";
+import ScanFileLink from "../project/ScanFileLink";
 import {
   head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
@@ -159,6 +160,8 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       .importPrompt({
         systemName: projectName, depth: 2, lang,
         hints: hints.trim() || undefined, variant,
+        // Адрес ArchMap для агента: по нему он скачает сборщик фактов первым шагом.
+        origin: window.location.origin,
       })
       .then((r) => r.prompt));
 
@@ -244,6 +247,8 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             репозитории: объекты узнаются по источнику, то есть коду (репозиторий и путь в нём) или
             имени зависимости, поэтому переименованный сервис не превратится в новый объект.
           </p>
+          {/* Путь без агента: файл сборщика фактов, его schema.yaml обновляет проект здесь же. */}
+          <ScanFileLink style={{ marginTop: 10 }} />
         </div>
 
         {/* ── Справа: файлы, политики, план ─────────────────── */}
@@ -339,6 +344,11 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
               {preview && !preview.ok && (
                 <NoteList title="YAML не читается" items={preview.errors ?? []} />
               )}
+              {/* Входы, собранные сборщиком фактов: в них нет описаний и связей по смыслу.
+                  Строка на такой вход; при нескольких файлах — с именем файла. */}
+              {preview?.ok && !excess && scannerLines(preview, pkg.nonEmpty.map((f) => f.name)).map((l, i) => (
+                <p key={i} style={grayLine}>{l}</p>
+              ))}
               {preview?.ok && !excess && (
                 <>
                   <p style={{ ...grayLine, color: "#0f172a", fontWeight: 600 }}>

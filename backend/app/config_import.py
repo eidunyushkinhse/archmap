@@ -30,7 +30,14 @@ from sqlalchemy.orm import Session
 from app import yaml_io
 from app.data_import import NODE_HEADER
 from app.element_marks import build_elements, element_rows_of
-from app.facts_import import as_bool, as_str, overlong, resolve_owner, warn_duplicates
+from app.facts_import import (
+    as_bool,
+    as_str,
+    overlong,
+    resolve_owner,
+    scanner_notes,
+    warn_duplicates,
+)
 from app.models.config_param import ConfigParam
 from app.models.node import Node
 from app.node_ref import NodeIndex
@@ -176,6 +183,7 @@ def build_config_plan(
     overwrite: bool,
 ) -> ConfigPlan:
     plan = ConfigPlan()
+    plan.report.scanner = scanner_notes(files)
     index = NodeIndex.of(nodes)
     path_of = index.path_by_id()
     plan.path_of = path_of

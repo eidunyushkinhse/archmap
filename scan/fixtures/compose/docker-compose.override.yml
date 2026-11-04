@@ -1,0 +1,6 @@
+services:
+  api:
+    environment:
+      FEATURE_X: "true"
+  web:
+    image: nginx:1.27

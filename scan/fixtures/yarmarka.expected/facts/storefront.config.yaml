@@ -1,0 +1,10 @@
+# archmap-node: Ярмарка / storefront
+# archmap-scan 0.1.0
+# repo:
+# commit:
+config:
+- name: API_URL
+  type: string
+- name: PAGE_SIZE
+  type: int
+  default: '20'

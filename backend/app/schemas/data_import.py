@@ -52,6 +52,8 @@ class DataTableItem(BaseModel):
 
 
 class DataImportReport(BaseModel):
+    # Файлы, собранные сборщиком фактов: «Файл X собран сборщиком фактов …» (app/scan_origin).
+    scanner: list[str] = []
     tables: list[DataTableItem] = []
     errors: list[str] = []
     warnings: list[str] = []

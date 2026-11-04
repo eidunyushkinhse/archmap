@@ -149,7 +149,7 @@ describe("Догрузить архив в живой проект", () => {
 describe("Обновить из кода (синк)", () => {
   const sync = (demo_excess: SyncPreviewOut["demo_excess"]): SyncPreviewOut => ({
     ok: true, errors: [], files: 1, nodes: [], edges: [], conflicts: [], warnings: [],
-    summary: { create: 70 }, is_noop: false, graph_rev: 3, demo_excess,
+    summary: { create: 70 }, is_noop: false, graph_rev: 3, demo_excess, scanner: [],
   });
 
   it("после синка проект выйдет за предел: плашка вместо плана, «Применить» погашена", async () => {

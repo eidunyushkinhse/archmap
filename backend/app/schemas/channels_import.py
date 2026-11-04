@@ -55,6 +55,8 @@ class ChannelItem(BaseModel):
 
 
 class ChannelsImportReport(BaseModel):
+    # Файлы, собранные сборщиком фактов: «Файл X собран сборщиком фактов …» (app/scan_origin).
+    scanner: list[str] = []
     channels: list[ChannelItem] = []
     errors: list[str] = []
     warnings: list[str] = []

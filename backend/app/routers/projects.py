@@ -16,7 +16,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import (
     APIRouter,
@@ -30,7 +30,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
-from app import demo, demo_limits
+from app import demo, demo_limits, scan_file
 from app.access import (
     VIEWER_EDITOR_DETAIL,
     VIEWER_OWNER_DETAIL,
@@ -52,6 +52,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.project_cards import project_card, project_cards
 from app.projects import copy_project_schema
+from app.scan_origin import schema_note
 from app.schemas.archive import ArchiveImportResult
 from app.schemas.node import NodeSource
 from app.schemas.project import (
@@ -80,6 +81,24 @@ from app.unified_preview import preview_from_plan
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
+# Адрес ArchMap, каким его видит клиент (window.location.origin фронта, ARCHMAP_URL или
+# внешний адрес у MCP): схема, хост и порт без пути. Узкий набор символов — адрес уходит
+# в команду curl, которую выполнит агент пользователя.
+_ORIGIN = r"^https?://[A-Za-z0-9.\-:\[\]_]+$"
+
+
+def _scan_url(origin: str | None) -> str | None:
+    """Адрес файла сборщика фактов для шага промпта: только когда клиент назвал свой адрес
+    и файл в поставке есть. Иначе None, и промпт прежний (старые клиенты, поставка без
+    файла)."""
+    if not origin:
+        return None
+    try:
+        scan_file.current()
+    except scan_file.ScanFileMissing:
+        return None
+    return f"{origin}/api/v1/scan/{scan_file.FILE_NAME}"
+
 @router.get("", response_model=list[ProjectResponse])
 def list_projects(
     archived: bool = False,
@@ -104,6 +123,9 @@ def import_prompt(
     lang: Literal["ru", "en"] = "ru",
     hints: str | None = Query(default=None, max_length=2_000),
     variant: PromptVariant = "builder",
+    # Annotated, а не «= Query(...)»: при прямом вызове функции (тесты) значение по
+    # умолчанию — None, а не объект Query, который читался бы как переданный адрес.
+    origin: Annotated[str | None, Query(max_length=300, pattern=_ORIGIN)] = None,
     _user: User = Depends(get_current_user),
 ) -> ImportPromptOut:
     """Универсальный промпт «Из репозитория» для ИИ-агента пользователя (BYOA):
@@ -115,16 +137,24 @@ def import_prompt(
     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
     одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
 
+    origin — адрес ArchMap, каким его видит клиент (фронт, MCP). С ним и с файлом сборщика
+    в поставке промпт начинается с запуска сборщика фактов (docs/tasks/fact-collector.md,
+    фаза 3), а scan_url ответа называет адрес файла. Без origin промпт прежний байт-в-байт.
+
     Любому вошедшему: это текст без данных, а нужен он и созданию проекта
     (глобальная роль architect), и обновлению существующего проекта из кода (редактор проекта,
     который может быть viewer глобально)."""
+    # Промпт аудита строительный промпт не содержит: шага сборщика в нём нет, и адрес
+    # ответа не должен говорить обратное.
+    scan_url = _scan_url(origin) if variant != "skeptic" else None
     return ImportPromptOut(
         prompt=prompt_for_variant(
             variant,
             "import",
-            build_import_prompt(system_name, depth=depth, lang=lang, hints=hints),
+            build_import_prompt(system_name, depth=depth, lang=lang, hints=hints, scan_url=scan_url),
             system_name=system_name,
-        )
+        ),
+        scan_url=scan_url,
     )
 
 
@@ -365,9 +395,14 @@ def sync_preview(
     project, _ = project_for(db, user, project_id, need="editor")
     demo_limits.check_texts(_sync_files(payload))
 
+    # Входы, собранные сборщиком фактов (шапка «# archmap-scan …»): план говорит, что у
+    # них нет описаний и связей по смыслу. Пометка идёт и при ошибке разбора.
+    scanner = [schema_note(text) for text in payload.contents]
     merged, report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
-        return SyncPreviewOut(ok=False, errors=errors, files=len(payload.contents))
+        return SyncPreviewOut(
+            ok=False, errors=errors, files=len(payload.contents), scanner=scanner
+        )
 
     plan = plan_for(db, project_id, merged, _sync_policies(payload))
     out = SyncPreviewOut(
@@ -406,6 +441,7 @@ def sync_preview(
         summary=plan.summary,
         is_noop=plan.is_noop,
         graph_rev=project.graph_rev,
+        scanner=scanner,
     )
     if not plan.is_noop:
         # Демо-стенд: пробное применение и откат — выйдет ли проект за предел.

@@ -1,0 +1,55 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+containers:
+  billing-worker:
+    http: []
+    workers:
+    - command: celery -A billing.app worker -Q billing,invoices --concurrency 4
+      queues: [billing, invoices]
+      source: docker-compose.yml:22
+    schedules:
+    - name: close-day
+      schedule: crontab(hour=0, minute=5)
+      task: billing.tasks.close_day
+      source: services/billing-worker/billing/app.py:7
+    consumers:
+    - channel: billing
+      kind: queue
+      broker: redis
+      source: docker-compose.yml:22
+    - channel: invoices
+      kind: queue
+      broker: redis
+      source: docker-compose.yml:22
+  orders:
+    http:
+    - method: DELETE
+      path: /admin/cache
+      framework: FastAPI
+      prefix_unresolved: true
+      source: services/orders/orders/api/admin.py:6
+    - method: POST
+      path: /api/orders
+      framework: FastAPI
+      source: services/orders/orders/api/routes.py:13
+    - method: GET
+      path: /api/orders/{order_id}
+      framework: FastAPI
+      source: services/orders/orders/api/routes.py:8
+    workers: []
+    schedules:
+    - name: crontab
+      schedule: 30 3 * * *
+      task: python -m orders.cleanup --days 7
+      source: services/orders/crontab:3
+    consumers:
+    - channel: payments.completed
+      kind: topic
+      broker: events
+      source: services/orders/orders/events.py:5
+  storefront:
+    http: []
+    workers: []
+    schedules: []
+    consumers: []

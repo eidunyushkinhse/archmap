@@ -1,0 +1,99 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+nodes/Ярмарка / billing-worker:
+- docker-compose.yml:20
+- docker-compose.yml:22
+- services/billing-worker/Dockerfile:1
+- services/billing-worker/requirements.txt:1
+nodes/Ярмарка / orders:
+- docker-compose.yml:9
+- services/orders/Dockerfile:1
+- services/orders/Procfile:1
+- services/orders/pyproject.toml:2
+nodes/Ярмарка / storefront:
+- docker-compose.yml:2
+- frontend/Dockerfile:1
+- frontend/package.json:2
+nodes/Ярмарка / orders-db:
+- docker-compose.yml:28
+nodes/Ярмарка / events:
+- docker-compose.yml:33
+nodes/Ярмарка / redis:
+- docker-compose.yml:24
+- docker-compose.yml:36
+edges/billing-worker→orders:
+- docker-compose.yml:25
+edges/billing-worker→redis#billing:
+- services/billing-worker/billing/app.py:13
+edges/events→orders#payments.completed:
+- services/orders/orders/events.py:5
+edges/orders→events#orders.created:
+- services/orders/orders/api/routes.py:15
+edges/orders→orders-db:
+- docker-compose.yml:17
+- services/orders/.env.example:2
+edges/redis→billing-worker#billing:
+- docker-compose.yml:22
+edges/redis→billing-worker#invoices:
+- docker-compose.yml:22
+edges/storefront→orders:
+- docker-compose.yml:6
+tables/orders-db/order_items:
+- services/orders/migrations/versions/0001_init.py:16
+tables/orders-db/orders:
+- services/orders/migrations/versions/0001_init.py:9
+- services/orders/migrations/versions/0002_status.py:9
+- services/orders/migrations/versions/0002_status.py:10
+channels/events/orders.created:
+- services/orders/orders/api/routes.py:15
+channels/events/payments.completed:
+- services/orders/orders/events.py:5
+channels/redis/billing:
+- docker-compose.yml:22
+- services/billing-worker/billing/app.py:5
+- services/billing-worker/billing/app.py:13
+channels/redis/invoices:
+- docker-compose.yml:22
+- services/billing-worker/billing/app.py:11
+config/billing-worker/CELERY_BROKER_URL:
+- docker-compose.yml:24
+config/billing-worker/INVOICE_CURRENCY:
+- services/billing-worker/billing/config.py:3
+config/billing-worker/ORDERS_API:
+- docker-compose.yml:25
+config/billing-worker/RETRY_LIMIT:
+- services/billing-worker/billing/config.py:4
+config/orders/ADMIN_PREFIX:
+- services/orders/orders/main.py:8
+config/orders/DATABASE_URL:
+- docker-compose.yml:13
+- services/orders/.env.example:2
+- services/orders/orders/settings.py:7
+config/orders/FEATURE_FAST_CHECKOUT:
+- services/orders/.env.example:8
+config/orders/JWT_SECRET:
+- services/orders/.env.example:5
+- services/orders/orders/settings.py:16
+config/orders/KAFKA_BOOTSTRAP:
+- docker-compose.yml:14
+- services/orders/.env.example:3
+- services/orders/orders/settings.py:8
+config/orders/LOG_LEVEL:
+- docker-compose.yml:15
+- services/orders/.env.example:6
+- services/orders/orders/settings.py:13
+config/orders/PAYMENT_API_TOKEN:
+- services/orders/.env.example:4
+- services/orders/orders/settings.py:17
+config/orders/REQUEST_TIMEOUT:
+- services/orders/.env.example:7
+- services/orders/orders/settings.py:9
+config/orders/WORKERS:
+- services/orders/.env.example:9
+- services/orders/orders/settings.py:14
+config/storefront/API_URL:
+- docker-compose.yml:6
+- frontend/src/api.js:1
+config/storefront/PAGE_SIZE:
+- frontend/src/api.js:2

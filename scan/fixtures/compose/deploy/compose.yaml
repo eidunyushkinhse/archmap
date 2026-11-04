@@ -1,0 +1,5 @@
+include:
+  - ../docker-compose.yml
+services:
+  proxy:
+    image: traefik:v3.0

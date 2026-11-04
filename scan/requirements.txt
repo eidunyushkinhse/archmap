@@ -1,0 +1,4 @@
+# Рантайм сборщика фактов. Зависимость одна: PyYAML тем же пином, что у mcp и бэкенда
+# (mcp/requirements.txt, backend/requirements-prod.txt). В собранный файл archmap-scan.pyz
+# кладётся только чистая Python-часть пакета yaml (build.py), без _yaml*.so.
+PyYAML==6.0.3

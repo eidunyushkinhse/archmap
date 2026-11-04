@@ -8,6 +8,7 @@ import Modal from "../../ui/Modal";
 import { plural } from "../../ui/plural";
 import { input, labelStyle, primaryBtn, secondaryBtn } from "../../ui/styles";
 import PromptCopyButton from "../docsImport/PromptCopyButton";
+import ScanFileLink from "./ScanFileLink";
 import ImportPane from "./ImportPane";
 import { DemoExcessNotice, FileTooBigNotice } from "../demo/DemoLimitNotice";
 import { firstTooBig, textBytes } from "../demo/demoLimits";
@@ -189,6 +190,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         lang: promptLang,
         hints: promptHints.trim() || undefined,
         variant,
+        // Адрес ArchMap для агента: по нему он скачает сборщик фактов первым шагом.
+        origin: window.location.origin,
       })
       .then((res) => res.prompt))
       .catch((e: unknown) => {
@@ -327,7 +330,10 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
 
               {/* Серого абзаца «что принимается» в левой колонке ввоза больше нет
                   (ТЗ §1.1): он обещал сводку со склейкой и подозрениями, которой
-                  теперь нет, а форматы входов называет плейсхолдер самой панели. */}
+                  теперь нет, а форматы входов называет плейсхолдер самой панели.
+                  Есть только ссылка на сборщик фактов: путь без агента начинается со
+                  скачивания файла (фаза 3 docs/tasks/fact-collector.md). */}
+              {mode === "import" && <ScanFileLink />}
 
               {mode === "repo" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -337,7 +343,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     <li>
                       Запустите своего ИИ-агента (Claude Code, Cursor, Qwen Code и т.д.) в
                       репозитории вашей системы. Если репозиториев несколько, запустите по
-                      агенту в каждом из них.
+                      агенту в каждом из них. Сначала агент запустит сборщик фактов ArchMap,
+                      который скачает сам.
                     </li>
                     <li>Дождитесь, пока все агенты вернут YAML.</li>
                     <li>Перетащите все YAML в поле справа.</li>

@@ -1,0 +1,69 @@
+# archmap-scan 0.1.0
+# repo:
+# commit:
+depends_on: []
+dynamic_names:
+- kind: channel
+  name: TOPIC
+  reason: имя канала задано выражением, а не строкой, и известно только при запуске
+  source: services/orders/orders/events.py:10
+- kind: config
+  name: f'FEATURE_{name.upper()}'
+  reason: имя параметра задано выражением, а не строкой, и известно только при запуске
+  source: services/orders/orders/settings.py:22
+- kind: env
+  name: DATABASE_URL
+  object: orders
+  reason: значение с подстановкой переменной, адрес из него не взят
+  source: docker-compose.yml:13
+- kind: route
+  name: ADMIN_PREFIX
+  reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
+  source: services/orders/orders/main.py:13
+- kind: route
+  name: STATUS_PATH
+  reason: путь маршрута задан выражением, а не строкой, и известен только при запуске
+  source: services/orders/orders/api/routes.py:23
+unassigned:
+- kind: container
+  name: release
+  reason: фаза выпуска Heroku выполняется один раз при выкладке, это не процесс
+  source: services/orders/Procfile:2
+unsupported: []
+openapi_files: []
+profiles:
+- kind: container
+  name: mailhog
+  reason: сервис включается только профилем compose
+  source: docker-compose.yml:39
+  profiles:
+  - dev
+shared_code: []
+clients:
+- kind: library
+  name: celery
+  object: billing-worker
+  reason: клиентская библиотека в манифесте сборки подсказывает вид зависимости
+  source: services/billing-worker/requirements.txt:1
+  technology: Celery
+- kind: library
+  name: kafka-python
+  object: orders
+  reason: клиентская библиотека в манифесте сборки подсказывает вид зависимости
+  source: services/orders/pyproject.toml:2
+  technology: Kafka
+- kind: library
+  name: psycopg
+  object: orders
+  reason: клиентская библиотека в манифесте сборки подсказывает вид зависимости
+  source: services/orders/pyproject.toml:2
+  technology: PostgreSQL
+- kind: library
+  name: redis
+  object: billing-worker
+  reason: клиентская библиотека в манифесте сборки подсказывает вид зависимости
+  source: services/billing-worker/requirements.txt:1
+  technology: Redis
+unparsed: []
+external_repos: []
+merged: []

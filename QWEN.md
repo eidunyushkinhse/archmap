@@ -27,7 +27,8 @@ archmap/
 ├── frontend/              # React + Vite
 │   ├── src/
 │   │   ├── api/           # клиент бэкенда: client (общий запрос, 401, X-Project-Id), auth, admin, nodes,
-│   │   │                  # processes, projects, docsImport, dataRefs, projectScope, tokens, versions, deployment (площадки и размещение)
+│   │   │                  # processes, projects, docsImport, dataRefs, projectScope, tokens, versions, deployment (площадки и размещение),
+│   │   │                  # scan (файл сборщика фактов: версия и ссылка)
 │   │   ├── lib/           # общие механизмы без разметки: lazyOnce, useAsyncLoad, safeStorage, copyText,
 │   │   │                  # connection (признак «нет связи»), motion (prefers-reduced-motion)
 │   │   ├── ui/            # общие UI-примитивы: Modal, ConfirmDialog, ErrorBoundary, LoadError, UpdateNotice,
@@ -37,7 +38,8 @@ archmap/
 │   │   │   │              # interaction/ (хуки useLevel*, драг, снап, анимации, undo), узлы, рёбра, проекция
 │   │   │   ├── inspector/ # правая панель: NodeInspector, EdgeInspector, GhostInspector, ObjectInspector, DocOverlay
 │   │   │   ├── processes/ # бизнес-процессы: sequence-диаграммы, рейл, композитор, импорт из mermaid
-│   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы
+│   │   │   ├── project/   # создание и правка проектов, ввоз (ImportPane), догрузка, доступ, превью схемы,
+│   │   │   │              # ссылка на файл сборщика фактов (ScanFileLink)
 │   │   │   │   └── remainder/  # разбор остатка слияния вопросами (блок, статус, свёртка, чистый модуль вопросов)
 │   │   │   ├── docsImport/# окна «Доки от агента» (BYOA): схемы логики, разведка, факты, синк из репозитория
 │   │   │   ├── anchor/    # поле и тексты источника объекта (source_ref; в коде понятие зовётся anchor)
@@ -51,7 +53,7 @@ archmap/
 │   │   │   ├── nodePage/  # части страницы объекта: свойства (в т.ч. строка «Размещение»), секции «Логика»/«OpenAPI»/«Схема» по элементу, группы потомков
 │   │   │   ├── deployment/# режим «Развёртывание»: проекция графа площадок на холст, окна «Размещение» и «Площадки»,
 │   │   │   │              # конфликты размещения контейнера целиком (placementConflicts, PlacementConflictList)
-│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 256 тестовых файлов)
+│   │   │   ├── __tests__/ # vitest-тесты компонентов и чистых функций (всего во фронте 266 тестовых файлов)
 │   │   │   ├── LevelGraph.tsx  # ядро холста (RF-обёртка, конвейер, locate, выделение)
 │   │   │   ├── nodeTerms.ts    # подписи форм, статусов и видов схем — один словарь на весь фронт
 │   │   │   └── ...        # секции фактов (БД, каналы, конфигурация), модалки, дерево (NodeTreePanel; режимы
@@ -72,11 +74,12 @@ archmap/
 │   │   ├── models/        # SQLAlchemy: project, project_member, user, node, edge, node_doc, view_layout, view_state,
 │   │   │                  # db_table/db_column, broker_channel/channel_field, config_param, business_process, process_*,
 │   │   │                  # personal_token, node_version, deployment_site/deployment_instance (площадки и экземпляры)
-│   │   ├── routers/       # 26 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
+│   │   ├── routers/       # 27 роутеров /api/v1: auth, admin, users, tokens, demo, projects, nodes, edges, views, export, search,
 │   │   │                  # processes, node_docs, docs_import, recon, data_refs, db_docs, data_import,
 │   │   │                  # broker_channels, channels_import, config_params, config_import, versions, deployment,
-│   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки)
-│   │   ├── schemas/       # Pydantic-контракт API (30 модулей; из него генерируется api.gen.ts)
+│   │   │                  # facts (перенос и сбор фактов), uploads (одноразовая ссылка загрузки),
+│   │   │                  # scan (раздача сборщика фактов archmap-scan.pyz без входа)
+│   │   ├── schemas/       # Pydantic-контракт API (31 модуль; из него генерируется api.gen.ts)
 │   │   ├── main.py        # FastAPI app, CORS, lifespan, роутеры /api/v1, /health, /ready и /mcp
 │   │   ├── config.py      # Settings — все поля описаны в backend/.env.example
 │   │   ├── domain_types.py  # словари предметной области (Literal формы, статусы, роли…) и pick
@@ -107,25 +110,31 @@ archmap/
 │   │   ├── admin.py       # серверная команда create-admin (первый администратор)
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
+│   │   ├── scan_file.py   # файл сборщика фактов для раздачи (/api/v1/scan): версия, sha256, кэш по mtime
+│   │   ├── scan_origin.py # пометка «собрано сборщиком фактов» по шапке входа (превью, план обновления, факты)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (87 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (93 тестовых файла, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
 │   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
-│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (41 инструмент:
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (42 инструмента:
 │   │                      # чтение, поиск, промпты, превью → применение, точечные правки, версии документации, размещение,
-│   │                      # перенос документации и сбор с компонентов; удалений нет; удалённый набор — 38, без диска агента),
+│   │                      # перенос документации и сбор с компонентов, запуск сборщика фактов archmap_scan; удалений нет;
+│   │                      # удалённый набор — 38, без диска агента),
 │   │                      # remote.py (Streamable HTTP без состояния, журнал вызовов), render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
 │   ├── .env.example       # ARCHMAP_URL + ARCHMAP_TOKEN (или USERNAME/PASSWORD) → копировать в mcp/.env (в .gitignore)
 │   └── README.md          # удалённое и локальное подключение, токен, строки клиентов, каталог, HTTPS с корпоративным CA
+├── scan/                  # сборщик фактов archmap-scan.pyz (эпик docs/tasks/fact-collector.md): репозиторий → schema.yaml,
+│                          # facts/, coverage, сводка и agent/; Python 3.10, PyYAML внутри файла; README.md, фикстуры fixtures/;
+│                          # агент запускает его первым шагом промпта ввоза (archmap_scan локального MCP или curl и python3)
 ├── scripts/
-│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp
+│   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp / scan
 │   ├── setup-hooks.sh     # установка хука
 │   ├── agent-docs.py      # сборка QWEN.md из CLAUDE.md (--check — сверка в хуке и CI)
 │   ├── dev-demo.sh        # второй экземпляр в демо-режиме (БД archmap_demo, порты 8001/5174)
@@ -200,6 +209,9 @@ archmap/
 - Типизация бэкенда:     cd backend && ./venv/bin/mypy app/
 - Мёртвый код фронта:    cd frontend && npm run knip
 - Гейт MCP-сервера:      cd mcp && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
+- Гейт сборщика фактов:  cd scan && ./venv/bin/ruff check . && ./venv/bin/mypy && ./venv/bin/python -m pytest -q
+    (venv: python3 -m venv scan/venv && scan/venv/bin/pip install -r scan/requirements-dev.txt)
+- Собрать сборщик фактов: python3 scan/build.py   (→ scan/dist/archmap-scan.pyz, печатает размер и sha256)
 - Снапшоты промптов:     ПОСЛЕ ОСОЗНАННОЙ правки любого промпта (app/*_prompt.py):
     cd backend && UPDATE_PROMPT_SNAPSHOTS=1 ./venv/bin/python -m pytest tests/test_prompt_snapshots.py -q
     Затем ОБЯЗАТЕЛЬНО посмотреть `git diff backend/tests/snapshots/` — это ревью правки —

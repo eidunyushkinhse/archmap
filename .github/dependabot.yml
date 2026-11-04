@@ -19,13 +19,14 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Бэкенд и пакет MCP — одной записью: пакет archmap_mcp едет в поставке бэкенда (эндпоинт
-  # /mcp), и общие пины обязаны совпадать (tests/test_requirements_lock.py). Группа shared с
-  # group-by: dependency-name даёт ОДИН PR на зависимость сразу в обоих каталогах (иначе
+  # Бэкенд, пакет MCP и сборщик фактов — одной записью: пакет archmap_mcp едет в поставке
+  # бэкенда (эндпоинт /mcp), а archmap-scan.pyz собирается с PyYAML интерпретатора поставки,
+  # поэтому общие пины обязаны совпадать (tests/test_requirements_lock.py). Группа shared с
+  # group-by: dependency-name даёт ОДИН PR на зависимость сразу во всех каталогах (иначе
   # Dependabot шлёт по PR на каталог, и каждый падает на стороже). Остальное — группой
   # python, PR на каталог. Зависимость попадает в первую подходящую группу.
   - package-ecosystem: pip
-    directories: ["/backend", "/mcp"]
+    directories: ["/backend", "/mcp", "/scan"]
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
@@ -35,7 +36,7 @@ updates:
       # SQLAlchemy 2.1 — отдельное решение (план аудита, фаза 1): меняет поведение ORM
       - dependency-name: "sqlalchemy"
         versions: [">=2.1"]
-      # Инструменты гейта бэкенда и MCP поднимаются вместе одним коммитом — один ruff/mypy
+      # Инструменты гейта бэкенда, MCP и сборщика поднимаются вместе одним коммитом — один ruff/mypy
       - dependency-name: "ruff"
       - dependency-name: "mypy"
     groups:

@@ -1,0 +1,5 @@
+{
+  "name": "@shop/web",
+  "dependencies": {"react": "^18.3.1", "react-dom": "^18.3.1", "kafkajs": "^2.2.4"},
+  "devDependencies": {"vite": "^5.0.0"}
+}

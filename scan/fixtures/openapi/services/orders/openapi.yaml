@@ -1,0 +1,9 @@
+openapi: 3.0.3
+info: {title: orders, version: "1"}
+paths:
+  /orders:
+    get: {responses: {"200": {description: ok}}}
+    post: {responses: {"201": {description: created}}}
+    parameters: []
+  /orders/{id}:
+    get: {responses: {"200": {description: ok}}}

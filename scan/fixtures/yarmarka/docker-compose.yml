@@ -1,0 +1,41 @@
+services:
+  storefront:
+    build: ./frontend
+    ports: ["3000:80"]
+    environment:
+      API_URL: http://orders:8080
+    depends_on: [orders]
+
+  orders:
+    build:
+      context: ./services/orders
+    environment:
+      DATABASE_URL: postgresql://orders:${ORDERS_DB_PASSWORD}@orders-db:5432/orders
+      KAFKA_BOOTSTRAP: events:9092
+      LOG_LEVEL: info
+    depends_on:
+      - orders-db
+      - events
+
+  billing-worker:
+    build: ./services/billing-worker
+    command: celery -A billing.app worker -Q billing,invoices --concurrency 4
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+      ORDERS_API: http://orders:8080/api
+    depends_on: [redis, orders]
+
+  orders-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orders
+
+  events:
+    image: bitnami/kafka:3.7
+
+  redis:
+    image: redis:7
+
+  mailhog:
+    image: mailhog/mailhog
+    profiles: [dev]

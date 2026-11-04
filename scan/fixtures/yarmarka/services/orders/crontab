@@ -1,0 +1,3 @@
+# Чистка брошенных корзин
+MAILTO=""
+30 3 * * * python -m orders.cleanup --days 7

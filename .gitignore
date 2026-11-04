@@ -65,6 +65,11 @@ Thumbs.db
 *.swo
 scripts/.polygon/
 
+# Сборщик фактов (scan/): окружение разработки и собранный archmap-scan.pyz
+scan/venv/
+scan/dist/
+scan/**/__pycache__/
+
 # MCP-сервер: venv и секреты подключения (пароль не должен уехать в репозиторий —
 # .mcp.json трекается, поэтому учётка живёт здесь)
 mcp/venv/

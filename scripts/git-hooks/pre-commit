@@ -5,6 +5,7 @@
 #   backend/*  → ruff + mypy + pytest
 #   mcp/*      → ruff + mypy + pytest пакета; mcp/archmap_mcp/* — ещё тесты эндпоинта /mcp бэкенда;
 #              MCP-гейт гоняет и правка модулей фронта и бэкенда, которые читают тесты MCP
+#   scan/*     → ruff + mypy + pytest сборщика фактов (venv scan/venv)
 #   скрипты поставки и разработки (deploy/*.sh|*.py, scripts/*.sh, хук, dev.sh, stop.sh)
 #              → bash -n + ruff (аудит P-33: раньше их не видел никто)
 #   CLAUDE.md, QWEN.md, scripts/agent-docs.py → QWEN.md собран из CLAUDE.md (аудит P-7)
@@ -41,9 +42,11 @@ fi
 touch_front=false
 touch_back=false
 touch_mcp=false
+touch_scan=false
 if grep -q '^frontend/'  <<<"$staged"; then touch_front=true; fi
 if grep -q '^backend/'   <<<"$staged"; then touch_back=true;  fi
 if grep -q '^mcp/'       <<<"$staged"; then touch_mcp=true;   fi
+if grep -q '^scan/'      <<<"$staged"; then touch_scan=true;  fi
 # Сентинелы MCP читают исходники фронта (панель алертов, фасад типов, тексты якоря):
 # их правка гоняет и MCP-гейт, иначе CI падал молча (фаза 7 аудита, ALERT_SECTIONS).
 # Список берётся из самих тестов — новый сентинел подхватится без правки хука.
@@ -132,6 +135,21 @@ if $touch_mcp; then
   if grep -q '^mcp/archmap_mcp/' <<<"$staged" && ! $touch_back && [ -x backend/venv/bin/python ]; then
     say "MCP в бэкенде: pytest tests/test_mcp_http.py…"
     ( cd backend && ./venv/bin/python -m pytest -q tests/test_mcp_http.py )
+  fi
+fi
+
+# --- Сборщик фактов (scan/): та же строгость, что у MCP-сервера ---
+if $touch_scan; then
+  if [ ! -x scan/venv/bin/python ]; then
+    warn "scan/venv нет — пропускаю гейт сборщика (см. scan/README.md)."
+  else
+    say "Сборщик: ruff check…"
+    ( cd scan && ./venv/bin/ruff check . )
+    say "Сборщик: mypy…"
+    ( cd scan && ./venv/bin/mypy )
+    say "Сборщик: pytest…"
+    ( cd scan && ./venv/bin/python -m pytest -q )
+    ok "Гейт сборщика зелёный."
   fi
 fi
 

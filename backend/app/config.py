@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # Загрузка файла с машины агента по одноразовой ссылке (app/uploads.py,
     # docs/plan-mcp-upload.md): предел одного файла в МБ. Файл живёт 10 минут в БД.
     upload_max_mb: int = 2
+    # Сборщик фактов archmap-scan.pyz (docs/tasks/fact-collector.md, §3): файл, который
+    # сервер раздаёт без входа по /api/v1/scan/archmap-scan.pyz. Путь относительно рабочего
+    # каталога процесса, а он во всех поставках backend/ (dev.sh, WorkingDirectory службы
+    # systemd, WORKDIR образа); образ и серверная поставка задают путь сами. Файла нет — 404.
+    scan_file: str = "../scan/dist/archmap-scan.pyz"
 
     model_config = SettingsConfigDict(env_file=".env")
 

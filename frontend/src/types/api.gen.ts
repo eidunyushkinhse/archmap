@@ -308,6 +308,10 @@ export interface paths {
          *     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
          *     одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
          *
+         *     origin — адрес ArchMap, каким его видит клиент (фронт, MCP). С ним и с файлом сборщика
+         *     в поставке промпт начинается с запуска сборщика фактов (docs/tasks/fact-collector.md,
+         *     фаза 3), а scan_url ответа называет адрес файла. Без origin промпт прежний байт-в-байт.
+         *
          *     Любому вошедшему: это текст без данных, а нужен он и созданию проекта
          *     (глобальная роль architect), и обновлению существующего проекта из кода (редактор проекта,
          *     который может быть viewer глобально).
@@ -2653,6 +2657,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scan Info
+         * @description Версия, sha256 и размер файла сборщика, который раздаёт этот сервер.
+         */
+        get: operations["scan_info_api_v1_scan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/scan/archmap-scan.pyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scan Download
+         * @description Файл archmap-scan.pyz: запускается python3 archmap-scan.pyz в репозитории.
+         */
+        get: operations["scan_download_api_v1_scan_archmap_scan_pyz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/nodes/{node_id}/versions": {
         parameters: {
             query?: never;
@@ -3805,6 +3849,11 @@ export interface components {
         /** ChannelsImportReport */
         ChannelsImportReport: {
             /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
+            /**
              * Channels
              * @default []
              */
@@ -4044,6 +4093,11 @@ export interface components {
         };
         /** ConfigImportReport */
         ConfigImportReport: {
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
             /**
              * Params
              * @default []
@@ -4337,6 +4391,11 @@ export interface components {
         };
         /** DataImportReport */
         DataImportReport: {
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
             /**
              * Tables
              * @default []
@@ -5441,6 +5500,8 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /** Scanner */
+            scanner?: string | null;
         };
         /** FragmentCreate */
         FragmentCreate: {
@@ -5770,6 +5831,8 @@ export interface components {
         ImportPromptOut: {
             /** Prompt */
             prompt: string;
+            /** Scan Url */
+            scan_url?: string | null;
         };
         /**
          * IntermediateEdgeAlert
@@ -7415,6 +7478,19 @@ export interface components {
             has_processes: boolean;
         };
         /**
+         * ScanInfo
+         * @description Файл archmap-scan.pyz, который раздаёт этот сервер: версия сборщика, sha256 и размер
+         *     в байтах. Тот же sha256 стоит в ETag ответа с файлом.
+         */
+        ScanInfo: {
+            /** Version */
+            version: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /**
          * SearchHit
          * @description Одна находка: адрес, id для перехода, совпавшая строка и её счёт.
          */
@@ -7749,6 +7825,11 @@ export interface components {
              */
             graph_rev: number;
             demo_excess?: components["schemas"]["DemoExcess"] | null;
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: (string | null)[];
         };
         /**
          * TableUsage
@@ -9107,6 +9188,7 @@ export interface operations {
                 lang?: "ru" | "en";
                 hints?: string | null;
                 variant?: "builder" | "orchestrated" | "skeptic";
+                origin?: string | null;
             };
             header?: never;
             path?: never;
@@ -13682,6 +13764,78 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SearchResponse"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scan_info_api_v1_scan_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScanInfo"];
+                };
+            };
+            /** @description Сборщик фактов в эту поставку не входит */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    scan_download_api_v1_scan_archmap_scan_pyz_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "if-none-match"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Файл сборщика фактов */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            /** @description Файл не изменился (If-None-Match) */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Сборщик фактов в эту поставку не входит */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

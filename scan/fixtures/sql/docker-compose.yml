@@ -1,0 +1,15 @@
+services:
+  billing:
+    build: services/billing
+    environment:
+      DATABASE_URL: postgres://billing:pw@billing-db:5432/billing
+  analytics:
+    build: services/analytics
+    environment:
+      ANALYTICS_DB_HOST: analytics-db
+  billing-db:
+    image: postgres:16
+  analytics-db:
+    image: mysql:8
+  legacy-db:
+    image: postgres:12

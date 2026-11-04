@@ -76,6 +76,10 @@ class Config:
         self.token = get("ARCHMAP_TOKEN")
         # Каталог, вне которого архив проекта не пишется (пусто — без ограничения).
         self.export_dir = get("ARCHMAP_EXPORT_DIR")
+        # Сборщик фактов (archmap_scan): кэш скачанного файла и предел времени запуска в
+        # секундах. Пусто — ~/.cache/archmap-mcp/ и 600 (разбирает и проверяет tools.py).
+        self.scan_dir = get("ARCHMAP_SCAN_DIR")
+        self.scan_timeout = get("ARCHMAP_SCAN_TIMEOUT")
 
     @classmethod
     def remote(cls, base_url: str) -> Config:
