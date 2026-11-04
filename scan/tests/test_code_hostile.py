@@ -46,6 +46,8 @@ STARTS: dict[str, tuple[str, ...]] = {
         "class Topic(Enum):\n    A = '", "KAFKA_TOPICS = {'", "TOPICS: dict[str, str] = {'",
         "@assign_queue('", "@assign_queue(", "@a.b.queue_", "class Queue:\n    X = '",
         "import kafka\nfrom t import Topic\np.send(Topic.",
+        # Обёртка регистрации маршрутов Django в том же модуле (ТЗ §15 п. 1).
+        "def w(r, **h):\n    return path(r, v, h)\nurlpatterns = [w('",
     ),
     "js/app.js": (
         "app.get('", "app.get(`", "router.route('", "@Controller(", "@Get('", "@Controller({",

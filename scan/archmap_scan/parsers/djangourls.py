@@ -3,6 +3,12 @@
 ViewSet) → /prefix/ и /prefix/{id}/). Метод у маршрута Django — ANY: представление
 решает само.
 
+Обёртка регистрации (ТЗ §15 п. 1): вызов в списке маршрутов с другим именем резолвится
+по импорту или определению в том же модуле до функции репозитория; если она возвращает
+path/re_path/url с первым параметром путём (rest_path у Zulip), вызов — маршрут, а
+методы — из именованных аргументов GET=, POST= и других по записи на метод. Один
+уровень: обёртка над обёрткой не резолвится.
+
 Корень — ROOT_URLCONF из настроек; без него корнем считается urlpatterns файла, который
 никто не подключает. Префиксы складываются по цепочке include() от корня. Списки, до
 которых от корня дойти не удалось (подключены не строкой или не подключены вовсе), дают
@@ -26,6 +32,10 @@ WANTED = frozenset({"django", "djangorestframework"})
 _NEEDLES = ("urlpatterns", "ROOT_URLCONF", "DefaultRouter", "SimpleRouter")
 _PATH_FUNCS = frozenset({"path", "re_path", "url"})
 _ROUTERS = frozenset({"DefaultRouter", "SimpleRouter"})
+# Именованные аргументы вызова обёртки, которые называют метод маршрута (регистр точный).
+_VERBS = ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
+# Конструкции ast, в тело которых поиск return обёртки не заходит: у них свой return.
+_NESTED = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 # Пределы обхода: глубина include() и сколько маршрутов даёт один корень (повторные
 # подключения одного списка под разными префиксами законны, но не бесконечны).
 _MAX_DEPTH = 16
@@ -38,6 +48,7 @@ Key = tuple[str, str]  # (файл, имя списка); роутер DRF — �
 class _Leaf:
     route: str
     loc: Loc
+    method: str = "ANY"
 
 
 @dataclass(frozen=True)
@@ -63,6 +74,51 @@ def _clean(piece: str) -> str:
     return piece
 
 
+def _is_include(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Call) and pyast.last_name(node) == "include"
+
+
+def _own_nodes(body: list[ast.stmt]) -> list[ast.AST]:
+    """Элементы дерева тела функции без вложенных функций, классов и лямбд (обход без
+    рекурсии)."""
+    out: list[ast.AST] = []
+    stack: list[ast.AST] = list(body)
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        stack += [c for c in ast.iter_child_nodes(node) if not isinstance(c, _NESTED)]
+    return out
+
+
+def _route_param(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> str | None:
+    """Имя первого параметра, если функция — обёртка: в теле есть return path(…),
+    re_path(…) или url(…), у которого путь (первый позиционный, route= или regex=) — сам
+    этот параметр, а представление — не include(). Иначе None."""
+    params = [*fn.args.posonlyargs, *fn.args.args]
+    if not params:
+        return None
+    first = params[0].arg
+    for node in _own_nodes(fn.body):
+        if not isinstance(node, ast.Return) or not isinstance(node.value, ast.Call):
+            continue
+        call = node.value
+        if pyast.last_name(call) not in _PATH_FUNCS:
+            continue
+        raw = pycode.arg(call, 0, "route") or pycode.kwarg(call, "regex")
+        if isinstance(raw, ast.Name) and raw.id == first:
+            if not _is_include(pycode.arg(call, 1, "view")):
+                return first
+    return None
+
+
+def _wrappers(tree: ast.Module) -> dict[str, str | None]:
+    """Функции верхнего уровня модуля: имя → параметр пути у обёртки, None у прочих."""
+    return {
+        stmt.name: _route_param(stmt) for stmt in tree.body
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))
+    }
+
+
 class _Urls:
     def __init__(self, files: Files, found: Findings) -> None:
         self.files = files
@@ -71,17 +127,31 @@ class _Urls:
         self.modules: dict[str, _Module] = {}
         self.loaded: set[str] = set()
         self.anon = 0
+        # Обёртки: функции верхнего уровня по файлу; ответ по (файл вызова, имя вызова),
+        # отрицательный тоже; деревья модулей, разобранных ради определения, до load().
+        self.defs: dict[str, dict[str, str | None]] = {}
+        self.wrapper_of: dict[tuple[str, str], str | None] = {}
+        self.trees: dict[str, ast.Module | None] = {}
 
     # Разбор файла
+
+    def _parse(self, rel: str) -> ast.Module | None:
+        """Дерево файла; файл разбирается один раз, даже если нужен и списками, и
+        определением обёртки."""
+        if rel in self.trees:
+            return self.trees.pop(rel)
+        text = self.files.read(rel, keep=False)
+        return pyast.parse(text) if text is not None else None
 
     def load(self, rel: str) -> _Module | None:
         if rel in self.loaded:
             return self.modules.get(rel)
         self.loaded.add(rel)
-        text = self.files.read(rel, keep=False)
-        tree = pyast.parse(text) if text is not None else None
+        tree = self._parse(rel)
         if tree is None:
+            self.defs.setdefault(rel, {})
             return None
+        self.defs.setdefault(rel, _wrappers(tree))
         mod = _Module(rel=rel, imps=pycode.imports(tree))
         self.modules[rel] = mod
         for node in ast.walk(tree):
@@ -172,8 +242,10 @@ class _Urls:
         return None
 
     def _item(self, mod: _Module, elt: ast.expr) -> list[_Leaf | _Ref]:
-        if not isinstance(elt, ast.Call) or pyast.last_name(elt) not in _PATH_FUNCS:
+        if not isinstance(elt, ast.Call):
             return []
+        if pyast.last_name(elt) not in _PATH_FUNCS:
+            return self._wrapped(mod, elt)
         raw = pycode.arg(elt, 0, "route") or pycode.kwarg(elt, "regex")
         route = pycode.string(raw)
         loc = Loc(mod.rel, elt.lineno)
@@ -185,6 +257,66 @@ class _Urls:
         if isinstance(view, ast.Call) and pyast.last_name(view) == "include":
             return self._include(mod, view, route, loc)
         return [_Leaf(route, loc)]
+
+    def _wrapped(self, mod: _Module, call: ast.Call) -> list[_Leaf | _Ref]:
+        """Вызов обёртки регистрации: маршрут на каждый метод из именованных аргументов
+        (без них ANY). Не обёртка или include() среди аргументов — пропуск, как раньше."""
+        param = self._wrapper(mod, call)
+        if param is None:
+            return []
+        values = [*call.args, *(kw.value for kw in call.keywords)]
+        if any(_is_include(v) for v in values):
+            return []
+        raw = pycode.arg(call, 0, param)
+        route = pycode.string(raw)
+        loc = Loc(mod.rel, call.lineno)
+        if route is None:
+            if raw is not None:
+                self._dynamic(raw, loc)
+            return []
+        named = {kw.arg for kw in call.keywords}
+        methods = [verb for verb in _VERBS if verb in named] or ["ANY"]
+        return [_Leaf(route, loc, method) for method in methods]
+
+    def _wrapper(self, mod: _Module, call: ast.Call) -> str | None:
+        """Параметр пути, если вызываемое — обёртка из репозитория, иначе None."""
+        name = pycode.dotted(call.func)
+        if name is None:
+            return None
+        key = (mod.rel, name)
+        if key not in self.wrapper_of:
+            self.wrapper_of[key] = self._resolve_wrapper(mod, name)
+        return self.wrapper_of[key]
+
+    def _resolve_wrapper(self, mod: _Module, name: str) -> str | None:
+        """Функция по имени вызова: определение в том же модуле, «from m import f» и
+        «m.f» по импорту модуля. Определение модуля по импорту не идёт дальше: обёртка,
+        импортированная им самим, не резолвится (один уровень, циклов нет)."""
+        head, _, rest = name.partition(".")
+        own = self.defs.get(mod.rel, {})
+        if not rest and head in own:
+            return own[head]
+        imp = mod.imps.get(head)
+        if imp is None or (not rest and not imp.attr):
+            return None
+        full = f"{imp.target}.{rest}" if rest else imp.target
+        if imp.level:
+            full = full.lstrip(".")
+        module, _, func = full.rpartition(".")
+        if not module and not imp.level:
+            return None
+        rel = codebase.resolve_module(self.files, mod.rel, module, imp.level)
+        if rel is None:
+            return None
+        return self._defs(rel).get(func)
+
+    def _defs(self, rel: str) -> dict[str, str | None]:
+        if rel not in self.defs:
+            tree = self._parse(rel)
+            self.defs[rel] = _wrappers(tree) if tree is not None else {}
+            if rel not in self.loaded:
+                self.trees[rel] = tree  # load() этого файла возьмёт дерево отсюда
+        return self.defs[rel]
 
     def _include(
         self, mod: _Module, call: ast.Call, prefix: str, loc: Loc,
@@ -277,7 +409,7 @@ class _Urls:
                 if isinstance(item, _Leaf):
                     count += 1
                     self.found.routes.append(Route(
-                        method="ANY", path="/" + prefix + _clean(item.route), loc=item.loc,
+                        method=item.method, path="/" + prefix + _clean(item.route), loc=item.loc,
                         framework=FRAMEWORK, parser=NAME, prefix_unresolved=not resolved,
                     ))
                 elif (
