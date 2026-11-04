@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from archmap_scan import secrets
+from archmap_scan import __version__, secrets
 from archmap_scan.parsers import envexample
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
@@ -99,7 +99,7 @@ def test_config_facts_and_no_secrets(tmp_path: Path) -> None:
     out = tmp_path / "out"
     run(Options(path=str(repo), out=str(out), system="Ярмарка", use_git=False))
     text = (out / "facts" / "orders.config.yaml").read_text(encoding="utf-8")
-    assert text.startswith("# archmap-node: Ярмарка / orders\n# archmap-scan 0.1.0\n")
+    assert text.startswith(f"# archmap-node: Ярмарка / orders\n# archmap-scan {__version__}\n")
     doc = yaml.safe_load(text)
     items = {i["name"]: i for i in doc["config"]}
     assert items["LOG_LEVEL"] == {"name": "LOG_LEVEL", "type": "string", "default": "info"}
