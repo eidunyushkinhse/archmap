@@ -255,6 +255,8 @@ def _scan_step(name: str, scan_url: str, depth: int) -> str:
         "команды (нужен Python 3.10 и новее, ставить ничего не нужно):\n"
         f"   curl -sSfL -o archmap-scan.pyz {scan_url}\n"
         f"   python3 archmap-scan.pyz . --system {_shell_arg(name)} --out archmap-scan\n"
+        "   Если файл archmap-scan.pyz уже лежит в корне репозитория, первую команду пропусти; сам файл в "
+        "репозиторий не коммить.\n"
         "   Сборщик не запустился (нет Python, адрес недоступен) — пропусти этот шаг и иди по "
         "шагам 1–6.\n"
         "   Прочитай archmap-scan/summary.txt и archmap-scan/coverage.yaml (что найдено, что не "
