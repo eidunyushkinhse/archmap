@@ -1,6 +1,7 @@
 """Маршруты Go (ТЗ §6.2): net/http, gin, chi и gorilla по фикстуре, группы присваиванием и
 замыканием, клиенты и Get хранилищ не маршруты; путь в обёртке toPath("/p") на известном
-объекте маршрутизации (ТЗ §15 п. 2)."""
+объекте маршрутизации (ТЗ §15 п. 2); префикс через параметр функции регистрации из мест
+вызова в том же пакете (ТЗ §15 п. 3)."""
 
 from __future__ import annotations
 
@@ -22,11 +23,17 @@ def test_fixture() -> None:
     assert _routes(FIXTURES / "go-http") == [
         ("ANY", "/health", False, "net/http", "cmd/std/main.go:6"),
         ("ANY", "/static/", False, "net/http", "cmd/std/main.go:9"),
+        ("DELETE", "/api/folders/{uid}/", False, "chi", "internal/folderapi/folders.go:8"),
         ("DELETE", "/api/v2/users/{id}", False, "chi", "internal/chiapi/router.go:11"),
+        ("DELETE", "/internal/folders/{uid}/", False, "chi", "internal/folderapi/folders.go:8"),
         ("DELETE", "/v1/admin/cache", False, "Gin", "internal/ginapi/router.go:11"),
         ("DELETE", "/v1/alerts/{id}", False, "chi", "internal/alertapi/routes.go:21"),
         ("GET", "/", False, "chi", "internal/chiapi/router.go:7"),
         ("GET", "/admin/stats", False, "gorilla/mux", "internal/muxapi/router.go:9"),
+        ("GET", "/api/folders", False, "chi", "internal/folderapi/folders.go:6"),
+        # registerArchive никто не вызывает: префикс как прежде, не решён.
+        ("GET", "/archive", True, "chi", "internal/folderapi/folders.go:14"),
+        ("GET", "/internal/folders", False, "chi", "internal/folderapi/folders.go:6"),
         ("GET", "/items/{id}", False, "net/http", "cmd/std/main.go:8"),
         ("GET", "/ping", False, "Gin", "internal/ginapi/router.go:7"),
         ("GET", "/plugin", True, "Gin", "internal/ginapi/router.go:21"),
@@ -85,6 +92,74 @@ def test_wrapped_path(tmp_path: Path) -> None:
     ]
 
 
+def test_param_prefix_rules(tmp_path: Path) -> None:
+    """Префикс параметра от места вызова (Grafana registerFolderAPI): флаг «не решён»
+    приходит с места вызова (корень полем структуры), вызов x.имя( тоже вызов; место
+    вызова с неизвестным объектом даёт запись как прежде, параметр другой функции дальше
+    не резолвится; параметр, перекрытый параметром замыкания (группа выражением), и имя,
+    определённое в пакете дважды, не резолвятся; вызов из другого каталога не в счёт."""
+    tree(tmp_path, {
+        "go.mod": "module x\n",
+        "api/api.go": "package api\n"
+        "func (hs *HTTPServer) registerRoutes() {\n"
+        "\tr := hs.RouteRegister\n"
+        '\tr.Group("/api", func(apiRoute routing.RouteRegister) {\n'
+        "\t\ths.registerFolderAPI(apiRoute, authorize)\n"
+        "\t\ths.registerShared(apiRoute)\n"
+        "\t\tregisterDyn(apiRoute)\n"
+        "\t\tx.register(apiRoute)\n"
+        "\t})\n"
+        "\ths.registerShared(r)\n"
+        "}\n"
+        "func mount(sub routing.RouteRegister) {\n\tregisterTeams(sub)\n}\n",
+        "api/folder.go": "package api\n"
+        "func (hs *HTTPServer) registerFolderAPI(apiRoute routing.RouteRegister,"
+        " authorize func(ac.Evaluator) web.Handler) {\n"
+        '\tapiRoute.Group("/folders", func(folderRoute routing.RouteRegister) {\n'
+        '\t\tfolderRoute.Get("/", h)\n'
+        "\t})\n"
+        "}\n"
+        "func (hs *HTTPServer) registerShared(r routing.RouteRegister) {\n"
+        '\tr.Get("/shared", h)\n'
+        "}\n"
+        "func registerTeams(r routing.RouteRegister) {\n"
+        '\tr.Get("/teams", h)\n'
+        "}\n"
+        "func registerDyn(r routing.RouteRegister) {\n"
+        '\tr.Group(fmt.Sprintf("/x/%s", k), func(r routing.RouteRegister) {\n'
+        '\t\tr.Get("/dyn", h)\n'
+        "\t})\n"
+        "}\n"
+        'func (a *A) register(r routing.RouteRegister) {\n\tr.Get("/a", h)\n}\n'
+        'func (b *B) register(r routing.RouteRegister) {\n\tr.Get("/b", h)\n}\n',
+        "other/main.go": "package other\nfunc main() {\n\tr := chi.NewRouter()\n"
+        '\tr.Route("/o", func(o chi.Router) {\n\t\tregisterTeams(o)\n\t})\n}\n',
+    })
+    assert _routes(tmp_path) == [
+        ("GET", "/a", True, "net/http", "api/folder.go:19"),
+        ("GET", "/api/folders/", True, "net/http", "api/folder.go:4"),
+        ("GET", "/api/shared", True, "net/http", "api/folder.go:8"),
+        ("GET", "/b", True, "net/http", "api/folder.go:22"),
+        ("GET", "/dyn", True, "net/http", "api/folder.go:15"),
+        ("GET", "/shared", True, "net/http", "api/folder.go:8"),
+        ("GET", "/teams", True, "net/http", "api/folder.go:11"),
+    ]
+
+
+def test_param_prefix_site_limit(tmp_path: Path) -> None:
+    """Мест вызова одной функции разбирается не больше 50, первые по файлу. Параметр
+    назван не r: корень r := chi.NewRouter() известен по имени во всём файле."""
+    groups = "".join(
+        f'\tr.Route("/p{i:02d}", func(g chi.Router) {{ reg(g) }})\n' for i in range(60)
+    )
+    tree(tmp_path, {
+        "go.mod": "module x\n",
+        "main.go": "package x\nfunc main() {\n\tr := chi.NewRouter()\n" + groups + "}\n"
+        'func reg(rt chi.Router) {\n\trt.Get("/x", h)\n}\n',
+    })
+    assert [r[1] for r in _routes(tmp_path)] == [f"/p{i:02d}/x" for i in range(50)]
+
+
 def test_dev_code_not_read(tmp_path: Path) -> None:
     """Находка фазы 1б на Grafana: 439 маршрутов из devenv/docker/blocks/*/main.go ушли в
     подсказки. Код в каталогах для разработки разборщики кода не читают: ни в entrypoints,
@@ -129,3 +204,38 @@ def test_dev_code_tokens() -> None:
     assert not is_dev_code("src/sentry/demo_mode/views.py")
     assert not is_dev_code("zproject/dev_urls.py")  # имя файла не в счёт
     assert not is_dev_code("contrib/x.py") and not is_dev_code("ci/x.py")
+
+
+def _mask(text: str) -> str:
+    from archmap_scan import codetext
+
+    return codetext.mask(text, codetext.GO)
+
+
+def test_gocode_functions_and_calls() -> None:
+    """Определения: метод с получателем, параметры типа, сгруппированные параметры и
+    параметр-функция; объявление без тела пропускается. Вызовы: «имя(» и «x.имя(», но не
+    часть длинного имени, не определение и не строка."""
+    from archmap_scan import gocode
+
+    mask = _mask(
+        "package x\n"
+        "func (hs *S) reg(api, b chi.Router, auth func(E) H) {\n\tapi.Get(\"/a\", h)\n}\n"
+        "func Map[T any](xs []T, f func(T) T) []T {\n\treturn xs\n}\n"
+        "func asm(x int) int\n"
+        "func main() {\n\ths.reg(r, nil, auth)\n\treg( q )\n\tprereg(z)\n"
+        '\ts := "reg(x)"\n\t(f()).reg(w)\n}\n'
+    )
+    funcs = gocode.functions(mask)
+    assert [(f.name, f.params) for f in funcs] == [
+        ("reg", ("api", "b", "auth")), ("Map", ("xs", "f")), ("main", ()),
+    ]
+    skip = {f.at for f in funcs}
+    assert [(n, a) for n, _at, a in gocode.calls(mask, {"reg"}, skip, 50)] == [
+        ("reg", ["r", "nil", "auth"]), ("reg", ["q"]),
+    ]
+    assert gocode.calls(mask, {"reg"}, skip, 1)[0][2] == ["r", "nil", "auth"]
+    assert gocode.calls(mask, set(), skip, 50) == []
+    # Список не закрылся в пределах MAX_LIST: ни определения, ни вызова.
+    long = _mask("func f(" + "a, " * 1000 + "b int) {\n}\nf(" + "x, " * 1000 + ")\n")
+    assert gocode.functions(long) == [] and gocode.calls(long, {"f"}, set(), 50) == []

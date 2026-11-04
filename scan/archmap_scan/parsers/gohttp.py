@@ -15,14 +15,22 @@ http.NewServeMux()) или до пакета http; иначе маршрут п�
 маршрутизации (корень, группа, параметр замыкания группы) даёт маршрут с этим литералом
 (group.Delete(toMacaronPath("/api/v1/…")) у Grafana); на неизвестном получателе или в
 другом виде путь остаётся подсказкой «путь задан выражением».
+
+Префикс через параметр функции регистрации (ТЗ §15 п. 3): файлы одного каталога (пакет)
+разбираются в два прохода. Маршрут, цепочка групп которого обрывается на параметре
+функции (registerFolderAPI(apiRoute …) у Grafana), ждёт второго прохода: места вызова
+функции в файлах пакета дают префикс по известному объекту маршрутизации на позиции
+параметра, по записи на каждый отличный префикс. Место вызова с неизвестным объектом
+даёт запись как прежде (префикс не решён); вызов не ищется дальше одного уровня.
 """
 
 from __future__ import annotations
 
 import re
+from bisect import bisect_left
 from dataclasses import dataclass, field
 
-from archmap_scan import codebase, codetext, texts
+from archmap_scan import codebase, codetext, gocode, paths, texts
 from archmap_scan.codetext import SP, STR
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Hint, Loc, Route
@@ -48,6 +56,7 @@ _METHODS_CALL = re.compile(r"[ \t]*\.[ \t]*Methods[ \t]*\(")
 # Путь в обёртке: ИМЯ( строковый литерал ) с одним аргументом.
 _WRAPPED = re.compile(rf"[A-Za-z_][A-Za-z0-9_]{{0,99}}[ \t]*\({SP}({STR}){SP}\)")
 _STR = re.compile(STR)
+_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,99}")
 _NEEDLES = (
     ".HandleFunc(", ".Handle(", ".GET(", ".POST(", ".PUT(", ".DELETE(", ".PATCH(", ".Get(",
     ".Post(", ".Put(", ".Delete(", ".Patch(", ".Any(", ".All(", ".Group(", ".Route(",
@@ -59,8 +68,8 @@ _CLIENTS = frozenset({
     "redis", "rdb", "kv", "store", "os", "viper", "cfg", "config", "conf", "env", "q",
     "query", "values", "header", "Header", "url", "u", "params", "form", "session", "sess",
 })
-_MAX_SPAN = 200_000  # самое длинное тело замыкания группы, которое просматривается
 _MAX_DEPTH = 8
+_MAX_SITES = 50  # сколько мест вызова одной функции регистрации разбирается в пакете
 
 
 @dataclass
@@ -76,6 +85,18 @@ class _Scope:
     path: str
 
 
+@dataclass(frozen=True)
+class _Pending:
+    """Маршрут тела функции func, префикс которого приходит параметром номер index:
+    путь уже несёт префикс групп внутри функции, место вызова добавит свой."""
+
+    method: str
+    path: str
+    loc: Loc
+    func: str
+    index: int
+
+
 @dataclass
 class _File:
     code: codetext.Code
@@ -85,6 +106,10 @@ class _File:
     # Группа присваиванием: имя → (получатель, позиция вызова, путь).
     groups: dict[str, tuple[str, int, str]] = field(default_factory=dict)
     scopes: list[_Scope] = field(default_factory=list)
+    funcs: list[gocode.Func] = field(default_factory=list)
+    starts: list[int] = field(default_factory=list)  # начала тел funcs по порядку
+    pending: list[_Pending] = field(default_factory=list)
+    closures: dict[int, tuple[int, int] | None] = field(default_factory=dict)
 
 
 def _assigned(mask: str, pos: int) -> str | None:
@@ -118,24 +143,6 @@ def _start_of(code: codetext.Code, dot: int) -> int:
     return i + 1
 
 
-def _body(mask: str, start: int) -> tuple[int, int] | None:
-    """Тело функции: позиции «{» и парной «}» от start."""
-    open_at = mask.find("{", start, start + 500)
-    if open_at == -1:
-        return None
-    depth = 0
-    stop = min(len(mask), open_at + _MAX_SPAN)
-    for i in range(open_at, stop):
-        ch = mask[i]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return open_at, i
-    return None
-
-
 def _structure(f: _File) -> None:
     code, mask = f.code, f.code.mask
     for m in _ROOT.finditer(mask):
@@ -156,7 +163,7 @@ def _structure(f: _File) -> None:
             f.groups[name] = (recv, m.start(), path)
         func = _FUNC.match(mask, _skip_comma(mask, m.end(2)))
         if func is not None:
-            body = _body(mask, func.end())
+            body = gocode.body(mask, func.end())
             if body is not None:
                 f.scopes.append(_Scope(func.group(1), body[0], body[1], recv, m.start(), path))
 
@@ -173,24 +180,50 @@ def _skip_comma(mask: str, pos: int) -> int:
     return i
 
 
-def _prefix(f: _File, recv: str, pos: int, depth: int = 0) -> tuple[str, bool]:
-    """Полный префикс получателя recv в позиции pos и решён ли он."""
+def _chain(f: _File, recv: str, pos: int, depth: int = 0) -> tuple[str, bool, str, int]:
+    """Полный префикс получателя recv в позиции pos, решён ли он и, если нет, на каком
+    имени и в какой позиции цепочка групп оборвалась («» и -1 — оборвалась не на имени)."""
     if depth > _MAX_DEPTH:
-        return "", False
+        return "", False, "", -1
     # Замыкание группы, внутри которого стоит вызов и параметр которого — recv.
     inner = [s for s in f.scopes if s.name == recv and s.start < pos < s.end]
     if inner:
         scope = max(inner, key=lambda s: s.start)
-        base, ok = _prefix(f, scope.parent, scope.at, depth + 1)
-        return base + scope.path, ok
+        base, ok, last, at = _chain(f, scope.parent, scope.at, depth + 1)
+        return base + scope.path, ok, last, at
     if recv in f.groups:
         parent, at, path = f.groups[recv]
         if parent != recv:
-            base, ok = _prefix(f, parent, at, depth + 1)
-            return base + path, ok
+            base, ok, last, lat = _chain(f, parent, at, depth + 1)
+            return base + path, ok, last, lat
     if recv in f.roots or recv == "http":
-        return "", True
-    return "", False
+        return "", True, "", -1
+    return "", False, recv, pos
+
+
+def _prefix(f: _File, recv: str, pos: int) -> tuple[str, bool]:
+    """Полный префикс получателя recv в позиции pos и решён ли он."""
+    base, ok, _last, _at = _chain(f, recv, pos)
+    return base, ok
+
+
+def _param_of(f: _File, name: str, pos: int) -> tuple[str, int] | None:
+    """(функция, номер параметра), если name в позиции pos — параметр функции, в теле
+    которой стоит pos, и его не перекрывает параметр замыкания между ними."""
+    i = bisect_left(f.starts, pos) - 1
+    func = f.funcs[i] if i >= 0 else None
+    if func is None or not pos < func.end or not name or name not in func.params:
+        return None
+    mask = f.code.mask
+    for m in _FUNC.finditer(mask, func.start, pos):
+        if m.group(1) != name:
+            continue
+        if m.start() not in f.closures:
+            f.closures[m.start()] = gocode.body(mask, m.end())
+        span = f.closures[m.start()]
+        if span is not None and span[0] < pos < span[1]:
+            return None  # имя перекрыто параметром замыкания
+    return func.name, func.params.index(name)
 
 
 def _known(f: _File, recv: str, pos: int) -> bool:
@@ -300,12 +333,68 @@ def _scan(f: _File, found: Findings) -> None:
         methods = [method]
         if verb in ("HandleFunc", "Handle") and method == "ANY":
             methods = _methods(f, after) or methods
-        base, ok = _prefix(f, recv, m.start())
+        base, ok, last, at = _chain(f, recv, m.start())
+        param = None if ok else _param_of(f, last, at)
+        loc = Loc(f.rel, code.line(m.start()))
         for meth in methods:
+            if param is not None:
+                f.pending.append(_Pending(meth, base + path, loc, *param))
+                continue
             found.routes.append(Route(
-                method=meth, path=(base + path) or "/", loc=Loc(f.rel, code.line(m.start())),
+                method=meth, path=(base + path) or "/", loc=loc,
                 framework=f.framework, parser=NAME, prefix_unresolved=not ok,
             ))
+
+
+def _site_prefixes(
+    sites: list[tuple[_File, int, list[str]]], index: int,
+) -> list[tuple[str, bool]]:
+    """Префиксы мест вызова для параметра номер index: известный объект маршрутизации на
+    этой позиции даёт свой префикс, иначе (выражение, параметр другой функции, нет
+    вызовов) — префикс как прежде, пустой и не решённый."""
+    out: set[tuple[str, bool]] = set()
+    for f, at, args in sites:
+        arg = args[index] if index < len(args) else ""
+        if _IDENT.fullmatch(arg) and _known(f, arg, at):
+            out.add(_prefix(f, arg, at))
+        else:
+            out.add(("", False))
+    return sorted(out) or [("", False)]
+
+
+def _package(group: list[_File], found: Findings) -> None:
+    """Второй проход по файлам каталога: маршруты, ждущие префикса параметра, получают
+    его от мест вызова своей функции. Имя, определённое в пакете больше одного раза
+    (методы разных типов, варианты сборки), не резолвится: чей вызов, не известно."""
+    pending = [(f, p) for f in group for p in f.pending]
+    if not pending:
+        return
+    defined: dict[str, int] = {}
+    for f in group:
+        for fn in f.funcs:
+            defined[fn.name] = defined.get(fn.name, 0) + 1
+    wanted = {p.func for _f, p in pending if defined.get(p.func) == 1}
+    sites: dict[str, list[tuple[_File, int, list[str]]]] = {}
+    for f in group:
+        skip = {fn.at for fn in f.funcs}
+        for name, at, args in gocode.calls(f.code.mask, wanted, skip, _MAX_SITES):
+            if len(sites.setdefault(name, [])) < _MAX_SITES:
+                sites[name].append((f, at, args))
+    prefixes: dict[tuple[str, int], list[tuple[str, bool]]] = {}
+    for f, p in pending:
+        key = (p.func, p.index)
+        if key not in prefixes:
+            prefixes[key] = _site_prefixes(sites.get(p.func, []), p.index)
+        for base, ok in prefixes[key]:
+            found.routes.append(Route(
+                method=p.method, path=(base + p.path) or "/", loc=p.loc,
+                framework=f.framework, parser=NAME, prefix_unresolved=not ok,
+            ))
+
+
+def _within(folder: str, other: str) -> bool:
+    """Каталог folder — other или лежит внутри него."""
+    return not other or folder == other or folder.startswith(other + "/")
 
 
 def parse(files: Files, ctx: Context) -> Findings:
@@ -313,12 +402,24 @@ def parse(files: Files, ctx: Context) -> Findings:
     if not codebase.stack_present(files, ctx, codebase.GO):
         return found
     found.applied.add(NAME)
+    # Файлы идут по порядку путей, поэтому файлы каталога лежат одним куском среди его
+    # подкаталогов: открыты только каталоги на пути к текущему файлу, остальные уже
+    # закрыты и разобраны вторым проходом (в памяти маски одного пути, не всего дерева).
+    open_dirs: dict[str, list[_File]] = {}
     for rel, text in codebase.sources(files, ctx, codebase.GO, None, _NEEDLES):
+        folder = paths.parent(rel)
+        for done in sorted(d for d in open_dirs if not _within(folder, d)):
+            _package(open_dirs.pop(done), found)
         # Фреймворк — по импорту в самом файле: в одном модуле их бывает несколько.
         framework = next(
             (name for dep, name in FRAMEWORKS.items() if f'"{dep}' in text), _DEFAULT_FRAMEWORK,
         )
         code = codetext.load(files, rel, text, codetext.GO)
         if code is not None:
-            _scan(_File(code, rel, framework), found)
+            funcs = gocode.functions(code.mask)
+            f = _File(code, rel, framework, funcs=funcs, starts=[fn.start for fn in funcs])
+            _scan(f, found)
+            open_dirs.setdefault(folder, []).append(f)
+    for done in sorted(open_dirs):
+        _package(open_dirs[done], found)
     return found

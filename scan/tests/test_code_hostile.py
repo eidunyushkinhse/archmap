@@ -66,6 +66,9 @@ STARTS: dict[str, tuple[str, ...]] = {
         # Путь в обёртке на известном получателе (ТЗ §15 п. 2).
         'x := gin.Default()\nx.GET(toPath("', "x := gin.Default()\nx.GET(toPath(",
         "x := gin.Default()\nx.GET(toPath(`",
+        # Функция регистрации с параметром-маршрутизатором и её вызовы (ТЗ §15 п. 3).
+        'func reg(r chi.Router) {\n\tr.Get("/x", h)\n}\nreg(', "func (s *S) reg(r chi.Router",
+        'func reg(r chi.Router) {\n\tr.Get("/x", h)\n}\nfunc main() {\n\treg(' + "reg(" * 9,
     ),
 }
 
@@ -113,3 +116,20 @@ VALID: dict[str, str] = {
 @pytest.mark.parametrize("name", sorted(VALID))
 def test_valid_code_with_huge_literal(tmp_path: Path, name: str) -> None:
     _check(tree(tmp_path, {**MANIFESTS, name: VALID[name]}))
+
+
+# Второй проход разборщика Go по пакету (ТЗ §15 п. 3): функция регистрации с
+# параметром-маршрутизатором и враждебный остаток файла. Окна скобок списков и тел не
+# перекрываются, вызовы и их аргументы ограничены: время линейно по размеру файла.
+GO_REG = 'package x\nfunc reg(r chi.Router) {\n\tr.Get("/x", h)\n}\nfunc main() {\n'
+GO_PACKAGE = {
+    "calls": "reg(" * (PAYLOAD // 4),
+    "member-calls": "a.reg(g)\n" * (PAYLOAD // 9),
+    "definitions": "func (s *S) reg(" * (PAYLOAD // 16),
+    "bodies": "func f() {\n" * (PAYLOAD // 11),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(GO_PACKAGE))
+def test_go_package_pass(tmp_path: Path, kind: str) -> None:
+    _check(tree(tmp_path, {**MANIFESTS, "go/main.go": GO_REG + GO_PACKAGE[kind]}))
