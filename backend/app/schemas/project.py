@@ -67,6 +67,9 @@ class FileRemarksOut(BaseModel):
     file: int  # номер файла с 1 — та же нумерация, что в текстах «(файл 2)» и в чипах UI
     errors: list[str] = []
     warnings: list[str] = []
+    # Файл собран сборщиком фактов ArchMap (шапка «# archmap-scan …», app/scan_origin):
+    # строка для человека и агента с версией, коммитом и репозиторием; иначе null.
+    scanner: str | None = None
 
 
 class MergedNodeOut(BaseModel):
@@ -194,6 +197,9 @@ class SyncPreviewOut(BaseModel):
     graph_rev: int = 0  # курсор схемы на момент расчёта — вернуть в apply
     # Демо-стенд: после синка проект выйдет за предел (docs/tasks/demo-mode.md).
     demo_excess: DemoExcess | None = None
+    # Входы, собранные сборщиком фактов (app/scan_origin): по строке на каждый вход в
+    # порядке contents, у входа не от сборщика null. Пусто, если входов не разбирали.
+    scanner: list[str | None] = []
 
 
 class SyncApplyOut(BaseModel):

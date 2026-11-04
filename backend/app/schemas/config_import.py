@@ -57,6 +57,8 @@ class ConfigParamItem(BaseModel):
 
 
 class ConfigImportReport(BaseModel):
+    # Файлы, собранные сборщиком фактов: «Файл X собран сборщиком фактов …» (app/scan_origin).
+    scanner: list[str] = []
     params: list[ConfigParamItem] = []
     errors: list[str] = []
     warnings: list[str] = []

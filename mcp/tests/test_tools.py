@@ -1083,3 +1083,22 @@ async def test_дерево_не_помечает_внешнюю_систему(
     out = await tools.call("archmap_schema", {"project": "Ярмарка"}, client)
 
     assert "• Банк [система, внешний]  id=n1" in out.splitlines()
+
+
+async def test_план_синка_помечает_вход_сборщика(client: ArchMapClient, api: FakeApi) -> None:
+    """scanner выровнен по входам: у входа не от сборщика null, и номер «Вход N»
+    совпадает с порядком файлов, как в окне «Обновить из кода»."""
+    note = "Собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"
+    api.post(f"/projects/{PROJECT_ID}/sync/preview", sync_plan(files=2, scanner=[None, note]))
+
+    out = await tools.call(
+        "archmap_sync_preview",
+        {"project": "Ярмарка", "files": [{"name": "a.yaml", "content": "x"},
+                                         {"name": "schema.yaml", "content": "y"}]},
+        client,
+    )
+
+    lines = out.splitlines()
+    assert "Вход 1:" not in lines
+    i = lines.index("Вход 2:")
+    assert lines[i + 1] == "  • собрано сборщиком фактов ArchMap 0.1.0: у объектов и связей есть основание"

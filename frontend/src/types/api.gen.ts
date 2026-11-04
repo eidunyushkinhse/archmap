@@ -3849,6 +3849,11 @@ export interface components {
         /** ChannelsImportReport */
         ChannelsImportReport: {
             /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
+            /**
              * Channels
              * @default []
              */
@@ -4088,6 +4093,11 @@ export interface components {
         };
         /** ConfigImportReport */
         ConfigImportReport: {
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
             /**
              * Params
              * @default []
@@ -4381,6 +4391,11 @@ export interface components {
         };
         /** DataImportReport */
         DataImportReport: {
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: string[];
             /**
              * Tables
              * @default []
@@ -5485,6 +5500,8 @@ export interface components {
              * @default []
              */
             warnings: string[];
+            /** Scanner */
+            scanner?: string | null;
         };
         /** FragmentCreate */
         FragmentCreate: {
@@ -7808,6 +7825,11 @@ export interface components {
              */
             graph_rev: number;
             demo_excess?: components["schemas"]["DemoExcess"] | null;
+            /**
+             * Scanner
+             * @default []
+             */
+            scanner: (string | null)[];
         };
         /**
          * TableUsage

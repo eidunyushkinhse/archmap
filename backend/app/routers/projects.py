@@ -52,6 +52,7 @@ from app.models.project_member import ProjectMember
 from app.models.user import User
 from app.project_cards import project_card, project_cards
 from app.projects import copy_project_schema
+from app.scan_origin import schema_note
 from app.schemas.archive import ArchiveImportResult
 from app.schemas.node import NodeSource
 from app.schemas.project import (
@@ -394,9 +395,14 @@ def sync_preview(
     project, _ = project_for(db, user, project_id, need="editor")
     demo_limits.check_texts(_sync_files(payload))
 
+    # Входы, собранные сборщиком фактов (шапка «# archmap-scan …»): план говорит, что у
+    # них нет описаний и связей по смыслу. Пометка идёт и при ошибке разбора.
+    scanner = [schema_note(text) for text in payload.contents]
     merged, report, errors = parse_and_merge(list(payload.contents))
     if merged is None:
-        return SyncPreviewOut(ok=False, errors=errors, files=len(payload.contents))
+        return SyncPreviewOut(
+            ok=False, errors=errors, files=len(payload.contents), scanner=scanner
+        )
 
     plan = plan_for(db, project_id, merged, _sync_policies(payload))
     out = SyncPreviewOut(
@@ -435,6 +441,7 @@ def sync_preview(
         summary=plan.summary,
         is_noop=plan.is_noop,
         graph_rev=project.graph_rev,
+        scanner=scanner,
     )
     if not plan.is_noop:
         # Демо-стенд: пробное применение и откат — выйдет ли проект за предел.

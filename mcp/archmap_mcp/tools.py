@@ -972,6 +972,8 @@ def _sync_report(data: dict[str, Any]) -> str:
     raw = data.get("summary")
     summary: dict[str, Any] = raw if isinstance(raw, dict) else {}
     out = ["Будет сделано: " + ", ".join(f"{title}: {summary.get(key, 0)}" for key, title in SYNC_COUNTS)]
+    # Входы, собранные сборщиком фактов: в них нет описаний и связей по смыслу.
+    out.extend(render.scanner_inputs(data.get("scanner")))
     if data.get("is_noop"):
         # Фикспойнт синка: повторный прогон на том же входе обязан быть пустым.
         out.append("Схема уже соответствует присланному YAML, менять нечего.")

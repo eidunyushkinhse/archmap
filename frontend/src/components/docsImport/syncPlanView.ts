@@ -148,6 +148,20 @@ export function planSummary(p: SyncPreviewOut): string {
   return bits.length ? bits.join(", ") + tail : "Изменений нет" + tail;
 }
 
+/**
+ * Строки «Собрано сборщиком фактов …» по входам плана (бэк кладёт по записи на вход, у
+ * входа не от сборщика null). Входов несколько — впереди имя файла через «·»: иначе
+ * непонятно, о каком из них строка.
+ */
+export function scannerLines(p: SyncPreviewOut, names: string[]): string[] {
+  const many = p.scanner.length > 1;
+  return p.scanner.flatMap((s, i) => {
+    if (!s) return [];
+    const name = names[i];
+    return [many && name ? `${name} · ${s}` : s];
+  });
+}
+
 /** Итог применения — текст тоста. skipped называем явно: эти действия потеряли
  *  цель между расчётом и записью, и промолчать о них значит соврать «применено всё». */
 export function applySummary(r: SyncApplyOut): string {

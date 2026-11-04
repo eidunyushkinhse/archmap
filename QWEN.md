@@ -109,9 +109,10 @@ archmap/
 │   │   ├── demo.py / demo_limits.py / demo_package.py  # демо-режим (гость, песочница, уборка); пределы проекта; посев пакета
 │   │   ├── rate_limit.py / standalone.py  # счётчик событий по адресу; API и фронт одним процессом (образ без nginx)
 │   │   ├── scan_file.py   # файл сборщика фактов для раздачи (/api/v1/scan): версия, sha256, кэш по mtime
+│   │   ├── scan_origin.py # пометка «собрано сборщиком фактов» по шапке входа (превью, план обновления, факты)
 │   │   └── template_packages/  # демо-пакет «Ярмарка» — распакованный архив знания, сеется единым импортом
 │   ├── alembic/           # миграции БД
-│   ├── tests/             # pytest (87 тестовых файлов, in-memory SQLite; snapshots/ — снимки промптов)
+│   ├── tests/             # pytest (93 тестовых файла, in-memory SQLite; snapshots/ — снимки промптов)
 │   ├── requirements.txt   # dev-окружение: requirements-prod.txt + тесты и линтеры
 │   ├── requirements-prod.txt / requirements-prod.lock  # то, что едет на сервер; lock — с хэшами
 │   ├── .env.example       # шаблон backend/.env — все поля Settings

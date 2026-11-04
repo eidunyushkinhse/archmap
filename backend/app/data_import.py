@@ -50,6 +50,7 @@ from app.facts_import import (
     nodes_hint,
     overlong,
     resolve_owner,
+    scanner_notes,
     warn_duplicates,
 )
 from app.models.db_column import DbColumn
@@ -203,6 +204,7 @@ def build_data_plan(
     overwrite: bool,
 ) -> DataPlan:
     plan = DataPlan()
+    plan.report.scanner = scanner_notes(files)
     index = NodeIndex.of(nodes)
     path_of = index.path_by_id()
     plan.path_of = path_of

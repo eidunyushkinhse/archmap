@@ -582,3 +582,36 @@ def test_описания_ввоза_говорят_о_вопросах_и_decis
         assert "MCP не задаёт" not in catalog["archmap_import_preview"]["description"]
         apply = catalog["archmap_import_apply"]
         assert "decisions" in apply["description"] and "decisions" in apply["schema"]["properties"]
+
+
+# Шапка файла сборщика фактов: пометку строит бэкенд, MCP печатает её как есть.
+SCAN_HEAD = "# archmap-scan 0.1.0\n# repo: https://example.org/yarmarka.git\n# commit: 49ce20c3a1b2\nversion: 1\n"
+
+
+async def test_вход_сборщика_помечен_и_при_свёртке(client: ArchMapClient, api: FakeApi) -> None:
+    """Вход с шапкой «# archmap-scan …» печатается строкой сервера под «Вход N:» и тогда,
+    когда остаток свёрнут в вопросы: агент должен знать, что описаний и связей по
+    смыслу во входе нет, и дописать их сам."""
+    note = backend("scan_origin").schema_note(SCAN_HEAD)
+    assert note and note.startswith("Собрано сборщиком фактов ArchMap 0.1.0")
+    api.post(PREVIEW_PATH, dump(
+        "unified_import", "UnifiedPreviewOut", ok=True,
+        c4=c4(files=2, file_remarks=[
+            {"file": 1, "errors": [], "warnings": [CONVERTED], "scanner": note},
+            {"file": 2, "errors": [], "warnings": []},
+        ]),
+        remainder=remainder(),
+    ))
+
+    out = await tools.call(
+        "archmap_import_preview",
+        {"files": [{"name": "schema.yaml", "content": SCAN_HEAD}, {"name": "b.yaml", "content": "x"}]},
+        client,
+    )
+
+    lines = out.splitlines()
+    i = lines.index("Вход 1:")
+    assert lines[i + 1] == "  • с" + note[1:]
+    assert "по коммиту 49ce20c3 репозитория" in lines[i + 1]
+    assert "Вход 2:" not in lines
+    assert "замечание:" not in out  # свёртка на месте, пометка её не ломает

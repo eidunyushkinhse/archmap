@@ -37,6 +37,7 @@ from app.facts_import import (
     nodes_hint,
     overlong,
     resolve_owner,
+    scanner_notes,
     warn_duplicates,
 )
 from app.models.broker_channel import BrokerChannel
@@ -315,6 +316,7 @@ def build_channels_plan(
     overwrite: bool,
 ) -> ChannelsPlan:
     plan = ChannelsPlan()
+    plan.report.scanner = scanner_notes(files)
     index = NodeIndex.of(nodes)
     flat = index.flat
     path_of = index.path_by_id()

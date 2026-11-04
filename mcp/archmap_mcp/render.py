@@ -1397,6 +1397,8 @@ def facts_report(data: dict[str, Any], family: str, *, applied: bool) -> str:
     if new:
         head += f" (новых {new})"
     out = [head]
+    # Файлы, собранные сборщиком фактов: описаний у записей нет, их дописывает агент.
+    out.extend(str(s) for s in (data.get("scanner") or []))
     if applied:
         out.append(
             "Записано: "
@@ -1894,12 +1896,32 @@ def c4_preview(c4: dict[str, Any], folded: bool = False) -> list[str]:
     # Пофайловые замечания адресованы ВХОДУ по номеру: пакет собирают несколько
     # агентов, и «чините вход 2» — единственная работающая адресация.
     for remark in c4.get("file_remarks") or []:
-        rows = [f"ошибка: {e}" for e in remark.get("errors") or []]
+        # Вход собран сборщиком фактов (шапка «# archmap-scan …»): у объектов и связей нет
+        # описаний и смысла, их дописывает агент. Строка от сервера, печатается всегда.
+        rows = [scanner_row(remark["scanner"])] if remark.get("scanner") else []
+        rows += [f"ошибка: {e}" for e in remark.get("errors") or []]
         if not folded:
             rows += [f"замечание: {w}" for w in remark.get("warnings") or []]
         if rows:
             out.append(f"Вход {remark.get('file', '?')}:")
             out.extend("  • " + r for r in rows)
+    return out
+
+
+def scanner_row(text: object) -> str:
+    """Строка сервера «Собрано сборщиком фактов …» пунктом под «Вход N:»."""
+    line = str(text)
+    return line[:1].lower() + line[1:]
+
+
+def scanner_inputs(scanner: object) -> list[str]:
+    """План обновления из кода: по записи на вход, у входа не от сборщика null."""
+    if not isinstance(scanner, list):
+        return []
+    out: list[str] = []
+    for i, s in enumerate(scanner, 1):
+        if s:
+            out += [f"Вход {i}:", "  • " + scanner_row(s)]
     return out
 
 

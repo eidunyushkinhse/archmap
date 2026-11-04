@@ -228,6 +228,12 @@ export default function ImportPane({
     if (j >= 0 && j < zips.length) setActiveZipRaw(j);
   }
 
+  // Активный YAML собран сборщиком фактов (шапка «# archmap-scan …»): строка о том, что в
+  // нём нет описаний и связей по смыслу. Пустой чип в сводку не уезжал, у него строки нет.
+  const scanner = activeZip === null && docs[active]?.trim()
+    ? summary?.file_remarks.find((f) => f.file === fileNo[active])?.scanner ?? null
+    : null;
+
   // Что исчезло между попытками (prev − cur, по именам). Рост не показываем — норма.
   const vanished = useMemo(() => {
     if (seen.prev === null) return [];
@@ -340,6 +346,7 @@ export default function ImportPane({
       {drop.error && (
         <p style={{ ...grayLine, color: "#b45309" }}>{drop.error}</p>
       )}
+      {scanner && <p style={grayLine}>{scanner}</p>}
 
       <div style={{ marginTop: 10 }}>
         {/* Ампутация не должна быть молчаливой: пропавшие между попытками объекты —

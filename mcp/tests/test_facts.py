@@ -235,3 +235,18 @@ async def test_запись_без_колонок_помечена(client: ArchM
     )
 
     assert "колонок 0 ⚠ проверьте файл" in out
+
+
+async def test_файлы_сборщика_помечены_в_отчёте(client: ArchMapClient, api: FakeApi) -> None:
+    """Пометка сервера о файлах сборщика фактов идёт сразу под счётчиками: описаний у
+    записей нет, и агент узнаёт это до перечня записей."""
+    note = "Файл orders.tables.yaml собран сборщиком фактов ArchMap 0.1.0: описаний нет"
+    api.post("/data-import/preview", report("tables", scanner=[note]))
+
+    out = await tools.call(
+        "archmap_facts_preview", {"project": "Ярмарка", "family": "tables", "files": FILES}, client
+    )
+
+    lines = out.splitlines()
+    head = next(i for i, line in enumerate(lines) if line.startswith("ТАБЛИЦЫ: "))
+    assert lines[head + 1] == note
