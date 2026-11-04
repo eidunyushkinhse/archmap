@@ -12,7 +12,7 @@ import pytest
 from conftest import PROJECT_ID, FakeApi, backend, node
 
 from archmap_mcp import tools
-from archmap_mcp.client import ArchMapClient, ArchMapError
+from archmap_mcp.client import ArchMapClient, ArchMapError, Config
 
 OTHER_ID = "22222222-2222-2222-2222-222222222222"
 
@@ -196,18 +196,38 @@ async def test_промпт_импорта_без_вариантов_шлёт_п
 ) -> None:
     # Сентинел совместимости: строительный промпт — дефолт и ручки, и инструмента,
     # поэтому обычный вызов обязан остаться прежним ЗАПРОСОМ, а не только прежним
-    # результатом.
+    # результатом. Единственная санкционированная правка контракта (фаза 3 сборщика
+    # фактов, docs/tasks/fact-collector.md): адрес ArchMap в origin уходит всегда — по нему
+    # промпт начинается с запуска сборщика.
     api.get(PROMPT_PATH, {"prompt": "правила формата"})
 
     await tools.call("archmap_import_prompt", {"system_name": "Zabbix"}, client)
-    assert api.calls[-1].url.query == b"system_name=Zabbix"
+    assert api.calls[-1].url.query == b"system_name=Zabbix&origin=http%3A%2F%2Farchmap.test"
 
     await tools.call(
         "archmap_import_prompt",
         {"system_name": "Zabbix", "variant": "builder"},
         client,
     )
-    assert api.calls[-1].url.query == b"system_name=Zabbix&variant=builder"
+    assert (
+        api.calls[-1].url.query
+        == b"system_name=Zabbix&variant=builder&origin=http%3A%2F%2Farchmap.test"
+    )
+
+
+async def test_промпт_импорта_называет_адрес_каким_его_видит_агент(api: FakeApi) -> None:
+    """Удалённо запросы в API идут по внутреннему адресу, а агент пришёл по внешнему:
+    в команду curl промпта обязан попасть внешний (public_base_url)."""
+    api.get(PROMPT_PATH, {"prompt": "правила формата"})
+    http = httpx.AsyncClient(transport=httpx.MockTransport(api.handler()))
+    remote = ArchMapClient(
+        Config.remote("http://127.0.0.1:8000"), http=http, bearer="archmap_x",
+        public_base_url="https://archmap.example.com/",
+    )
+
+    await tools.call_remote("archmap_import_prompt", {"system_name": "Zabbix"}, remote, read_only=True)
+    assert api.calls[-1].url.params["origin"] == "https://archmap.example.com"
+    assert str(api.calls[-1].url).startswith("http://127.0.0.1:8000/api/v1/projects/import/prompt")
 
 
 async def test_промпт_импорта_проносит_вариант(

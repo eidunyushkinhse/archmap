@@ -118,16 +118,18 @@ archmap/
 │   └── pyproject.toml     # ruff, mypy, порог покрытия
 ├── mcp/                   # MCP-сервер ArchMap для ИИ-агента ПОЛЬЗОВАТЕЛЯ (не для разработки): локально по stdio
 │   │                      # и удалённо — /mcp в процессе бэкенда (пакет едет в поставки рядом с app/)
-│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (41 инструмент:
+│   ├── archmap_mcp/       # client.py (логин или личный токен, скоуп, перевод отказов), tools.py (42 инструмента:
 │   │                      # чтение, поиск, промпты, превью → применение, точечные правки, версии документации, размещение,
-│   │                      # перенос документации и сбор с компонентов; удалений нет; удалённый набор — 38, без диска агента),
+│   │                      # перенос документации и сбор с компонентов, запуск сборщика фактов archmap_scan; удалений нет;
+│   │                      # удалённый набор — 38, без диска агента),
 │   │                      # remote.py (Streamable HTTP без состояния, журнал вызовов), render.py, server.py (stdio; отказы — isError)
 │   ├── tests/             # pytest поверх подменённого транспорта httpx (живой сервис не нужен)
 │   ├── requirements.txt / requirements-dev.txt  # рантайм; инструменты гейта по пинам, как в CI
 │   ├── .env.example       # ARCHMAP_URL + ARCHMAP_TOKEN (или USERNAME/PASSWORD) → копировать в mcp/.env (в .gitignore)
 │   └── README.md          # удалённое и локальное подключение, токен, строки клиентов, каталог, HTTPS с корпоративным CA
 ├── scan/                  # сборщик фактов archmap-scan.pyz (эпик docs/tasks/fact-collector.md): репозиторий → schema.yaml,
-│                          # facts/, coverage, сводка и agent/; Python 3.10, PyYAML внутри файла; README.md, фикстуры fixtures/
+│                          # facts/, coverage, сводка и agent/; Python 3.10, PyYAML внутри файла; README.md, фикстуры fixtures/;
+│                          # агент запускает его первым шагом промпта ввоза (archmap_scan локального MCP или curl и python3)
 ├── scripts/
 │   ├── git-hooks/pre-commit  # гейт по staged: фронт / бэк / mcp / scan
 │   ├── setup-hooks.sh     # установка хука

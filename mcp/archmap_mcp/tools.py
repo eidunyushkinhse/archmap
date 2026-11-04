@@ -47,10 +47,13 @@ uuid). «Текущего проекта» в сервере нет намере
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json as jsonlib
 import os
+import re
+import sys
 import tempfile
 import uuid as uuidlib
 import zipfile
@@ -495,8 +498,173 @@ async def t_import_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
         if args.get(key) is not None:
             params[key] = args[key]
     _variant(args, params)
+    # Адрес ArchMap, каким его видит агент (локально ARCHMAP_URL, удалённо внешний адрес
+    # сервера): по нему промпт называет файл сборщика фактов для curl, и шаг сборщика
+    # идёт первым (фаза 3 docs/tasks/fact-collector.md). Сервер без файла шаг не ставит.
+    params["origin"] = client.public_base_url
     data = await client.request("GET", "/projects/import/prompt", params=params)
     return str(data["prompt"])
+
+
+# ── Сборщик фактов (фаза 3 docs/tasks/fact-collector.md) ─────────────────────
+#
+# archmap_scan скачивает archmap-scan.pyz с сервера ArchMap и запускает его в
+# репозитории на машине агента: агенту без терминала (Claude Desktop и подобные) иначе
+# сборщик не запустить. Репозиторий MCP-сервер сам не читает, его читает сборщик в
+# подпроцессе; сервер только проверяет пути, кладёт файл в кэш и пересказывает итог.
+
+SCAN_CACHE_DIR = "~/.cache/archmap-mcp"
+SCAN_TIMEOUT_DEFAULT = 600.0
+SCAN_OUTPUT_CAP = 2 * 1024 * 1024  # предел stdout и stderr сборщика в памяти, каждого
+_SCAN_VERSION = re.compile(r"^[0-9A-Za-z.+-]{1,32}$")
+_SCAN_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+# Суффикс файла фактов → семья archmap_facts_preview (имена пишет сборщик, ТЗ §5).
+SCAN_FACT_FAMILY = {".tables.yaml": "tables", ".channels.yaml": "channels", ".config.yaml": "config"}
+
+
+@dataclass(frozen=True)
+class ScanRun:
+    """Итог запуска сборщика: код выхода и вывод (обрезанный пределом SCAN_OUTPUT_CAP)."""
+
+    code: int
+    stdout: str
+    stderr: str
+
+
+def _scan_timeout(raw: str) -> float:
+    if not raw:
+        return SCAN_TIMEOUT_DEFAULT
+    try:
+        value = float(raw)
+    except ValueError:
+        value = 0.0
+    if value <= 0:
+        raise ArchMapError(f"ARCHMAP_SCAN_TIMEOUT={raw}: нужно положительное число секунд.")
+    return value
+
+
+async def _drain(stream: asyncio.StreamReader | None, cap: int) -> bytes:
+    """Прочитать поток до конца, сохранив не больше cap байт: остаток дочитывается и
+    выбрасывается, иначе сборщик встал бы на полном канале."""
+    if stream is None:
+        return b""
+    kept = bytearray()
+    while chunk := await stream.read(64 * 1024):
+        if len(kept) < cap:
+            kept.extend(chunk[: cap - len(kept)])
+    return bytes(kept)
+
+
+async def run_scanner(argv: list[str], cwd: Path, timeout: float) -> ScanRun:
+    """Запустить сборщик подпроцессом без оболочки. По таймауту процесс убивается, и
+    запуск отказывает: зависший сборщик не должен держать вызов агента вечно."""
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(cwd),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        out, err, code = await asyncio.wait_for(
+            asyncio.gather(
+                _drain(proc.stdout, SCAN_OUTPUT_CAP), _drain(proc.stderr, SCAN_OUTPUT_CAP), proc.wait()
+            ),
+            timeout,
+        )
+    except TimeoutError:
+        with suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise ArchMapError(
+            f"Сборщик фактов не уложился в {timeout:g} с и остановлен. Большой репозиторий "
+            "сузьте аргументом excludes или увеличьте ARCHMAP_SCAN_TIMEOUT в mcp/.env."
+        ) from None
+    return ScanRun(code, out.decode("utf-8", "replace"), err.decode("utf-8", "replace"))
+
+
+def _scan_paths(raw_path: str, raw_out: str | None) -> tuple[Path, Path]:
+    """Каталог репозитория и каталог вывода. Путь задаёт модель, поэтому вывод — только
+    внутри репозитория и не символической ссылкой: через ссылку сборщик писал бы
+    наружу (то же правило, что у _export_target)."""
+    root = Path(raw_path).expanduser()
+    if not root.is_dir():
+        raise ArchMapError(f"path {root}: каталога репозитория нет.")
+    root = root.resolve()
+    out = Path(raw_out).expanduser() if raw_out else root / "archmap-scan"
+    out = out if out.is_absolute() else root / out
+    if out.is_symlink():
+        raise ArchMapError(f"out_dir {out} — символическая ссылка; укажите обычный каталог.")
+    if not out.resolve().is_relative_to(root):
+        raise ArchMapError(f"out_dir {out}: каталог вывода задаётся внутри path {root}.")
+    return root, out.resolve()
+
+
+async def _scan_file(client: ArchMapClient) -> Path:
+    """Файл сборщика из кэша, а нет его там — с сервера ArchMap с проверкой sha256."""
+    info = await client.request("GET", "/scan")
+    version, digest = str(info.get("version", "")), str(info.get("sha256", ""))
+    if not _SCAN_VERSION.match(version) or not _SCAN_SHA256.match(digest):
+        raise ArchMapError("ArchMap вернул непонятные версию или sha256 сборщика фактов.")
+    cache = Path(client.config.scan_dir or SCAN_CACHE_DIR).expanduser()
+    path = cache / f"archmap-scan-{version}-{digest[:12]}.pyz"
+    if path.is_file() and not path.is_symlink() and _sha256(path.read_bytes()) == digest:
+        return path
+    payload = await client.request_bytes("GET", "/scan/archmap-scan.pyz")
+    got = _sha256(payload)
+    if got != digest:
+        raise ArchMapError(
+            f"Файл сборщика пришёл повреждённым: sha256 {got} вместо {digest}. Повторите вызов."
+        )
+    _write_atomic(path, payload)
+    return path
+
+
+def _scan_files_block(out: Path) -> str:
+    """Что лежит в каталоге вывода и какой инструмент что принимает."""
+    facts = sorted(p for p in (out / "facts").glob("*.yaml") if p.is_file())
+    lines = [f"Файлы (каталог {out}):", f"  • схема: {out / 'schema.yaml'}"]
+    lines.append(
+        "    → archmap_import_preview и archmap_import_apply (новый проект) или "
+        "archmap_sync_preview и archmap_sync_apply (открытый проект), аргумент paths"
+    )
+    if facts:
+        lines.append("  • факты:")
+        for f in facts:
+            family = next((fam for suf, fam in SCAN_FACT_FAMILY.items() if f.name.endswith(suf)), None)
+            tail = f" (family {family})" if family else ""
+            lines.append(f"    {f}{tail}")
+        lines.append(
+            "    → archmap_facts_preview и archmap_facts_apply по семье, аргумент paths; адрес объекта "
+            "в первой строке файла, подавать после создания проекта"
+        )
+    else:
+        lines.append("  • факты: файлов нет")
+    lines.append(
+        "  • для чтения агентом (ArchMap их не импортирует): "
+        + ", ".join(str(out / "agent" / n) for n in ("evidence.yaml", "entrypoints.yaml", "hints.yaml"))
+    )
+    lines.append(f"  • покрытие по семьям: {out / 'coverage.yaml'}, сводка: {out / 'summary.txt'}")
+    return "\n".join(lines)
+
+
+async def t_scan(client: ArchMapClient, args: dict[str, Any]) -> str:
+    root, out = _scan_paths(str(args["path"]), args.get("out_dir"))
+    timeout = _scan_timeout(client.config.scan_timeout)
+    pyz = await _scan_file(client)
+    # -I -S: сборщику ничего не нужно вне архива, и переменные окружения Python и
+    # site-packages агента на разбор не влияют. -X utf8: сводка по-русски приходит в
+    # UTF-8 и там, где кодировка консоли другая (Windows).
+    argv = [sys.executable, "-I", "-S", "-X", "utf8", str(pyz), str(root), "--out", str(out)]
+    if args.get("system"):
+        argv += ["--system", str(args["system"])]
+    for mask in args.get("excludes") or []:
+        argv += ["--exclude", str(mask)]
+    run = await run_scanner(argv, root, timeout)
+    if run.code != 0:
+        reason = run.stderr.strip() or run.stdout.strip() or "причина не названа"
+        raise ArchMapError(f"Сборщик фактов завершился с ошибкой (код {run.code}): {reason}")
+    return run.stdout.rstrip() + "\n\n" + _scan_files_block(out)
 
 
 async def t_docs_prompt(client: ArchMapClient, args: dict[str, Any]) -> str:
@@ -1597,6 +1765,20 @@ _QUESTIONS_APPLY = (
     "resolutions и decisions применяется дефолт каждого спора и вопроса."
 )
 
+# Описание archmap_import_prompt: общие начало и конец у локального и удалённого набора,
+# середина про сборщик фактов своя (удалённо archmap_scan нет, сборщик запускают командами).
+_IMPORT_PROMPT_HEAD = (
+    "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО "
+    "построения YAML — промпт задаёт слои C4, правила связей и запреты и просит element у "
+    "объекта с вложенными: container — одна запускаемая программа из частей кода, system — "
+    "группа отдельно запускаемых частей; файл, где у объекта с вложенными нет element, ввоз "
+    "не примет. "
+)
+_IMPORT_PROMPT_TAIL = (
+    "variant — какой промпт вернуть: строительный (по умолчанию), оркестраторный с аудитом "
+    "скептика (для него нужны субагенты) или один аудит."
+)
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_projects",
@@ -1828,7 +2010,9 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "archmap_import_prompt",
         "writes": False,
-        "description": "ПРАВИЛА ФОРМАТА: как построить YAML архитектуры по исходникам репозитория. Вызывать ДО построения YAML — промпт задаёт слои C4, правила связей и запреты и просит element у объекта с вложенными: container — одна запускаемая программа из частей кода, system — группа отдельно запускаемых частей; файл, где у объекта с вложенными нет element, ввоз не примет. variant — какой промпт вернуть: строительный (по умолчанию), оркестраторный с аудитом скептика (для него нужны субагенты) или один аудит.",
+        "description": _IMPORT_PROMPT_HEAD
+        + "Промпт начинается с запуска сборщика фактов ArchMap (если сервер его раздаёт): инструментом archmap_scan, а без него командами из промпта. "
+        + _IMPORT_PROMPT_TAIL,
         "schema": {
             "type": "object",
             "properties": {
@@ -1840,6 +2024,26 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["system_name"],
         },
         "handler": t_import_prompt,
+    },
+    {
+        "name": "archmap_scan",
+        "writes": False,
+        "description": "СБОРЩИК ФАКТОВ ArchMap: скачивает с сервера файл archmap-scan.pyz (кэш на машине агента, sha256 сверяется) и запускает его в репозитории. Сборщик детерминированно читает манифесты и код, сам код не выполняет и в сеть не ходит; пишет в out_dir schema.yaml (скелет схемы: контейнеры, базы, брокеры, связи из манифестов и каналы), facts/*.yaml (таблицы, параметры конфигурации, каналы брокеров), coverage.yaml и summary.txt (что найдено, что не покрыто, что исключено) и agent/ (основания «файл:строка», точки входа, подсказки). Ответ: сводка сборщика и пути файлов. Дальше schema.yaml идёт в archmap_import_preview (новый проект) или archmap_sync_preview (открытый проект) через paths, facts/*.yaml в archmap_facts_preview через paths после создания проекта, а agent/ агент читает сам. Порядок работы задаёт archmap_import_prompt.",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Каталог репозитория на машине агента (корень или подкаталог)."},
+                "system": {"type": "string", "description": "Имя системы в схеме, то же, что в archmap_import_prompt. Без него сборщик берёт имя из манифеста сборки или каталога."},
+                "out_dir": {"type": "string", "description": "Каталог вывода внутри path; относительный считается от path. По умолчанию <path>/archmap-scan. Чужой каталог без маркера сборщика он не перезапишет."},
+                "excludes": {
+                    "type": "array",
+                    "items": {"type": "string", "description": "Маска в синтаксисе .gitignore без «!»: «legacy/», «**/generated/**»."},
+                    "description": "Что не читать, кроме исключённого по соглашению (тесты, документация, примеры) и .archmapignore.",
+                },
+            },
+            "required": ["path"],
+        },
+        "handler": t_scan,
     },
     {
         "name": "archmap_docs_prompt",
@@ -2479,10 +2683,12 @@ async def call(name: str, args: dict[str, Any], client: ArchMapClient) -> str:
 
 # Работают с файлами на машине агента. В удалённом режиме это был бы диск СЕРВЕРА
 # ArchMap (ключ подписи, /etc…), поэтому их там нет вовсе.
-LOCAL_ONLY = frozenset({"archmap_export_archive", "archmap_import_into_preview", "archmap_import_into_apply"})
+LOCAL_ONLY = frozenset({
+    "archmap_export_archive", "archmap_import_into_preview", "archmap_import_into_apply", "archmap_scan",
+})
 # Аргументы-пути. Схема удалённого набора их не объявляет, но SDK лишних свойств не
 # запрещает — отказ на диспетчере, по ключу, у ЛЮБОГО инструмента.
-DISK_ARGS = frozenset({"paths", "out_path"})
+DISK_ARGS = frozenset({"paths", "out_path", "path", "out_dir"})
 
 _REMOTE_IMPORT_TAIL = (
     " Архив проекта (zip) так не ввозят. Новый проект из архива создают в интерфейсе ArchMap "
@@ -2492,6 +2698,12 @@ _REMOTE_IMPORT_TAIL = (
 
 # Удалённые варианты описаний и схем: без paths и без упоминания локальных инструментов.
 REMOTE_OVERRIDES: dict[str, dict[str, Any]] = {
+    "archmap_import_prompt": {
+        "description": _IMPORT_PROMPT_HEAD
+        + "Промпт начинается с запуска сборщика фактов ArchMap (если сервер его раздаёт): агент "
+        "скачивает файл и запускает его командами из промпта в терминале. "
+        + _IMPORT_PROMPT_TAIL,
+    },
     "archmap_export": {
         "description": "Схема проекта в YAML формата ArchMap (семантика без раскладки) — то, что подают обратно на импорт и обновление из кода. node_id — только поддерево. Это СРЕЗ для чтения: схемы логики, спецификации, таблицы, каналы, конфигурация и процессы в него не входят — полный архив знания проекта выгружают в интерфейсе ArchMap.",
     },
@@ -2553,6 +2765,12 @@ def remote_catalog(read_only: bool) -> list[dict[str, Any]]:
 async def call_remote(name: str, args: dict[str, Any], client: ArchMapClient, read_only: bool) -> str:
     """Вызов в удалённом режиме. Все отказы — ДО обработчика: локальный инструмент и
     аргумент-путь не должны дойти до кода, читающего или пишущего файлы."""
+    if name == "archmap_scan":
+        raise ArchMapError(
+            "Инструмент archmap_scan запускает сборщик фактов на машине агента и в подключении по "
+            "адресу недоступен. Сборщик запускают в терминале командами из промпта "
+            "archmap_import_prompt или инструментом локального MCP-сервера ArchMap."
+        )
     if name in LOCAL_ONLY:
         raise ArchMapError(
             f"Инструмент {name} работает с файлами на машине агента и в подключении по адресу "
