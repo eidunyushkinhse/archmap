@@ -106,7 +106,7 @@ class _File:
     # Группа присваиванием: имя → (получатель, позиция вызова, путь).
     groups: dict[str, tuple[str, int, str]] = field(default_factory=dict)
     scopes: list[_Scope] = field(default_factory=list)
-    funcs: list[gocode.Func] = field(default_factory=list)
+    funcs: list[gocode.Func] | None = None  # разбираются при первой нужде (_param_of)
     starts: list[int] = field(default_factory=list)  # начала тел funcs по порядку
     pending: list[_Pending] = field(default_factory=list)
     closures: dict[int, tuple[int, int] | None] = field(default_factory=dict)
@@ -210,6 +210,9 @@ def _prefix(f: _File, recv: str, pos: int) -> tuple[str, bool]:
 def _param_of(f: _File, name: str, pos: int) -> tuple[str, int] | None:
     """(функция, номер параметра), если name в позиции pos — параметр функции, в теле
     которой стоит pos, и его не перекрывает параметр замыкания между ними."""
+    if f.funcs is None:
+        f.funcs = gocode.functions(f.code.mask)
+        f.starts = [fn.start for fn in f.funcs]
     i = bisect_left(f.starts, pos) - 1
     func = f.funcs[i] if i >= 0 else None
     if func is None or not pos < func.end or not name or name not in func.params:
@@ -369,14 +372,15 @@ def _package(group: list[_File], found: Findings) -> None:
     pending = [(f, p) for f in group for p in f.pending]
     if not pending:
         return
+    declared = [gocode.declared(f.code.mask) for f in group]
     defined: dict[str, int] = {}
-    for f in group:
-        for fn in f.funcs:
-            defined[fn.name] = defined.get(fn.name, 0) + 1
+    for names in declared:
+        for name, _at in names:
+            defined[name] = defined.get(name, 0) + 1
     wanted = {p.func for _f, p in pending if defined.get(p.func) == 1}
     sites: dict[str, list[tuple[_File, int, list[str]]]] = {}
-    for f in group:
-        skip = {fn.at for fn in f.funcs}
+    for f, names in zip(group, declared, strict=True):
+        skip = {at for _name, at in names}
         for name, at, args in gocode.calls(f.code.mask, wanted, skip, _MAX_SITES):
             if len(sites.setdefault(name, [])) < _MAX_SITES:
                 sites[name].append((f, at, args))
@@ -416,8 +420,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         )
         code = codetext.load(files, rel, text, codetext.GO)
         if code is not None:
-            funcs = gocode.functions(code.mask)
-            f = _File(code, rel, framework, funcs=funcs, starts=[fn.start for fn in funcs])
+            f = _File(code, rel, framework)
             _scan(f, found)
             open_dirs.setdefault(folder, []).append(f)
     for done in sorted(open_dirs):

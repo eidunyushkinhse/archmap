@@ -21,6 +21,9 @@ _DEF = re.compile(
 )
 # Вызов в перевёрнутой маске: «(», пробелы, имя задом наперёд.
 _CALLEE = re.compile(r"\([ \t]{0,50}([A-Za-z0-9_]{1,100})")
+# Скобки тела и знаки списка: разбор шагает от знака к знаку, а не по каждому символу.
+_BRACE = re.compile(r"[{}]")
+_LIST = re.compile(r"[()\[\]{},]")
 
 
 @dataclass(frozen=True)
@@ -45,15 +48,13 @@ def body(mask: str, start: int) -> tuple[int, int] | None:
     if open_at == -1:
         return None
     depth = 0
-    stop = min(len(mask), open_at + MAX_SPAN)
-    for i in range(open_at, stop):
-        ch = mask[i]
-        if ch == "{":
+    for m in _BRACE.finditer(mask, open_at, min(len(mask), open_at + MAX_SPAN)):
+        if m.group() == "{":
             depth += 1
-        elif ch == "}":
+        else:
             depth -= 1
             if depth == 0:
-                return open_at, i
+                return open_at, m.start()
     return None
 
 
@@ -63,8 +64,8 @@ def split_list(mask: str, start: int) -> tuple[list[str], int] | None:
     out: list[str] = []
     depth = 0
     piece = start
-    for i in range(start, min(len(mask), start + MAX_LIST)):
-        ch = mask[i]
+    for m in _LIST.finditer(mask, start, min(len(mask), start + MAX_LIST)):
+        ch, i = m.group(), m.start()
         if ch in "([{":
             depth += 1
         elif ch in ")]}":
@@ -88,6 +89,18 @@ def _param_name(piece: str) -> str:
     return m.group()
 
 
+def _definitions(mask: str) -> list[re.Match[str]]:
+    return [
+        m for m in _DEF.finditer(mask)
+        if not (m.start() and _ident_char(mask[m.start() - 1]))
+    ]
+
+
+def declared(mask: str) -> list[tuple[str, int]]:
+    """Имена определённых в файле функций и методов с позициями имён (без разбора тел)."""
+    return [(m.group(1), m.start(1)) for m in _definitions(mask)]
+
+
 def functions(mask: str) -> list[Func]:
     """Функции и методы файла с телом, по порядку. Тело начинается на строке закрывающей
     скобки параметров (так пишет gofmt); функция без тела (объявление) пропускается.
@@ -96,8 +109,8 @@ def functions(mask: str) -> list[Func]:
     маски просматривается разборщиком скобок не больше одного раза на окно."""
     out: list[Func] = []
     resume = 0
-    for m in _DEF.finditer(mask):
-        if m.start() < resume or (m.start() and _ident_char(mask[m.start() - 1])):
+    for m in _definitions(mask):
+        if m.start() < resume:
             continue
         parts = split_list(mask, m.end())
         if parts is None:
