@@ -19,6 +19,7 @@ import { useFileDrop } from "./useFileDrop";
 import { planSections, planSummary, applySummary, scannerLines } from "./syncPlanView";
 import { NoteList } from "./agentModalReport";
 import PromptCopyButton from "./PromptCopyButton";
+import ScanFileLink from "../project/ScanFileLink";
 import {
   head, sub, cols, leftCol, rightCol, hintsArea, leftNote,
   chipsRow, chipOn, chip, chipBtn, chipX, fileArea, dropHint, grayLine, footRow,
@@ -246,6 +247,8 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
             репозитории: объекты узнаются по источнику, то есть коду (репозиторий и путь в нём) или
             имени зависимости, поэтому переименованный сервис не превратится в новый объект.
           </p>
+          {/* Путь без агента: файл сборщика фактов, его schema.yaml обновляет проект здесь же. */}
+          <ScanFileLink style={{ marginTop: 10 }} />
         </div>
 
         {/* ── Справа: файлы, политики, план ─────────────────── */}
