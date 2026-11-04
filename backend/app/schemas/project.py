@@ -213,6 +213,9 @@ class ImportPromptOut(BaseModel):
     """Текст универсального промпта «Из репозитория» для ИИ-агента пользователя."""
 
     prompt: str
+    # Адрес файла сборщика фактов, если промпт начинается с его запуска (клиент передал
+    # origin и файл есть в поставке); иначе null и шага сборщика в промпте нет.
+    scan_url: str | None = None
 
 
 class ProjectPreviewNode(BaseModel):

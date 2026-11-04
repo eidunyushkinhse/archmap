@@ -7,15 +7,22 @@ depth=2 вырезает слой компонентов и из инструк�
 подсказки попадают в текст.
 """
 
+import io
 import re
+import zipfile
 
 import pytest
 import yaml
 from conftest import ensure_architect
+from fastapi.testclient import TestClient
 
+from app.auth import get_current_user
+from app.config import settings
 from app.import_prompt import build_import_prompt, example_yaml
 from app.import_yaml import parse_import
+from app.main import app
 from app.routers.projects import import_prompt
+from app.skeptic_prompt import prompt_for_variant
 
 
 def test_example_is_valid_import_both_depths():
@@ -615,3 +622,136 @@ def test_у_компонента_есть_вызывающий_внутри_ко
     p2 = build_import_prompt("X", depth=2)
     assert "У КАЖДОГО КОМПОНЕНТА ЕСТЬ ВЫЗЫВАЮЩИЙ ВНУТРИ КОНТЕЙНЕРА" not in p2
     assert "клиентская обёртка" not in p2
+
+
+# ── Шаг сборщика фактов (фаза 3 docs/tasks/fact-collector.md) ─────────────────
+
+SCAN_URL = "https://archmap.example.com/api/v1/scan/archmap-scan.pyz"
+
+
+@pytest.mark.parametrize("depth", [2, 3])
+def test_без_адреса_сборщика_промпт_прежний(depth):
+    """Поставка без файла и старые клиенты: шага нет, текст байт-в-байт прежний."""
+    p = build_import_prompt("Ярмарка", depth=depth)
+    assert build_import_prompt("Ярмарка", depth=depth, scan_url=None) == p
+    assert "archmap-scan" not in p and "\n0. " not in p
+
+
+@pytest.mark.parametrize("depth", [2, 3])
+def test_шаг_сборщика_первым_и_пункт_чек_листа(depth):
+    p = build_import_prompt("Ярмарка", depth=depth, scan_url=SCAN_URL)
+    порядок = p.split("## Порядок обследования", 1)[1].split("## Модель", 1)[0]
+    assert порядок.index("\n0. Сначала запусти СБОРЩИК ФАКТОВ ArchMap.") < порядок.index(
+        "\n1. Инфраструктурные манифесты"
+    )
+    assert f"   curl -sSfL -o archmap-scan.pyz {SCAN_URL}\n" in p
+    assert '   python3 archmap-scan.pyz . --system "Ярмарка" --out archmap-scan\n' in p
+    assert "если среди твоих инструментов есть archmap_scan" in p
+    assert "иди по шагам 1–6" in p
+    for файл in ("summary.txt", "coverage.yaml", "agent/hints.yaml", "agent/entrypoints.yaml",
+                 "agent/evidence.yaml", "schema.yaml", "facts/*.yaml"):
+        assert f"archmap-scan/{файл}" in p
+    assert "archmap_facts_preview и archmap_facts_apply (аргумент paths)" in p
+    assert "Каталог archmap-scan в репозиторий не коммить." in p
+    вывод = p.split("## Вывод", 1)[1]
+    номера = [int(m) for m in re.findall(r"^(\d+)\. ", вывод, flags=re.M)]
+    assert номера == list(range(1, 18))
+    assert "17. Каждый контейнер, база данных и брокер из archmap-scan/schema.yaml" in вывод
+
+
+def test_компоненты_в_шаге_сборщика_только_при_слое_3():
+    p3 = build_import_prompt("X", depth=3, scan_url=SCAN_URL)
+    p2 = build_import_prompt("X", depth=2, scan_url=SCAN_URL)
+    assert "(вызовы между сервисами по коду), компоненты слоя 3." in p3
+    assert "(вызовы между сервисами по коду). Семьи" in p2
+    assert "компоненты слоя 3" not in p2.split("## Модель", 1)[0]
+
+
+def test_шаг_сборщика_по_русски_при_английских_значениях():
+    p = build_import_prompt("X", lang="en", scan_url=SCAN_URL)
+    assert "0. Сначала запусти СБОРЩИК ФАКТОВ ArchMap." in p
+
+
+def test_имя_системы_в_команде_не_раскрывается_оболочкой():
+    """Имя при обновлении из кода — имя проекта: его задаёт другой человек, а команду
+    выполнит агент. Опасное внутри двойных кавычек уходит в одинарные."""
+    p = build_import_prompt('Я"рмарка $(rm -rf ~)', scan_url=SCAN_URL)
+    assert """--system 'Я"рмарка $(rm -rf ~)' --out archmap-scan""" in p
+    assert '--system "Платёжная платформа"' in build_import_prompt(
+        "Платёжная  платформа", scan_url=SCAN_URL
+    )
+
+
+def test_аудиту_шаг_сборщика_не_достаётся():
+    """Скептик проверяет готовую модель и строительного промпта не содержит; обёртка
+    вшивает строительный промпт целиком, со всем шагом."""
+    без = build_import_prompt("Ярмарка")
+    с = build_import_prompt("Ярмарка", scan_url=SCAN_URL)
+    assert prompt_for_variant("skeptic", "import", с, system_name="Ярмарка") == prompt_for_variant(
+        "skeptic", "import", без, system_name="Ярмарка"
+    )
+    assert с in prompt_for_variant("orchestrated", "import", с, system_name="Ярмарка")
+
+
+@pytest.fixture()
+def файл_сборщика(tmp_path, monkeypatch):
+    path = tmp_path / "archmap-scan.pyz"
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("archmap_scan/__init__.py", '__version__ = "0.1.0"\n')
+    path.write_bytes(buf.getvalue())
+    monkeypatch.setattr(settings, "scan_file", str(path))
+    return path
+
+
+def test_ручка_с_адресом_клиента_и_файлом(db, файл_сборщика):
+    user = ensure_architect(db)
+    out = import_prompt(
+        system_name="Ярмарка", depth=3, lang="ru", hints=None, origin="http://localhost:5173",
+        _user=user,
+    )
+    assert out.scan_url == "http://localhost:5173/api/v1/scan/archmap-scan.pyz"
+    assert f"curl -sSfL -o archmap-scan.pyz {out.scan_url}\n" in out.prompt
+    # Без адреса клиента промпт прежний: старые клиенты и MCP до обновления.
+    прежний = import_prompt(system_name="Ярмарка", depth=3, lang="ru", hints=None, _user=user)
+    assert прежний.scan_url is None
+    assert прежний.prompt == build_import_prompt("Ярмарка")
+    аудит = import_prompt(
+        system_name="Ярмарка", depth=3, lang="ru", hints=None, variant="skeptic",
+        origin="http://localhost:5173", _user=user,
+    )
+    assert аудит.scan_url is None and "archmap-scan" not in аудит.prompt
+
+
+def test_ручка_без_файла_в_поставке(db, tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "scan_file", str(tmp_path / "нет" / "archmap-scan.pyz"))
+    out = import_prompt(
+        system_name="Ярмарка", depth=3, lang="ru", hints=None, origin="https://archmap.example.com",
+        _user=ensure_architect(db),
+    )
+    assert out.scan_url is None
+    assert out.prompt == build_import_prompt("Ярмарка")
+
+
+@pytest.mark.parametrize(
+    ("origin", "code"),
+    [
+        ("http://localhost:5173", 200),
+        ("https://[::1]:8443", 200),
+        ("https://archmap.example.com/путь", 422),
+        ("javascript:alert(1)", 422),
+        ("https://a.example.com; rm -rf ~", 422),
+        ("https://" + "a" * 300, 422),
+    ],
+)
+def test_адрес_клиента_проверяется_схемой(db, файл_сборщика, origin, code):
+    app.dependency_overrides[get_current_user] = lambda: ensure_architect(db)
+    try:
+        r = TestClient(app).get(
+            "/api/v1/projects/import/prompt", params={"system_name": "Ярмарка", "origin": origin}
+        )
+    finally:
+        app.dependency_overrides.clear()
+    assert r.status_code == code, r.text
+    if code == 200:
+        assert r.json()["scan_url"] == f"{origin}/api/v1/scan/archmap-scan.pyz"

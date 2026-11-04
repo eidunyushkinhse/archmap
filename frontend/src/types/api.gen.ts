@@ -308,6 +308,10 @@ export interface paths {
          *     (docs/plan-skeptic-audit.md). Федеративного варианта нет: федерация — те же
          *     одиночные прогоны и мердж (docs/plan-byoa-quality.md, 2026-09-06).
          *
+         *     origin — адрес ArchMap, каким его видит клиент (фронт, MCP). С ним и с файлом сборщика
+         *     в поставке промпт начинается с запуска сборщика фактов (docs/tasks/fact-collector.md,
+         *     фаза 3), а scan_url ответа называет адрес файла. Без origin промпт прежний байт-в-байт.
+         *
          *     Любому вошедшему: это текст без данных, а нужен он и созданию проекта
          *     (глобальная роль architect), и обновлению существующего проекта из кода (редактор проекта,
          *     который может быть viewer глобально).
@@ -5810,6 +5814,8 @@ export interface components {
         ImportPromptOut: {
             /** Prompt */
             prompt: string;
+            /** Scan Url */
+            scan_url?: string | null;
         };
         /**
          * IntermediateEdgeAlert
@@ -9160,6 +9166,7 @@ export interface operations {
                 lang?: "ru" | "en";
                 hints?: string | null;
                 variant?: "builder" | "orchestrated" | "skeptic";
+                origin?: string | null;
             };
             header?: never;
             path?: never;

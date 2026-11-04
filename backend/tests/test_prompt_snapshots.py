@@ -95,6 +95,9 @@ EDGE_CHANNELS = {"Ярмарка / Шина событий": ["orders.created"]}
 DESCRIBED = {"Ярмарка / orders": ["GET /orders", "Создание заказа (POST /orders)"]}
 PENDING = {"Ярмарка / orders": ["DELETE /orders/{id}", "email_senders"]}
 SYSTEM = "Голосовалка"
+# Адрес файла сборщика фактов: с ним промпт ввоза начинается с шага «0» (фаза 3
+# docs/tasks/fact-collector.md). Без него снимки import--* прежние.
+SCAN_URL = "https://archmap.example.com/api/v1/scan/archmap-scan.pyz"
 NODE_PATH = "Ярмарка / orders"
 
 
@@ -125,12 +128,27 @@ CASES: list[Case] = [
           lambda: prompt_for_variant(
               "builder", "import",
               build_import_prompt(SYSTEM, depth=2, lang="en", hints="монорепа, см. services/"))),
+    _case("import--builder-scan", "import", "builder",
+          lambda: prompt_for_variant(
+              "builder", "import", build_import_prompt(SYSTEM, scan_url=SCAN_URL))),
+    _case("import--builder-en-hints-depth-scan", "import", "builder",
+          lambda: prompt_for_variant(
+              "builder", "import",
+              build_import_prompt(
+                  SYSTEM, depth=2, lang="en", hints="монорепа, см. services/", scan_url=SCAN_URL))),
     _case("import--skeptic", "import", "skeptic",
           lambda: prompt_for_variant(
               "skeptic", "import", build_import_prompt(SYSTEM), system_name=SYSTEM)),
     _case("import--orchestrated", "import", "orchestrated",
           lambda: prompt_for_variant(
               "orchestrated", "import", build_import_prompt(SYSTEM), system_name=SYSTEM)),
+    # Обёртка вшивает строительный промпт с шагом сборщика целиком. Снимка скептика со
+    # сборщиком нет: строительного промпта в нём нет, и текст совпал бы с import--skeptic
+    # (сторож — test_import_prompt.test_аудиту_шаг_сборщика_не_достаётся).
+    _case("import--orchestrated-scan", "import", "orchestrated",
+          lambda: prompt_for_variant(
+              "orchestrated", "import", build_import_prompt(SYSTEM, scan_url=SCAN_URL),
+              system_name=SYSTEM)),
     # ── схемы логики и спеки ─────────────────────────────────────────────────
     _case("docs--builder", "docs", "builder",
           lambda: prompt_for_variant("builder", "docs", build_docs_prompt(SLICE))),
