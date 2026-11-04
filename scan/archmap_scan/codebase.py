@@ -18,7 +18,14 @@ from archmap_scan import paths, texts
 from archmap_scan.context import Context
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
-from archmap_scan.walk import SKIP_DIRS, TOOL_CONFIG, TOOLING_DIR, Files, tooling_kind
+from archmap_scan.walk import (
+    SKIP_DIRS,
+    TEST_HELPER,
+    TOOL_CONFIG,
+    TOOLING_DIR,
+    Files,
+    tooling_kind,
+)
 
 PYTHON, NODE, GO = "Python", "Node.js", "Go"
 
@@ -118,6 +125,7 @@ def code_files(
 _TOOLING_REASONS = {
     TOOLING_DIR: texts.REASON_TOOLING_DIR,
     TOOL_CONFIG: texts.REASON_TOOL_CONFIG,
+    TEST_HELPER: texts.REASON_TEST_HELPER,
 }
 
 

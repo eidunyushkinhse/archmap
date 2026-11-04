@@ -10,7 +10,14 @@ from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model
 from archmap_scan.output import summary
 from archmap_scan.output.coverage import Coverage
-from archmap_scan.walk import TOOL_CONFIG, TOOLING_DIR, Files, list_files, tooling_kind
+from archmap_scan.walk import (
+    TEST_HELPER,
+    TOOL_CONFIG,
+    TOOLING_DIR,
+    Files,
+    list_files,
+    tooling_kind,
+)
 from tests.helpers import ctx_of, tree
 
 COMPOSE = """\
@@ -89,6 +96,11 @@ def test_tooling_kind() -> None:
     assert tooling_kind("jest.config.js") == TOOL_CONFIG
     assert tooling_kind("e2e/playwright.config.ts") == TOOL_CONFIG
     assert tooling_kind("vite.config.mts") == TOOL_CONFIG
+    assert tooling_kind("jest.config.codeowner.js") == TOOL_CONFIG  # конфиг с вариантом
+    assert tooling_kind(".storybook/main.ts") == TOOLING_DIR
+    assert tooling_kind("pkg/infra/db/sqlstore_testinfra.go") == TEST_HELPER
+    assert tooling_kind("apps/x/testutil/golden.go") == TOOLING_DIR
+    assert tooling_kind("pkg/config.go") is None  # «config» без точки не конфиг инструмента
     # Сегмент целиком, а не часть имени; имя файла каталогом не считается.
     assert tooling_kind("src/toolsx/a.py") is None
     assert tooling_kind("src/dev_tools/a.py") is None

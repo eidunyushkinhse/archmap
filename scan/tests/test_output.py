@@ -143,7 +143,7 @@ def test_texts_lists_and_partial() -> None:
         "не читает."
     )
     assert texts.family_partial("Маршруты HTTP", ["Next.js"], True, True) == (
-        "Маршруты HTTP: найдено не всё, код на Next.js сборщик пока не читает."
+        "Маршруты HTTP: найдено не всё, Next.js сборщик пока не читает."
     )
     assert texts.family_partial("Контейнеры", ["Helm templates"], False, False) == (
         "Контейнеры: найдено не всё, Helm templates сборщик пока не читает."

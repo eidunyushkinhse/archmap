@@ -346,9 +346,10 @@ def parse(files: Files, ctx: Context) -> Findings:
         services = _load_services(files, rel, found, by_content=rel in content)
         if services is None:
             continue
-        if rel in content:
-            found.notes.setdefault("containers", []).append(texts.compose_by_content(rel))
         dev = rel in dev_files
+        if rel in content and not dev:
+            # Файл для разработки объектов не даёт, пометка о нём читателя только запутает.
+            found.notes.setdefault("containers", []).append(texts.compose_by_content(rel))
         for key, svc in services.items():
             if not isinstance(svc, LineDict):
                 continue

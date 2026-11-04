@@ -210,10 +210,19 @@ def family_unsupported(label: str, stacks: list[str]) -> str:
     return f"{label}: сборщик пока не читает {and_list(stacks)}."
 
 
+# Языки, о которых сводка говорит «код на …»; остальное в unsupported это библиотеки и сервисы.
+CODE_LANGUAGES = frozenset({
+    "Python", "Node.js", "TypeScript", "Go", "PHP", "Java", "Kotlin", "Ruby", "Rust", "C", "C++",
+    ".NET", "Elixir",
+})
+
+
 def family_partial(label: str, stacks: list[str], code: bool, from_code: bool) -> str:
     """Семья найдена не целиком. code — непрочитанное в ней код на языке или фреймворке;
     from_code — найденное пришло и из кода, а не только из манифестов."""
-    what = f"код на {and_list(stacks)}" if code else and_list(stacks)
+    # «код на Python» читается, «код на viper» нет: библиотека и сервис без предлога.
+    languages = bool(stacks) and all(s in CODE_LANGUAGES for s in stacks)
+    what = f"код на {and_list(stacks)}" if code and languages else and_list(stacks)
     if code and not from_code:
         return f"{label}: найдено в манифестах, {what} сборщик пока не читает."
     return f"{label}: найдено не всё, {what} сборщик пока не читает."
@@ -305,8 +314,16 @@ REASON_MERGED = (
 
 
 def compose_by_content(path: str) -> str:
-    """Пометка покрытия контейнеров: «compose по содержимому: devservices/config.yml»."""
-    return f"compose по содержимому: {path}"
+    """Пометка покрытия контейнеров: «манифест compose найден по содержимому, файл
+    devservices/config.yml»."""
+    return f"манифест compose найден по содержимому, файл {path}"
+
+
+def merged_note(n: int) -> str:
+    """Пометка покрытия контейнеров (ТЗ §13.5): «один процесс в двух манифестах: 1, склеен в
+    один контейнер, перечень в agent/hints.yaml»."""
+    word = "склеен" if n % 10 == 1 and n % 100 != 11 else "склеены"
+    return f"один процесс в двух манифестах: {n}, {word} в один контейнер, перечень в agent/hints.yaml"
 
 
 # Подписи связей (ТЗ §5.1): подпись называет действие источника связи. Сервис использует
@@ -388,17 +405,21 @@ REASON_MANY_BROKERS = "несколько брокеров этого вида, 
 # не факты сервиса, а окружение разработчика и CI. Они не удаляются, а лежат в подсказках.
 REASON_TOOLING_DIR = "файл в служебном каталоге, не код сервиса"
 REASON_TOOL_CONFIG = "конфиг инструмента"
+REASON_TEST_HELPER = "тестовая обвязка, не код сервиса"
 REASON_OS_VARIABLE = "переменная операционной системы или CI"
 # Причины, по которым найденное в факты не записано не из-за владельца: в счёт «без
 # владельца» такие подсказки не входят.
-ASIDE_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_OS_VARIABLE})
-TOOLING_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG})
+ASIDE_REASONS = frozenset({
+    REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER, REASON_OS_VARIABLE,
+})
+TOOLING_REASONS = frozenset({REASON_TOOLING_DIR, REASON_TOOL_CONFIG, REASON_TEST_HELPER})
 
 
 def tooling_line(n: int) -> str:
     """Строка пояснений сводки: сколько записей кода ушло в подсказки (ТЗ §13.1)."""
     return (
-        f"Записей кода из служебных каталогов и конфигов инструментов: {n}, в факты они не"
+        f"Записей кода из служебных каталогов, конфигов инструментов и тестовой обвязки: {n},"
+        " в факты они не"
         " записаны, перечень в agent/hints.yaml."
     )
 

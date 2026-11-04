@@ -72,7 +72,7 @@ def is_dev_path(rel: str) -> bool:
 # песочница плагинов Grafana pkg/services/pluginsintegration/sandbox/ — рабочий код
 # продукта). Части имени каталога сравниваются так же, как у манифестов.
 CODE_DEV_TOKENS = frozenset({
-    "dev", "devenv", "development", "devcontainer", "vagrant", "hack", "playground",
+    "dev", "devenv", "development", "devcontainer", "vagrant", "hack", "playground", "e2e",
 })
 
 
@@ -90,27 +90,33 @@ def is_dev_code(rel: str) -> bool:
 # поэтому записи не удаляются, а уходят в подсказки (codebase.tooling_reason).
 TOOLING_TOKENS = frozenset({
     "tools", "scripts", "bin", ".github", ".gitlab", ".circleci", "deploy", "deployment",
-    "puppet", "ansible", "terraform", "testutils", "testing", "test_utils",
+    "puppet", "ansible", "terraform", "testutils", "testutil", "testing", "test_utils",
+    ".storybook", "storybook",
 })
-# Конфиги инструментов по имени файла: jest.config.js, playwright.config.ts, vite.config.mts.
+# Конфиги инструментов по имени файла: jest.config.js, playwright.config.ts, vite.config.mts,
+# а также с вариантом jest.config.codeowner.js. Тестовая обвязка по имени файла рядом с кодом:
+# sqlstore_testinfra.go, testutil.go (Grafana держит её в pkg/, а не в tests/).
+_TEST_HELPER_TOKENS = frozenset({"testinfra", "testutil", "testutils"})
 _TOOL_CONFIG_EXTS = frozenset({"js", "cjs", "mjs", "ts", "mts", "cts"})
 _TOOL_CONFIG_SUFFIX = ".config"
 TOOLING_DIR = "dir"
 TOOL_CONFIG = "config"
+TEST_HELPER = "test"
 
 
 def tooling_kind(rel: str) -> str | None:
-    """Файл в служебном каталоге (TOOLING_DIR), конфиг инструмента по имени (TOOL_CONFIG)
-    или None — обычный файл кода."""
+    """Файл в служебном каталоге (TOOLING_DIR), конфиг инструмента по имени (TOOL_CONFIG),
+    тестовая обвязка по имени файла (TEST_HELPER) или None — обычный файл кода."""
     parts = rel.split("/")
     if any(seg.lower() in TOOLING_TOKENS for seg in parts[:-1]):
         return TOOLING_DIR
     stem, dot, ext = parts[-1].lower().rpartition(".")
-    if (
-        dot and ext in _TOOL_CONFIG_EXTS and stem.endswith(_TOOL_CONFIG_SUFFIX)
-        and len(stem) > len(_TOOL_CONFIG_SUFFIX)
+    if dot and ext in _TOOL_CONFIG_EXTS and len(stem) > len(_TOOL_CONFIG_SUFFIX) and (
+        stem.endswith(_TOOL_CONFIG_SUFFIX) or _TOOL_CONFIG_SUFFIX + "." in stem
     ):
         return TOOL_CONFIG
+    if name_tokens(stem) & _TEST_HELPER_TOKENS:
+        return TEST_HELPER
     return None
 
 
