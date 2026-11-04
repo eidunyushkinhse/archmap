@@ -159,6 +159,8 @@ export default function SyncRepoModal({ projectId, onClose, onApplied }: Props) 
       .importPrompt({
         systemName: projectName, depth: 2, lang,
         hints: hints.trim() || undefined, variant,
+        // Адрес ArchMap для агента: по нему он скачает сборщик фактов первым шагом.
+        origin: window.location.origin,
       })
       .then((r) => r.prompt));
 

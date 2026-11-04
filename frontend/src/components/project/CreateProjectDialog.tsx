@@ -189,6 +189,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
         lang: promptLang,
         hints: promptHints.trim() || undefined,
         variant,
+        // Адрес ArchMap для агента: по нему он скачает сборщик фактов первым шагом.
+        origin: window.location.origin,
       })
       .then((res) => res.prompt))
       .catch((e: unknown) => {
@@ -337,7 +339,8 @@ export default function CreateProjectDialog({ projects, onClose, onCreated }: Pr
                     <li>
                       Запустите своего ИИ-агента (Claude Code, Cursor, Qwen Code и т.д.) в
                       репозитории вашей системы. Если репозиториев несколько, запустите по
-                      агенту в каждом из них.
+                      агенту в каждом из них. Сначала агент запустит сборщик фактов ArchMap,
+                      который скачает сам.
                     </li>
                     <li>Дождитесь, пока все агенты вернут YAML.</li>
                     <li>Перетащите все YAML в поле справа.</li>

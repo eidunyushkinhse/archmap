@@ -44,6 +44,15 @@ describe("variant промпта в запросе", () => {
     expect(url()).toContain("system_name=%D0%9F%D0%BB%D0%B0%D1%82%D1%84%D0%BE%D1%80%D0%BC%D0%B0");
   });
 
+  it("импорт/синк: адрес ArchMap уезжает параметром origin", async () => {
+    await projectsApi.importPrompt({
+      systemName: "Платформа", depth: 2, lang: "ru", origin: "http://localhost:5173",
+    });
+    expect(url()).toContain("origin=http%3A%2F%2Flocalhost%3A5173");
+    await projectsApi.importPrompt({ systemName: "Платформа", depth: 2, lang: "ru" });
+    expect(url()).not.toContain("origin");
+  });
+
   it("без variant запрос прежний — параметра нет вовсе", async () => {
     await docsImportApi.prompt({ nodeId: "n1", include: "both", lang: "ru" });
     expect(url()).not.toContain("variant");
