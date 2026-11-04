@@ -12,3 +12,7 @@ def checkout(request):
 
 class OrderViewSet:
     pass
+
+
+def dispatch(request, **handlers):
+    return None

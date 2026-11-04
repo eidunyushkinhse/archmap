@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from archmap_scan import __version__
 from archmap_scan.output import yamlio
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, tree
@@ -23,7 +24,7 @@ def _scan(root: Path, out: Path, system: str | None = "Ярмарка") -> Path:
 def test_schema_shape_and_order(tmp_path: Path) -> None:
     out = _scan(FIXTURES / "compose", tmp_path / "out")
     text = _read(out, "schema.yaml")
-    assert text.startswith("# archmap-scan 0.1.0\n# repo:\n# commit:\nnodes:\n")
+    assert text.startswith(f"# archmap-scan {__version__}\n# repo:\n# commit:\nnodes:\n")
     doc = yaml.safe_load(text)
     root = doc["nodes"][0]
     assert list(root) == ["name", "shape", "status", "element", "children"]
