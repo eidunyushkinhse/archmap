@@ -631,3 +631,11 @@ unread: {too_large: 3, binary: 0}
    `fmt.Sprintf("/api/access-control/%s", …)`, пунктом 3 они не решаются. Версия сборщика
    не поднята: `backend/tests/test_scan_origin.py` читает `scan/fixtures/yarmarka.expected` и
    ждёт в шапке `0.1.0`, подъём версии правит и тест бэкенда.
+8. **Итог фазы 3б** (слито 2c4e3136, сборщик 0.2.0; docs/qa-scan-v0.md §9.5): Zulip совпало
+   5 → 114 из 117, Grafana 124 → 157 из 206. Версия поднята архитектором: тест бэкенда
+   `test_scan_origin` и тесты сканера берут номер из шапки фикстуры и `__version__`. Кандидаты
+   следующей фазы (без решения): группа Go с путём из `fmt.Sprintf("/api/x/%s", …)` (`%s` как
+   параметр; 1 промах и 4 хвоста Grafana); chi `r.Group(func(r chi.Router) {…})` без пути не
+   даёт области; корни и группы Go известны по имени на весь файл (`r := chi.NewRouter()` и
+   `func reg(r chi.Router)` в одном файле); файлы urls Django читаются дважды
+   (`codebase.sources` и `load`); предел времени express в тесте враждебного входа на грани.
