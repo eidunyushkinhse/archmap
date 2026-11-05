@@ -23,11 +23,11 @@ const OBJECT_LEVEL = new Set<VersionItem["category"]>([
   "placement",
 ]);
 
-/** «изменена · +3 −2»: слово статуса в роде категории и, если есть, подробность. У
- *  конфигурации подробность бывает равна слову («изменена») — тогда без повтора. */
+/** «изменена», «новый», «удалена»: только слово статуса в роде категории. Подробность
+ *  (summary, «+3 −2») в списке элементов не показывается, она засоряла список (решение
+ *  владельца 2026-11-05); поле остаётся в контракте для ответа элемента и MCP. */
 export function statusText(item: VersionItem): string {
-  const word = VERSION_CATEGORY[item.category].status[item.status];
-  return item.summary && item.summary !== word ? `${word} · ${item.summary}` : word;
+  return VERSION_CATEGORY[item.category].status[item.status];
 }
 
 /** Путь объекта, который тихо стоит перед именем элемента. У свойств и статуса

@@ -187,13 +187,16 @@ describe("VersionsPanel: версия и элемент", () => {
     const select = screen.getByRole("combobox", { name: "С чем сравнивать" });
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["с v2", "с текущим состоянием"]);
 
-    // Строка элемента: категория, путь объекта тихо перед именем, статус словами.
+    // Строка элемента: категория, путь объекта тихо перед именем, статус одним словом
+    // без подробности (summary в данных есть, в списке его нет).
     const doc = await screen.findByRole("button", { name: /^Схема логики/ });
     expect(doc).toHaveTextContent("Создать заказ");
-    expect(doc).toHaveTextContent("изменена · +3 −2");
+    expect(within(doc).getByText("изменена").className).toBe("vp-irow-st");
+    expect(doc).not.toHaveTextContent("+3 −2");
     const props = screen.getByRole("button", { name: /^Свойства/ });
     expect(within(props).getByText("Заказы /", { exact: false }).className).toBe("vp-irow-path");
-    expect(props).toHaveTextContent("новый · объект");
+    expect(within(props).getByText("новый").className).toBe("vp-irow-st vp-irow-st--add");
+    expect(props).not.toHaveTextContent("объект");
 
     await userEvent.selectOptions(select, "live");
     expect(versionsApi.diff).toHaveBeenLastCalledWith("n1", 3, "live");
@@ -297,7 +300,8 @@ describe("VersionsPanel: версия и элемент", () => {
     await userEvent.selectOptions(screen.getByRole("combobox", { name: "С чем сравнивать" }), "live");
     // У конфигурации добавление — тоже «изменена», и без зелёного цвета.
     const row = await screen.findByRole("button", { name: /^Конфигурация/ });
-    expect(within(row).getByText("изменена · +1").className).toBe("vp-irow-st");
+    expect(within(row).getByText("изменена").className).toBe("vp-irow-st");
+    expect(row).not.toHaveTextContent("+1");
     await userEvent.click(row);
     expect(versionsApi.item).toHaveBeenCalledWith("n1", 3, "config:n1", "live");
 

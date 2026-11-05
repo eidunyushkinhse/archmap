@@ -132,7 +132,7 @@ function ItemRow({ item, onOpen }: { item: VersionItem; onOpen: () => void }) {
   const prefix = pathPrefix(item);
   // Цвет — только у слов «новая/удалена»: у конфигурации и статуса страницы любое
   // изменение называется «изменена», и зелёный цвет у него сбивал бы.
-  const word = terms.status[item.status];
+  const word = statusText(item);
   const tone = word === terms.status.changed ? ""
     : item.status === "added" ? " vp-irow-st--add" : " vp-irow-st--del";
   return (
@@ -142,7 +142,7 @@ function ItemRow({ item, onOpen }: { item: VersionItem; onOpen: () => void }) {
         {prefix && <span className="vp-irow-path">{prefix} / </span>}
         {item.name}
       </span>
-      <span className={"vp-irow-st" + tone}>{statusText(item)}</span>
+      <span className={"vp-irow-st" + tone}>{word}</span>
       <span className="vp-irow-ch" aria-hidden="true">›</span>
     </button>
   );
