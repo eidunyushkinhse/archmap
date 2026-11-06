@@ -11,7 +11,8 @@ INGEST_EVENTS = "ingest-events" и словарь KAFKA_TOPIC_TO_CLUSTER, Zulip 
   queue) называет вид брокера: topic и topics для Kafka, queue и queues для RabbitMQ и
   Celery, subject и subjects для NATS (ТЗ §15 п. 10 А11: DEAD_LETTER_QUEUE_METRICS и
   TRUNK_MERGE_QUEUE_COLUMNS PostHog — ключи метрик и колонки, а не очереди). Исключение —
-  словарь «…_TOPIC_TO_…» (KAFKA_TOPIC_TO_CLUSTER Sentry): его ключи и есть каналы. Его строки
+  словарь «…_TOPIC_TO_…» (KAFKA_TOPIC_TO_CLUSTER Sentry): его ключи и есть каналы. Имя
+  «…_TO_TOPICS» сопоставляет каналам что-то другое и реестром не считается. Строки реестра
   (у класса — значения членов, у словаря — ключи) без пробелов дают каналы этого вида без
   направления. Члены класса — константы в верхнем регистре, у перечисления — любые имена без
   «_» в начале: так строка __tablename__ = "topics" каналом не становится. Части channel и
@@ -149,12 +150,14 @@ def name_words(name: str) -> list[str]:
 
 
 def _is_registry(name: str, words: frozenset[str], is_dict: bool) -> bool:
-    """Имя реестра: последнее слово называет вид брокера; у словаря ещё «…_TOPIC_TO_…»."""
+    """Имя реестра: последнее слово называет вид брокера; у словаря ещё «…_TOPIC_TO_…».
+    Имя «…_TO_TOPICS» сопоставляет каналам что-то другое (типы объектов вебхуков у PostHog):
+    его ключи и члены не каналы."""
     parts = name_words(name)
     if not parts or _SQS_WORD in parts:
         return False
     if parts[-1] in words:
-        return True
+        return len(parts) < 2 or parts[-2] != "to"
     return is_dict and any(
         a in words and b == "to" for a, b in zip(parts, parts[1:], strict=False)
     )

@@ -93,6 +93,16 @@ def test_kafka_registry_and_members(tmp_path: Path) -> None:
     ]
 
 
+def test_mapping_to_topics_is_not_registry() -> None:
+    """Словарь «…_TO_TOPICS» (FEATUREBASE_OBJECT_TYPE_TO_TOPICS PostHog) сопоставляет темам
+    типы объектов: его ключи не темы. Ловушка: ключи «…_TOPIC_TO_…» остаются темами."""
+    ctx, files = files_of(FIXTURES / "kafka-registry")
+    assert _rows(kafka.parse(files, ctx)) == [
+        ("ingest-events", "topic", "Kafka", None, "app/topics.py:3"),
+        ("outcomes", "topic", "Kafka", None, "app/topics.py:4"),
+    ]
+
+
 def test_registry_needs_client(tmp_path: Path) -> None:
     """Без клиента брокера в зависимостях реестр не читается: в Zulip «topic» — тема беседы."""
     tree(tmp_path, {
