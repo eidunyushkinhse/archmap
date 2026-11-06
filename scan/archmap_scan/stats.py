@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from archmap_scan import registry, texts, vocab
+from archmap_scan import paths, registry, texts, vocab
 from archmap_scan.model import Findings
 from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+# Источники параметра, которые читают файлы каталога кода: чтения в коде и примеры
+# окружения. Окружение манифеста (compose, k8s) записано своему сервису и общим кодом не
+# бывает, даже если имя повторено через якоря YAML.
+_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example"}
 # Семьи яруса кода: им считается пропущенный код в каталогах для разработки (ТЗ §4).
 _DEV_CODE_FAMILIES = ("config", "channels", "http_routes", "schedules")
 
@@ -127,16 +131,31 @@ def _aside_of(model: Model, kind: str, reasons: frozenset[str]) -> int:
 
 
 def _shared_params(model: Model) -> tuple[int, int, int]:
-    """Разных имён параметров, число контейнеров, у которых записан параметр, общий с
-    другим контейнером, и число таких записей (код общего каталога: у Zulip 26 имён, из
-    них 19 общих у 7 контейнеров, 133 записи, и 7 своих у восьмого)."""
-    holders: dict[str, set[str]] = {}
+    """Разных имён параметров, число контейнеров с параметрами общего кода и число таких
+    записей. Запись общего кода — та, чьё основание из кода или примера окружения лежит в
+    каталоге hints.shared_code, общем у её контейнера с другими (Zulip: 19 общих имён у 7
+    контейнеров, 133 записи). Повтор имени через якоря YAML (Lemmy) или одинаковые имена в
+    своём коде разных контейнеров общим кодом не считаются (ТЗ §15 п. 10 А10)."""
+    names = {name for table in model.params.values() for name in table}
+    shared: list[tuple[str, list[str]]] = []
+    for hint in model.hints.get("shared_code", []):
+        shown = str(hint.get("name", ""))
+        folder = "" if shown == "./" else shown.rstrip("/")
+        containers = hint.get("containers")
+        shared.append((folder, [str(c) for c in containers] if isinstance(containers, list) else []))
+    holders: set[str] = set()
+    records = 0
     for owner, table in model.params.items():
-        for name in table:
-            holders.setdefault(name, set()).add(owner)
-    common = [owners for owners in holders.values() if len(owners) > 1]
-    shared = {owner for owners in common for owner in owners}
-    return len(holders), len(shared), sum(len(owners) for owners in common)
+        dirs = [folder for folder, containers in shared if owner in containers]
+        if not dirs:
+            continue
+        for param in table.values():
+            if not param.parsers & _SHARED_PARAM_PARSERS:
+                continue
+            if any(paths.under(loc.path, folder) for loc in param.locs for folder in dirs):
+                holders.add(owner)
+                records += 1
+    return len(names), len(holders), records
 
 
 def _hints_of(model: Model, section: str, kind: str) -> int:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import yaml
@@ -205,3 +206,24 @@ def test_hints_share_one_key_set(tmp_path: Path) -> None:
     # Проверка не пустая: подсказки нашлись в большинстве разделов.
     assert {"depends_on", "dynamic_names", "unassigned", "profiles", "openapi_files", "clients",
             "unparsed", "shared_code"} <= seen
+
+
+def test_shared_params_line_only_for_shared_code(tmp_path: Path) -> None:
+    """Строка «Параметры общего кода» считает только записи из кода и примеров окружения в
+    каталоге, общем у нескольких контейнеров (ТЗ §15 п. 10 А10). Имена из якоря YAML у
+    трёх сервисов общим кодом не считаются; без записей из общего каталога строки нет."""
+    out = tmp_path / "out"
+    run(Options(path=str(FIXTURES / "compose-anchors"), out=str(out), system="Ярмарка",
+                use_git=False))
+    summary = (out / "summary.txt").read_text(encoding="utf-8")
+    assert "Параметры общего кода записаны каждому из 2 контейнеров: записей 2." in summary
+
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "compose-anchors", repo)
+    compose = repo / "docker-compose.yml"
+    text = compose.read_text(encoding="utf-8")
+    compose.write_text(text.replace("    build: api\n    command", "    build: billing\n    command"),
+                       encoding="utf-8")
+    out2 = tmp_path / "out2"
+    run(Options(path=str(repo), out=str(out2), system="Ярмарка", use_git=False))
+    assert "Параметры общего кода" not in (out2 / "summary.txt").read_text(encoding="utf-8")
