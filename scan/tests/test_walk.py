@@ -13,11 +13,12 @@ from archmap_scan.walk import (
     Excluded,
     Files,
     Pattern,
+    ci_rule,
     convention_rule,
     list_files,
     segment_match,
 )
-from tests.helpers import ctx_of, git, tree
+from tests.helpers import FIXTURES, ctx_of, git, model_of, tree
 
 
 def test_convention_dirs_and_names(tmp_path: Path) -> None:
@@ -195,3 +196,25 @@ def test_git_listing_respects_gitignore_and_scope(tmp_path: Path) -> None:
     off = make_context(repo / "svc", use_git=False)
     assert off.root == (repo / "svc").resolve() and off.repo == "" and off.commit == ""
     assert list_files(off).files == ("a.py", "new.py")
+
+
+def test_ci_files_are_excluded() -> None:
+    """Файлы CI и служебных инструментов не читаются (ТЗ §15 п. 10 А9): верхний services:
+    .woodpecker.yml не база, примеры правил .semgrep не расписания; в покрытии они в
+    excluded с причиной «ci». Каталог drone-relay без точки читается как обычно."""
+    listing = list_files(ctx_of(FIXTURES / "ci-files"))
+    assert listing.files == (
+        "api/Dockerfile", "api/requirements.txt", "docker-compose.yml", "drone-relay/Dockerfile",
+    )
+    assert listing.excluded == (
+        Excluded(".github/", 1, "ci"), Excluded(".semgrep/", 1, "ci"),
+        Excluded(".woodpecker.yml", 1, "ci"),
+    )
+    model = model_of(FIXTURES / "ci-files")
+    assert sorted(o.name for o in model.objects) == ["api", "db", "relay"]
+    assert not [h for h in model.hints.get("unassigned", []) if h["kind"] == "schedule"]
+    assert ci_rule(".gitlab-ci.yml") == ".gitlab-ci.yml"
+    assert ci_rule("ops/.drone.yml") == "ops/.drone.yml"
+    assert ci_rule("bitbucket-pipelines.yml") == "bitbucket-pipelines.yml"
+    assert ci_rule(".buildkite/pipeline.yml") == ".buildkite/"
+    assert ci_rule("src/github/client.py") is None and ci_rule(".github") is None

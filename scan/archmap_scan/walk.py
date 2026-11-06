@@ -34,6 +34,14 @@ CONVENTION_DIRS = frozenset({
     "benchmarks",
 })
 
+# Файлы и каталоги CI и служебных инструментов (ТЗ §15 п. 10 А9): верхний services: у
+# .woodpecker.yml Lemmy стал базой, примеры правил .semgrep PostHog дали расписания. Такие
+# файлы не читаются вовсе (ни compose по содержимому, ни ярус кода), в покрытии они в
+# excluded с причиной «ci». Сравнение сегмента пути без учёта регистра: каталог целиком или
+# начало имени.
+CI_DIRS = frozenset({".github", ".gitlab", ".circleci", ".buildkite"})
+CI_PREFIXES = (".woodpecker", ".drone", ".gitlab-ci", "bitbucket-pipelines", ".semgrep")
+
 _COMPOSE_NAME = re.compile(r"(docker-)?compose([._-][^/]*)?\.ya?ml", re.IGNORECASE)
 _NAME_TOKENS = re.compile(r"[._-]")
 _COMPOSE_TEST_TOKENS = frozenset({"test", "tests", "ci", "e2e"})
@@ -155,6 +163,17 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     return None
 
 
+def ci_rule(rel_in_scope: str) -> str | None:
+    """Путь CI или служебного инструмента для отчёта (каталог с «/» или файл) или None."""
+    parts = rel_in_scope.split("/")
+    for i, seg in enumerate(parts):
+        low = seg.lower()
+        last = i == len(parts) - 1
+        if (not last and low in CI_DIRS) or low.startswith(CI_PREFIXES):
+            return "/".join(parts[: i + 1]) + ("" if last else "/")
+    return None
+
+
 def _glob_match(
     pattern: Sequence[str], items: Sequence[str], star: str, eq: Callable[[str, str], bool]
 ) -> bool:
@@ -246,7 +265,7 @@ class Excluded:
 
     path: str
     files: int
-    reason: str  # convention | archmapignore | option
+    reason: str  # convention | ci | archmapignore | option
 
 
 @dataclass(frozen=True)
@@ -323,6 +342,10 @@ def list_files(
         hit = next((p for p in opt if p.hits(rel)), None)
         if hit is not None:
             counts[(hit.raw, "option")] += 1
+            continue
+        ci = ci_rule(rel[len(prefix):])
+        if ci is not None and not any(p.hits(rel) for p in inc):
+            counts[(prefix + ci, "ci")] += 1
             continue
         rule = convention_rule(rel[len(prefix):])
         if rule is not None and not any(p.hits(rel) for p in inc):

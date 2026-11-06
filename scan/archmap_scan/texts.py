@@ -285,6 +285,7 @@ TAIL_EDGES = [
 TAIL_GITIGNORE = "Каталог с результатом стоит добавить в .gitignore репозитория."
 EXCLUDE_REASON = {
     "convention": "по соглашению",
+    "ci": "файлы CI и служебных инструментов",
     "archmapignore": "по .archmapignore",
     "option": "по ключу --exclude",
 }
