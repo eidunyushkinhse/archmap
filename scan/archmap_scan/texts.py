@@ -318,7 +318,38 @@ REASON_BAD_YAML = "файл не разбирается как YAML или пр�
 REASON_DYNAMIC_VALUE = "значение с подстановкой переменной, адрес из него не взят"
 REASON_DYNAMIC_IMAGE = "имя образа задано переменной и известно только при запуске"
 REASON_PROFILE = "сервис включается только профилем compose"
-REASON_DEV_FILE = "сервис есть только в файле для разработки, тестов или CI"
+
+
+def dev_manifest(sign: str) -> str:
+    """Причина подсказки о сервисе или Dockerfile манифеста разработки (ТЗ §15 п. 10 Б2)."""
+    return f"манифест разработки: {sign}"
+
+
+def dev_sign_dir(path: str) -> str:
+    """Признак разработки по месту: каталог пути (walk.dev_sign)."""
+    return f"каталог {path}/"
+
+
+def dev_sign_file(name: str) -> str:
+    """Признак разработки по форме: имя файла (walk.dev_sign)."""
+    return f"имя файла {name}"
+
+
+def dev_sign_manager(manager: str, loc: str) -> str:
+    """Procfile запускает менеджер процессов разработки (walk.dev_procfile)."""
+    return f"Procfile запускает {manager} ({loc})"
+
+
+def dev_sign_base(base: str) -> str:
+    """Сервис файла-основы compose, который расширяют только файлы разработки."""
+    return f"сервис из {base} расширяют только файлы разработки"
+
+
+def dev_sign_built(loc: str) -> str:
+    """Dockerfile, образ которого собирает только сервис файла разработки."""
+    return f"образ собирается только в {loc}"
+
+
 REASON_SHARED_CODE = (
     "контейнеры собраны из одного каталога, поэтому путь к коду ни одному из них не поставлен"
 )

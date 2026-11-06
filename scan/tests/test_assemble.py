@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from archmap_scan import texts
+from archmap_scan import texts, walk
 from archmap_scan.objects import Model, Obj
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 
 def _obj(model: Model, name: str) -> Obj:
@@ -219,10 +220,43 @@ def test_dev_manifests_are_hints_not_objects(tmp_path: Path) -> None:
         "play": "deploy/playground.yaml:4",
     }
     reasons = {str(h["reason"]) for h in model.hints["profiles"]}
-    assert len(reasons) == 1
+    assert all(r.startswith(texts.dev_manifest("")) for r in reasons)
     # Каталоги для разработки из обхода не исключаются: код в них читается.
     _ctx, files = files_of(tmp_path)
     assert "devenv/tool/main.go" in files.paths
+
+
+def test_dev_signs_by_place_and_form() -> None:
+    """Признак разработки по месту и форме (ТЗ §15 п. 10 Б1): каталог docker/federation/,
+    имя docker-compose.playwright.yml, Procfile, который Makefile запускает goreman, и сервис
+    основы, который расширяют только файлы разработки (maildev PostHog). Причина подсказки
+    называет признак. Ловушки: сервис основы со своей сборкой (usage) и db, который
+    расширяет боевой файл, остаются объектами; Procfile, который менеджер не запускает
+    (heroku/Procfile, «gem install foreman» в bin/setup), даёт объект."""
+    model = model_of(FIXTURES / "dev-signs")
+    assert sorted(o.name for o in model.objects) == ["db", "usage", "web", "worker"]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "maildev": texts.dev_manifest(texts.dev_sign_base("docker-compose.base.yml")),
+        "playwright": texts.dev_manifest(texts.dev_sign_file("docker-compose.playwright.yml")),
+        "web-alpha": texts.dev_manifest(texts.dev_sign_dir("docker/federation")),
+        "db_alpha": texts.dev_manifest(texts.dev_sign_dir("docker/federation")),
+        "api": texts.dev_manifest(texts.dev_sign_manager("goreman", "Makefile:5")),
+        "ui": texts.dev_manifest(texts.dev_sign_manager("goreman", "Makefile:5")),
+    }
+
+
+def test_dev_procfile_on_hostile_makefile(tmp_path: Path) -> None:
+    """Разбор строк запуска менеджера линеен на враждебном Makefile."""
+    tree(tmp_path, {
+        "Procfile": "web: run\n",
+        "Makefile": "goreman " + "-x " * 200_000 + "\n" + "foreman" * 200_000 + "\n"
+        + "X=" * 200_000 + "\n",
+    })
+    _ctx, files = files_of(tmp_path)
+    started = time.perf_counter()
+    assert walk.dev_procfile(files, "Procfile") is None
+    assert time.perf_counter() - started < time_limit()
 
 
 def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:

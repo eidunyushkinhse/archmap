@@ -1,0 +1,7 @@
+# Боевой файл: расширяет основу, её db остаётся объектом.
+services:
+  db:
+    extends: {file: docker-compose.base.yml, service: db}
+  web:
+    build: .
+    depends_on: [db]

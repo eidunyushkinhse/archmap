@@ -2,8 +2,10 @@
 
 Сервис compose — кандидат в объект: имя, образ, каталог сборки, команда, переменные
 окружения (имена; значения только ради адресов зависимостей), depends_on. Сервисы под
-profiles и сервисы, которые есть только в файлах для разработки (dev, local), в схему не
-идут, а перечисляются в подсказках. extends и include не раскрываются. Подстановки с
+profiles и сервисы, которые есть только в файлах для разработки (признак по месту и форме,
+walk.dev_sign), в схему не идут, а перечисляются в подсказках; так же и сервис файла-основы,
+который расширяют (extends) только файлы разработки (_dev_bases). extends и include не
+раскрываются. Подстановки с
 дефолтом (${VAR:-x}, ${VAR-x}) в image, environment и command раскрываются в дефолт,
 остальные (${VAR}, $VAR) известны только при запуске: адрес из такого значения не берётся,
 образ с ними технологию не даёт, а место уходит в подсказки.
@@ -35,7 +37,7 @@ from archmap_scan.model import (
     Unit,
     unparsed_hint,
 )
-from archmap_scan.walk import Files, is_compose_name, is_dev_path
+from archmap_scan.walk import Files, dev_sign, is_compose_name
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
 NAME = "compose"
@@ -356,19 +358,23 @@ def _external_repos(doc: LineDict, rel: str, found: Findings) -> None:
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
-    dev_only: dict[str, Loc] = {}
-    # Файлы для разработки (dev, local, devenv в пути или в имени, walk.is_dev_path)
-    # читаются после остальных и в схему не добавляют ничего: их сервисы, которых нет в
-    # основных файлах, уходят в подсказки. Compose по содержимому идёт тем же путём.
+    dev_only: dict[str, tuple[Loc, str]] = {}
+    # Файлы для разработки (признак по месту и форме, walk.dev_sign) читаются после
+    # остальных и в схему не добавляют ничего: их сервисы, которых нет в основных файлах,
+    # уходят в подсказки с признаком. Compose по содержимому идёт тем же путём.
     content = set(_by_content(files))
     named = files.select(lambda p: is_compose_name(paths.name(p)))
     ordered = sorted([*named, *content], key=_order)
-    dev_files = [r for r in ordered if is_dev_path(r)]
-    for rel in [r for r in ordered if r not in dev_files] + dev_files:
+    signs = {rel: dev_sign(rel) for rel in ordered}
+    dev_files = {rel for rel in ordered if signs[rel]}
+    docs: dict[str, LineDict] = {}
+    for rel in [r for r in ordered if r not in dev_files] + [r for r in ordered if r in dev_files]:
         services = _load_services(files, rel, found, by_content=rel in content)
-        if services is None:
-            continue
-        dev = rel in dev_files
+        if services is not None:
+            docs[rel] = services
+    bases = _dev_bases(docs, dev_files)
+    for rel, services in docs.items():
+        dev = signs[rel]
         if rel in content and not dev:
             # Файл для разработки объектов не даёт, пометка о нём читателя только запутает.
             found.notes.setdefault("containers", []).append(texts.compose_by_content(rel))
@@ -377,33 +383,36 @@ def parse(files: Files, ctx: Context) -> Findings:
                 continue
             name = str(key)
             line = services.line_of(key)
-            profiles = svc.get("profiles")
-            if isinstance(profiles, list) and profiles:
+            if _profiles(svc):
                 found.hints.append(Hint("profiles", {
                     "kind": "container", "name": name, "reason": texts.REASON_PROFILE,
-                    "source": str(Loc(rel, line)), "profiles": sorted(str(p) for p in profiles),
+                    "source": str(Loc(rel, line)),
+                    "profiles": sorted(str(p) for p in _profiles(svc)),
                 }))
                 continue
-            if dev:
-                # Сборка сервиса в файле для разработки называет Dockerfile его образа: у
-                # сервиса основных файлов это Dockerfile его же контейнера (ТЗ §15 п. 10 А6).
-                folder, docker = _build(svc, rel, name, found, files, quiet=True)
-                if folder is not None and docker is not None:
-                    found.image_builds.append(ImageBuild(
-                        dockerfile=docker, loc=Loc(rel, svc.line_of("build")),
-                        build_dir=folder, unit=name, dev_only=name not in units,
-                    ))
+            sign = dev or bases.get((rel, name))
+            if sign is not None:
+                if dev:
+                    # Сборка сервиса в файле для разработки называет Dockerfile его образа: у
+                    # сервиса основных файлов это Dockerfile его же контейнера (ТЗ §15 п. 10
+                    # А6).
+                    folder, docker = _build(svc, rel, name, found, files, quiet=True)
+                    if folder is not None and docker is not None:
+                        found.image_builds.append(ImageBuild(
+                            dockerfile=docker, loc=Loc(rel, svc.line_of("build")),
+                            build_dir=folder, unit=name, dev_only=name not in units,
+                        ))
                 if name not in units:
-                    dev_only.setdefault(name, Loc(rel, line))
+                    dev_only.setdefault(name, (Loc(rel, line), sign))
                 continue
             unit = _unit(name, svc, rel, line, found, files)
             if name in units:
                 _merge(units[name], unit)
             else:
                 units[name] = unit
-    for name, loc in dev_only.items():
+    for name, (loc, sign) in dev_only.items():
         found.hints.append(Hint("profiles", {
-            "kind": "container", "name": name, "reason": texts.REASON_DEV_FILE,
+            "kind": "container", "name": name, "reason": texts.dev_manifest(sign),
             "source": str(loc), "profiles": [],
         }))
     found.units.extend(units.values())
@@ -415,6 +424,43 @@ def parse(files: Files, ctx: Context) -> Findings:
                     "reason": texts.REASON_DYNAMIC_VALUE, "source": str(var.loc),
                 }))
     return found
+
+
+def _profiles(svc: LineDict) -> list[Any]:
+    profiles = svc.get("profiles")
+    return list(profiles) if isinstance(profiles, list) and profiles else []
+
+
+def _dev_bases(docs: dict[str, LineDict], dev_files: set[str]) -> dict[tuple[str, str], str]:
+    """Сервисы файла-основы, которые расширяют (extends.file) только файлы разработки и
+    которых нет без profiles ни в одном другом боевом файле, тоже разработка (ТЗ §15 п. 10
+    Б1: maildev, kafka_ui и flower PostHog в docker-compose.base.yml). Сервис основы со своей
+    сборкой (build) остаётся: это код репозитория, а не инструмент разработчика
+    (usage-ingestion PostHog). Ответ: (файл основы, сервис) → признак."""
+    users: dict[tuple[str, str], set[str]] = {}
+    shown: dict[str, set[str]] = {}
+    for rel, services in docs.items():
+        for key, svc in services.items():
+            if not isinstance(svc, LineDict):
+                continue
+            if rel not in dev_files and not _profiles(svc):
+                shown.setdefault(str(key), set()).add(rel)
+            ext = svc.get("extends")
+            if not isinstance(ext, LineDict):
+                continue
+            file, service = ext.get("file"), ext.get("service")
+            if isinstance(file, str) and isinstance(service, str):
+                base = paths.join(paths.parent(rel), file)
+                if base is not None and base != rel:
+                    users.setdefault((base, service), set()).add(rel)
+    out: dict[tuple[str, str], str] = {}
+    for (base, service), by in users.items():
+        if base in dev_files or base not in docs or not by <= dev_files:
+            continue
+        svc = docs[base].get(service)
+        if isinstance(svc, LineDict) and "build" not in svc and not shown.get(service, set()) - {base}:
+            out[(base, service)] = texts.dev_sign_base(base)
+    return out
 
 
 def _load_services(

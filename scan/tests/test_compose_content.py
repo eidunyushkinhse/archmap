@@ -77,7 +77,7 @@ def test_content_compose_in_dev_dir_goes_to_hints(tmp_path: Path) -> None:
     }))
     assert found.units == []
     assert [(h.section, h.data["name"], h.data["reason"]) for h in found.hints] == [
-        ("profiles", "grafana", texts.REASON_DEV_FILE),
+        ("profiles", "grafana", texts.dev_manifest(texts.dev_sign_dir("devenv"))),
     ]
 
 

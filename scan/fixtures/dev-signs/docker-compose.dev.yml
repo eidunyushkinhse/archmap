@@ -1,0 +1,7 @@
+services:
+  db:
+    extends: {file: docker-compose.base.yml, service: db}
+  maildev:
+    extends: {file: docker-compose.base.yml, service: maildev}
+  usage:
+    extends: {file: docker-compose.base.yml, service: usage}

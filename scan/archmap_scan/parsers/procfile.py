@@ -1,6 +1,9 @@
 """Procfile (ТЗ §6.1): строка «имя: команда» — контейнер. web — сервис, остальные —
 воркер или планировщик по слову в команде. Каталог Procfile — каталог кода процессов.
-Фаза выпуска release процессом не считается и уходит в подсказки."""
+Фаза выпуска release процессом не считается и уходит в подсказки. Procfile разработки
+(признак по месту и форме или запуск менеджером процессов разработки из Makefile или
+скрипта, walk.dev_procfile: goreman у Argo CD) объектов не даёт: его процессы уходят в
+подсказки с признаком (ТЗ §15 п. 10 Б1)."""
 
 from __future__ import annotations
 
@@ -9,7 +12,7 @@ import re
 from archmap_scan import paths, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import Findings, Hint, Loc, Unit
-from archmap_scan.walk import Files
+from archmap_scan.walk import Files, dev_procfile, dev_sign
 
 NAME = "procfile"
 _PROC = re.compile(r"[A-Za-z0-9_-]+")
@@ -21,6 +24,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         text = files.read(rel)
         if text is None:
             continue
+        sign = dev_sign(rel) or dev_procfile(files, rel)
         for no, raw in enumerate(text.splitlines(), start=1):
             line = raw.strip()
             if not line or line.startswith("#"):
@@ -35,6 +39,12 @@ def parse(files: Files, ctx: Context) -> Findings:
                 found.hints.append(Hint("unassigned", {
                     "kind": "container", "name": name, "reason": texts.REASON_RELEASE_PHASE,
                     "source": str(loc),
+                }))
+                continue
+            if sign is not None:
+                found.hints.append(Hint("profiles", {
+                    "kind": "container", "name": name, "reason": texts.dev_manifest(sign),
+                    "source": str(loc), "profiles": [],
                 }))
                 continue
             if name == "web":

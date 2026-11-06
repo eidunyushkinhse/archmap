@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from archmap_scan import paths, texts
 from archmap_scan.context import Context, git_files
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -57,21 +58,107 @@ def name_tokens(name: str) -> set[str]:
     return {t for t in _NAME_TOKENS.split(name.lower()) if t}
 
 
-# Манифесты для разработки (ТЗ §4): compose, Dockerfile, supervisor, systemd и k8s, у
-# которых в пути есть каталог или в имени файла есть часть из этого перечня, объектов в
-# схему не дают. Перечень один на все разборщики манифестов; сами каталоги из обхода не
-# исключаются, манифесты в них читаются ради подсказок. «.devcontainer» после разбиения
-# имени даёт часть «devcontainer»; tests и e2e исключены соглашением целиком, но бывают
-# частью имени файла (Dockerfile.e2e).
+# Манифесты для разработки (ТЗ §4, §15 п. 10 Б1): compose, Dockerfile, supervisor, systemd,
+# k8s, Helm и Procfile, у которых в пути есть каталог или в имени файла есть часть из этого
+# перечня, это манифесты разработки. Перечень один на все разборщики манифестов; сами
+# каталоги из обхода не исключаются, манифесты в них читаются ради подсказок.
+# «.devcontainer» после разбиения имени даёт часть «devcontainer»; tests, testing и e2e
+# исключены соглашением целиком, но бывают частью имени файла (Dockerfile.e2e,
+# docker-compose.testing.yml). federation — стенд федерации Lemmy (docker/federation/),
+# playwright — раннер e2e-тестов, debug — отладочная сборка (Dockerfile.debug).
 DEV_TOKENS = frozenset({
     "dev", "devenv", "development", "local", "hack", "contrib", "sandbox", "demo",
-    "playground", "devcontainer", "vagrant", "ci", "test", "tests", "e2e",
+    "playground", "devcontainer", "vagrant", "ci", "test", "tests", "testing", "e2e",
+    "federation", "playwright", "debug",
 })
+
+
+def dev_sign(rel: str) -> str | None:
+    """Признак манифеста разработки по месту и форме (ТЗ §15 п. 10 Б1): каталог пути или имя
+    файла с частью из DEV_TOKENS. Ответ — текст признака для подсказки («каталог
+    docker/federation/», «имя файла docker-compose.dev.yml»), None — признака нет. Одна
+    функция на все разборщики манифестов; Procfile ещё проверяет dev_procfile."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        if name_tokens(seg) & DEV_TOKENS:
+            return texts.dev_sign_dir("/".join(segments[: i + 1]))
+    if name_tokens(segments[-1]) & DEV_TOKENS:
+        return texts.dev_sign_file(segments[-1])
+    return None
 
 
 def is_dev_path(rel: str) -> bool:
     """Манифест для разработки: часть из DEV_TOKENS в любом каталоге пути или в имени."""
-    return any(name_tokens(seg) & DEV_TOKENS for seg in rel.split("/"))
+    return dev_sign(rel) is not None
+
+
+# Менеджеры процессов разработки: Procfile, который запускает один из них из Makefile или
+# скрипта, описывает локальный запуск, а не выкладку (goreman у Argo CD, Makefile:607).
+DEV_PROCESS_MANAGERS = ("goreman", "foreman", "overmind", "hivemind")
+_MANAGER = re.compile(r"\b(goreman|foreman|overmind|hivemind)\b")
+_MAKE_VAR = re.compile(r"^\$[({]([A-Za-z_][A-Za-z0-9_]{0,63})[)}]$")
+_MAKE_NAMES = frozenset({"makefile", "gnumakefile"})
+_SCRIPT_DIRS = frozenset({"bin", "scripts", "script", "hack"})
+_SCRIPT_SUFFIXES = (".sh", ".bash", ".mk")
+# Сколько слов строки после имени менеджера разбирается: этого хватает на -f и команду.
+_MANAGER_WORDS = 16
+
+
+def _is_runner(rel: str) -> bool:
+    """Файл, из которого запускают менеджер процессов: Makefile, *.mk, скрипт оболочки или
+    файл каталога bin, scripts, hack."""
+    name = rel.rsplit("/", 1)[-1]
+    if name.lower() in _MAKE_NAMES or name.lower().endswith(_SCRIPT_SUFFIXES):
+        return True
+    return any(seg.lower() in _SCRIPT_DIRS for seg in rel.split("/")[:-1])
+
+
+def _make_value(text: str, var: str) -> str | None:
+    """Значение переменной make «VAR ?= x», «VAR := x» или «VAR = x» того же файла."""
+    for line in text.splitlines():
+        name, sep, value = line.partition("=")
+        name = name.strip().rstrip("?:+").strip()
+        if sep and name == var and value.split():
+            return value.split()[0]
+    return None
+
+
+def _procfile_arg(words: list[str]) -> str | None:
+    """Procfile запуска менеджера: аргумент -f или --procfile, иначе Procfile по
+    умолчанию, если менеджер что-то запускает (start); None — строка его не запускает
+    (gem install foreman, killall goreman)."""
+    for i, word in enumerate(words):
+        if word in ("-f", "--procfile") and i + 1 < len(words):
+            return words[i + 1]
+        if word.startswith("--procfile="):
+            return word.partition("=")[2]
+    return "Procfile" if "start" in words else None
+
+
+def dev_procfile(files: Files, rel: str) -> str | None:
+    """Признак Procfile разработки (ТЗ §15 п. 10 Б1): Makefile или скрипт запускает этот
+    Procfile менеджером процессов разработки (goreman, foreman, overmind, hivemind). Путь
+    из -f берётся литералом или переменной make того же файла и сравнивается от каталога
+    запускающего файла и от корня. Ответ — текст признака со строкой запуска."""
+    for runner in sorted(files.select(_is_runner)):
+        text = files.read(runner, keep=False)
+        if text is None or not any(m in text for m in DEV_PROCESS_MANAGERS):
+            continue
+        for no, line in enumerate(text.splitlines(), start=1):
+            m = _MANAGER.search(line)
+            if m is None:
+                continue
+            arg = _procfile_arg(line[m.end():].split()[:_MANAGER_WORDS])
+            if arg is None:
+                continue
+            var = _MAKE_VAR.match(arg)
+            if var is not None:
+                arg = _make_value(text, var.group(1)) or ""
+            if not arg or "$" in arg:
+                continue
+            if rel in (paths.join(paths.parent(runner), arg), paths.join("", arg)):
+                return texts.dev_sign_manager(m.group(1), f"{runner}:{no}")
+    return None
 
 
 # Код в каталогах для разработки (ТЗ §4) разборщики кода не читают: Grafana держит в

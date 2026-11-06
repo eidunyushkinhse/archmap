@@ -34,7 +34,7 @@ from archmap_scan.objects import (
     Schedule,
     Worker,
 )
-from archmap_scan.walk import Pattern, is_dev_path
+from archmap_scan.walk import Pattern, dev_sign
 
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
@@ -194,10 +194,13 @@ def _dockerfile_units(
         if variant is not None and variant.lower() in _DEV_VARIANTS and not dev_refs:
             later.append(d)
             continue
-        if (is_dev_path(d.path) or dev_refs) and not prod_refs:
+        sign = dev_sign(d.path) or next(
+            (texts.dev_sign_built(str(b.loc)) for b in dev_refs if b.dev_only), None,
+        )
+        if sign is not None and not prod_refs:
             # Dockerfile для разработки или образ сервиса только для разработки.
             model.hint("profiles", {
-                "kind": "dockerfile", "name": d.path, "reason": texts.REASON_DEV_FILE,
+                "kind": "dockerfile", "name": d.path, "reason": texts.dev_manifest(sign),
                 "source": str(d.from_loc), "profiles": [],
             })
             continue
@@ -249,8 +252,9 @@ def _dockerfile_units(
                 "reason": texts.REASON_DOCKERFILE_VARIANT, "source": [str(d.from_loc)],
             })
         else:
+            sign = dev_sign(d.path) or texts.dev_sign_file(paths.name(d.path))
             model.hint("profiles", {
-                "kind": "dockerfile", "name": d.path, "reason": texts.REASON_DEV_FILE,
+                "kind": "dockerfile", "name": d.path, "reason": texts.dev_manifest(sign),
                 "source": str(d.from_loc), "profiles": [],
             })
     return out
@@ -359,9 +363,10 @@ def _drop_dev_units(units: list[Unit], model: Model) -> list[Unit]:
     """Процессы и нагрузки из манифестов для разработки — в подсказки, не в схему (ТЗ §4)."""
     kept: list[Unit] = []
     for u in units:
-        if u.parser in _DEV_MANIFESTS and is_dev_path(u.loc.path):
+        sign = dev_sign(u.loc.path) if u.parser in _DEV_MANIFESTS else None
+        if sign is not None:
             model.hint("profiles", {
-                "kind": "container", "name": u.name, "reason": texts.REASON_DEV_FILE,
+                "kind": "container", "name": u.name, "reason": texts.dev_manifest(sign),
                 "source": str(u.loc), "profiles": [],
             })
             continue
