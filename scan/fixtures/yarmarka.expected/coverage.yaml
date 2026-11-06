@@ -1,7 +1,7 @@
-# archmap-scan 0.2.0
+# archmap-scan 0.3.0
 # repo:
 # commit:
-scanner: 0.2.0
+scanner: 0.3.0
 repo: ''
 commit: ''
 stacks: [Python, Python + FastAPI, Node.js + React, PostgreSQL, Kafka, Redis]
