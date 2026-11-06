@@ -1,0 +1,26 @@
+# Образы-обёртки баз и Redis как очередь задач.
+services:
+  app:
+    build: app
+    depends_on: [postgres, redis, events]
+  report:
+    build: report
+    depends_on: [cache, keeper]
+  postgres:
+    image: pgautoupgrade/pgautoupgrade:17-bookworm
+  # База читает брокер сама (движок Kafka): depends_on к брокеру — связь.
+  events:
+    image: ghcr.io/shop/clickhouse-shop:25.3
+    depends_on: [kafka, keeper]
+  kafka:
+    image: bitnami/kafka:3.7
+  # Ловушка: координатор ClickHouse не база.
+  keeper:
+    image: clickhouse/clickhouse-keeper:25.3
+  chrome:
+    image: ghcr.io/browserless/chromium:v2.51
+  redis:
+    image: redis:7
+  # Ловушка: Redis без клиента очередей у контейнера остаётся кэшем.
+  cache:
+    image: valkey/valkey:8

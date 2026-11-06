@@ -326,3 +326,24 @@ def test_task_on_database_or_broker_image() -> None:
     assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [
         ("api", "kafka-init"), ("api", "tables-ready"),
     ]
+
+
+def test_image_vocabulary_and_redis_queue_broker() -> None:
+    """pgautoupgrade — PostgreSQL (Lemmy), образ с clickhouse в имени — ClickHouse
+    (clickhouse-posthog), browserless/chromium — сервис; Redis — брокер, если к нему идёт
+    контейнер с библиотекой очередей (Sidekiq у Mastodon, BullMQ у immich). Ловушки:
+    координатор clickhouse-keeper не база, Redis контейнера без такой библиотеки — кэш
+    (ТЗ §15 п. 10 А13)."""
+    model = model_of(FIXTURES / "compose-images")
+    kinds = {o.name: (o.shape, o.technology, o.role) for o in model.objects}
+    assert kinds["postgres"] == ("database", "PostgreSQL", "БД")
+    assert kinds["events"] == ("database", "ClickHouse", "БД")
+    assert kinds["keeper"][0] == "service"
+    assert kinds["chrome"] == ("service", "Chromium", "сервис")
+    assert kinds["redis"] == ("broker", "Redis", "брокер")
+    assert kinds["cache"] == ("database", "Redis", "кэш")
+    # База с depends_on к брокеру связана с ним (clickhouse→kafka PostHog), к сервису — нет.
+    assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
+        ("app", "events"), ("app", "postgres"), ("app", "redis"), ("report", "cache"),
+        ("events", "kafka"),
+    }

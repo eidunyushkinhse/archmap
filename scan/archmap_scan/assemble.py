@@ -578,6 +578,29 @@ def _redis_brokers(objects: list[Obj], env_vars: list[EnvVar]) -> None:
                 obj.locs.add(var.loc)
 
 
+def _queue_brokers(model: Model, packages: list[Package]) -> None:
+    """Redis — брокер, если к нему идёт контейнер с библиотекой очередей задач в
+    зависимостях своего кода (vocab.REDIS_QUEUE_DEPS, ТЗ §15 п. 10 А13). Только когда
+    Redis у контейнера один и брокер по адресу (_redis_brokers) ему ещё не назначен: у
+    PostHog redis7 уже брокер по CELERY_BROKER_URL, второй Redis остаётся кэшем."""
+    changed = False
+    for obj in model.objects:
+        if not obj.is_container:
+            continue
+        deps = {d for p in _code_packages(obj, packages) for d in p.deps}
+        if not deps & vocab.REDIS_QUEUE_DEPS:
+            continue
+        targets = {lk.dst.name: lk.dst for lk in model.links
+                   if lk.src is obj and lk.dst.technology == "Redis"}
+        if len(targets) != 1 or any(t.shape == BROKER for t in targets.values()):
+            continue
+        (redis,) = targets.values()
+        redis.shape, redis.role = BROKER, vocab.ROLE_BROKER
+        changed = True
+    if changed:
+        model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
+
+
 def _add_link(
     links: dict[tuple[str, str], Link], src: Obj, dst: Obj, tech: str | None, loc: Loc,
     parser: str,
@@ -597,6 +620,16 @@ def _links(model: Model, env_of: dict[str, list[tuple[EnvVar, str]]]) -> list[Li
     by_name = {o.name: o for o in model.objects}
     links: dict[tuple[str, str], Link] = {}
     for src in model.objects:
+        if src.shape == DATABASE:
+            # База, которая сама читает брокер (ClickHouse с движком Kafka у PostHog):
+            # depends_on к брокеру — связь (ТЗ §15 п. 10 А13, без неё clickhouse→kafka
+            # пропала бы, когда clickhouse-posthog стал базой).
+            for unit in src.units:
+                for dep, loc in unit.depends_on:
+                    dst = by_name.get(dep)
+                    if dst is not None and dst.shape == BROKER:
+                        _add_link(links, src, dst, dst.technology, loc, unit.parser)
+            continue
         if not src.is_container:
             continue
         for var, parser in env_of.get(src.name, []):
@@ -678,6 +711,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
                    + [v for ef in findings.env_files for v in ef.vars])
     model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
     model.links = _links(model, env_of)
+    _queue_brokers(model, findings.packages)
     _sources(model, ctx)
     _entrypoints(model)
     _params(model, findings, env_of)

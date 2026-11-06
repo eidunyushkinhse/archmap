@@ -49,7 +49,7 @@ def _images(names: str, kind: ImageKind) -> None:
         IMAGES[name] = kind
 
 
-_images("postgres postgresql postgis timescaledb pgvector pgroonga",
+_images("postgres postgresql postgis timescaledb pgvector pgroonga pgautoupgrade",
         ImageKind(_DB, "PostgreSQL", ROLE_DB))
 _images("mysql mysql-server", ImageKind(_DB, "MySQL", ROLE_DB))
 _images("mariadb", ImageKind(_DB, "MariaDB", ROLE_DB))
@@ -72,6 +72,7 @@ _images("haproxy", ImageKind(_SERVICE, "HAProxy", ROLE_PROXY))
 _images("envoy", ImageKind(_SERVICE, "Envoy", ROLE_PROXY))
 _images("mailhog", ImageKind(_SERVICE, "MailHog", ROLE_SERVICE))
 _images("mailpit", ImageKind(_SERVICE, "Mailpit", ROLE_SERVICE))
+_images("chromium", ImageKind(_SERVICE, "Chromium", ROLE_SERVICE))
 # Не образ, а программа, которую процесс supervisor или systemd запускает вне репозитория.
 _images("cron crond", ImageKind(_SERVICE, "cron", ROLE_SCHEDULER))
 
@@ -81,6 +82,13 @@ RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 # Переменные, адрес в которых делает Redis брокером (очередь задач), а не кэшем.
 REDIS_BROKER_VARS = frozenset({"CELERY_BROKER_URL", "BROKER_URL"})
 REDIS_BROKER_PREFIX = "RQ_"
+# Библиотеки очередей задач поверх Redis: Redis, к которому идёт контейнер с такой
+# зависимостью, считается брокером (ТЗ §15 п. 10 А13: Sidekiq у Mastodon, BullMQ у immich).
+REDIS_QUEUE_DEPS = frozenset({"sidekiq", "bullmq", "bull", "rq", "celery"})
+# ClickHouse в имени образа даёт базу ClickHouse при любой обёртке (clickhouse-posthog),
+# кроме программ вокруг неё: координатор, экспорт метрик, резервные копии, оператор.
+_CLICKHOUSE = "clickhouse"
+_CLICKHOUSE_TOOLS = frozenset({"keeper", "exporter", "backup", "operator"})
 
 
 def image_name(image: str) -> str:
@@ -120,6 +128,8 @@ def image_kind(image: str) -> ImageKind | None:
     kind = IMAGES.get("-".join(parts))
     if kind is None and len(parts) > 1:
         kind = IMAGES.get(parts[-1])
+    if kind is None and _CLICKHOUSE in name and not set(parts) & _CLICKHOUSE_TOOLS:
+        kind = IMAGES[_CLICKHOUSE]
     return kind
 
 
