@@ -1,0 +1,8 @@
+# Боевой compose: сервисы собираются из каталогов компонентов.
+services:
+  web:
+    build: .
+  stream:
+    image: ghcr.io/shop/stream:1
+  capture:
+    build: rust

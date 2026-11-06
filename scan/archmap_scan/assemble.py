@@ -363,7 +363,42 @@ def stack_of(pkgs: list[Package]) -> tuple[str | None, str | None, str | None]:
     return language, None, front
 
 
-def _dev_units(units: list[Unit], model: Model) -> list[Unit]:
+def _stands(units: list[Unit], findings: Findings, root_names: list[str]) -> None:
+    """Compose-файл в каталоге кода (не в корне) контейнера из другого боевого файла — стенд
+    разработки этого компонента (ТЗ §15 п. 10 Б1, решение исполнителя): livestream/ и
+    rust/ PostHog собираются сервисами основного compose, а их свои compose поднимают
+    локальные Redis, Redpanda и кластер для интеграционных тестов. Каталог кода — контекст
+    сборки сервиса или каталог Dockerfile, чей образ запускает сервис (_image_targets).
+    Сервисы такого файла получают признак разработки."""
+    homes: dict[str, tuple[str, set[str]]] = {}
+    for u in units:
+        if u.build_dir:
+            homes.setdefault(u.build_dir, (u.name, set()))[1].add(u.loc.path)
+    builds: dict[str, list[ImageBuild]] = {}
+    for build in findings.image_builds:
+        builds.setdefault(build.dockerfile, []).append(build)
+    used = {u.dockerfile for u in units if u.dockerfile}
+    by_name = {u.name: u for u in units}
+    for d in findings.dockerfiles:
+        if not d.dir or d.path in used:
+            continue
+        own = d.dir.rsplit("/", 1)[-1]
+        # Каталог Dockerfile с именем сервиса склеивается с ним по имени (_objects).
+        targets = [own] if own in by_name else _image_targets(d, units, builds, root_names)
+        for name in targets:
+            homes.setdefault(d.dir, (name, set()))[1].add(by_name[name].loc.path)
+    for u in units:
+        if u.parser != "compose":
+            continue
+        for folder, (name, files) in sorted(homes.items()):
+            if paths.under(u.loc.path, folder) and u.loc.path not in files:
+                u.dev = texts.dev_sign_stand(name, folder)
+                break
+
+
+def _dev_units(
+    units: list[Unit], findings: Findings, model: Model, root_names: list[str],
+) -> list[Unit]:
     """Кандидаты манифестов разработки (ТЗ §15 п. 10 Б2, ступень 1): признак ставит
     разборщик (compose, Procfile) или путь манифеста (supervisor, systemd, k8s, Helm,
     walk.dev_sign). Такой кандидат объектом не становится, а уходит в hints.profiles с
@@ -373,6 +408,7 @@ def _dev_units(units: list[Unit], model: Model) -> list[Unit]:
     for u in units:
         if u.dev is None and u.parser in _DEV_MANIFESTS:
             u.dev = dev_sign(u.loc.path)
+    _stands([u for u in units if u.dev is None], findings, root_names)
     kept = [u for u in units if u.dev is None]
     names = {u.name for u in kept}
     for u in units:
@@ -387,8 +423,8 @@ def _dev_units(units: list[Unit], model: Model) -> list[Unit]:
 def _objects(
     units: list[Unit], findings: Findings, model: Model, ctx: Context
 ) -> list[Obj]:
-    units = _dev_units(units, model)
     root_names = [ctx.root.name, model.system.rsplit("/", 1)[-1], model.system]
+    units = _dev_units(units, findings, model, root_names)
     units = units + _dockerfile_units(units, findings, root_names, model)
     _procfile_web(units)
     by_name: dict[str, Obj] = {}

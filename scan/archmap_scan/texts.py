@@ -345,6 +345,11 @@ def dev_sign_base(base: str) -> str:
     return f"сервис из {base} расширяют только файлы разработки"
 
 
+def dev_sign_stand(container: str, folder: str) -> str:
+    """Compose в каталоге кода контейнера другого боевого файла: стенд компонента."""
+    return f"стенд в каталоге кода контейнера {container} ({folder}/)"
+
+
 def dev_sign_built(loc: str) -> str:
     """Dockerfile, образ которого собирает только сервис файла разработки."""
     return f"образ собирается только в {loc}"

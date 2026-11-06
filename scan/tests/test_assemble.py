@@ -262,6 +262,20 @@ def test_dev_stage_one_keeps_prod_service() -> None:
     }
 
 
+def test_compose_in_code_dir_of_other_container_is_stand() -> None:
+    """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
+    компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог
+    Dockerfile, склеенного с сервисом stream по имени. Ловушка: свой compose компонента
+    services/api, которого другой файл не собирает, остаётся боевым."""
+    model = model_of(FIXTURES / "dev-stand")
+    assert sorted(o.name for o in model.objects) == ["api", "capture", "stream", "web"]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "kafka-local": texts.dev_manifest(texts.dev_sign_stand("capture", "rust")),
+        "redis-node": texts.dev_manifest(texts.dev_sign_stand("stream", "stream")),
+    }
+
+
 def test_dev_procfile_on_hostile_makefile(tmp_path: Path) -> None:
     """Разбор строк запуска менеджера линеен на враждебном Makefile."""
     tree(tmp_path, {

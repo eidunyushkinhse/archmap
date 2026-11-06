@@ -1,0 +1,4 @@
+# Стенд компонента capture (контекст сборки rust/).
+services:
+  kafka-local:
+    image: redpandadata/redpanda:v24.2.7
