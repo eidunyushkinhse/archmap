@@ -4,7 +4,8 @@
 StatefulSet, DaemonSet, Job, CronJob — кандидаты в объекты: образ первого контейнера пода,
 команда, переменные env (литералы значений — ради адресов), envFrom из ConfigMap того же
 набора манифестов, расписание CronJob. Service даёт объекту host: по selector к меткам пода,
-иначе по совпадению имени. Файлы с «{{» — шаблоны Helm, их разбирает только helm.py.
+иначе по совпадению имени. Файлы с разметкой Helm (_HELM) — шаблоны чарта, их разбирает
+только helm.py; «{{ИМЯ}}» в данных ConfigMap (подстановка при старте) шаблоном не считается.
 """
 
 from __future__ import annotations
@@ -28,6 +29,13 @@ _KIND_LINE = re.compile(
     r"^[ \t-]*kind:[ \t]*[\"']?(Deployment|StatefulSet|DaemonSet|Job|CronJob|Service|ConfigMap)"
     r"[\"']?(?!\w)",
     re.MULTILINE,
+)
+# Признак шаблона Helm: «{{-» или «{{» перед объектом или функцией шаблона. Подстановка
+# вида «{{PROJECT_ID}}», которую заменяет sed при старте, шаблоном не считается (ТЗ §15
+# п. 10 А2). Без оглядки назад: просмотр вперёд от «{{» на фиксированную длину.
+_HELM = re.compile(
+    r"\{\{-|\{\{[ \t]*(?:\.Values|\.Release|\.Chart|\.Capabilities|\.Files|/\*|include|template"
+    r"|define|tpl|if|else|range|with|end|toYaml)(?![\w])"
 )
 
 
@@ -126,7 +134,7 @@ def _workload(doc: LineDict, kind: str, rel: str) -> _Workload | None:
 
 def _docs(files: Files, rel: str, found: Findings) -> list[LineDict]:
     text = files.read(rel)
-    if text is None or "apiVersion" not in text or "{{" in text:
+    if text is None or "apiVersion" not in text or _HELM.search(text) is not None:
         return []
     if _KIND_LINE.search(text) is None:
         return []
