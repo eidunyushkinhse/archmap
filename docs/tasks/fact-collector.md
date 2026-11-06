@@ -686,3 +686,56 @@ unread: {too_large: 3, binary: 0}
      (7 связей, 14 config), ConfigMap-адресов (3), смонтированных файлов конфигурации (19); обёртки
      чтения env в Go и Rust envconfig (181, 1039), zod-схема env (48), .NET Configuration (9), hjson
      (21); пути swagger/OpenAPI как точки входа (106); SQL-литералы в миграциях на TS (72).
+11. **Решения исполнителя фазы 3в, часть 1** (2026-11-06, ветка feat/scan-3c, сборщик 0.3.0;
+   владелец может отменить, числа перемера в отчёте исполнителя).
+   - А2: признак Helm это `{{-` или `{{` с `.Values`, `.Release`, `.Chart`, `.Capabilities`,
+     `.Files`, `include`, `template`, `define`, `tpl`, `if`, `else`, `range`, `with`, `end`,
+     `toYaml` или комментарием `/*`.
+   - А3: имя без кавычек в нижний регистр не приводится у MySQL, MariaDB, SQLite и SQL Server
+     (там регистр имени таблицы сохраняется), у alembic и Django приводится;
+     `CREATE TEMP TABLE` таблицу не создаёт; `ALTER TRIGGER` и `RENAME CONSTRAINT` поняты;
+     `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой (колонки запроса не выводятся).
+   - А5: язык сверяется и при единственном владельце.
+   - А6: вариант Dockerfile без суффикса разработки (llm-analytics, dagster-ml PostHog)
+     остаётся своим контейнером; корневой Dockerfile привязывается по имени репозитория или
+     системы с нормализацией (argo-cd и argocd); `tilt` считается суффиксом разработки; обёртка
+     `bundle` в командах снимается.
+   - А8: задача на образе базы или брокера только с командой оболочки или
+     `restart: no|on-failure`: так базовый kafka (redpanda start) и реплики остаются собой.
+   - А9: служебным считается и `.gitlab/`.
+   - А10: «общий код» считают только разборщики кода и примеры окружения.
+   - А11: очереди SQS опознаются по слову sqs в имени реестра или каталоге и по клиенту AWS в
+     импортах; словарь `…_TO_TOPICS` реестром не считается (FEATUREBASE_OBJECT_TYPE_TO_TOPICS
+     PostHog дал три ложные темы, когда kafka-init перестал быть вторым брокером).
+   - А12: стек ищется в файлах контейнеров (owners.file_owners), подписи «Язык: библиотека»,
+     семья workers по тем же правилам; `unknown` становится `empty` у http_routes и channels,
+     если язык контейнеров известен.
+   - А13: ClickHouse в имени образа, кроме keeper, exporter, backup и operator; Redis брокер,
+     только когда он у контейнера один; манифесты сборки это каталог кода и каталог Dockerfile
+     внутри него (immich: server/package.json); база с depends_on к брокеру связана с ним
+     (clickhouse и kafka PostHog).
+   - А14: оговорка второй и третьей строкой сводки, ключ `covered` в YAML прежний (п. 5
+     выполнен).
+   - Б1: к признакам добавлены каталог `devservices` (оркестратор разработки Sentry, без него
+     Sentry не попадает на ступень 2) и стенд в каталоге кода контейнера из другого боевого
+     файла (`assemble._stands`: livestream/ и rust/ PostHog, 7 объектов, отдельный коммит).
+     Сервис основы со своей сборкой (`build`) разработкой не считается, иначе ok-объект
+     usage-ingestion PostHog ушёл бы в подсказки. Признак «сервисы наблюдаемости из
+     prod-стендов» (immich docker-compose.prod.yml) не сделан: по месту и форме он не виден, а
+     правило «один файл собирает, другой запускает образ» ломает схему с файлом override.
+   - Б2: признак по пути получает и Helm; сервис с тем же именем в боевом манифесте любого
+     вида остаётся по боевому и забирает Dockerfile сборки из файла разработки.
+   - Б3: сервис devservices вне режима default остаётся объектом, если есть режим с его
+     именем (memcached), иначе уходит в подсказки (bigtable, redis-cluster, relay-cell,
+     relay-edge, taskbroker-sentry); отладочный узнаётся по слову debug в описании
+     (spotlight). Ступень 2 наступает, когда нет ни одного боевого манифеста развёртывания
+     (compose, k8s, Helm, systemd, supervisor, Procfile); Dockerfile таким манифестом не
+     считается.
+   - Остаток после части 1 (15 из 73 лишних объектов, цель ≤ 10 не достигнута): узлы
+     многоузлового ClickHouse PostHog 9 (признак только в комментарии шапки «smoke-test
+     stack»), posthog-metrics-agent (склейка Helm и Dockerfile products/metrics/agent дала
+     бы имя чарта, и ok-объект agent пропал бы), mastodon-web и mastodon-streaming (дубли
+     юнитов systemd и compose, склейка §13.5 по команде их не видит), immich-grafana и
+     immich-prometheus, gitops-agent Argo CD (отдельный продукт в gitops-engine/). Ложные
+     связи PostHog 12 → 2: asyncmigrationscheck → plugins (адрес из унаследованного
+     окружения) и temporal-ui → db (depends_on только порядок запуска).
