@@ -130,3 +130,17 @@ def test_merge_with_manifest_params(tmp_path: Path) -> None:
         "kind": "config", "name": "SHARED_ONLY", "reason": texts.REASON_SHARED_LIB,
         "source": "lib/shared.py:2",
     }]
+
+
+def test_owner_of_other_language_does_not_take_file() -> None:
+    """Браузерный NODE_ENV в каталоге процессов Ruby не их параметр: в подсказки с причиной
+    «нет контейнера на этом языке». Код Node.js в своём каталоге остаётся параметром
+    потокового сервера (ТЗ §15 п. 10 А5)."""
+    model = model_of(FIXTURES / "compose-lang")
+    languages = {o.name: o.language for o in model.objects}
+    assert languages == {"web": "Ruby", "sidekiq": "Ruby", "streaming": "Node.js"}
+    assert {k: sorted(v) for k, v in model.params.items()} == {"streaming": ["STREAMING_PORT"]}
+    hints = [(h["name"], h["reason"], h["source"]) for h in model.hints["unassigned"]]
+    assert hints == [
+        ("NODE_ENV", texts.REASON_OTHER_LANGUAGE, "app/javascript/environment.ts:2"),
+    ]
