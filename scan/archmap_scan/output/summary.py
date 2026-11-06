@@ -1,7 +1,8 @@
 """summary.txt (ТЗ §8): сводка словами для человека и агента.
 
-Начало — одной фразой, что найдено (числа по семьям), затем семьи, где искали и не нашли,
-«Не покрыто» с именами стеков, пояснения, «Исключено» с каталогами, непрочитанное и «Как
+Начало — версия и оговорка, что полнота не обещается (ТЗ §15 п. 10 А14), затем одной
+фразой, что найдено (числа по семьям), семьи, где искали и не нашли, «Не разобрано» с
+именами стеков, пояснения, «Исключено» с каталогами, непрочитанное и «Как
 импортировать» с настоящими названиями окон ArchMap (способ «Импорт»). Части строки
 разделяет «·».
 """
@@ -126,10 +127,14 @@ def _how_to(cov: Coverage) -> list[str]:
 
 
 def render(cov: Coverage) -> str:
+    gaps = _not_covered(cov)
     blocks = [
-        [texts.summary_head(__version__, cov.repo, cov.commit)],
+        [
+            texts.summary_head(__version__, cov.repo, cov.commit),
+            *(texts.PROMISE_WITH_GAPS if gaps else texts.PROMISE_NO_GAPS),
+        ],
         _found(cov),
-        _not_covered(cov),
+        gaps,
         _notes(cov),
         _excluded(cov),
         [texts.unread_phrase(cov.too_large, cov.binary)] if cov.too_large or cov.binary else [],

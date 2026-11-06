@@ -125,7 +125,7 @@ def test_summary_counts_only_written(tmp_path: Path) -> None:
     summary = _read(out, "summary.txt")
     assert "Найдено: 2 базы данных." in summary
     assert "таблиц" not in summary.split("\n\n")[1]
-    assert "Искали и не нашли" in summary and "таблицы" not in summary.split("Не покрыто")[0]
+    assert "Искали и не нашли" in summary and "таблицы" not in summary.split("Не разобрано")[0]
     assert "  Таблиц без владельца: 2, перечень в agent/hints.yaml." in summary
     assert "facts/*.tables.yaml" not in summary
     assert not (out / "facts").exists()
