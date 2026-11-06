@@ -55,6 +55,38 @@ _GENERIC_DIRS = frozenset({"src", "app", "docker", "build"})
 
 
 
+def _is_task(unit: Unit, image: str, images: dict[str, str]) -> bool:
+    """Сервис compose на образе базы или брокера — разовая задача (ТЗ §15 п. 10 А8), если
+    у него своя команда и он выходит: оболочка (sh -c …) с restart «no» или «on-failure»
+    либо с depends_on на сервис того же образа (kafka-init ждёт kafka и создаёт топики);
+    программа образа — только с restart «no» и зависимостью от сервиса того же образа.
+    Сервер с restart: on-failure (kafka PostHog: redpanda start) и реплика с командой
+    сервера (postgres … с depends_on на основную базу) задачами не становятся."""
+    run = unit.entrypoint or unit.command
+    if unit.parser != "compose" or not run:
+        return False
+    same = any(images.get(dep) == image for dep, _ in unit.depends_on if dep != unit.name)
+    if vocab.is_shell(run):
+        return unit.restart in ("no", "on-failure") or same
+    return unit.restart == "no" and same
+
+
+def _tasks(model: Model) -> None:
+    """Задачи на образе базы или брокера — сервисы с ролью «задача»: ни базой, ни брокером
+    они не считаются, а depends_on к ним уходит в подсказки, как к любому сервису."""
+    images: dict[str, str] = {}
+    for obj in model.objects:
+        image = next((u.image for u in obj.units if u.image), None)
+        if image is not None:
+            images[obj.name] = vocab.image_name(image)
+    for obj in model.objects:
+        if obj.shape not in (DATABASE, BROKER) or obj.name not in images:
+            continue
+        if any(_is_task(u, images[obj.name], images) for u in obj.units):
+            obj.shape, obj.role = SERVICE, vocab.ROLE_TASK
+            obj.technology = images[obj.name]
+
+
 def _go_module_name(module: str) -> str:
     parts = [p for p in module.split("/") if p]
     if len(parts) > 1 and parts[-1][:1] == "v" and parts[-1][1:].isdigit():
@@ -620,6 +652,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     for hint in findings.hints:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)
+    _tasks(model)
     _merge_duplicates(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный

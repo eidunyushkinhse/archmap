@@ -304,3 +304,25 @@ def test_root_dockerfile_and_dev_compose_builds(tmp_path: Path) -> None:
     merged = {h["name"]: (h["object"], h["reason"]) for h in model.hints["merged"]}
     assert merged["Dockerfile.node"] == ("plugins", texts.REASON_DOCKERFILE_IMAGE)
     assert merged["worker"][0] == "sidekiq"
+
+
+def test_task_on_database_or_broker_image() -> None:
+    """Задача на образе базы или брокера — сервис с ролью «задача», связи к ней по
+    depends_on в подсказках (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog
+    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были."""
+    model = model_of(FIXTURES / "compose-task")
+    kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
+    assert kinds == {
+        "api": ("service", "сервис", "Python"),
+        "tables-ready": ("service", "задача", "postgres"),
+        "kafka-init": ("service", "задача", "redpanda"),
+        "db": ("database", "БД", "PostgreSQL"),
+        "replica": ("database", "БД", "PostgreSQL"),
+        "kafka": ("broker", "брокер", "Redpanda"),
+    }
+    assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
+        ("api", "db"), ("api", "kafka"), ("kafka-init", "kafka"), ("tables-ready", "db"),
+    }
+    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [
+        ("api", "kafka-init"), ("api", "tables-ready"),
+    ]

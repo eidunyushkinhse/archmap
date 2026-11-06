@@ -236,6 +236,10 @@ def _unit(
             }))
         image = None
     command, cmd_line = _command(svc)
+    restart = svc.get("restart")
+    entry = svc.get("entrypoint")
+    if isinstance(entry, list):
+        entry = " ".join(_scalar(v) for v in entry)
     unit = Unit(
         name=name,
         parser=NAME,
@@ -246,6 +250,11 @@ def _unit(
         command=command,
         command_loc=Loc(rel, cmd_line) if cmd_line else None,
         host=name,
+        # restart: no без кавычек YAML читает как false.
+        restart=("no" if restart is False else str(restart).lower())
+        if isinstance(restart, (str, bool)) else None,
+        entrypoint=expand(" ".join(entry.split())) if isinstance(entry, str) and entry.strip()
+        else None,
     )
     _env(svc, rel, unit.env)
     unit.depends_on = _depends(svc, rel)
@@ -265,6 +274,8 @@ def _merge(into: Unit, other: Unit) -> None:
         into.build_dir, into.dockerfile = other.build_dir, other.dockerfile
     if other.command:
         into.command, into.command_loc = other.command, other.command_loc
+    into.restart = other.restart or into.restart
+    into.entrypoint = other.entrypoint or into.entrypoint
     names = {e.name for e in other.env}
     into.env = [e for e in into.env if e.name not in names] + other.env
     seen = {d for d, _ in into.depends_on}

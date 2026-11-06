@@ -55,6 +55,9 @@ class Unit:
     language: str | None = None  # язык по базовому образу Dockerfile
     extra_locs: list[Loc] = field(default_factory=list)  # тот же объект в других файлах
     replicas: int | None = None  # numprocs supervisor: сколько копий процесса
+    # compose: restart и entrypoint (текстом) — по ним видна разовая задача (ТЗ §15 п. 10 А8).
+    restart: str | None = None
+    entrypoint: str | None = None
 
 
 @dataclass

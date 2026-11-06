@@ -20,9 +20,12 @@ ROLE_BROKER = "брокер"
 ROLE_PROXY = "прокси"
 ROLE_STORAGE = "хранилище"
 ROLE_SCHEDULER = "планировщик"
+# Разовая задача на образе базы или брокера: ждёт готовности, создаёт топики и выходит
+# (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog).
+ROLE_TASK = "задача"
 ROLES = frozenset({
     ROLE_SERVICE, ROLE_FRONTEND, ROLE_WORKER, ROLE_DB, ROLE_CACHE, ROLE_BROKER, ROLE_PROXY,
-    ROLE_STORAGE, ROLE_SCHEDULER,
+    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK,
 })
 
 
@@ -295,6 +298,17 @@ def clients_of(deps: tuple[str, ...]) -> list[tuple[str, str]]:
 _WORKER_WORDS = frozenset({"worker", "consumer"})
 _SCHEDULER_WORDS = frozenset({"beat", "scheduler", "cron"})
 _WORDS = re.compile(r"[a-z]+")
+
+
+_SHELLS = frozenset({"sh", "bash", "ash", "dash", "zsh"})
+
+
+def is_shell(command: str | None) -> bool:
+    """Команда начинается с оболочки (sh -c …, /bin/sh): скрипт, а не программа образа."""
+    if not command:
+        return False
+    tokens = _command_tokens(command)
+    return bool(tokens) and _base(tokens[0]) in _SHELLS
 
 
 def role_by_command(command: str | None) -> str | None:
