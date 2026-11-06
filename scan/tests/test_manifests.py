@@ -32,6 +32,8 @@ def test_each_manifest_kind() -> None:
     assert api.deps == ("fastapi", "sqlalchemy", "psycopg2-binary")
     assert pkgs["pipsvc/pyproject.toml"].deps == ("django", "celery")
     assert pkgs["pipsvc/requirements-prod.txt"].deps == ("gunicorn", "confluent-kafka")
+    # pip-compile: «# via пакет» — транзитивная зависимость, «# via -r файл» — прямая.
+    assert pkgs["loadgen/requirements.txt"].deps == ("faker", "locust", "psycopg")
     assert pkgs["pipsvc/Pipfile"].deps == ("flask", "redis")
     go = pkgs["gosvc/go.mod"]
     assert go.name == "github.com/org/shop/gosvc/v2" and go.language == "Go"
@@ -152,3 +154,21 @@ def test_backend_with_frontend_framework_is_a_service(tmp_path: Path) -> None:
     grafana = model_of(tmp_path, system=None).obj("grafana")
     assert grafana is not None
     assert (grafana.technology, grafana.role) == ("Go + React", "сервис")
+
+
+def test_transitive_requirement_sets_no_framework(tmp_path: Path) -> None:
+    """Flask с пометкой «# via locust» не делает генератор нагрузки «Python + Flask»
+    (Online Boutique, ТЗ §15 п. 10 А7); requirements.txt без пометок — как прежде."""
+    root = tree(tmp_path, {
+        "docker-compose.yml": (
+            "services:\n  loadgen:\n    build: loadgen\n  web:\n    build: web\n"
+        ),
+        "loadgen/Dockerfile": "FROM python:3.12\n",
+        "loadgen/requirements.txt": "flask==3.1.3\n    # via locust\nlocust==2.42.0\n"
+                                    "    # via -r requirements.in\n",
+        "web/Dockerfile": "FROM python:3.12\n",
+        "web/requirements.txt": "flask==3.1.3\ngunicorn==22.0.0\n",
+    })
+    model = model_of(root)
+    tech = {o.name: o.technology for o in model.objects}
+    assert tech == {"loadgen": "Python", "web": "Python + Flask"}

@@ -24,6 +24,9 @@ MAX_MANIFEST_CHARS = 512 * 1024
 
 NAME = "manifests"
 _REQ_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Пометка pip-compile в комментарии после пакета: «via пакет», «via -r requirements.in» или
+# «via» с перечнем в следующих строках комментария.
+_VIA = re.compile(r"via\b(.*)")
 _GEM = re.compile(r"""^\s*gem\s+["']([^"']+)["']""")
 _MIX_APP = re.compile(r"app:\s*:([A-Za-z0-9_]+)")
 _MIX_DEP = re.compile(r"\{:([A-Za-z0-9_]+)\s*,")
@@ -113,14 +116,38 @@ def _pyproject(rel: str, text: str) -> Package:
 
 
 def _requirements(rel: str, text: str) -> Package:
+    """Зависимости requirements*.txt. Файл pip-compile (uv pip compile) после строки пакета
+    пишет «# via …»: пакет, который тянет другой пакет, транзитивный и фреймворк не задаёт
+    (Locust тянет Flask, ТЗ §15 п. 10 А7). Прямой пакет помечен «# via -r файл» или «-c
+    файл», а строка без пометки — прямая, как в обычном requirements.txt."""
     deps: list[str] = []
+    via: dict[str, list[str]] = {}
+    current: str | None = None
+    block = False
     for raw in text.splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line or line.startswith("-") or "://" in line:
+        code, mark, comment = raw.partition("#")
+        line = code.strip()
+        if line:
+            current, block = None, False
+            if not line.startswith("-") and "://" not in line:
+                current = _req_name(line)
+                if current:
+                    deps.append(current)
+        if not mark or current is None:
             continue
-        name = _req_name(line)
-        if name:
-            deps.append(name)
+        m = _VIA.match(comment.strip())
+        if m is not None:
+            rest = m.group(1).strip()
+            if rest:
+                via.setdefault(current, []).append(rest)
+            block = not rest
+        elif block and not line and comment.strip():
+            via.setdefault(current, []).append(comment.strip())
+    transitive = {
+        name for name, items in via.items()
+        if not any(item.startswith(("-r", "-c")) for item in items)
+    }
+    deps = [d for d in deps if d not in transitive]
     # requirements/prod.txt — манифест пакета каталогом выше (ТЗ §6.1, находка на Zulip).
     folder = paths.parent(rel)
     if _in_requirements_dir(rel):
