@@ -8,10 +8,12 @@ import time
 from pathlib import Path
 
 import pytest
+import yaml
 
 from archmap_scan import stats
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
+from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, files_of, model_of, tree
 
 
@@ -37,13 +39,17 @@ def test_each_manifest_kind() -> None:
     assert pkgs["pipsvc/Pipfile"].deps == ("flask", "redis")
     go = pkgs["gosvc/go.mod"]
     assert go.name == "github.com/org/shop/gosvc/v2" and go.language == "Go"
-    assert go.deps == ("github.com/go-chi/chi/v5", "github.com/jackc/pgx/v5", "github.com/ibm/sarama")
+    # Зависимости с пометкой «// indirect» транзитивные: ни pgx, ни viper (ТЗ §15 п. 10 А12).
+    assert go.deps == ("github.com/go-chi/chi/v5", "github.com/ibm/sarama")
     assert pkgs["rs/Cargo.toml"].deps == ("axum", "tokio")
     java = pkgs["javasvc/pom.xml"]
     assert java.name == "shop-java" and str(java.name_loc) == "javasvc/pom.xml:7"
     assert java.deps == ("spring-boot-starter-parent", "spring-kafka")
     assert pkgs["kt/build.gradle.kts"].deps == ("postgresql", "spring-boot")
-    assert pkgs["rb/Gemfile"].deps == ("rails", "pg")
+    assert pkgs["rb/Gemfile"].deps == ("rails", "pg", "sidekiq", "sidekiq-scheduler")
+    cart = pkgs["dotnet/Cart.csproj"]
+    assert cart.language == ".NET" and cart.deps == ("microsoft.net.sdk.web", "grpc.aspnetcore", "npgsql")
+    assert pkgs["dotnet/Cart.sln"].language == ".NET"
     assert pkgs["php/composer.json"].deps == ("laravel/framework",)
     ex = pkgs["ex/mix.exs"]
     assert ex.name == "shop_ex" and ex.deps == ("phoenix", "ecto_sql")
@@ -62,15 +68,24 @@ def test_code_unsupported_stacks() -> None:
     ctx, files = files_of(FIXTURES / "manifests")
     found = manifests.parse(files, ctx)
     stacks = stats.code_unsupported(found)
-    # Маршруты FastAPI, Flask, Django и chi читает ярус кода: в «не умею» их нет.
-    assert stacks["http_routes"] == ["Laravel", "Phoenix", "Rails", "Spring Boot"]
-    # Параметры в коде Python, Node.js и Go читает ярус кода.
-    assert stacks["config"] == ["Elixir", "Java", "PHP", "Ruby", "Rust"]
-    # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода: «не умею» нет.
-    assert "channels" not in stacks
+    # Маршруты FastAPI, Flask, Django и chi читает ярус кода: в «не умею» их нет. Фреймворк
+    # языка, код на котором сборщик не читает, назван с языком (ТЗ §15 п. 10 А12); язык без
+    # известного фреймворка назван сам (.NET), а не пропущен.
+    assert stacks["http_routes"] == [
+        ".NET", "Elixir: Phoenix", "Java: Spring Boot", "PHP: Laravel", "Ruby: Rails",
+        "Rust: actix-web",
+    ]
+    # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
+    assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
+    # Каналы Celery, Kafka, RabbitMQ и NATS читает ярус кода; BullMQ на Node.js и Sidekiq
+    # на Ruby — нет, как и любые каналы на языках без чтения кода.
+    assert stacks["channels"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
+    assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
     # Расписания Celery beat читает разборщик celery-beat.
-    assert "schedules" not in stacks
-    assert stacks["tables"] == ["Ecto"]
+    assert stacks["schedules"] == [
+        ".NET", "Elixir", "Java", "PHP", "Ruby: sidekiq-scheduler", "Rust: clokwerk",
+    ]
+    assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
 def test_pom_with_doctype_is_refused() -> None:
@@ -172,3 +187,53 @@ def test_transitive_requirement_sets_no_framework(tmp_path: Path) -> None:
     model = model_of(root)
     tech = {o.name: o.technology for o in model.objects}
     assert tech == {"loadgen": "Python", "web": "Python + Flask"}
+
+
+def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
+    """Стек в coverage называется только по манифесту кода контейнера: Gemfile и Cargo.toml
+    мобильного приложения (immich: mobile/, native/) контейнеров не касаются. При опознанном
+    Rust семьи кода — unsupported с именем стека, а не «стек не опознан» (ТЗ §15 п. 10 А12)."""
+    root = tree(tmp_path, {
+        "docker-compose.yml": "services:\n  server:\n    build: server\n  forum:\n    build: forum\n",
+        "server/Dockerfile": "FROM node:22\n",
+        "server/package.json": '{"name": "server", "dependencies": {"bullmq": "5", "kysely": "0.27"}}',
+        "forum/Dockerfile": "FROM rust:1.85\n",
+        "forum/Cargo.toml": '[package]\nname = "forum"\n[dependencies]\nactix-web = "4"\n',
+        "mobile/ios/Gemfile": 'gem "fastlane"\n',
+        "native/Cargo.toml": '[package]\nname = "codecs"\n[dependencies]\nrayon = "1"\n',
+    })
+    out = tmp_path / "out"
+    run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
+    families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
+    assert families["http_routes"]["unsupported"] == ["Rust: actix-web"]
+    assert families["config"]["unsupported"] == ["Rust"]
+    assert families["channels"] == {"status": "unsupported", "parsers": [],
+                                    "unsupported": ["BullMQ", "Rust"]}
+    assert families["workers"]["status"] == "unsupported"
+    assert families["workers"]["unsupported"] == ["BullMQ", "Rust"]
+    assert families["tables"]["unsupported"] == ["Kysely"]
+    summary = (out / "summary.txt").read_text(encoding="utf-8")
+    assert "Rust (actix-web)" in summary and "Ruby" not in summary
+
+
+def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
+    """Контейнер на Python без брокерного клиента и веб-фреймворка: каналы и маршруты
+    «пусто» (зависимости проверены), а не «стек не опознан». Без языка контейнеров (только
+    образы) — по-прежнему «не опознан» (ТЗ §15 п. 10 А12)."""
+    root = tree(tmp_path / "py", {
+        "docker-compose.yml": "services:\n  job:\n    build: job\n",
+        "job/Dockerfile": "FROM python:3.12\n",
+        "job/requirements.txt": "requests\n",
+    })
+    out = tmp_path / "out"
+    run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
+    families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
+    assert families["channels"]["status"] == "empty"
+    assert families["channels"]["parsers"] == ["celery", "kafka", "rabbitmq", "nats"]
+    assert families["http_routes"]["status"] == "empty"
+
+    images = tree(tmp_path / "img", {"docker-compose.yml": "services:\n  cache:\n    image: redis:7\n"})
+    out2 = tmp_path / "out2"
+    run(Options(path=str(images), out=str(out2), system="Ярмарка", use_git=False))
+    families = yaml.safe_load((out2 / "coverage.yaml").read_text(encoding="utf-8"))["families"]
+    assert families["channels"]["status"] == "unknown"

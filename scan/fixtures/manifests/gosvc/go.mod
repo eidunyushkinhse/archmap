@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/go-chi/chi/v5 v5.0.12
 	github.com/jackc/pgx/v5 v5.5.5 // indirect
+	github.com/spf13/viper v1.21.0 // indirect
 )
 
 require github.com/IBM/sarama v1.43.0

@@ -206,8 +206,14 @@ def and_list(items: list[str]) -> str:
     return f"{', '.join(items[:-1])} и {items[-1]}"
 
 
+def stack_shown(item: str) -> str:
+    """Стек для людей: «Rust: actix-web» из coverage.yaml в сводке «Rust (actix-web)»."""
+    language, sep, library = item.partition(": ")
+    return f"{language} ({library})" if sep else item
+
+
 def family_unsupported(label: str, stacks: list[str]) -> str:
-    return f"{label}: сборщик пока не читает {and_list(stacks)}."
+    return f"{label}: сборщик пока не читает {and_list([stack_shown(s) for s in stacks])}."
 
 
 # Языки, о которых сводка говорит «код на …»; остальное в unsupported это библиотеки и сервисы.
@@ -222,7 +228,8 @@ def family_partial(label: str, stacks: list[str], code: bool, from_code: bool) -
     from_code — найденное пришло и из кода, а не только из манифестов."""
     # «код на Python» читается, «код на viper» нет: библиотека и сервис без предлога.
     languages = bool(stacks) and all(s in CODE_LANGUAGES for s in stacks)
-    what = f"код на {and_list(stacks)}" if code and languages else and_list(stacks)
+    shown = and_list([stack_shown(s) for s in stacks])
+    what = f"код на {shown}" if code and languages else shown
     if code and not from_code:
         return f"{label}: найдено в манифестах, {what} сборщик пока не читает."
     return f"{label}: найдено не всё, {what} сборщик пока не читает."

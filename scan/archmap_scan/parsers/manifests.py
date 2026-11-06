@@ -1,7 +1,7 @@
 """Манифесты сборки (ТЗ §6.1): имя пакета, зависимости (имена без версий), язык.
 
 package.json, pyproject.toml, requirements*.txt, Pipfile, go.mod, Cargo.toml, pom.xml,
-build.gradle*, Gemfile, composer.json, mix.exs. Из них — технология контейнера (язык и
+build.gradle*, Gemfile, composer.json, mix.exs, *.csproj и *.sln (.NET). Из них — технология контейнера (язык и
 фреймворк по словарю), опознание стеков для статусов «не умею», клиентские библиотеки как
 подсказка вида зависимости и рабочие области монорепо (workspaces).
 """
@@ -32,6 +32,8 @@ _MIX_APP = re.compile(r"app:\s*:([A-Za-z0-9_]+)")
 _MIX_DEP = re.compile(r"\{:([A-Za-z0-9_]+)\s*,")
 _GRADLE_COORD = re.compile(r"""["']([\w.-]+):([\w.-]+)(?::[^"'\s]*)?["']""")
 _GRADLE_SPRING = re.compile(r"org\.springframework\.boot")
+_PACKAGE_REF = re.compile(r"<PackageReference[ \t\r\n]+Include=\"([^\"\n]{1,200})\"")
+_WEB_SDK = re.compile(r"Sdk=\"Microsoft\.NET\.Sdk\.Web\"")
 
 
 def _in_requirements_dir(rel: str) -> bool:
@@ -48,6 +50,11 @@ def kind_of(rel: str) -> str | None:
         return "requirements.txt"
     if name in ("build.gradle.kts",):
         return "build.gradle"
+    low = name.lower()
+    if low.endswith(".csproj") and len(low) > len(".csproj"):
+        return "csproj"
+    if low.endswith(".sln") and len(low) > len(".sln"):
+        return "sln"
     return None
 
 
@@ -176,6 +183,10 @@ def _go_mod(rel: str, text: str) -> Package:
             block = True
         elif block and line == ")":
             block = False
+        elif "// indirect" in raw:
+            # Транзитивная зависимость: стек по ней не опознаётся (ТЗ §15 п. 10 А12, viper
+            # у Argo CD только в hack/tools/go.mod с пометкой indirect).
+            continue
         elif block and line:
             deps.append(line.split()[0].lower())
         elif line.startswith("require "):
@@ -272,6 +283,20 @@ def _mix(rel: str, text: str) -> Package:
     return pkg
 
 
+def _csproj(rel: str, text: str) -> Package:
+    """Проект .NET: имена PackageReference и признак веб-проекта (Sdk Microsoft.NET.Sdk.Web)."""
+    deps = [m.group(1).lower() for m in _PACKAGE_REF.finditer(text)]
+    if _WEB_SDK.search(text) is not None:
+        deps.insert(0, "microsoft.net.sdk.web")
+    return Package(path=rel, dir=paths.parent(rel), kind="csproj", language=".NET",
+                   deps=tuple(dict.fromkeys(deps)))
+
+
+def _sln(rel: str, text: str) -> Package:
+    """Решение .NET: только признак языка, зависимости — в проектах."""
+    return Package(path=rel, dir=paths.parent(rel), kind="sln", language=".NET", deps=())
+
+
 _READERS: dict[str, Any] = {
     "package.json": _package_json,
     "pyproject.toml": _pyproject,
@@ -284,6 +309,8 @@ _READERS: dict[str, Any] = {
     "Gemfile": _gemfile,
     "composer.json": _composer,
     "mix.exs": _mix,
+    "csproj": _csproj,
+    "sln": _sln,
 }
 
 

@@ -177,6 +177,7 @@ SERVER_FRAMEWORKS: tuple[tuple[str, str], ...] = (
     ("rails", "Rails"),
     ("laravel/framework", "Laravel"),
     ("phoenix", "Phoenix"),
+    ("actix-web", "actix-web"),
 )
 
 # Фреймворки интерфейса: роль «фронтенд», если серверного фреймворка нет.
@@ -206,6 +207,13 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
+    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
+)
+
+# Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:
+# воркеры Sidekiq у Mastodon, BullMQ у immich).
+UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
+    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
 )
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
@@ -215,6 +223,7 @@ UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
+    ("clokwerk", "clokwerk"), ("sidekiq-scheduler", "sidekiq-scheduler"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -253,6 +262,7 @@ ROUTE_FRAMEWORKS = frozenset({
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (
     ("prisma", "Prisma"), ("@prisma/client", "Prisma"), ("typeorm", "TypeORM"),
     ("sequelize", "Sequelize"), ("gorm.io/gorm", "GORM"), ("ecto_sql", "Ecto"),
+    ("kysely", "Kysely"),
 )
 
 
