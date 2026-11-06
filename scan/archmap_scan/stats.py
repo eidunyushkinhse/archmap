@@ -44,6 +44,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         out[fam] = stat
     for fam, shape in (("containers", SERVICE), ("databases", DATABASE), ("brokers", BROKER)):
         _objects_stat([o for o in model.objects if o.shape == shape], out[fam])
+        out[fam].from_dev_manifests = sum(
+            1 for o in model.objects if o.shape == shape and o.name in model.dev_objects
+        )
     if model.implicit:
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
     if model.by_buildfiles:
@@ -107,6 +110,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
                     p.name for p in registry.PARSERS
                     if p.code and fam in p.families and p.name not in errors
                 ]
+    for note in model.dev_notes:
+        if note not in out["containers"].notes:
+            out["containers"].notes.append(note)
     for fam, notes in findings.notes.items():
         for note in notes:
             if note not in out[fam].notes:

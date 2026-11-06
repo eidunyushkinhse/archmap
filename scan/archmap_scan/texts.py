@@ -345,6 +345,26 @@ def dev_sign_base(base: str) -> str:
     return f"сервис из {base} расширяют только файлы разработки"
 
 
+def dev_objects_line(n: int) -> str:
+    """Строка пояснений сводки: боевых манифестов нет, объекты из манифестов разработки."""
+    return (
+        f"Объекты собраны из манифестов разработки: {n}, боевых манифестов в репозитории "
+        "нет, перечень в agent/hints.yaml."
+    )
+
+
+def dev_sign_modes(modes: list[str]) -> str:
+    """Сервис devservices только в режимах, кроме default и своего (ТЗ §15 п. 10 Б3)."""
+    if not modes:
+        return "сервис не входит ни в один режим devservices"
+    return "сервис только в режимах devservices " + ", ".join(modes)
+
+
+def dev_sign_debug(loc: str) -> str:
+    """Отладочный сервис по описанию в конфигурации devservices."""
+    return f"отладочный сервис по описанию ({loc})"
+
+
 def dev_sign_stand(container: str, folder: str) -> str:
     """Compose в каталоге кода контейнера другого боевого файла: стенд компонента."""
     return f"стенд в каталоге кода контейнера {container} ({folder}/)"

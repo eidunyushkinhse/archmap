@@ -38,6 +38,7 @@ profiles:
   source: docker-compose.yml:39
   profiles:
   - dev
+dev_manifest_objects: []
 shared_code: []
 clients:
 - kind: library

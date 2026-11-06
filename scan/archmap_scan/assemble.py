@@ -45,6 +45,10 @@ PRIORITY = {
 # Procfile ставят его сами (Unit.dev): у compose есть ещё основа с extends, у Procfile —
 # запуск менеджером процессов.
 _DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s", "helm"})
+# Манифесты развёртывания: хоть один без признака разработки — ступень 1 политики, ни
+# одного — ступень 2 (ТЗ §15 п. 10 Б2, Б3). Dockerfile и файлы сборки манифестом
+# развёртывания не считаются.
+_MANIFEST_PARSERS = frozenset({"compose", "k8s", "helm", "systemd", "supervisor", "procfile"})
 _VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
 # Суффиксы Dockerfile для разработки: рядом с основным Dockerfile это вариант того же
 # контейнера (hints.merged), без основного — манифест разработки (ТЗ §15 п. 10 А6).
@@ -396,20 +400,50 @@ def _stands(units: list[Unit], findings: Findings, root_names: list[str]) -> Non
                 break
 
 
+_HINT_KIND = {SERVICE: "container", DATABASE: "database", BROKER: "broker"}
+
+
+def _dev_objects(model: Model) -> None:
+    """Ступень 2 (ТЗ §15 п. 10 Б3): объект из манифеста разработки получает запись в
+    hints.dev_manifest_objects (имя, источник, признак), а покрытие и сводка говорят, что
+    объекты собраны из манифестов разработки и боевых манифестов в репозитории нет."""
+    for obj in model.objects:
+        dev = [u for u in obj.units if u.dev is not None]
+        if not dev:
+            continue
+        first = min(dev, key=lambda u: u.loc)
+        model.dev_objects.add(obj.name)
+        model.hint("dev_manifest_objects", {
+            "kind": _HINT_KIND.get(obj.shape, "container"), "name": obj.name,
+            "reason": texts.dev_manifest(first.dev or ""), "source": str(first.loc),
+        })
+
+
 def _dev_units(
     units: list[Unit], findings: Findings, model: Model, root_names: list[str],
 ) -> list[Unit]:
-    """Кандидаты манифестов разработки (ТЗ §15 п. 10 Б2, ступень 1): признак ставит
-    разборщик (compose, Procfile) или путь манифеста (supervisor, systemd, k8s, Helm,
-    walk.dev_sign). Такой кандидат объектом не становится, а уходит в hints.profiles с
-    причиной «манифест разработки: <признак>»; сервис, который есть и в боевом манифесте
-    (то же имя), остаётся по боевому, и подсказки о нём нет. Кодом кандидат разработки не
-    владеет: объекта у него нет."""
+    """Кандидаты манифестов разработки: признак ставит разборщик (compose, Procfile) или
+    путь манифеста (supervisor, systemd, k8s, Helm, walk.dev_sign).
+
+    Ступень 1 (ТЗ §15 п. 10 Б2): боевые манифесты есть. Кандидат разработки объектом не
+    становится, а уходит в hints.profiles с причиной «манифест разработки: <признак>»;
+    сервис, который есть и в боевом манифесте (то же имя), остаётся по боевому, и подсказки
+    о нём нет. Кодом кандидат разработки не владеет: объекта у него нет.
+
+    Ступень 2 (Б3): боевых манифестов нет (Sentry devservices). Кандидаты разработки
+    становятся объектами вместе с подсказками своего разбора, а пометку «из манифеста
+    разработки» ставит _dev_objects."""
     for u in units:
         if u.dev is None and u.parser in _DEV_MANIFESTS:
             u.dev = dev_sign(u.loc.path)
     _stands([u for u in units if u.dev is None], findings, root_names)
     kept = [u for u in units if u.dev is None]
+    if not any(u.parser in _MANIFEST_PARSERS for u in kept):
+        for u in units:
+            for hint in u.dev_hints:
+                model.hint(hint.section, hint.data)
+            model.dev_notes += [n for n in u.dev_notes if n not in model.dev_notes]
+        return units
     names = {u.name for u in kept}
     for u in units:
         if u.dev is not None and u.name not in names:
@@ -752,6 +786,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     model.objects = _objects(list(findings.units), findings, model, ctx)
     _tasks(model)
     _merge_duplicates(model)
+    _dev_objects(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный
         # контейнер корня (ТЗ §7).

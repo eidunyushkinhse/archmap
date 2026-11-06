@@ -63,6 +63,7 @@ class Unit:
     # подсказки, собранные при его разборе, тогда идут в вывод вместе с ним.
     dev: str | None = None
     dev_hints: list[Hint] = field(default_factory=list)
+    dev_notes: list[str] = field(default_factory=list)  # пометки семьи containers
 
 
 @dataclass

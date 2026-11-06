@@ -1,0 +1,25 @@
+# Окружение разработчика (devservices): боевых манифестов в репозитории нет.
+x-service-config:
+  dependencies:
+    relay:
+      description: Event ingestion
+    memcached:
+      description: Cache
+    bigtable:
+      description: Bigtable emulator
+    spotlight:
+      description: Spotlight server for local debugging
+  modes:
+    default: [relay, spotlight]
+    # Свой режим: memcached остаётся объектом.
+    memcached: [relay, memcached]
+    backend-ci: [relay, bigtable]
+services:
+  relay:
+    image: ghcr.io/shop/relay:nightly
+  memcached:
+    image: memcached:1.6-alpine
+  bigtable:
+    image: ghcr.io/shop/cbtemulator:1
+  spotlight:
+    image: ghcr.io/shop/spotlight:1

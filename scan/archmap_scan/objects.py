@@ -144,6 +144,12 @@ class Model:
     # Контейнеры определены по файлам сборки (ТЗ §13.4) и стеки сборки без разборщика.
     by_buildfiles: bool = False
     build_unsupported: list[str] = field(default_factory=list)
+    # Боевых манифестов нет, объекты собраны из манифестов разработки (ТЗ §15 п. 10 Б3,
+    # ступень 2): имена таких объектов, запись о каждом — в hints.dev_manifest_objects.
+    dev_objects: set[str] = field(default_factory=set)
+    # Пометки семьи containers о манифестах разработки, давших объекты (compose по
+    # содержимому devservices/config.yml): на ступени 1 их нет, объектов эти файлы не дают.
+    dev_notes: list[str] = field(default_factory=list)
     hints: dict[str, list[dict[str, object]]] = field(default_factory=dict)
     workers: dict[str, list[Worker]] = field(default_factory=dict)
     schedules: dict[str, list[Schedule]] = field(default_factory=dict)

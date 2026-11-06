@@ -369,16 +369,21 @@ def parse(files: Files, ctx: Context) -> Findings:
     signs = {rel: dev_sign(rel) for rel in ordered}
     dev_files = {rel for rel in ordered if signs[rel]}
     docs: dict[str, LineDict] = {}
+    modes: dict[str, dict[str, tuple[str, list[str]]]] = {}
     for rel in [r for r in ordered if r not in dev_files] + [r for r in ordered if r in dev_files]:
-        services = _load_services(files, rel, found, by_content=rel in content)
-        if services is not None:
-            docs[rel] = services
+        loaded = _load_services(files, rel, found, by_content=rel in content)
+        if loaded is not None:
+            docs[rel] = loaded[0]
+            if rel in dev_files:
+                modes[rel] = _devservices(loaded[1], loaded[0], rel)
     bases = _dev_bases(docs, dev_files)
     for rel, services in docs.items():
         dev = signs[rel]
-        if rel in content and not dev:
-            # Файл для разработки объектов не даёт, пометка о нём читателя только запутает.
-            found.notes.setdefault("containers", []).append(texts.compose_by_content(rel))
+        # Пометка о compose по содержимому у файла разработки нужна, только если он даст
+        # объекты (ступень 2): она едет с его кандидатами (Unit.dev_notes).
+        note = texts.compose_by_content(rel) if rel in content else None
+        if note is not None and not dev:
+            found.notes.setdefault("containers", []).append(note)
         for key, svc in services.items():
             if not isinstance(svc, LineDict):
                 continue
@@ -392,6 +397,15 @@ def parse(files: Files, ctx: Context) -> Findings:
                 }))
                 continue
             sign = dev or bases.get((rel, name))
+            skip = modes.get(rel, {}).get(name)
+            if skip is not None and name not in units:
+                # Сервис вне режима default devservices или отладочный: объектом не
+                # становится ни на какой ступени политики (ТЗ §15 п. 10 Б3).
+                found.hints.append(Hint("profiles", {
+                    "kind": "container", "name": name, "reason": texts.dev_manifest(skip[0]),
+                    "source": str(Loc(rel, line)), "profiles": skip[1],
+                }))
+                continue
             if sign is not None:
                 if dev:
                     # Сборка сервиса в файле для разработки называет Dockerfile его образа: у
@@ -409,9 +423,11 @@ def parse(files: Files, ctx: Context) -> Findings:
                     own = Findings()
                     unit = _unit(name, svc, rel, line, own, files)
                     unit.dev, unit.dev_hints = sign, own.hints
+                    unit.dev_notes = [note] if note is not None else []
                     if name in dev_units:
                         _merge(dev_units[name], unit)
                         dev_units[name].dev_hints += unit.dev_hints
+                        dev_units[name].dev_notes += unit.dev_notes
                     else:
                         dev_units[name] = unit
                 continue
@@ -470,12 +486,54 @@ def _dev_bases(docs: dict[str, LineDict], dev_files: set[str]) -> dict[tuple[str
     return out
 
 
+_DEBUG = re.compile(r"\bdebug", re.IGNORECASE)
+_DESCRIPTION_CHARS = 1000
+
+
+def _devservices(
+    doc: LineDict, services: LineDict, rel: str,
+) -> dict[str, tuple[str, list[str]]]:
+    """Режимы devservices (ТЗ §15 п. 10 Б3): блок x-* верхнего уровня с modes, где есть
+    режим default (x-sentry-service-config Sentry). Сервис, которого нет в default и под
+    которого нет своего режима, нужен только сценарию другого режима (bigtable и
+    redis-cluster только в backend-ci, relay-cell и relay-edge только в cell-routing);
+    memcached со своим режимом memcached остаётся. Сервис со словом debug в описании
+    (dependencies.<имя>.description) отладочный (spotlight «for local debugging»). Ответ:
+    имя → (признак, режимы сервиса)."""
+    out: dict[str, tuple[str, list[str]]] = {}
+    for key, block in doc.items():
+        if not str(key).startswith("x-") or not isinstance(block, LineDict):
+            continue
+        modes = block.get("modes")
+        if not isinstance(modes, LineDict) or not isinstance(modes.get("default"), list):
+            continue
+        member: dict[str, list[str]] = {}
+        for mode, names in modes.items():
+            if isinstance(names, list):
+                for item in names:
+                    member.setdefault(str(item), []).append(str(mode))
+        deps = block.get("dependencies")
+        for name in (str(k) for k in services):
+            own = member.get(name, [])
+            if "default" not in own and name not in modes:
+                out[name] = (texts.dev_sign_modes(own), own)
+                continue
+            entry = deps.get(name) if isinstance(deps, LineDict) else None
+            if not isinstance(entry, LineDict):
+                continue
+            text = entry.get("description")
+            if isinstance(text, str) and _DEBUG.search(text[:_DESCRIPTION_CHARS]):
+                where = str(Loc(rel, entry.line_of("description")))
+                out[name] = (texts.dev_sign_debug(where), own)
+    return out
+
+
 def _load_services(
     files: Files, rel: str, found: Findings, by_content: bool = False,
-) -> LineDict | None:
-    """Сервисы файла compose. by_content — файл не с именем compose, отобранный по тексту:
-    он не compose, пока разбор не покажет services со словарём (ошибка разбора тогда не
-    подсказка, у чужого YAML бывают свои расширения)."""
+) -> tuple[LineDict, LineDict] | None:
+    """Сервисы файла compose и сам документ. by_content — файл не с именем compose,
+    отобранный по тексту: он не compose, пока разбор не покажет services со словарём
+    (ошибка разбора тогда не подсказка, у чужого YAML бывают свои расширения)."""
     text = files.read(rel)
     if text is None:
         return None
@@ -499,4 +557,4 @@ def _load_services(
             "kind": "compose", "name": paths.name(rel), "reason": texts.REASON_INCLUDE,
             "source": str(Loc(rel, doc.line_of("include"))),
         }))
-    return services
+    return (services, doc) if services is not None else None

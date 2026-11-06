@@ -65,11 +65,12 @@ def name_tokens(name: str) -> set[str]:
 # «.devcontainer» после разбиения имени даёт часть «devcontainer»; tests, testing и e2e
 # исключены соглашением целиком, но бывают частью имени файла (Dockerfile.e2e,
 # docker-compose.testing.yml). federation — стенд федерации Lemmy (docker/federation/),
-# playwright — раннер e2e-тестов, debug — отладочная сборка (Dockerfile.debug).
+# playwright — раннер e2e-тестов, debug — отладочная сборка (Dockerfile.debug),
+# devservices — оркестратор окружения разработчика Sentry (devservices/config.yml).
 DEV_TOKENS = frozenset({
     "dev", "devenv", "development", "local", "hack", "contrib", "sandbox", "demo",
     "playground", "devcontainer", "vagrant", "ci", "test", "tests", "testing", "e2e",
-    "federation", "playwright", "debug",
+    "federation", "playwright", "debug", "devservices",
 })
 
 

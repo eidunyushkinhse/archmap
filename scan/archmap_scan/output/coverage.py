@@ -47,6 +47,8 @@ class FamilyStat:
     # Найденное пришло и из кода (ярус 2), а не только из манифестов: так сводка говорит
     # «найдено не всё», а не «найдено в манифестах». В coverage.yaml не пишется.
     from_code: bool = False
+    # Объекты семьи из манифестов разработки, когда боевых манифестов нет (ТЗ §15 п. 10 Б3).
+    from_dev_manifests: int = 0
     error: str | None = None
 
     @property
@@ -78,6 +80,8 @@ class FamilyStat:
             out["unassigned"] = self.unassigned
         if self.dynamic_names:
             out["dynamic_names"] = self.dynamic_names
+        if self.from_dev_manifests:
+            out["from_dev_manifests"] = self.from_dev_manifests
         if self.notes:
             out["notes"] = FlowSeq(self.notes)
         if self.error:

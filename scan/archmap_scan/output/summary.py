@@ -62,6 +62,10 @@ def _notes(cov: Coverage) -> list[str]:
         for fam, stat in cov.families.items()
         for note in stat.notes
     ]
+    # Боевых манифестов нет: объекты собраны из манифестов разработки (ТЗ §15 п. 10 Б3).
+    dev_objects = sum(cov.families[fam].from_dev_manifests for fam in OBJECT_FAMILIES)
+    if dev_objects:
+        lines.append("  " + texts.dev_objects_line(dev_objects))
     config = cov.families["config"]
     if config.shared_records:
         lines.append("  " + texts.shared_params_line(config.holders, config.shared_records))

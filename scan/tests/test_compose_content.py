@@ -43,7 +43,10 @@ def _parse(root: Path) -> Findings:
 def test_stack_file_is_compose(tmp_path: Path) -> None:
     found = _parse(tree(tmp_path, {"devservices/config.yml": DEVSERVICES}))
     assert sorted(u.name for u in found.units) == ["memcached", "spotlight"]
-    assert found.notes == {"containers": [texts.compose_by_content("devservices/config.yml")]}
+    # devservices — манифест разработки: пометка о compose по содержимому едет с его
+    # кандидатами и попадёт в вывод, только если они станут объектами (ступень 2).
+    note = texts.compose_by_content("devservices/config.yml")
+    assert found.notes == {} and all(u.dev_notes == [note] for u in found.units)
     repos = [h.data for h in found.hints if h.section == "external_repos"]
     assert sorted(repos, key=lambda d: str(d["name"])) == [
         {"kind": "repo", "name": "relay", "reason": texts.REASON_EXTERNAL_REPO,
@@ -129,3 +132,20 @@ def test_image_services_keep_sole_owner(tmp_path: Path) -> None:
     }))
     assert [e.path for e in model.http["self-hosted"]] == ["/health"]
     assert not any(h["kind"] == "route" for h in model.hints.get("unassigned", []))
+
+
+def test_devservices_on_hostile_description(tmp_path: Path) -> None:
+    """Режимы и описания devservices разбираются линейно на враждебном файле."""
+    names = [f"s{i}" for i in range(150)]
+    text = (
+        "x-config:\n  dependencies:\n"
+        + "".join(f"    {n}:\n      description: {'debu' * 250}\n" for n in names)
+        + "  modes:\n    default: [" + ", ".join(names) + "]\n"
+        + "".join(f"    m{i}: [" + ", ".join(names[:50]) + "]\n" for i in range(50))
+        + "services:\n" + "".join(f"  {n}:\n    image: x\n" for n in names)
+    )
+    tree(tmp_path, {"devservices/config.yml": text})
+    started = time.perf_counter()
+    found = _parse(tmp_path)
+    assert len(found.units) == len(names)
+    assert time.perf_counter() - started < time_limit()

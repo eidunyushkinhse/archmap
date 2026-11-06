@@ -7,7 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from archmap_scan import __version__
+from archmap_scan import __version__, texts
 from archmap_scan.output import yamlio
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, tree
@@ -54,7 +54,8 @@ def test_hints_sections_always_present(tmp_path: Path) -> None:
     hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
     assert list(hints) == [
         "depends_on", "dynamic_names", "unassigned", "unsupported", "openapi_files",
-        "profiles", "shared_code", "clients", "unparsed", "external_repos", "merged",
+        "profiles", "dev_manifest_objects", "shared_code", "clients", "unparsed",
+        "external_repos", "merged",
     ]
     assert all(v == [] for v in hints.values())
 
@@ -227,3 +228,27 @@ def test_shared_params_line_only_for_shared_code(tmp_path: Path) -> None:
     out2 = tmp_path / "out2"
     run(Options(path=str(repo), out=str(out2), system="Ярмарка", use_git=False))
     assert "Параметры общего кода" not in (out2 / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_stage_two_objects_from_dev_manifests(tmp_path: Path) -> None:
+    """Ступень 2 политики (ТЗ §15 п. 10 Б3): боевых манифестов нет, сервисы devservices
+    становятся объектами, каждый с записью в hints.dev_manifest_objects, а coverage и
+    сводка говорят об этом прямо. bigtable только в режиме backend-ci и отладочный
+    spotlight уходят в подсказки. Ловушка: memcached не в режиме default, но со своим
+    режимом memcached, остаётся объектом."""
+    out = _scan(FIXTURES / "devservices", tmp_path / "out")
+    hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
+    assert [(h["kind"], h["name"], h["source"]) for h in hints["dev_manifest_objects"]] == [
+        ("container", "relay", "devservices/config.yml:18"),
+        ("database", "memcached", "devservices/config.yml:20"),
+    ]
+    assert {h["name"]: (h["reason"], h["profiles"]) for h in hints["profiles"]} == {
+        "bigtable": (texts.dev_manifest(texts.dev_sign_modes(["backend-ci"])), ["backend-ci"]),
+        "spotlight": (
+            texts.dev_manifest(texts.dev_sign_debug("devservices/config.yml:11")), ["default"],
+        ),
+    }
+    families = yaml.safe_load(_read(out, "coverage.yaml"))["families"]
+    assert families["containers"]["from_dev_manifests"] == 1
+    assert families["databases"]["from_dev_manifests"] == 1
+    assert texts.dev_objects_line(2) in _read(out, "summary.txt")
