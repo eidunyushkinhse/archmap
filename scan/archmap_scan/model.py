@@ -58,6 +58,11 @@ class Unit:
     # compose: restart и entrypoint (текстом) — по ним видна разовая задача (ТЗ §15 п. 10 А8).
     restart: str | None = None
     entrypoint: str | None = None
+    # Признак манифеста разработки (walk.dev_sign, ТЗ §15 п. 10 Б): текстом для подсказки.
+    # Объектом такой кандидат становится, только если боевых манифестов нет (ступень 2);
+    # подсказки, собранные при его разборе, тогда идут в вывод вместе с ним.
+    dev: str | None = None
+    dev_hints: list[Hint] = field(default_factory=list)
 
 
 @dataclass
@@ -74,14 +79,13 @@ class Dockerfile:
 class ImageBuild:
     """Чем собирается образ, кроме ссылки build основного манифеста (ТЗ §15 п. 10 А6):
     артефакт skaffold.yaml (image — имя образа) или build сервиса в файле compose для
-    разработки (unit — имя сервиса; dev_only — сервиса нет в основных файлах)."""
+    разработки (unit — имя сервиса)."""
 
     dockerfile: str
     loc: Loc
     build_dir: str
     image: str | None = None
     unit: str | None = None
-    dev_only: bool = False
 
 
 @dataclass

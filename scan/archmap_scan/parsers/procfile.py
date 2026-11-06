@@ -2,8 +2,8 @@
 воркер или планировщик по слову в команде. Каталог Procfile — каталог кода процессов.
 Фаза выпуска release процессом не считается и уходит в подсказки. Procfile разработки
 (признак по месту и форме или запуск менеджером процессов разработки из Makefile или
-скрипта, walk.dev_procfile: goreman у Argo CD) объектов не даёт: его процессы уходят в
-подсказки с признаком (ТЗ §15 п. 10 Б1)."""
+скрипта, walk.dev_procfile: goreman у Argo CD) даёт кандидатов с признаком разработки
+(Unit.dev), их судьбу решает сборка по ступени политики (ТЗ §15 п. 10 Б1, Б2)."""
 
 from __future__ import annotations
 
@@ -41,18 +41,12 @@ def parse(files: Files, ctx: Context) -> Findings:
                     "source": str(loc),
                 }))
                 continue
-            if sign is not None:
-                found.hints.append(Hint("profiles", {
-                    "kind": "container", "name": name, "reason": texts.dev_manifest(sign),
-                    "source": str(loc), "profiles": [],
-                }))
-                continue
             if name == "web":
                 role = vocab.ROLE_SERVICE
             else:
                 role = vocab.role_by_command(command) or vocab.ROLE_WORKER
             found.units.append(Unit(
                 name=name, parser=NAME, loc=loc, command=command, command_loc=loc,
-                role=role, home_dir=paths.parent(rel),
+                role=role, home_dir=paths.parent(rel), dev=sign,
             ))
     return found

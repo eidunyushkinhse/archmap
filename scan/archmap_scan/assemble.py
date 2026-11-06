@@ -41,9 +41,10 @@ PRIORITY = {
     "compose": 0, "k8s": 1, "helm": 2, "supervisor": 3, "systemd": 4, "procfile": 5,
     "dockerfile": 6, "buildfiles": 7, "implicit": 8,
 }
-# Манифесты, у которых путь для разработки (walk.is_dev_path) уводит объект в подсказки.
-# compose решает это сам: у него есть основные файлы, которые перекрывают dev-файлы.
-_DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s"})
+# Манифесты, у которых признак разработки по пути (walk.dev_sign) ставит сборка; compose и
+# Procfile ставят его сами (Unit.dev): у compose есть ещё основа с extends, у Procfile —
+# запуск менеджером процессов.
+_DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s", "helm"})
 _VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
 # Суффиксы Dockerfile для разработки: рядом с основным Dockerfile это вариант того же
 # контейнера (hints.merged), без основного — манифест разработки (ТЗ §15 п. 10 А6).
@@ -173,6 +174,9 @@ def _dockerfile_units(
     root_name = root_names[-1]
     used = {u.dockerfile for u in units if u.dockerfile}
     claimed = {u.build_dir for u in units if u.build_dir is not None}
+    # Сборка в файле разработки привязывает Dockerfile к сервису боевого манифеста любого
+    # вида (compose, k8s, Procfile) по имени.
+    names = {u.name for u in units}
     builds: dict[str, list[ImageBuild]] = {}
     for build in findings.image_builds:
         builds.setdefault(build.dockerfile, []).append(build)
@@ -190,12 +194,12 @@ def _dockerfile_units(
             continue
         variant = _variant(d.path)
         dev_refs = [b for b in builds.get(d.path, []) if b.unit is not None]
-        prod_refs = [b.unit for b in dev_refs if not b.dev_only and b.unit is not None]
+        prod_refs = [b.unit for b in dev_refs if b.unit in names]
         if variant is not None and variant.lower() in _DEV_VARIANTS and not dev_refs:
             later.append(d)
             continue
         sign = dev_sign(d.path) or next(
-            (texts.dev_sign_built(str(b.loc)) for b in dev_refs if b.dev_only), None,
+            (texts.dev_sign_built(str(b.loc)) for b in dev_refs if b.unit not in names), None,
         )
         if sign is not None and not prod_refs:
             # Dockerfile для разработки или образ сервиса только для разработки.
@@ -211,7 +215,7 @@ def _dockerfile_units(
             model.hint("merged", {
                 "kind": "dockerfile", "name": d.path, "object": prod_refs[0],
                 "reason": texts.REASON_DOCKERFILE_IMAGE,
-                "source": [str(d.from_loc), *(str(b.loc) for b in dev_refs if not b.dev_only)],
+                "source": [str(d.from_loc), *(str(b.loc) for b in dev_refs if b.unit in names)],
             })
             continue
         kind = vocab.image_kind(d.images[-1])
@@ -359,25 +363,31 @@ def stack_of(pkgs: list[Package]) -> tuple[str | None, str | None, str | None]:
     return language, None, front
 
 
-def _drop_dev_units(units: list[Unit], model: Model) -> list[Unit]:
-    """Процессы и нагрузки из манифестов для разработки — в подсказки, не в схему (ТЗ §4)."""
-    kept: list[Unit] = []
+def _dev_units(units: list[Unit], model: Model) -> list[Unit]:
+    """Кандидаты манифестов разработки (ТЗ §15 п. 10 Б2, ступень 1): признак ставит
+    разборщик (compose, Procfile) или путь манифеста (supervisor, systemd, k8s, Helm,
+    walk.dev_sign). Такой кандидат объектом не становится, а уходит в hints.profiles с
+    причиной «манифест разработки: <признак>»; сервис, который есть и в боевом манифесте
+    (то же имя), остаётся по боевому, и подсказки о нём нет. Кодом кандидат разработки не
+    владеет: объекта у него нет."""
     for u in units:
-        sign = dev_sign(u.loc.path) if u.parser in _DEV_MANIFESTS else None
-        if sign is not None:
+        if u.dev is None and u.parser in _DEV_MANIFESTS:
+            u.dev = dev_sign(u.loc.path)
+    kept = [u for u in units if u.dev is None]
+    names = {u.name for u in kept}
+    for u in units:
+        if u.dev is not None and u.name not in names:
             model.hint("profiles", {
-                "kind": "container", "name": u.name, "reason": texts.dev_manifest(sign),
+                "kind": "container", "name": u.name, "reason": texts.dev_manifest(u.dev),
                 "source": str(u.loc), "profiles": [],
             })
-            continue
-        kept.append(u)
     return kept
 
 
 def _objects(
     units: list[Unit], findings: Findings, model: Model, ctx: Context
 ) -> list[Obj]:
-    units = _drop_dev_units(units, model)
+    units = _dev_units(units, model)
     root_names = [ctx.root.name, model.system.rsplit("/", 1)[-1], model.system]
     units = units + _dockerfile_units(units, findings, root_names, model)
     _procfile_web(units)

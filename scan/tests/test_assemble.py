@@ -246,6 +246,22 @@ def test_dev_signs_by_place_and_form() -> None:
     }
 
 
+def test_dev_stage_one_keeps_prod_service() -> None:
+    """Ступень 1 политики (ТЗ §15 п. 10 Б2): боевые манифесты есть (k8s), сервисы манифестов
+    разработки идут в подсказки, в том числе чарт Helm в каталоге dev/. Сервис api есть и в
+    боевом k8s, и в файле разработки: объект один, по боевому, подсказки о нём нет, а
+    Dockerfile его сборки в файле разработки — Dockerfile этого объекта. Ловушка: mailhog
+    только в файле разработки и остаётся подсказкой."""
+    model = model_of(FIXTURES / "dev-stage")
+    assert [(o.name, o.technology) for o in model.objects] == [("api", "Python")]
+    assert model.objects[0].dockerfile is not None
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "mailhog": texts.dev_manifest(texts.dev_sign_file("docker-compose.dev.yml")),
+        "tools": texts.dev_manifest(texts.dev_sign_dir("dev")),
+    }
+
+
 def test_dev_procfile_on_hostile_makefile(tmp_path: Path) -> None:
     """Разбор строк запуска менеджера линеен на враждебном Makefile."""
     tree(tmp_path, {

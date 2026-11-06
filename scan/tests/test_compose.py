@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from archmap_scan import texts
 from archmap_scan.model import Findings, Unit
 from archmap_scan.parsers import compose
 from archmap_scan.walk import Files
@@ -22,8 +23,12 @@ def _unit(found: Findings, name: str) -> Unit:
 
 def test_fixture_services() -> None:
     found = _parse(FIXTURES / "compose")
-    assert sorted(u.name for u in found.units) == [
+    assert sorted(u.name for u in found.units if u.dev is None) == [
         "api", "cache", "db", "legacy", "proxy", "search", "web", "worker",
+    ]
+    # Сервис только файла разработки — кандидат с признаком, судьбу решает сборка.
+    assert [(u.name, u.dev) for u in found.units if u.dev is not None] == [
+        ("mailpit", texts.dev_sign_file("docker-compose.dev.yml")),
     ]
     api = _unit(found, "api")
     assert api.build_dir == "services/api"
@@ -56,7 +61,7 @@ def test_fixture_hints() -> None:
         by_section.setdefault(h.section, []).append(h.data)
     profiles = {str(h["name"]): h for h in by_section["profiles"]}
     assert profiles["adminer"]["profiles"] == ["debug"]
-    assert profiles["mailpit"]["profiles"] == []
+    assert "mailpit" not in profiles
     reasons = {(h["name"], h["reason"]) for h in by_section["unassigned"]}
     assert any(name == "legacy" and "extends" in str(r) for name, r in reasons)
     assert any(name == "worker" and "env_file" in str(r) for name, r in reasons)

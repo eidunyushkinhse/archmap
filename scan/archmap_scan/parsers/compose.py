@@ -358,10 +358,11 @@ def _external_repos(doc: LineDict, rel: str, found: Findings) -> None:
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
-    dev_only: dict[str, tuple[Loc, str]] = {}
+    dev_units: dict[str, Unit] = {}
     # Файлы для разработки (признак по месту и форме, walk.dev_sign) читаются после
-    # остальных и в схему не добавляют ничего: их сервисы, которых нет в основных файлах,
-    # уходят в подсказки с признаком. Compose по содержимому идёт тем же путём.
+    # остальных. Их сервисы, которых нет в основных файлах, становятся кандидатами с
+    # признаком разработки (Unit.dev), а их судьбу решает сборка по ступени политики (ТЗ §15
+    # п. 10 Б2, Б3). Compose по содержимому идёт тем же путём.
     content = set(_by_content(files))
     named = files.select(lambda p: is_compose_name(paths.name(p)))
     ordered = sorted([*named, *content], key=_order)
@@ -400,26 +401,32 @@ def parse(files: Files, ctx: Context) -> Findings:
                     if folder is not None and docker is not None:
                         found.image_builds.append(ImageBuild(
                             dockerfile=docker, loc=Loc(rel, svc.line_of("build")),
-                            build_dir=folder, unit=name, dev_only=name not in units,
+                            build_dir=folder, unit=name,
                         ))
                 if name not in units:
-                    dev_only.setdefault(name, (Loc(rel, line), sign))
+                    # Подсказки разбора сервиса разработки идут в вывод, только если он
+                    # станет объектом (Unit.dev_hints).
+                    own = Findings()
+                    unit = _unit(name, svc, rel, line, own, files)
+                    unit.dev, unit.dev_hints = sign, own.hints
+                    if name in dev_units:
+                        _merge(dev_units[name], unit)
+                        dev_units[name].dev_hints += unit.dev_hints
+                    else:
+                        dev_units[name] = unit
                 continue
             unit = _unit(name, svc, rel, line, found, files)
             if name in units:
                 _merge(units[name], unit)
             else:
                 units[name] = unit
-    for name, (loc, sign) in dev_only.items():
-        found.hints.append(Hint("profiles", {
-            "kind": "container", "name": name, "reason": texts.dev_manifest(sign),
-            "source": str(loc), "profiles": [],
-        }))
     found.units.extend(units.values())
+    found.units.extend(dev_units.values())
     for unit in found.units:
+        hints = found.hints if unit.dev is None else unit.dev_hints
         for var in unit.env:
             if var.dynamic:
-                found.hints.append(Hint("dynamic_names", {
+                hints.append(Hint("dynamic_names", {
                     "kind": "env", "name": var.name, "object": unit.name,
                     "reason": texts.REASON_DYNAMIC_VALUE, "source": str(var.loc),
                 }))

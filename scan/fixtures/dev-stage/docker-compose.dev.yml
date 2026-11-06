@@ -1,0 +1,6 @@
+# Стенд разработки: api есть и в боевом k8s, mailhog только здесь.
+services:
+  api:
+    build: .
+  mailhog:
+    image: mailhog/mailhog:v1.0.1

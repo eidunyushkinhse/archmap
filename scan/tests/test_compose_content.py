@@ -71,14 +71,12 @@ def test_services_without_image_or_build_is_not_compose(tmp_path: Path) -> None:
     assert found.units == [] and found.notes == {} and found.hints == []
 
 
-def test_content_compose_in_dev_dir_goes_to_hints(tmp_path: Path) -> None:
+def test_content_compose_in_dev_dir_is_dev_unit(tmp_path: Path) -> None:
     found = _parse(tree(tmp_path, {
         "devenv/stack.yml": "services:\n  grafana:\n    image: grafana/grafana\n",
     }))
-    assert found.units == []
-    assert [(h.section, h.data["name"], h.data["reason"]) for h in found.hints] == [
-        ("profiles", "grafana", texts.dev_manifest(texts.dev_sign_dir("devenv"))),
-    ]
+    assert [(u.name, u.dev) for u in found.units] == [("grafana", texts.dev_sign_dir("devenv"))]
+    assert found.hints == [] and found.notes == {}
 
 
 def test_named_compose_external_repos(tmp_path: Path) -> None:

@@ -1,0 +1,4 @@
+# Чарт в каталоге разработки: инструмент стенда, не выкладка.
+image:
+  repository: ghcr.io/shop/debug-tools
+  tag: "1.0"
