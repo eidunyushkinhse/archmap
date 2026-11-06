@@ -53,10 +53,11 @@ _JS_DIRECTION = {"send": "publish", "sendBatch": "publish", "subscribe": "consum
 _MAX_BLOCK = 2000
 
 
-def _hint(found: Findings, name: str, rel: str, line: int) -> None:
+def _hint(
+    found: Findings, name: str, rel: str, line: int, reason: str = texts.REASON_DYNAMIC_CHANNEL,
+) -> None:
     found.hints.append(Hint("dynamic_names", {
-        "kind": "channel", "name": name, "reason": texts.REASON_DYNAMIC_CHANNEL,
-        "source": str(Loc(rel, line)),
+        "kind": "channel", "name": name, "reason": reason, "source": str(Loc(rel, line)),
     }))
 
 
@@ -147,9 +148,9 @@ def _block_end(mask: str, start: int) -> int:
     return stop
 
 
-def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], bool]:
-    """Строки с позиции pos: одна или список через запятую. Второе — встретилось
-    не строковое имя."""
+def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], str | None]:
+    """Строки с позиции pos: одна или список через запятую. Второе — причина подсказки,
+    если встретилось не строковое имя (или литерал в склейке), иначе None."""
     out: list[str] = []
     mask = code.mask
     while True:
@@ -158,14 +159,15 @@ def _strings_at(code: codetext.Code, pos: int, many: bool) -> tuple[list[str], b
         hit = _STR.match(mask, pos)
         if hit is None:
             # Имя переменной вместо строки — динамическое; скобка — вложенная структура.
-            return out, pos < len(mask) and (mask[pos].isalpha() or mask[pos] in "_$")
+            dynamic = pos < len(mask) and (mask[pos].isalpha() or mask[pos] in "_$")
+            return out, texts.REASON_DYNAMIC_CHANNEL if dynamic else None
         value, dynamic = code.literal(hit.start(), hit.end())
         if dynamic:
-            return out, True
+            return out, code.reason(hit.start(), hit.end(), texts.REASON_DYNAMIC_CHANNEL)
         out.append(value)
         pos = hit.end()
         if not many:
-            return out, False
+            return out, None
 
 
 def _js(rel: str, code: codetext.Code, found: Findings) -> None:
@@ -183,11 +185,11 @@ def _js(rel: str, code: codetext.Code, found: Findings) -> None:
         for t in _JS_TOPIC.finditer(mask, m.end(), end):
             if _word_char(mask, t.start() - 1):
                 continue  # subtopic: — не ключ topic
-            names, dynamic = _strings_at(code, t.end(), bool(t.group(1)))
+            names, why = _strings_at(code, t.end(), bool(t.group(1)))
             line = code.line(t.start())
             uses.extend(_use(n, direction, rel, line) for n in names if n)
-            if dynamic:
-                _hint(found, code.expression(t.end()), rel, line)
+            if why:
+                _hint(found, code.expression(t.end()), rel, line, why)
     for use in uses:
         use.broker_host = host
     found.channels.extend(uses)
@@ -224,21 +226,21 @@ def _go(rel: str, code: codetext.Code, found: Findings) -> None:
             continue  # SomeTopic: — не ключ Topic
         line = code.line(m.start())
         if m.group(1) == "Topic":
-            names, dynamic = _strings_at(code, m.end(), False)
+            names, why = _strings_at(code, m.end(), False)
             direction = _go_direction(mask, m.start())
         else:
             start = _go_list(code, m.end())
             if start is None:
                 continue
-            names, dynamic = _strings_at(code, start, True)
+            names, why = _strings_at(code, start, True)
             direction = "consume"
         uses.extend(_use(n, direction, rel, line) for n in names if n)
-        if dynamic:
-            _hint(found, code.expression(m.end()), rel, line)
+        if why:
+            _hint(found, code.expression(m.end()), rel, line, why)
     for m in _GO_CALL.finditer(mask):
         line = code.line(m.start())
         if m.group(1) == "ConsumePartition":
-            names, dynamic = _strings_at(code, m.end(), False)
+            names, why = _strings_at(code, m.end(), False)
         else:
             # Consume(ctx, []string{…}) и SubscribeTopics([]string{…}, nil)
             window_end = min(len(mask), m.end() + 300)
@@ -246,10 +248,10 @@ def _go(rel: str, code: codetext.Code, found: Findings) -> None:
             start = _go_list(code, at) if at != -1 else None
             if start is None:
                 continue
-            names, dynamic = _strings_at(code, start, True)
+            names, why = _strings_at(code, start, True)
         uses.extend(_use(n, "consume", rel, line) for n in names if n)
-        if dynamic:
-            _hint(found, code.expression(m.end()), rel, line)
+        if why:
+            _hint(found, code.expression(m.end()), rel, line, why)
     for use in uses:
         use.broker_host = host
     found.channels.extend(uses)

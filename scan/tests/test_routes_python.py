@@ -41,8 +41,9 @@ def test_fastapi_traps() -> None:
     # tests/ исключён по соглашению, строка в комментарии маршрутом не стала.
     assert not any("test-only" in p or "commented" in p for p in paths)
     dynamic = [h.data for h in found.hints if h.section == "dynamic_names"]
+    # Склейка «PREFIX + '/dyn'»: путь собран из частей (ТЗ §15 п. 10 А).
     assert dynamic == [{
-        "kind": "route", "name": "PREFIX + '/dyn'", "reason": texts.REASON_DYNAMIC_ROUTE,
+        "kind": "route", "name": "PREFIX + '/dyn'", "reason": texts.REASON_JOINED_NAME,
         "source": "shop/api/users.py:18",
     }]
 

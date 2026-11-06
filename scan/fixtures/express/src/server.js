@@ -28,3 +28,8 @@ function pay() {}
 function listBooks() {}
 function createBook() {}
 function handler() {}
+
+// Склейка: путь собран из частей, маршрута «/files/» нет, есть подсказка.
+app.get('/files/' + dir, handler);
+// Ловушка: обычный литерал рядом остаётся маршрутом.
+app.get('/plain', handler);

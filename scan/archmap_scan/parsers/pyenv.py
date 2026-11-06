@@ -57,7 +57,7 @@ class _File:
             if node is not None:
                 self.found.hints.append(Hint("dynamic_names", {
                     "kind": "config", "name": pycode.short(node),
-                    "reason": texts.REASON_DYNAMIC_PARAM,
+                    "reason": pycode.dynamic_reason(node, texts.REASON_DYNAMIC_PARAM),
                     "source": str(Loc(self.rel, getattr(at, "lineno", 1))),
                 }))
             return None

@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from bisect import bisect_right
 
+from archmap_scan import texts
 from archmap_scan.walk import Files
 
 JS, GO = "js", "go"
@@ -43,6 +44,8 @@ STR = r"""(?:'[ ]*'|"[ ]*"|`[ \n]*`)"""
 # Пробелы между частями конструкции: ограничены, чтобы перебор был коротким.
 SP = r"[ \t\r\n]{0,200}"
 
+# Сколько пробелов и переводов строк смотреть вокруг литерала в поисках «+» склейки.
+_MAX_GAP = 200
 _IDENT_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_$")
 _MAX_IDENT = 100
 
@@ -123,10 +126,31 @@ class Code:
 
     def literal(self, start: int, end: int) -> tuple[str, bool]:
         """Значение строкового литерала по позициям в маске (с кавычками) и признак
-        подстановки: шаблонная строка с ${…} известна только при запуске."""
+        динамического имени: шаблонная строка с ${…} или литерал в склейке строк
+        (joined) известны только при запуске."""
         quote = self.text[start]
         value = self.text[start + 1:end - 1]
-        return value, quote == "`" and "${" in value
+        return value, (quote == "`" and "${" in value) or self.joined(start, end)
+
+    def joined(self, start: int, end: int) -> bool:
+        """Литерал на позициях [start, end) маски — часть склейки строк: к нему на маске
+        примыкает «+» слева или справа (пробелы и переводы строк допустимы). Такой
+        литерал — лишь часть имени, и склейка из двух литералов («/a» + «/b») не
+        исключение: имя целиком сборщик не собирает (ТЗ §15 п. 10 А)."""
+        mask = self.mask
+        i = start - 1
+        while i >= 0 and start - i <= _MAX_GAP and mask[i] in " \t\r\n":
+            i -= 1
+        if i >= 0 and mask[i] == "+":
+            return True
+        j = end
+        while j < len(mask) and j - end < _MAX_GAP and mask[j] in " \t\r\n":
+            j += 1
+        return j < len(mask) and mask[j] == "+"
+
+    def reason(self, start: int, end: int, dynamic: str) -> str:
+        """Причина подсказки о динамическом литерале: склейка или подстановка."""
+        return texts.REASON_JOINED_NAME if self.joined(start, end) else dynamic
 
     def receiver(self, dot: int) -> str | None:
         """Имя перед точкой вызова: «router» в «router.get(», «app» в «this.app.get(»."""

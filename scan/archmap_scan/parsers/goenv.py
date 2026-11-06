@@ -70,6 +70,14 @@ def _scan(code: codetext.Code, rel: str, found: Findings) -> None:
             }))
             continue
         name, _dyn = code.literal(m.start(2), m.end(2))
+        if code.joined(m.start(2), m.end(2)):
+            # os.Getenv("OTEL_" + name): литерал лишь часть имени (ТЗ §15 п. 10 А).
+            found.hints.append(Hint("dynamic_names", {
+                "kind": "config", "name": code.expression(m.start(2)),
+                "reason": texts.REASON_JOINED_NAME,
+                "source": str(Loc(rel, code.line(m.start()))),
+            }))
+            continue
         if _VAR.fullmatch(name):
             found.code_params.append(CodeParam(
                 name=name, loc=Loc(rel, code.line(m.start())), parser=NAME,

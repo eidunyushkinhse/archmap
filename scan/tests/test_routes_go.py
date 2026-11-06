@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from archmap_scan import texts
 from archmap_scan.parsers import gohttp
 from tests.helpers import FIXTURES, files_of, tree
 
@@ -22,6 +23,7 @@ def _routes(root: Path) -> list[tuple[str, str, bool, str, str]]:
 def test_fixture() -> None:
     assert _routes(FIXTURES / "go-http") == [
         ("ANY", "/health", False, "net/http", "cmd/std/main.go:6"),
+        ("ANY", "/plain", False, "net/http", "internal/joinapi/router.go:11"),
         ("ANY", "/static/", False, "net/http", "cmd/std/main.go:9"),
         ("DELETE", "/api/folders/{uid}/", False, "chi", "internal/folderapi/folders.go:8"),
         ("DELETE", "/api/v2/users/{id}", False, "chi", "internal/chiapi/router.go:11"),
@@ -51,6 +53,8 @@ def test_dynamic_only_on_known_routers(tmp_path: Path) -> None:
     hints = gohttp.parse(files, ctx).hints
     assert [(h.data["name"], h.data["source"]) for h in hints] == [
         ("pathVar", "internal/ginapi/router.go:13"),
+        ('"/"+root+"/"', "internal/joinapi/router.go:7"),
+        ('"/api" + "/v2"', "internal/joinapi/router.go:9"),
     ]
     tree(tmp_path, {
         "go.mod": "module x\n",
@@ -239,3 +243,20 @@ def test_gocode_functions_and_calls() -> None:
     # Список не закрылся в пределах MAX_LIST: ни определения, ни вызова.
     long = _mask("func f(" + "a, " * 1000 + "b int) {\n}\nf(" + "x, " * 1000 + ")\n")
     assert gocode.functions(long) == [] and gocode.calls(long, {"f"}, set(), 50) == []
+
+
+def test_joined_literal_is_not_a_route() -> None:
+    """«"/"+root+"/"» и «"/api" + "/v2"» (Argo CD server/server.go): литерал лишь часть
+    пути, маршрута «/» и «/api» нет, обе склейки в подсказках с причиной; обычный литерал
+    рядом остаётся маршрутом (ТЗ §15 п. 10 А)."""
+    ctx, files = files_of(FIXTURES / "go-http")
+    found = gohttp.parse(files, ctx)
+    joined = [r for r in found.routes if r.loc.path == "internal/joinapi/router.go"]
+    assert [(r.method, r.path) for r in joined] == [("ANY", "/plain")]
+    reasons = {
+        h.data["name"]: h.data["reason"] for h in found.hints
+        if str(h.data["source"]).startswith("internal/joinapi/")
+    }
+    assert reasons == {
+        '"/"+root+"/"': texts.REASON_JOINED_NAME, '"/api" + "/v2"': texts.REASON_JOINED_NAME,
+    }

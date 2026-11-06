@@ -59,7 +59,10 @@ def test_fixture_dynamic_and_comment() -> None:
     assert sorted((h.data["source"], h.data["name"]) for h in found.hints) == [
         ("mysite/urls.py:28", "'carts/' + CART"), ("mysite/urls.py:44", "NAME"),
     ]
-    assert {h.data["reason"] for h in found.hints} == {texts.REASON_DYNAMIC_ROUTE}
+    # Склейка «'carts/' + CART» собрана из частей (ТЗ §15 п. 10 А), имя NAME — выражение.
+    assert {h.data["name"]: h.data["reason"] for h in found.hints} == {
+        "'carts/' + CART": texts.REASON_JOINED_NAME, "NAME": texts.REASON_DYNAMIC_ROUTE,
+    }
     assert not any("commented" in r.path or "health" in r.path for r in found.routes)
 
 

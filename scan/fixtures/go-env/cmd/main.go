@@ -18,3 +18,10 @@ func main() {
 	_ = os.Getenv(key)
 	// os.Getenv("COMMENTED") — строка в комментарии параметром не считается.
 }
+
+func otel(name string) string {
+	// Склейка: литерал лишь часть имени, параметра «OTEL_EXPORTER_OTLP_» нет, есть подсказка.
+	_ = os.Getenv("OTEL_EXPORTER_OTLP_" + name)
+	// Ловушка: обычный литерал рядом остаётся параметром.
+	return os.Getenv("OTEL_SERVICE_NAME")
+}

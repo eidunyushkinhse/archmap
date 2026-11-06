@@ -114,16 +114,21 @@ def _prefixes(f: _File, name: str, depth: int = 0) -> list[tuple[str, bool]]:
 def _path(f: _File, found: Findings, start: int, end: int, at: int) -> str | None:
     value, dynamic = f.code.literal(start, end)
     if dynamic:
-        _dynamic(f, found, start, at)
+        joined = f.code.joined(start, end)
+        # Склейка не с путём (app.get('env' + x) — чтение настройки Express) не маршрут.
+        if not joined or value.startswith("/"):
+            _dynamic(f, found, start, at, f.code.reason(start, end, texts.REASON_DYNAMIC_ROUTE))
         return None
     if not (value.startswith("/") or value == "*"):
         return None
     return value
 
 
-def _dynamic(f: _File, found: Findings, start: int, at: int) -> None:
+def _dynamic(
+    f: _File, found: Findings, start: int, at: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
+) -> None:
     found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(start), "reason": texts.REASON_DYNAMIC_ROUTE,
+        "kind": "route", "name": f.code.expression(start), "reason": reason,
         "source": str(Loc(f.rel, f.code.line(at))),
     }))
 

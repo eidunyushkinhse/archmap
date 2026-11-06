@@ -38,10 +38,11 @@ def _use(name: str, direction: str, rel: str, line: int) -> ChannelUse:
                       loc=Loc(rel, line), parser=NAME)
 
 
-def _hint(found: Findings, name: str, rel: str, line: int) -> None:
+def _hint(
+    found: Findings, name: str, rel: str, line: int, reason: str = texts.REASON_DYNAMIC_CHANNEL,
+) -> None:
     found.hints.append(Hint("dynamic_names", {
-        "kind": "channel", "name": name, "reason": texts.REASON_DYNAMIC_CHANNEL,
-        "source": str(Loc(rel, line)),
+        "kind": "channel", "name": name, "reason": reason, "source": str(Loc(rel, line)),
     }))
 
 
@@ -94,7 +95,9 @@ def _code(rel: str, code: codetext.Code, found: Findings, go: bool) -> None:
                 _hint(found, code.expression(m.end()), rel, line)
             continue
         name, dynamic = code.literal(hit.start(), hit.end())
-        if dynamic:
+        if dynamic and code.joined(hit.start(), hit.end()):
+            _hint(found, code.expression(hit.start()), rel, line, texts.REASON_JOINED_NAME)
+        elif dynamic:
             _hint(found, name, rel, line)
         elif name:
             uses.append(_use(name, direction, rel, line))

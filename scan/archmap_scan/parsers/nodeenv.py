@@ -34,6 +34,7 @@ def _add(code: codetext.Code, rel: str, found: Findings, name: str, at: int,
     if default is not None:
         start, end = default
         if _STR.fullmatch(code.mask, start, end):
+            # Дефолт в склейке («|| "http://" + host») литералом не считается.
             value, dynamic = code.literal(start, end)
             text = None if dynamic else value
         else:
@@ -51,9 +52,13 @@ def _scan(code: codetext.Code, rel: str, found: Findings) -> None:
     for m in _BRACKET.finditer(code.mask):
         name, dynamic = code.literal(m.start(1), m.end(1)) if m.group(1) else ("", True)
         if dynamic:
+            reason = (
+                code.reason(m.start(1), m.end(1), texts.REASON_DYNAMIC_PARAM) if m.group(1)
+                else texts.REASON_DYNAMIC_PARAM
+            )
             found.hints.append(Hint("dynamic_names", {
                 "kind": "config", "name": code.expression(m.start(1) if m.group(1) else m.end()),
-                "reason": texts.REASON_DYNAMIC_PARAM,
+                "reason": reason,
                 "source": str(Loc(rel, code.line(m.start()))),
             }))
             continue
