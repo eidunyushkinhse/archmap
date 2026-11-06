@@ -591,6 +591,11 @@ def _tables(
                 "kind": ts.parser, "name": text, "reason": texts.REASON_SKIPPED_STATEMENT,
                 "source": str(loc),
             })
+        for loc, text in ts.queried:
+            model.hint("unassigned", {
+                "kind": ts.parser, "name": text, "reason": texts.REASON_COLUMNS_FROM_QUERY,
+                "source": str(loc),
+            })
         db, why = owners.database_for(
             ts.dir, containers, databases, plain, _MIGRATION_LANGUAGE.get(ts.parser),
         )

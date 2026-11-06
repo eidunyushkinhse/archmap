@@ -1,9 +1,12 @@
 """Ограниченная грамматика SQL DDL (ТЗ §6.3): таблицы и колонки после цепочки миграций.
 
-CREATE TABLE с колонками и ограничениями таблицы, ALTER TABLE (ADD, DROP, RENAME, ALTER и
-MODIFY колонок, ключи), DROP TABLE, RENAME TABLE. Кавычки «"», «`» и «[]». Инструкции, которые
-к структуре таблиц не относятся (индексы, данные, функции), пропускаются молча; непонятная
-инструкция пропускается со счётчиком. Разбор линейный: следующий особый символ ищется
+CREATE TABLE с колонками и ограничениями таблицы, CREATE TABLE … AS (таблица без колонок:
+колонки из запроса сборщик не выводит, таблица названа в подсказках), ALTER TABLE (ADD, DROP,
+RENAME, ALTER и MODIFY колонок, ключи), DROP TABLE, RENAME TABLE. Кавычки «"», «`» и «[]»; имя
+без кавычек складывается в нижний регистр, как в PostgreSQL (fold, у MySQL выключено).
+Временные таблицы (TEMP) в схему не попадают. Инструкции, которые к структуре таблиц не
+относятся (индексы, данные, функции, триггеры, имена ограничений), пропускаются молча;
+непонятная инструкция пропускается со счётчиком. Разбор линейный: следующий особый символ ищется
 регулярным выражением без перебора, строки и комментарии пропускаются поиском конца.
 """
 
@@ -18,6 +21,13 @@ from archmap_scan.model import Column, Loc, Table
 # разбор враждебно длинной строки занял бы заметное время.
 MAX_STATEMENT = 256 * 1024
 EXAMPLES = 3
+# Сколько непонятых инструкций помнить ради выбора примеров: примеры берутся сначала из
+# тех, чьи таблицы живы в конце цепочки (ТЗ §15 п. 10 А3).
+MAX_SKIPS = 10_000
+_TABLE_LEAD = frozenset({
+    "CREATE", "OR", "REPLACE", "GLOBAL", "LOCAL", "TEMP", "TEMPORARY", "UNLOGGED", "TABLE",
+    "ALTER", "DROP", "RENAME", "IF", "NOT", "EXISTS", "ONLY",
+})
 
 _SPECIAL = re.compile(r"[;'\"`\[$/-]")
 _WORDS = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
@@ -54,6 +64,7 @@ _IGNORED_STARTS: tuple[tuple[str, ...], ...] = tuple(
         "LISTEN", "PREPARE", "EXECUTE", "DEALLOCATE", "CHECKPOINT", "DISCARD", "SECURITY",
         "ALTER DEFAULT PRIVILEGES", "CREATE PUBLICATION", "CREATE SUBSCRIPTION", "MERGE",
         "UPSERT", "REPLACE", "GO", "CREATE STATISTICS", "DROP STATISTICS", "ALTER STATISTICS",
+        "ALTER TRIGGER",
     )
 )
 _COLUMN_STOP = frozenset({
@@ -189,13 +200,35 @@ def tokenize(stmt: str) -> list[Tok]:
 
 @dataclass
 class Schema:
-    """Состояние базы по ходу цепочки миграций."""
+    """Состояние базы по ходу цепочки миграций. fold — складывать имена без кавычек в
+    нижний регистр (PostgreSQL); у MySQL и прочих имя без кавычек хранится как написано."""
 
     tables: dict[tuple[str, str], Table] = field(default_factory=dict)
     dropped: int = 0
     skipped: int = 0
-    examples: list[tuple[Loc, str]] = field(default_factory=list)
     created: set[tuple[str, str]] = field(default_factory=set)
+    fold: bool = True
+    # Непонятые инструкции: место, первые слова, ключ таблицы (если его видно).
+    skips: list[tuple[Loc, str, tuple[str, str] | None]] = field(default_factory=list)
+    # Таблицы из CREATE TABLE … AS: колонки из запроса не выведены.
+    queried: list[tuple[Loc, Table]] = field(default_factory=list)
+
+    @property
+    def examples(self) -> list[tuple[Loc, str]]:
+        """До EXAMPLES примеров непонятых инструкций: сначала те, чьи таблицы живы в конце
+        цепочки (их структура и пострадала), затем остальные, каждая группа по порядку."""
+        live = [s for s in self.skips if s[2] is not None and s[2] in self.tables]
+        rest = [s for s in self.skips if s[2] is None or s[2] not in self.tables]
+        return [(loc, text) for loc, text, _ in (live + rest)[:EXAMPLES]]
+
+    def from_query(self) -> list[tuple[Loc, str]]:
+        """Живые в конце цепочки таблицы из CREATE TABLE … AS: место и показ имени."""
+        alive = {id(t) for t in self.tables.values()}
+        out: list[tuple[Loc, str]] = []
+        for loc, table in self.queried:
+            if id(table) in alive:
+                out.append((loc, f"{table.schema}.{table.name}" if table.schema else table.name))
+        return out
 
     def find(self, schema: str | None, name: str) -> Table | None:
         return self.tables.get(_key(schema, name))
@@ -224,12 +257,12 @@ class Schema:
         table.locs.append(loc)
         self.tables[_key(table.schema, new)] = table
 
-    def skip(self, loc: Loc, stmt: str) -> None:
+    def skip(self, loc: Loc, stmt: str, target: tuple[str, str] | None = None) -> None:
         """Счётчик непонятых инструкций; пример — первые слова без строковых значений."""
         self.skipped += 1
-        if len(self.examples) < EXAMPLES:
+        if len(self.skips) < MAX_SKIPS:
             words = _WORDS.findall(stmt[:200])[:3]
-            self.examples.append((loc, " ".join(words)[:60] or "?"))
+            self.skips.append((loc, " ".join(words)[:60] or "?", target))
 
 
 def _key(schema: str | None, name: str) -> tuple[str, str]:
@@ -237,9 +270,10 @@ def _key(schema: str | None, name: str) -> tuple[str, str]:
 
 
 class _Parser:
-    def __init__(self, toks: list[Tok], stmt: str) -> None:
+    def __init__(self, toks: list[Tok], stmt: str, fold: bool = True) -> None:
         self.toks = toks
         self.stmt = stmt
+        self.fold = fold
         self.i = 0
 
     def peek(self, k: int = 0) -> Tok | None:
@@ -270,7 +304,8 @@ class _Parser:
         if tok is None or tok.kind not in ("word", "ident"):
             return None
         self.i += 1
-        return tok.text
+        # Имя без кавычек PostgreSQL складывает в нижний регистр: «LANGUAGE» это language.
+        return tok.text.lower() if self.fold and tok.kind == "word" else tok.text
 
     def qualified(self) -> tuple[str | None, str] | None:
         """[база.][схема.]имя → (схема, имя)."""
@@ -427,7 +462,14 @@ def _table_constraint(p: _Parser, table: Table, schema: Schema) -> None:
 def _create(p: _Parser, schema: Schema, loc: Loc) -> bool:
     p.take("IF", "NOT", "EXISTS")
     target = p.qualified()
-    if target is None or not p.op("("):
+    if target is None:
+        return False
+    if p.take("AS"):
+        # CREATE TABLE … AS SELECT: таблица есть, колонки из запроса сборщик не выводит.
+        table = schema.create(Table(name=target[1], schema=target[0]), loc)
+        schema.queried.append((loc, table))
+        return True
+    if not p.op("("):
         return False
     table = Table(name=target[1], schema=target[0])
     names: set[str] = set()
@@ -481,6 +523,10 @@ def _alter_action(p: _Parser, table: Table, schema: Schema, loc: Loc) -> bool:
         p.skip_item()
         return True
     if p.take("RENAME"):
+        if p.take("CONSTRAINT"):
+            # Имя ограничения на колонки не влияет.
+            p.skip_item()
+            return True
         if p.take("TO") or p.take("AS"):
             renamed = p.qualified()
             if renamed is None:
@@ -605,6 +651,19 @@ def _ignored(p: _Parser) -> bool:
     return False
 
 
+def _target(toks: list[Tok], fold: bool) -> tuple[str, str] | None:
+    """Ключ таблицы непонятой инструкции CREATE, ALTER, DROP или RENAME TABLE: имя после
+    вводных слов. Нужен только для выбора примеров."""
+    i = 0
+    while i < len(toks) and toks[i].up in _TABLE_LEAD:
+        i += 1
+    if i == 0 or "TABLE" not in {t.up for t in toks[:i]}:
+        return None
+    p = _Parser(toks[i:], "", fold)
+    target = p.qualified()
+    return None if target is None else _key(*target)
+
+
 def apply(stmt: str, loc: Loc, schema: Schema) -> None:
     """Применить одну инструкцию к состоянию базы."""
     if len(stmt) > MAX_STATEMENT:
@@ -613,16 +672,19 @@ def apply(stmt: str, loc: Loc, schema: Schema) -> None:
     toks = tokenize(stmt)
     if not toks:
         return
-    p = _Parser(toks, stmt)
+    p = _Parser(toks, stmt, schema.fold)
     if toks[0].kind == "op":
         return
     ok = True
     if p.take("CREATE"):
         p.take("OR", "REPLACE")
+        temporary = False
         while p.up() in ("GLOBAL", "LOCAL", "TEMP", "TEMPORARY", "UNLOGGED"):
+            temporary = temporary or p.up() in ("TEMP", "TEMPORARY")
             p.i += 1
         if p.take("TABLE"):
-            ok = _create(p, schema, loc)
+            # Временная таблица живёт до конца сеанса: в схему базы она не попадает.
+            ok = True if temporary else _create(p, schema, loc)
         else:
             p.i = 0
             ok = _ignored(p)
@@ -635,7 +697,7 @@ def apply(stmt: str, loc: Loc, schema: Schema) -> None:
     else:
         ok = _ignored(p)
     if not ok:
-        schema.skip(loc, stmt)
+        schema.skip(loc, stmt, _target(toks, schema.fold))
 
 
 def apply_text(text: str, path: str, schema: Schema, line_offset: int = 0) -> None:

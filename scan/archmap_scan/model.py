@@ -128,6 +128,8 @@ class TableSet:
     dropped: int = 0
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
+    # Таблицы из CREATE TABLE … AS (место и имя): колонки из запроса не выведены.
+    queried: list[tuple[Loc, str]] = field(default_factory=list)
     # Миграции данных (RunPython): структуру таблиц не меняют, поэтому это не пропуск, но
     # счёт в покрытии виден отдельно.
     data_migrations: int = 0

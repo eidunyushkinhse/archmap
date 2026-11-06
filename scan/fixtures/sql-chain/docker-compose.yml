@@ -1,0 +1,7 @@
+services:
+  forum:
+    build: .
+    environment:
+      DATABASE_URL: postgres://forum:pw@forum-db:5432/forum
+  forum-db:
+    image: postgres:16

@@ -20,6 +20,7 @@ SQL_DIRS = frozenset({"migrations", "migrate", "db", "sql", "schema", "database"
 _FLYWAY = re.compile(r"[VR][0-9][0-9._]*__.+\.sql", re.IGNORECASE)
 _UNDO = re.compile(r"U[0-9][0-9._]*__.+\.sql", re.IGNORECASE)
 _CHUNKS = re.compile(r"[0-9]+|[^0-9]+")
+_KEEP_CASE = frozenset({dialect.MYSQL, dialect.MARIADB, dialect.SQLITE, dialect.SQLSERVER})
 
 
 def is_migration(rel: str) -> bool:
@@ -56,22 +57,25 @@ def parse(files: Files, ctx: Context) -> Findings:
     for rel in files.select(is_migration):
         sets.setdefault(set_dir(rel), []).append(rel)
     for folder in sorted(sets):
-        schema = sqlddl.Schema()
+        chain = [(rel, files.read(rel)) for rel in sorted(sets[folder], key=natural_key)]
         found_dialect: tuple[str, Loc] | None = None
-        for rel in sorted(sets[folder], key=natural_key):
-            text = files.read(rel)
-            if text is None:
-                continue
-            sqlddl.apply_text(text, rel, schema)
-            if found_dialect is None:
-                hit = dialect.sql_types(text)
-                found_dialect = (hit[0], Loc(rel, hit[1])) if hit else None
+        for rel, text in chain:
+            hit = dialect.sql_types(text) if text is not None else None
+            if hit:
+                found_dialect = (hit[0], Loc(rel, hit[1]))
+                break
+        # Имена без кавычек складываются в нижний регистр, как в PostgreSQL; MySQL и
+        # MariaDB хранят их как написано.
+        schema = sqlddl.Schema(fold=found_dialect is None or found_dialect[0] not in _KEEP_CASE)
+        for rel, text in chain:
+            if text is not None:
+                sqlddl.apply_text(text, rel, schema)
         if not schema.tables and not schema.skipped and not schema.dropped:
             continue
         found.table_sets.append(TableSet(
             parser=NAME, dir=folder, tables=list(schema.tables.values()),
             dropped=schema.dropped, skipped=schema.skipped,
-            skipped_examples=list(schema.examples),
+            skipped_examples=schema.examples, queried=schema.from_query(),
             dialect=found_dialect[0] if found_dialect else None,
             dialect_loc=found_dialect[1] if found_dialect else None,
         ))

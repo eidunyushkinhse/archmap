@@ -474,7 +474,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         found.table_sets.append(TableSet(
             parser=NAME, dir=base, tables=list(state.schema.tables.values()),
             dropped=state.schema.dropped, skipped=state.schema.skipped,
-            skipped_examples=list(state.schema.examples),
+            skipped_examples=state.schema.examples, queried=state.schema.from_query(),
             dialect=hit[0] if hit else None, dialect_loc=hit[1] if hit else None,
         ))
     return found

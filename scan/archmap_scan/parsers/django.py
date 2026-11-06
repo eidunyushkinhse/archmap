@@ -685,6 +685,7 @@ def parse(files: Files, ctx: Context) -> Findings:
         found.table_sets.append(TableSet(
             parser=NAME, dir=app_dir, tables=tables, dropped=dropped,
             skipped=skipped, skipped_examples=examples, data_migrations=stats.data_migrations,
+            queried=sql.from_query(),
             dialect=engine[0] if engine else None, dialect_loc=engine[1] if engine else None,
         ))
     return found
