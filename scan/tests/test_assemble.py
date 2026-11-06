@@ -347,3 +347,14 @@ def test_image_vocabulary_and_redis_queue_broker() -> None:
         ("app", "events"), ("app", "postgres"), ("app", "redis"), ("report", "cache"),
         ("events", "kafka"),
     }
+
+
+def test_queue_broker_by_manifest_next_to_dockerfile() -> None:
+    """Монорепозиторий собирает сервис из корня, а библиотека очередей в манифесте рядом с
+    его Dockerfile (immich: контекст «../», server/Dockerfile, bullmq в server/package.json):
+    Redis сервиса — брокер. Ловушка: у web рядом с Dockerfile манифест без такой библиотеки,
+    его Redis остаётся кэшем (ТЗ §15 п. 10 А13)."""
+    model = model_of(FIXTURES / "compose-monorepo")
+    kinds = {o.name: (o.shape, o.role) for o in model.objects}
+    assert kinds["redis"] == ("broker", "брокер")
+    assert kinds["cache"] == ("database", "кэш")

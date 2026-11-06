@@ -578,16 +578,30 @@ def _redis_brokers(objects: list[Obj], env_vars: list[EnvVar]) -> None:
                 obj.locs.add(var.loc)
 
 
+def _build_packages(obj: Obj, packages: list[Package]) -> list[Package]:
+    """Манифесты сборки контейнера: каталога кода и каталога его Dockerfile внутри него.
+    Монорепозиторий собирает сервис из корня, а манифест сервиса лежит рядом с Dockerfile
+    (immich: контекст «../», server/Dockerfile и server/package.json)."""
+    out = _code_packages(obj, packages)
+    if obj.code_dir is None or obj.dockerfile is None:
+        return out
+    home, code = obj.dockerfile.dir, obj.code_dir
+    if home != code and (code == "" or home.startswith(code + "/")):
+        out = out + [p for p in packages if p.dir == home]
+    return out
+
+
 def _queue_brokers(model: Model, packages: list[Package]) -> None:
     """Redis — брокер, если к нему идёт контейнер с библиотекой очередей задач в
-    зависимостях своего кода (vocab.REDIS_QUEUE_DEPS, ТЗ §15 п. 10 А13). Только когда
-    Redis у контейнера один и брокер по адресу (_redis_brokers) ему ещё не назначен: у
-    PostHog redis7 уже брокер по CELERY_BROKER_URL, второй Redis остаётся кэшем."""
+    манифестах своей сборки (_build_packages, vocab.REDIS_QUEUE_DEPS, ТЗ §15 п. 10 А13).
+    Только когда Redis у контейнера один и брокер по адресу (_redis_brokers) ему ещё не
+    назначен: у PostHog redis7 уже брокер по CELERY_BROKER_URL, второй Redis остаётся
+    кэшем."""
     changed = False
     for obj in model.objects:
         if not obj.is_container:
             continue
-        deps = {d for p in _code_packages(obj, packages) for d in p.deps}
+        deps = {d for p in _build_packages(obj, packages) for d in p.deps}
         if not deps & vocab.REDIS_QUEUE_DEPS:
             continue
         targets = {lk.dst.name: lk.dst for lk in model.links
