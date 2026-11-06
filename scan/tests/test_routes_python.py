@@ -170,9 +170,10 @@ def test_sole_container_owns_shared_code(tmp_path: Path) -> None:
         "web/go.mod": "module github.com/org/web\n",
     }
     model = model_of(tree(tmp_path / "one", files), system="shop")
-    assert [o.name for o in model.objects if o.is_container] == ["app"]
-    assert [(e.path, str(e.loc)) for e in model.http["app"]] == [("/shared", "lib/x.py:7")]
-    assert list(model.params["app"]) == ["LEVEL"]
+    # Каталог «app» контейнер не называет (ТЗ §15 п. 10 А6): имя корня.
+    assert [o.name for o in model.objects if o.is_container] == ["shop"]
+    assert [(e.path, str(e.loc)) for e in model.http["shop"]] == [("/shared", "lib/x.py:7")]
+    assert list(model.params["shop"]) == ["LEVEL"]
     # Код другого языка единственному контейнеру не достаётся.
     assert [h["name"] for h in model.hints["unassigned"]] == ["ANY /go"]
 
@@ -180,7 +181,7 @@ def test_sole_container_owns_shared_code(tmp_path: Path) -> None:
     two["worker/Dockerfile"] = "FROM python:3.12\nCMD celery -A tasks worker\n"
     two["worker/requirements.txt"] = "celery\n"
     model = model_of(tree(tmp_path / "two", two), system="shop")
-    assert model.http.get("app", []) == [] and "app" not in model.params
+    assert model.http.get("shop", []) == [] and "shop" not in model.params
     assert {(h["kind"], h["name"]) for h in model.hints["unassigned"]} >= {
         ("route", "GET /shared"), ("config", "LEVEL"),
     }

@@ -353,6 +353,10 @@ REASON_BAD_MANIFEST = "манифест сборки не разбирается
 REASON_MANIFEST_TOO_LARGE = "манифест сборки больше предела разбора"
 REASON_SHARED_LIB = "общий код: файл вне каталогов кода всех контейнеров"
 REASON_OTHER_LANGUAGE = "общий код: нет контейнера на этом языке"
+REASON_DOCKERFILE_IMAGE = "Dockerfile собирает образ этого контейнера, отдельного процесса нет"
+REASON_DOCKERFILE_VARIANT = (
+    "вариант Dockerfile для разработки рядом с основным: тот же контейнер, отдельного процесса нет"
+)
 REASON_NO_DATABASE = "база не найдена в манифестах"
 REASON_MANY_DATABASES = "несколько баз, владелец не определим"
 REASON_SKIPPED_STATEMENT = "инструкция миграции не разобрана, её изменения в таблицы не попали"

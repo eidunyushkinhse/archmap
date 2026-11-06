@@ -324,7 +324,7 @@ COMMAND_LANGUAGE: dict[str, str] = {
 _WRAPPERS = frozenset({
     "nice", "ionice", "exec", "env", "sudo", "su", "timeout", "stdbuf", "chpst", "setsid",
     "nohup", "dumb-init", "tini", "uv", "run", "poetry", "pipenv", "--", "bash", "sh",
-    "-c", "time",
+    "-c", "time", "bundle",
 })
 _TEMPLATE = ("<%", "%>", "{{", "}}", "$")
 _MAX_COMMAND_TOKENS = 64
@@ -367,7 +367,8 @@ def command_program(command: str | None) -> str | None:
     for token in _command_tokens(command):
         if any(mark in token for mark in _TEMPLATE):
             return None
-        if token in _WRAPPERS or token.startswith("-") or token.isdigit():
+        # Обёртка и по полному пути: /home/mastodon/.rbenv/shims/bundle exec sidekiq.
+        if _base(token) in _WRAPPERS or token.startswith("-") or token.isdigit():
             continue
         name, eq, _value = token.partition("=")
         if eq and name and "/" not in name:

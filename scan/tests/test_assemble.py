@@ -244,3 +244,63 @@ def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:
     assert pg.code_dir is None and not pg.repo and pg.path is None
     report = _obj(model, "report")
     assert (report.technology, report.code_dir, report.path) == ("Python", None, None)
+
+
+def test_dockerfile_binds_to_manifest_image() -> None:
+    """Dockerfile в подкаталоге привязывается к сервису по артефакту skaffold или по имени
+    образа, равному имени каталога-предка; имя каталога src контейнер не называет; вариант
+    для разработки рядом с основным Dockerfile — тот же контейнер (ТЗ §15 п. 10 А6)."""
+    model = model_of(FIXTURES / "dockerfile-bind")
+    kinds = {o.name: (o.technology, o.code_dir) for o in model.objects}
+    assert kinds == {
+        # skaffold: src/cartservice/src собирает образ cartservice (без него — объект «src»).
+        "cartservice": (".NET", "src/cartservice/src"),
+        # Ловушка: каталог с именем сервиса склеивается по имени, как раньше.
+        "emailservice": ("Python", "src/emailservice"),
+        # Образ ghcr.io/shop/payment — имя каталога-предка src/payment/server.
+        "payments-api": ("Go", "src/payment/server"),
+        # Без сервиса манифеста: ближайший каталог не из src, app, docker, build.
+        "notifier": ("Node.js", "notifier/src"),
+    }
+    merged = [(h["name"], h["object"], h["reason"]) for h in model.hints["merged"]]
+    assert merged == [(
+        "src/cartservice/src/Dockerfile.debug", "cartservice", texts.REASON_DOCKERFILE_VARIANT,
+    )]
+    # Вариант для разработки без основного Dockerfile — манифест разработки.
+    assert [h["name"] for h in model.hints["profiles"]] == ["runner/Dockerfile.playwright"]
+
+
+def test_root_dockerfile_and_dev_compose_builds(tmp_path: Path) -> None:
+    """Корневой Dockerfile собирает образ с именем репозитория: это Dockerfile сервисов на
+    этом образе (Mastodon: web и sidekiq на ghcr.io/mastodon/mastodon), а не объект с
+    именем корня. Сборка сервиса в файле compose для разработки называет Dockerfile его
+    образа: основной Dockerfile даёт сервису каталог кода, вариант уходит в hints.merged."""
+    root = tree(tmp_path / "forum", {
+        "Gemfile": 'gem "rails"\ngem "sidekiq"\n',
+        "package.json": '{"name": "@forum/forum", "dependencies": {"react": "19"}}',
+        "Dockerfile": "FROM ruby:3.4\n",
+        "Dockerfile.node": "FROM node:22\n",
+        "Procfile": "web: bin/heroku-web\nworker: bundle exec sidekiq\n",
+        "docker-compose.yml": (
+            "services:\n"
+            "  web:\n    image: ghcr.io/forum/forum:v4\n    command: bundle exec puma\n"
+            "  sidekiq:\n    image: ghcr.io/forum/forum:v4\n    command: bundle exec sidekiq\n"
+            "  plugins:\n    image: ${REGISTRY}-node:latest\n"
+            "  api:\n    image: ${REGISTRY}:latest\n"
+        ),
+        "docker-compose.dev.yml": (
+            "services:\n"
+            "  plugins:\n    build:\n      context: .\n      dockerfile: Dockerfile.node\n"
+        ),
+    })
+    model = model_of(root, system=None)
+    names = sorted(o.name for o in model.objects)
+    # Ни «@forum/forum» (корневой Dockerfile), ни «node» (Dockerfile.node), ни «worker».
+    assert names == ["api", "plugins", "sidekiq", "web"]
+    assert _obj(model, "web").technology == "Ruby + Rails"
+    assert _obj(model, "web").code_dir == "" and _obj(model, "sidekiq").code_dir == ""
+    # Ловушка: образ с подстановкой ни к чему не привязывается.
+    assert _obj(model, "api").code_dir is None
+    merged = {h["name"]: (h["object"], h["reason"]) for h in model.hints["merged"]}
+    assert merged["Dockerfile.node"] == ("plugins", texts.REASON_DOCKERFILE_IMAGE)
+    assert merged["worker"][0] == "sidekiq"

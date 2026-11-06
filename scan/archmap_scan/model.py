@@ -68,6 +68,20 @@ class Dockerfile:
 
 
 @dataclass
+class ImageBuild:
+    """Чем собирается образ, кроме ссылки build основного манифеста (ТЗ §15 п. 10 А6):
+    артефакт skaffold.yaml (image — имя образа) или build сервиса в файле compose для
+    разработки (unit — имя сервиса; dev_only — сервиса нет в основных файлах)."""
+
+    dockerfile: str
+    loc: Loc
+    build_dir: str
+    image: str | None = None
+    unit: str | None = None
+    dev_only: bool = False
+
+
+@dataclass
 class Package:
     """Манифест сборки: имя пакета, зависимости (имена без версий), язык."""
 
@@ -213,6 +227,7 @@ def unparsed_hint(rel: str, reason: str) -> Hint:
 class Findings:
     units: list[Unit] = field(default_factory=list)
     dockerfiles: list[Dockerfile] = field(default_factory=list)
+    image_builds: list[ImageBuild] = field(default_factory=list)
     packages: list[Package] = field(default_factory=list)
     env_files: list[EnvFile] = field(default_factory=list)
     openapi: list[OpenApi] = field(default_factory=list)
@@ -241,6 +256,7 @@ class Findings:
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
         self.dockerfiles.extend(other.dockerfiles)
+        self.image_builds.extend(other.image_builds)
         self.packages.extend(other.packages)
         self.env_files.extend(other.env_files)
         self.openapi.extend(other.openapi)

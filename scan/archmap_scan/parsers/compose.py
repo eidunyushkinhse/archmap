@@ -26,7 +26,15 @@ from typing import Any
 
 from archmap_scan import paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import EnvVar, Findings, Hint, Loc, Unit, unparsed_hint
+from archmap_scan.model import (
+    EnvVar,
+    Findings,
+    Hint,
+    ImageBuild,
+    Loc,
+    Unit,
+    unparsed_hint,
+)
 from archmap_scan.walk import Files, is_compose_name, is_dev_path
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
@@ -165,10 +173,11 @@ def _depends(svc: LineDict, rel: str) -> list[tuple[str, Loc]]:
 
 
 def _build(
-    svc: LineDict, rel: str, name: str, found: Findings, files: Files,
+    svc: LineDict, rel: str, name: str, found: Findings, files: Files, quiet: bool = False,
 ) -> tuple[str | None, str | None]:
     """Каталог кода и путь Dockerfile из build. Каталог, которого нет в обходе (контекст
-    относительно другого корня, удалённый каталог), каталогом кода не считается (ТЗ §5.1)."""
+    относительно другого корня, удалённый каталог), каталогом кода не считается (ТЗ §5.1).
+    quiet — без подсказок о негодном контексте (сервис файла для разработки)."""
     build = svc.get("build")
     if build is None:
         return None, None
@@ -182,6 +191,8 @@ def _build(
     if not isinstance(context, str) or "://" in context or context.startswith("git@"):
         return None, None
     folder = paths.join(paths.parent(rel), context)
+    if quiet and (folder is None or not files.has_dir(folder)):
+        return None, None
     if folder is None:
         found.hints.append(Hint("unassigned", {
             "kind": "container", "name": name, "reason": texts.REASON_BUILD_OUTSIDE,
@@ -363,6 +374,14 @@ def parse(files: Files, ctx: Context) -> Findings:
                 }))
                 continue
             if dev:
+                # Сборка сервиса в файле для разработки называет Dockerfile его образа: у
+                # сервиса основных файлов это Dockerfile его же контейнера (ТЗ §15 п. 10 А6).
+                folder, docker = _build(svc, rel, name, found, files, quiet=True)
+                if folder is not None and docker is not None:
+                    found.image_builds.append(ImageBuild(
+                        dockerfile=docker, loc=Loc(rel, svc.line_of("build")),
+                        build_dir=folder, unit=name, dev_only=name not in units,
+                    ))
                 if name not in units:
                     dev_only.setdefault(name, Loc(rel, line))
                 continue

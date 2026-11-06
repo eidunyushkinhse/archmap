@@ -16,6 +16,7 @@ from archmap_scan.model import (
     Dockerfile,
     EnvVar,
     Findings,
+    ImageBuild,
     Loc,
     Package,
     TableSet,
@@ -44,6 +45,12 @@ PRIORITY = {
 # compose решает это сам: у него есть основные файлы, которые перекрывают dev-файлы.
 _DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s"})
 _VARIANT_IGNORED = frozenset({"prod", "production", "release", "alpine", "slim", "base"})
+# Суффиксы Dockerfile для разработки: рядом с основным Dockerfile это вариант того же
+# контейнера (hints.merged), без основного — манифест разработки (ТЗ §15 п. 10 А6).
+_DEV_VARIANTS = frozenset({"debug", "dev", "test", "e2e", "playwright", "tilt"})
+# Имена каталогов, которые не называют контейнер: Dockerfile в src/ сервиса cartservice
+# принадлежит cartservice, а не объекту «src».
+_GENERIC_DIRS = frozenset({"src", "app", "docker", "build"})
 
 
 
@@ -81,27 +88,116 @@ def _variant(rel: str) -> str | None:
     return None
 
 
+def _flat(name: str) -> str:
+    """Имя для сравнения образа с каталогом: без регистра, дефисов, точек и подчёркиваний
+    (каталог argo-cd и образ argocd — одно имя)."""
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def _image_targets(
+    d: Dockerfile, units: list[Unit], builds: dict[str, list[ImageBuild]], root_names: list[str],
+) -> list[str]:
+    """Сервисы манифестов, чей образ собирает Dockerfile d (ТЗ §15 п. 10 А6): по артефакту
+    skaffold с этим Dockerfile, иначе по имени образа (без реестра и тега), равному имени
+    ближайшего каталога-предка, а у корневого Dockerfile — имени репозитория или корня.
+    Свой каталог, совпавший с именем сервиса, решает раньше: это прежняя склейка по имени."""
+    by_image: dict[str, list[str]] = {}
+    for u in units:
+        if u.image and u.build_dir is None and u.dockerfile is None:
+            names = by_image.setdefault(_flat(vocab.image_name(u.image)), [])
+            if u.name not in names:
+                names.append(u.name)
+    for build in builds.get(d.path, []):
+        if build.image is not None and _flat(vocab.image_name(build.image)) in by_image:
+            return by_image[_flat(vocab.image_name(build.image))]
+    segments = d.dir.split("/") if d.dir else []
+    if segments and segments[-1] in {u.name for u in units}:
+        return []
+    for seg in [*reversed(segments), *([] if segments else root_names)]:
+        hit = by_image.get(_flat(seg))
+        if hit:
+            return hit
+    return []
+
+
+def _own_name(d: Dockerfile, variant: str | None, root_name: str) -> str:
+    """Имя контейнера Dockerfile без привязки к сервису манифеста: суффикс варианта, иначе
+    ближайший каталог с именем не из _GENERIC_DIRS, иначе имя корня."""
+    if variant:
+        return variant
+    for seg in reversed(d.dir.split("/") if d.dir else []):
+        if seg.lower() not in _GENERIC_DIRS:
+            return seg
+    return root_name
+
+
 def _dockerfile_units(
-    units: list[Unit], dockerfiles: list[Dockerfile], root_name: str, model: Model
+    units: list[Unit], findings: Findings, root_names: list[str], model: Model
 ) -> list[Unit]:
-    """Dockerfile, на который не ссылается ни один манифест, сам задаёт контейнер."""
+    """Dockerfile, на который не ссылается ни один манифест, сам задаёт контейнер; если его
+    образ (skaffold, имя образа сервиса, сборка в файле для разработки) работает в сервисе
+    манифеста, это Dockerfile того сервиса. Вариант для разработки рядом с основным
+    Dockerfile — тот же контейнер (hints.merged)."""
+    root_name = root_names[-1]
     used = {u.dockerfile for u in units if u.dockerfile}
     claimed = {u.build_dir for u in units if u.build_dir is not None}
+    builds: dict[str, list[ImageBuild]] = {}
+    for build in findings.image_builds:
+        builds.setdefault(build.dockerfile, []).append(build)
+    owner_of: dict[str, list[str]] = {}
+    for u in units:
+        if u.dockerfile:
+            owner_of.setdefault(u.dockerfile, []).append(u.name)
+        elif u.build_dir is not None:
+            owner_of.setdefault(paths.join(u.build_dir, "Dockerfile") or "", []).append(u.name)
+    by_path = {d.path: d for d in findings.dockerfiles}
     out: list[Unit] = []
-    for d in sorted(dockerfiles, key=lambda x: x.path):
+    later: list[Dockerfile] = []
+    for d in sorted(findings.dockerfiles, key=lambda x: x.path):
         if d.path in used:
             continue
-        if is_dev_path(d.path):
+        variant = _variant(d.path)
+        dev_refs = [b for b in builds.get(d.path, []) if b.unit is not None]
+        prod_refs = [b.unit for b in dev_refs if not b.dev_only and b.unit is not None]
+        if variant is not None and variant.lower() in _DEV_VARIANTS and not dev_refs:
+            later.append(d)
+            continue
+        if (is_dev_path(d.path) or dev_refs) and not prod_refs:
+            # Dockerfile для разработки или образ сервиса только для разработки.
             model.hint("profiles", {
                 "kind": "dockerfile", "name": d.path, "reason": texts.REASON_DEV_FILE,
                 "source": str(d.from_loc), "profiles": [],
             })
             continue
-        variant = _variant(d.path)
+        if prod_refs and variant is not None:
+            # Вариант с суффиксом собирает образ сервиса основных файлов (Dockerfile.node
+            # PostHog для plugins): отдельного процесса нет, а каталогом кода вариант не
+            # владеет (ТЗ §5.1), поэтому сервису он ничего не добавляет.
+            model.hint("merged", {
+                "kind": "dockerfile", "name": d.path, "object": prod_refs[0],
+                "reason": texts.REASON_DOCKERFILE_IMAGE,
+                "source": [str(d.from_loc), *(str(b.loc) for b in dev_refs if not b.dev_only)],
+            })
+            continue
+        kind = vocab.image_kind(d.images[-1])
+        shape = kind.shape if kind and kind.shape != SERVICE else None
+        targets = prod_refs or _image_targets(d, units, builds, root_names)
+        if targets:
+            # Dockerfile собирает образ сервисов манифеста: их каталог кода — каталог
+            # сборки (контекст skaffold или compose, иначе каталог Dockerfile).
+            ref = next((b for b in builds.get(d.path, [])), None)
+            folder = ref.build_dir if ref is not None else d.dir
+            for name in dict.fromkeys(targets):
+                out.append(Unit(
+                    name=name, parser="dockerfile", loc=d.from_loc, build_dir=folder,
+                    dockerfile=d.path, command=d.command, command_loc=d.command_loc,
+                    shape=shape,
+                ))
+            owner_of[d.path] = list(dict.fromkeys(targets))
+            continue
         if variant is None and d.dir in claimed:
             continue
-        name = variant or (paths.name(d.dir) if d.dir else root_name)
-        kind = vocab.image_kind(d.images[-1])
+        name = _own_name(d, variant, root_name)
         # Dockerfile с суффиксом (Dockerfile-postgresql, worker.Dockerfile) каталогом кода
         # не владеет (ТЗ §5.1): вид и технология только по FROM, стек и repo/path каталога
         # ему не достаются.
@@ -109,17 +205,40 @@ def _dockerfile_units(
             name=name, parser="dockerfile", loc=d.from_loc,
             build_dir=None if variant else d.dir,
             dockerfile=d.path, command=d.command, command_loc=d.command_loc,
-            shape=kind.shape if kind and kind.shape != SERVICE else None,
+            shape=shape,
         ))
+        owner_of.setdefault(d.path, []).append(name)
+    for d in later:
+        main = paths.join(d.dir, "Dockerfile") or "Dockerfile"
+        owners_of_main = owner_of.get(main, []) if main in by_path else []
+        if owners_of_main:
+            model.hint("merged", {
+                "kind": "dockerfile", "name": d.path, "object": owners_of_main[0],
+                "reason": texts.REASON_DOCKERFILE_VARIANT, "source": [str(d.from_loc)],
+            })
+        else:
+            model.hint("profiles", {
+                "kind": "dockerfile", "name": d.path, "reason": texts.REASON_DEV_FILE,
+                "source": str(d.from_loc), "profiles": [],
+            })
     return out
 
 
 def _procfile_web(units: list[Unit]) -> None:
-    """Procfile «web» в каталоге кода другого контейнера — это сам контейнер."""
-    homes = {u.build_dir: u.name for u in units if u.parser != "procfile" and u.build_dir is not None}
+    """Procfile «web» в каталоге кода другого контейнера — это сам контейнер. Если каталог
+    у нескольких контейнеров, имя остаётся «web» (у Mastodon корень собирают web и
+    sidekiq, и Procfile web склеится с web по имени)."""
+    homes: dict[str, list[str]] = {}
     for u in units:
-        if u.parser == "procfile" and u.name == "web" and u.home_dir in homes:
-            u.name = homes[u.home_dir]
+        if u.parser != "procfile" and u.build_dir is not None and u.name not in homes.get(
+            u.build_dir, [],
+        ):
+            homes.setdefault(u.build_dir, []).append(u.name)
+    for u in units:
+        if u.parser == "procfile" and u.name == "web" and u.home_dir is not None:
+            names = homes.get(u.home_dir, [])
+            if len(names) == 1:
+                u.name = names[0]
 
 
 def _attach_dockerfile(obj: Obj, by_path: dict[str, Dockerfile]) -> None:
@@ -222,7 +341,8 @@ def _objects(
     units: list[Unit], findings: Findings, model: Model, ctx: Context
 ) -> list[Obj]:
     units = _drop_dev_units(units, model)
-    units = units + _dockerfile_units(units, findings.dockerfiles, model.system, model)
+    root_names = [ctx.root.name, model.system.rsplit("/", 1)[-1], model.system]
+    units = units + _dockerfile_units(units, findings, root_names, model)
     _procfile_web(units)
     by_name: dict[str, Obj] = {}
     for u in sorted(units, key=lambda x: (PRIORITY.get(x.parser, 99), x.loc)):

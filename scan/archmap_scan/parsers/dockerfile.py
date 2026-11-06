@@ -1,5 +1,7 @@
 """Dockerfile* (ТЗ §6.1): базовые образы стадий (язык), каталог файла (код контейнера),
-CMD и ENTRYPOINT (команда для точек входа).
+CMD и ENTRYPOINT (команда для точек входа). skaffold.yaml: артефакты build.artifacts
+(образ, контекст, Dockerfile) называют образ, который собирает Dockerfile в подкаталоге
+(Online Boutique: cartservice из src/cartservice/src, ТЗ §15 п. 10 А6).
 
 Строки с переносом «\\» склеиваются, комментарии пропускаются. FROM со ссылкой на прежнюю
 стадию («FROM build AS final») берёт образ той стадии. Аргументы ${VAR} не подставляются:
@@ -10,10 +12,11 @@ from __future__ import annotations
 
 import json
 
-from archmap_scan import paths
+from archmap_scan import paths, texts
 from archmap_scan.context import Context
-from archmap_scan.model import Dockerfile, Findings, Loc
+from archmap_scan.model import Dockerfile, Findings, ImageBuild, Loc, unparsed_hint
 from archmap_scan.walk import Files
+from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load_all
 
 NAME = "dockerfile"
 
@@ -106,6 +109,48 @@ def parse_text(rel: str, text: str) -> Dockerfile | None:
     )
 
 
+def is_skaffold(rel: str) -> bool:
+    return paths.name(rel).lower() in ("skaffold.yaml", "skaffold.yml")
+
+
+def _skaffold(files: Files, rel: str, found: Findings) -> None:
+    """Артефакты skaffold: образ, каталог контекста и Dockerfile в нём (по умолчанию
+    Dockerfile). Профили (patches) не применяются: они меняют сборку для отладки."""
+    text = files.read(rel)
+    if text is None:
+        return
+    try:
+        docs = load_all(text)
+    except YamlTooLarge:
+        files.refuse(rel)
+        return
+    except BadYaml:
+        found.hints.append(unparsed_hint(rel, texts.REASON_BAD_YAML))
+        return
+    for doc in docs:
+        build = doc.get("build") if isinstance(doc, LineDict) else None
+        artifacts = build.get("artifacts") if isinstance(build, LineDict) else None
+        if not isinstance(artifacts, LineList):
+            continue
+        for i, item in enumerate(artifacts):
+            if not isinstance(item, LineDict) or not isinstance(item.get("image"), str):
+                continue
+            context = item.get("context", ".")
+            docker = item.get("docker")
+            name = docker.get("dockerfile", "Dockerfile") if isinstance(docker, LineDict) \
+                else "Dockerfile"
+            if not isinstance(context, str) or not isinstance(name, str):
+                continue
+            folder = paths.join(paths.parent(rel), context)
+            path = paths.join(folder, name) if folder is not None else None
+            if folder is None or path is None:
+                continue
+            found.image_builds.append(ImageBuild(
+                dockerfile=path, loc=Loc(rel, artifacts.line_at(i)), build_dir=folder,
+                image=item["image"],
+            ))
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     for rel in files.select(is_dockerfile):
@@ -115,4 +160,6 @@ def parse(files: Files, ctx: Context) -> Findings:
         info = parse_text(rel, text)
         if info is not None:
             found.dockerfiles.append(info)
+    for rel in files.select(is_skaffold):
+        _skaffold(files, rel, found)
     return found
