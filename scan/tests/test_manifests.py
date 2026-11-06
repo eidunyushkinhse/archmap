@@ -216,6 +216,20 @@ def test_unsupported_only_from_container_code(tmp_path: Path) -> None:
     assert "Rust (actix-web)" in summary and "Ruby" not in summary
 
 
+def test_unbounded_containers_name_every_stack(tmp_path: Path) -> None:
+    """Контейнеры по файлам сборки (Zabbix: программы Makefile.am) границу системы не задают:
+    стек PHP интерфейса ui/ без своего контейнера называется в config, как до А12, а не
+    прячется за «искали и не нашли». Ловушка (test_unsupported_only_from_container_code):
+    при контейнерах из compose чужой Cargo.toml не называется."""
+    out = tmp_path / "out"
+    run(Options(path=str(FIXTURES / "buildfiles-php"), out=str(out), system="Ярмарка",
+                use_git=False))
+    families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
+    assert families["containers"]["parsers"] == ["buildfiles"]
+    assert "PHP" in families["config"]["unsupported"]
+    assert families["config"]["status"] == "unsupported"
+
+
 def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     """Контейнер на Python без брокерного клиента и веб-фреймворка: каналы и маршруты
     «пусто» (зависимости проверены), а не «стек не опознан». Без языка контейнеров (только

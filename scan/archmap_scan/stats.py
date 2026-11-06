@@ -95,7 +95,10 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     _code_family(out["http_routes"], model, "route", sum(len(v) for v in model.http.values()))
     _code_family(out["channels"], model, "channel", sum(len(v) for v in model.channels.values()))
     containers = [o for o in model.objects if o.is_container]
-    unsupported = code_unsupported(findings, containers)
+    # Контейнеры по файлам сборки или неявный контейнер корня границу системы не задают
+    # (PHP-интерфейс Zabbix без своего контейнера): тогда стек ищется по всем манифестам.
+    bounded = not (model.by_buildfiles or model.implicit)
+    unsupported = code_unsupported(findings, containers if bounded else None)
     for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:
         for stack in stacks:
             if stack not in out[fam].unsupported:
@@ -227,7 +230,8 @@ def code_unsupported(
     каналы, воркеры и расписания по библиотекам, описания схем без разборщика. Стек
     называется только по прямой зависимости или файлу манифеста, который принадлежит коду
     контейнера (owners.file_owners): Gemfile fastlane и Cargo.toml мобильного приложения
-    immich к контейнерам не относятся (ТЗ §15 п. 10 А12). containers=None — все манифесты."""
+    immich к контейнерам не относятся (ТЗ §15 п. 10 А12). containers=None — все манифесты:
+    так считают, когда контейнеры не из манифестов развёртывания."""
     found: dict[str, list[str]] = {
         "http_routes": [], "config": [], "channels": [], "workers": [], "schedules": [],
         "tables": [],
