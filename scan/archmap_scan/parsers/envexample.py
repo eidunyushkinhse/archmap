@@ -1,7 +1,9 @@
-"""Примеры окружения (ТЗ §6.1): .env.example, .env.sample, .env.template, .env.dist,
-env.example. Имена и значения строк «ИМЯ=значение» (с «export» и кавычками); значение
-держится только ради адреса зависимости и дефолта по инварианту 6. Настоящие файлы
-окружения (.env, .env.local, .env.production) не открываются никогда."""
+"""Примеры окружения (ТЗ §6.1): файл примера опознаётся по суффиксу (is_example):
+.env.example, .env.sample, .env.template, .env.dist, env.example, .env.production.sample,
+example.env, sample.env, template.env. Имена и значения строк «ИМЯ=значение» (с «export» и
+кавычками); значение держится только ради адреса зависимости и дефолта по инварианту 6.
+Настоящие файлы окружения без суффикса примера (.env, .env.local, .env.production) не
+открываются никогда."""
 
 from __future__ import annotations
 
@@ -14,8 +16,18 @@ from archmap_scan.parsers.compose import is_dynamic
 from archmap_scan.walk import Files
 
 NAME = "env-example"
-EXAMPLE_NAMES = frozenset({".env.example", ".env.sample", ".env.template", ".env.dist", "env.example"})
+# Имя файла примера (инвариант §2 п. 6): «[.]env[.что-то].суффикс» или «суффикс.env». Имя
+# файла короткое, перебор «.+» ограничен его длиной.
+_EXAMPLE = re.compile(
+    r"\.?env(?:\..+)?\.(?:example|sample|template|dist)|(?:example|sample|template)\.env"
+)
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
+
+
+def is_example(name: str) -> bool:
+    """Файл окружения с суффиксом примера: его можно открыть. Без суффикса это настоящий
+    файл окружения, его сборщик не открывает никогда."""
+    return _EXAMPLE.fullmatch(name) is not None
 
 
 def _value(raw: str) -> str:
@@ -48,7 +60,7 @@ def parse_text(rel: str, text: str) -> EnvFile:
 
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
-    for rel in files.select(lambda p: paths.name(p) in EXAMPLE_NAMES):
+    for rel in files.select(lambda p: is_example(paths.name(p))):
         text = files.read(rel)
         if text is None:
             continue
