@@ -1,0 +1,1 @@
+CREATE TABLE invoices (id SERIAL PRIMARY KEY, total NUMERIC(10, 2));

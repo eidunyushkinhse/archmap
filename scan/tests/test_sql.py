@@ -219,3 +219,23 @@ def test_mysql_keeps_unquoted_case(tmp_path: Path) -> None:
     tables = {t.name: t for t in chain.tables}
     assert set(tables) == {"Users", "Orders"}
     assert _cols(tables["Orders"]) == [("UserId", "INT", False, False, "Users.Id")]
+
+
+def test_dialect_dirs_are_one_database() -> None:
+    """Соседние каталоги наборов с именами диалектов — одна база (ТЗ §15 п. 12 С11).
+    Petclinic: spring-petclinic-customers-service/src/main/resources/db/hsqldb/schema.sql
+    давал «База данных», а db/mysql/schema.sql базу MySQL. Вид по серверному диалекту,
+    встраиваемый — подсказка, таблицы из серверного (test_only только в hsqldb в базу не
+    попадает). Ловушка billing: два серверных диалекта (mysql и postgres) дают один объект с
+    видом по первому в алфавите (по имени каталога, типы вида не выдали) и подсказку."""
+    model = model_of(FIXTURES / "sql-dialects")
+    assert [(o.name, o.technology) for o in model.objects] == [("MySQL", "MySQL")]
+    assert sorted(t.name for t in model.tables["MySQL"]) == ["invoices", "owners"]
+    hints = sorted((h["name"], h["reason"]) for h in model.hints["unassigned"])
+    assert hints == [
+        ("billing/db/postgres/", texts.other_dialect("billing/db/mysql/")),
+        (
+            "customers/src/main/resources/db/hsqldb/",
+            texts.embedded_database("customers/src/main/resources/db/mysql/"),
+        ),
+    ]

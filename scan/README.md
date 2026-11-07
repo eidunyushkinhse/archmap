@@ -206,3 +206,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     манифестов, вида базы не даёт: подсказка «sqlite как значение по умолчанию настроек» (С9);
   - файл k8s с `RELEASE-NAME` в `metadata.name` или образе — вывод `helm template`, не
     разбирается: пометка семьи containers и запись `hints.unparsed` (`k8s.rendered`, С10);
+  - соседние каталоги наборов SQL с именами диалектов (`hsqldb`, `h2`, `sqlite`, `derby`,
+    `mysql`, `mariadb`, `postgres`, `postgresql`, `pgsql`, `mssql`, `sqlserver`, `oracle`) с
+    серверным среди них — одна база по первому в алфавите серверному диалекту, остальные в
+    подсказках «встроенная база для разработки и тестов» и «несколько диалектов» (С11);

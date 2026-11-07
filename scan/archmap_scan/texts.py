@@ -472,6 +472,14 @@ REASON_DOCKERFILE_SUBDIR = (
     "отдельного процесса нет"
 )
 REASON_MOBILE_APP = "мобильное приложение: код для телефона, контейнером не считается"
+def embedded_database(server: str) -> str:
+    return f"встроенная база для разработки и тестов: таблицы взяты из {server}"
+
+
+def other_dialect(chosen: str) -> str:
+    return f"несколько диалектов одной базы: вид и таблицы взяты из {chosen}"
+
+
 REASON_SQLITE_DEFAULT = (
     "sqlite как значение по умолчанию настроек: боевая база задаётся иначе, вид базы не взят"
 )
