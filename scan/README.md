@@ -177,3 +177,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     читаются (С1);
   - шаблон Dockerfile (`Dockerfile.j2`, `*.tpl`, `*.template`, `Dockerfile.in`, `*.jinja*`) не
     читается, в покрытии причина `template`; `<имя>.Dockerfile` равен `Dockerfile.<имя>` (С2);
+  - `docs`, `examples`, `samples` и подобные исключаются и частью сегмента через дефис или
+    подчёркивание (`docker-stack-docs`); манифест в каталоге служебной сборки (`tools`,
+    `scripts`, `artifacts`, `*-build-image`, `_*` и другие, `walk.service_sign`) — кандидат
+    разработки по политике Б, Dockerfile такой на ступени 2 становится объектом с пометкой (С3);

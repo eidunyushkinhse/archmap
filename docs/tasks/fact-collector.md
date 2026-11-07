@@ -676,7 +676,9 @@ unread: {too_large: 3, binary: 0}
      говорит об этом прямо. (3) Признак разработки по месту и форме, не по догадке: каталоги
      `.devcontainer`, `docker/federation`, `e2e`, `playwright`, `test*`; файлы `*.dev.yml`,
      `Dockerfile.debug|playwright|e2e`; Procfile при goreman в Makefile; CI-файлы; сервисы base,
-     не расширенные ни одним боевым файлом; сервисы наблюдаемости из prod-стендов разработки.
+     не расширенные ни одним боевым файлом; сервисы наблюдаемости из prod-стендов разработки;
+     с части 1б (п. 12) ещё «служебная сборка» (каталог `tools`, `scripts`, `artifacts` и
+     подобные).
      Страховка остатка: шаг промпта агента «подсказки dev-only проверь, не боевые ли они».
      Данные: 55 из 89 неверных объектов корнер-кейсов dev-only; релевантное только в dev-манифестах
      встретилось трижды (Sentry целиком, ES и LibreTranslate Mastodon, usage-ingestion PostHog) и
@@ -757,3 +759,23 @@ unread: {too_large: 3, binary: 0}
      Envoy уходит из подсказок в исключённое. Шаблоны других манифестов (`*.conf.template`
      supervisor) правило не трогает. Форма `<имя>.Dockerfile` и раньше разбиралась как
      `Dockerfile.<имя>` (`assemble._variant`, `walk.dev_sign`), тест это закрепляет.
+   - С3: (а) `docs`, `doc`, `examples`, `example`, `samples` и новый `sample` совпадают и частью
+     сегмента через дефис или подчёркивание (`walk._convention_dir`: `docker-stack-docs`,
+     `helm_examples`), частью слова нет (`documents`, `exampleservice`). Правило общее для
+     обхода, поэтому вместе с учебными Dockerfile Airflow уходят и `api-docs/` Sentry (подсказка
+     о файле OpenAPI `api-docs/openapi.json` пропала, вернуть ключом `--include api-docs`),
+     `src/telemetry-docs/` OpenTelemetry Demo (сервис compose остаётся, его Dockerfile
+     не читается), `contributing-docs/` и `example_dags/` Airflow, `sample-*` Kubernetes.
+     (б) Признак «служебная сборка» (`walk.service_sign`, текст «служебная сборка в каталоге
+     <каталог>/»): сегмент `tools`, `scripts`, `artifacts`, `recipes`, `quality`, `benchmark`,
+     `benchmarks`, `uffizzi`, `terraform`, `packer`, `build-image`, `*-build-image` или с `_` в
+     начале; ставят его Dockerfile, compose, k8s, systemd, supervisor и Procfile
+     (`walk.manifest_sign` = признак разработки, иначе служебная сборка), Helm нет. Dockerfile
+     служебной сборки проверяется после привязки к образу сервиса (`_image_targets`): образ,
+     который запускает боевой сервис, остаётся его Dockerfile. На ступени 2 такой Dockerfile
+     становится объектом с пометкой (ловушка Monica), а Dockerfile с признаком разработки по
+     месту и форме по-прежнему уходит в подсказки на обеих ступенях: это правило части 1, его
+     пункт не называет. Следствия по дыму: юниты `scripts/systemd/airflow-*.service` Airflow
+     (8 процессов) и `tools/kafka/*/docker-compose.yml` Loki (брокер kafka) тоже стали
+     подсказками; у AWX все манифесты в `tools/`, боевых нет, и его процессы вернулись объектами
+     ступени 2 с пометкой.

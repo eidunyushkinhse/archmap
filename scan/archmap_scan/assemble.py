@@ -34,7 +34,7 @@ from archmap_scan.objects import (
     Schedule,
     Worker,
 )
-from archmap_scan.walk import Pattern, dev_sign
+from archmap_scan.walk import Pattern, dev_sign, manifest_sign, service_sign
 
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
@@ -43,8 +43,10 @@ PRIORITY = {
 }
 # Манифесты, у которых признак разработки по пути (walk.dev_sign) ставит сборка; compose и
 # Procfile ставят его сами (Unit.dev): у compose есть ещё основа с extends, у Procfile —
-# запуск менеджером процессов.
+# запуск менеджером процессов. Признак служебной сборки (walk.service_sign) получают все
+# они, кроме Helm (ТЗ §15 п. 12 С3).
 _DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s", "helm"})
+_NO_SERVICE_SIGN = frozenset({"helm"})
 # Манифесты развёртывания: хоть один без признака разработки — ступень 1 политики, ни
 # одного — ступень 2 (ТЗ §15 п. 10 Б2, Б3). Dockerfile и файлы сборки манифестом
 # развёртывания не считаются.
@@ -169,12 +171,16 @@ def _own_name(d: Dockerfile, variant: str | None, root_name: str) -> str:
 
 
 def _dockerfile_units(
-    units: list[Unit], findings: Findings, root_names: list[str], model: Model
+    units: list[Unit], findings: Findings, root_names: list[str], model: Model,
+    stage2: bool = False,
 ) -> list[Unit]:
     """Dockerfile, на который не ссылается ни один манифест, сам задаёт контейнер; если его
     образ (skaffold, имя образа сервиса, сборка в файле для разработки) работает в сервисе
     манифеста, это Dockerfile того сервиса. Вариант для разработки рядом с основным
-    Dockerfile — тот же контейнер (hints.merged)."""
+    Dockerfile — тот же контейнер (hints.merged). Dockerfile служебной сборки
+    (walk.service_sign, ТЗ §15 п. 12 С3), образ которого не запускает ни один сервис, идёт
+    по политике разработки: на ступени 1 в hints.profiles, на ступени 2 (stage2, боевых
+    манифестов нет) объектом с признаком (Unit.dev), пометку ставит _dev_objects."""
     root_name = root_names[-1]
     used = {u.dockerfile for u in units if u.dockerfile}
     claimed = {u.build_dir for u in units if u.build_dir is not None}
@@ -238,6 +244,13 @@ def _dockerfile_units(
                 ))
             owner_of[d.path] = list(dict.fromkeys(targets))
             continue
+        service = service_sign(d.path)
+        if service is not None and not stage2:
+            model.hint("profiles", {
+                "kind": "dockerfile", "name": d.path, "reason": texts.dev_manifest(service),
+                "source": str(d.from_loc), "profiles": [],
+            })
+            continue
         if variant is None and d.dir in claimed:
             continue
         name = _own_name(d, variant, root_name)
@@ -248,7 +261,7 @@ def _dockerfile_units(
             name=name, parser="dockerfile", loc=d.from_loc,
             build_dir=None if variant else d.dir,
             dockerfile=d.path, command=d.command, command_loc=d.command_loc,
-            shape=shape,
+            shape=shape, dev=service,
         ))
         owner_of.setdefault(d.path, []).append(name)
     for d in later:
@@ -435,7 +448,8 @@ def _dev_units(
     разработки» ставит _dev_objects."""
     for u in units:
         if u.dev is None and u.parser in _DEV_MANIFESTS:
-            u.dev = dev_sign(u.loc.path)
+            sign = dev_sign if u.parser in _NO_SERVICE_SIGN else manifest_sign
+            u.dev = sign(u.loc.path)
     _stands([u for u in units if u.dev is None], findings, root_names)
     kept = [u for u in units if u.dev is None]
     if not any(u.parser in _MANIFEST_PARSERS for u in kept):
@@ -459,7 +473,8 @@ def _objects(
 ) -> list[Obj]:
     root_names = [ctx.root.name, model.system.rsplit("/", 1)[-1], model.system]
     units = _dev_units(units, findings, model, root_names)
-    units = units + _dockerfile_units(units, findings, root_names, model)
+    stage2 = not any(u.parser in _MANIFEST_PARSERS and u.dev is None for u in units)
+    units = units + _dockerfile_units(units, findings, root_names, model, stage2)
     _procfile_web(units)
     by_name: dict[str, Obj] = {}
     for u in sorted(units, key=lambda x: (PRIORITY.get(x.parser, 99), x.loc)):

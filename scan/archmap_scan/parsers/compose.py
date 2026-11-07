@@ -2,8 +2,9 @@
 
 Сервис compose — кандидат в объект: имя, образ, каталог сборки, команда, переменные
 окружения (имена; значения только ради адресов зависимостей), depends_on. Сервисы под
-profiles и сервисы, которые есть только в файлах для разработки (признак по месту и форме,
-walk.dev_sign), в схему не идут, а перечисляются в подсказках; так же и сервис файла-основы,
+profiles и сервисы, которые есть только в файлах для разработки (признак по месту и форме
+или служебная сборка, walk.manifest_sign), в схему не идут, а перечисляются в подсказках;
+так же и сервис файла-основы,
 который расширяют (extends) только файлы разработки (_dev_bases). extends и include не
 раскрываются. Подстановки с
 дефолтом (${VAR:-x}, ${VAR-x}) в image, environment и command раскрываются в дефолт,
@@ -37,7 +38,7 @@ from archmap_scan.model import (
     Unit,
     unparsed_hint,
 )
-from archmap_scan.walk import Files, dev_sign, is_compose_name
+from archmap_scan.walk import Files, is_compose_name, manifest_sign
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
 NAME = "compose"
@@ -359,14 +360,15 @@ def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
     dev_units: dict[str, Unit] = {}
-    # Файлы для разработки (признак по месту и форме, walk.dev_sign) читаются после
+    # Файлы для разработки (признак по месту и форме или служебная сборка,
+    # walk.manifest_sign) читаются после
     # остальных. Их сервисы, которых нет в основных файлах, становятся кандидатами с
     # признаком разработки (Unit.dev), а их судьбу решает сборка по ступени политики (ТЗ §15
     # п. 10 Б2, Б3). Compose по содержимому идёт тем же путём.
     content = set(_by_content(files))
     named = files.select(lambda p: is_compose_name(paths.name(p)))
     ordered = sorted([*named, *content], key=_order)
-    signs = {rel: dev_sign(rel) for rel in ordered}
+    signs = {rel: manifest_sign(rel) for rel in ordered}
     dev_files = {rel for rel in ordered if signs[rel]}
     docs: dict[str, LineDict] = {}
     modes: dict[str, dict[str, tuple[str, list[str]]]] = {}

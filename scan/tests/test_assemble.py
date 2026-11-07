@@ -7,7 +7,7 @@ from pathlib import Path
 
 from archmap_scan import texts, walk
 from archmap_scan.objects import Model, Obj
-from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, ctx_of, files_of, model_of, time_limit, tree
 
 
 def _obj(model: Model, name: str) -> Obj:
@@ -422,3 +422,49 @@ def test_queue_broker_by_manifest_next_to_dockerfile() -> None:
     kinds = {o.name: (o.shape, o.role) for o in model.objects}
     assert kinds["redis"] == ("broker", "брокер")
     assert kinds["cache"] == ("database", "кэш")
+
+
+def test_service_build_dirs_and_doc_segments() -> None:
+    """Служебные и учебные каталоги (ТЗ §15 п. 12 С3). (а) docs, examples и подобные
+    совпадают частью сегмента через дефис или подчёркивание: учебные Dockerfile Airflow в
+    docker-stack-docs/docker-examples/extending/*/ дали 13 объектов. Частью слова не
+    совпадают: documents/ и exampleservice/ читаются. (б) Манифест в каталоге служебной
+    сборки — кандидат разработки: supervisor.conf AWX в tools/docker-compose/,
+    scripts/release/Dockerfile Nomad, loki-build-image/ Loki, staging/.../_mock/
+    Kubernetes, юнит terraform/shared/config/consul-template.service Nomad. Боевой
+    манифест есть (compose), поэтому это подсказки. Ловушка: deploy/k8s/ признаком не
+    является, Deployment worker остаётся объектом."""
+    root = FIXTURES / "service-build"
+    listing = walk.list_files(ctx_of(root))
+    assert set(listing.excluded) == {
+        walk.Excluded("docker-stack-docs/", 1, "convention"),
+        walk.Excluded("helm_examples/", 1, "convention"),
+    }
+    model = model_of(root)
+    assert sorted(o.name for o in model.objects) == [
+        "app", "db", "documents", "exampleservice", "worker",
+    ]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "awx-dispatcher": texts.dev_manifest(texts.service_build("tools")),
+        "consul-template": texts.dev_manifest(texts.service_build("terraform")),
+        "loki-build-image/Dockerfile": texts.dev_manifest(texts.service_build("loki-build-image")),
+        "scripts/release/Dockerfile": texts.dev_manifest(texts.service_build("scripts")),
+        "staging/_mock/Dockerfile": texts.dev_manifest(texts.service_build("staging/_mock")),
+    }
+    assert walk.service_sign("deploy/helm/k8s/docker/Dockerfile") is None
+    assert walk.service_sign("ci-build-image/Dockerfile") is not None
+    assert walk.convention_rule("documents/x/Dockerfile") is None
+
+
+def test_service_build_dockerfile_on_stage_two() -> None:
+    """Ступень 2 (ТЗ §15 п. 10 Б3): боевых манифестов нет, и Dockerfile служебной сборки
+    становится объектом с пометкой «из манифеста разработки», а не пропадает (ловушка ТЗ
+    §15 п. 12 С3: scripts/docker/Dockerfile Monica, когда Sail уходит в разработку)."""
+    model = model_of(FIXTURES / "service-build-solo")
+    assert [o.name for o in model.objects] == ["scripts"]
+    assert model.hints["dev_manifest_objects"] == [{
+        "kind": "container", "name": "scripts",
+        "reason": texts.dev_manifest(texts.service_build("scripts")),
+        "source": "scripts/docker/Dockerfile:1",
+    }]

@@ -1,0 +1,7 @@
+services:
+  app:
+    build: ./app
+    environment:
+      DATABASE_URL: postgres://db:5432/app
+  db:
+    image: postgres:16

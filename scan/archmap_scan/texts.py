@@ -337,6 +337,11 @@ def dev_sign_file(name: str) -> str:
     return f"имя файла {name}"
 
 
+def service_build(path: str) -> str:
+    """Признак служебной сборки: каталог инструментов, скриптов, учебных образов (walk.service_sign)."""
+    return f"служебная сборка в каталоге {path}/"
+
+
 def dev_sign_manager(manager: str, loc: str) -> str:
     """Procfile запускает менеджер процессов разработки (walk.dev_procfile)."""
     return f"Procfile запускает {manager} ({loc})"

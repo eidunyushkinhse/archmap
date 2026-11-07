@@ -37,9 +37,19 @@ SKIP_DIRS = DEPENDENCY_DIRS | {".git", "dist", "build", "target"}
 # Исключение по соглашению: сегменты пути (сравнение без учёта регистра).
 CONVENTION_DIRS = frozenset({
     "test", "tests", "__tests__", "testing", "spec", "specs", "testdata", "fixtures",
-    "mocks", "__mocks__", "e2e", "docs", "doc", "examples", "example", "samples",
+    "mocks", "__mocks__", "e2e", "docs", "doc", "examples", "example", "samples", "sample",
     "benchmarks",
 })
+# Документация и примеры совпадают и частью сегмента через дефис или подчёркивание (ТЗ §15
+# п. 12 С3): docker-stack-docs/docker-examples/ Airflow дали 13 объектов из учебных
+# Dockerfile. Частью слова не совпадают: documents и exampleservice читаются.
+_DOC_TOKENS = frozenset({"docs", "doc", "examples", "example", "samples", "sample"})
+_SEGMENT_PARTS = re.compile(r"[-_]")
+
+
+def _convention_dir(segment: str) -> bool:
+    low = segment.lower()
+    return low in CONVENTION_DIRS or bool(_DOC_TOKENS & set(_SEGMENT_PARTS.split(low)))
 
 # Файлы и каталоги CI и служебных инструментов (ТЗ §15 п. 10 А9): верхний services: у
 # .woodpecker.yml Lemmy стал базой, примеры правил .semgrep PostHog дали расписания. Такие
@@ -97,6 +107,38 @@ def dev_sign(rel: str) -> str | None:
 def is_dev_path(rel: str) -> bool:
     """Манифест для разработки: часть из DEV_TOKENS в любом каталоге пути или в имени."""
     return dev_sign(rel) is not None
+
+
+# Служебная сборка (ТЗ §15 п. 12 С3): манифест в каталоге инструментов, скриптов, учебных
+# образов, замеров или инфраструктуры собирает окружение разработчика, стенд или образ для
+# сборки, а не продукт: supervisor.conf AWX из tools/docker-compose/ (12 процессов awx-*),
+# scripts/release/Dockerfile Nomad, loki-build-image/ Loki, _mock/ Kubernetes. Сегмент
+# сравнивается целиком без учёта регистра, ещё *-build-image и сегмент с «_» в начале.
+# Признак ставится манифестам Dockerfile, compose, k8s, systemd, supervisor и Procfile (не
+# Helm); код в этих каталогах читается по прежним правилам ярусов кода.
+SERVICE_BUILD_DIRS = frozenset({
+    "tools", "scripts", "artifacts", "recipes", "quality", "benchmark", "benchmarks",
+    "uffizzi", "terraform", "packer", "build-image",
+})
+_SERVICE_BUILD_SUFFIX = "-build-image"
+
+
+def service_sign(rel: str) -> str | None:
+    """Признак служебной сборки по каталогу пути: текст для подсказки или None."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        low = seg.lower()
+        if low in SERVICE_BUILD_DIRS or low.endswith(_SERVICE_BUILD_SUFFIX) or (
+            len(low) > 1 and low.startswith("_")
+        ):
+            return texts.service_build("/".join(segments[: i + 1]))
+    return None
+
+
+def manifest_sign(rel: str) -> str | None:
+    """Признак манифеста не для выкладки: разработка по месту и форме (dev_sign), иначе
+    служебная сборка (service_sign)."""
+    return dev_sign(rel) or service_sign(rel)
 
 
 # Менеджеры процессов разработки: Procfile, который запускает один из них из Makefile или
@@ -246,7 +288,7 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     (тогда к нему добавляется путь области). None — путь не исключается."""
     parts = rel_in_scope.split("/")
     for i, seg in enumerate(parts[:-1]):
-        if seg.lower() in CONVENTION_DIRS:
+        if _convention_dir(seg):
             return "/".join(parts[: i + 1]) + "/", True
     name = parts[-1]
     if is_compose_name(name) and name_tokens(name) & _COMPOSE_TEST_TOKENS:
