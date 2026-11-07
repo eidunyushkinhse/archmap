@@ -148,7 +148,7 @@ def _workload(doc: LineDict, kind: str, rel: str) -> _Workload | None:
     template = _get(doc, "spec", "jobTemplate", "spec", "template") if kind == "CronJob" \
         else _get(doc, "spec", "template")
     containers = _get(template, "spec", "containers")
-    unit = Unit(name=name, parser=NAME, loc=Loc(rel, meta.line_of("name")))
+    unit = Unit(name=name, parser=NAME, loc=Loc(rel, meta.line_of("name")), job=kind == "Job")
     work = _Workload(unit=unit, labels=_str_map(_get(template, "metadata", "labels")))
     if isinstance(containers, list) and containers and isinstance(containers[0], LineDict):
         main = containers[0]

@@ -260,3 +260,10 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - файлы `.kt` и `.kts` — язык Kotlin у владельцев (`owners._EXT_LANGUAGE`): контейнер на
     Kotlin (Gradle с плагином Kotlin) владеет `.kt` и `.java` смешанного модуля, контейнер на
     Java только `.java`; ярус кода Kotlin не читает, на факты это не влияет (Д6);
+  - задача инициализации (`assemble._init_tasks`): сервис compose или k8s Job на образе
+    PostgreSQL, Redpanda, Kafka, Redis или клиента хранилища (`minio/mc`, `minio-client`,
+    `rustfs/rc`, `rclone`), чья команда не запускает сервер образа (`vocab.starts_server`), с
+    признаком задачи (restart `no` или `on-failure`, слово init, setup, migrate, seed,
+    bootstrap, createbucket, ready, wait в имени, Job) объектом не становится: запись в
+    `hints.unassigned` «задача инициализации на образе …, не сервис», depends_on к ней и от
+    неё не рисуются; задачи без признака остаются правилу А8 (Д7);

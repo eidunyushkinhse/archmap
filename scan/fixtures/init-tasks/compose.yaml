@@ -1,0 +1,36 @@
+# Д7: задачи инициализации на образах базы, брокера и клиента хранилища — не сервисы.
+services:
+  db:
+    image: postgres:16
+    restart: on-failure
+    command: postgres -c shared_buffers=256MB  # ловушка: сервер с ключами остаётся базой
+  db-ready:
+    image: postgres:16
+    restart: "no"
+    entrypoint: ["sh", "-c", "until psql -h db -U postgres -c 'select 1'; do sleep 2; done"]
+    depends_on: [db]
+  kafka:
+    image: redpandadata/redpanda:v25.1.9
+    restart: on-failure
+    command: redpanda start --smp 1
+  kafka-init:
+    image: redpandadata/redpanda:v25.1.9
+    entrypoint: /bin/sh
+    command: ["-c", "rpk topic create orders --brokers kafka:9092"]
+    depends_on: [kafka]
+  minio:
+    image: minio/minio
+    command: server /data
+  minio-createbucket:
+    image: cgr.dev/chainguard/minio-client:latest-dev
+    entrypoint: /bin/sh -ec "mc mb --ignore-existing local/orders"
+    depends_on: [minio]
+  migrate:  # ловушка: migrate на образе приложения правилом не задет
+    build: ./api
+    command: python manage.py migrate
+    depends_on: [db]
+  api:
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://app@db:5432/app
+    depends_on: [db-ready, kafka-init, minio-createbucket]

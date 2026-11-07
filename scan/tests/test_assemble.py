@@ -433,23 +433,65 @@ def test_root_dockerfile_and_dev_compose_builds(tmp_path: Path) -> None:
 def test_task_on_database_or_broker_image() -> None:
     """Задача на образе базы или брокера — сервис с ролью «задача», связи к ней по
     depends_on в подсказках (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog
-    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были."""
+    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были. С
+    части 2 (Д7) задача с признаком (restart «no», слово задачи в имени) объектом не
+    становится вовсе: tables-ready в hints.unassigned, связей к ней нет."""
     model = model_of(FIXTURES / "compose-task")
     kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
     assert kinds == {
         "api": ("service", "сервис", "Python"),
-        "tables-ready": ("service", "задача", "postgres"),
-        "kafka-init": ("service", "задача", "redpanda"),
+        "topics": ("service", "задача", "redpanda"),
         "db": ("database", "БД", "PostgreSQL"),
         "replica": ("database", "БД", "PostgreSQL"),
         "kafka": ("broker", "брокер", "Redpanda"),
     }
     assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
-        ("api", "db"), ("api", "kafka"), ("kafka-init", "kafka"), ("tables-ready", "db"),
+        ("api", "db"), ("api", "kafka"), ("topics", "kafka"),
     }
-    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [
-        ("api", "kafka-init"), ("api", "tables-ready"),
+    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [("api", "topics")]
+    assert [h["name"] for h in model.hints["unassigned"]] == ["tables-ready"]
+
+
+def test_init_tasks_are_not_services() -> None:
+    """Задача инициализации на образе базы, брокера или клиента хранилища (ТЗ §15 п. 13 Д7):
+    personhog-tables-ready и kafka-init PostHog, minio-createbucket Supabase были сервисами.
+    Своя команда не запускает сервер образа и есть признак задачи (restart «no», слово в
+    имени, k8s Job): объекта нет, запись в hints.unassigned, depends_on к ней и от неё не
+    рисуются. Ловушки: postgres с ключами и redpanda start при restart: on-failure остаются
+    базой и брокером; migrate на образе приложения остаётся сервисом."""
+    model = model_of(FIXTURES / "init-tasks")
+    kinds = {o.name: (o.shape, o.role) for o in model.objects}
+    assert kinds == {
+        "api": ("service", "сервис"), "migrate": ("service", "сервис"),
+        "db": ("database", "БД"), "minio": ("database", "хранилище"),
+        "kafka": ("broker", "брокер"),
+    }
+    assert sorted((lk.src.name, lk.dst.name) for lk in model.links) == [
+        ("api", "db"), ("migrate", "db"),
     ]
+    assert "depends_on" not in model.hints
+    tasks = {str(h["name"]): (h["reason"], h["source"]) for h in model.hints["unassigned"]}
+    assert tasks == {
+        "db-ready": (texts.init_task("PostgreSQL"), "compose.yaml:7"),
+        "kafka-init": (texts.init_task("Redpanda"), "compose.yaml:16"),
+        "minio-createbucket": (texts.init_task("minio-client"), "compose.yaml:24"),
+        "orders-load": (texts.init_task("PostgreSQL"), "k8s/seed.yaml:4"),
+    }
+    assert vocab.starts_server("PostgreSQL", "sh -c 'exec postgres -c fsync=off'")
+    assert vocab.starts_server("PostgreSQL", "docker-entrypoint.sh")
+    assert not vocab.starts_server("PostgreSQL", "psql -U postgres -d postgres -c 'select 1'")
+    assert vocab.starts_server("rclone", "rclone serve s3 /data")
+    assert not vocab.starts_server("rustfs/rc", "/bin/sh -ec rc mb local/x")
+    assert vocab.init_image("rustfs/rc") == "rustfs/rc" and vocab.init_image("rc") is None
+    assert vocab.init_image("prometheuscommunity/postgres-exporter") is None
+
+    # Враждебная команда на 2 МБ: слова считаются до предела, ключ оболочки без регулярки.
+    started = time.perf_counter()
+    for command in ("-" + "c" * 2_000_000 + "!", "sh -" + "c" * 2_000_000 + " postgres",
+                    "psql " * 400_000, "-c " * 700_000):
+        vocab.starts_server("PostgreSQL", command)
+    assert vocab.init_task_name("x-" * 1_000_000) is False
+    assert time.perf_counter() - started < time_limit()
 
 
 def test_image_vocabulary_and_redis_queue_broker() -> None:

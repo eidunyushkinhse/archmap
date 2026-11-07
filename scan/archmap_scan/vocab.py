@@ -170,6 +170,86 @@ def dev_command(command: str | None) -> str | None:
     return None
 
 
+# Задачи инициализации (ТЗ §15 п. 13 Д7): сервис на образе базы, брокера или клиента
+# хранилища со своей командой, которая не запускает сервер образа, создаёт таблицы, топики
+# или корзины и выходит (kafka-init PostHog на redpanda, minio-createbucket Supabase). Вид
+# по технологии образа или по пути образа клиента → программы сервера образа: слово команды
+# с базовым именем первой программы и следующими словами пары (rclone serve). У клиентов
+# MinIO и RustFS сервера нет.
+_INIT_SERVERS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "PostgreSQL": (("postgres",), ("pg_ctl",), ("pg_ctlcluster",), ("postmaster",)),
+    "Redpanda": (("redpanda",),),
+    "Kafka": (("kafka-server-start.sh",), ("kafka-server-start",), ("run",), ("run.sh",)),
+    "Redis": (("redis-server",), ("redis-stack-server",), ("valkey-server",), ("redis-sentinel",)),
+}
+_INIT_CLIENTS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "minio/mc": (), "minio-client": (), "rustfs/rc": (),
+    "rclone": (("rclone", "serve"), ("rclone", "rcd")),
+}
+# Слова имени сервиса, по которым он задача (через «-», «_» или «.»), и create-bucket целиком.
+_INIT_NAME_WORDS = frozenset({
+    "init", "setup", "migrate", "seed", "bootstrap", "createbucket", "ready", "wait",
+})
+_INIT_NAME_PHRASES = ("create-bucket", "create_bucket")
+_NAME_PARTS = re.compile(r"[-_.]")
+# Обёртки, после которых программа образа по умолчанию (docker-entrypoint.sh без команды
+# запускает postgres): команда только из них сервер запускает.
+_INIT_WRAPPERS = frozenset({"docker-entrypoint.sh", "entrypoint.sh", "tini", "dumb-init", "--"})
+# Сколько слов команды просматривается: дальше команда считается запускающей сервер, и
+# сервис остаётся по прежним правилам.
+_MAX_INIT_WORDS = 4096
+
+
+def init_image(image: str) -> str | None:
+    """Вид образа задачи инициализации (технология базы или брокера, путь образа клиента)
+    или None."""
+    kind = image_kind(image)
+    if kind is not None and kind.technology in _INIT_SERVERS:
+        return kind.technology
+    parts = image_path(image).split("/")
+    for key in (parts[-1], "/".join(parts[-2:])):
+        if key in _INIT_CLIENTS:
+            return key
+    return None
+
+
+def starts_server(kind: str, command: str) -> bool:
+    """Команда запускает сервер образа вида kind: программа сервера на месте программы, а не
+    значением ключа (psql -U postgres сервер не запускает). Команда из одних обёрток
+    запускает программу образа по умолчанию, то есть сервер."""
+    servers = _INIT_SERVERS.get(kind) or _INIT_CLIENTS.get(kind, ())
+    words = [w.strip("'\"();&|") for w in command.split()[: _MAX_INIT_WORDS + 1]]
+    if len(words) > _MAX_INIT_WORDS:
+        return True
+    bases = [_base(w) for w in words]
+    if all(b in _INIT_WRAPPERS for b in bases if b):
+        return bool(_INIT_SERVERS.get(kind))
+    for i in range(len(bases)):
+        prev = words[i - 1] if i else ""
+        if prev.startswith("-") and not (
+            _shell_flag(prev) and i > 1 and bases[i - 2] in _SHELLS
+        ):
+            continue
+        if any(tuple(bases[i:i + len(spec)]) == spec for spec in servers):
+            return True
+    return False
+
+
+def _shell_flag(word: str) -> bool:
+    """Ключи оболочки с -c (-c, -ec, -xc): следующее слово — начало скрипта."""
+    flags = word[1:]
+    return flags.isalpha() and flags.islower() and "c" in flags
+
+
+def init_task_name(name: str) -> bool:
+    """Имя сервиса задачи: часть init, setup, migrate, seed, bootstrap, createbucket, ready,
+    wait или create-bucket."""
+    low = name.lower()
+    return bool(set(_NAME_PARTS.split(low)) & _INIT_NAME_WORDS) or any(
+        phrase in low for phrase in _INIT_NAME_PHRASES
+    )
+
+
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 

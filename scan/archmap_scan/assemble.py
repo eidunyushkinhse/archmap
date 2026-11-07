@@ -89,7 +89,9 @@ def _is_task(unit: Unit, image: str, images: dict[str, str]) -> bool:
 
 def _tasks(model: Model) -> None:
     """Задачи на образе базы или брокера — сервисы с ролью «задача»: ни базой, ни брокером
-    они не считаются, а depends_on к ним уходит в подсказки, как к любому сервису."""
+    они не считаются, а depends_on к ним уходит в подсказки, как к любому сервису. Задачи с
+    признаком по имени или restart раньше убрал _init_tasks (Д7), здесь остаются задачи без
+    него (оболочка и depends_on на сервис того же образа)."""
     images: dict[str, str] = {}
     for obj in model.objects:
         image = next((u.image for u in obj.units if u.image), None)
@@ -101,6 +103,43 @@ def _tasks(model: Model) -> None:
         if any(_is_task(u, images[obj.name], images) for u in obj.units):
             obj.shape, obj.role = SERVICE, vocab.ROLE_TASK
             obj.technology = images[obj.name]
+
+
+def _init_task(unit: Unit, kind: str) -> bool:
+    """Сервис compose или k8s Job — задача инициализации (ТЗ §15 п. 13 Д7): своя команда не
+    запускает сервер образа, и есть признак задачи: k8s Job, у compose restart «no» или
+    «on-failure» либо слово задачи в имени (kafka-init, personhog-tables-ready)."""
+    if unit.parser == "k8s":
+        sign = unit.job
+    elif unit.parser == "compose":
+        restart = unit.restart or ""
+        sign = restart == "no" or restart.startswith("on-failure") or vocab.init_task_name(
+            unit.name
+        )
+    else:
+        return False
+    run = " ".join(dict.fromkeys(t for t in (unit.entrypoint, unit.command) if t))
+    return sign and bool(run) and not vocab.starts_server(kind, run)
+
+
+def _init_tasks(model: Model) -> None:
+    """Задачи инициализации на образе базы, брокера или клиента хранилища объектами не
+    становятся: запись в hints.unassigned, а depends_on к ним и от них не рисуются (их нет
+    среди объектов). Задачи без признака по имени, restart или Job остаются правилу _tasks."""
+    kept: list[Obj] = []
+    for obj in model.objects:
+        unit = next((u for u in obj.units if u.image), None)
+        kind = vocab.init_image(unit.image) if unit is not None and unit.image else None
+        if kind is None or obj.code_dir is not None or not any(
+            _init_task(u, kind) for u in obj.units
+        ):
+            kept.append(obj)
+            continue
+        model.hint("unassigned", {
+            "kind": "container", "name": obj.name, "reason": texts.init_task(kind),
+            "source": str(min(u.loc for u in obj.units)),
+        })
+    model.objects = kept
 
 
 def _go_module_name(module: str) -> str:
@@ -1200,6 +1239,7 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     for hint in findings.hints:
         model.hint(hint.section, hint.data)
     model.objects = _objects(list(findings.units), findings, model, ctx)
+    _init_tasks(model)
     _tasks(model)
     _merge_duplicates(model)
     _dev_objects(model)

@@ -1,0 +1,11 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: orders-load
+spec:
+  template:
+    spec:
+      containers:
+        - name: psql
+          image: postgres:16
+          command: ["psql", "-h", "db", "-f", "/seed/orders.sql"]
