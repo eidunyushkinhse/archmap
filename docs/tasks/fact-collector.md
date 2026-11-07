@@ -926,3 +926,10 @@ unread: {too_large: 3, binary: 0}
      именем сервиса (`src/checkout/genproto/Dockerfile` остался вариантом checkout). Итог у
      OpenTelemetry Demo: технологии образов, astronomy-db — PostgreSQL, valkey-cart — Redis,
      связи к otel-collector, opamp-server, valkey-cart и astronomy-db по адресам `.env`.
+   - Остаток части 1б по целям дыма: Forem 8 объектов при цели 6 (bundle: команда
+     `./scripts/bundle.sh` правилом С6 не видна; chrome на browserless оставлен ради ok вердикта
+     PostHog; базы db и postgres из двух файлов compose, склейку их ни один пункт не называет);
+     объекты матрицы CI Envoy остаются объектами ступени 2 (С12); recommendation OpenTelemetry
+     Demo на Java (в клоне build.gradle), а не на Python; `http_routes` Petclinic пишет
+     «Java: Spring Boot» по правилу А12; stacks Kubernetes пусты (у контейнеров на образах
+     язык не известен); подсказка Sentry о `api-docs/openapi.json` ушла с С3а.
