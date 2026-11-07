@@ -880,5 +880,5 @@ unread: {too_large: 3, binary: 0}
      документы файла не разбираются, в покрытии пометка семьи containers «отрендеренный
      шаблон Helm (имена RELEASE-NAME) не разбирается», путь файла в `hints.unparsed`. Метки и
      прочие поля признаком не считаются. У Airflow ушли объекты «RELEASE-NAME-kerberos-kdc» и
-     «RELEASE-NAME-keytab-bootstrap» (`chart/kustomize-overlays/kerberos/`), под признак
-     попадает и `chart/kustomize-overlays/keda/`.
+     «RELEASE-NAME-keytab-bootstrap» (`chart/kustomize-overlays/kerberos/`); файлы
+     `chart/kustomize-overlays/keda/` (ScaledObject) разборщик не загружал и раньше.
