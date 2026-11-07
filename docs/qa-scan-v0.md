@@ -519,6 +519,96 @@ taskworker-sentry (raw-режим devservices, записано как сомн�
 после 3в: те же шесть `verdict.yaml` и тот же чекер, без новых скептиков (объекты ok должны
 остаться ok, dev-only уйти в подсказки, пропуски закрыться). Подробный перечень в ТЗ §15 п. 10.
 
+## 12. Дымовой прогон 15 репозиториев и часть 1б фазы 3в (2026-11-07)
+
+Решение владельца после части 1 фазы 3в: до слияния прогнать сборщик 0.3.0 на 10–15 разноплановых
+репозиториях («сперва докрутим, потом сольём»). Протокол дешевле корнер-кейсов на порядок: без
+скептиков, только прогон и чтение вывода судьёй. Клоны shallow в
+`~/archmap-etalons-2026-08-19/smoke-2026-11-07/` (`repos/`, `out/` до правок, `run.sh`, `digest.py`),
+запуск `python3 -I -S archmap-scan.pyz <repo> --out <dir>` под `ulimit -v 4 ГБ`, `timeout 900` и
+`/usr/bin/time` (пиковая память), после прогона проверка `git status` клона. Выбор: стеки, которых
+нет среди эталонов и корнер-кейсов (Java, .NET, PHP, Elixir, Bazel), большие монорепо, Helm и
+Terraform, Ansible. Класс «падение, ресурсы, порча клона» чист до правок: 15 из 15 с кодом 0, клоны
+чисты, не дольше 7,2 с и 50 МБ. По содержимому вывод дал 13 классов ложных объектов и
+технологий, они стали пунктами С1–С13 части 1б (исполнитель opus-xhigh, 15 коммитов 5b88b61c..6ee8cacf
+в `feat/scan-3c`, коммит на пункт, решения и остаток в ТЗ §15 п. 12). Таблица: объекты это контейнеры,
+базы и брокеры вместе; время и память после правок.
+
+| репозиторий | стек, что ловит | объекты до → после | связи | что изменилось | время, память |
+|---|---|---|---|---|---|
+| petclinic-ms e8b747a | Java, 8 сервисов Spring, hsqldb и mysql рядом | 14 → 12 | 0 → 3 | технологии «Java + Spring Boot» вместо имён образов, одна база MySQL с таблицами, ушли «petclinic-ms» и «База данных» | 0,6 с, 23 МБ |
+| keycloak d4d55541 | Java, Quarkus, операторы | 3 → 2 | 0 | ушёл `custom-image` из документации | 1,0 с, 26 МБ |
+| otel-demo 6df1674 | 13 языков, compose с `${X_DOCKERFILE}` из `.env` | 36 → 33 | 4 → 20 | технологии по сервисам (Java, .NET, Go, Ruby, PHP, Rust, Kotlin, Elixir, Python, Node.js) вместо 30 × Node.js, связи по адресам из `.env`, ушли genproto, cypress, android | 0,7 с, 23 МБ |
+| eshop 913acea | .NET, 28 csproj, корневой package.json без зависимостей | 1 | 0 | технология .NET вместо Node.js | 0,5 с, 23 МБ |
+| awx fe6cd9d | Django, supervisor в `tools/`, `Dockerfile.j2` | 15 → 17 | 1 | ушёл объект «j2» и база SQLite (база по миграциям без вида, 60 таблиц); процессы supervisor остались объектами ступени 2 с пометкой | 1,3 с, 43 МБ |
+| airflow 9c03219 | Python, Helm, kustomize, 13 учебных Dockerfile в `docker-stack-docs/` | 31 → 5 | 0 | ушли учебные Dockerfile, `RELEASE-NAME-*` из отрендеренного Helm, юниты systemd из `scripts/` | 5,4 с, 50 МБ |
+| loki 0ecdff74 | Go, `vendor/` в git, Dockerfile.cross, `loki-build-image/` | 38 → 27 | 3 → 0 | ушли объекты из `vendor/`, варианты Dockerfile, образ сборки, брокер из `tools/kafka/` | 1,5 с, 27 МБ |
+| supabase dc73b346 | compose на образах, 110 подстановок без `.env` в git | 18 | 15 | из `stacks` ушли имена образов | 1,6 с, 40 МБ |
+| forem 4aa05e7 | Rails, dev-сервисы по форме (yarn, seed, rspec, chrome) | 14 → 8 | 18 → 10 | yarn, seed, webpacker, esbuild, rspec_system, devcontainer в подсказках; остались bundle и chrome, базы `db` и `postgres` из двух файлов compose | 0,8 с, 24 МБ |
+| plausible 31fc191 | Elixir + Phoenix | 1 | 0 | без изменений | 0,6 с, 26 МБ |
+| nomad e77c361 | Go, Terraform, `scripts/release/` | 4 → 2 | 0 | ушли `release` и `consul-template` | 1,0 с, 25 МБ |
+| monica dab7427 | PHP + Laravel, Sail, `Dockerfile-fpm` | 10 | 9 | ступень 2: Sail объекты с пометкой, fpm на PHP вместо Node.js, `stacks` с PHP + Laravel | 0,5 с, 23 МБ |
+| n8n 3895cb31 | Node.js монорепо, `.devcontainer/`, `packages/quality/` | 18 → 9 | 13 → 3 | Dockerfile из `.devcontainer/` больше не привязан к n8n, ушли distroless и kent | 5,1 с, 34 МБ |
+| kubernetes 3a92e6af | Go, `_mock/`, `artifacts/`, `vendor/` в git | 25 → 19 | 0 | ушли `_mock`, `artifacts`, `kube-apiserver` и `kubectl` стали вариантами `server-image` | 3,4 с, 33 МБ |
+| envoy 082be7be | C++ на Bazel, `Cargo.toml` и `go.mod` SDK, `.devcontainer/Dockerfile.in` | 7 | 0 | стек «C++ (Bazel)» вместо Rust; матрица CI `all`, `gcc`, `llvm`, `none` осталась объектами ступени 2 | 1,0 с, 26 МБ |
+| итого | | 235 → 171 | 63 → 61 | | ≤ 5,4 с, ≤ 50 МБ |
+
+### 12.1 Что показал дым
+
+1. **Обход.** `vendor/` читается при git: список пропусков действовал только без git (С1, Loki
+   и Kubernetes коммитят зависимости). Шаблон `Dockerfile.j2` разбирался как Dockerfile и давал
+   объект «j2» (С2). Dockerfile в `docs/`, `examples/`, `tools/`, `scripts/`, `artifacts/`,
+   `_mock/`, `terraform/` становились объектами: 13 у Airflow, по одному-двум у Kubernetes,
+   Nomad, Keycloak, AWX, n8n, Loki (С3).
+2. **Технология.** Язык брался по первой стадии многостадийного Dockerfile (Monica fpm на
+   Node.js, у PostHog два сервиса на Rust вместо Node.js, С4). Каталог кода не искался по имени
+   сервиса и образа: у Petclinic технологией были имена образов, у OpenTelemetry Demo 30
+   сервисов получили Node.js от корневого `package.json` при `context: ./` (С5). Корневой
+   `package.json` с одними devDependencies давал Node.js системе на .NET (eShop, С7). `stacks`
+   засорён именами образов, семья яруса кода писала `unknown` при известном языке (С7).
+   Bazel и CMake не были маркерами стека, Envoy стал Rust по `Cargo.toml` SDK (С12).
+3. **Разработка по форме.** Политика Б части 1 различала манифесты по месту; дым показал
+   форму: сервисы `yarn install`, `rake db:seed`, `webpack-dev-server`, `rspec`, `sleep infinity`,
+   образы browserless и pgadmin, Laravel Sail целиком, Dockerfile из `.devcontainer/`,
+   прицепившийся к боевому n8n (С6). Варианты Dockerfile (`Dockerfile.cross`, distroless,
+   cypress, `genproto/Dockerfile` в подкаталоге) были объектами (С8). Django `settings/defaults.py`
+   с sqlite3 давал базу SQLite (С9), отрендеренные шаблоны Helm `RELEASE-NAME-*` объекты
+   (С10), соседние каталоги диалектов `hsqldb` и `mysql` две базы (С11).
+4. **Переменные compose из `.env`.** У OpenTelemetry Demo образы, Dockerfile и адреса живут в
+   закоммиченном `.env`: 46 подсказок «значение с подстановкой переменной» и 4 связи из 20.
+   Решение судьи (С13, отдельный коммит c48aeb6a для отката, исключение в инварианте 6):
+   читать `.env` только из каталога файла compose, только если он в `git ls-files --cached`,
+   только для подстановки `${VAR}` и `${VAR:-x}` в `image`, `build`, `environment`,
+   `depends_on`; значения параметрами и фактами не становятся.
+
+### 12.2 Перемер судьи после части 1б
+
+Гейт сборщика 451 зелёный, `archmap-scan.pyz` 276 319 байт. Шесть вердиктов корнер-кейсов
+(`remeasure.py` против выводов конца части 1): ok-объекты и ok-связи без потерь сверх
+объяснённых в части 1 (связи между объектами разработки у Lemmy и PostHog, база Lemmy под именем
+`postgres`), строка «осталось» прежняя (microservices-demo 0/0, lemmy 0/0, mastodon 2/0, immich 2/0,
+argo-cd 1/0, posthog 10/2); единственная разница в содержании это две технологии PostHog
+(`ml-mirror-image-scrub`, `recording-rasterizer`: Node.js вместо Rust по итоговой стадии, С4,
+верно). Sentry: ядро 5 узлов и 52 канала, scanner-false 0, как в базовой линии. Дым повторён
+судьёй своей копией `run.sh`: числа таблицы совпали с отчётом исполнителя. `yarmarka.expected` и
+`backend/` не менялись. Цена части 1б по счётчику исполнителя после возобновления (сессия оборвалась по ошибке API на С6): 464 тыс. токенов, 74 мин.
+
+### 12.3 Остаток и что это меняет для части 2
+
+Цели раздела 4 брифа не достигнуты в трёх местах, все объяснены: Forem 8 объектов при цели 6
+(`bundle` запускается через `./scripts/bundle.sh`, образ `forem:development`; `chrome` на
+browserless оставлен ради ok-объекта PostHog; базы `db` и `postgres` из `container-compose.yml` и
+`docker-compose.yml` одного стенда); матрица CI Envoy (`ci/matrix/docker-compose.yml`, ступень 2)
+остаётся объектами с пометкой; recommendation OpenTelemetry Demo в этом клоне на Gradle, цель
+«Python» была ошибкой брифа. Побочные эффекты правил, которые стоит пересмотреть: `api-docs/`
+Sentry исключён правилом «docs частью сегмента» (С3а), подсказка о `api-docs/openapi.json` ушла,
+а файлы OpenAPI и раньше терялись в `docs/`; `coverage` в списке зависимостей прячет настоящий
+код `pkg/util/coverage/` Kubernetes (С1); `.kt` в владельцах файлов относится к Java при языке
+Kotlin по Gradle (пока ни на что не влияет). Кандидаты части 2 сверх В1 (реестры каналов): тег
+образа `dev` или `development` как признак разработки (bundle Forem), файлы OpenAPI искать и в
+исключённых каталогах документации, имя системы по `go.mod` старше `package.json` интерфейса
+(корень Nomad назван `nomad-ui`), склейка одной базы из двух файлов compose одного стенда.
+
 ## Приложение. Выборка записей
 
 Скрипт `scratchpad/qa2/sample.py` (ключ `evidence.yaml` → первая ссылка → строка кода),

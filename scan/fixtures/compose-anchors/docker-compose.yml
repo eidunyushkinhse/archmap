@@ -1,0 +1,18 @@
+# Окружение через якорь YAML: одно имя у трёх сервисов, но это не общий код.
+x-env: &env
+  LOG_LEVEL: info
+  DATABASE_URL: postgres://app:app@db:5432/app
+services:
+  api:
+    build: api
+    environment: *env
+  # Общий код: worker собран из того же каталога, что api.
+  worker:
+    build: api
+    command: celery -A app worker
+    environment: *env
+  billing:
+    build: billing
+    environment: *env
+  db:
+    image: postgres:16

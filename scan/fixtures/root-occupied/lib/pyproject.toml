@@ -1,0 +1,3 @@
+[project]
+name = "report-lib"
+dependencies = ["jinja2"]

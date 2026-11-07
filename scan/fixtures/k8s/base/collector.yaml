@@ -1,0 +1,30 @@
+# Коллектор телеметрии: конфигурация из шаблона, «{{PROJECT_ID}}» заменяет sed при старте.
+# Это подстановка, а не разметка Helm: файл разбирается как обычный манифест.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collector
+spec:
+  selector:
+    matchLabels: {app: collector}
+  template:
+    metadata:
+      labels: {app: collector}
+    spec:
+      initContainers:
+        - name: init
+          image: busybox:1.36
+          command: ["sh", "-c", "sed 's/{{PROJECT_ID}}/demo/' /t/c.yaml > /c/c.yaml"]
+      containers:
+        - name: collector
+          image: otel/opentelemetry-collector-contrib:0.100.0
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: collector-template
+data:
+  collector.yaml: |
+    exporters:
+      cloud:
+        project: {{PROJECT_ID}}

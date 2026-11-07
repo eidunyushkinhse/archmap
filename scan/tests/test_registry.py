@@ -3,13 +3,14 @@ kafka, rabbitmq, celery и nats (pyregistry.py)."""
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from archmap_scan import stats, texts
+from archmap_scan import pyregistry, stats, texts
 from archmap_scan.model import Findings
 from archmap_scan.objects import BROKER
 from archmap_scan.parsers import celery, kafka, nats, rabbitmq
-from tests.helpers import files_of, model_of, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 Row = tuple[str, str, str, str | None, str]
 
@@ -80,7 +81,7 @@ def test_kafka_registry_and_members(tmp_path: Path) -> None:
         ("events-dlq", "topic", "Kafka", "consume", "app/producer.py:12"),
         # Реестры без направления: Enum с любыми именами, класс с константами, словарь
         # с ключами-строками. Не реестры: __tablename__, _HIDDEN, словарь с ключами-числами
-        # и класс без части topic в имени (TopicHelper, walk.name_tokens).
+        # и класс, у которого topic не последнее слово имени (TopicHelper, name_words).
         ("events", "topic", "Kafka", None, "app/topics.py:5"),
         ("outcomes", "topic", "Kafka", None, "app/topics.py:6"),
         ("events-dlq", "topic", "Kafka", None, "app/topics.py:12"),
@@ -89,6 +90,16 @@ def test_kafka_registry_and_members(tmp_path: Path) -> None:
     ]
     assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
         ("Topic.MISSING", "app/producer.py:10"),
+    ]
+
+
+def test_mapping_to_topics_is_not_registry() -> None:
+    """Словарь «…_TO_TOPICS» (FEATUREBASE_OBJECT_TYPE_TO_TOPICS PostHog) сопоставляет темам
+    типы объектов: его ключи не темы. Ловушка: ключи «…_TOPIC_TO_…» остаются темами."""
+    ctx, files = files_of(FIXTURES / "kafka-registry")
+    assert _rows(kafka.parse(files, ctx)) == [
+        ("ingest-events", "topic", "Kafka", None, "app/topics.py:3"),
+        ("outcomes", "topic", "Kafka", None, "app/topics.py:4"),
     ]
 
 
@@ -281,3 +292,30 @@ def test_edge_without_owner_goes_to_hints(tmp_path: Path) -> None:
     assert fams["edges"].unassigned == 1
     # Разборщик, давший связь без владельца, назван в покрытии связей.
     assert "rabbitmq" in fams["edges"].contributed
+
+
+def test_registry_name_last_word_and_camel_case() -> None:
+    """Реестр опознаётся по последнему слову имени, слова делятся и по регистру
+    (CeleryQueue PostHog, ТЗ §15 п. 10 А11). Не реестры: DEAD_LETTER_QUEUE_METRICS (queue не
+    последнее), значение с пробелами, SQS_QUEUES и модуль с boto3 (очереди SQS)."""
+    ctx, files = files_of(FIXTURES / "celery-registry")
+    found = celery.parse(files, ctx)
+    assert _rows(found) == [
+        ("celery", "queue", "Celery", None, "app/celery_queues.py:6"),
+        ("email", "queue", "Celery", None, "app/celery_queues.py:7"),
+        ("long_running", "queue", "Celery", None, "app/celery_queues.py:8"),
+    ]
+    model = model_of(FIXTURES / "celery-registry")
+    assert {k: sorted(v) for k, v in model.channels.items()} == {
+        "redis": ["celery", "email", "long_running"],
+    }
+    assert pyregistry.name_words("CeleryQueue") == ["celery", "queue"]
+    assert pyregistry.name_words("KAFKA_TOPIC_TO_CLUSTER") == ["kafka", "topic", "to", "cluster"]
+    assert pyregistry.name_words("HTTPQueue") == ["http", "queue"]
+
+
+def test_name_words_on_hostile_name() -> None:
+    started = time.perf_counter()
+    for name in ("A" * 2_000_000 + "b", "aB" * 1_000_000, "_" * 2_000_000):
+        pyregistry.name_words(name)
+    assert time.perf_counter() - started < time_limit()

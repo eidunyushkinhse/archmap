@@ -87,7 +87,7 @@ def route_owner(path: str, containers: Sequence[Obj]) -> tuple[Obj | None, str |
     if len(found) == 1:
         return found[0], None
     if not found:
-        return None, texts.REASON_SHARED_LIB
+        return None, owners.missing_reason(path, containers)
     web = [o for o in found if _serves_http(o)]
     if len(web) == 1:
         return web[0], None
@@ -161,7 +161,7 @@ def _merge(param: Param, reads: list[CodeParam]) -> None:
 
 def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None:
     by_owner: dict[str, dict[str, list[CodeParam]]] = {}
-    shared: dict[str, list[CodeParam]] = {}
+    shared: dict[tuple[str, str], list[CodeParam]] = {}
     aside: dict[tuple[str, str], list[Loc]] = {}
     for read in findings.code_params:
         model.code_parsers.setdefault("config", set()).add(read.parser)
@@ -174,15 +174,16 @@ def _params(model: Model, findings: Findings, containers: Sequence[Obj]) -> None
             continue
         found = owners.file_owners(read.loc.path, containers)
         if not found:
-            shared.setdefault(read.name, []).append(read)
+            why = owners.missing_reason(read.loc.path, containers)
+            shared.setdefault((read.name, why), []).append(read)
         for obj in found:
             by_owner.setdefault(obj.name, {}).setdefault(read.name, []).append(read)
     for owner, reads_of in by_owner.items():
         table = model.params.setdefault(owner, {})
         for name, reads in reads_of.items():
             _merge(table.setdefault(name, Param(name=name)), reads)
-    for name, reads in sorted(shared.items()):
-        _unassigned(model, "config", name, texts.REASON_SHARED_LIB, min(r.loc for r in reads))
+    for (name, why), reads in sorted(shared.items()):
+        _unassigned(model, "config", name, why, min(r.loc for r in reads))
     for (name, why), locs in sorted(aside.items()):
         _unassigned(model, "config", name, why, min(locs))
 
@@ -339,7 +340,8 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
             model.code_parsers.setdefault("edges", set()).add(use.parser)
             model.hint("unassigned", {
                 "kind": "edge", "name": use.name, "object": broker.name,
-                "reason": texts.REASON_MANY_OWNERS if file_owners else texts.REASON_SHARED_LIB,
+                "reason": texts.REASON_MANY_OWNERS if file_owners
+                else owners.missing_reason(use.loc.path, containers),
                 "source": str(use.loc),
             })
             continue
@@ -370,7 +372,9 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
         found = owners.file_owners(sch.loc.path, containers)
         owner = owners.primary(found, vocab.ROLE_SCHEDULER)
         if owner is None:
-            why = texts.REASON_MANY_OWNERS if found else texts.REASON_SHARED_LIB
+            why = texts.REASON_MANY_OWNERS if found else owners.missing_reason(
+                sch.loc.path, containers,
+            )
             _unassigned(model, "schedule", sch.name, why, sch.loc)
             continue
         model.schedules.setdefault(owner.name, []).append(Schedule(

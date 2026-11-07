@@ -1,0 +1,26 @@
+# Разовые задачи на образах базы и брокера: ждут готовности, создают топики и выходят.
+services:
+  db:
+    image: postgres:16
+  tables-ready:
+    image: postgres:16
+    restart: "no"
+    entrypoint: ["sh", "-c", "until psql -h db -c 'select 1'; do sleep 2; done"]
+    depends_on: [db]
+  kafka:
+    image: redpandadata/redpanda:v25.1
+    restart: on-failure
+    command: [redpanda, start, --overprovisioned]
+  kafka-init:
+    image: redpandadata/redpanda:v25.1
+    entrypoint: /bin/sh
+    command: ["-c", "rpk topic create events --brokers kafka:9092"]
+    depends_on: [kafka]
+  # Ловушка: реплика на том же образе с командой сервера остаётся базой.
+  replica:
+    image: postgres:16
+    command: postgres -c hot_standby=on
+    depends_on: [db]
+  api:
+    build: api
+    depends_on: [db, kafka, kafka-init, tables-ready]

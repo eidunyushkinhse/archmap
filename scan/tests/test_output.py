@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import yaml
 
-from archmap_scan import __version__
+from archmap_scan import __version__, texts
 from archmap_scan.output import yamlio
 from archmap_scan.scan import Options, run
 from tests.helpers import FIXTURES, tree
@@ -53,7 +54,8 @@ def test_hints_sections_always_present(tmp_path: Path) -> None:
     hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
     assert list(hints) == [
         "depends_on", "dynamic_names", "unassigned", "unsupported", "openapi_files",
-        "profiles", "shared_code", "clients", "unparsed", "external_repos", "merged",
+        "profiles", "dev_manifest_objects", "shared_code", "clients", "unparsed",
+        "external_repos", "merged",
     ]
     assert all(v == [] for v in hints.values())
 
@@ -124,7 +126,7 @@ def test_summary_counts_only_written(tmp_path: Path) -> None:
     summary = _read(out, "summary.txt")
     assert "Найдено: 2 базы данных." in summary
     assert "таблиц" not in summary.split("\n\n")[1]
-    assert "Искали и не нашли" in summary and "таблицы" not in summary.split("Не покрыто")[0]
+    assert "Искали и не нашли" in summary and "таблицы" not in summary.split("Не разобрано")[0]
     assert "  Таблиц без владельца: 2, перечень в agent/hints.yaml." in summary
     assert "facts/*.tables.yaml" not in summary
     assert not (out / "facts").exists()
@@ -205,3 +207,48 @@ def test_hints_share_one_key_set(tmp_path: Path) -> None:
     # Проверка не пустая: подсказки нашлись в большинстве разделов.
     assert {"depends_on", "dynamic_names", "unassigned", "profiles", "openapi_files", "clients",
             "unparsed", "shared_code"} <= seen
+
+
+def test_shared_params_line_only_for_shared_code(tmp_path: Path) -> None:
+    """Строка «Параметры общего кода» считает только записи из кода и примеров окружения в
+    каталоге, общем у нескольких контейнеров (ТЗ §15 п. 10 А10). Имена из якоря YAML у
+    трёх сервисов общим кодом не считаются; без записей из общего каталога строки нет."""
+    out = tmp_path / "out"
+    run(Options(path=str(FIXTURES / "compose-anchors"), out=str(out), system="Ярмарка",
+                use_git=False))
+    summary = (out / "summary.txt").read_text(encoding="utf-8")
+    assert "Параметры общего кода записаны каждому из 2 контейнеров: записей 2." in summary
+
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "compose-anchors", repo)
+    compose = repo / "docker-compose.yml"
+    text = compose.read_text(encoding="utf-8")
+    compose.write_text(text.replace("    build: api\n    command", "    build: billing\n    command"),
+                       encoding="utf-8")
+    out2 = tmp_path / "out2"
+    run(Options(path=str(repo), out=str(out2), system="Ярмарка", use_git=False))
+    assert "Параметры общего кода" not in (out2 / "summary.txt").read_text(encoding="utf-8")
+
+
+def test_stage_two_objects_from_dev_manifests(tmp_path: Path) -> None:
+    """Ступень 2 политики (ТЗ §15 п. 10 Б3): боевых манифестов нет, сервисы devservices
+    становятся объектами, каждый с записью в hints.dev_manifest_objects, а coverage и
+    сводка говорят об этом прямо. bigtable только в режиме backend-ci и отладочный
+    spotlight уходят в подсказки. Ловушка: memcached не в режиме default, но со своим
+    режимом memcached, остаётся объектом."""
+    out = _scan(FIXTURES / "devservices", tmp_path / "out")
+    hints = yaml.safe_load(_read(out, "agent/hints.yaml"))
+    assert [(h["kind"], h["name"], h["source"]) for h in hints["dev_manifest_objects"]] == [
+        ("container", "relay", "devservices/config.yml:18"),
+        ("database", "memcached", "devservices/config.yml:20"),
+    ]
+    assert {h["name"]: (h["reason"], h["profiles"]) for h in hints["profiles"]} == {
+        "bigtable": (texts.dev_manifest(texts.dev_sign_modes(["backend-ci"])), ["backend-ci"]),
+        "spotlight": (
+            texts.dev_manifest(texts.dev_sign_debug("devservices/config.yml:11")), ["default"],
+        ),
+    }
+    families = yaml.safe_load(_read(out, "coverage.yaml"))["families"]
+    assert families["containers"]["from_dev_manifests"] == 1
+    assert families["databases"]["from_dev_manifests"] == 1
+    assert texts.dev_objects_line(2) in _read(out, "summary.txt")

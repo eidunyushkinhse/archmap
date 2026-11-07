@@ -62,18 +62,20 @@ def test_too_large_and_hostile(tmp_path: Path) -> None:
 def test_paths_by_file_refs(tmp_path: Path) -> None:
     """Находка фазы 1а на Sentry: api-docs/openapi.json, 0 операций, потому что пути —
     ссылки $ref на paths/*.json. Ссылки на файлы репозитория разворачиваются на один
-    уровень; неразворачиваемая ссылка — операции не посчитаны, причина в подсказке."""
+    уровень; неразворачиваемая ссылка — операции не посчитаны, причина в подсказке. Каталог
+    api-docs с ТЗ §15 п. 12 С3 исключается соглашением (docs частью сегмента), поэтому в
+    дереве теста он называется api-spec."""
     import json
 
     tree(tmp_path, {
-        "api-docs/openapi.json": json.dumps({"openapi": "3.0.0", "paths": {
+        "api-spec/openapi.json": json.dumps({"openapi": "3.0.0", "paths": {
             "/a/": {"$ref": "paths/a.json"},
             "/b/": {"$ref": "paths/b.json#/item"},
             "/c/": {"$ref": "#/components/pathItems/c"},
             "/d/": {"get": {}},
         }, "components": {"pathItems": {"c": {"put": {}, "summary": "x"}}}}),
-        "api-docs/paths/a.json": json.dumps({"get": {}, "post": {}, "parameters": []}),
-        "api-docs/paths/b.json": json.dumps({"item": {"delete": {}}}),
+        "api-spec/paths/a.json": json.dumps({"get": {}, "post": {}, "parameters": []}),
+        "api-spec/paths/b.json": json.dumps({"item": {"delete": {}}}),
         "whole/openapi.yaml": "openapi: 3.1.0\npaths:\n  $ref: ./routes.yaml\n",
         "whole/routes.yaml": "/x:\n  get: {}\n  patch: {}\n",
         "broken/openapi.yaml": (
@@ -89,7 +91,7 @@ def test_paths_by_file_refs(tmp_path: Path) -> None:
     got = {s.path: (s.operations, s.reason) for s in found.openapi}
     refs = "пути заданы ссылками, которые не удалось развернуть, операции не посчитаны"
     assert got == {
-        "api-docs/openapi.json": (5, None),
+        "api-spec/openapi.json": (5, None),
         "whole/openapi.yaml": (2, None),
         "broken/openapi.yaml": (None, refs),
         "remote/openapi.yaml": (None, refs),

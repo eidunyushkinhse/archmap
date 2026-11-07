@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from archmap_scan import codetext
+from archmap_scan import codetext, texts
 from archmap_scan.parsers import express, nest
 from tests.helpers import FIXTURES, files_of, time_limit
 
@@ -28,6 +28,7 @@ def test_express_and_koa_fixture() -> None:
         ("GET", "/books", False, "Express", "src/server.js:14"),
         ("GET", "/health", False, "Express", "src/server.js:12"),
         ("GET", "/orders/", False, "Express", "src/server.js:8"),
+        ("GET", "/plain", False, "Express", "src/server.js:35"),
         ("POST", "/books", False, "Express", "src/server.js:14"),
         ("POST", "/orders/:id/pay", False, "Express", "src/server.js:9"),
     ]
@@ -40,7 +41,11 @@ def test_express_traps() -> None:
     assert not any("commented" in r.path or "external" in r.path for r in found.routes)
     assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
         ("PATH", "src/server.js:22"), ("`/tmpl/${name}`", "src/server.js:23"),
+        ("'/files/' + dir", "src/server.js:33"),
     ]
+    # Склейка «'/files/' + dir»: путь собран из частей (ТЗ §15 п. 10 А), маршрута нет.
+    assert found.hints[-1].data["reason"] == texts.REASON_JOINED_NAME
+    assert not any(r.path.startswith("/files") for r in found.routes)
 
 
 def test_nest_fixture() -> None:
@@ -103,3 +108,17 @@ def test_too_dense_file_is_refused(tmp_path: Path) -> None:
     assert express.parse(files, ctx).routes == []
     assert time.perf_counter() - started < time_limit()
     assert files.too_large == {"src/app.js"}
+
+
+def test_joined_literal_marks() -> None:
+    """Литерал в склейке: «+» слева или справа, пробелы и перевод строки допустимы; «+=»
+    перед литералом и литерал без склейки не в счёт (ТЗ §15 п. 10 А)."""
+    text = 'f("a" + b); g(x + "c"); h("d"\n  + "e"); k(i += "z"); m("plain")'
+    code = codetext.Code(text, codetext.JS)
+    marks = {}
+    for word in ("a", "c", "d", "e", "z", "plain"):
+        at = text.index(f'"{word}"')
+        marks[word] = code.joined(at, at + len(word) + 2)
+    assert marks == {"a": True, "c": True, "d": True, "e": True, "z": False, "plain": False}
+    at = text.index('"a"')
+    assert code.literal(at, at + 3) == ("a", True)

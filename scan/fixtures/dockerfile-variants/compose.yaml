@@ -1,0 +1,16 @@
+# С8: варианты Dockerfile рядом с основным. Ловушки: корень репозитория (отдельный образ
+# Dockerfile.llm-analytics), общий rust/Dockerfile двух сервисов (Dockerfile.sqlx-migrate),
+# форма с дефисом (worker/Dockerfile-fpm), Dockerfile.playwright без основного.
+services:
+  web:
+    build: .
+  loki:
+    build: ./cmd/loki
+  capture:
+    build:
+      context: ./rust
+      args: {BIN: capture}
+  cymbal:
+    build:
+      context: ./rust
+      args: {BIN: cymbal}

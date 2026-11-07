@@ -19,6 +19,9 @@ GIT_COMMANDS: tuple[tuple[str, ...], ...] = (
     ("config", "--get", "remote.origin.url"),
     ("rev-parse", "HEAD"),
     ("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--full-name"),
+    # Только закоммиченные файлы: .env рядом с compose читается, лишь если он в git (ТЗ §15
+    # п. 12 С13; закоммиченный файл не секрет). Вызывается, только если такой .env есть.
+    ("ls-files", "-z", "--cached", "--full-name"),
 )
 _GIT_TIMEOUT = 120
 
@@ -101,6 +104,16 @@ def make_context(path: Path, *, use_git: bool, system: str | None = None) -> Con
                 system=system,
             )
     return Context(root=scope_abs, scope="", repo="", commit="", git=False, system=system)
+
+
+def tracked_files(ctx: Context) -> frozenset[str]:
+    """Закоммиченные файлы области (пути от корня репозитория); без git — пусто."""
+    if not ctx.git:
+        return frozenset()
+    out = run_git(ctx.scope_dir, GIT_COMMANDS[4])
+    if out is None:
+        return frozenset()
+    return frozenset(p.decode("utf-8", "replace") for p in out.split(b"\0") if p)
 
 
 def git_files(ctx: Context) -> list[str] | None:

@@ -55,6 +55,15 @@ class Unit:
     language: str | None = None  # язык по базовому образу Dockerfile
     extra_locs: list[Loc] = field(default_factory=list)  # тот же объект в других файлах
     replicas: int | None = None  # numprocs supervisor: сколько копий процесса
+    # compose: restart и entrypoint (текстом) — по ним видна разовая задача (ТЗ §15 п. 10 А8).
+    restart: str | None = None
+    entrypoint: str | None = None
+    # Признак манифеста разработки (walk.dev_sign, ТЗ §15 п. 10 Б): текстом для подсказки.
+    # Объектом такой кандидат становится, только если боевых манифестов нет (ступень 2);
+    # подсказки, собранные при его разборе, тогда идут в вывод вместе с ним.
+    dev: str | None = None
+    dev_hints: list[Hint] = field(default_factory=list)
+    dev_notes: list[str] = field(default_factory=list)  # пометки семьи containers
 
 
 @dataclass
@@ -65,6 +74,22 @@ class Dockerfile:
     from_loc: Loc
     command: str | None = None
     command_loc: Loc | None = None
+    # COPY или ADD всего контекста сборки («COPY . ./»): код образа — каталог контекста, а не
+    # каталог Dockerfile (ТЗ §15 п. 12 С5б).
+    copies_context: bool = False
+
+
+@dataclass
+class ImageBuild:
+    """Чем собирается образ, кроме ссылки build основного манифеста (ТЗ §15 п. 10 А6):
+    артефакт skaffold.yaml (image — имя образа) или build сервиса в файле compose для
+    разработки (unit — имя сервиса)."""
+
+    dockerfile: str
+    loc: Loc
+    build_dir: str
+    image: str | None = None
+    unit: str | None = None
 
 
 @dataclass
@@ -128,6 +153,8 @@ class TableSet:
     dropped: int = 0
     skipped: int = 0
     skipped_examples: list[tuple[Loc, str]] = field(default_factory=list)
+    # Таблицы из CREATE TABLE … AS (место и имя): колонки из запроса не выведены.
+    queried: list[tuple[Loc, str]] = field(default_factory=list)
     # Миграции данных (RunPython): структуру таблиц не меняют, поэтому это не пропуск, но
     # счёт в покрытии виден отдельно.
     data_migrations: int = 0
@@ -136,6 +163,9 @@ class TableSet:
     # объект-база, если базы в манифестах нет (ТЗ §7, пункт 3).
     dialect: str | None = None
     dialect_loc: Loc | None = None
+    # SQLite из настроек — значение по умолчанию: другой модуль того же пакета настроек
+    # переопределяет DATABASES без sqlite (ТЗ §15 п. 12 С9). Вида базы такой диалект не даёт.
+    dialect_default: bool = False
 
 
 @dataclass
@@ -211,6 +241,7 @@ def unparsed_hint(rel: str, reason: str) -> Hint:
 class Findings:
     units: list[Unit] = field(default_factory=list)
     dockerfiles: list[Dockerfile] = field(default_factory=list)
+    image_builds: list[ImageBuild] = field(default_factory=list)
     packages: list[Package] = field(default_factory=list)
     env_files: list[EnvFile] = field(default_factory=list)
     openapi: list[OpenApi] = field(default_factory=list)
@@ -235,10 +266,13 @@ class Findings:
     # не дал ни одного контейнера; тогда же в покрытии названы непрочитанные файлы сборки.
     build_units: list[Unit] = field(default_factory=list)
     build_unsupported: list[str] = field(default_factory=list)
+    # Стек по маркеру сборки в корне (vocab.STACK_BAZEL, STACK_CMAKE; ТЗ §15 п. 12 С12).
+    root_stack: str | None = None
 
     def extend(self, other: Findings) -> None:
         self.units.extend(other.units)
         self.dockerfiles.extend(other.dockerfiles)
+        self.image_builds.extend(other.image_builds)
         self.packages.extend(other.packages)
         self.env_files.extend(other.env_files)
         self.openapi.extend(other.openapi)
@@ -259,3 +293,4 @@ class Findings:
         for stack in other.build_unsupported:
             if stack not in self.build_unsupported:
                 self.build_unsupported.append(stack)
+        self.root_stack = self.root_stack or other.root_stack

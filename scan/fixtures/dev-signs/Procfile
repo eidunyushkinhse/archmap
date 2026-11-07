@@ -1,0 +1,2 @@
+api: go run ./cmd/api
+ui: pnpm start

@@ -1,7 +1,7 @@
 """Манифесты сборки (ТЗ §6.1): имя пакета, зависимости (имена без версий), язык.
 
 package.json, pyproject.toml, requirements*.txt, Pipfile, go.mod, Cargo.toml, pom.xml,
-build.gradle*, Gemfile, composer.json, mix.exs. Из них — технология контейнера (язык и
+build.gradle*, Gemfile, composer.json, mix.exs, *.csproj и *.sln (.NET). Из них — технология контейнера (язык и
 фреймворк по словарю), опознание стеков для статусов «не умею», клиентские библиотеки как
 подсказка вида зависимости и рабочие области монорепо (workspaces).
 """
@@ -24,11 +24,19 @@ MAX_MANIFEST_CHARS = 512 * 1024
 
 NAME = "manifests"
 _REQ_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# Пометка pip-compile в комментарии после пакета: «via пакет», «via -r requirements.in» или
+# «via» с перечнем в следующих строках комментария.
+_VIA = re.compile(r"via\b(.*)")
 _GEM = re.compile(r"""^\s*gem\s+["']([^"']+)["']""")
 _MIX_APP = re.compile(r"app:\s*:([A-Za-z0-9_]+)")
 _MIX_DEP = re.compile(r"\{:([A-Za-z0-9_]+)\s*,")
 _GRADLE_COORD = re.compile(r"""["']([\w.-]+):([\w.-]+)(?::[^"'\s]*)?["']""")
 _GRADLE_SPRING = re.compile(r"org\.springframework\.boot")
+# Плагин Kotlin в сборке Gradle: kotlin("jvm") в Kotlin DSL или org.jetbrains.kotlin (ТЗ §15
+# п. 12 С5: fraud-detection OpenTelemetry Demo на Kotlin получал Java).
+_GRADLE_KOTLIN = re.compile(r"\bkotlin\(\s*[\"']jvm[\"']\s*\)|org\.jetbrains\.kotlin")
+_PACKAGE_REF = re.compile(r"<PackageReference[ \t\r\n]+Include=\"([^\"\n]{1,200})\"")
+_WEB_SDK = re.compile(r"Sdk=\"Microsoft\.NET\.Sdk\.Web\"")
 
 
 def _in_requirements_dir(rel: str) -> bool:
@@ -45,6 +53,11 @@ def kind_of(rel: str) -> str | None:
         return "requirements.txt"
     if name in ("build.gradle.kts",):
         return "build.gradle"
+    low = name.lower()
+    if low.endswith(".csproj") and len(low) > len(".csproj"):
+        return "csproj"
+    if low.endswith(".sln") and len(low) > len(".sln"):
+        return "sln"
     return None
 
 
@@ -113,14 +126,38 @@ def _pyproject(rel: str, text: str) -> Package:
 
 
 def _requirements(rel: str, text: str) -> Package:
+    """Зависимости requirements*.txt. Файл pip-compile (uv pip compile) после строки пакета
+    пишет «# via …»: пакет, который тянет другой пакет, транзитивный и фреймворк не задаёт
+    (Locust тянет Flask, ТЗ §15 п. 10 А7). Прямой пакет помечен «# via -r файл» или «-c
+    файл», а строка без пометки — прямая, как в обычном requirements.txt."""
     deps: list[str] = []
+    via: dict[str, list[str]] = {}
+    current: str | None = None
+    block = False
     for raw in text.splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line or line.startswith("-") or "://" in line:
+        code, mark, comment = raw.partition("#")
+        line = code.strip()
+        if line:
+            current, block = None, False
+            if not line.startswith("-") and "://" not in line:
+                current = _req_name(line)
+                if current:
+                    deps.append(current)
+        if not mark or current is None:
             continue
-        name = _req_name(line)
-        if name:
-            deps.append(name)
+        m = _VIA.match(comment.strip())
+        if m is not None:
+            rest = m.group(1).strip()
+            if rest:
+                via.setdefault(current, []).append(rest)
+            block = not rest
+        elif block and not line and comment.strip():
+            via.setdefault(current, []).append(comment.strip())
+    transitive = {
+        name for name, items in via.items()
+        if not any(item.startswith(("-r", "-c")) for item in items)
+    }
+    deps = [d for d in deps if d not in transitive]
     # requirements/prod.txt — манифест пакета каталогом выше (ТЗ §6.1, находка на Zulip).
     folder = paths.parent(rel)
     if _in_requirements_dir(rel):
@@ -149,6 +186,10 @@ def _go_mod(rel: str, text: str) -> Package:
             block = True
         elif block and line == ")":
             block = False
+        elif "// indirect" in raw:
+            # Транзитивная зависимость: стек по ней не опознаётся (ТЗ §15 п. 10 А12, viper
+            # у Argo CD только в hack/tools/go.mod с пометкой indirect).
+            continue
         elif block and line:
             deps.append(line.split()[0].lower())
         elif line.startswith("require "):
@@ -207,7 +248,8 @@ def _gradle(rel: str, text: str) -> Package:
     deps = [m.group(2).lower() for m in _GRADLE_COORD.finditer(text)]
     if _GRADLE_SPRING.search(text):
         deps.append("spring-boot")
-    return Package(path=rel, dir=paths.parent(rel), kind="build.gradle", language="Java",
+    language = "Kotlin" if _GRADLE_KOTLIN.search(text) else "Java"
+    return Package(path=rel, dir=paths.parent(rel), kind="build.gradle", language=language,
                    deps=tuple(dict.fromkeys(deps)))
 
 
@@ -245,6 +287,20 @@ def _mix(rel: str, text: str) -> Package:
     return pkg
 
 
+def _csproj(rel: str, text: str) -> Package:
+    """Проект .NET: имена PackageReference и признак веб-проекта (Sdk Microsoft.NET.Sdk.Web)."""
+    deps = [m.group(1).lower() for m in _PACKAGE_REF.finditer(text)]
+    if _WEB_SDK.search(text) is not None:
+        deps.insert(0, "microsoft.net.sdk.web")
+    return Package(path=rel, dir=paths.parent(rel), kind="csproj", language=".NET",
+                   deps=tuple(dict.fromkeys(deps)))
+
+
+def _sln(rel: str, text: str) -> Package:
+    """Решение .NET: только признак языка, зависимости — в проектах."""
+    return Package(path=rel, dir=paths.parent(rel), kind="sln", language=".NET", deps=())
+
+
 _READERS: dict[str, Any] = {
     "package.json": _package_json,
     "pyproject.toml": _pyproject,
@@ -257,6 +313,8 @@ _READERS: dict[str, Any] = {
     "Gemfile": _gemfile,
     "composer.json": _composer,
     "mix.exs": _mix,
+    "csproj": _csproj,
+    "sln": _sln,
 }
 
 

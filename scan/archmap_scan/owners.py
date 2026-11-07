@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from archmap_scan import paths, vocab
+from archmap_scan import paths, texts, vocab
 from archmap_scan.links import hosts_in
 
 if TYPE_CHECKING:
@@ -71,19 +71,30 @@ def sole_owner(containers: Sequence[Obj], language: str | None) -> list[Obj]:
 
 
 def file_owners(rel: str, containers: Sequence[Obj], language: str | None = None) -> list[Obj]:
-    """Контейнеры файла кода: code_owners, а среди нескольких — те, чей язык совпадает с
-    языком файла (если такие есть). Файл вне каталогов всех контейнеров — единственному
-    контейнеру по sole_owner. Одно место для маршрутов, параметров, каналов, расписаний и
-    владельца миграций."""
+    """Контейнеры файла кода: code_owners, а среди них — те, чей язык совпадает с языком
+    файла. Контейнер другого языка файлом не владеет (ТЗ §15 п. 10 А5: браузерный код
+    Mastodon не параметр процессов Ruby); контейнер без опознанного языка владеет любым.
+    Файл вне каталогов всех контейнеров — единственному контейнеру по sole_owner. Одно
+    место для маршрутов, параметров, каналов, расписаний и владельца миграций; причину
+    пустого ответа даёт missing_reason."""
     found = code_owners(rel, containers)
     lang = language or file_language(rel)
     if not found:
         return sole_owner(containers, lang)
-    if len(found) > 1 and lang is not None:
-        same = [o for o in found if o.language == lang]
-        if same:
-            return same
-    return found
+    if lang is None:
+        return found
+    same = [o for o in found if o.language == lang]
+    if same:
+        return same
+    return [o for o in found if o.language is None]
+
+
+def missing_reason(rel: str, containers: Sequence[Obj]) -> str:
+    """Причина, по которой file_owners пуст: файл в каталоге контейнеров другого языка или
+    вне каталогов кода всех контейнеров."""
+    if code_owners(rel, containers):
+        return texts.REASON_OTHER_LANGUAGE
+    return texts.REASON_SHARED_LIB
 
 
 def primary(owners: Sequence[Obj], prefer: str | None = None) -> Obj | None:

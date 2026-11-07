@@ -1,0 +1,13 @@
+# Ловушка С10: обычный оверлей kustomize с настоящими именами читается.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    app.kubernetes.io/instance: release-name-is-a-label-only
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: example/worker:1.0

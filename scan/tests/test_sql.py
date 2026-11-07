@@ -7,11 +7,11 @@ from pathlib import Path
 
 import yaml
 
-from archmap_scan import sqlddl
+from archmap_scan import sqlddl, texts
 from archmap_scan.model import Loc, Table
 from archmap_scan.parsers import sql
 from archmap_scan.scan import Options, run
-from tests.helpers import FIXTURES, files_of, model_of
+from tests.helpers import FIXTURES, files_of, model_of, tree
 
 
 def _cols(table: Table) -> list[tuple[str, str | None, bool, bool | None, str | None]]:
@@ -170,3 +170,72 @@ def test_statistics_are_not_table_structure() -> None:
         "DROP STATISTICS s;\n", "x.sql", schema,
     )
     assert schema.skipped == 0
+
+
+def test_create_as_case_and_skip_examples() -> None:
+    """CREATE TABLE … AS даёт таблицу без колонок и подсказку «колонки из запроса»; имя без
+    кавычек в нижнем регистре; примеры пропусков сначала о живых таблицах (ТЗ §15 п. 10 А3)."""
+    ctx, files = files_of(FIXTURES / "sql-chain")
+    (chain,) = sql.parse(files, ctx).table_sets
+    assert chain.dialect == "PostgreSQL"
+    tables = {t.name: t for t in chain.tables}
+    # scratch (TEMP) и gone (удалена) в схему не попали, «Audit» в кавычках как написано.
+    assert set(tables) == {"language", "post", "Audit", "post_actions", "post_saved_combined"}
+    assert _cols(tables["language"])[0] == ("id", "serial", True, True, None)
+    assert _cols(tables["post"])[1] == ("language_id", "int", False, False, "language.id")
+    assert _cols(tables["Audit"]) == [("Id", "int", False, False, None)]
+    assert tables["post_actions"].columns == [] and tables["post_saved_combined"].columns == []
+    assert [(str(loc), name) for loc, name in chain.queried] == [
+        ("migrations/0003_smoosh.sql:2", "post_actions"),
+        ("migrations/0003_smoosh.sql:7", "post_saved_combined"),
+    ]
+    # RENAME CONSTRAINT понят и в счёт не идёт; ADD (…) не понят четыре раза.
+    assert chain.dropped == 4 and chain.skipped == 4
+    assert [(str(loc), text) for loc, text in chain.skipped_examples] == [
+        ("migrations/0003_smoosh.sql:14", "ALTER TABLE post"),
+        ("migrations/0002_fast.sql:3", "ALTER TABLE post_fast"),
+        ("migrations/0002_fast.sql:4", "ALTER TABLE post_fast"),
+    ]
+    model = model_of(FIXTURES / "sql-chain")
+    assert sorted(t.name for t in model.tables["forum-db"]) == [
+        "Audit", "language", "post", "post_actions", "post_saved_combined",
+    ]
+    queried = [h["name"] for h in model.hints["unassigned"]
+               if h["reason"] == texts.REASON_COLUMNS_FROM_QUERY]
+    assert queried == ["post_actions", "post_saved_combined"]
+
+
+def test_mysql_keeps_unquoted_case(tmp_path: Path) -> None:
+    """У MySQL имя без кавычек хранится как написано: складывать его некому."""
+    root = tree(tmp_path, {
+        "db/migrations/V1__init.sql": (
+            "CREATE TABLE Users (Id INT AUTO_INCREMENT PRIMARY KEY) ENGINE=InnoDB;\n"
+            "CREATE TABLE Orders (UserId INT REFERENCES Users (Id));\n"
+        ),
+    })
+    ctx, files = files_of(root)
+    (chain,) = sql.parse(files, ctx).table_sets
+    assert chain.dialect == "MySQL"
+    tables = {t.name: t for t in chain.tables}
+    assert set(tables) == {"Users", "Orders"}
+    assert _cols(tables["Orders"]) == [("UserId", "INT", False, False, "Users.Id")]
+
+
+def test_dialect_dirs_are_one_database() -> None:
+    """Соседние каталоги наборов с именами диалектов — одна база (ТЗ §15 п. 12 С11).
+    Petclinic: spring-petclinic-customers-service/src/main/resources/db/hsqldb/schema.sql
+    давал «База данных», а db/mysql/schema.sql базу MySQL. Вид по серверному диалекту,
+    встраиваемый — подсказка, таблицы из серверного (test_only только в hsqldb в базу не
+    попадает). Ловушка billing: два серверных диалекта (mysql и postgres) дают один объект с
+    видом по первому в алфавите (по имени каталога, типы вида не выдали) и подсказку."""
+    model = model_of(FIXTURES / "sql-dialects")
+    assert [(o.name, o.technology) for o in model.objects] == [("MySQL", "MySQL")]
+    assert sorted(t.name for t in model.tables["MySQL"]) == ["invoices", "owners"]
+    hints = sorted((h["name"], h["reason"]) for h in model.hints["unassigned"])
+    assert hints == [
+        ("billing/db/postgres/", texts.other_dialect("billing/db/mysql/")),
+        (
+            "customers/src/main/resources/db/hsqldb/",
+            texts.embedded_database("customers/src/main/resources/db/mysql/"),
+        ),
+    ]

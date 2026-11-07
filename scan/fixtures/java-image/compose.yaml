@@ -1,0 +1,7 @@
+# С7б, С7в: язык Java известен только по базовому образу Dockerfile (pom.xml нет),
+# а zipkin — имя образа, не стек.
+services:
+  billing:
+    build: ./billing
+  tracing:
+    image: openzipkin/zipkin:3

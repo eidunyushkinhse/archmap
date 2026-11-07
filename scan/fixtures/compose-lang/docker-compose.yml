@@ -1,0 +1,11 @@
+# Два языка: процессы Ruby собраны из корня, потоковый сервер Node.js из своего каталога.
+services:
+  web:
+    build: .
+    command: bundle exec puma -C config/puma.rb
+  sidekiq:
+    build: .
+    command: bundle exec sidekiq
+  streaming:
+    build: ./streaming
+    command: node index.js

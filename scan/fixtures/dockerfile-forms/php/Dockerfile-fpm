@@ -1,0 +1,3 @@
+FROM node:22 AS assets
+FROM php:8.3-fpm
+CMD ["php-fpm"]

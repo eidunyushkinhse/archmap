@@ -261,7 +261,8 @@ class _Collector:
 
     def _dynamic(self, mod: _Module, node: ast.AST) -> None:
         self.found.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": pycode.short(node), "reason": texts.REASON_DYNAMIC_ROUTE,
+            "kind": "route", "name": pycode.short(node),
+            "reason": pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
             "source": str(Loc(mod.rel, getattr(node, "lineno", 1))),
         }))
 

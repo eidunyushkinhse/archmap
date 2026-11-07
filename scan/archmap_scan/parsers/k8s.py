@@ -4,7 +4,9 @@
 StatefulSet, DaemonSet, Job, CronJob — кандидаты в объекты: образ первого контейнера пода,
 команда, переменные env (литералы значений — ради адресов), envFrom из ConfigMap того же
 набора манифестов, расписание CronJob. Service даёт объекту host: по selector к меткам пода,
-иначе по совпадению имени. Файлы с «{{» — шаблоны Helm, их разбирает только helm.py.
+иначе по совпадению имени. Файлы с разметкой Helm (_HELM) — шаблоны чарта, их разбирает
+только helm.py; «{{ИМЯ}}» в данных ConfigMap (подстановка при старте) шаблоном не считается.
+Отрендеренный шаблон Helm (RELEASE-NAME в именах или образах, rendered) не разбирается.
 """
 
 from __future__ import annotations
@@ -29,6 +31,48 @@ _KIND_LINE = re.compile(
     r"[\"']?(?!\w)",
     re.MULTILINE,
 )
+# Признак шаблона Helm: «{{-» или «{{» перед объектом или функцией шаблона. Подстановка
+# вида «{{PROJECT_ID}}», которую заменяет sed при старте, шаблоном не считается (ТЗ §15
+# п. 10 А2). Без оглядки назад: просмотр вперёд от «{{» на фиксированную длину.
+_HELM = re.compile(
+    r"\{\{-|\{\{[ \t]*(?:\.Values|\.Release|\.Chart|\.Capabilities|\.Files|/\*|include|template"
+    r"|define|tpl|if|else|range|with|end|toYaml)(?![\w])"
+)
+
+
+# Вывод helm template (ТЗ §15 п. 12 С10): имя релиза по умолчанию «RELEASE-NAME» в
+# metadata.name или образе. Это не манифест выкладки, а отрендеренный шаблон чарта
+# (chart/kustomize-overlays/kerberos/ Airflow: объекты «RELEASE-NAME-kerberos-kdc»).
+_RELEASE_NAME = "release-name"
+_MAX_DEPTH = 32
+
+
+def _images(node: Any, depth: int = 0) -> list[str]:
+    """Строки под ключом image в документе (поды любых видов)."""
+    if depth > _MAX_DEPTH:
+        return []
+    out: list[str] = []
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "image" and isinstance(value, str):
+                out.append(value)
+            else:
+                out += _images(value, depth + 1)
+    elif isinstance(node, list):
+        for item in node:
+            out += _images(item, depth + 1)
+    return out
+
+
+def rendered(docs: list[LineDict]) -> bool:
+    """Файл — вывод helm template: RELEASE-NAME в metadata.name или образе документа."""
+    for doc in docs:
+        name = _get(doc, "metadata", "name")
+        if isinstance(name, str) and _RELEASE_NAME in name.lower():
+            return True
+        if any(_RELEASE_NAME in image.lower() for image in _images(doc)):
+            return True
+    return False
 
 
 @dataclass
@@ -126,7 +170,7 @@ def _workload(doc: LineDict, kind: str, rel: str) -> _Workload | None:
 
 def _docs(files: Files, rel: str, found: Findings) -> list[LineDict]:
     text = files.read(rel)
-    if text is None or "apiVersion" not in text or "{{" in text:
+    if text is None or "apiVersion" not in text or _HELM.search(text) is not None:
         return []
     if _KIND_LINE.search(text) is None:
         return []
@@ -147,7 +191,14 @@ def parse(files: Files, ctx: Context) -> Findings:
     services: list[_Service] = []
     configs: dict[str, list[EnvVar]] = {}
     for rel in files.select(is_candidate):
-        for doc in _docs(files, rel, found):
+        docs = _docs(files, rel, found)
+        if rendered(docs):
+            found.hints.append(unparsed_hint(rel, texts.REASON_HELM_RENDERED))
+            notes = found.notes.setdefault("containers", [])
+            if texts.NOTE_HELM_RENDERED not in notes:
+                notes.append(texts.NOTE_HELM_RENDERED)
+            continue
+        for doc in docs:
             kind = str(doc.get("kind"))
             if kind in WORKLOADS:
                 work = _workload(doc, kind, rel)

@@ -1,0 +1,9 @@
+services:
+  api:
+    build: api
+    depends_on: [db]
+  db:
+    image: postgres:16
+  # Ловушка: каталог с «drone» в имени, но без точки, читается как обычно.
+  relay:
+    build: drone-relay

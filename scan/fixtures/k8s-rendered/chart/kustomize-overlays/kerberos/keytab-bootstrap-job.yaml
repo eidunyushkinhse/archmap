@@ -1,0 +1,10 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: keytab-bootstrap
+spec:
+  template:
+    spec:
+      containers:
+        - name: bootstrap
+          image: registry.local/release-name-tools:1.0

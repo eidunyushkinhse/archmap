@@ -117,7 +117,17 @@ def summary_head(version: str, repo: str, commit: str) -> str:
 
 NOTHING_FOUND = "Ничего не найдено."
 EXCLUDED_TITLE = "Исключено"
-NOT_COVERED_TITLE = "Не покрыто"
+# Раздел семей, разобранных не целиком (ТЗ §15 п. 10 А14): «covered» в coverage.yaml это
+# «разобрано», а не «покрыто», и полноты сводка не обещает.
+NOT_COVERED_TITLE = "Не разобрано"
+PROMISE_WITH_GAPS = [
+    "Ниже то, что сборщик разобрал в манифестах и коде. Полнота не обещается: чего",
+    "сборщик пока не читает, названо в разделе «Не разобрано».",
+]
+PROMISE_NO_GAPS = [
+    "Ниже то, что сборщик разобрал в манифестах и коде. Полнота не обещается: сборщик",
+    "читает только известные ему манифесты и языки кода.",
+]
 NOTES_TITLE = "Пояснения"
 HOW_TO_IMPORT_TITLE = "Как импортировать"
 
@@ -206,8 +216,14 @@ def and_list(items: list[str]) -> str:
     return f"{', '.join(items[:-1])} и {items[-1]}"
 
 
+def stack_shown(item: str) -> str:
+    """Стек для людей: «Rust: actix-web» из coverage.yaml в сводке «Rust (actix-web)»."""
+    language, sep, library = item.partition(": ")
+    return f"{language} ({library})" if sep else item
+
+
 def family_unsupported(label: str, stacks: list[str]) -> str:
-    return f"{label}: сборщик пока не читает {and_list(stacks)}."
+    return f"{label}: сборщик пока не читает {and_list([stack_shown(s) for s in stacks])}."
 
 
 # Языки, о которых сводка говорит «код на …»; остальное в unsupported это библиотеки и сервисы.
@@ -222,7 +238,8 @@ def family_partial(label: str, stacks: list[str], code: bool, from_code: bool) -
     from_code — найденное пришло и из кода, а не только из манифестов."""
     # «код на Python» читается, «код на viper» нет: библиотека и сервис без предлога.
     languages = bool(stacks) and all(s in CODE_LANGUAGES for s in stacks)
-    what = f"код на {and_list(stacks)}" if code and languages else and_list(stacks)
+    shown = and_list([stack_shown(s) for s in stacks])
+    what = f"код на {shown}" if code and languages else shown
     if code and not from_code:
         return f"{label}: найдено в манифестах, {what} сборщик пока не читает."
     return f"{label}: найдено не всё, {what} сборщик пока не читает."
@@ -285,6 +302,9 @@ TAIL_EDGES = [
 TAIL_GITIGNORE = "Каталог с результатом стоит добавить в .gitignore репозитория."
 EXCLUDE_REASON = {
     "convention": "по соглашению",
+    "ci": "файлы CI и служебных инструментов",
+    "dependencies": "каталог зависимостей",
+    "template": "шаблон",
     "archmapignore": "по .archmapignore",
     "option": "по ключу --exclude",
 }
@@ -300,7 +320,88 @@ REASON_BAD_YAML = "файл не разбирается как YAML или пр�
 REASON_DYNAMIC_VALUE = "значение с подстановкой переменной, адрес из него не взят"
 REASON_DYNAMIC_IMAGE = "имя образа задано переменной и известно только при запуске"
 REASON_PROFILE = "сервис включается только профилем compose"
-REASON_DEV_FILE = "сервис есть только в файле для разработки, тестов или CI"
+
+
+def dev_manifest(sign: str) -> str:
+    """Причина подсказки о сервисе или Dockerfile манифеста разработки (ТЗ §15 п. 10 Б2)."""
+    return f"манифест разработки: {sign}"
+
+
+def dev_sign_dir(path: str) -> str:
+    """Признак разработки по месту: каталог пути (walk.dev_sign)."""
+    return f"каталог {path}/"
+
+
+def dev_sign_file(name: str) -> str:
+    """Признак разработки по форме: имя файла (walk.dev_sign)."""
+    return f"имя файла {name}"
+
+
+def service_build(path: str) -> str:
+    """Признак служебной сборки: каталог инструментов, скриптов, учебных образов (walk.service_sign)."""
+    return f"служебная сборка в каталоге {path}/"
+
+
+def dev_sign_command(command: str, loc: str) -> str:
+    """Признак разработки по команде сервиса compose (ТЗ §15 п. 12 С6а)."""
+    return f"команда разработки {command} ({loc})"
+
+
+def dev_sign_test_service(name: str) -> str:
+    """Сервис compose с именем раннера тестов (rspec_system)."""
+    return f"команда разработки по имени сервиса {name}"
+
+
+def dev_sign_tool(tool: str) -> str:
+    """Сервис compose на образе инструмента разработчика (ТЗ §15 п. 12 С6б)."""
+    return f"инструмент разработки {tool}"
+
+
+def dev_sign_sail(loc: str) -> str:
+    """Файл compose Laravel Sail (ТЗ §15 п. 12 С6в)."""
+    return f"Laravel Sail ({loc})"
+
+
+def dev_sign_manager(manager: str, loc: str) -> str:
+    """Procfile запускает менеджер процессов разработки (walk.dev_procfile)."""
+    return f"Procfile запускает {manager} ({loc})"
+
+
+def dev_sign_base(base: str) -> str:
+    """Сервис файла-основы compose, который расширяют только файлы разработки."""
+    return f"сервис из {base} расширяют только файлы разработки"
+
+
+def dev_objects_line(n: int) -> str:
+    """Строка пояснений сводки: боевых манифестов нет, объекты из манифестов разработки."""
+    return (
+        f"Объекты собраны из манифестов разработки: {n}, боевых манифестов в репозитории "
+        "нет, перечень в agent/hints.yaml."
+    )
+
+
+def dev_sign_modes(modes: list[str]) -> str:
+    """Сервис devservices только в режимах, кроме default и своего (ТЗ §15 п. 10 Б3)."""
+    if not modes:
+        return "сервис не входит ни в один режим devservices"
+    return "сервис только в режимах devservices " + ", ".join(modes)
+
+
+def dev_sign_debug(loc: str) -> str:
+    """Отладочный сервис по описанию в конфигурации devservices."""
+    return f"отладочный сервис по описанию ({loc})"
+
+
+def dev_sign_stand(container: str, folder: str) -> str:
+    """Compose в каталоге кода контейнера другого боевого файла: стенд компонента."""
+    return f"стенд в каталоге кода контейнера {container} ({folder}/)"
+
+
+def dev_sign_built(loc: str) -> str:
+    """Dockerfile, образ которого собирает только сервис файла разработки."""
+    return f"образ собирается только в {loc}"
+
+
 REASON_SHARED_CODE = (
     "контейнеры собраны из одного каталога, поэтому путь к коду ни одному из них не поставлен"
 )
@@ -348,13 +449,46 @@ REASON_RELEASE_PHASE = "фаза выпуска Heroku выполняется о
 REASON_TEMPLATE_NAME = "имя программы задаётся шаблоном и известно только при развёртывании"
 REASON_HELM_DISABLED = "компонент чарта выключен в values.yaml (enabled: false)"
 NOTE_HELM_TEMPLATES = "шаблоны Helm (каталог templates) не разбираются"
+NOTE_HELM_RENDERED = "отрендеренный шаблон Helm (имена RELEASE-NAME) не разбирается"
+REASON_HELM_RENDERED = "отрендеренный шаблон Helm: имена RELEASE-NAME, вывод helm template"
 STACK_HELM_TEMPLATES = "Helm templates"
 REASON_BAD_MANIFEST = "манифест сборки не разбирается"
 REASON_MANIFEST_TOO_LARGE = "манифест сборки больше предела разбора"
 REASON_SHARED_LIB = "общий код: файл вне каталогов кода всех контейнеров"
+REASON_OTHER_LANGUAGE = "общий код: нет контейнера на этом языке"
+REASON_DOCKERFILE_IMAGE = "Dockerfile собирает образ этого контейнера, отдельного процесса нет"
+REASON_SHARED_DOCKERFILE = (
+    "общий Dockerfile сборки: образ не называет ни один сервис, а сервисы compose заданы "
+    "образами одного реестра, код которых лежит в репозитории"
+)
+REASON_DOCKERFILE_VARIANT = (
+    "вариант Dockerfile для разработки рядом с основным: тот же контейнер, отдельного процесса нет"
+)
+REASON_DOCKERFILE_SIBLING = (
+    "вариант Dockerfile рядом с основным: тот же контейнер, отдельного процесса нет"
+)
+REASON_DOCKERFILE_SUBDIR = (
+    "Dockerfile в подкаталоге кода этого контейнера без своего сервиса: тот же контейнер, "
+    "отдельного процесса нет"
+)
+REASON_MOBILE_APP = "мобильное приложение: код для телефона, контейнером не считается"
+def embedded_database(server: str) -> str:
+    return f"встроенная база для разработки и тестов: таблицы взяты из {server}"
+
+
+def other_dialect(chosen: str) -> str:
+    return f"несколько диалектов одной базы: вид и таблицы взяты из {chosen}"
+
+
+REASON_SQLITE_DEFAULT = (
+    "sqlite как значение по умолчанию настроек: боевая база задаётся иначе, вид базы не взят"
+)
 REASON_NO_DATABASE = "база не найдена в манифестах"
 REASON_MANY_DATABASES = "несколько баз, владелец не определим"
 REASON_SKIPPED_STATEMENT = "инструкция миграции не разобрана, её изменения в таблицы не попали"
+REASON_COLUMNS_FROM_QUERY = (
+    "колонки из запроса: таблица создана из SELECT, и её колонки сборщик не выводит"
+)
 
 
 def migration_error_in(folder: str, error: str) -> str:
@@ -397,6 +531,8 @@ REASON_DYNAMIC_CHANNEL = "имя канала задано выражением,
 REASON_DYNAMIC_SCHEDULE = (
     "имя расписания задано выражением, а не строкой, и известно только при запуске"
 )
+# Литерал, к которому примыкает «+» (ТЗ §15 п. 10 А): «"/" + root», «"OTEL_" + name».
+REASON_JOINED_NAME = "имя собрано из частей и целиком известно только при запуске"
 REASON_MANY_OWNERS = "файл в каталоге нескольких контейнеров, владелец не определим"
 REASON_NO_BROKER = "брокер не найден в манифестах"
 REASON_MANY_BROKERS = "несколько брокеров этого вида, владелец не определим"

@@ -593,6 +593,27 @@ def _engine(files: Files) -> tuple[str, Loc] | None:
     return best[0] if best else None
 
 
+def _sqlite_overridden(files: Files, loc: Loc) -> bool:
+    """SQLite из настроек — значение по умолчанию (ТЗ §15 п. 12 С9): другой модуль того же
+    пакета настроек (каталога файла с ENGINE) переопределяет DATABASES без sqlite.
+    AWX: awx/settings/defaults.py:24 задаёт sqlite3, а production_defaults.py сбрасывает
+    DATABASES = {}, боевая база PostgreSQL задаётся при запуске."""
+    folder = paths.parent(loc.path)
+    for rel in _settings_files(files):
+        if rel == loc.path or paths.parent(rel) != folder:
+            continue
+        text = files.read(rel)
+        if text is None or "DATABASES" not in text:
+            continue
+        tree = pyast.parse(text)
+        if tree is None or pyast.module_assign(tree, "DATABASES") is None:
+            continue
+        hit = dialect.django_engine(text)
+        if hit is None or hit[0] != dialect.SQLITE:
+            return True
+    return False
+
+
 def _user_model(files: Files) -> tuple[str, str]:
     """AUTH_USER_MODEL из файлов настроек (каталог или имя со словом settings, каталог conf)."""
     for rel in _settings_files(files):
@@ -673,6 +694,9 @@ def parse(files: Files, ctx: Context) -> Findings:
     for m in ordered:
         _apply(m.operations, m.app, state, m.path)
     engine = _engine(files)
+    default = (
+        engine is not None and engine[0] == dialect.SQLITE and _sqlite_overridden(files, engine[1])
+    )
     for app, app_dir in sorted(app_dirs.items()):
         stats = state.app_stats(app)
         tables = _tables(state, app)
@@ -685,7 +709,9 @@ def parse(files: Files, ctx: Context) -> Findings:
         found.table_sets.append(TableSet(
             parser=NAME, dir=app_dir, tables=tables, dropped=dropped,
             skipped=skipped, skipped_examples=examples, data_migrations=stats.data_migrations,
+            queried=sql.from_query(),
             dialect=engine[0] if engine else None, dialect_loc=engine[1] if engine else None,
+            dialect_default=default,
         ))
     return found
 

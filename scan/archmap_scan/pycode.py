@@ -7,6 +7,8 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
+from archmap_scan import texts
+
 # Длина текста выражения в подсказке о динамическом имени.
 _SHORT = 80
 
@@ -89,6 +91,16 @@ def string(node: ast.AST | None) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
+
+
+def joined(node: ast.AST | None) -> bool:
+    """Склейка строк «"a" + b» (и «"/a" + "/b"»): имя собрано из частей, ТЗ §15 п. 10 А."""
+    return isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add)
+
+
+def dynamic_reason(node: ast.AST | None, dynamic: str) -> str:
+    """Причина подсказки о динамическом имени: склейка или иное выражение."""
+    return texts.REASON_JOINED_NAME if joined(node) else dynamic
 
 
 def strings(node: ast.AST | None) -> list[str] | None:

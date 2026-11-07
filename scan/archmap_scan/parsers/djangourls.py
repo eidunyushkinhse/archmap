@@ -378,7 +378,8 @@ class _Urls:
 
     def _dynamic(self, node: ast.AST, loc: Loc) -> None:
         self.found.hints.append(Hint("dynamic_names", {
-            "kind": "route", "name": pycode.short(node), "reason": texts.REASON_DYNAMIC_ROUTE,
+            "kind": "route", "name": pycode.short(node),
+            "reason": pycode.dynamic_reason(node, texts.REASON_DYNAMIC_ROUTE),
             "source": str(Loc(loc.path, getattr(node, "lineno", loc.line))),
         }))
 

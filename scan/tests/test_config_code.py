@@ -46,8 +46,8 @@ def test_python_fixture() -> None:
     ]
     ctx, files = files_of(FIXTURES / "python-env")
     hints = pyenv.parse(files, ctx).hints
-    assert [(h.data["name"], h.data["source"]) for h in hints] == [
-        ("'PREFIX_' + REGION", "app/settings.py:24"),
+    assert [(h.data["name"], h.data["source"], h.data["reason"]) for h in hints] == [
+        ("'PREFIX_' + REGION", "app/settings.py:24", texts.REASON_JOINED_NAME),
     ]
 
 
@@ -57,22 +57,35 @@ def test_node_fixture() -> None:
         ("DEBUG", None, False, None, None, "src/config.ts:4"),
         ("HOST", "0.0.0.0", True, None, "string", "src/config.ts:3"),
         ("NODE_ENV", None, False, None, None, "src/config.ts:6"),
+        ("PLAIN_NAME", None, False, None, None, "src/config.ts:17"),
         ("PORT", "3000", True, None, "int", "src/config.ts:2"),
+        # Дефолт «'http://' + host» в склейке: дефолт есть, текста у него нет.
+        ("URL", None, True, None, None, "src/config.ts:15"),
     ]
     ctx, files = files_of(FIXTURES / "node-env")
-    assert [h.data["name"] for h in nodeenv.parse(files, ctx).hints] == ["`PREFIX_${name}`"]
+    hints = nodeenv.parse(files, ctx).hints
+    assert [(h.data["name"], h.data["reason"]) for h in hints] == [
+        ("`PREFIX_${name}`", texts.REASON_DYNAMIC_PARAM),
+        ("'APP_' + name", texts.REASON_JOINED_NAME),
+    ]
 
 
 def test_go_fixture() -> None:
     assert _params(goenv, FIXTURES / "go-env") == [
         ("DATABASE_URL", None, False, True, None, "cmd/main.go:7"),
         ("LOG_LEVEL", None, False, None, None, "cmd/main.go:13"),
+        ("OTEL_SERVICE_NAME", None, False, None, None, "cmd/main.go:26"),
         ("PORT", "8080", True, None, "int", "cmd/main.go:6"),
         ("REGION", None, False, True, None, "cmd/main.go:14"),
         ("TIMEOUT", "30s", True, None, "duration", "cmd/main.go:8"),
     ]
     ctx, files = files_of(FIXTURES / "go-env")
-    assert [h.data["name"] for h in goenv.parse(files, ctx).hints] == ["key"]
+    hints = goenv.parse(files, ctx).hints
+    # Argo CD util/trace/trace.go: «"OTEL_EXPORTER_OTLP_" + name» не параметр, а подсказка.
+    assert [(h.data["name"], h.data["reason"]) for h in hints] == [
+        ("key", texts.REASON_DYNAMIC_PARAM),
+        ('"OTEL_EXPORTER_OTLP_" + name', texts.REASON_JOINED_NAME),
+    ]
 
 
 COMPOSE = """services:
@@ -117,3 +130,17 @@ def test_merge_with_manifest_params(tmp_path: Path) -> None:
         "kind": "config", "name": "SHARED_ONLY", "reason": texts.REASON_SHARED_LIB,
         "source": "lib/shared.py:2",
     }]
+
+
+def test_owner_of_other_language_does_not_take_file() -> None:
+    """Браузерный NODE_ENV в каталоге процессов Ruby не их параметр: в подсказки с причиной
+    «нет контейнера на этом языке». Код Node.js в своём каталоге остаётся параметром
+    потокового сервера (ТЗ §15 п. 10 А5)."""
+    model = model_of(FIXTURES / "compose-lang")
+    languages = {o.name: o.language for o in model.objects}
+    assert languages == {"web": "Ruby", "sidekiq": "Ruby", "streaming": "Node.js"}
+    assert {k: sorted(v) for k, v in model.params.items()} == {"streaming": ["STREAMING_PORT"]}
+    hints = [(h["name"], h["reason"], h["source"]) for h in model.hints["unassigned"]]
+    assert hints == [
+        ("NODE_ENV", texts.REASON_OTHER_LANGUAGE, "app/javascript/environment.ts:2"),
+    ]

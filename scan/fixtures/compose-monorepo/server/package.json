@@ -1,0 +1,1 @@
+{"name": "server", "dependencies": {"@nestjs/core": "11.0.0", "bullmq": "5.0.0"}}

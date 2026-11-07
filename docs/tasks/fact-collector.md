@@ -61,7 +61,9 @@ bullshit-proof эталоны). Обсуждение с владельцем 202
 5. **Ничего не выбрасывает молча.** Исключённые каталоги, неразобранные файлы, динамические
    имена, неотнесённые записи перечислены в отчёте с числами и примерами.
 6. **Секреты не пишутся.** Файлы `.env`, `.env.local`, `.env.production` и любые без суффикса
-   `example|sample|template|dist` не открываются вовсе. Из примеров берутся имена; значение
+   `example|sample|template|dist` не открываются вовсе. Исключение (§15 п. 12 С13, решение
+   судьи, владелец может отменить): закоммиченный в git `.env` рядом с файлом compose
+   читается только для подстановки переменных в поля compose. Из примеров берутся имена; значение
    пишется как дефолт только если имя не похоже на секрет (`PASSWORD|SECRET|TOKEN|KEY|DSN|
    PRIVATE|CREDENTIAL|URL` с учётными данными) и значение не похоже на ключ (длинная
    случайная строка, строка подключения с паролем).
@@ -676,7 +678,10 @@ unread: {too_large: 3, binary: 0}
      говорит об этом прямо. (3) Признак разработки по месту и форме, не по догадке: каталоги
      `.devcontainer`, `docker/federation`, `e2e`, `playwright`, `test*`; файлы `*.dev.yml`,
      `Dockerfile.debug|playwright|e2e`; Procfile при goreman в Makefile; CI-файлы; сервисы base,
-     не расширенные ни одним боевым файлом; сервисы наблюдаемости из prod-стендов разработки.
+     не расширенные ни одним боевым файлом; сервисы наблюдаемости из prod-стендов разработки;
+     с части 1б (п. 12) ещё «служебная сборка» (каталог `tools`, `scripts`, `artifacts` и
+     подобные), «команда разработки» и «инструмент разработки» у сервиса compose и «Laravel
+     Sail» у файла compose.
      Страховка остатка: шаг промпта агента «подсказки dev-only проверь, не боевые ли они».
      Данные: 55 из 89 неверных объектов корнер-кейсов dev-only; релевантное только в dev-манифестах
      встретилось трижды (Sentry целиком, ES и LibreTranslate Mastodon, usage-ingestion PostHog) и
@@ -686,3 +691,245 @@ unread: {too_large: 3, binary: 0}
      (7 связей, 14 config), ConfigMap-адресов (3), смонтированных файлов конфигурации (19); обёртки
      чтения env в Go и Rust envconfig (181, 1039), zod-схема env (48), .NET Configuration (9), hjson
      (21); пути swagger/OpenAPI как точки входа (106); SQL-литералы в миграциях на TS (72).
+11. **Решения исполнителя фазы 3в, часть 1** (2026-11-06, ветка feat/scan-3c, сборщик 0.3.0;
+   владелец может отменить, числа перемера в отчёте исполнителя).
+   - А2: признак Helm это `{{-` или `{{` с `.Values`, `.Release`, `.Chart`, `.Capabilities`,
+     `.Files`, `include`, `template`, `define`, `tpl`, `if`, `else`, `range`, `with`, `end`,
+     `toYaml` или комментарием `/*`.
+   - А3: имя без кавычек в нижний регистр не приводится у MySQL, MariaDB, SQLite и SQL Server
+     (там регистр имени таблицы сохраняется), у alembic и Django приводится;
+     `CREATE TEMP TABLE` таблицу не создаёт; `ALTER TRIGGER` и `RENAME CONSTRAINT` поняты;
+     `CREATE TABLE … AS` даёт таблицу без колонок с подсказкой (колонки запроса не выводятся).
+   - А5: язык сверяется и при единственном владельце.
+   - А6: вариант Dockerfile без суффикса разработки (llm-analytics, dagster-ml PostHog)
+     остаётся своим контейнером; корневой Dockerfile привязывается по имени репозитория или
+     системы с нормализацией (argo-cd и argocd); `tilt` считается суффиксом разработки; обёртка
+     `bundle` в командах снимается.
+   - А8: задача на образе базы или брокера только с командой оболочки или
+     `restart: no|on-failure`: так базовый kafka (redpanda start) и реплики остаются собой.
+   - А9: служебным считается и `.gitlab/`.
+   - А10: «общий код» считают только разборщики кода и примеры окружения.
+   - А11: очереди SQS опознаются по слову sqs в имени реестра или каталоге и по клиенту AWS в
+     импортах; словарь `…_TO_TOPICS` реестром не считается (FEATUREBASE_OBJECT_TYPE_TO_TOPICS
+     PostHog дал три ложные темы, когда kafka-init перестал быть вторым брокером).
+   - А12: стек ищется в файлах контейнеров (owners.file_owners), подписи «Язык: библиотека»,
+     семья workers по тем же правилам; `unknown` становится `empty` у http_routes и channels,
+     если язык контейнеров известен. Контейнеры по файлам сборки или неявный контейнер корня
+     границу системы не задают, и тогда стек ищется по всем манифестам (PHP-интерфейс Zabbix
+     без своего контейнера иначе прятался за «искали и не нашли»).
+   - А13: ClickHouse в имени образа, кроме keeper, exporter, backup и operator; Redis брокер,
+     только когда он у контейнера один; манифесты сборки это каталог кода и каталог Dockerfile
+     внутри него (immich: server/package.json); база с depends_on к брокеру связана с ним
+     (clickhouse и kafka PostHog).
+   - А14: оговорка второй и третьей строкой сводки, ключ `covered` в YAML прежний (п. 5
+     выполнен).
+   - Б1: к признакам добавлены каталог `devservices` (оркестратор разработки Sentry, без него
+     Sentry не попадает на ступень 2) и стенд в каталоге кода контейнера из другого боевого
+     файла (`assemble._stands`: livestream/ и rust/ PostHog, 7 объектов, отдельный коммит).
+     Сервис основы со своей сборкой (`build`) разработкой не считается, иначе ok-объект
+     usage-ingestion PostHog ушёл бы в подсказки. Признак «сервисы наблюдаемости из
+     prod-стендов» (immich docker-compose.prod.yml) не сделан: по месту и форме он не виден, а
+     правило «один файл собирает, другой запускает образ» ломает схему с файлом override.
+   - Б2: признак по пути получает и Helm; сервис с тем же именем в боевом манифесте любого
+     вида остаётся по боевому и забирает Dockerfile сборки из файла разработки.
+   - Б3: сервис devservices вне режима default остаётся объектом, если есть режим с его
+     именем (memcached), иначе уходит в подсказки (bigtable, redis-cluster, relay-cell,
+     relay-edge, taskbroker-sentry); отладочный узнаётся по слову debug в описании
+     (spotlight). Ступень 2 наступает, когда нет ни одного боевого манифеста развёртывания
+     (compose, k8s, Helm, systemd, supervisor, Procfile); Dockerfile таким манифестом не
+     считается.
+   - Остаток после части 1 (15 из 73 лишних объектов, цель ≤ 10 не достигнута): узлы
+     многоузлового ClickHouse PostHog 9 (признак только в комментарии шапки «smoke-test
+     stack»), posthog-metrics-agent (склейка Helm и Dockerfile products/metrics/agent дала
+     бы имя чарта, и ok-объект agent пропал бы), mastodon-web и mastodon-streaming (дубли
+     юнитов systemd и compose, склейка §13.5 по команде их не видит), immich-grafana и
+     immich-prometheus, gitops-agent Argo CD (отдельный продукт в gitops-engine/). Ложные
+     связи PostHog 12 → 2: asyncmigrationscheck → plugins (адрес из унаследованного
+     окружения) и temporal-ui → db (depends_on только порядок запуска).
+12. **Решения исполнителя части 1б по дымовому прогону 2026-11-07** (ветка feat/scan-3c, сборщик
+   0.3.0 без выпуска; 15 неглубоких клонов: Java, .NET, PHP, Elixir, полиглот, Terraform, Ansible,
+   Bazel, большие монорепо; пункты С1–С13 судьи; владелец может отменить, числа перемера в
+   отчёте исполнителя).
+   - С1: каталоги зависимостей и инструментов (`node_modules`, `vendor`, `.venv`, `venv`,
+     `__pycache__`, `.tox`, `.mypy_cache`, `.idea`, `.vscode`, `coverage`) не читаются и при
+     обходе через git (`walk.DEPENDENCY_DIRS`), в покрытии причина `dependencies`; сегмент
+     сравнивается целиком с учётом регистра, как у обхода без git. `dist`, `build`, `target` с
+     git читаются (закоммиченный `build/` Kubernetes источник). Каталог CI проверяется раньше:
+     `.github/vendor/` остаётся в причине `ci`.
+   - С2: шаблон Dockerfile (имя Dockerfile в любой из четырёх форм с расширением `j2`, `tpl`,
+     `template`, `in`, `jinja`, `jinja2`) не читается вовсе (`walk.template_rule`), в покрытии
+     причина `template`: `Dockerfile.j2` AWX объектом «j2» не становится, `.devcontainer/Dockerfile.in`
+     Envoy уходит из подсказок в исключённое. Шаблоны других манифестов (`*.conf.template`
+     supervisor) правило не трогает. Форма `<имя>.Dockerfile` и раньше разбиралась как
+     `Dockerfile.<имя>` (`assemble._variant`, `walk.dev_sign`), тест это закрепляет.
+   - С3: (а) `docs`, `doc`, `examples`, `example`, `samples` и новый `sample` совпадают и частью
+     сегмента через дефис или подчёркивание (`walk._convention_dir`: `docker-stack-docs`,
+     `helm_examples`), частью слова нет (`documents`, `exampleservice`). Правило общее для
+     обхода, поэтому вместе с учебными Dockerfile Airflow уходят и `api-docs/` Sentry (подсказка
+     о файле OpenAPI `api-docs/openapi.json` пропала, вернуть ключом `--include api-docs`),
+     `src/telemetry-docs/` OpenTelemetry Demo (сервис compose остаётся, его Dockerfile
+     не читается), `contributing-docs/` и `example_dags/` Airflow, `sample-*` Kubernetes.
+     (б) Признак «служебная сборка» (`walk.service_sign`, текст «служебная сборка в каталоге
+     <каталог>/»): сегмент `tools`, `scripts`, `artifacts`, `recipes`, `quality`, `benchmark`,
+     `benchmarks`, `uffizzi`, `terraform`, `packer`, `build-image`, `*-build-image` или с `_` в
+     начале; ставят его Dockerfile, compose, k8s, systemd, supervisor и Procfile
+     (`walk.manifest_sign` = признак разработки, иначе служебная сборка), Helm нет. Dockerfile
+     служебной сборки проверяется после привязки к образу сервиса (`_image_targets`): образ,
+     который запускает боевой сервис, остаётся его Dockerfile. На ступени 2 такой Dockerfile
+     становится объектом с пометкой (ловушка Monica), а Dockerfile с признаком разработки по
+     месту и форме по-прежнему уходит в подсказки на обеих ступенях: это правило части 1, его
+     пункт не называет. Следствия по дыму: юниты `scripts/systemd/airflow-*.service` Airflow
+     (8 процессов) и `tools/kafka/*/docker-compose.yml` Loki (брокер kafka) тоже стали
+     подсказками; у AWX все манифесты в `tools/`, боевых нет, и его процессы вернулись объектами
+     ступени 2 с пометкой.
+   - С4: язык по базовому образу Dockerfile берётся с конца (`assemble._dockerfile_language`):
+     итоговая стадия, а без языка у неё (`scratch`, `alpine`, distroless) ближайшая предыдущая
+     с языком. Манифесты сборки каталога кода по-прежнему старше образа. В дыме правка видна на
+     fpm Monica после С6 (сейчас Dockerfile в `scripts/` подсказка ступени 1).
+   - С5: (а) у объекта compose, k8s или Helm без каталога кода или с корневым (не базы и не
+     брокера по образу, не варианта Dockerfile) каталог кода ищется по имени сервиса, затем по
+     последнему сегменту образа (`assemble._named_dir`): каталог с этим именем в корне или в
+     `src/`, `services/`, `apps/`, `packages/`, `cmd/`, `modules/`, хвост из `src`, `app`,
+     `docker`, `build` имени не задаёт (`src/cart/src` это «cart»). Каталогом кода служит
+     каталог с манифестом сборки или с Dockerfile самого объекта (С++ `src/currency/`); чужой
+     Dockerfile в каталоге с таким именем не в счёт, иначе образ grafana/loki трёх сервисов
+     Loki забрал бы `cmd/loki`. Ближайший к корню выигрывает, два разных каталога на одной
+     глубине неоднозначны. Решение исполнителя: Gradle с плагином Kotlin (`kotlin("jvm")`,
+     `org.jetbrains.kotlin`) даёт язык Kotlin (цель приёмки «Kotlin у fraud-detection»);
+     recommendation в клоне на Java (build.gradle), поэтому Java + Spring Boot, а не Python.
+     (б) Dockerfile без манифеста сборки в своём каталоге, чей каталог имени не даёт (`docker/`)
+     или это служебная сборка, при «COPY .» или «ADD .» берёт каталог кода у ближайшего
+     предка с манифестом (`Dockerfile.copies_context`, `assemble._package_home`) и имя по нему
+     (корень даёт имя системы: Monica вместо «scripts»); такой Dockerfile без имени при двух и
+     более сервисах compose с образами одной организации, код которых найден по (а),
+     уходит в `hints.unassigned` с причиной «общий Dockerfile сборки» (docker/Dockerfile
+     Petclinic больше не объект «petclinic-ms»). Предок, который уже каталог сборки другого
+     сервиса, правило не трогает: Dockerfile разбирается как раньше. Попутно поправлены две
+     технологии PostHog из вердикта wrong-kind (ml-mirror-image-scrub и recording-rasterizer:
+     Node.js вместо Rust, это С4).
+   - С6: признак разработки по форме сервиса compose (`compose._service_dev`). (а) «Команда
+     разработки» (`vocab.dev_command`, по базовому имени слова команды или entrypoint): пары
+     `yarn|npm|pnpm install|ci`, `bundle|pip|pip3|composer install`, `next dev`, программы
+     `webpack-dev-server`, `nodemon`, `rspec`, `pytest`, `jest`, `cypress`, `playwright`, `vite`
+     (кроме `vite build`), `db:seed`. Сверх перечня судьи, чтобы сохранить цель пункта на Forem:
+     `--watch` (esbuild: `yarn build --watch`), заглушка `sleep infinity` и `tail -f /dev/null`
+     (devcontainer) и раннер тестов по части имени сервиса (`rspec_system` без своей команды).
+     (б) «Инструмент разработки» (`vocab.DEV_TOOL_IMAGES`) по сегменту пути образа, имя или имя с
+     номером (`pgadmin4`). `browserless` из перечня судьи НЕ взят: в боевом файле hobby PostHog
+     им рендерит воркер, это ok-объект вердикта корнер-кейсов (стоп-правило брифа), поэтому
+     chrome Forem остаётся объектом. (в) «Laravel Sail» ставится файлу целиком: контекст сборки
+     внутри `vendor/laravel/sail` или образ `sail-*` хотя бы у одного сервиса; его базы и кэш
+     поднимаются для того же стенда. У Monica боевых манифестов не остаётся, ступень 2: сервисы
+     Sail, базы и `scripts/docker/Dockerfile` (объект «monica» на PHP + Laravel) объекты с пометкой. (г)
+     Dockerfile под `.devcontainer/` к боевому объекту не привязывается (n8n больше не берёт
+     каталог кода `.devcontainer`). Остаток: bundle Forem (`./scripts/bundle.sh`) правилом не
+     виден, Forem даёт 8 объектов вместо цели 6 (bundle, chrome сверх списка).
+   - С7: (а) корневой контейнер (неявный или с каталогом кода, равным корню) берёт язык из
+     манифестов свободных подкаталогов (`assemble._free_packages`: не заняты каталогом кода
+     другого объекта, не служебная сборка и не разработка по `walk.manifest_sign`). Решения
+     исполнителя сверх формулировки судьи, чтобы правило не угадывало: только когда корень не
+     задаёт язык (манифестов нет или это `package.json` без dependencies и workspaces, как у
+     eShop с одними devDependencies; `assemble._service_root`), базовый образ Dockerfile языка
+     не называет, Dockerfile объекта не объявлен в подкаталоге, а свободные манифесты не
+     Node.js одного языка (у OpenTelemetry Demo рядом утилиты Go `internal/tools/`, тесты .NET
+     и Gemfile мобильного приложения). Язык и фреймворк по `stack_of` среди этих манифестов.
+     eShop: «.NET». Промежуточно: `telemetry-docs` OpenTelemetry Demo (контекст корня,
+     Dockerfile из переменной `.env`) получил Ruby от `src/react-native-app/Gemfile`; уйдёт с
+     мобильным каталогом С8 и подстановкой `.env` С13. (б) `coverage.stacks` только из словаря
+     (`vocab.is_stack`): языки манифестов, образов и файлов сборки, фреймворки, виды образов и
+     клиентов, диалекты SQL, запись «язык + фреймворк». Имя образа остаётся технологией объекта
+     (zipkin), из стеков уходят и технологии задач по образу (`postgres`, `redpanda` PostHog).
+     (в) Семья яруса кода в статусе `unknown` получает в `unsupported` языки контейнеров, код
+     на которых сборщик не читает, и `unknown` остаётся только без языка у всех контейнеров.
+     У Petclinic `unsupported` уже дал С5 (код найден по имени); `http_routes` пишет
+     «Java: Spring Boot» по правилу А12. `channels` Kubernetes `unknown` по правилу: после
+     ухода `_mock` (С3) у контейнеров на образах язык не известен.
+   - С8: (а) `Dockerfile.<суффикс>` и `<префикс>.Dockerfile` рядом с основным `Dockerfile` —
+     вариант контейнера основного при любом суффиксе (`hints.merged`, причина «вариант
+     Dockerfile рядом с основным»); решение А6 про отдельные контейнеры по суффиксу не для
+     разработки отменено, тест `test_standalone_dockerfiles` переписан (`Dockerfile.worker`
+     теперь вариант orders). Решения исполнителя, чтобы не потерять ok вердикта PostHog: в
+     корне репозитория суффикс по-прежнему называет отдельный образ (`Dockerfile.llm-analytics`,
+     `Dockerfile.dagster-ml` рядом с корневым `Dockerfile`); у основного Dockerfile нескольких
+     сервисов (общий `rust/Dockerfile` capture, cymbal и других) суффикс не для разработки
+     тоже отдельный образ (`rust/Dockerfile.sqlx-migrate`: первый перемер его склеил с capture,
+     стоп-правило, правило уточнено). Форма с дефисом (`Dockerfile-fpm` Monica) правилом не
+     задета. Основной Dockerfile без контейнера: вариант идёт по прежним правилам. (б)
+     Dockerfile, который стал бы своим объектом, в подкаталоге каталога кода ровно одного
+     контейнера (не корень, свой каталог не в счёт) — его вариант (причина «Dockerfile в
+     подкаталоге кода этого контейнера»), если в каталоге Dockerfile нет своего манифеста
+     сборки; кандидаты разработки ступени 1 каталогом не владеют. Ближайшие к корню
+     решаются первыми. Сверх случаев судьи по правилу ушли объекты `aws_lambda` Airflow
+     (вариант `executors`) и `kube-apiserver`, `kubectl` Kubernetes (варианты `server-image`
+     из `build/server-image/`). (в) Каталог мобильного приложения (`walk.mobile_dir`: часть
+     сегмента `android`, `ios`, `mobile`, `flutter` или `react-native` в сегменте): Dockerfile
+     в нём уходит в `hints.unassigned` с причиной «мобильное приложение», его манифесты не
+     свободные пакеты С7 (`telemetry-docs` OpenTelemetry Demo вернулся к Node.js корня).
+   - С9: обе ветки правила судьи сборщик уже выполнял: `_engine` разборщика Django предпочитает
+     ENGINE не sqlite во всех файлах настроек, а таблицы при реляционной базе в манифестах
+     достаются ей (`owners.database_for`). Новое: в этом случае ENGINE sqlite3 даёт подсказку
+     «sqlite как значение по умолчанию настроек» (`hints.unassigned`, вид `database`). У AWX
+     ни одна ветка не выполняется: в пакете `awx/settings/` ENGINE один (sqlite3 в
+     `defaults.py:24`), а compose с PostgreSQL лежит в шаблоне `.j2` (исключён С2). Чтобы
+     сохранить цель «AWX без SQLite», решение исполнителя: sqlite3 считается значением по
+     умолчанию и тогда, когда другой модуль того же каталога настроек присваивает `DATABASES`
+     на уровне модуля без sqlite (`production_defaults.py: DATABASES = {}`,
+     `django._sqlite_overridden`, `TableSet.dialect_default`). Тогда база по миграциям строится
+     без вида («База данных», 60 таблиц AWX), подсказка та же. Ловушка: модуль рядом без
+     `DATABASES` sqlite не отменяет, проект только на sqlite остаётся с SQLite.
+   - С10: файл Kubernetes, где у любого документа `metadata.name` или строка под ключом `image`
+     содержит `RELEASE-NAME` без учёта регистра, это вывод `helm template` (`k8s.rendered`):
+     документы файла не разбираются, в покрытии пометка семьи containers «отрендеренный
+     шаблон Helm (имена RELEASE-NAME) не разбирается», путь файла в `hints.unparsed`. Метки и
+     прочие поля признаком не считаются. У Airflow ушли объекты «RELEASE-NAME-kerberos-kdc» и
+     «RELEASE-NAME-keytab-bootstrap» (`chart/kustomize-overlays/kerberos/`); файлы
+     `chart/kustomize-overlays/keda/` (ScaledObject) разборщик не загружал и раньше.
+   - С11: разборщик SQL группирует наборы, чей каталог назван диалектом, по общему родителю
+     (`sql._one_database`). Если в группе два и более каталога и есть серверный, остаётся
+     набор первого по алфавиту серверного каталога; вид по типам колонок, а без них по имени
+     каталога (`mysql` → MySQL). Остальные наборы группы в базу не идут: встраиваемый —
+     подсказка «встроенная база для разработки и тестов: таблицы взяты из <каталог>»,
+     второй серверный — «несколько диалектов одной базы» (`hints.unassigned`, вид
+     `database`). Один каталог диалекта без соседей правилом не задет. Petclinic: три
+     сервиса, у каждого `db/hsqldb` и `db/mysql`, база одна «MySQL» с таблицами, «База
+     данных» ушла.
+   - С12: маркер сборки в корне (`buildfiles.root_stack`; Bazel старше CMake) даёт стек
+     репозитория `vocab.STACK_BAZEL` или `STACK_CMAKE`. При маркере `Cargo.toml` и `go.mod`
+     (`vocab.SDK_MANIFESTS`) — SDK и утилиты: неявный контейнер по ним не строится, каталоги
+     `cmd/` модулей Go процессами не считаются, имя системы по `go.mod` не берётся, языка
+     контейнеру с корневым каталогом кода они не дают, в `unsupported` по языку не идут.
+     Решения исполнителя: контейнер с корневым каталогом кода без другого языка получает стек
+     маркера технологией; стек первым в `stacks` и в `unsupported` семьи containers и семей
+     яруса кода (config, channels, http_routes, workers, schedules). Разбор Envoy: объекты
+     «all», «gcc», «llvm», «none» — сервисы матрицы CI `ci/matrix/docker-compose.yml` со
+     сборкой из корня (ступень 2, объекты с пометкой разработки), основания `Cargo.toml:1` и
+     `go.mod:1` у них были от корневых манифестов; «envoy» — `distribution/docker/Dockerfile-envoy`,
+     образ продукта, у системы «envoy» основание `go.mod:1`. После правила стеки
+     [C++ (Bazel)], у матрицы технология «C++ (Bazel)» без оснований от Cargo.toml и go.mod,
+     имя системы по каталогу. Сами объекты матрицы остаются по политике Б: правило про
+     неявные контейнеры их не задевает (остаток).
+   - С13 (решение судьи, отдельный коммит для отката): `.env` из каталога файла compose
+     читается, только если он закоммичен (`git ls-files --cached`; новая разрешённая команда
+     `context.GIT_COMMANDS`, вызывается лениво, только если такой `.env` есть в перечне). Перечень
+     обхода с git включает и незакоммиченные файлы вне `.gitignore`, поэтому одного перечня
+     мало. Без git не читается никогда. Строки разбирает `envexample.parse_text`. Значения
+     раскрывают `${VAR}`, `${VAR:-x}` (и `${VAR-x}`) в `image`, `build.context`,
+     `build.dockerfile`, `environment` и `depends_on` (`compose.expand(env=…)`); `$VAR` без
+     скобок, `command` и `entrypoint` не трогаются, `ports` разборщик compose не читает вовсе.
+     Значения `.env` не параметры и не факты: в вывод попадает только то, что подставлено в
+     поля compose, дальше по прежним правилам (адрес связи по §6, дефолт по инварианту 6).
+     Два сопутствующих правила, без которых подстановка у OpenTelemetry Demo ломала прежний
+     результат: у контейнера без своих манифестов сборки вид и технологию даёт база или
+     брокер итоговой стадии его Dockerfile, как у Dockerfile без манифеста (kafka на
+     `apache/kafka` и opensearch остались брокером и базой); каталогом кода для правила
+     подкаталога С8 служит и каталог Dockerfile сервиса со сборкой из корня, если он назван
+     именем сервиса (`src/checkout/genproto/Dockerfile` остался вариантом checkout). Итог у
+     OpenTelemetry Demo: технологии образов, astronomy-db — PostgreSQL, valkey-cart — Redis,
+     связи к otel-collector, opamp-server, valkey-cart и astronomy-db по адресам `.env`.
+   - Остаток части 1б по целям дыма: Forem 8 объектов при цели 6 (bundle: команда
+     `./scripts/bundle.sh` правилом С6 не видна; chrome на browserless оставлен ради ok вердикта
+     PostHog; базы db и postgres из двух файлов compose, склейку их ни один пункт не называет);
+     объекты матрицы CI Envoy остаются объектами ступени 2 (С12); recommendation OpenTelemetry
+     Demo на Java (в клоне build.gradle), а не на Python; `http_routes` Petclinic пишет
+     «Java: Spring Boot» по правилу А12; stacks Kubernetes пусты (у контейнеров на образах
+     язык не известен); подсказка Sentry о `api-docs/openapi.json` ушла с С3а.

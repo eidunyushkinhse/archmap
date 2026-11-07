@@ -1,0 +1,8 @@
+# Конвейер CI: верхний services: похож на compose, но это база тестового прогона.
+steps:
+  test:
+    image: rust:1.85
+    commands: [cargo test]
+services:
+  database:
+    image: postgres:16

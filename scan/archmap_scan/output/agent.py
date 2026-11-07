@@ -14,7 +14,7 @@ from archmap_scan.output.schema import refs
 # Разделы hints.yaml в постоянном порядке; пустые пишутся пустыми списками.
 HINT_SECTIONS: tuple[str, ...] = (
     "depends_on", "dynamic_names", "unassigned", "unsupported", "openapi_files", "profiles",
-    "shared_code", "clients", "unparsed", "external_repos", "merged",
+    "dev_manifest_objects", "shared_code", "clients", "unparsed", "external_repos", "merged",
 )
 
 

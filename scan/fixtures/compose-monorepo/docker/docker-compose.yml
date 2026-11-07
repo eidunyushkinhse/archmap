@@ -1,0 +1,17 @@
+# Монорепозиторий: сервис собирается из корня, его манифест лежит рядом с Dockerfile.
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    depends_on: [redis]
+  # Ловушка: рядом с Dockerfile манифест без библиотеки очередей, Redis остаётся кэшем.
+  web:
+    build:
+      context: ..
+      dockerfile: web/Dockerfile
+    depends_on: [cache]
+  redis:
+    image: valkey/valkey:8
+  cache:
+    image: redis:7

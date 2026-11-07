@@ -6,14 +6,20 @@
 INGEST_EVENTS = "ingest-events" и словарь KAFKA_TOPIC_TO_CLUSTER, Zulip — декоратор
 @assign_queue("deferred_work") у каждого потребителя. Поэтому:
 
-- реестр — класс (в том числе Enum) или словарь на уровне модуля, у имени которого есть
-  часть вида брокера (walk.name_tokens): topic и topics для Kafka, queue и queues для
-  RabbitMQ и Celery, subject и subjects для NATS. Его строки (у класса — значения членов, у
-  словаря — ключи) дают каналы этого вида без направления. Члены класса — константы в
-  верхнем регистре, у перечисления — любые имена без «_» в начале: так строка
-  __tablename__ = "topics" каналом не становится. Части channel и channels вида брокера не
-  называют (Zulip держит CHANNEL_SYNONYMS со словами интерфейса), поэтому такой реестр
-  читается только в файле, который сам подключает клиент брокера;
+- реестр — класс (в том числе Enum) или словарь на уровне модуля, у имени которого
+  ПОСЛЕДНЕЕ слово (name_words: части по «_», «.», «-» и по регистру, CeleryQueue — celery и
+  queue) называет вид брокера: topic и topics для Kafka, queue и queues для RabbitMQ и
+  Celery, subject и subjects для NATS (ТЗ §15 п. 10 А11: DEAD_LETTER_QUEUE_METRICS и
+  TRUNK_MERGE_QUEUE_COLUMNS PostHog — ключи метрик и колонки, а не очереди). Исключение —
+  словарь «…_TOPIC_TO_…» (KAFKA_TOPIC_TO_CLUSTER Sentry): его ключи и есть каналы. Имя
+  «…_TO_TOPICS» сопоставляет каналам что-то другое и реестром не считается. Строки реестра
+  (у класса — значения членов, у словаря — ключи) без пробелов дают каналы этого вида без
+  направления. Члены класса — константы в верхнем регистре, у перечисления — любые имена без
+  «_» в начале: так строка __tablename__ = "topics" каналом не становится. Части channel и
+  channels вида брокера не называют (Zulip держит CHANNEL_SYNONYMS со словами интерфейса),
+  поэтому такой реестр читается только в файле, который сам подключает клиент брокера.
+  Очереди SQS (имя реестра со словом sqs, модуль с boto3, botocore или sqs в импортах) не
+  очереди Celery и RabbitMQ;
 - аргумент вызова публикации или подписки вида Name.MEMBER, Name.MEMBER.value или
   Name["MEMBER"], где Name — реестр того же файла или импортированного модуля репозитория,
   раскрывается в строку (Registries.value): направление и связь как у строки;
@@ -39,6 +45,10 @@ from archmap_scan.walk import Files, name_tokens
 _CHANNEL_WORDS = frozenset({"channel", "channels"})
 _TEST_WORD = "test"
 _MEMBER = re.compile(r"[A-Z][A-Z0-9_]{0,199}")
+# Слова имени: заглавные подряд (не перед строчной), слово с заглавной или строчной, числа.
+_NAME_WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+_SQS_WORD = "sqs"
+_SQS_MODULES = ("boto3", "botocore", "aioboto3", "aiobotocore")
 # Отбор файлов до разбора (только начала строк, без оглядки назад): класс и словарь на
 # уровне модуля, декоратор с вызовом.
 _CLASS = re.compile(r"^class[ \t]+([A-Za-z_][A-Za-z0-9_]{0,99})", re.MULTILINE)
@@ -133,6 +143,35 @@ class Registries:
         return None
 
 
+def name_words(name: str) -> list[str]:
+    """Слова имени в нижнем регистре: CeleryQueue → celery, queue; KAFKA_TOPIC_TO_CLUSTER →
+    kafka, topic, to, cluster."""
+    return [w.lower() for w in _NAME_WORD.findall(name)]
+
+
+def _is_registry(name: str, words: frozenset[str], is_dict: bool) -> bool:
+    """Имя реестра: последнее слово называет вид брокера; у словаря ещё «…_TOPIC_TO_…».
+    Имя «…_TO_TOPICS» сопоставляет каналам что-то другое (типы объектов вебхуков у PostHog):
+    его ключи и члены не каналы."""
+    parts = name_words(name)
+    if not parts or _SQS_WORD in parts:
+        return False
+    if parts[-1] in words:
+        return len(parts) < 2 or parts[-2] != "to"
+    return is_dict and any(
+        a in words and b == "to" for a, b in zip(parts, parts[1:], strict=False)
+    )
+
+
+def _sqs_module(rel: str, imps: dict[str, pycode.Imported]) -> bool:
+    """Модуль очередей SQS: подключает клиент AWS или лежит в каталоге со словом sqs."""
+    if pycode.imports_any(imps, _SQS_MODULES):
+        return True
+    if any(_SQS_WORD in imp.module.lower().split(".") for imp in imps.values()):
+        return True
+    return any(_SQS_WORD in name_words(seg) for seg in rel.split("/")[:-1])
+
+
 def _words(spec: Spec, with_channel: bool) -> frozenset[str]:
     return spec.words | _CHANNEL_WORDS if with_channel else spec.words
 
@@ -154,6 +193,8 @@ def _class_members(cls: ast.ClassDef) -> dict[str, tuple[str, int]]:
         text = pycode.string(value)
         if not isinstance(target, ast.Name) or not text or target.id.startswith("_"):
             continue
+        if any(ch.isspace() for ch in text):
+            continue
         if enum or _MEMBER.fullmatch(target.id):
             out.setdefault(target.id, (text, stmt.lineno))
     return out
@@ -163,7 +204,7 @@ def _dict_members(value: ast.Dict) -> dict[str, tuple[str, int]]:
     out: dict[str, tuple[str, int]] = {}
     for key in value.keys:
         text = pycode.string(key)
-        if text and key is not None:
+        if text and key is not None and not any(ch.isspace() for ch in text):
             out.setdefault(text, (text, key.lineno))
     return out
 
@@ -175,7 +216,7 @@ def _module_registries(tree: ast.Module, words: frozenset[str]) -> dict[str, _Re
         members: dict[str, tuple[str, int]] = {}
         if isinstance(stmt, ast.ClassDef):
             name = stmt.name
-            if name_tokens(name) & words:
+            if _is_registry(name, words, False):
                 members = _class_members(stmt)
         else:
             target: ast.AST | None = None
@@ -186,7 +227,7 @@ def _module_registries(tree: ast.Module, words: frozenset[str]) -> dict[str, _Re
                 target, value = stmt.target, stmt.value
             if isinstance(target, ast.Name) and isinstance(value, ast.Dict):
                 name = target.id
-                if name_tokens(name) & words:
+                if _is_registry(name, words, True):
                     members = _dict_members(value)
         if name and members:
             out[name] = _Registry(name=name, members=members)
@@ -198,7 +239,7 @@ def _candidate(text: str, words: frozenset[str], decorators: bool) -> bool:
     декоратор с частью queue."""
     for pattern in (_CLASS, _DICT):
         for m in pattern.finditer(text):
-            if name_tokens(m.group(1)) & words:
+            if set(name_words(m.group(1))) & words:
                 return True
     if decorators:
         for m in _DECORATOR.finditer(text):
@@ -261,8 +302,11 @@ def scan(
         tree = pyast.parse(text)
         if tree is None:
             continue
-        words = _words(spec, pycode.imports_any(pycode.imports(tree), clients))
-        own = _module_registries(tree, words)
+        imps = pycode.imports(tree)
+        words = _words(spec, pycode.imports_any(imps, clients))
+        own = {} if spec.kind == "queue" and _sqs_module(rel, imps) else _module_registries(
+            tree, words,
+        )
         if own:
             regs.by_file[rel] = own
         if not declare:

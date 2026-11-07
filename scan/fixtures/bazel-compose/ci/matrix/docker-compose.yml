@@ -1,0 +1,6 @@
+# С12: матрица сборки CI собирается из корня: её язык — стек Bazel, а не Rust SDK.
+services:
+  all:
+    build:
+      context: ../..
+      dockerfile: ci/matrix/Dockerfile

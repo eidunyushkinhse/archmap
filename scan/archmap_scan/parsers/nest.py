@@ -28,9 +28,12 @@ def _join(*parts: str) -> str:
     return "/" + "/".join(pieces)
 
 
-def _dynamic(code: codetext.Code, rel: str, found: Findings, start: int) -> None:
+def _dynamic(
+    code: codetext.Code, rel: str, found: Findings, start: int,
+    reason: str = texts.REASON_DYNAMIC_ROUTE,
+) -> None:
     found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": code.expression(start), "reason": texts.REASON_DYNAMIC_ROUTE,
+        "kind": "route", "name": code.expression(start), "reason": reason,
         "source": str(Loc(rel, code.line(start))),
     }))
 
@@ -55,7 +58,8 @@ def _controller(code: codetext.Code, rel: str, found: Findings, start: int) -> s
         return None
     value, dynamic = code.literal(hit.start(), hit.end())
     if dynamic:
-        _dynamic(code, rel, found, start)
+        _dynamic(code, rel, found, start,
+                 code.reason(hit.start(), hit.end(), texts.REASON_DYNAMIC_ROUTE))
         return None
     return value
 
@@ -110,7 +114,8 @@ def parse(files: Files, ctx: Context) -> Findings:
             if m.group(2) is not None:
                 path, dynamic = code.literal(m.start(2), m.end(2))
                 if dynamic:
-                    _dynamic(code, rel, found, m.start(2))
+                    _dynamic(code, rel, found, m.start(2),
+                             code.reason(m.start(2), m.end(2), texts.REASON_DYNAMIC_ROUTE))
                     continue
             elif code.mask[m.end():m.end() + 1] == ")":
                 path = ""

@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from archmap_scan import dialect
+
 # Роли объектов (ТЗ §5.1): других сборщик не пишет.
 ROLE_SERVICE = "сервис"
 ROLE_FRONTEND = "фронтенд"
@@ -20,9 +22,12 @@ ROLE_BROKER = "брокер"
 ROLE_PROXY = "прокси"
 ROLE_STORAGE = "хранилище"
 ROLE_SCHEDULER = "планировщик"
+# Разовая задача на образе базы или брокера: ждёт готовности, создаёт топики и выходит
+# (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog).
+ROLE_TASK = "задача"
 ROLES = frozenset({
     ROLE_SERVICE, ROLE_FRONTEND, ROLE_WORKER, ROLE_DB, ROLE_CACHE, ROLE_BROKER, ROLE_PROXY,
-    ROLE_STORAGE, ROLE_SCHEDULER,
+    ROLE_STORAGE, ROLE_SCHEDULER, ROLE_TASK,
 })
 
 
@@ -46,7 +51,7 @@ def _images(names: str, kind: ImageKind) -> None:
         IMAGES[name] = kind
 
 
-_images("postgres postgresql postgis timescaledb pgvector pgroonga",
+_images("postgres postgresql postgis timescaledb pgvector pgroonga pgautoupgrade",
         ImageKind(_DB, "PostgreSQL", ROLE_DB))
 _images("mysql mysql-server", ImageKind(_DB, "MySQL", ROLE_DB))
 _images("mariadb", ImageKind(_DB, "MariaDB", ROLE_DB))
@@ -69,8 +74,77 @@ _images("haproxy", ImageKind(_SERVICE, "HAProxy", ROLE_PROXY))
 _images("envoy", ImageKind(_SERVICE, "Envoy", ROLE_PROXY))
 _images("mailhog", ImageKind(_SERVICE, "MailHog", ROLE_SERVICE))
 _images("mailpit", ImageKind(_SERVICE, "Mailpit", ROLE_SERVICE))
+_images("chromium", ImageKind(_SERVICE, "Chromium", ROLE_SERVICE))
 # Не образ, а программа, которую процесс supervisor или systemd запускает вне репозитория.
 _images("cron crond", ImageKind(_SERVICE, "cron", ROLE_SCHEDULER))
+
+# Инструменты разработчика по образу (ТЗ §15 п. 12 С6б): почтовые ловушки, заглушки API,
+# браузеры для тестов, веб-консоли баз и брокеров. Сервис compose на таком образе — кандидат
+# разработки. Сравнивается сегмент пути образа без тега (selenium/standalone-chrome,
+# dpage/pgadmin4: имя или имя с номером версии). jaeger, prometheus, grafana и minio сюда не
+# входят: это наблюдаемость и хранилище, они бывают боевыми. browserless тоже нет: в боевом
+# файле hobby PostHog им рендерит воркер (объект ok вердикта корнер-кейсов).
+DEV_TOOL_IMAGES = (
+    "mailhog", "mailpit", "maildev", "mailcatcher", "wiremock", "mockserver", "selenium",
+    "kafka-ui", "redis-commander", "adminer", "pgadmin", "phpmyadmin", "mongo-express",
+    "flower", "localstack",
+)
+
+
+def dev_tool(image: str) -> str | None:
+    """Инструмент разработчика из DEV_TOOL_IMAGES по сегменту пути образа или None."""
+    ref = image.strip().split("@", 1)[0].lower()
+    segments = ref.split("/")
+    segments[-1] = segments[-1].split(":", 1)[0]
+    for seg in segments:
+        for tool in DEV_TOOL_IMAGES:
+            if seg == tool or (seg.startswith(tool) and seg[len(tool):].isdigit()):
+                return tool
+    return None
+
+
+# Команды разработки (ТЗ §15 п. 12 С6а): установка зависимостей, посев базы, сервер
+# разработки с перезагрузкой, запуск тестов, сборка в режиме слежения и контейнер-заглушка
+# для работы внутри (sleep infinity у devcontainer Forem). Пары «программа подкоманда» и
+# отдельные программы сравниваются по базовому имени слова (./bin/webpack-dev-server).
+# bundle exec sidekiq и bundle exec rails server командами разработки не считаются.
+_DEV_COMMAND_PAIRS = frozenset({
+    ("yarn", "install"), ("npm", "install"), ("npm", "ci"), ("pnpm", "install"), ("pnpm", "ci"),
+    ("yarn", "ci"), ("bundle", "install"), ("pip", "install"), ("pip3", "install"),
+    ("composer", "install"), ("next", "dev"), ("sleep", "infinity"),
+})
+_DEV_PROGRAMS = frozenset({
+    "webpack-dev-server", "nodemon", "rspec", "pytest", "jest", "cypress", "playwright",
+})
+# Тестовые раннеры по имени сервиса: rspec_system Forem без своей команды.
+DEV_TEST_RUNNERS = frozenset({"rspec", "pytest", "jest", "cypress", "playwright"})
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def dev_command(command: str | None) -> str | None:
+    """Команда разработки в тексте команды сервиса: найденная фраза («yarn install»,
+    «rake db:seed», «--watch») или None."""
+    if not command:
+        return None
+    words = [_base(t) for t in _command_tokens(command)]
+    for i, word in enumerate(words):
+        if word in _SHELL_SEPARATORS:
+            continue
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if (word, nxt) in _DEV_COMMAND_PAIRS:
+            return f"{word} {nxt}"
+        if word in _DEV_PROGRAMS:
+            return word
+        if word == "vite" and nxt != "build":
+            return word
+        if word == "db:seed":
+            return "rake db:seed" if i and words[i - 1] == "rake" else word
+        if word == "--watch":
+            return word
+        if word == "tail" and words[i + 1:i + 3] == ["-f", "null"]:
+            return "tail -f /dev/null"
+    return None
+
 
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
@@ -78,6 +152,13 @@ RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 # Переменные, адрес в которых делает Redis брокером (очередь задач), а не кэшем.
 REDIS_BROKER_VARS = frozenset({"CELERY_BROKER_URL", "BROKER_URL"})
 REDIS_BROKER_PREFIX = "RQ_"
+# Библиотеки очередей задач поверх Redis: Redis, к которому идёт контейнер с такой
+# зависимостью, считается брокером (ТЗ §15 п. 10 А13: Sidekiq у Mastodon, BullMQ у immich).
+REDIS_QUEUE_DEPS = frozenset({"sidekiq", "bullmq", "bull", "rq", "celery"})
+# ClickHouse в имени образа даёт базу ClickHouse при любой обёртке (clickhouse-posthog),
+# кроме программ вокруг неё: координатор, экспорт метрик, резервные копии, оператор.
+_CLICKHOUSE = "clickhouse"
+_CLICKHOUSE_TOOLS = frozenset({"keeper", "exporter", "backup", "operator"})
 
 
 def image_name(image: str) -> str:
@@ -117,6 +198,8 @@ def image_kind(image: str) -> ImageKind | None:
     kind = IMAGES.get("-".join(parts))
     if kind is None and len(parts) > 1:
         kind = IMAGES.get(parts[-1])
+    if kind is None and _CLICKHOUSE in name and not set(parts) & _CLICKHOUSE_TOOLS:
+        kind = IMAGES[_CLICKHOUSE]
     return kind
 
 
@@ -174,6 +257,7 @@ SERVER_FRAMEWORKS: tuple[tuple[str, str], ...] = (
     ("rails", "Rails"),
     ("laravel/framework", "Laravel"),
     ("phoenix", "Phoenix"),
+    ("actix-web", "actix-web"),
 )
 
 # Фреймворки интерфейса: роль «фронтенд», если серверного фреймворка нет.
@@ -203,6 +287,13 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
+    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
+)
+
+# Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:
+# воркеры Sidekiq у Mastodon, BullMQ у immich).
+UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
+    ("sidekiq", "Sidekiq"), ("bullmq", "BullMQ"), ("bull", "Bull"),
 )
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
@@ -212,6 +303,7 @@ UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
+    ("clokwerk", "clokwerk"), ("sidekiq-scheduler", "sidekiq-scheduler"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из
@@ -250,6 +342,7 @@ ROUTE_FRAMEWORKS = frozenset({
 UNSUPPORTED_SCHEMA_DEPS: tuple[tuple[str, str], ...] = (
     ("prisma", "Prisma"), ("@prisma/client", "Prisma"), ("typeorm", "TypeORM"),
     ("sequelize", "Sequelize"), ("gorm.io/gorm", "GORM"), ("ecto_sql", "Ecto"),
+    ("kysely", "Kysely"),
 )
 
 
@@ -297,6 +390,17 @@ _SCHEDULER_WORDS = frozenset({"beat", "scheduler", "cron"})
 _WORDS = re.compile(r"[a-z]+")
 
 
+_SHELLS = frozenset({"sh", "bash", "ash", "dash", "zsh"})
+
+
+def is_shell(command: str | None) -> bool:
+    """Команда начинается с оболочки (sh -c …, /bin/sh): скрипт, а не программа образа."""
+    if not command:
+        return False
+    tokens = _command_tokens(command)
+    return bool(tokens) and _base(tokens[0]) in _SHELLS
+
+
 def role_by_command(command: str | None) -> str | None:
     if not command:
         return None
@@ -324,7 +428,7 @@ COMMAND_LANGUAGE: dict[str, str] = {
 _WRAPPERS = frozenset({
     "nice", "ionice", "exec", "env", "sudo", "su", "timeout", "stdbuf", "chpst", "setsid",
     "nohup", "dumb-init", "tini", "uv", "run", "poetry", "pipenv", "--", "bash", "sh",
-    "-c", "time",
+    "-c", "time", "bundle",
 })
 _TEMPLATE = ("<%", "%>", "{{", "}}", "$")
 _MAX_COMMAND_TOKENS = 64
@@ -367,7 +471,8 @@ def command_program(command: str | None) -> str | None:
     for token in _command_tokens(command):
         if any(mark in token for mark in _TEMPLATE):
             return None
-        if token in _WRAPPERS or token.startswith("-") or token.isdigit():
+        # Обёртка и по полному пути: /home/mastodon/.rbenv/shims/bundle exec sidekiq.
+        if _base(token) in _WRAPPERS or token.startswith("-") or token.isdigit():
             continue
         name, eq, _value = token.partition("=")
         if eq and name and "/" not in name:
@@ -381,6 +486,35 @@ def technology(language: str | None, framework: str | None) -> str | None:
     if language and framework:
         return f"{language} + {framework}"
     return language or framework
+
+
+# Стек по маркеру сборки в корне (ТЗ §15 п. 12 С12): Bazel (WORKSPACE, WORKSPACE.bazel,
+# MODULE.bazel, BUILD.bazel) и CMake (CMakeLists.txt). Cargo.toml и go.mod при таком маркере —
+# SDK и утилиты, а не код контейнеров (Envoy: C++ на Bazel, Cargo.toml и go.mod в корне).
+STACK_BAZEL = "C++ (Bazel)"
+STACK_CMAKE = "C/C++ (CMake)"
+SDK_MANIFESTS = frozenset({"Cargo.toml", "go.mod"})
+
+# Языки, которые называет сборщик: манифесты сборки, базовые образы Dockerfile, Gradle на
+# Kotlin, исходники рядом с Makefile.am, маркеры сборки корня.
+LANGUAGES = frozenset({
+    *MANIFEST_LANGUAGE.values(), *(lang for _, lang in _LANG_PREFIXES), ".NET", "Kotlin", "C", "C++",
+    STACK_BAZEL, STACK_CMAKE,
+})
+_STACK_NAMES = frozenset({
+    *LANGUAGES,
+    *(name for _, name in SERVER_FRAMEWORKS), *(name for _, name in FRONTEND_FRAMEWORKS),
+    *(kind.technology for kind in IMAGES.values()), *(kind for _, kind in CLIENTS),
+    dialect.POSTGRESQL, dialect.MYSQL, dialect.MARIADB, dialect.SQLITE, dialect.ORACLE,
+    dialect.SQLSERVER,
+})
+
+
+def is_stack(tech: str) -> bool:
+    """Технология из словаря (ТЗ §15 п. 12 С7б): язык, фреймворк, вид образа, клиента
+    или диалекта базы, либо запись «язык + фреймворк». Имя образа без вида в словаре
+    (zipkin, alertmanager, spring-petclinic-admin-server) стеком не считается."""
+    return all(part in _STACK_NAMES for part in tech.split(" + "))
 
 
 _QUEUE_OPTS = frozenset({"-Q", "--queues", "--queue", "--queue_name", "--queue-name"})

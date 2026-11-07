@@ -1,0 +1,4 @@
+# Стенд компонента stream: его код собирает боевой compose корня.
+services:
+  redis-node:
+    image: redis:7

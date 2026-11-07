@@ -1,0 +1,25 @@
+# С13: Dockerfile, образ и адреса заданы переменными закоммиченного .env (как у
+# OpenTelemetry Demo). Сам .env тест пишет при запуске: в репозитории ArchMap .env
+# под .gitignore.
+services:
+  ad:
+    build:
+      context: ./
+      dockerfile: ${AD_DOCKERFILE}
+    image: ${IMAGE_NAME}:${DEMO_VERSION}-ad
+  web:
+    build: ./src/web
+    environment:
+      AD_ADDR: ${AD_ADDR}
+      EXTERNAL_URL: ${EXTERNAL_URL}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      - ad
+  kafka:
+    build:
+      context: ./
+      dockerfile: ${KAFKA_DOCKERFILE}
+  checkout:
+    build:
+      context: ./
+      dockerfile: ${CHECKOUT_DOCKERFILE}

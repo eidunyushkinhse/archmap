@@ -1,0 +1,2 @@
+# Ловушка: этот Procfile менеджер разработки не запускает.
+worker: python worker.py

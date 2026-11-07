@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
-from archmap_scan import texts
+from archmap_scan import registry, stats, texts, walk
+from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
-from tests.helpers import FIXTURES, files_of, model_of, tree
+from archmap_scan.walk import Files
+from tests.helpers import FIXTURES, ctx_of, files_of, model_of, time_limit, tree
 
 
 def _obj(model: Model, name: str) -> Obj:
@@ -77,13 +80,19 @@ def test_standalone_dockerfiles(tmp_path: Path) -> None:
     })
     model = model_of(tmp_path, system="Ярмарка")
     kinds = {o.name: (o.shape, o.technology, o.role, o.code_dir) for o in model.objects}
+    # Dockerfile.worker рядом с основным Dockerfile каталога контейнера — вариант orders при
+    # любом суффиксе (ТЗ §15 п. 12 С8 отменяет решение А6: раньше это был объект «worker»).
+    # Dockerfile-postgresql в корне и с дефисом остаётся своим объектом без каталога кода.
     assert kinds == {
         "orders": ("service", "Python", "сервис", "services/orders"),
-        # Dockerfile с суффиксом каталогом кода не владеет (ТЗ §5.1).
-        "worker": ("service", "Python", "воркер", None),
         "Ярмарка": ("service", "Node.js", "сервис", ""),
         "postgresql": ("database", "PostgreSQL", "БД", None),
     }
+    assert model.hints["merged"] == [{
+        "kind": "dockerfile", "name": "services/orders/Dockerfile.worker", "object": "orders",
+        "reason": texts.REASON_DOCKERFILE_SIBLING,
+        "source": ["services/orders/Dockerfile.worker:1"],
+    }]
     dev = {str(h["name"]) for h in model.hints["profiles"]}
     assert dev == {"tools/ci/Dockerfile", ".devcontainer/Dockerfile"}
 
@@ -219,10 +228,73 @@ def test_dev_manifests_are_hints_not_objects(tmp_path: Path) -> None:
         "play": "deploy/playground.yaml:4",
     }
     reasons = {str(h["reason"]) for h in model.hints["profiles"]}
-    assert len(reasons) == 1
+    assert all(r.startswith(texts.dev_manifest("")) for r in reasons)
     # Каталоги для разработки из обхода не исключаются: код в них читается.
     _ctx, files = files_of(tmp_path)
     assert "devenv/tool/main.go" in files.paths
+
+
+def test_dev_signs_by_place_and_form() -> None:
+    """Признак разработки по месту и форме (ТЗ §15 п. 10 Б1): каталог docker/federation/,
+    имя docker-compose.playwright.yml, Procfile, который Makefile запускает goreman, и сервис
+    основы, который расширяют только файлы разработки (maildev PostHog). Причина подсказки
+    называет признак. Ловушки: сервис основы со своей сборкой (usage) и db, который
+    расширяет боевой файл, остаются объектами; Procfile, который менеджер не запускает
+    (heroku/Procfile, «gem install foreman» в bin/setup), даёт объект."""
+    model = model_of(FIXTURES / "dev-signs")
+    assert sorted(o.name for o in model.objects) == ["db", "usage", "web", "worker"]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "maildev": texts.dev_manifest(texts.dev_sign_base("docker-compose.base.yml")),
+        "playwright": texts.dev_manifest(texts.dev_sign_file("docker-compose.playwright.yml")),
+        "web-alpha": texts.dev_manifest(texts.dev_sign_dir("docker/federation")),
+        "db_alpha": texts.dev_manifest(texts.dev_sign_dir("docker/federation")),
+        "api": texts.dev_manifest(texts.dev_sign_manager("goreman", "Makefile:5")),
+        "ui": texts.dev_manifest(texts.dev_sign_manager("goreman", "Makefile:5")),
+    }
+
+
+def test_dev_stage_one_keeps_prod_service() -> None:
+    """Ступень 1 политики (ТЗ §15 п. 10 Б2): боевые манифесты есть (k8s), сервисы манифестов
+    разработки идут в подсказки, в том числе чарт Helm в каталоге dev/. Сервис api есть и в
+    боевом k8s, и в файле разработки: объект один, по боевому, подсказки о нём нет, а
+    Dockerfile его сборки в файле разработки — Dockerfile этого объекта. Ловушка: mailhog
+    только в файле разработки и остаётся подсказкой."""
+    model = model_of(FIXTURES / "dev-stage")
+    assert [(o.name, o.technology) for o in model.objects] == [("api", "Python")]
+    assert model.objects[0].dockerfile is not None
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "mailhog": texts.dev_manifest(texts.dev_sign_file("docker-compose.dev.yml")),
+        "tools": texts.dev_manifest(texts.dev_sign_dir("dev")),
+    }
+
+
+def test_compose_in_code_dir_of_other_container_is_stand() -> None:
+    """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
+    компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог
+    Dockerfile, склеенного с сервисом stream по имени. Ловушка: свой compose компонента
+    services/api, которого другой файл не собирает, остаётся боевым."""
+    model = model_of(FIXTURES / "dev-stand")
+    assert sorted(o.name for o in model.objects) == ["api", "capture", "stream", "web"]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "kafka-local": texts.dev_manifest(texts.dev_sign_stand("capture", "rust")),
+        "redis-node": texts.dev_manifest(texts.dev_sign_stand("stream", "stream")),
+    }
+
+
+def test_dev_procfile_on_hostile_makefile(tmp_path: Path) -> None:
+    """Разбор строк запуска менеджера линеен на враждебном Makefile."""
+    tree(tmp_path, {
+        "Procfile": "web: run\n",
+        "Makefile": "goreman " + "-x " * 200_000 + "\n" + "foreman" * 200_000 + "\n"
+        + "X=" * 200_000 + "\n",
+    })
+    _ctx, files = files_of(tmp_path)
+    started = time.perf_counter()
+    assert walk.dev_procfile(files, "Procfile") is None
+    assert time.perf_counter() - started < time_limit()
 
 
 def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:
@@ -244,3 +316,352 @@ def test_suffixed_dockerfile_owns_no_code(tmp_path: Path) -> None:
     assert pg.code_dir is None and not pg.repo and pg.path is None
     report = _obj(model, "report")
     assert (report.technology, report.code_dir, report.path) == ("Python", None, None)
+
+
+def test_dockerfile_binds_to_manifest_image() -> None:
+    """Dockerfile в подкаталоге привязывается к сервису по артефакту skaffold или по имени
+    образа, равному имени каталога-предка; имя каталога src контейнер не называет; вариант
+    для разработки рядом с основным Dockerfile — тот же контейнер (ТЗ §15 п. 10 А6)."""
+    model = model_of(FIXTURES / "dockerfile-bind")
+    kinds = {o.name: (o.technology, o.code_dir) for o in model.objects}
+    assert kinds == {
+        # skaffold: src/cartservice/src собирает образ cartservice (без него — объект «src»).
+        "cartservice": (".NET", "src/cartservice/src"),
+        # Ловушка: каталог с именем сервиса склеивается по имени, как раньше.
+        "emailservice": ("Python", "src/emailservice"),
+        # Образ ghcr.io/shop/payment — имя каталога-предка src/payment/server.
+        "payments-api": ("Go", "src/payment/server"),
+        # Без сервиса манифеста: ближайший каталог не из src, app, docker, build.
+        "notifier": ("Node.js", "notifier/src"),
+    }
+    merged = [(h["name"], h["object"], h["reason"]) for h in model.hints["merged"]]
+    assert merged == [(
+        "src/cartservice/src/Dockerfile.debug", "cartservice", texts.REASON_DOCKERFILE_VARIANT,
+    )]
+    # Вариант для разработки без основного Dockerfile — манифест разработки.
+    assert [h["name"] for h in model.hints["profiles"]] == ["runner/Dockerfile.playwright"]
+
+
+def test_root_dockerfile_and_dev_compose_builds(tmp_path: Path) -> None:
+    """Корневой Dockerfile собирает образ с именем репозитория: это Dockerfile сервисов на
+    этом образе (Mastodon: web и sidekiq на ghcr.io/mastodon/mastodon), а не объект с
+    именем корня. Сборка сервиса в файле compose для разработки называет Dockerfile его
+    образа: основной Dockerfile даёт сервису каталог кода, вариант уходит в hints.merged."""
+    root = tree(tmp_path / "forum", {
+        "Gemfile": 'gem "rails"\ngem "sidekiq"\n',
+        "package.json": '{"name": "@forum/forum", "dependencies": {"react": "19"}}',
+        "Dockerfile": "FROM ruby:3.4\n",
+        "Dockerfile.node": "FROM node:22\n",
+        "Procfile": "web: bin/heroku-web\nworker: bundle exec sidekiq\n",
+        "docker-compose.yml": (
+            "services:\n"
+            "  web:\n    image: ghcr.io/forum/forum:v4\n    command: bundle exec puma\n"
+            "  sidekiq:\n    image: ghcr.io/forum/forum:v4\n    command: bundle exec sidekiq\n"
+            "  plugins:\n    image: ${REGISTRY}-node:latest\n"
+            "  api:\n    image: ${REGISTRY}:latest\n"
+        ),
+        "docker-compose.dev.yml": (
+            "services:\n"
+            "  plugins:\n    build:\n      context: .\n      dockerfile: Dockerfile.node\n"
+        ),
+    })
+    model = model_of(root, system=None)
+    names = sorted(o.name for o in model.objects)
+    # Ни «@forum/forum» (корневой Dockerfile), ни «node» (Dockerfile.node), ни «worker».
+    assert names == ["api", "plugins", "sidekiq", "web"]
+    assert _obj(model, "web").technology == "Ruby + Rails"
+    assert _obj(model, "web").code_dir == "" and _obj(model, "sidekiq").code_dir == ""
+    # Ловушка: образ с подстановкой ни к чему не привязывается.
+    assert _obj(model, "api").code_dir is None
+    merged = {h["name"]: (h["object"], h["reason"]) for h in model.hints["merged"]}
+    assert merged["Dockerfile.node"] == ("plugins", texts.REASON_DOCKERFILE_IMAGE)
+    assert merged["worker"][0] == "sidekiq"
+
+
+def test_task_on_database_or_broker_image() -> None:
+    """Задача на образе базы или брокера — сервис с ролью «задача», связи к ней по
+    depends_on в подсказках (ТЗ §15 п. 10 А8: personhog-tables-ready и kafka-init PostHog
+    стали базой и брокером). Сервер с restart: on-failure и реплика остаются как были."""
+    model = model_of(FIXTURES / "compose-task")
+    kinds = {o.name: (o.shape, o.role, o.technology) for o in model.objects}
+    assert kinds == {
+        "api": ("service", "сервис", "Python"),
+        "tables-ready": ("service", "задача", "postgres"),
+        "kafka-init": ("service", "задача", "redpanda"),
+        "db": ("database", "БД", "PostgreSQL"),
+        "replica": ("database", "БД", "PostgreSQL"),
+        "kafka": ("broker", "брокер", "Redpanda"),
+    }
+    assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
+        ("api", "db"), ("api", "kafka"), ("kafka-init", "kafka"), ("tables-ready", "db"),
+    }
+    assert [(h["from"], h["to"]) for h in model.hints["depends_on"]] == [
+        ("api", "kafka-init"), ("api", "tables-ready"),
+    ]
+
+
+def test_image_vocabulary_and_redis_queue_broker() -> None:
+    """pgautoupgrade — PostgreSQL (Lemmy), образ с clickhouse в имени — ClickHouse
+    (clickhouse-posthog), browserless/chromium — сервис; Redis — брокер, если к нему идёт
+    контейнер с библиотекой очередей (Sidekiq у Mastodon, BullMQ у immich). Ловушки:
+    координатор clickhouse-keeper не база, Redis контейнера без такой библиотеки — кэш
+    (ТЗ §15 п. 10 А13)."""
+    model = model_of(FIXTURES / "compose-images")
+    kinds = {o.name: (o.shape, o.technology, o.role) for o in model.objects}
+    assert kinds["postgres"] == ("database", "PostgreSQL", "БД")
+    assert kinds["events"] == ("database", "ClickHouse", "БД")
+    assert kinds["keeper"][0] == "service"
+    assert kinds["chrome"] == ("service", "Chromium", "сервис")
+    assert kinds["redis"] == ("broker", "Redis", "брокер")
+    assert kinds["cache"] == ("database", "Redis", "кэш")
+    # База с depends_on к брокеру связана с ним (clickhouse→kafka PostHog), к сервису — нет.
+    assert {(lk.src.name, lk.dst.name) for lk in model.links} == {
+        ("app", "events"), ("app", "postgres"), ("app", "redis"), ("report", "cache"),
+        ("events", "kafka"),
+    }
+
+
+def test_queue_broker_by_manifest_next_to_dockerfile() -> None:
+    """Монорепозиторий собирает сервис из корня, а библиотека очередей в манифесте рядом с
+    его Dockerfile (immich: контекст «../», server/Dockerfile, bullmq в server/package.json):
+    Redis сервиса — брокер. Ловушка: у web рядом с Dockerfile манифест без такой библиотеки,
+    его Redis остаётся кэшем (ТЗ §15 п. 10 А13)."""
+    model = model_of(FIXTURES / "compose-monorepo")
+    kinds = {o.name: (o.shape, o.role) for o in model.objects}
+    assert kinds["redis"] == ("broker", "брокер")
+    assert kinds["cache"] == ("database", "кэш")
+
+
+def test_service_build_dirs_and_doc_segments() -> None:
+    """Служебные и учебные каталоги (ТЗ §15 п. 12 С3). (а) docs, examples и подобные
+    совпадают частью сегмента через дефис или подчёркивание: учебные Dockerfile Airflow в
+    docker-stack-docs/docker-examples/extending/*/ дали 13 объектов. Частью слова не
+    совпадают: documents/ и exampleservice/ читаются. (б) Манифест в каталоге служебной
+    сборки — кандидат разработки: supervisor.conf AWX в tools/docker-compose/,
+    scripts/release/Dockerfile Nomad, loki-build-image/ Loki, staging/.../_mock/
+    Kubernetes, юнит terraform/shared/config/consul-template.service Nomad. Боевой
+    манифест есть (compose), поэтому это подсказки. Ловушка: deploy/k8s/ признаком не
+    является, Deployment worker остаётся объектом."""
+    root = FIXTURES / "service-build"
+    listing = walk.list_files(ctx_of(root))
+    assert set(listing.excluded) == {
+        walk.Excluded("docker-stack-docs/", 1, "convention"),
+        walk.Excluded("helm_examples/", 1, "convention"),
+    }
+    model = model_of(root)
+    assert sorted(o.name for o in model.objects) == [
+        "app", "db", "documents", "exampleservice", "worker",
+    ]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    assert dev == {
+        "awx-dispatcher": texts.dev_manifest(texts.service_build("tools")),
+        "consul-template": texts.dev_manifest(texts.service_build("terraform")),
+        "loki-build-image/Dockerfile": texts.dev_manifest(texts.service_build("loki-build-image")),
+        "scripts/release/Dockerfile": texts.dev_manifest(texts.service_build("scripts")),
+        "staging/_mock/Dockerfile": texts.dev_manifest(texts.service_build("staging/_mock")),
+    }
+    assert walk.service_sign("deploy/helm/k8s/docker/Dockerfile") is None
+    assert walk.service_sign("ci-build-image/Dockerfile") is not None
+    assert walk.convention_rule("documents/x/Dockerfile") is None
+
+
+def test_service_build_dockerfile_on_stage_two() -> None:
+    """Ступень 2 (ТЗ §15 п. 10 Б3): боевых манифестов нет, и Dockerfile служебной сборки
+    становится объектом с пометкой «из манифеста разработки», а не пропадает (ловушка ТЗ
+    §15 п. 12 С3: scripts/docker/Dockerfile Monica, когда Sail уходит в разработку). Он
+    копирует весь контекст, поэтому каталог кода и имя у него от корня с composer.json (С5б):
+    «Ярмарка» с технологией PHP + Laravel, а не «scripts»."""
+    model = model_of(FIXTURES / "service-build-solo")
+    assert [(o.name, o.code_dir, o.technology) for o in model.objects] == [
+        ("Ярмарка", "", "PHP + Laravel"),
+    ]
+    assert model.hints["dev_manifest_objects"] == [{
+        "kind": "container", "name": "Ярмарка",
+        "reason": texts.dev_manifest(texts.service_build("scripts")),
+        "source": "scripts/docker/Dockerfile:1",
+    }]
+
+
+def test_code_dir_by_service_or_image_name() -> None:
+    """Каталог кода по имени сервиса или образа (ТЗ §15 п. 12 С5а). Petclinic
+    (docker-compose.yml) описывает сервисы только образами springcommunity/spring-petclinic-*,
+    а код лежит в одноимённых каталогах с pom.xml: технологией было имя образа.
+    OpenTelemetry Demo (compose.yaml) собирает сервисы из корня (context: ./) с Dockerfile из
+    переменной, а код лежит в src/<сервис>/: все получили Node.js корневого package.json.
+    Ловушки: сервис web при web/ и src/web/ берёт ближайший к корню; worker без совпадений
+    с корневым контекстом остаётся в корне; tracing-server на образе openzipkin/zipkin
+    каталога не получает. (С5б) docker/Dockerfile Petclinic с ARG ARTIFACT_NAME собирает
+    образы всех сервисов и объектом «Ярмарка» не становится: подсказка «общий Dockerfile
+    сборки»."""
+    model = model_of(FIXTURES / "code-by-name")
+    kinds = {o.name: (o.code_dir, o.technology) for o in model.objects}
+    assert kinds == {
+        "admin-server": ("spring-petclinic-admin-server", "Java + Spring Boot"),
+        "vets": ("spring-petclinic-vets-service", "Java + Spring Boot"),
+        "tracing-server": (None, "zipkin"),
+        "cart": ("src/cart/src", ".NET"),
+        "fraud": ("src/fraud", "Kotlin"),
+        "web": ("web", "Node.js + React"),
+        "worker": ("", "Node.js + Express"),
+        "db": (None, "MySQL"),
+    }
+    shared = [h for h in model.hints["unassigned"] if h["kind"] == "dockerfile"]
+    assert shared == [{
+        "kind": "dockerfile", "name": "docker/Dockerfile",
+        "reason": texts.REASON_SHARED_DOCKERFILE, "source": "docker/Dockerfile:1",
+        "containers": ["admin-server", "vets"],
+    }]
+
+
+def test_dev_signs_by_service_form() -> None:
+    """Признак разработки по форме сервиса compose (ТЗ §15 п. 12 С6): docker-compose.yml и
+    container-compose.yml Forem держат рядом с боевыми службами установку зависимостей (yarn
+    install), посев (rake db:seed), сервер разработки (webpack-dev-server), сборку в режиме
+    слежения (yarn build --watch), заглушку devcontainer (sleep infinity) и раннер тестов
+    rspec_system без своей команды; mailpit — инструмент разработки. Боевой Procfile или
+    compose есть, поэтому это подсказки. (г) .devcontainer/Dockerfile n8n к боевому объекту
+    не привязывается, даже если файл разработки собирает им сервис с тем же именем.
+    Ловушки: bundle exec sidekiq и bundle exec rails server не команды разработки; jaeger и
+    minio не инструменты разработки."""
+    model = model_of(FIXTURES / "dev-forms")
+    assert sorted(o.name for o in model.objects) == [
+        "api", "db", "jaeger", "minio", "sidekiq", "web",
+    ]
+    assert _obj(model, "api").code_dir is None
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    command = texts.dev_sign_command
+    assert dev == {
+        "yarn": texts.dev_manifest(command("yarn install", "docker-compose.yml:13")),
+        "seed": texts.dev_manifest(command("rake db:seed", "docker-compose.yml:16")),
+        "webpacker": texts.dev_manifest(command("webpack-dev-server", "docker-compose.yml:19")),
+        "esbuild": texts.dev_manifest(command("--watch", "docker-compose.yml:22")),
+        "devcontainer": texts.dev_manifest(command("sleep infinity", "docker-compose.yml:25")),
+        "rspec_system": texts.dev_manifest(texts.dev_sign_test_service("rspec_system")),
+        "mailpit": texts.dev_manifest(texts.dev_sign_tool("mailpit")),
+        ".devcontainer/Dockerfile": texts.dev_manifest(texts.dev_sign_dir(".devcontainer")),
+    }
+
+
+def test_laravel_sail_file_is_development() -> None:
+    """Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): контекст сборки
+    vendor/laravel/sail/runtimes/8.4 (каталога в обходе нет) и образ sail-8.4/app у Monica.
+    Боевых манифестов не остаётся, поэтому ступень 2: сервисы Sail и его база — объекты с
+    пометкой, а scripts/docker/Dockerfile — объект с каталогом кода корня (PHP + Laravel), и
+    вариант fpm на PHP по итоговой стадии (С3, С4, С5б)."""
+    model = model_of(FIXTURES / "dev-sail")
+    kinds = {o.name: o.technology for o in model.objects}
+    assert kinds == {
+        "fpm": "PHP", "laravel.queue": "app", "laravel.test": "app", "Ярмарка": "PHP + Laravel",
+        "mariadb": "MariaDB",
+    }
+    marks = {str(h["name"]): str(h["reason"]) for h in model.hints["dev_manifest_objects"]}
+    sail = texts.dev_manifest(texts.dev_sign_sail("docker-compose.yml:2"))
+    assert marks["laravel.test"] == sail and marks["mariadb"] == sail
+    assert marks["Ярмарка"] == texts.dev_manifest(texts.service_build("scripts"))
+
+
+def _families(root: Path) -> tuple[Model, list[str], dict[str, str], dict[str, list[str]]]:
+    """Модель, стеки, статусы семей и их unsupported по дереву root (без git)."""
+    ctx = ctx_of(root, "Ярмарка")
+    files = Files(ctx.root, walk.list_files(ctx).files)
+    findings, errors = registry.collect(files, ctx)
+    assert errors == {}
+    model = assemble(findings, ctx)
+    fams = stats.families(model, findings, errors)
+    return (
+        model, stats.stacks(model),
+        {f: s.status for f, s in fams.items()}, {f: s.unsupported for f, s in fams.items()},
+    )
+
+
+def test_root_container_language_by_free_packages() -> None:
+    """Язык корневого контейнера по свободным подкаталогам (ТЗ §15 п. 12 С7а). eShop: в
+    корне только служебный package.json (тесты e2e на playwright), а код .NET лежит в 28
+    src/*/*.csproj; неявный контейнер корня получал Node.js и stacks [Node.js]. Утилиты Go в
+    internal/tools/ (как у OpenTelemetry Demo) служебная сборка и не считаются: иначе языков
+    было бы два и язык не менялся бы. Ловушки root-occupied: web собирается из корня, но
+    api/ занят своим сервисом, его Go языком web не становится; package.json корня с
+    зависимостями не служебный, Python свободного lib/ язык web не меняет."""
+    model, stacks, _, _ = _families(FIXTURES / "root-dotnet")
+    assert [(o.name, o.technology) for o in model.objects] == [("Ярмарка", ".NET")]
+    assert stacks == [".NET"]
+    model = model_of(FIXTURES / "root-occupied")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "web": ("", "Node.js"), "api": ("api", "Go"),
+    }
+
+
+def test_stacks_and_known_language_status() -> None:
+    """Стеки из словаря и «стек не опознан» только без языка (ТЗ §15 п. 12 С7б, С7в).
+    Petclinic (docker-compose.yml): stacks перечисляли имена образов
+    (spring-petclinic-admin-server, zipkin), как и у Loki (alertmanager), Kubernetes
+    (cpvpa-amd64) и Supabase (logflare); channels и http_routes были unknown с пустыми
+    parsers, хотя язык Java известен. Здесь язык billing назван только базовым образом
+    Dockerfile, pom.xml нет. Имя образа остаётся технологией объекта tracing."""
+    model, stacks, status, unsupported = _families(FIXTURES / "java-image")
+    assert {o.name: o.technology for o in model.objects} == {"billing": "Java", "tracing": "zipkin"}
+    assert stacks == ["Java"]
+    for fam in ("channels", "http_routes"):
+        assert status[fam] == "unsupported" and unsupported[fam] == ["Java"]
+
+
+def _dockerfile_hints(model: Model) -> dict[str, list[tuple[str, str | None, str]]]:
+    """Подсказки о Dockerfile по разделам: (файл, контейнер, причина)."""
+    out: dict[str, list[tuple[str, str | None, str]]] = {}
+    for section in ("merged", "profiles", "unassigned"):
+        for h in model.hints.get(section, []):
+            if h.get("kind") == "dockerfile":
+                obj = h.get("object")
+                out.setdefault(section, []).append(
+                    (str(h["name"]), str(obj) if obj else None, str(h["reason"])),
+                )
+    return out
+
+
+def test_dockerfile_variant_beside_main() -> None:
+    """Вариант рядом с основным Dockerfile при любом суффиксе (ТЗ §15 п. 12 С8, отменяет
+    решение А6). Loki: cmd/loki/Dockerfile.cross давал объект «cross», n8n
+    docker/images/runners/Dockerfile.distroless объект «distroless», OpenTelemetry Demo
+    src/frontend/Dockerfile.cypress объект «cypress». Ловушки: в корне репозитория суффикс
+    называет отдельный образ (Dockerfile.llm-analytics PostHog, ok вердикта); общий
+    rust/Dockerfile нескольких сервисов PostHog не делает rust/Dockerfile.sqlx-migrate
+    вариантом одного из них (ok вердикта); форма с дефисом (Dockerfile-fpm Monica) правилом
+    не задета; Dockerfile.playwright без основного по-прежнему подсказка (А6)."""
+    model = model_of(FIXTURES / "dockerfile-variants")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "web": ("", "Python"), "llm-analytics": (None, "Python"), "loki": ("cmd/loki", "Go"),
+        "capture": ("rust", "Rust"), "cymbal": ("rust", "Rust"), "sqlx-migrate": (None, "Rust"),
+        "worker": ("worker", "PHP"), "fpm": (None, "PHP"),
+    }
+    hints = _dockerfile_hints(model)
+    assert hints["merged"] == [
+        ("cmd/loki/Dockerfile.cross", "loki", texts.REASON_DOCKERFILE_SIBLING),
+    ]
+    assert [name for name, _, _ in hints["profiles"]] == ["qa/Dockerfile.playwright"]
+
+
+def test_dockerfile_in_container_subdir_and_mobile() -> None:
+    """Dockerfile в подкаталоге каталога кода контейнера без своего сервиса — вариант этого
+    контейнера; мобильное приложение контейнером не считается (ТЗ §15 п. 12 С8).
+    OpenTelemetry Demo: src/checkout/genproto/Dockerfile (и в currency, frontend) давал объект
+    «genproto», src/react-native-app/android.Dockerfile объект «android»; Keycloak
+    operator/scripts/Dockerfile-custom-image на ступени 2 давал объект «custom-image».
+    Ловушки: подкаталог со своим манифестом сборки (src/checkout/plugin/go.mod) — свой
+    контейнер; Dockerfile в разных каталогах остаются разными контейнерами."""
+    model = model_of(FIXTURES / "dockerfile-subdirs")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "checkout": ("src/checkout", "Go"), "plugin": ("src/checkout/plugin", "Go"),
+        "frontend": ("src/frontend", "Node.js + Next.js"), "operator": ("operator", "Java"),
+    }
+    hints = _dockerfile_hints(model)
+    assert sorted(hints["merged"]) == [
+        ("operator/scripts/Dockerfile-custom-image", "operator", texts.REASON_DOCKERFILE_SUBDIR),
+        ("src/checkout/genproto/Dockerfile", "checkout", texts.REASON_DOCKERFILE_SUBDIR),
+        ("src/frontend/Dockerfile.cypress", "frontend", texts.REASON_DOCKERFILE_SIBLING),
+    ]
+    assert hints["unassigned"] == [
+        ("src/react-native-app/android.Dockerfile", None, texts.REASON_MOBILE_APP),
+    ]
+    assert walk.mobile_dir("src/react-native-app/Gemfile") == "src/react-native-app/"
+    assert walk.mobile_dir("apps/ios/Dockerfile") == "apps/ios/"
+    assert walk.mobile_dir("cmd/bios/Dockerfile") is None

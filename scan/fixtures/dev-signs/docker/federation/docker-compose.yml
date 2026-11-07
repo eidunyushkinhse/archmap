@@ -1,0 +1,6 @@
+# Стенд федерации: экземпляры того же продукта.
+services:
+  web-alpha:
+    image: shop/web:1
+  db_alpha:
+    image: postgres:16

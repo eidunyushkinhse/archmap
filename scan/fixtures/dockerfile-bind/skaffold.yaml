@@ -1,0 +1,8 @@
+apiVersion: skaffold/v3
+kind: Config
+build:
+  artifacts:
+    - image: cartservice
+      context: src/cartservice/src
+    - image: emailservice
+      context: src/emailservice

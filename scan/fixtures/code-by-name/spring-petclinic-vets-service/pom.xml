@@ -1,0 +1,6 @@
+<project>
+  <parent>
+    <artifactId>spring-boot-starter-parent</artifactId>
+  </parent>
+  <artifactId>spring-petclinic-vets-service</artifactId>
+</project>

@@ -278,9 +278,11 @@ def _not_string(f: _File, found: Findings, recv: str, at: int, arg: int) -> None
             _dynamic(f, found, arg)
 
 
-def _dynamic(f: _File, found: Findings, start: int) -> None:
+def _dynamic(
+    f: _File, found: Findings, start: int, reason: str = texts.REASON_DYNAMIC_ROUTE,
+) -> None:
     found.hints.append(Hint("dynamic_names", {
-        "kind": "route", "name": f.code.expression(start), "reason": texts.REASON_DYNAMIC_ROUTE,
+        "kind": "route", "name": f.code.expression(start), "reason": reason,
         "source": str(Loc(f.rel, f.code.line(start))),
     }))
 
@@ -316,6 +318,11 @@ def _scan(f: _File, found: Findings) -> None:
             start, end = m.start(2), m.end(2)
             after = end
         value, _dyn = code.literal(start, end)
+        if code.joined(start, end):
+            # «"/"+root+"/"»: литерал лишь часть пути (ТЗ §15 п. 10 А).
+            if value.startswith("/"):
+                _dynamic(f, found, start, texts.REASON_JOINED_NAME)
+            continue
         method = _METHODS[verb]
         path = value
         if verb == "Handle" and value in _VERBS:
@@ -325,6 +332,9 @@ def _scan(f: _File, found: Findings) -> None:
                 continue
             method = value
             path, _dyn = code.literal(nxt.start(), nxt.end())
+            if code.joined(nxt.start(), nxt.end()):
+                _dynamic(f, found, nxt.start(), texts.REASON_JOINED_NAME)
+                continue
         elif verb in ("HandleFunc", "Handle"):
             head, sep, tail = value.partition(" ")
             if sep and head in _VERBS:

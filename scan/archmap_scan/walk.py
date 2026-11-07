@@ -15,24 +15,49 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from archmap_scan import paths, texts
 from archmap_scan.context import Context, git_files
 
 MAX_BYTES = 2 * 1024 * 1024
 MARKER = ".archmap-scan"
 IGNORE_FILE = ".archmapignore"
 
-# Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore).
-SKIP_DIRS = frozenset({
-    ".git", "node_modules", "vendor", "dist", "build", "target", ".venv", "venv",
-    "__pycache__", ".tox", ".mypy_cache", ".idea", ".vscode", "coverage",
+# Каталоги зависимостей и инструментов (ТЗ §15 п. 12 С1): их не читают ни с git, ни без
+# него. Перечень git берёт и закоммиченное, а Loki и Kubernetes держат в vendor/ чужие
+# Dockerfile (vendor/github.com/buger/jsonparser/Dockerfile давал объект jsonparser). С git
+# такие файлы в покрытии в excluded с причиной «dependencies».
+DEPENDENCY_DIRS = frozenset({
+    "node_modules", "vendor", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".idea",
+    ".vscode", "coverage",
 })
+# Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore). dist,
+# build и target с git читаются: закоммиченные, они источник (build/ Kubernetes).
+SKIP_DIRS = DEPENDENCY_DIRS | {".git", "dist", "build", "target"}
 
 # Исключение по соглашению: сегменты пути (сравнение без учёта регистра).
 CONVENTION_DIRS = frozenset({
     "test", "tests", "__tests__", "testing", "spec", "specs", "testdata", "fixtures",
-    "mocks", "__mocks__", "e2e", "docs", "doc", "examples", "example", "samples",
+    "mocks", "__mocks__", "e2e", "docs", "doc", "examples", "example", "samples", "sample",
     "benchmarks",
 })
+# Документация и примеры совпадают и частью сегмента через дефис или подчёркивание (ТЗ §15
+# п. 12 С3): docker-stack-docs/docker-examples/ Airflow дали 13 объектов из учебных
+# Dockerfile. Частью слова не совпадают: documents и exampleservice читаются.
+_DOC_TOKENS = frozenset({"docs", "doc", "examples", "example", "samples", "sample"})
+_SEGMENT_PARTS = re.compile(r"[-_]")
+
+
+def _convention_dir(segment: str) -> bool:
+    low = segment.lower()
+    return low in CONVENTION_DIRS or bool(_DOC_TOKENS & set(_SEGMENT_PARTS.split(low)))
+
+# Файлы и каталоги CI и служебных инструментов (ТЗ §15 п. 10 А9): верхний services: у
+# .woodpecker.yml Lemmy стал базой, примеры правил .semgrep PostHog дали расписания. Такие
+# файлы не читаются вовсе (ни compose по содержимому, ни ярус кода), в покрытии они в
+# excluded с причиной «ci». Сравнение сегмента пути без учёта регистра: каталог целиком или
+# начало имени.
+CI_DIRS = frozenset({".github", ".gitlab", ".circleci", ".buildkite"})
+CI_PREFIXES = (".woodpecker", ".drone", ".gitlab-ci", "bitbucket-pipelines", ".semgrep")
 
 _COMPOSE_NAME = re.compile(r"(docker-)?compose([._-][^/]*)?\.ya?ml", re.IGNORECASE)
 _NAME_TOKENS = re.compile(r"[._-]")
@@ -49,21 +74,158 @@ def name_tokens(name: str) -> set[str]:
     return {t for t in _NAME_TOKENS.split(name.lower()) if t}
 
 
-# Манифесты для разработки (ТЗ §4): compose, Dockerfile, supervisor, systemd и k8s, у
-# которых в пути есть каталог или в имени файла есть часть из этого перечня, объектов в
-# схему не дают. Перечень один на все разборщики манифестов; сами каталоги из обхода не
-# исключаются, манифесты в них читаются ради подсказок. «.devcontainer» после разбиения
-# имени даёт часть «devcontainer»; tests и e2e исключены соглашением целиком, но бывают
-# частью имени файла (Dockerfile.e2e).
+# Манифесты для разработки (ТЗ §4, §15 п. 10 Б1): compose, Dockerfile, supervisor, systemd,
+# k8s, Helm и Procfile, у которых в пути есть каталог или в имени файла есть часть из этого
+# перечня, это манифесты разработки. Перечень один на все разборщики манифестов; сами
+# каталоги из обхода не исключаются, манифесты в них читаются ради подсказок.
+# «.devcontainer» после разбиения имени даёт часть «devcontainer»; tests, testing и e2e
+# исключены соглашением целиком, но бывают частью имени файла (Dockerfile.e2e,
+# docker-compose.testing.yml). federation — стенд федерации Lemmy (docker/federation/),
+# playwright — раннер e2e-тестов, debug — отладочная сборка (Dockerfile.debug),
+# devservices — оркестратор окружения разработчика Sentry (devservices/config.yml).
 DEV_TOKENS = frozenset({
     "dev", "devenv", "development", "local", "hack", "contrib", "sandbox", "demo",
-    "playground", "devcontainer", "vagrant", "ci", "test", "tests", "e2e",
+    "playground", "devcontainer", "vagrant", "ci", "test", "tests", "testing", "e2e",
+    "federation", "playwright", "debug", "devservices",
 })
+
+
+def dev_sign(rel: str) -> str | None:
+    """Признак манифеста разработки по месту и форме (ТЗ §15 п. 10 Б1): каталог пути или имя
+    файла с частью из DEV_TOKENS. Ответ — текст признака для подсказки («каталог
+    docker/federation/», «имя файла docker-compose.dev.yml»), None — признака нет. Одна
+    функция на все разборщики манифестов; Procfile ещё проверяет dev_procfile."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        if name_tokens(seg) & DEV_TOKENS:
+            return texts.dev_sign_dir("/".join(segments[: i + 1]))
+    if name_tokens(segments[-1]) & DEV_TOKENS:
+        return texts.dev_sign_file(segments[-1])
+    return None
 
 
 def is_dev_path(rel: str) -> bool:
     """Манифест для разработки: часть из DEV_TOKENS в любом каталоге пути или в имени."""
-    return any(name_tokens(seg) & DEV_TOKENS for seg in rel.split("/"))
+    return dev_sign(rel) is not None
+
+
+# Служебная сборка (ТЗ §15 п. 12 С3): манифест в каталоге инструментов, скриптов, учебных
+# образов, замеров или инфраструктуры собирает окружение разработчика, стенд или образ для
+# сборки, а не продукт: supervisor.conf AWX из tools/docker-compose/ (12 процессов awx-*),
+# scripts/release/Dockerfile Nomad, loki-build-image/ Loki, _mock/ Kubernetes. Сегмент
+# сравнивается целиком без учёта регистра, ещё *-build-image и сегмент с «_» в начале.
+# Признак ставится манифестам Dockerfile, compose, k8s, systemd, supervisor и Procfile (не
+# Helm); код в этих каталогах читается по прежним правилам ярусов кода.
+SERVICE_BUILD_DIRS = frozenset({
+    "tools", "scripts", "artifacts", "recipes", "quality", "benchmark", "benchmarks",
+    "uffizzi", "terraform", "packer", "build-image",
+})
+_SERVICE_BUILD_SUFFIX = "-build-image"
+
+
+def service_sign(rel: str) -> str | None:
+    """Признак служебной сборки по каталогу пути: текст для подсказки или None."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        low = seg.lower()
+        if low in SERVICE_BUILD_DIRS or low.endswith(_SERVICE_BUILD_SUFFIX) or (
+            len(low) > 1 and low.startswith("_")
+        ):
+            return texts.service_build("/".join(segments[: i + 1]))
+    return None
+
+
+# Мобильное приложение (ТЗ §15 п. 12 С8): каталог react-native, android, ios, mobile или
+# flutter в пути (сегмент целиком или его часть через дефис, точку или подчёркивание) — код
+# приложения для телефона, а не контейнер: android.Dockerfile OpenTelemetry Demo в
+# src/react-native-app/ собирает APK, Gemfile там же ставит fastlane.
+MOBILE_TOKENS = frozenset({"android", "ios", "mobile", "flutter"})
+_REACT_NATIVE = "react-native"
+
+
+def mobile_dir(rel: str) -> str | None:
+    """Каталог мобильного приложения в пути rel (с «/» на конце) или None."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        low = seg.lower()
+        if _REACT_NATIVE in low or name_tokens(low) & MOBILE_TOKENS:
+            return "/".join(segments[: i + 1]) + "/"
+    return None
+
+
+def manifest_sign(rel: str) -> str | None:
+    """Признак манифеста не для выкладки: разработка по месту и форме (dev_sign), иначе
+    служебная сборка (service_sign)."""
+    return dev_sign(rel) or service_sign(rel)
+
+
+# Менеджеры процессов разработки: Procfile, который запускает один из них из Makefile или
+# скрипта, описывает локальный запуск, а не выкладку (goreman у Argo CD, Makefile:607).
+DEV_PROCESS_MANAGERS = ("goreman", "foreman", "overmind", "hivemind")
+_MANAGER = re.compile(r"\b(goreman|foreman|overmind|hivemind)\b")
+_MAKE_VAR = re.compile(r"^\$[({]([A-Za-z_][A-Za-z0-9_]{0,63})[)}]$")
+_MAKE_NAMES = frozenset({"makefile", "gnumakefile"})
+_SCRIPT_DIRS = frozenset({"bin", "scripts", "script", "hack"})
+_SCRIPT_SUFFIXES = (".sh", ".bash", ".mk")
+# Сколько слов строки после имени менеджера разбирается: этого хватает на -f и команду.
+_MANAGER_WORDS = 16
+
+
+def _is_runner(rel: str) -> bool:
+    """Файл, из которого запускают менеджер процессов: Makefile, *.mk, скрипт оболочки или
+    файл каталога bin, scripts, hack."""
+    name = rel.rsplit("/", 1)[-1]
+    if name.lower() in _MAKE_NAMES or name.lower().endswith(_SCRIPT_SUFFIXES):
+        return True
+    return any(seg.lower() in _SCRIPT_DIRS for seg in rel.split("/")[:-1])
+
+
+def _make_value(text: str, var: str) -> str | None:
+    """Значение переменной make «VAR ?= x», «VAR := x» или «VAR = x» того же файла."""
+    for line in text.splitlines():
+        name, sep, value = line.partition("=")
+        name = name.strip().rstrip("?:+").strip()
+        if sep and name == var and value.split():
+            return value.split()[0]
+    return None
+
+
+def _procfile_arg(words: list[str]) -> str | None:
+    """Procfile запуска менеджера: аргумент -f или --procfile, иначе Procfile по
+    умолчанию, если менеджер что-то запускает (start); None — строка его не запускает
+    (gem install foreman, killall goreman)."""
+    for i, word in enumerate(words):
+        if word in ("-f", "--procfile") and i + 1 < len(words):
+            return words[i + 1]
+        if word.startswith("--procfile="):
+            return word.partition("=")[2]
+    return "Procfile" if "start" in words else None
+
+
+def dev_procfile(files: Files, rel: str) -> str | None:
+    """Признак Procfile разработки (ТЗ §15 п. 10 Б1): Makefile или скрипт запускает этот
+    Procfile менеджером процессов разработки (goreman, foreman, overmind, hivemind). Путь
+    из -f берётся литералом или переменной make того же файла и сравнивается от каталога
+    запускающего файла и от корня. Ответ — текст признака со строкой запуска."""
+    for runner in sorted(files.select(_is_runner)):
+        text = files.read(runner, keep=False)
+        if text is None or not any(m in text for m in DEV_PROCESS_MANAGERS):
+            continue
+        for no, line in enumerate(text.splitlines(), start=1):
+            m = _MANAGER.search(line)
+            if m is None:
+                continue
+            arg = _procfile_arg(line[m.end():].split()[:_MANAGER_WORDS])
+            if arg is None:
+                continue
+            var = _MAKE_VAR.match(arg)
+            if var is not None:
+                arg = _make_value(text, var.group(1)) or ""
+            if not arg or "$" in arg:
+                continue
+            if rel in (paths.join(paths.parent(runner), arg), paths.join("", arg)):
+                return texts.dev_sign_manager(m.group(1), f"{runner}:{no}")
+    return None
 
 
 # Код в каталогах для разработки (ТЗ §4) разборщики кода не читают: Grafana держит в
@@ -144,7 +306,7 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     (тогда к нему добавляется путь области). None — путь не исключается."""
     parts = rel_in_scope.split("/")
     for i, seg in enumerate(parts[:-1]):
-        if seg.lower() in CONVENTION_DIRS:
+        if _convention_dir(seg):
             return "/".join(parts[: i + 1]) + "/", True
     name = parts[-1]
     if is_compose_name(name) and name_tokens(name) & _COMPOSE_TEST_TOKENS:
@@ -152,6 +314,46 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     rule = _name_rule(name)
     if rule is not None:
         return rule, False
+    return None
+
+
+# Шаблоны Dockerfile (ТЗ §15 п. 12 С2): Dockerfile.j2 роли Ansible AWX стал объектом «j2».
+# Файл с именем Dockerfile (Dockerfile.*, Dockerfile-*, *.Dockerfile, *-Dockerfile) и
+# расширением шаблонизатора не Dockerfile, а заготовка для него: не читается, в покрытии
+# причина «template».
+_TEMPLATE_EXTS = frozenset({"j2", "tpl", "template", "in", "jinja", "jinja2"})
+
+
+def template_rule(rel_in_scope: str) -> str | None:
+    """Шаблон Dockerfile по имени файла: путь для отчёта или None."""
+    base, dot, ext = rel_in_scope.rsplit("/", 1)[-1].lower().rpartition(".")
+    if not dot or ext not in _TEMPLATE_EXTS:
+        return None
+    if base == "dockerfile" or base.startswith(("dockerfile.", "dockerfile-")) or base.endswith(
+        (".dockerfile", "-dockerfile"),
+    ):
+        return rel_in_scope
+    return None
+
+
+def dependency_rule(rel_in_scope: str) -> str | None:
+    """Каталог зависимостей из DEPENDENCY_DIRS в пути (сегмент целиком, с учётом регистра,
+    как у обхода без git): путь каталога с «/» для отчёта или None."""
+    parts = rel_in_scope.split("/")
+    for i, seg in enumerate(parts[:-1]):
+        if seg in DEPENDENCY_DIRS:
+            return "/".join(parts[: i + 1]) + "/"
+    return None
+
+
+def ci_rule(rel_in_scope: str) -> str | None:
+    """Путь CI или служебного инструмента для отчёта (каталог с «/» или файл) или None."""
+    parts = rel_in_scope.split("/")
+    for i, seg in enumerate(parts):
+        low = seg.lower()
+        last = i == len(parts) - 1
+        if (not last and low in CI_DIRS) or low.startswith(CI_PREFIXES):
+            return "/".join(parts[: i + 1]) + ("" if last else "/")
     return None
 
 
@@ -246,7 +448,7 @@ class Excluded:
 
     path: str
     files: int
-    reason: str  # convention | archmapignore | option
+    reason: str  # convention | ci | dependencies | template | archmapignore | option
 
 
 @dataclass(frozen=True)
@@ -324,11 +526,23 @@ def list_files(
         if hit is not None:
             counts[(hit.raw, "option")] += 1
             continue
+        ci = ci_rule(rel[len(prefix):])
+        if ci is not None and not any(p.hits(rel) for p in inc):
+            counts[(prefix + ci, "ci")] += 1
+            continue
+        dep = dependency_rule(rel[len(prefix):])
+        if dep is not None and not any(p.hits(rel) for p in inc):
+            counts[(prefix + dep, "dependencies")] += 1
+            continue
         rule = convention_rule(rel[len(prefix):])
         if rule is not None and not any(p.hits(rel) for p in inc):
             # Каталог и compose-файл отчитываются от корня, шаблон имени — как есть.
             shown, scoped = rule
             counts[(prefix + shown if scoped else shown, "convention")] += 1
+            continue
+        template = template_rule(rel[len(prefix):])
+        if template is not None:
+            counts[(prefix + template, "template")] += 1
             continue
         files.append(rel)
     excluded = tuple(

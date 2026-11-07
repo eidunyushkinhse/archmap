@@ -1,0 +1,4 @@
+[Unit]
+Description=consul-template
+[Service]
+ExecStart=/usr/local/bin/consul-template -config=/etc/consul-template.d

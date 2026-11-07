@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from archmap_scan import registry, texts, vocab
+from collections.abc import Sequence
+
+from archmap_scan import owners, paths, registry, texts, vocab
 from archmap_scan.model import Findings
 from archmap_scan.objects import BROKER, DATABASE, SERVICE, Model, Obj
 from archmap_scan.output.coverage import FamilyStat
 
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+# Источники параметра, которые читают файлы каталога кода: чтения в коде и примеры
+# окружения. Окружение манифеста (compose, k8s) записано своему сервису и общим кодом не
+# бывает, даже если имя повторено через якоря YAML.
+_SHARED_PARAM_PARSERS = _CODE_PARSERS | {"env-example"}
 # Семьи яруса кода: им считается пропущенный код в каталогах для разработки (ТЗ §4).
 _DEV_CODE_FAMILIES = ("config", "channels", "http_routes", "schedules")
 
@@ -38,6 +44,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
         out[fam] = stat
     for fam, shape in (("containers", SERVICE), ("databases", DATABASE), ("brokers", BROKER)):
         _objects_stat([o for o in model.objects if o.shape == shape], out[fam])
+        out[fam].from_dev_manifests = sum(
+            1 for o in model.objects if o.shape == shape and o.name in model.dev_objects
+        )
     if model.implicit:
         out["containers"].notes.append(texts.NOTE_IMPLICIT_CONTAINER)
     if model.by_buildfiles:
@@ -85,11 +94,43 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     config.from_code = bool(code_parsers)
     _code_family(out["http_routes"], model, "route", sum(len(v) for v in model.http.values()))
     _code_family(out["channels"], model, "channel", sum(len(v) for v in model.channels.values()))
-    unsupported = code_unsupported(findings)
+    containers = [o for o in model.objects if o.is_container]
+    # Контейнеры по файлам сборки или неявный контейнер корня границу системы не задают
+    # (PHP-интерфейс Zabbix без своего контейнера): тогда стек ищется по всем манифестам.
+    bounded = not (model.by_buildfiles or model.implicit)
+    unsupported = code_unsupported(findings, containers if bounded else None)
     for fam, stacks in [*findings.unsupported.items(), *unsupported.items()]:
         for stack in stacks:
             if stack not in out[fam].unsupported:
                 out[fam].unsupported.append(stack)
+    # «Стек не опознан» — только когда язык контейнеров не известен вовсе (ТЗ §15 п. 10
+    # А12): у контейнеров на Python, Node.js или Go разборщики семьи проверили зависимости и
+    # клиента или фреймворка не нашли, это «пусто». Язык контейнера, код на котором
+    # сборщик не читает, назван в unsupported, даже без манифеста сборки (ТЗ §15 п. 12 С7в:
+    # язык Java у Petclinic известен по образу и каталогу кода).
+    unread = sorted(
+        {o.language for o in containers if o.language and o.language not in vocab.CONFIG_LANGUAGES},
+        key=str.lower,
+    )
+    readable = any(o.language in vocab.CONFIG_LANGUAGES for o in containers)
+    for fam in ("http_routes", "channels"):
+        if out[fam].status != "unknown":
+            continue
+        out[fam].unsupported.extend(unread)
+        if readable:
+            out[fam].ran = [
+                p.name for p in registry.PARSERS
+                if p.code and fam in p.families and p.name not in errors
+            ]
+    if model.root_stack:
+        # Цели сборки Bazel и CMake и код C++ сборщик не читает: стек маркера первым в
+        # unsupported контейнеров и семей яруса кода (ТЗ §15 п. 12 С12).
+        for fam in ("containers", *_ROOT_STACK_FAMILIES):
+            items = [s for s in out[fam].unsupported if s != model.root_stack]
+            out[fam].unsupported = [model.root_stack, *items]
+    for note in model.dev_notes:
+        if note not in out["containers"].notes:
+            out["containers"].notes.append(note)
     for fam, notes in findings.notes.items():
         for note in notes:
             if note not in out[fam].notes:
@@ -112,6 +153,9 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
     return out
 
 
+# Семьи яруса кода, где стек маркера сборки корня назван непрочитанным (ТЗ §15 п. 12 С12).
+_ROOT_STACK_FAMILIES = ("config", "channels", "http_routes", "workers", "schedules")
+
 # Вид записи подсказки по семье кода.
 _FAMILY_KINDS = {
     "config": "config", "channels": "channel", "http_routes": "route", "schedules": "schedule",
@@ -127,16 +171,31 @@ def _aside_of(model: Model, kind: str, reasons: frozenset[str]) -> int:
 
 
 def _shared_params(model: Model) -> tuple[int, int, int]:
-    """Разных имён параметров, число контейнеров, у которых записан параметр, общий с
-    другим контейнером, и число таких записей (код общего каталога: у Zulip 26 имён, из
-    них 19 общих у 7 контейнеров, 133 записи, и 7 своих у восьмого)."""
-    holders: dict[str, set[str]] = {}
+    """Разных имён параметров, число контейнеров с параметрами общего кода и число таких
+    записей. Запись общего кода — та, чьё основание из кода или примера окружения лежит в
+    каталоге hints.shared_code, общем у её контейнера с другими (Zulip: 19 общих имён у 7
+    контейнеров, 133 записи). Повтор имени через якоря YAML (Lemmy) или одинаковые имена в
+    своём коде разных контейнеров общим кодом не считаются (ТЗ §15 п. 10 А10)."""
+    names = {name for table in model.params.values() for name in table}
+    shared: list[tuple[str, list[str]]] = []
+    for hint in model.hints.get("shared_code", []):
+        shown = str(hint.get("name", ""))
+        folder = "" if shown == "./" else shown.rstrip("/")
+        containers = hint.get("containers")
+        shared.append((folder, [str(c) for c in containers] if isinstance(containers, list) else []))
+    holders: set[str] = set()
+    records = 0
     for owner, table in model.params.items():
-        for name in table:
-            holders.setdefault(name, set()).add(owner)
-    common = [owners for owners in holders.values() if len(owners) > 1]
-    shared = {owner for owners in common for owner in owners}
-    return len(holders), len(shared), sum(len(owners) for owners in common)
+        dirs = [folder for folder, containers in shared if owner in containers]
+        if not dirs:
+            continue
+        for param in table.values():
+            if not param.parsers & _SHARED_PARAM_PARSERS:
+                continue
+            if any(paths.under(loc.path, folder) for loc in param.locs for folder in dirs):
+                holders.add(owner)
+                records += 1
+    return len(names), len(holders), records
 
 
 def _hints_of(model: Model, section: str, kind: str) -> int:
@@ -162,46 +221,73 @@ def _code_family(stat: FamilyStat, model: Model, kind: str, found: int) -> None:
 
 
 def stacks(model: Model) -> list[str]:
-    """Технологии объектов в порядке схемы, без повторов."""
-    out: list[str] = []
+    """Технологии объектов в порядке схемы, без повторов: только языки, фреймворки и виды
+    из словаря (vocab.is_stack, ТЗ §15 п. 12 С7б). Имя образа остаётся технологией объекта,
+    но стеком репозитория не считается. Стек маркера сборки корня первым (С12)."""
+    out: list[str] = [model.root_stack] if model.root_stack else []
     for obj in model.objects:
-        if obj.technology and obj.technology not in out:
+        if obj.technology and vocab.is_stack(obj.technology) and obj.technology not in out:
             out.append(obj.technology)
     return out
 
 
-def code_unsupported(findings: Findings) -> dict[str, list[str]]:
+# Семьи яруса кода, где язык без чтения кода назван сам, если библиотеки семьи у него нет
+# (ТЗ §15 п. 10 А12: у Lemmy каналы и воркеры на Rust — «Rust», а не «стек не опознан»).
+_LANGUAGE_FAMILIES = ("http_routes", "channels", "workers", "schedules")
+
+
+def _label(language: str, name: str) -> str:
+    """Имя стека «Язык: библиотека» (Rust: actix-web) у языка, код на котором сборщик не
+    читает; у читаемого языка имя самой библиотеки (Pub/Sub, BullMQ)."""
+    return name if language in vocab.CONFIG_LANGUAGES else f"{language}: {name}"
+
+
+def code_unsupported(
+    findings: Findings, containers: Sequence[Obj] | None = None,
+) -> dict[str, list[str]]:
     """Стеки, опознанные по манифестам сборки, которые ярус кода в этой версии не читает
     (ТЗ §6.2, §6.4): фреймворки без разборщика маршрутов, параметры в коде по языкам,
-    каналы и расписания по библиотекам, описания схем без разборщика."""
-    frameworks: list[str] = []
-    languages: list[str] = []
-    channel_libs: list[str] = []
-    schema_stacks: list[str] = []
-    schedulers: list[str] = []
-    for pkg in sorted(findings.packages, key=lambda p: p.path):
-        for server in vocab.frameworks_in(pkg.deps, vocab.SERVER_FRAMEWORKS):
-            if server not in vocab.ROUTE_FRAMEWORKS and server not in frameworks:
-                frameworks.append(server)
-        if pkg.language not in vocab.CONFIG_LANGUAGES and pkg.language not in languages:
-            languages.append(pkg.language)
-        viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
-        if viper and viper not in languages:
-            languages.append(viper)
-        for lib in vocab.frameworks_in(pkg.deps, vocab.UNSUPPORTED_CHANNEL_DEPS):
-            if lib not in channel_libs:
-                channel_libs.append(lib)
-        for lib in vocab.frameworks_in(pkg.deps, vocab.UNSUPPORTED_SCHEDULE_DEPS):
-            if lib not in schedulers:
-                schedulers.append(lib)
-        schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
-        if schema and schema not in schema_stacks:
-            schema_stacks.append(schema)
-    found = {
-        "http_routes": frameworks,
-        "config": languages,
-        "channels": channel_libs,
-        "schedules": schedulers,
-        "tables": schema_stacks,
+    каналы, воркеры и расписания по библиотекам, описания схем без разборщика. Стек
+    называется только по прямой зависимости или файлу манифеста, который принадлежит коду
+    контейнера (owners.file_owners): Gemfile fastlane и Cargo.toml мобильного приложения
+    immich к контейнерам не относятся (ТЗ §15 п. 10 А12). containers=None — все манифесты:
+    так считают, когда контейнеры не из манифестов развёртывания."""
+    found: dict[str, list[str]] = {
+        "http_routes": [], "config": [], "channels": [], "workers": [], "schedules": [],
+        "tables": [],
     }
+    tables = (
+        ("http_routes", vocab.SERVER_FRAMEWORKS), ("channels", vocab.UNSUPPORTED_CHANNEL_DEPS),
+        ("workers", vocab.UNSUPPORTED_WORKER_DEPS), ("schedules", vocab.UNSUPPORTED_SCHEDULE_DEPS),
+    )
+    unread: list[str] = []
+
+    def add(fam: str, name: str) -> None:
+        if name not in found[fam]:
+            found[fam].append(name)
+
+    for pkg in sorted(findings.packages, key=lambda p: p.path):
+        if containers is not None and not owners.file_owners(pkg.path, containers, pkg.language):
+            continue
+        # Cargo.toml и go.mod при маркере сборки корня — SDK и утилиты (ТЗ §15 п. 12 С12).
+        if findings.root_stack and pkg.kind in vocab.SDK_MANIFESTS:
+            continue
+        for fam, table in tables:
+            for lib in vocab.frameworks_in(pkg.deps, table):
+                if fam != "http_routes" or lib not in vocab.ROUTE_FRAMEWORKS:
+                    add(fam, _label(pkg.language, lib))
+        if pkg.language not in vocab.CONFIG_LANGUAGES:
+            add("config", pkg.language)
+            if pkg.language not in unread:
+                unread.append(pkg.language)
+        viper = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_CONFIG_DEPS)
+        if viper:
+            add("config", viper)
+        schema = vocab.find_framework(pkg.deps, vocab.UNSUPPORTED_SCHEMA_DEPS)
+        if schema:
+            add("tables", schema)
+    for fam in _LANGUAGE_FAMILIES:
+        for language in unread:
+            if not any(item.startswith(language + ": ") for item in found[fam]):
+                add(fam, language)
     return {fam: sorted(items, key=str.lower) for fam, items in found.items() if items}

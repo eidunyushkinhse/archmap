@@ -23,7 +23,14 @@ def test_env_example_lines() -> None:
     ctx, files = files_of(FIXTURES / "envexample")
     found = envexample.parse(files, ctx)
     by_path = {e.path: e for e in found.env_files}
-    assert set(by_path) == {"services/orders/.env.example", "lib/.env.sample"}
+    assert set(by_path) == {
+        "services/orders/.env.example", "lib/.env.sample",
+        "services/orders/.env.production.sample", "services/orders/example.env",
+    }
+    assert [v.name for v in by_path["services/orders/.env.production.sample"].vars] == [
+        "SMTP_PORT", "S3_ENABLED",
+    ]
+    assert [v.name for v in by_path["services/orders/example.env"].vars] == ["UPLOAD_LOCATION"]
     orders = {v.name: v for v in by_path["services/orders/.env.example"].vars}
     assert orders["LOG_LEVEL"].value == "info" and str(orders["LOG_LEVEL"].loc).endswith(":2")
     assert orders["FEATURE_NEW_CHECKOUT"].value == "false"
@@ -31,6 +38,23 @@ def test_env_example_lines() -> None:
     assert orders["TEMPLATE"].dynamic
     # Повтор имени не перекрывает первое значение.
     assert orders["WORKERS"].value == "4"
+
+
+@pytest.mark.parametrize(
+    ("name", "example"),
+    [
+        (".env.example", True), (".env.sample", True), (".env.template", True),
+        (".env.dist", True), ("env.example", True), (".env.production.sample", True),
+        (".env.local.example", True), ("example.env", True), ("sample.env", True),
+        ("template.env", True),
+        # Настоящие файлы окружения: суффикса примера нет, не открываются никогда.
+        (".env", False), (".env.local", False), (".env.production", False),
+        (".env.example.local", False), ("prod.env", False), ("env.local.txt", False),
+        ("my.env.example", False),
+    ],
+)
+def test_example_by_suffix(name: str, example: bool) -> None:
+    assert envexample.is_example(name) is example
 
 
 @pytest.mark.parametrize(
@@ -95,6 +119,8 @@ def test_config_facts_and_no_secrets(tmp_path: Path) -> None:
         "services/orders/.env": "REAL_ENV_VALUE=never-open-me\n",
         "services/orders/.env.local": "LOCAL_VALUE=never-open-me\n",
         ".env.production": "PROD=never-open-me\n",
+        "services/orders/.env.production": "PROD_VALUE=never-open-me\n",
+        "services/orders/.env.example.local": "EXAMPLE_LOCAL=never-open-me\n",
     })
     out = tmp_path / "out"
     run(Options(path=str(repo), out=str(out), system="Ярмарка", use_git=False))
@@ -108,6 +134,9 @@ def test_config_facts_and_no_secrets(tmp_path: Path) -> None:
     }
     assert items["GREETING"]["default"] == "привет мир"
     assert "REAL_ENV_VALUE" not in items and "LOCAL_VALUE" not in items
+    assert "PROD_VALUE" not in items and "EXAMPLE_LOCAL" not in items
+    # Примеры по суффиксу читаются: «.env.production.sample» и «example.env».
+    assert {"SMTP_PORT", "S3_ENABLED", "UPLOAD_LOCATION"} <= set(items)
     everything = "".join(
         p.read_text(encoding="utf-8") for p in out.rglob("*") if p.is_file()
     )

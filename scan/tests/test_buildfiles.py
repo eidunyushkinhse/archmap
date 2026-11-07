@@ -5,10 +5,10 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from archmap_scan import stats, texts
+from archmap_scan import stats, texts, vocab
 from archmap_scan.model import Findings
 from archmap_scan.parsers import buildfiles
-from tests.helpers import files_of, model_of, time_limit, tree
+from tests.helpers import FIXTURES, files_of, model_of, time_limit, tree
 
 MAKEFILE = """\
 ## Process this file with automake to produce Makefile.in
@@ -128,3 +128,37 @@ def test_hostile_makefile(tmp_path: Path) -> None:
     found = buildfiles.parse(files, ctx)
     assert time.perf_counter() - started < time_limit()
     assert [u.name for u in found.build_units] == ["a"]
+
+
+def test_bazel_and_cmake_root_markers(tmp_path: Path) -> None:
+    """Маркер сборки в корне (ТЗ §15 п. 12 С12). Envoy (C++ на Bazel, MODULE.bazel) получил
+    stacks [Rust] от SDK Cargo.toml в корне, а матрица ci/matrix/docker-compose.yml со
+    сборкой из корня — объекты на Rust с основаниями Cargo.toml:1 и go.mod:1. При маркере
+    Cargo.toml и go.mod — SDK и утилиты: неявного контейнера и процессов cmd/ модулей Go
+    нет, имя системы не по go.mod, стек «C++ (Bazel)» первым в stacks и в unsupported
+    семьи containers и семей яруса кода, контейнер с корневым каталогом кода получает этот
+    стек. Ловушки:
+    один Cargo.toml без Bazel по-прежнему неявный контейнер на Rust; CMakeLists.txt в корне
+    даёт «C/C++ (CMake)»."""
+    model = model_of(FIXTURES / "bazel-root", system=None)
+    assert model.objects == [] and model.system == "bazel-root" and model.system_locs == []
+    fams = stats.families(model, Findings(), {})
+    assert stats.stacks(model) == [vocab.STACK_BAZEL]
+    assert fams["containers"].status == "unsupported"
+    for fam in ("containers", "config", "channels", "http_routes", "workers", "schedules"):
+        assert fams[fam].unsupported == [vocab.STACK_BAZEL]
+    model = model_of(FIXTURES / "bazel-compose")
+    [ci] = model.objects
+    assert (ci.name, ci.technology) == ("all", vocab.STACK_BAZEL)
+    assert sorted(str(loc) for loc in ci.locs) == [
+        "ci/matrix/Dockerfile:1", "ci/matrix/docker-compose.yml:3",
+    ]
+    tree(tmp_path / "rust", {"Cargo.toml": '[package]\nname = "tool"\n'})
+    assert [(o.name, o.technology) for o in model_of(tmp_path / "rust").objects] == [
+        ("Ярмарка", "Rust"),
+    ]
+    tree(tmp_path / "cmake", {
+        "CMakeLists.txt": "project(app CXX)\n", "Cargo.toml": '[package]\nname = "sdk"\n',
+    })
+    model = model_of(tmp_path / "cmake")
+    assert model.objects == [] and stats.stacks(model) == [vocab.STACK_CMAKE]

@@ -64,10 +64,9 @@ class _Uses:
                 loc=Loc(self.rel, line), parser=NAME,
             ))
 
-    def dynamic(self, name: str, line: int) -> None:
+    def dynamic(self, name: str, line: int, reason: str = texts.REASON_DYNAMIC_CHANNEL) -> None:
         self.found.hints.append(Hint("dynamic_names", {
-            "kind": "channel", "name": name, "reason": texts.REASON_DYNAMIC_CHANNEL,
-            "source": str(Loc(self.rel, line)),
+            "kind": "channel", "name": name, "reason": reason, "source": str(Loc(self.rel, line)),
         }))
 
     def address(self, value: str | None, plain_host: bool = False) -> None:
@@ -164,6 +163,9 @@ def _js_arg(code: codetext.Code, uses: _Uses, pos: int) -> tuple[str | None, int
             uses.dynamic(code.expression(pos), code.line(pos))
         return None, pos
     value, dynamic = code.literal(hit.start(), hit.end())
+    if dynamic and code.joined(hit.start(), hit.end()):
+        uses.dynamic(code.expression(hit.start()), code.line(pos), texts.REASON_JOINED_NAME)
+        return None, hit.end()
     if dynamic:
         uses.dynamic(value, code.line(pos))
         return None, hit.end()
