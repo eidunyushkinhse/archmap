@@ -409,6 +409,24 @@ def _external_repos(doc: LineDict, rel: str, found: Findings) -> None:
             stack.extend((v, [*keys, None]) for v in reversed(node))
 
 
+# Имя стенда (ТЗ §15 п. 13 Д8): верхний ключ name: файла compose со словом из перечня
+# (posthog-multinode-smoke PostHog поднимает кластер ClickHouse для проверки миграций) —
+# файл стенда разработки или замеров. Имя проекта compose — строчные буквы, цифры, «-» и
+# «_», поэтому слова — части между ними (walk.name_tokens); contest-shop не test.
+_STAND_NAME_WORDS = frozenset({
+    "smoke", "test", "tests", "ci", "e2e", "dev", "local", "bench", "benchmark",
+})
+
+
+def _stand_name(doc: LineDict) -> str | None:
+    """Признак «имя стенда» по верхнему ключу name: файла или None."""
+    name = doc.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    shown = expand(name.strip())
+    return texts.dev_sign_stand_name(shown) if name_tokens(shown) & _STAND_NAME_WORDS else None
+
+
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
     units: dict[str, Unit] = {}
@@ -426,17 +444,19 @@ def parse(files: Files, ctx: Context) -> Findings:
     docs: dict[str, LineDict] = {}
     programs: dict[str, list[tuple[str, LineDict, int]]] = {}
     modes: dict[str, dict[str, tuple[str, list[str]]]] = {}
+    stands: dict[str, str | None] = {}
     for rel in [r for r in ordered if r not in dev_files] + [r for r in ordered if r in dev_files]:
         loaded = _load_services(files, rel, found, by_content=rel in content)
         if loaded is not None:
             docs[rel] = loaded[0]
             programs[rel] = _programs(loaded[1])
+            stands[rel] = _stand_name(loaded[1])
             if rel in dev_files:
                 modes[rel] = _devservices(loaded[1], loaded[0], rel)
     # Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): его базы и
-    # кэш поднимаются для того же стенда.
+    # кэш поднимаются для того же стенда. Так же файл с именем стенда (Д8).
     for rel, services in docs.items():
-        sail = None if signs[rel] else _sail(services, rel)
+        sail = None if signs[rel] else stands.get(rel) or _sail(services, rel)
         if sail is not None:
             signs[rel] = sail
             dev_files.add(rel)

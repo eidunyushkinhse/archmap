@@ -367,6 +367,11 @@ def dev_sign_image_tag(tag: str) -> str:
     return f"тег образа {tag}"
 
 
+def dev_sign_stand_name(name: str) -> str:
+    """Верхний ключ name: файла compose со словом стенда (ТЗ §15 п. 13 Д8)."""
+    return f"имя стенда {name}"
+
+
 def dev_sign_sail(loc: str) -> str:
     """Файл compose Laravel Sail (ТЗ §15 п. 12 С6в)."""
     return f"Laravel Sail ({loc})"

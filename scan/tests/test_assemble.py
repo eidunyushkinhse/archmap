@@ -322,6 +322,23 @@ def test_kotlin_files_owned_by_kotlin_container() -> None:
     assert owners.file_owners("shared/Util.kt", [_obj(model, "billing")]) == []
 
 
+def test_compose_stand_name_is_dev_sign() -> None:
+    """Имя стенда (ТЗ §15 п. 13 Д8): docker-compose.multinode-clickhouse.yml PostHog с верхним
+    name: posthog-multinode-smoke давал 9 объектов clickhouse-*. Слово smoke, test, ci, e2e,
+    dev, local, bench в имени проекта compose — признак разработки всему файлу. Ловушки:
+    contest-shop не test (слово целиком); clickhouse есть и в боевом файле и остаётся по
+    нему, подсказки о нём нет."""
+    model = model_of(FIXTURES / "stand-name")
+    assert sorted(o.name for o in model.objects) == ["api", "clickhouse"]
+    assert [str(loc) for loc in sorted(_obj(model, "clickhouse").locs)] == [
+        "docker-compose.yml:7",
+    ]
+    sign = texts.dev_manifest(texts.dev_sign_stand_name("shop-multinode-smoke"))
+    assert {str(h["name"]): h["reason"] for h in model.hints["profiles"]} == {
+        "clickhouse-aux": sign, "clickhouse-logs": sign,
+    }
+
+
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:
     """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
     компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог

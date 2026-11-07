@@ -1,0 +1,8 @@
+# Д8: имя проекта без слова стенда (contest — не test) — боевой файл.
+name: contest-shop
+services:
+  api:
+    image: example/shop-api:1.4
+    depends_on: [clickhouse]
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3

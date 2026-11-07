@@ -690,7 +690,8 @@ unread: {too_large: 3, binary: 0}
      подобные), «команда разработки» и «инструмент разработки» у сервиса compose и «Laravel
      Sail» у файла compose; с части 2 (п. 13) «тег образа» у сервиса compose (Д1), «CI на
      ступени 2» (кандидаты каталога `ci/` и файлов CI объектов не дают и без боевых
-     манифестов, Д4).
+     манифестов, Д4), «имя стенда» у файла compose (верхний `name:` со словом smoke, test,
+     ci, e2e, dev, local, bench, Д8).
      Страховка остатка: шаг промпта агента «подсказки dev-only проверь, не боевые ли они».
      Данные: 55 из 89 неверных объектов корнер-кейсов dev-only; релевантное только в dev-манифестах
      встретилось трижды (Sentry целиком, ES и LibreTranslate Mastodon, usage-ingestion PostHog) и
@@ -1076,3 +1077,13 @@ unread: {too_large: 3, binary: 0}
      PostHog: объекты `kafka-init` и `personhog-tables-ready` и их связи `→ kafka`, `→ db`
      ушли (в вердикте wrong-kind); Supabase: `minio-createbucket`, `rustfs-createbucket` и
      связь `minio-createbucket → minio`; остальные дымовые без изменений.
+   - Д8 (решение исполнителя): «name_words» для имени проекта compose — части между `-` и `_`
+     (`walk.name_tokens`): имя проекта compose по правилам Docker из строчных букв, цифр, `-` и
+     `_`, разбиение по регистру ему не нужно. Значение раскрывается как остальные поля compose
+     (`${VAR:-дефолт}`). Признак проверяется после чтения файла, как «Laravel Sail», поэтому
+     файл со стендом читается в общем порядке, а его сервисы, которых нет в боевых файлах,
+     становятся кандидатами разработки. PostHog: девять `clickhouse-*` из
+     `docker-compose.multinode-clickhouse.yml` в `hints.profiles` («осталось» по объектам
+     10 → 1, дубль `posthog-metrics-agent`); вместе с ними ушли девять связей `clickhouse-* →
+     kafka`, которые вердикт отметил ok при объектах dev-only (связи между объектами
+     разработки, как известные потери Lemmy и PostHog).
