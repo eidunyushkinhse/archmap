@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from archmap_scan import dialect
+
 # Роли объектов (ТЗ §5.1): других сборщик не пишет.
 ROLE_SERVICE = "сервис"
 ROLE_FRONTEND = "фронтенд"
@@ -484,6 +486,27 @@ def technology(language: str | None, framework: str | None) -> str | None:
     if language and framework:
         return f"{language} + {framework}"
     return language or framework
+
+
+# Языки, которые называет сборщик: манифесты сборки, базовые образы Dockerfile, Gradle на
+# Kotlin, исходники рядом с Makefile.am.
+LANGUAGES = frozenset({
+    *MANIFEST_LANGUAGE.values(), *(lang for _, lang in _LANG_PREFIXES), ".NET", "Kotlin", "C", "C++",
+})
+_STACK_NAMES = frozenset({
+    *LANGUAGES,
+    *(name for _, name in SERVER_FRAMEWORKS), *(name for _, name in FRONTEND_FRAMEWORKS),
+    *(kind.technology for kind in IMAGES.values()), *(kind for _, kind in CLIENTS),
+    dialect.POSTGRESQL, dialect.MYSQL, dialect.MARIADB, dialect.SQLITE, dialect.ORACLE,
+    dialect.SQLSERVER,
+})
+
+
+def is_stack(tech: str) -> bool:
+    """Технология из словаря (ТЗ §15 п. 12 С7б): язык, фреймворк, вид образа, клиента
+    или диалекта базы, либо запись «язык + фреймворк». Имя образа без вида в словаре
+    (zipkin, alertmanager, spring-petclinic-admin-server) стеком не считается."""
+    return all(part in _STACK_NAMES for part in tech.split(" + "))
 
 
 _QUEUE_OPTS = frozenset({"-Q", "--queues", "--queue", "--queue_name", "--queue-name"})

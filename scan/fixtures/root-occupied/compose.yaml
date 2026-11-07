@@ -1,0 +1,8 @@
+# Ловушки С7а: web собирается из корня, но каталог api/ занят своим сервисом, а
+# package.json корня с настоящими зависимостями не служебный: ни Go из api/go.mod,
+# ни Python из свободного lib/pyproject.toml языком web не становятся.
+services:
+  web:
+    build: .
+  api:
+    build: ./api

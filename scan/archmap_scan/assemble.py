@@ -463,8 +463,14 @@ def _code_packages(obj: Obj, packages: list[Package]) -> list[Package]:
     return [p for p in packages if p.dir == obj.code_dir]
 
 
-def _classify(obj: Obj, packages: list[Package]) -> None:
-    """Вид, технология и роль объекта по кандидатам, Dockerfile и манифестам сборки."""
+def _classify(obj: Obj, packages: list[Package], free: list[Package] | None = None) -> None:
+    """Вид, технология и роль объекта по кандидатам, Dockerfile и манифестам сборки.
+    free — манифесты свободных подкаталогов корня (_free_packages): у корневого контейнера
+    без манифестов в корне или только со служебным package.json (_service_root) язык
+    берётся из них по stack_of среди манифестов не Node.js (ТЗ §15 п. 12 С7а: в корне eShop
+    package.json с одними devDependencies, а код .NET лежит в src/*/*.csproj). Только когда
+    эти манифесты одного языка: несколько языков значат чужие манифесты (утилиты, тесты,
+    мобильное приложение). Язык, названный базовым образом Dockerfile, они не меняют."""
     units = obj.units
     image = next((u.image for u in units if u.image), None)
     shape_hint = next((u.shape for u in units if u.shape), None)
@@ -486,8 +492,23 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
         if obj.language is None or p.language == obj.language
     ]
     language, server, front = stack_of(pkgs)
-    if language is None and obj.dockerfile is not None:
-        language = _dockerfile_language(obj.dockerfile)
+    base_language = _dockerfile_language(obj.dockerfile) if obj.dockerfile else None
+    if language is None:
+        language = base_language
+    # Язык, названный базовым образом Dockerfile, свободными манифестами не меняется.
+    if server is None and base_language is None and free and _service_root(pkgs):
+        backend = [
+            p for p in free
+            if p.language != "Node.js" and (obj.language is None or p.language == obj.language)
+        ]
+        # Языков несколько — свободные манифесты чужие (утилиты, тесты), язык не угадывается.
+        lang, backend_server, _front = (
+            stack_of(backend) if len({p.language for p in backend}) == 1 else (None, None, None)
+        )
+        if lang is not None:
+            language, server = lang, backend_server
+            lead = next(p for p in backend if p.language == lang)
+            obj.locs.add(lead.name_loc or Loc(lead.path, 1))
     if language is None:
         language = next((u.language for u in units if u.language), None)
     if obj.language is None:
@@ -507,6 +528,14 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
             obj.role = vocab.ROLE_FRONTEND
         else:
             obj.role = vocab.ROLE_SERVICE
+
+
+def _service_root(pkgs: list[Package]) -> bool:
+    """Манифесты корня не задают язык кода: их нет или это package.json без зависимостей
+    и workspaces (только devDependencies и scripts: линтер, тесты e2e)."""
+    return all(
+        p.kind == "package.json" and not p.deps and not p.workspaces for p in pkgs
+    )
 
 
 def _dockerfile_language(d: Dockerfile) -> str | None:
@@ -670,8 +699,37 @@ def _objects(
             ) or obj.code_dir
         _attach_dockerfile(obj, by_path)
         _process_stack(obj, findings.packages, ctx, go_binaries)
-        _classify(obj, findings.packages)
-    return list(by_name.values())
+    objs = list(by_name.values())
+    # Второй проход: свободные пакеты корневого контейнера считаются, когда каталоги кода
+    # всех объектов уже известны (ТЗ §15 п. 12 С7а).
+    for obj in objs:
+        _classify(obj, findings.packages, _free_packages(obj, objs, findings.packages, ctx.scope))
+    return objs
+
+
+def _free_packages(
+    obj: Obj, objs: list[Obj], packages: list[Package], scope: str,
+) -> list[Package]:
+    """Манифесты сборки в подкаталогах корня, не занятых каталогом кода другого объекта:
+    у контейнера с каталогом кода, равным корню, из них берётся язык, когда манифест корня
+    служебный (ТЗ §15 п. 12 С7а). Манифесты служебной сборки и разработки (manifest_sign:
+    утилиты Go internal/tools/ otel-demo) не считаются. Контейнер, чей Dockerfile объявлен
+    в подкаталоге, собирается из корня только ради контекста (telemetry-docs otel-demo:
+    src/telemetry-docs/Dockerfile), его код не в корне: у него, как и у остальных
+    контейнеров, пусто."""
+    if obj.code_dir != scope:
+        return []
+    if any(u.dockerfile and paths.parent(u.dockerfile) != scope for u in obj.units):
+        return []
+    taken = [o.code_dir for o in objs if o is not obj and o.code_dir not in (None, scope)]
+    return sorted(
+        (
+            p for p in packages
+            if p.dir != scope and paths.under(p.dir, scope) and manifest_sign(p.path) is None
+            and not any(paths.under(p.dir, folder) for folder in taken)
+        ),
+        key=lambda p: p.path,
+    )
 
 
 _PROCESS_PARSERS = frozenset({"supervisor", "systemd", "procfile"})
@@ -827,7 +885,7 @@ def _implicit(model: Model, findings: Findings, ctx: Context) -> Obj | None:
     obj = Obj(name=model.system, code_dir=ctx.scope, parsers=["implicit"])
     obj.units.append(Unit(name=model.system, parser="implicit", loc=roots[0].name_loc
                           or Loc(roots[0].path, 1)))
-    _classify(obj, findings.packages)
+    _classify(obj, findings.packages, _free_packages(obj, [obj], findings.packages, ctx.scope))
     return obj
 
 

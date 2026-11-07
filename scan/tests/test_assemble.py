@@ -5,8 +5,10 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from archmap_scan import texts, walk
+from archmap_scan import registry, stats, texts, walk
+from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
+from archmap_scan.walk import Files
 from tests.helpers import FIXTURES, ctx_of, files_of, model_of, time_limit, tree
 
 
@@ -550,3 +552,48 @@ def test_laravel_sail_file_is_development() -> None:
     sail = texts.dev_manifest(texts.dev_sign_sail("docker-compose.yml:2"))
     assert marks["laravel.test"] == sail and marks["mariadb"] == sail
     assert marks["Ярмарка"] == texts.dev_manifest(texts.service_build("scripts"))
+
+
+def _families(root: Path) -> tuple[Model, list[str], dict[str, str], dict[str, list[str]]]:
+    """Модель, стеки, статусы семей и их unsupported по дереву root (без git)."""
+    ctx = ctx_of(root, "Ярмарка")
+    files = Files(ctx.root, walk.list_files(ctx).files)
+    findings, errors = registry.collect(files, ctx)
+    assert errors == {}
+    model = assemble(findings, ctx)
+    fams = stats.families(model, findings, errors)
+    return (
+        model, stats.stacks(model),
+        {f: s.status for f, s in fams.items()}, {f: s.unsupported for f, s in fams.items()},
+    )
+
+
+def test_root_container_language_by_free_packages() -> None:
+    """Язык корневого контейнера по свободным подкаталогам (ТЗ §15 п. 12 С7а). eShop: в
+    корне только служебный package.json (тесты e2e на playwright), а код .NET лежит в 28
+    src/*/*.csproj; неявный контейнер корня получал Node.js и stacks [Node.js]. Утилиты Go в
+    internal/tools/ (как у OpenTelemetry Demo) служебная сборка и не считаются: иначе языков
+    было бы два и язык не менялся бы. Ловушки root-occupied: web собирается из корня, но
+    api/ занят своим сервисом, его Go языком web не становится; package.json корня с
+    зависимостями не служебный, Python свободного lib/ язык web не меняет."""
+    model, stacks, _, _ = _families(FIXTURES / "root-dotnet")
+    assert [(o.name, o.technology) for o in model.objects] == [("Ярмарка", ".NET")]
+    assert stacks == [".NET"]
+    model = model_of(FIXTURES / "root-occupied")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "web": ("", "Node.js"), "api": ("api", "Go"),
+    }
+
+
+def test_stacks_and_known_language_status() -> None:
+    """Стеки из словаря и «стек не опознан» только без языка (ТЗ §15 п. 12 С7б, С7в).
+    Petclinic (docker-compose.yml): stacks перечисляли имена образов
+    (spring-petclinic-admin-server, zipkin), как и у Loki (alertmanager), Kubernetes
+    (cpvpa-amd64) и Supabase (logflare); channels и http_routes были unknown с пустыми
+    parsers, хотя язык Java известен. Здесь язык billing назван только базовым образом
+    Dockerfile, pom.xml нет. Имя образа остаётся технологией объекта tracing."""
+    model, stacks, status, unsupported = _families(FIXTURES / "java-image")
+    assert {o.name: o.technology for o in model.objects} == {"billing": "Java", "tracing": "zipkin"}
+    assert stacks == ["Java"]
+    for fam in ("channels", "http_routes"):
+        assert status[fam] == "unsupported" and unsupported[fam] == ["Java"]

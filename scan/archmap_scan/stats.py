@@ -105,14 +105,23 @@ def families(model: Model, findings: Findings, errors: dict[str, str]) -> dict[s
                 out[fam].unsupported.append(stack)
     # «Стек не опознан» — только когда язык контейнеров не известен вовсе (ТЗ §15 п. 10
     # А12): у контейнеров на Python, Node.js или Go разборщики семьи проверили зависимости и
-    # клиента или фреймворка не нашли, это «пусто».
-    if any(o.language in vocab.CONFIG_LANGUAGES for o in containers):
-        for fam in ("http_routes", "channels"):
-            if out[fam].status == "unknown":
-                out[fam].ran = [
-                    p.name for p in registry.PARSERS
-                    if p.code and fam in p.families and p.name not in errors
-                ]
+    # клиента или фреймворка не нашли, это «пусто». Язык контейнера, код на котором
+    # сборщик не читает, назван в unsupported, даже без манифеста сборки (ТЗ §15 п. 12 С7в:
+    # язык Java у Petclinic известен по образу и каталогу кода).
+    unread = sorted(
+        {o.language for o in containers if o.language and o.language not in vocab.CONFIG_LANGUAGES},
+        key=str.lower,
+    )
+    readable = any(o.language in vocab.CONFIG_LANGUAGES for o in containers)
+    for fam in ("http_routes", "channels"):
+        if out[fam].status != "unknown":
+            continue
+        out[fam].unsupported.extend(unread)
+        if readable:
+            out[fam].ran = [
+                p.name for p in registry.PARSERS
+                if p.code and fam in p.families and p.name not in errors
+            ]
     for note in model.dev_notes:
         if note not in out["containers"].notes:
             out["containers"].notes.append(note)
@@ -203,10 +212,12 @@ def _code_family(stat: FamilyStat, model: Model, kind: str, found: int) -> None:
 
 
 def stacks(model: Model) -> list[str]:
-    """Технологии объектов в порядке схемы, без повторов."""
+    """Технологии объектов в порядке схемы, без повторов: только языки, фреймворки и виды
+    из словаря (vocab.is_stack, ТЗ §15 п. 12 С7б). Имя образа остаётся технологией объекта,
+    но стеком репозитория не считается."""
     out: list[str] = []
     for obj in model.objects:
-        if obj.technology and obj.technology not in out:
+        if obj.technology and vocab.is_stack(obj.technology) and obj.technology not in out:
             out.append(obj.technology)
     return out
 
