@@ -842,3 +842,24 @@ unread: {too_large: 3, binary: 0}
      У Petclinic `unsupported` уже дал С5 (код найден по имени); `http_routes` пишет
      «Java: Spring Boot» по правилу А12. `channels` Kubernetes `unknown` по правилу: после
      ухода `_mock` (С3) у контейнеров на образах язык не известен.
+   - С8: (а) `Dockerfile.<суффикс>` и `<префикс>.Dockerfile` рядом с основным `Dockerfile` —
+     вариант контейнера основного при любом суффиксе (`hints.merged`, причина «вариант
+     Dockerfile рядом с основным»); решение А6 про отдельные контейнеры по суффиксу не для
+     разработки отменено, тест `test_standalone_dockerfiles` переписан (`Dockerfile.worker`
+     теперь вариант orders). Решения исполнителя, чтобы не потерять ok вердикта PostHog: в
+     корне репозитория суффикс по-прежнему называет отдельный образ (`Dockerfile.llm-analytics`,
+     `Dockerfile.dagster-ml` рядом с корневым `Dockerfile`); у основного Dockerfile нескольких
+     сервисов (общий `rust/Dockerfile` capture, cymbal и других) суффикс не для разработки
+     тоже отдельный образ (`rust/Dockerfile.sqlx-migrate`: первый перемер его склеил с capture,
+     стоп-правило, правило уточнено). Форма с дефисом (`Dockerfile-fpm` Monica) правилом не
+     задета. Основной Dockerfile без контейнера: вариант идёт по прежним правилам. (б)
+     Dockerfile, который стал бы своим объектом, в подкаталоге каталога кода ровно одного
+     контейнера (не корень, свой каталог не в счёт) — его вариант (причина «Dockerfile в
+     подкаталоге кода этого контейнера»), если в каталоге Dockerfile нет своего манифеста
+     сборки; кандидаты разработки ступени 1 каталогом не владеют. Ближайшие к корню
+     решаются первыми. Сверх случаев судьи по правилу ушли объекты `aws_lambda` Airflow
+     (вариант `executors`) и `kube-apiserver`, `kubectl` Kubernetes (варианты `server-image`
+     из `build/server-image/`). (в) Каталог мобильного приложения (`walk.mobile_dir`: часть
+     сегмента `android`, `ios`, `mobile`, `flutter` или `react-native` в сегменте): Dockerfile
+     в нём уходит в `hints.unassigned` с причиной «мобильное приложение», его манифесты не
+     свободные пакеты С7 (`telemetry-docs` OpenTelemetry Demo вернулся к Node.js корня).

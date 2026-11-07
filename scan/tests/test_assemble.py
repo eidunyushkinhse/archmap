@@ -80,13 +80,19 @@ def test_standalone_dockerfiles(tmp_path: Path) -> None:
     })
     model = model_of(tmp_path, system="Ярмарка")
     kinds = {o.name: (o.shape, o.technology, o.role, o.code_dir) for o in model.objects}
+    # Dockerfile.worker рядом с основным Dockerfile каталога контейнера — вариант orders при
+    # любом суффиксе (ТЗ §15 п. 12 С8 отменяет решение А6: раньше это был объект «worker»).
+    # Dockerfile-postgresql в корне и с дефисом остаётся своим объектом без каталога кода.
     assert kinds == {
         "orders": ("service", "Python", "сервис", "services/orders"),
-        # Dockerfile с суффиксом каталогом кода не владеет (ТЗ §5.1).
-        "worker": ("service", "Python", "воркер", None),
         "Ярмарка": ("service", "Node.js", "сервис", ""),
         "postgresql": ("database", "PostgreSQL", "БД", None),
     }
+    assert model.hints["merged"] == [{
+        "kind": "dockerfile", "name": "services/orders/Dockerfile.worker", "object": "orders",
+        "reason": texts.REASON_DOCKERFILE_SIBLING,
+        "source": ["services/orders/Dockerfile.worker:1"],
+    }]
     dev = {str(h["name"]) for h in model.hints["profiles"]}
     assert dev == {"tools/ci/Dockerfile", ".devcontainer/Dockerfile"}
 
@@ -597,3 +603,65 @@ def test_stacks_and_known_language_status() -> None:
     assert stacks == ["Java"]
     for fam in ("channels", "http_routes"):
         assert status[fam] == "unsupported" and unsupported[fam] == ["Java"]
+
+
+def _dockerfile_hints(model: Model) -> dict[str, list[tuple[str, str | None, str]]]:
+    """Подсказки о Dockerfile по разделам: (файл, контейнер, причина)."""
+    out: dict[str, list[tuple[str, str | None, str]]] = {}
+    for section in ("merged", "profiles", "unassigned"):
+        for h in model.hints.get(section, []):
+            if h.get("kind") == "dockerfile":
+                obj = h.get("object")
+                out.setdefault(section, []).append(
+                    (str(h["name"]), str(obj) if obj else None, str(h["reason"])),
+                )
+    return out
+
+
+def test_dockerfile_variant_beside_main() -> None:
+    """Вариант рядом с основным Dockerfile при любом суффиксе (ТЗ §15 п. 12 С8, отменяет
+    решение А6). Loki: cmd/loki/Dockerfile.cross давал объект «cross», n8n
+    docker/images/runners/Dockerfile.distroless объект «distroless», OpenTelemetry Demo
+    src/frontend/Dockerfile.cypress объект «cypress». Ловушки: в корне репозитория суффикс
+    называет отдельный образ (Dockerfile.llm-analytics PostHog, ok вердикта); общий
+    rust/Dockerfile нескольких сервисов PostHog не делает rust/Dockerfile.sqlx-migrate
+    вариантом одного из них (ok вердикта); форма с дефисом (Dockerfile-fpm Monica) правилом
+    не задета; Dockerfile.playwright без основного по-прежнему подсказка (А6)."""
+    model = model_of(FIXTURES / "dockerfile-variants")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "web": ("", "Python"), "llm-analytics": (None, "Python"), "loki": ("cmd/loki", "Go"),
+        "capture": ("rust", "Rust"), "cymbal": ("rust", "Rust"), "sqlx-migrate": (None, "Rust"),
+        "worker": ("worker", "PHP"), "fpm": (None, "PHP"),
+    }
+    hints = _dockerfile_hints(model)
+    assert hints["merged"] == [
+        ("cmd/loki/Dockerfile.cross", "loki", texts.REASON_DOCKERFILE_SIBLING),
+    ]
+    assert [name for name, _, _ in hints["profiles"]] == ["qa/Dockerfile.playwright"]
+
+
+def test_dockerfile_in_container_subdir_and_mobile() -> None:
+    """Dockerfile в подкаталоге каталога кода контейнера без своего сервиса — вариант этого
+    контейнера; мобильное приложение контейнером не считается (ТЗ §15 п. 12 С8).
+    OpenTelemetry Demo: src/checkout/genproto/Dockerfile (и в currency, frontend) давал объект
+    «genproto», src/react-native-app/android.Dockerfile объект «android»; Keycloak
+    operator/scripts/Dockerfile-custom-image на ступени 2 давал объект «custom-image».
+    Ловушки: подкаталог со своим манифестом сборки (src/checkout/plugin/go.mod) — свой
+    контейнер; Dockerfile в разных каталогах остаются разными контейнерами."""
+    model = model_of(FIXTURES / "dockerfile-subdirs")
+    assert {o.name: (o.code_dir, o.technology) for o in model.objects} == {
+        "checkout": ("src/checkout", "Go"), "plugin": ("src/checkout/plugin", "Go"),
+        "frontend": ("src/frontend", "Node.js + Next.js"), "operator": ("operator", "Java"),
+    }
+    hints = _dockerfile_hints(model)
+    assert sorted(hints["merged"]) == [
+        ("operator/scripts/Dockerfile-custom-image", "operator", texts.REASON_DOCKERFILE_SUBDIR),
+        ("src/checkout/genproto/Dockerfile", "checkout", texts.REASON_DOCKERFILE_SUBDIR),
+        ("src/frontend/Dockerfile.cypress", "frontend", texts.REASON_DOCKERFILE_SIBLING),
+    ]
+    assert hints["unassigned"] == [
+        ("src/react-native-app/android.Dockerfile", None, texts.REASON_MOBILE_APP),
+    ]
+    assert walk.mobile_dir("src/react-native-app/Gemfile") == "src/react-native-app/"
+    assert walk.mobile_dir("apps/ios/Dockerfile") == "apps/ios/"
+    assert walk.mobile_dir("cmd/bios/Dockerfile") is None

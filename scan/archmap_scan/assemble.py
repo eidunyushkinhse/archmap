@@ -34,7 +34,7 @@ from archmap_scan.objects import (
     Schedule,
     Worker,
 )
-from archmap_scan.walk import Pattern, dev_sign, manifest_sign, service_sign
+from archmap_scan.walk import Pattern, dev_sign, manifest_sign, mobile_dir, service_sign
 
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
@@ -304,7 +304,13 @@ def _dockerfile_units(
     образов сервисов compose (_shared_builds) уходит в hints.unassigned, а Dockerfile,
     который копирует весь контекст («COPY . ./»), берёт каталог кода у ближайшего предка с
     манифестом сборки (scripts/docker/Dockerfile Monica — корень с composer.json) и имя по
-    этому каталогу."""
+    этому каталогу.
+
+    Варианты и подкаталоги (ТЗ §15 п. 12 С8): Dockerfile.<суффикс> и <префикс>.Dockerfile
+    рядом с основным Dockerfile одного контейнера (не в корне репозитория) — вариант при
+    любом суффиксе; Dockerfile в подкаталоге каталога кода одного контейнера без своего
+    манифеста сборки — тоже его вариант; Dockerfile мобильного приложения
+    (walk.mobile_dir) уходит в hints.unassigned."""
     root_name = root_names[-1]
     package_dirs = {p.dir for p in findings.packages}
     shared = _shared_builds(units, _named_dirs(findings, scope))
@@ -324,6 +330,7 @@ def _dockerfile_units(
             owner_of.setdefault(paths.join(u.build_dir, "Dockerfile") or "", []).append(u.name)
     by_path = {d.path: d for d in findings.dockerfiles}
     out: list[Unit] = []
+    own: list[Unit] = []
     later: list[Dockerfile] = []
     for d in sorted(findings.dockerfiles, key=lambda x: x.path):
         if d.path in used:
@@ -335,7 +342,22 @@ def _dockerfile_units(
         # .devcontainer/Dockerfile n8n давал каталог кода боевому объекту n8n).
         devcontainer = any(seg.lower() == _DEVCONTAINER for seg in d.path.split("/")[:-1])
         prod_refs = [] if devcontainer else [b.unit for b in dev_refs if b.unit in names]
-        if variant is not None and variant.lower() in _DEV_VARIANTS and not dev_refs:
+        mobile = mobile_dir(d.path)
+        if mobile is not None and not prod_refs:
+            # Мобильное приложение контейнером не считается (ТЗ §15 п. 12 С8).
+            model.hint("unassigned", {
+                "kind": "dockerfile", "name": d.path, "reason": texts.REASON_MOBILE_APP,
+                "source": str(d.from_loc),
+            })
+            continue
+        # Вариант с точкой (Dockerfile.cross, android.Dockerfile) рядом с основным
+        # Dockerfile в каталоге контейнера — тот же контейнер при любом суффиксе (ТЗ §15
+        # п. 12 С8). В корне репозитория суффикс по-прежнему называет отдельный образ
+        # (Dockerfile.llm-analytics и Dockerfile.dagster-ml PostHog, ok вердикта).
+        sibling = variant is not None and d.dir != scope and _dot_variant(d.path) and (
+            (paths.join(d.dir, "Dockerfile") or "Dockerfile") in by_path
+        )
+        if variant is not None and not dev_refs and (variant.lower() in _DEV_VARIANTS or sibling):
             later.append(d)
             continue
         sign = dev_sign(d.path) or next(
@@ -404,32 +426,104 @@ def _dockerfile_units(
                 continue
         if variant is None and d.dir in claimed:
             continue
-        name = _own_name(d, variant, root_name)
         # Dockerfile с суффиксом (Dockerfile-postgresql, worker.Dockerfile) каталогом кода
         # не владеет (ТЗ §5.1): вид и технология только по FROM, стек и repo/path каталога
         # ему не достаются.
-        out.append(Unit(
-            name=name, parser="dockerfile", loc=d.from_loc,
+        own.append(Unit(
+            name=_own_name(d, variant, root_name), parser="dockerfile", loc=d.from_loc,
             build_dir=None if variant else d.dir,
             dockerfile=d.path, command=d.command, command_loc=d.command_loc,
             shape=shape, dev=service,
         ))
-        owner_of.setdefault(d.path, []).append(name)
+    # Каталоги кода контейнеров (не корень): Dockerfile без своего сервиса в подкаталоге
+    # каталога кода одного контейнера — его вариант (ТЗ §15 п. 12 С8: genproto/ у сервисов
+    # OpenTelemetry Demo, operator/scripts/ Keycloak). Ближайшие к корню решаются первыми.
+    # Кандидат разработки на ступени 1 объектом не станет и каталогом не владеет.
+    homes: dict[str, list[str]] = {}
+    for u in [*units, *out]:
+        if u.build_dir is None or u.build_dir == scope or (u.dev is not None and not stage2):
+            continue
+        if u.name not in homes.get(u.build_dir, []):
+            homes.setdefault(u.build_dir, []).append(u.name)
+
+    def place(u: Unit, d: Dockerfile) -> None:
+        owner = _home_owner(d.dir, homes, scope)
+        # Свой манифест сборки в каталоге Dockerfile — свой код, не вариант.
+        if owner is not None and d.dir not in package_dirs:
+            model.hint("merged", {
+                "kind": "dockerfile", "name": d.path, "object": owner,
+                "reason": texts.REASON_DOCKERFILE_SUBDIR, "source": [str(d.from_loc)],
+            })
+            return
+        out.append(u)
+        owner_of.setdefault(d.path, []).append(u.name)
+        if u.build_dir is not None and u.build_dir != scope:
+            homes.setdefault(u.build_dir, []).append(u.name)
+
+    for u in sorted(own, key=lambda x: (x.loc.path.count("/"), x.loc.path)):
+        place(u, by_path[u.dockerfile or ""])
     for d in later:
         main = paths.join(d.dir, "Dockerfile") or "Dockerfile"
-        owners_of_main = owner_of.get(main, []) if main in by_path else []
+        owners_of_main = list(dict.fromkeys(owner_of.get(main, []))) if main in by_path else []
+        variant = _variant(d.path) or ""
+        # Основной Dockerfile общий у нескольких сервисов (rust/Dockerfile PostHog собирает
+        # capture, cymbal и другие): суффикс не для разработки называет отдельный образ
+        # (rust/Dockerfile.sqlx-migrate, ok вердикта), вариантом одного контейнера он не стал.
+        if len(owners_of_main) > 1 and variant.lower() not in _DEV_VARIANTS:
+            owners_of_main = []
         if owners_of_main:
             model.hint("merged", {
                 "kind": "dockerfile", "name": d.path, "object": owners_of_main[0],
-                "reason": texts.REASON_DOCKERFILE_VARIANT, "source": [str(d.from_loc)],
+                "reason": texts.REASON_DOCKERFILE_VARIANT if variant.lower() in _DEV_VARIANTS
+                else texts.REASON_DOCKERFILE_SIBLING,
+                "source": [str(d.from_loc)],
             })
-        else:
+        elif variant.lower() in _DEV_VARIANTS:
             sign = dev_sign(d.path) or texts.dev_sign_file(paths.name(d.path))
             model.hint("profiles", {
                 "kind": "dockerfile", "name": d.path, "reason": texts.dev_manifest(sign),
                 "source": str(d.from_loc), "profiles": [],
             })
+        else:
+            # У основного Dockerfile нет контейнера: вариант с другим суффиксом идёт по
+            # прежним правилам (признак разработки или служебной сборки, иначе свой объект).
+            sign = dev_sign(d.path) or (None if stage2 else service_sign(d.path))
+            if sign is not None:
+                model.hint("profiles", {
+                    "kind": "dockerfile", "name": d.path, "reason": texts.dev_manifest(sign),
+                    "source": str(d.from_loc), "profiles": [],
+                })
+                continue
+            kind = vocab.image_kind(d.images[-1])
+            place(Unit(
+                name=variant, parser="dockerfile", loc=d.from_loc, dockerfile=d.path,
+                command=d.command, command_loc=d.command_loc,
+                shape=kind.shape if kind and kind.shape != SERVICE else None,
+                dev=service_sign(d.path),
+            ), d)
     return out
+
+
+def _dot_variant(rel: str) -> bool:
+    """Вариант Dockerfile с точкой: Dockerfile.<суффикс> или <префикс>.Dockerfile. Форма с
+    дефисом (Dockerfile-fpm Monica) правилом варианта рядом с основным не считается."""
+    low = paths.name(rel).lower()
+    return low.startswith("dockerfile.") or low.endswith(".dockerfile")
+
+
+def _home_owner(folder: str, homes: dict[str, list[str]], scope: str) -> str | None:
+    """Контейнер ближайшего каталога кода, строго содержащего folder (предок, не корень):
+    имя, если владелец один, иначе None (каталог у нескольких контейнеров). Свой каталог не
+    в счёт: Dockerfile-fpm рядом с основным Dockerfile остаётся своим объектом."""
+    current = folder
+    while current and current != scope:
+        current = paths.parent(current)
+        if not current or current == scope:
+            return None
+        names = homes.get(current)
+        if names is not None:
+            return names[0] if len(names) == 1 else None
+    return None
 
 
 def _procfile_web(units: list[Unit]) -> None:
@@ -713,7 +807,8 @@ def _free_packages(
     """Манифесты сборки в подкаталогах корня, не занятых каталогом кода другого объекта:
     у контейнера с каталогом кода, равным корню, из них берётся язык, когда манифест корня
     служебный (ТЗ §15 п. 12 С7а). Манифесты служебной сборки и разработки (manifest_sign:
-    утилиты Go internal/tools/ otel-demo) не считаются. Контейнер, чей Dockerfile объявлен
+    утилиты Go internal/tools/ otel-demo) и мобильного приложения (walk.mobile_dir, С8) не
+    считаются. Контейнер, чей Dockerfile объявлен
     в подкаталоге, собирается из корня только ради контекста (telemetry-docs otel-demo:
     src/telemetry-docs/Dockerfile), его код не в корне: у него, как и у остальных
     контейнеров, пусто."""
@@ -726,6 +821,7 @@ def _free_packages(
         (
             p for p in packages
             if p.dir != scope and paths.under(p.dir, scope) and manifest_sign(p.path) is None
+            and mobile_dir(p.path) is None
             and not any(paths.under(p.dir, folder) for folder in taken)
         ),
         key=lambda p: p.path,

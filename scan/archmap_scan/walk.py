@@ -135,6 +135,24 @@ def service_sign(rel: str) -> str | None:
     return None
 
 
+# Мобильное приложение (ТЗ §15 п. 12 С8): каталог react-native, android, ios, mobile или
+# flutter в пути (сегмент целиком или его часть через дефис, точку или подчёркивание) — код
+# приложения для телефона, а не контейнер: android.Dockerfile OpenTelemetry Demo в
+# src/react-native-app/ собирает APK, Gemfile там же ставит fastlane.
+MOBILE_TOKENS = frozenset({"android", "ios", "mobile", "flutter"})
+_REACT_NATIVE = "react-native"
+
+
+def mobile_dir(rel: str) -> str | None:
+    """Каталог мобильного приложения в пути rel (с «/» на конце) или None."""
+    segments = rel.split("/")
+    for i, seg in enumerate(segments[:-1]):
+        low = seg.lower()
+        if _REACT_NATIVE in low or name_tokens(low) & MOBILE_TOKENS:
+            return "/".join(segments[: i + 1]) + "/"
+    return None
+
+
 def manifest_sign(rel: str) -> str | None:
     """Признак манифеста не для выкладки: разработка по месту и форме (dev_sign), иначе
     служебная сборка (service_sign)."""

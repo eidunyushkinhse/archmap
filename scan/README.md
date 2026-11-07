@@ -196,3 +196,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     (`assemble._free_packages`); `coverage.stacks` перечисляет только языки, фреймворки и
     виды из словаря (`vocab.is_stack`); язык контейнера, код на котором не читается, даёт
     `unsupported` вместо `unknown` (С7);
+  - `Dockerfile.<суффикс>` и `<префикс>.Dockerfile` рядом с основным Dockerfile одного
+    контейнера (не в корне репозитория) — вариант при любом суффиксе, Dockerfile в
+    подкаталоге каталога кода контейнера без своего манифеста сборки — тоже вариант
+    (`hints.merged`); Dockerfile мобильного приложения (`walk.mobile_dir`: `react-native`,
+    `android`, `ios`, `mobile`, `flutter`) уходит в `hints.unassigned` (С8);
