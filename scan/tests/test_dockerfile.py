@@ -81,3 +81,20 @@ def test_language_by_last_stage() -> None:
     model = model_of(FIXTURES / "dockerfile-stages")
     kinds = {o.name: o.technology for o in model.objects}
     assert kinds == {"fpm": "PHP", "web": "Node.js", "gosvc": "Go", "edge": "Go"}
+
+
+def test_copies_whole_context() -> None:
+    """«COPY . ./» и «ADD . /src» копируют весь контекст сборки (ТЗ §15 п. 12 С5б:
+    scripts/docker/Dockerfile Monica): код образа — каталог контекста. Ловушки: копия из
+    стадии (--from), копия одного файла и подкаталога весь контекст не копируют."""
+    def ctx(body: str) -> bool:
+        info = dockerfile.parse_text("D", "FROM php:8.3\n" + body)
+        assert info is not None
+        return info.copies_context
+
+    assert ctx("COPY --chown=www-data:www-data . ./\n")
+    assert ctx('ADD [".", "/src"]\n')
+    assert ctx("COPY ./ /app\n")
+    assert not ctx("COPY --from=yarn . ./public\n")
+    assert not ctx("COPY composer.json ./\nCOPY src/ ./src\n")
+    assert not ctx("COPY .\n")

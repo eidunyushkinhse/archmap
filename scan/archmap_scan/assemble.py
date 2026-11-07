@@ -164,15 +164,132 @@ def _own_name(d: Dockerfile, variant: str | None, root_name: str) -> str:
     ближайший каталог с именем не из _GENERIC_DIRS, иначе имя корня."""
     if variant:
         return variant
-    for seg in reversed(d.dir.split("/") if d.dir else []):
+    return _dir_name(d.dir, root_name)
+
+
+def _dir_name(folder: str, root_name: str) -> str:
+    """Имя каталога кода: ближайший сегмент не из _GENERIC_DIRS, иначе имя корня."""
+    for seg in reversed(folder.split("/") if folder else []):
         if seg.lower() not in _GENERIC_DIRS:
             return seg
     return root_name
 
 
+# Каталог кода по имени сервиса или образа (ТЗ §15 п. 12 С5а): Petclinic описывает сервисы
+# compose только образами springcommunity/spring-petclinic-*, а код лежит в одноимённых
+# каталогах корня; OpenTelemetry Demo собирает все сервисы из корня (context: ./), а код
+# лежит в src/<сервис>/. Каталог с именем ищется в корне и в каталогах монорепо верхнего
+# уровня; хвост из _GENERIC_DIRS имя не задаёт (src/cart/src — каталог «cart»). Каталогом
+# кода служит каталог с манифестом сборки или с Dockerfile самого объекта (src/currency/
+# с Dockerfile на C++): чужой Dockerfile в каталоге с тем же именем образу ничего не даёт.
+_CODE_PARENTS = frozenset({"", "src", "services", "apps", "packages", "cmd", "modules"})
+_NAMED_PARSERS = frozenset({"compose", "k8s", "helm"})
+
+
+# (глубина каталога с именем, нет манифеста сборки, глубина каталога кода, каталог кода,
+# каталог с именем): меньший ключ ближе к корню и с манифестом.
+_NamedDir = tuple[int, int, int, str, str]
+
+
+def _named_entry(folder: str, scope: str, package: bool) -> tuple[str, _NamedDir] | None:
+    """Имя каталога кода folder (без регистра и знаков, _flat) и запись индекса или None:
+    корень, каталог глубже каталогов монорепо верхнего уровня."""
+    prefix = scope + "/" if scope else ""
+    if not folder.startswith(prefix) or folder == scope:
+        return None
+    segments = folder[len(prefix):].split("/")
+    k = len(segments)
+    while k > 0 and segments[k - 1].lower() in _GENERIC_DIRS:
+        k -= 1
+    if k == 0 or "/".join(segments[: k - 1]).lower() not in _CODE_PARENTS:
+        return None
+    named = prefix + "/".join(segments[:k])
+    return _flat(segments[k - 1]), (k, 0 if package else 1, len(segments), folder, named)
+
+
+def _named_dirs(findings: Findings, scope: str) -> dict[str, list[_NamedDir]]:
+    """Каталоги с манифестом сборки по имени."""
+    out: dict[str, list[_NamedDir]] = {}
+    for folder in sorted({p.dir for p in findings.packages}):
+        entry = _named_entry(folder, scope, True)
+        if entry is not None:
+            out.setdefault(entry[0], []).append(entry[1])
+    return out
+
+
+def _named_dir(
+    names: list[str], index: dict[str, list[_NamedDir]], own: list[str] | None = None,
+    scope: str = "",
+) -> str | None:
+    """Каталог кода по первому имени, у которого он есть: ближайший к корню каталог с этим
+    именем (web/ раньше src/web/), в нём каталог с манифестом сборки раньше каталога только
+    с Dockerfile объекта (own). Два разных каталога с именем на одной глубине —
+    неоднозначно, None."""
+    extra: dict[str, list[_NamedDir]] = {}
+    for folder in own or []:
+        entry = _named_entry(folder, scope, False)
+        if entry is not None:
+            extra.setdefault(entry[0], []).append(entry[1])
+    for name in names:
+        found = sorted([*index.get(_flat(name), []), *extra.get(_flat(name), [])])
+        if not found:
+            continue
+        top = {item[4] for item in found if item[0] == found[0][0]}
+        return found[0][3] if len(top) == 1 else None
+    return None
+
+
+def _named_candidate(obj: Obj) -> list[str]:
+    """Имена для поиска каталога кода объекта (С5а): имя сервиса и последний сегмент образа.
+    Только объекты манифестов развёртывания (compose, k8s, Helm), не базы и брокеры по
+    образу и не варианты Dockerfile (они каталогом кода не владеют, ТЗ §5.1)."""
+    if not any(u.parser in _NAMED_PARSERS for u in obj.units):
+        return []
+    if any(u.parser == "dockerfile" and u.build_dir is None for u in obj.units):
+        return []
+    images = [u.image for u in obj.units if u.image]
+    if any(vocab.image_kind(image) is not None for image in images):
+        return []
+    return [obj.name, *(vocab.image_name(image) for image in images)]
+
+
+def _image_org(image: str) -> str:
+    """Реестр и организация образа без имени, тега и дайджеста: springcommunity/x:1 →
+    springcommunity."""
+    return image.strip().split("@", 1)[0].rpartition("/")[0].lower()
+
+
+def _shared_builds(
+    units: list[Unit], named: dict[str, list[_NamedDir]],
+) -> dict[str, list[str]]:
+    """Сервисы compose только с образом, чей код в каталоге репозитория (С5а): организация
+    образа → имена сервисов, если сервисов таких хотя бы два. Общий Dockerfile без своего
+    сервиса собирает их образы (docker/Dockerfile Petclinic с ARG ARTIFACT_NAME)."""
+    by_org: dict[str, list[str]] = {}
+    for u in units:
+        if u.parser != "compose" or not u.image or u.build_dir is not None or u.dockerfile:
+            continue
+        org = _image_org(u.image)
+        if org and _named_dir([u.name, vocab.image_name(u.image)], named) is not None:
+            by_org.setdefault(org, []).append(u.name)
+    return {org: sorted(set(names)) for org, names in by_org.items() if len(set(names)) >= 2}
+
+
+def _package_home(folder: str, packages: set[str], scope: str) -> str | None:
+    """Ближайший предок каталога folder (в области обхода) с манифестом сборки."""
+    current = folder
+    for _ in range(64):
+        if current == scope or not paths.under(current, scope):
+            break
+        current = paths.parent(current)
+        if current in packages:
+            return current
+    return None
+
+
 def _dockerfile_units(
     units: list[Unit], findings: Findings, root_names: list[str], model: Model,
-    stage2: bool = False,
+    stage2: bool = False, scope: str = "",
 ) -> list[Unit]:
     """Dockerfile, на который не ссылается ни один манифест, сам задаёт контейнер; если его
     образ (skaffold, имя образа сервиса, сборка в файле для разработки) работает в сервисе
@@ -180,8 +297,16 @@ def _dockerfile_units(
     Dockerfile — тот же контейнер (hints.merged). Dockerfile служебной сборки
     (walk.service_sign, ТЗ §15 п. 12 С3), образ которого не запускает ни один сервис, идёт
     по политике разработки: на ступени 1 в hints.profiles, на ступени 2 (stage2, боевых
-    манифестов нет) объектом с признаком (Unit.dev), пометку ставит _dev_objects."""
+    манифестов нет) объектом с признаком (Unit.dev), пометку ставит _dev_objects.
+
+    Dockerfile без своего манифеста сборки рядом (ТЗ §15 п. 12 С5б): общий Dockerfile сборки
+    образов сервисов compose (_shared_builds) уходит в hints.unassigned, а Dockerfile,
+    который копирует весь контекст («COPY . ./»), берёт каталог кода у ближайшего предка с
+    манифестом сборки (scripts/docker/Dockerfile Monica — корень с composer.json) и имя по
+    этому каталогу."""
     root_name = root_names[-1]
+    package_dirs = {p.dir for p in findings.packages}
+    shared = _shared_builds(units, _named_dirs(findings, scope))
     used = {u.dockerfile for u in units if u.dockerfile}
     claimed = {u.build_dir for u in units if u.build_dir is not None}
     # Сборка в файле разработки привязывает Dockerfile к сервису боевого манифеста любого
@@ -251,6 +376,27 @@ def _dockerfile_units(
                 "source": str(d.from_loc), "profiles": [],
             })
             continue
+        # Служебный каталог: имени не даёт (docker/, build/) или служебная сборка (scripts/).
+        unnamed = _own_name(d, None, root_name) == root_name
+        if variant is None and d.dir not in package_dirs and (unnamed or service is not None):
+            if shared and unnamed:
+                model.hint("unassigned", {
+                    "kind": "dockerfile", "name": d.path, "reason": texts.REASON_SHARED_DOCKERFILE,
+                    "source": str(d.from_loc),
+                    "containers": sorted({n for names in shared.values() for n in names}),
+                })
+                continue
+            home = _package_home(d.dir, package_dirs, scope) if d.copies_context else None
+            if home is not None and home not in claimed:
+                name = _dir_name(home[len(scope):].lstrip("/"), root_name)
+                out.append(Unit(
+                    name=name, parser="dockerfile", loc=d.from_loc, build_dir=home,
+                    dockerfile=d.path, command=d.command, command_loc=d.command_loc,
+                    shape=shape, dev=service,
+                ))
+                owner_of.setdefault(d.path, []).append(name)
+                claimed.add(home)
+                continue
         if variant is None and d.dir in claimed:
             continue
         name = _own_name(d, variant, root_name)
@@ -480,7 +626,7 @@ def _objects(
     root_names = [ctx.root.name, model.system.rsplit("/", 1)[-1], model.system]
     units = _dev_units(units, findings, model, root_names)
     stage2 = not any(u.parser in _MANIFEST_PARSERS and u.dev is None for u in units)
-    units = units + _dockerfile_units(units, findings, root_names, model, stage2)
+    units = units + _dockerfile_units(units, findings, root_names, model, stage2, ctx.scope)
     _procfile_web(units)
     by_name: dict[str, Obj] = {}
     for u in sorted(units, key=lambda x: (PRIORITY.get(x.parser, 99), x.loc)):
@@ -499,12 +645,24 @@ def _objects(
         obj.env.extend(u.env)
     by_path = {d.path: d for d in findings.dockerfiles}
     spaces = _workspace_dirs(findings, ctx)
+    named = _named_dirs(findings, ctx.scope)
     go_binaries = frozenset(
         _go_module_name(p.name) for p in findings.packages if p.kind == "go.mod" and p.name
     )
     for obj in by_name.values():
         if obj.code_dir is None:
             obj.code_dir = _workspace_dir(obj, spaces)
+        if obj.code_dir in (None, ctx.scope):
+            # Корневой контекст сборки каталогом кода не считается, если есть каталог с
+            # именем сервиса или образа (ТЗ §15 п. 12 С5а).
+            own = [
+                folder for u in obj.units
+                for folder in (u.build_dir, paths.parent(u.dockerfile) if u.dockerfile else None)
+                if folder
+            ]
+            obj.code_dir = _named_dir(
+                _named_candidate(obj), named, own, ctx.scope,
+            ) or obj.code_dir
         _attach_dockerfile(obj, by_path)
         _process_stack(obj, findings.packages, ctx, go_binaries)
         _classify(obj, findings.packages)

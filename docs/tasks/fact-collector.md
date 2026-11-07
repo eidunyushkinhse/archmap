@@ -783,3 +783,24 @@ unread: {too_large: 3, binary: 0}
      итоговая стадия, а без языка у неё (`scratch`, `alpine`, distroless) ближайшая предыдущая
      с языком. Манифесты сборки каталога кода по-прежнему старше образа. В дыме правка видна на
      fpm Monica после С6 (сейчас Dockerfile в `scripts/` подсказка ступени 1).
+   - С5: (а) у объекта compose, k8s или Helm без каталога кода или с корневым (не базы и не
+     брокера по образу, не варианта Dockerfile) каталог кода ищется по имени сервиса, затем по
+     последнему сегменту образа (`assemble._named_dir`): каталог с этим именем в корне или в
+     `src/`, `services/`, `apps/`, `packages/`, `cmd/`, `modules/`, хвост из `src`, `app`,
+     `docker`, `build` имени не задаёт (`src/cart/src` это «cart»). Каталогом кода служит
+     каталог с манифестом сборки или с Dockerfile самого объекта (С++ `src/currency/`); чужой
+     Dockerfile в каталоге с таким именем не в счёт, иначе образ grafana/loki трёх сервисов
+     Loki забрал бы `cmd/loki`. Ближайший к корню выигрывает, два разных каталога на одной
+     глубине неоднозначны. Решение исполнителя: Gradle с плагином Kotlin (`kotlin("jvm")`,
+     `org.jetbrains.kotlin`) даёт язык Kotlin (цель приёмки «Kotlin у fraud-detection»);
+     recommendation в клоне на Java (build.gradle), поэтому Java + Spring Boot, а не Python.
+     (б) Dockerfile без манифеста сборки в своём каталоге, чей каталог имени не даёт (`docker/`)
+     или это служебная сборка, при «COPY .» или «ADD .» берёт каталог кода у ближайшего
+     предка с манифестом (`Dockerfile.copies_context`, `assemble._package_home`) и имя по нему
+     (корень даёт имя системы: Monica вместо «scripts»); такой Dockerfile без имени при двух и
+     более сервисах compose с образами одной организации, код которых найден по (а),
+     уходит в `hints.unassigned` с причиной «общий Dockerfile сборки» (docker/Dockerfile
+     Petclinic больше не объект «petclinic-ms»). Предок, который уже каталог сборки другого
+     сервиса, правило не трогает: Dockerfile разбирается как раньше. Попутно поправлены две
+     технологии PostHog из вердикта wrong-kind (ml-mirror-image-scrub и recording-rasterizer:
+     Node.js вместо Rust, это С4).

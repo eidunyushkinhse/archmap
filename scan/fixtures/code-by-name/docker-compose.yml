@@ -1,0 +1,22 @@
+services:
+  admin-server:
+    image: springcommunity/spring-petclinic-admin-server
+  vets:
+    image: springcommunity/spring-petclinic-vets-service
+  tracing-server:
+    image: openzipkin/zipkin
+  cart:
+    build:
+      context: ./
+      dockerfile: ${CART_DOCKERFILE}
+  fraud:
+    build:
+      context: ./
+      dockerfile: ${FRAUD_DOCKERFILE}
+  web:
+    build: .
+  worker:
+    build: .
+    command: node worker.js
+  db:
+    image: mysql:8

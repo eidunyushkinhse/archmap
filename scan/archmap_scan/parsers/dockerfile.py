@@ -67,16 +67,40 @@ def _exec_form(value: str) -> str:
     return value
 
 
+_CONTEXT = frozenset({".", "./"})
+
+
+def _copies_context(rest: str) -> bool:
+    """COPY или ADD всего контекста сборки: источник «.» или «./» (форма оболочки и JSON),
+    но не из другой стадии или образа (--from)."""
+    value = rest.strip()
+    if value.startswith("["):
+        try:
+            items = json.loads(value)
+        except ValueError:
+            return False
+        args = [str(i) for i in items] if isinstance(items, list) else []
+    else:
+        args = value.split()
+    if any(a.startswith("--from") for a in args):
+        return False
+    args = [a for a in args if not a.startswith("--")]
+    return len(args) >= 2 and any(a in _CONTEXT for a in args[:-1])
+
+
 def parse_text(rel: str, text: str) -> Dockerfile | None:
     images: list[str] = []
     stages: dict[str, str] = {}
     from_line = 0
     cmd: tuple[int, str] | None = None
     entry: tuple[int, str] | None = None
+    context = False
     for no, line in _logical_lines(text):
         word, _, rest = line.partition(" ")
         op = word.upper()
-        if op == "FROM":
+        if op in ("COPY", "ADD"):
+            context = context or _copies_context(rest)
+        elif op == "FROM":
             args = [a for a in rest.split() if not a.startswith("--")]
             if not args:
                 continue
@@ -106,6 +130,7 @@ def parse_text(rel: str, text: str) -> Dockerfile | None:
         from_loc=Loc(rel, from_line),
         command=command,
         command_loc=Loc(rel, command_line) if command else None,
+        copies_context=context,
     )
 
 

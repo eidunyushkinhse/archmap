@@ -460,11 +460,46 @@ def test_service_build_dirs_and_doc_segments() -> None:
 def test_service_build_dockerfile_on_stage_two() -> None:
     """Ступень 2 (ТЗ §15 п. 10 Б3): боевых манифестов нет, и Dockerfile служебной сборки
     становится объектом с пометкой «из манифеста разработки», а не пропадает (ловушка ТЗ
-    §15 п. 12 С3: scripts/docker/Dockerfile Monica, когда Sail уходит в разработку)."""
+    §15 п. 12 С3: scripts/docker/Dockerfile Monica, когда Sail уходит в разработку). Он
+    копирует весь контекст, поэтому каталог кода и имя у него от корня с composer.json (С5б):
+    «Ярмарка» с технологией PHP + Laravel, а не «scripts»."""
     model = model_of(FIXTURES / "service-build-solo")
-    assert [o.name for o in model.objects] == ["scripts"]
+    assert [(o.name, o.code_dir, o.technology) for o in model.objects] == [
+        ("Ярмарка", "", "PHP + Laravel"),
+    ]
     assert model.hints["dev_manifest_objects"] == [{
-        "kind": "container", "name": "scripts",
+        "kind": "container", "name": "Ярмарка",
         "reason": texts.dev_manifest(texts.service_build("scripts")),
         "source": "scripts/docker/Dockerfile:1",
+    }]
+
+
+def test_code_dir_by_service_or_image_name() -> None:
+    """Каталог кода по имени сервиса или образа (ТЗ §15 п. 12 С5а). Petclinic
+    (docker-compose.yml) описывает сервисы только образами springcommunity/spring-petclinic-*,
+    а код лежит в одноимённых каталогах с pom.xml: технологией было имя образа.
+    OpenTelemetry Demo (compose.yaml) собирает сервисы из корня (context: ./) с Dockerfile из
+    переменной, а код лежит в src/<сервис>/: все получили Node.js корневого package.json.
+    Ловушки: сервис web при web/ и src/web/ берёт ближайший к корню; worker без совпадений
+    с корневым контекстом остаётся в корне; tracing-server на образе openzipkin/zipkin
+    каталога не получает. (С5б) docker/Dockerfile Petclinic с ARG ARTIFACT_NAME собирает
+    образы всех сервисов и объектом «Ярмарка» не становится: подсказка «общий Dockerfile
+    сборки»."""
+    model = model_of(FIXTURES / "code-by-name")
+    kinds = {o.name: (o.code_dir, o.technology) for o in model.objects}
+    assert kinds == {
+        "admin-server": ("spring-petclinic-admin-server", "Java + Spring Boot"),
+        "vets": ("spring-petclinic-vets-service", "Java + Spring Boot"),
+        "tracing-server": (None, "zipkin"),
+        "cart": ("src/cart/src", ".NET"),
+        "fraud": ("src/fraud", "Kotlin"),
+        "web": ("web", "Node.js + React"),
+        "worker": ("", "Node.js + Express"),
+        "db": (None, "MySQL"),
+    }
+    shared = [h for h in model.hints["unassigned"] if h["kind"] == "dockerfile"]
+    assert shared == [{
+        "kind": "dockerfile", "name": "docker/Dockerfile",
+        "reason": texts.REASON_SHARED_DOCKERFILE, "source": "docker/Dockerfile:1",
+        "containers": ["admin-server", "vets"],
     }]

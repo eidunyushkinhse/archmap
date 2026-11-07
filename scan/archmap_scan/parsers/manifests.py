@@ -32,6 +32,9 @@ _MIX_APP = re.compile(r"app:\s*:([A-Za-z0-9_]+)")
 _MIX_DEP = re.compile(r"\{:([A-Za-z0-9_]+)\s*,")
 _GRADLE_COORD = re.compile(r"""["']([\w.-]+):([\w.-]+)(?::[^"'\s]*)?["']""")
 _GRADLE_SPRING = re.compile(r"org\.springframework\.boot")
+# Плагин Kotlin в сборке Gradle: kotlin("jvm") в Kotlin DSL или org.jetbrains.kotlin (ТЗ §15
+# п. 12 С5: fraud-detection OpenTelemetry Demo на Kotlin получал Java).
+_GRADLE_KOTLIN = re.compile(r"\bkotlin\(\s*[\"']jvm[\"']\s*\)|org\.jetbrains\.kotlin")
 _PACKAGE_REF = re.compile(r"<PackageReference[ \t\r\n]+Include=\"([^\"\n]{1,200})\"")
 _WEB_SDK = re.compile(r"Sdk=\"Microsoft\.NET\.Sdk\.Web\"")
 
@@ -245,7 +248,8 @@ def _gradle(rel: str, text: str) -> Package:
     deps = [m.group(2).lower() for m in _GRADLE_COORD.finditer(text)]
     if _GRADLE_SPRING.search(text):
         deps.append("spring-boot")
-    return Package(path=rel, dir=paths.parent(rel), kind="build.gradle", language="Java",
+    language = "Kotlin" if _GRADLE_KOTLIN.search(text) else "Java"
+    return Package(path=rel, dir=paths.parent(rel), kind="build.gradle", language=language,
                    deps=tuple(dict.fromkeys(deps)))
 
 

@@ -74,6 +74,9 @@ class Dockerfile:
     from_loc: Loc
     command: str | None = None
     command_loc: Loc | None = None
+    # COPY или ADD всего контекста сборки («COPY . ./»): код образа — каталог контекста, а не
+    # каталог Dockerfile (ТЗ §15 п. 12 С5б).
+    copies_context: bool = False
 
 
 @dataclass
