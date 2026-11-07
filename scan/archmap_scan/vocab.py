@@ -103,6 +103,30 @@ def dev_tool(image: str) -> str | None:
     return None
 
 
+# Теги образа разработки (ТЗ §15 п. 13 Д1): тег целиком или последней частью через «-» или
+# «_» (development, 1.2-dev, main_test). Варианты образов Chainguard с оболочкой
+# (cgr.dev/chainguard/minio-client:latest-dev у Supabase) разработкой не считаются.
+DEV_IMAGE_TAGS = frozenset({"dev", "development", "test", "testing", "ci", "debug", "local"})
+_SHELL_VARIANTS = "cgr.dev/chainguard/"
+_TAG_PARTS = re.compile(r"[-_]")
+
+
+def dev_image_tag(image: str) -> str | None:
+    """Тег образа разработки или None: latest, версии, alpine и slim — не признак."""
+    ref = image.strip().split("@", 1)[0]
+    head, _, last = ref.rpartition("/")
+    _name, colon, tag = last.partition(":")
+    if not colon or not tag:
+        return None
+    tag = tag.lower()
+    word = _TAG_PARTS.split(tag)[-1]
+    if word not in DEV_IMAGE_TAGS:
+        return None
+    if word == "dev" and (head + "/").lower().startswith(_SHELL_VARIANTS):
+        return None
+    return tag
+
+
 # Команды разработки (ТЗ §15 п. 12 С6а): установка зависимостей, посев базы, сервер
 # разработки с перезагрузкой, запуск тестов, сборка в режиме слежения и контейнер-заглушка
 # для работы внутри (sleep infinity у devcontainer Forem). Пары «программа подкоманда» и

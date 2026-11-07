@@ -586,7 +586,10 @@ def _sail(services: LineDict, rel: str) -> str | None:
 def _service_dev(name: str, svc: LineDict, rel: str) -> str | None:
     """Признак разработки по форме сервиса (ТЗ §15 п. 12 С6): команда разработки (установка
     зависимостей, посев, сервер разработки, тесты, слежение, заглушка), раннер тестов по
-    имени сервиса или образ инструмента разработчика (vocab.DEV_TOOL_IMAGES)."""
+    имени сервиса, образ инструмента разработчика (vocab.DEV_TOOL_IMAGES) или тег образа
+    разработки (ТЗ §15 п. 13 Д1, vocab.dev_image_tag). Тег считается только у образа, который
+    берётся готовым: у сервиса с build образ — имя результата локальной сборки (Forem:
+    ghcr.io/forem/forem:1.0.0-development у web, rails и sidekiq боевого файла)."""
     for key in ("command", "entrypoint"):
         value = svc.get(key)
         text = " ".join(_scalar(v) for v in value) if isinstance(value, list) else value
@@ -599,6 +602,9 @@ def _service_dev(name: str, svc: LineDict, rel: str) -> str | None:
     tool = vocab.dev_tool(image) if isinstance(image, str) else None
     if tool is not None:
         return texts.dev_sign_tool(tool)
+    tag = vocab.dev_image_tag(expand(image)) if isinstance(image, str) else None
+    if tag is not None and "build" not in svc:
+        return texts.dev_sign_image_tag(tag)
     return None
 
 

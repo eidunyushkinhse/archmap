@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from archmap_scan import registry, stats, texts, walk
+from archmap_scan import registry, stats, texts, vocab, walk
 from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
 from archmap_scan.walk import Files
@@ -667,3 +667,27 @@ def test_dockerfile_in_container_subdir_and_mobile() -> None:
     assert walk.mobile_dir("src/react-native-app/Gemfile") == "src/react-native-app/"
     assert walk.mobile_dir("apps/ios/Dockerfile") == "apps/ios/"
     assert walk.mobile_dir("cmd/bios/Dockerfile") is None
+
+
+def test_dev_sign_by_image_tag() -> None:
+    """Тег образа разработки (ТЗ §15 п. 13 Д1): Forem container-compose.yml bundle на
+    quay.io/forem/forem:development. Тег целиком или последней частью через «-» и «_»
+    (main_test), у брокера тоже (rabbitmq:local). Ловушки: у сервиса с build тег образа —
+    имя локальной сборки (Forem docker-compose.yml: forem:1.0.0-development у web), версии,
+    latest, alpine и вариант Chainguard latest-dev (Supabase docker-compose.s3.yml
+    minio-client) не признак."""
+    model = model_of(FIXTURES / "dev-image-tags")
+    assert sorted(o.name for o in model.objects) == [
+        "api", "cache", "db", "mc", "proxy", "web",
+    ]
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    tag = texts.dev_sign_image_tag
+    assert dev == {
+        "bundle": texts.dev_manifest(tag("development")),
+        "checker": texts.dev_manifest(tag("main_test")),
+        "queue": texts.dev_manifest(tag("local")),
+    }
+    assert vocab.dev_image_tag("node:22-alpine") is None
+    assert vocab.dev_image_tag("python:3.12-slim") is None
+    assert vocab.dev_image_tag("registry:5000/app") is None
+    assert vocab.dev_image_tag("app:1.2-dev") == "1.2-dev"

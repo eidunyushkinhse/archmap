@@ -238,3 +238,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - блок `x-programs` compose (`compose._programs`): программа с `command` — процесс как строка
     Procfile (роль `vocab.role_by_program`, код в корне обхода), признак разработки файла,
     режимы devservices к программам не применяются, склейка с сервисом того же имени (В5);
+  - тег образа разработки (`vocab.dev_image_tag`: `dev`, `development`, `test`, `testing`, `ci`,
+    `debug`, `local` целиком или последней частью через `-` и `_`) у сервиса compose без
+    `build` — признак «манифест разработки: тег образа …»; варианты Chainguard `-dev` не
+    признак (Д1);

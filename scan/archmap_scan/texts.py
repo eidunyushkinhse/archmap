@@ -357,6 +357,11 @@ def dev_sign_tool(tool: str) -> str:
     return f"инструмент разработки {tool}"
 
 
+def dev_sign_image_tag(tag: str) -> str:
+    """Сервис compose на образе с тегом разработки (ТЗ §15 п. 13 Д1)."""
+    return f"тег образа {tag}"
+
+
 def dev_sign_sail(loc: str) -> str:
     """Файл compose Laravel Sail (ТЗ §15 п. 12 С6в)."""
     return f"Laravel Sail ({loc})"
