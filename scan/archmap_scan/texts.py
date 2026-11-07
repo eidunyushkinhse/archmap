@@ -304,6 +304,7 @@ EXCLUDE_REASON = {
     "convention": "по соглашению",
     "ci": "файлы CI и служебных инструментов",
     "dependencies": "каталог зависимостей",
+    "template": "шаблон",
     "archmapignore": "по .archmapignore",
     "option": "по ключу --exclude",
 }

@@ -751,3 +751,9 @@ unread: {too_large: 3, binary: 0}
      сравнивается целиком с учётом регистра, как у обхода без git. `dist`, `build`, `target` с
      git читаются (закоммиченный `build/` Kubernetes источник). Каталог CI проверяется раньше:
      `.github/vendor/` остаётся в причине `ci`.
+   - С2: шаблон Dockerfile (имя Dockerfile в любой из четырёх форм с расширением `j2`, `tpl`,
+     `template`, `in`, `jinja`, `jinja2`) не читается вовсе (`walk.template_rule`), в покрытии
+     причина `template`: `Dockerfile.j2` AWX объектом «j2» не становится, `.devcontainer/Dockerfile.in`
+     Envoy уходит из подсказок в исключённое. Шаблоны других манифестов (`*.conf.template`
+     supervisor) правило не трогает. Форма `<имя>.Dockerfile` и раньше разбиралась как
+     `Dockerfile.<имя>` (`assemble._variant`, `walk.dev_sign`), тест это закрепляет.

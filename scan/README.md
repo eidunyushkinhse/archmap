@@ -175,3 +175,5 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - каталоги зависимостей `walk.DEPENDENCY_DIRS` (`vendor`, `node_modules` и подобные) не
     читаются и с git, в покрытии причина `dependencies`; `dist`, `build`, `target` с git
     читаются (С1);
+  - шаблон Dockerfile (`Dockerfile.j2`, `*.tpl`, `*.template`, `Dockerfile.in`, `*.jinja*`) не
+    читается, в покрытии причина `template`; `<имя>.Dockerfile` равен `Dockerfile.<имя>` (С2);

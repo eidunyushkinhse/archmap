@@ -257,6 +257,25 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     return None
 
 
+# Шаблоны Dockerfile (ТЗ §15 п. 12 С2): Dockerfile.j2 роли Ansible AWX стал объектом «j2».
+# Файл с именем Dockerfile (Dockerfile.*, Dockerfile-*, *.Dockerfile, *-Dockerfile) и
+# расширением шаблонизатора не Dockerfile, а заготовка для него: не читается, в покрытии
+# причина «template».
+_TEMPLATE_EXTS = frozenset({"j2", "tpl", "template", "in", "jinja", "jinja2"})
+
+
+def template_rule(rel_in_scope: str) -> str | None:
+    """Шаблон Dockerfile по имени файла: путь для отчёта или None."""
+    base, dot, ext = rel_in_scope.rsplit("/", 1)[-1].lower().rpartition(".")
+    if not dot or ext not in _TEMPLATE_EXTS:
+        return None
+    if base == "dockerfile" or base.startswith(("dockerfile.", "dockerfile-")) or base.endswith(
+        (".dockerfile", "-dockerfile"),
+    ):
+        return rel_in_scope
+    return None
+
+
 def dependency_rule(rel_in_scope: str) -> str | None:
     """Каталог зависимостей из DEPENDENCY_DIRS в пути (сегмент целиком, с учётом регистра,
     как у обхода без git): путь каталога с «/» для отчёта или None."""
@@ -369,7 +388,7 @@ class Excluded:
 
     path: str
     files: int
-    reason: str  # convention | ci | dependencies | archmapignore | option
+    reason: str  # convention | ci | dependencies | template | archmapignore | option
 
 
 @dataclass(frozen=True)
@@ -460,6 +479,10 @@ def list_files(
             # Каталог и compose-файл отчитываются от корня, шаблон имени — как есть.
             shown, scoped = rule
             counts[(prefix + shown if scoped else shown, "convention")] += 1
+            continue
+        template = template_rule(rel[len(prefix):])
+        if template is not None:
+            counts[(prefix + template, "template")] += 1
             continue
         files.append(rel)
     excluded = tuple(
