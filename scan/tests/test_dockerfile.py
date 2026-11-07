@@ -70,3 +70,14 @@ def test_templates_and_name_forms() -> None:
     assert template_rule("a/app.Dockerfile.tpl") == "a/app.Dockerfile.tpl"
     assert template_rule("supervisor.conf.template") is None
     assert template_rule("Dockerfile-fpm") is None
+
+
+def test_language_by_last_stage() -> None:
+    """Язык по образу у последней стадии (ТЗ §15 п. 12 С4): scripts/docker/Dockerfile-fpm
+    Monica собирает ресурсы на node:22 (стадия yarn), а итоговый образ php:8.3-fpm, и
+    объект fpm получил Node.js. Стадии сборки язык не задают. Ловушки: одностадийный
+    node:22 остаётся Node.js; последняя стадия scratch или alpine языка не задаёт, тогда язык
+    у предыдущей стадии с языком (Go-бинарь из builder)."""
+    model = model_of(FIXTURES / "dockerfile-stages")
+    kinds = {o.name: o.technology for o in model.objects}
+    assert kinds == {"fpm": "PHP", "web": "Node.js", "gosvc": "Go", "edge": "Go"}

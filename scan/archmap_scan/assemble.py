@@ -336,9 +336,7 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
     ]
     language, server, front = stack_of(pkgs)
     if language is None and obj.dockerfile is not None:
-        language = next(
-            (lang for img in obj.dockerfile.images if (lang := vocab.image_language(img))), None
-        )
+        language = _dockerfile_language(obj.dockerfile)
     if language is None:
         language = next((u.language for u in units if u.language), None)
     if obj.language is None:
@@ -358,6 +356,14 @@ def _classify(obj: Obj, packages: list[Package]) -> None:
             obj.role = vocab.ROLE_FRONTEND
         else:
             obj.role = vocab.ROLE_SERVICE
+
+
+def _dockerfile_language(d: Dockerfile) -> str | None:
+    """Язык по базовому образу итоговой стадии (ТЗ §15 п. 12 С4): стадии сборки язык не
+    задают (Dockerfile-fpm Monica: node:22 собирает ресурсы, образ php:8.3-fpm). Итоговая
+    стадия без языка (scratch, alpine, distroless) берёт его у ближайшей предыдущей стадии
+    с языком: Go-бинарь, собранный в golang."""
+    return next((lang for img in reversed(d.images) if (lang := vocab.image_language(img))), None)
 
 
 def stack_of(pkgs: list[Package]) -> tuple[str | None, str | None, str | None]:

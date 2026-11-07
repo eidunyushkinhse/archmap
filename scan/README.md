@@ -181,3 +181,5 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     подчёркивание (`docker-stack-docs`); манифест в каталоге служебной сборки (`tools`,
     `scripts`, `artifacts`, `*-build-image`, `_*` и другие, `walk.service_sign`) — кандидат
     разработки по политике Б, Dockerfile такой на ступени 2 становится объектом с пометкой (С3);
+  - язык по образу Dockerfile у итоговой стадии, у `scratch` и `alpine` у предыдущей стадии с
+    языком (С4);
