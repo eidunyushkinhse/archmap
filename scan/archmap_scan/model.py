@@ -163,6 +163,9 @@ class TableSet:
     # объект-база, если базы в манифестах нет (ТЗ §7, пункт 3).
     dialect: str | None = None
     dialect_loc: Loc | None = None
+    # SQLite из настроек — значение по умолчанию: другой модуль того же пакета настроек
+    # переопределяет DATABASES без sqlite (ТЗ §15 п. 12 С9). Вида базы такой диалект не даёт.
+    dialect_default: bool = False
 
 
 @dataclass

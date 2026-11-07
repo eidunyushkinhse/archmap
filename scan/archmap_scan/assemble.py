@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from archmap_scan import codefacts, owners, paths, secrets, texts, vocab
 from archmap_scan.context import Context
+from archmap_scan.dialect import SQLITE
 from archmap_scan.links import hosts_in, link_technology
 from archmap_scan.model import (
     Dockerfile,
@@ -1226,6 +1227,10 @@ def _tables(
         )
         if db is None and why == "no_database" and ts.tables:
             db = _migration_database(model, ts, containers)
+        elif db is not None and ts.dialect == SQLITE and db.technology != SQLITE:
+            # ENGINE sqlite3 при базе другого вида из манифестов (ТЗ §15 п. 12 С9): таблицы
+            # у базы манифеста, sqlite — значение по умолчанию настроек.
+            _sqlite_default_hint(model, ts)
         if db is None:
             stats.unassigned += len(ts.tables)
             for table in ts.tables:
@@ -1249,22 +1254,42 @@ def _tables(
 _MIGRATION_LANGUAGE = {"alembic": "Python", "django": "Python"}
 
 
+def _sqlite_default_hint(model: Model, ts: TableSet) -> None:
+    """Подсказка «sqlite как значение по умолчанию настроек», одна на основание ENGINE."""
+    source = str(ts.dialect_loc) if ts.dialect_loc else ts.dir or "."
+    if any(
+        h.get("reason") == texts.REASON_SQLITE_DEFAULT and h.get("source") == source
+        for h in model.hints.get("unassigned", [])
+    ):
+        return
+    model.hint("unassigned", {
+        "kind": "database", "name": SQLITE, "reason": texts.REASON_SQLITE_DEFAULT,
+        "source": source,
+    })
+
+
 def _migration_database(model: Model, ts: TableSet, containers: list[Obj]) -> Obj:
     """Базы в манифестах нет, а миграции есть (Sentry, Zulip): объект-база по признакам
     миграций (ТЗ §7, пункт 3). Имя — имя диалекта, диалект не опознан — «База данных» без
     технологии; source нет. Контейнер-владелец каталога миграций, если он определён,
-    получает связь «использует»."""
-    name = ts.dialect or texts.UNKNOWN_DATABASE
+    получает связь «использует». SQLite как значение по умолчанию настроек
+    (TableSet.dialect_default, ТЗ §15 п. 12 С9) вида базы не даёт: «База данных» и
+    подсказка."""
+    kind = ts.dialect
+    if kind == SQLITE and ts.dialect_default:
+        _sqlite_default_hint(model, ts)
+        kind = None
+    name = kind or texts.UNKNOWN_DATABASE
     db = model.obj(name)
     if db is None:
-        db = Obj(name=name, shape=DATABASE, role=vocab.ROLE_DB, technology=ts.dialect)
+        db = Obj(name=name, shape=DATABASE, role=vocab.ROLE_DB, technology=kind)
         model.objects.append(db)
         model.objects.sort(key=lambda o: (SHAPE_ORDER[o.shape], o.name))
         model.db_by_migrations = True
     if ts.parser not in db.parsers:
         db.parsers.append(ts.parser)
     first = min(loc for table in ts.tables for loc in table.locs)
-    db.locs.add(ts.dialect_loc or first)
+    db.locs.add((ts.dialect_loc if kind else None) or first)
     found = owners.file_owners(ts.dir or ".", containers, _MIGRATION_LANGUAGE.get(ts.parser))
     owner = owners.primary(found, vocab.ROLE_SERVICE)
     if owner is not None:

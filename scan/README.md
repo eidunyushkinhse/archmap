@@ -201,3 +201,6 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     подкаталоге каталога кода контейнера без своего манифеста сборки — тоже вариант
     (`hints.merged`); Dockerfile мобильного приложения (`walk.mobile_dir`: `react-native`,
     `android`, `ios`, `mobile`, `flutter`) уходит в `hints.unassigned` (С8);
+  - ENGINE sqlite3 настроек Django, когда другой модуль того же пакета настроек переопределяет
+    `DATABASES` без sqlite (`TableSet.dialect_default`) или таблицы у базы другого вида из
+    манифестов, вида базы не даёт: подсказка «sqlite как значение по умолчанию настроек» (С9);

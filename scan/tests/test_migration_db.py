@@ -7,9 +7,9 @@ from pathlib import Path
 
 import yaml
 
-from archmap_scan import dialect
+from archmap_scan import dialect, texts
 from archmap_scan.scan import Options, run
-from tests.helpers import model_of, tree
+from tests.helpers import FIXTURES, model_of, tree
 
 DJANGO_MIGRATION = (
     "from django.db import migrations, models\n\n\n"
@@ -116,3 +116,42 @@ def test_dialect_hostile_in_time() -> None:
         dialect.url_literal(text)
         dialect.alembic_url(text)
         assert time.perf_counter() - started < 1.0
+
+
+def test_sqlite_as_settings_default(tmp_path: Path) -> None:
+    """SQLite из настроек Django как значение по умолчанию (ТЗ §15 п. 12 С9). AWX:
+    awx/settings/defaults.py:24 задаёт ENGINE sqlite3 и давал базу SQLite, хотя AWX живёт на
+    PostgreSQL: awx/settings/production_defaults.py сбрасывает DATABASES = {}, боевая база
+    задаётся при запуске. Тогда вид базы не берётся («База данных») и пишется подсказка.
+    Ловушка django-sqlite-only: модуль рядом DATABASES не трогает, sqlite единственный и
+    остаётся базой SQLite. Случай судьи «база другого вида задана манифестом»: таблицы у
+    PostgreSQL из compose, sqlite3 только подсказкой."""
+    model = model_of(FIXTURES / "django-sqlite-default")
+    dbs = {o.name: o.technology for o in model.objects if o.shape == "database"}
+    assert dbs == {"База данных": None}
+    assert [t.name for t in model.tables["База данных"]] == ["main_job"]
+    hint = {
+        "kind": "database", "name": "SQLite", "reason": texts.REASON_SQLITE_DEFAULT,
+        "source": "awx/settings/defaults.py:7",
+    }
+    assert [h for h in model.hints["unassigned"] if h["kind"] == "database"] == [hint]
+    model = model_of(FIXTURES / "django-sqlite-only")
+    assert {o.name: o.technology for o in model.objects if o.shape == "database"} == {
+        "SQLite": "SQLite",
+    }
+    assert [h for h in model.hints.get("unassigned", []) if h["kind"] == "database"] == []
+    tree(tmp_path, {
+        "app/settings.py": 'DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3"}}\n',
+        "app/main/migrations/0001_initial.py": DJANGO_MIGRATION,
+        "app/main/migrations/__init__.py": "",
+        "docker-compose.yml": "services:\n  web:\n    build: .\n  db:\n    image: postgres:16\n",
+        "Dockerfile": "FROM python:3.12\n",
+    })
+    model = model_of(tmp_path)
+    assert {o.name: o.technology for o in model.objects if o.shape == "database"} == {
+        "db": "PostgreSQL",
+    }
+    assert [t.name for t in model.tables["db"]] == ["main_project"]
+    assert [h["source"] for h in model.hints["unassigned"] if h["kind"] == "database"] == [
+        "app/settings.py:1",
+    ]

@@ -863,3 +863,15 @@ unread: {too_large: 3, binary: 0}
      сегмента `android`, `ios`, `mobile`, `flutter` или `react-native` в сегменте): Dockerfile
      в нём уходит в `hints.unassigned` с причиной «мобильное приложение», его манифесты не
      свободные пакеты С7 (`telemetry-docs` OpenTelemetry Demo вернулся к Node.js корня).
+   - С9: обе ветки правила судьи сборщик уже выполнял: `_engine` разборщика Django предпочитает
+     ENGINE не sqlite во всех файлах настроек, а таблицы при реляционной базе в манифестах
+     достаются ей (`owners.database_for`). Новое: в этом случае ENGINE sqlite3 даёт подсказку
+     «sqlite как значение по умолчанию настроек» (`hints.unassigned`, вид `database`). У AWX
+     ни одна ветка не выполняется: в пакете `awx/settings/` ENGINE один (sqlite3 в
+     `defaults.py:24`), а compose с PostgreSQL лежит в шаблоне `.j2` (исключён С2). Чтобы
+     сохранить цель «AWX без SQLite», решение исполнителя: sqlite3 считается значением по
+     умолчанию и тогда, когда другой модуль того же каталога настроек присваивает `DATABASES`
+     на уровне модуля без sqlite (`production_defaults.py: DATABASES = {}`,
+     `django._sqlite_overridden`, `TableSet.dialect_default`). Тогда база по миграциям строится
+     без вида («База данных», 60 таблиц AWX), подсказка та же. Ловушка: модуль рядом без
+     `DATABASES` sqlite не отменяет, проект только на sqlite остаётся с SQLite.
