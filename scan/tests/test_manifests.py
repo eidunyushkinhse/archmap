@@ -252,3 +252,18 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     run(Options(path=str(images), out=str(out2), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out2 / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "unknown"
+
+
+def test_system_name_by_root_language(tmp_path: Path) -> None:
+    """Имя системы по манифесту языка корня (ТЗ §15 п. 13 Д3): Nomad go.mod (module
+    github.com/hashicorp/nomad) и package.json рабочего пространства интерфейса nomad-ui.
+    Ловушки: Node-монорепо с go.mod в подкаталоге остаётся по package.json; package.json с
+    серверным фреймворком (koa у Zulip) даёт имя первым; --system старше всего."""
+    assert model_of(FIXTURES / "root-name-go", system=None).system == "nomad"
+    assert model_of(FIXTURES / "root-name-go", system="Ярмарка").system == "Ярмарка"
+    tree(tmp_path, {
+        "package.json": '{"name": "shop", "workspaces": ["web"]}',
+        "tools/go.mod": "module example.com/tools\n",
+        "Dockerfile": "FROM node:22\n",
+    })
+    assert model_of(tmp_path, system=None).system == "shop"

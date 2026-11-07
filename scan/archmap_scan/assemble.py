@@ -103,13 +103,30 @@ def _go_module_name(module: str) -> str:
     return parts[-1] if parts else module
 
 
+_NAME_KINDS = ("package.json", "pyproject.toml", "go.mod")
+
+
 def system_name(ctx: Context, packages: list[Package]) -> tuple[str, list[Loc]]:
-    """Имя корня: --system, имя корневого манифеста сборки, иначе имя каталога."""
+    """Имя корня: --system, имя корневого манифеста сборки, иначе имя каталога. Корневой
+    package.json с серверным фреймворком в зависимостях (koa у Zulip) даёт имя первым, как
+    раньше; иначе имя даёт манифест языка, который stack_of выбирает для корня (ТЗ §15 п. 13
+    Д3): бэкенд не на Node.js старше package.json интерфейса или рабочего пространства. У
+    Nomad go.mod (module github.com/hashicorp/nomad) старше package.json nomad-ui."""
     if ctx.system:
         return ctx.system, []
-    for kind in ("package.json", "pyproject.toml", "go.mod"):
-        for pkg in packages:
-            if pkg.dir == ctx.scope and pkg.kind == kind and pkg.name:
+    roots = [p for p in packages if p.dir == ctx.scope]
+    server = any(
+        p.kind == "package.json" and not p.workspaces
+        and vocab.find_framework(p.deps, vocab.SERVER_FRAMEWORKS) for p in roots
+    )
+    language = None if server else stack_of(
+        [p for p in roots if p.kind != "package.json"] or roots,
+    )[0]
+    for same in (language is not None, False):
+        for kind in _NAME_KINDS:
+            for pkg in roots:
+                if pkg.kind != kind or not pkg.name or (same and pkg.language != language):
+                    continue
                 name = _go_module_name(pkg.name) if kind == "go.mod" else pkg.name
                 return name, [pkg.name_loc] if pkg.name_loc else []
     return ctx.root.name, []

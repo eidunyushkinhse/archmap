@@ -1025,3 +1025,9 @@ unread: {too_large: 3, binary: 0}
      внутри таких каталогов (у Sentry `api-docs/openapi.json` снова в подсказке, 18 операций
      по `api-docs/paths/*.json`). Каталог с частью examples или samples (`docs/examples/`)
      документацией не считается.
+   - Д3 (решение исполнителя): «package.json с зависимостями сервера» — серверный фреймворк
+     словаря (`vocab.SERVER_FRAMEWORKS`) в `dependencies` корневого `package.json` без
+     `workspaces` (у Zulip koa: имя `zulip`, как раньше). Язык корня без такого
+     `package.json` выбирает `stack_of` среди остальных манифестов корня. Побочное: у PostHog
+     корневой `package.json` (`@posthog/root`) серверного фреймворка не держит, и система
+     называется `posthog` по `pyproject.toml`; объекты и связи PostHog те же.
