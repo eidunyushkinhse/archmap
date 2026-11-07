@@ -27,7 +27,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from archmap_scan import paths, texts
+from archmap_scan import paths, texts, vocab
 from archmap_scan.context import Context
 from archmap_scan.model import (
     EnvVar,
@@ -38,7 +38,7 @@ from archmap_scan.model import (
     Unit,
     unparsed_hint,
 )
-from archmap_scan.walk import Files, is_compose_name, manifest_sign
+from archmap_scan.walk import Files, is_compose_name, manifest_sign, name_tokens
 from archmap_scan.yamlload import BadYaml, LineDict, LineList, YamlTooLarge, load
 
 NAME = "compose"
@@ -378,6 +378,15 @@ def parse(files: Files, ctx: Context) -> Findings:
             docs[rel] = loaded[0]
             if rel in dev_files:
                 modes[rel] = _devservices(loaded[1], loaded[0], rel)
+    # Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): его базы и
+    # кэш поднимаются для того же стенда.
+    for rel, services in docs.items():
+        sail = None if signs[rel] else _sail(services, rel)
+        if sail is not None:
+            signs[rel] = sail
+            dev_files.add(rel)
+    docs = {r: docs[r] for r in [*(r for r in docs if r not in dev_files),
+                                 *(r for r in docs if r in dev_files)]}
     bases = _dev_bases(docs, dev_files)
     for rel, services in docs.items():
         dev = signs[rel]
@@ -398,7 +407,7 @@ def parse(files: Files, ctx: Context) -> Findings:
                     "profiles": sorted(str(p) for p in _profiles(svc)),
                 }))
                 continue
-            sign = dev or bases.get((rel, name))
+            sign = dev or bases.get((rel, name)) or _service_dev(name, svc, rel)
             skip = modes.get(rel, {}).get(name)
             if skip is not None and name not in units:
                 # Сервис вне режима default devservices или отладочный: объектом не
@@ -449,6 +458,47 @@ def parse(files: Files, ctx: Context) -> Findings:
                     "reason": texts.REASON_DYNAMIC_VALUE, "source": str(var.loc),
                 }))
     return found
+
+
+_SAIL_CONTEXT = "vendor/laravel/sail"
+_SAIL_IMAGE = "sail-"
+
+
+def _sail(services: LineDict, rel: str) -> str | None:
+    """Признак файла Laravel Sail: контекст сборки сервиса внутри vendor/laravel/sail или
+    образ sail-* (sail-8.4/app Monica). Каталога vendor в обходе нет (С1), поэтому
+    сравнивается путь контекста из файла."""
+    for key, svc in services.items():
+        if not isinstance(svc, LineDict):
+            continue
+        build = svc.get("build")
+        context = build.get("context") if isinstance(build, LineDict) else build
+        folder = paths.join(paths.parent(rel), context) if isinstance(context, str) else None
+        image = svc.get("image")
+        if (folder is not None and paths.under(folder, _SAIL_CONTEXT)) or (
+            isinstance(image, str) and image.strip().lower().startswith(_SAIL_IMAGE)
+        ):
+            return texts.dev_sign_sail(str(Loc(rel, services.line_of(key))))
+    return None
+
+
+def _service_dev(name: str, svc: LineDict, rel: str) -> str | None:
+    """Признак разработки по форме сервиса (ТЗ §15 п. 12 С6): команда разработки (установка
+    зависимостей, посев, сервер разработки, тесты, слежение, заглушка), раннер тестов по
+    имени сервиса или образ инструмента разработчика (vocab.DEV_TOOL_IMAGES)."""
+    for key in ("command", "entrypoint"):
+        value = svc.get(key)
+        text = " ".join(_scalar(v) for v in value) if isinstance(value, list) else value
+        word = vocab.dev_command(text) if isinstance(text, str) else None
+        if word is not None:
+            return texts.dev_sign_command(word, str(Loc(rel, svc.line_of(key))))
+    if name_tokens(name) & vocab.DEV_TEST_RUNNERS:
+        return texts.dev_sign_test_service(name)
+    image = svc.get("image")
+    tool = vocab.dev_tool(image) if isinstance(image, str) else None
+    if tool is not None:
+        return texts.dev_sign_tool(tool)
+    return None
 
 
 def _profiles(svc: LineDict) -> list[Any]:

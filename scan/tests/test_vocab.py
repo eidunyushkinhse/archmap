@@ -50,3 +50,25 @@ def test_role_by_command() -> None:
     assert vocab.role_by_command("celery -A billing beat") == vocab.ROLE_SCHEDULER
     assert vocab.role_by_command("uvicorn app:app") is None
     assert vocab.role_by_command(None) is None
+
+
+def test_dev_commands_and_tools() -> None:
+    """Команды и инструменты разработки (ТЗ §15 п. 12 С6а, С6б). Ловушки: bundle exec
+    sidekiq, bundle exec rails server, vite build и образы наблюдаемости разработкой не
+    считаются; browserless остаётся боевым (воркер PostHog рендерит им в hobby)."""
+    assert vocab.dev_command("npm ci && npm run start") == "npm ci"
+    assert vocab.dev_command("pnpm install --frozen-lockfile") == "pnpm install"
+    assert vocab.dev_command("composer install") == "composer install"
+    assert vocab.dev_command("python -m pip install -r requirements.txt") == "pip install"
+    assert vocab.dev_command("npx next dev -p 3000") == "next dev"
+    assert vocab.dev_command("vite --host") == "vite"
+    assert vocab.dev_command("bundle exec rspec spec/system") == "rspec"
+    assert vocab.dev_command("tail -f /dev/null") == "tail -f /dev/null"
+    for command in ("bundle exec sidekiq", "bundle exec rails server", "vite build", None):
+        assert vocab.dev_command(command) is None
+    assert vocab.dev_tool("dpage/pgadmin4:8") == "pgadmin"
+    assert vocab.dev_tool("selenium/standalone-chrome") == "selenium"
+    assert vocab.dev_tool("provectuslabs/kafka-ui:latest") == "kafka-ui"
+    for image in ("jaegertracing/all-in-one", "prom/prometheus", "grafana/grafana",
+                  "minio/minio", "ghcr.io/browserless/chromium", "redis:7"):
+        assert vocab.dev_tool(image) is None

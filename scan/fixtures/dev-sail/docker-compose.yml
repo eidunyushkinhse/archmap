@@ -1,0 +1,12 @@
+services:
+  laravel.test: &app
+    build:
+      context: ./vendor/laravel/sail/runtimes/8.4
+      dockerfile: Dockerfile
+    image: sail-8.4/app
+    depends_on: [mariadb]
+  laravel.queue:
+    <<: *app
+    command: php artisan queue:work
+  mariadb:
+    image: mariadb:10

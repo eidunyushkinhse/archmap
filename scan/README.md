@@ -187,3 +187,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     каталогах монорепо (`assemble._named_dir`); Dockerfile служебного каталога с «COPY .»
     берёт каталог ближайшего предка с манифестом сборки, общий Dockerfile образов одной
     организации уходит в подсказку; Gradle с плагином Kotlin даёт Kotlin (С5);
+  - сервис compose с командой разработки (`vocab.dev_command`), раннером тестов в имени или
+    на образе инструмента разработки (`vocab.DEV_TOOL_IMAGES`) — кандидат разработки; файл
+    Laravel Sail разработка целиком; Dockerfile в `.devcontainer/` к боевому объекту не
+    привязывается (С6);

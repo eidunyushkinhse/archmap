@@ -342,6 +342,26 @@ def service_build(path: str) -> str:
     return f"служебная сборка в каталоге {path}/"
 
 
+def dev_sign_command(command: str, loc: str) -> str:
+    """Признак разработки по команде сервиса compose (ТЗ §15 п. 12 С6а)."""
+    return f"команда разработки {command} ({loc})"
+
+
+def dev_sign_test_service(name: str) -> str:
+    """Сервис compose с именем раннера тестов (rspec_system)."""
+    return f"команда разработки по имени сервиса {name}"
+
+
+def dev_sign_tool(tool: str) -> str:
+    """Сервис compose на образе инструмента разработчика (ТЗ §15 п. 12 С6б)."""
+    return f"инструмент разработки {tool}"
+
+
+def dev_sign_sail(loc: str) -> str:
+    """Файл compose Laravel Sail (ТЗ §15 п. 12 С6в)."""
+    return f"Laravel Sail ({loc})"
+
+
 def dev_sign_manager(manager: str, loc: str) -> str:
     """Procfile запускает менеджер процессов разработки (walk.dev_procfile)."""
     return f"Procfile запускает {manager} ({loc})"

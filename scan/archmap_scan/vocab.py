@@ -76,6 +76,74 @@ _images("chromium", ImageKind(_SERVICE, "Chromium", ROLE_SERVICE))
 # Не образ, а программа, которую процесс supervisor или systemd запускает вне репозитория.
 _images("cron crond", ImageKind(_SERVICE, "cron", ROLE_SCHEDULER))
 
+# Инструменты разработчика по образу (ТЗ §15 п. 12 С6б): почтовые ловушки, заглушки API,
+# браузеры для тестов, веб-консоли баз и брокеров. Сервис compose на таком образе — кандидат
+# разработки. Сравнивается сегмент пути образа без тега (selenium/standalone-chrome,
+# dpage/pgadmin4: имя или имя с номером версии). jaeger, prometheus, grafana и minio сюда не
+# входят: это наблюдаемость и хранилище, они бывают боевыми. browserless тоже нет: в боевом
+# файле hobby PostHog им рендерит воркер (объект ok вердикта корнер-кейсов).
+DEV_TOOL_IMAGES = (
+    "mailhog", "mailpit", "maildev", "mailcatcher", "wiremock", "mockserver", "selenium",
+    "kafka-ui", "redis-commander", "adminer", "pgadmin", "phpmyadmin", "mongo-express",
+    "flower", "localstack",
+)
+
+
+def dev_tool(image: str) -> str | None:
+    """Инструмент разработчика из DEV_TOOL_IMAGES по сегменту пути образа или None."""
+    ref = image.strip().split("@", 1)[0].lower()
+    segments = ref.split("/")
+    segments[-1] = segments[-1].split(":", 1)[0]
+    for seg in segments:
+        for tool in DEV_TOOL_IMAGES:
+            if seg == tool or (seg.startswith(tool) and seg[len(tool):].isdigit()):
+                return tool
+    return None
+
+
+# Команды разработки (ТЗ §15 п. 12 С6а): установка зависимостей, посев базы, сервер
+# разработки с перезагрузкой, запуск тестов, сборка в режиме слежения и контейнер-заглушка
+# для работы внутри (sleep infinity у devcontainer Forem). Пары «программа подкоманда» и
+# отдельные программы сравниваются по базовому имени слова (./bin/webpack-dev-server).
+# bundle exec sidekiq и bundle exec rails server командами разработки не считаются.
+_DEV_COMMAND_PAIRS = frozenset({
+    ("yarn", "install"), ("npm", "install"), ("npm", "ci"), ("pnpm", "install"), ("pnpm", "ci"),
+    ("yarn", "ci"), ("bundle", "install"), ("pip", "install"), ("pip3", "install"),
+    ("composer", "install"), ("next", "dev"), ("sleep", "infinity"),
+})
+_DEV_PROGRAMS = frozenset({
+    "webpack-dev-server", "nodemon", "rspec", "pytest", "jest", "cypress", "playwright",
+})
+# Тестовые раннеры по имени сервиса: rspec_system Forem без своей команды.
+DEV_TEST_RUNNERS = frozenset({"rspec", "pytest", "jest", "cypress", "playwright"})
+_SHELL_SEPARATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def dev_command(command: str | None) -> str | None:
+    """Команда разработки в тексте команды сервиса: найденная фраза («yarn install»,
+    «rake db:seed», «--watch») или None."""
+    if not command:
+        return None
+    words = [_base(t) for t in _command_tokens(command)]
+    for i, word in enumerate(words):
+        if word in _SHELL_SEPARATORS:
+            continue
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if (word, nxt) in _DEV_COMMAND_PAIRS:
+            return f"{word} {nxt}"
+        if word in _DEV_PROGRAMS:
+            return word
+        if word == "vite" and nxt != "build":
+            return word
+        if word == "db:seed":
+            return "rake db:seed" if i and words[i - 1] == "rake" else word
+        if word == "--watch":
+            return word
+        if word == "tail" and words[i + 1:i + 3] == ["-f", "null"]:
+            return "tail -f /dev/null"
+    return None
+
+
 # Реляционные базы: им принадлежат миграции (ТЗ §7).
 RELATIONAL = frozenset({"PostgreSQL", "MySQL", "MariaDB"})
 

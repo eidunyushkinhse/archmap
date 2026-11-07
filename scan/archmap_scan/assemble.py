@@ -47,6 +47,7 @@ PRIORITY = {
 # они, кроме Helm (ТЗ §15 п. 12 С3).
 _DEV_MANIFESTS = frozenset({"supervisor", "systemd", "k8s", "helm"})
 _NO_SERVICE_SIGN = frozenset({"helm"})
+_DEVCONTAINER = ".devcontainer"
 # Манифесты развёртывания: хоть один без признака разработки — ступень 1 политики, ни
 # одного — ступень 2 (ТЗ §15 п. 10 Б2, Б3). Dockerfile и файлы сборки манифестом
 # развёртывания не считаются.
@@ -329,7 +330,11 @@ def _dockerfile_units(
             continue
         variant = _variant(d.path)
         dev_refs = [b for b in builds.get(d.path, []) if b.unit is not None]
-        prod_refs = [b.unit for b in dev_refs if b.unit in names]
+        # Dockerfile окружения разработки в .devcontainer/ к боевому объекту не привязывается
+        # никогда, даже если сервис с тем же именем есть в боевом манифесте (ТЗ §15 п. 12 С6г:
+        # .devcontainer/Dockerfile n8n давал каталог кода боевому объекту n8n).
+        devcontainer = any(seg.lower() == _DEVCONTAINER for seg in d.path.split("/")[:-1])
+        prod_refs = [] if devcontainer else [b.unit for b in dev_refs if b.unit in names]
         if variant is not None and variant.lower() in _DEV_VARIANTS and not dev_refs:
             later.append(d)
             continue

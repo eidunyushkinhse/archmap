@@ -678,7 +678,8 @@ unread: {too_large: 3, binary: 0}
      `Dockerfile.debug|playwright|e2e`; Procfile при goreman в Makefile; CI-файлы; сервисы base,
      не расширенные ни одним боевым файлом; сервисы наблюдаемости из prod-стендов разработки;
      с части 1б (п. 12) ещё «служебная сборка» (каталог `tools`, `scripts`, `artifacts` и
-     подобные).
+     подобные), «команда разработки» и «инструмент разработки» у сервиса compose и «Laravel
+     Sail» у файла compose.
      Страховка остатка: шаг промпта агента «подсказки dev-only проверь, не боевые ли они».
      Данные: 55 из 89 неверных объектов корнер-кейсов dev-only; релевантное только в dev-манифестах
      встретилось трижды (Sentry целиком, ES и LibreTranslate Mastodon, usage-ingestion PostHog) и
@@ -804,3 +805,20 @@ unread: {too_large: 3, binary: 0}
      сервиса, правило не трогает: Dockerfile разбирается как раньше. Попутно поправлены две
      технологии PostHog из вердикта wrong-kind (ml-mirror-image-scrub и recording-rasterizer:
      Node.js вместо Rust, это С4).
+   - С6: признак разработки по форме сервиса compose (`compose._service_dev`). (а) «Команда
+     разработки» (`vocab.dev_command`, по базовому имени слова команды или entrypoint): пары
+     `yarn|npm|pnpm install|ci`, `bundle|pip|pip3|composer install`, `next dev`, программы
+     `webpack-dev-server`, `nodemon`, `rspec`, `pytest`, `jest`, `cypress`, `playwright`, `vite`
+     (кроме `vite build`), `db:seed`. Сверх перечня судьи, чтобы сохранить цель пункта на Forem:
+     `--watch` (esbuild: `yarn build --watch`), заглушка `sleep infinity` и `tail -f /dev/null`
+     (devcontainer) и раннер тестов по части имени сервиса (`rspec_system` без своей команды).
+     (б) «Инструмент разработки» (`vocab.DEV_TOOL_IMAGES`) по сегменту пути образа, имя или имя с
+     номером (`pgadmin4`). `browserless` из перечня судьи НЕ взят: в боевом файле hobby PostHog
+     им рендерит воркер, это ok-объект вердикта корнер-кейсов (стоп-правило брифа), поэтому
+     chrome Forem остаётся объектом. (в) «Laravel Sail» ставится файлу целиком: контекст сборки
+     внутри `vendor/laravel/sail` или образ `sail-*` хотя бы у одного сервиса; его базы и кэш
+     поднимаются для того же стенда. У Monica боевых манифестов не остаётся, ступень 2: сервисы
+     Sail, базы и `scripts/docker/Dockerfile` (объект «monica» на PHP + Laravel) объекты с пометкой. (г)
+     Dockerfile под `.devcontainer/` к боевому объекту не привязывается (n8n больше не берёт
+     каталог кода `.devcontainer`). Остаток: bundle Forem (`./scripts/bundle.sh`) правилом не
+     виден, Forem даёт 8 объектов вместо цели 6 (bundle, chrome сверх списка).

@@ -503,3 +503,50 @@ def test_code_dir_by_service_or_image_name() -> None:
         "reason": texts.REASON_SHARED_DOCKERFILE, "source": "docker/Dockerfile:1",
         "containers": ["admin-server", "vets"],
     }]
+
+
+def test_dev_signs_by_service_form() -> None:
+    """Признак разработки по форме сервиса compose (ТЗ §15 п. 12 С6): docker-compose.yml и
+    container-compose.yml Forem держат рядом с боевыми службами установку зависимостей (yarn
+    install), посев (rake db:seed), сервер разработки (webpack-dev-server), сборку в режиме
+    слежения (yarn build --watch), заглушку devcontainer (sleep infinity) и раннер тестов
+    rspec_system без своей команды; mailpit — инструмент разработки. Боевой Procfile или
+    compose есть, поэтому это подсказки. (г) .devcontainer/Dockerfile n8n к боевому объекту
+    не привязывается, даже если файл разработки собирает им сервис с тем же именем.
+    Ловушки: bundle exec sidekiq и bundle exec rails server не команды разработки; jaeger и
+    minio не инструменты разработки."""
+    model = model_of(FIXTURES / "dev-forms")
+    assert sorted(o.name for o in model.objects) == [
+        "api", "db", "jaeger", "minio", "sidekiq", "web",
+    ]
+    assert _obj(model, "api").code_dir is None
+    dev = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    command = texts.dev_sign_command
+    assert dev == {
+        "yarn": texts.dev_manifest(command("yarn install", "docker-compose.yml:13")),
+        "seed": texts.dev_manifest(command("rake db:seed", "docker-compose.yml:16")),
+        "webpacker": texts.dev_manifest(command("webpack-dev-server", "docker-compose.yml:19")),
+        "esbuild": texts.dev_manifest(command("--watch", "docker-compose.yml:22")),
+        "devcontainer": texts.dev_manifest(command("sleep infinity", "docker-compose.yml:25")),
+        "rspec_system": texts.dev_manifest(texts.dev_sign_test_service("rspec_system")),
+        "mailpit": texts.dev_manifest(texts.dev_sign_tool("mailpit")),
+        ".devcontainer/Dockerfile": texts.dev_manifest(texts.dev_sign_dir(".devcontainer")),
+    }
+
+
+def test_laravel_sail_file_is_development() -> None:
+    """Файл Laravel Sail целиком окружение разработки (ТЗ §15 п. 12 С6в): контекст сборки
+    vendor/laravel/sail/runtimes/8.4 (каталога в обходе нет) и образ sail-8.4/app у Monica.
+    Боевых манифестов не остаётся, поэтому ступень 2: сервисы Sail и его база — объекты с
+    пометкой, а scripts/docker/Dockerfile — объект с каталогом кода корня (PHP + Laravel), и
+    вариант fpm на PHP по итоговой стадии (С3, С4, С5б)."""
+    model = model_of(FIXTURES / "dev-sail")
+    kinds = {o.name: o.technology for o in model.objects}
+    assert kinds == {
+        "fpm": "PHP", "laravel.queue": "app", "laravel.test": "app", "Ярмарка": "PHP + Laravel",
+        "mariadb": "MariaDB",
+    }
+    marks = {str(h["name"]): str(h["reason"]) for h in model.hints["dev_manifest_objects"]}
+    sail = texts.dev_manifest(texts.dev_sign_sail("docker-compose.yml:2"))
+    assert marks["laravel.test"] == sail and marks["mariadb"] == sail
+    assert marks["Ярмарка"] == texts.dev_manifest(texts.service_build("scripts"))
