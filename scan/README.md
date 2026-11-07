@@ -171,3 +171,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     брокер, если в манифестах сборки контейнера-клиента Sidekiq, BullMQ, RQ или Celery
     (`assemble._build_packages`); база с depends_on к брокеру связана с ним;
   - сводка говорит «Не разобрано» и не обещает полноты.
+- Правила части 1б по дымовому прогону 15 репозиториев (ТЗ §15 п. 12, по строке на пункт):
+  - каталоги зависимостей `walk.DEPENDENCY_DIRS` (`vendor`, `node_modules` и подобные) не
+    читаются и с git, в покрытии причина `dependencies`; `dist`, `build`, `target` с git
+    читаются (С1);

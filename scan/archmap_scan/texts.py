@@ -303,6 +303,7 @@ TAIL_GITIGNORE = "Каталог с результатом стоит добав
 EXCLUDE_REASON = {
     "convention": "по соглашению",
     "ci": "файлы CI и служебных инструментов",
+    "dependencies": "каталог зависимостей",
     "archmapignore": "по .archmapignore",
     "option": "по ключу --exclude",
 }

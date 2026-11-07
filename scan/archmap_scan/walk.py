@@ -22,11 +22,17 @@ MAX_BYTES = 2 * 1024 * 1024
 MARKER = ".archmap-scan"
 IGNORE_FILE = ".archmapignore"
 
-# Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore).
-SKIP_DIRS = frozenset({
-    ".git", "node_modules", "vendor", "dist", "build", "target", ".venv", "venv",
-    "__pycache__", ".tox", ".mypy_cache", ".idea", ".vscode", "coverage",
+# Каталоги зависимостей и инструментов (ТЗ §15 п. 12 С1): их не читают ни с git, ни без
+# него. Перечень git берёт и закоммиченное, а Loki и Kubernetes держат в vendor/ чужие
+# Dockerfile (vendor/github.com/buger/jsonparser/Dockerfile давал объект jsonparser). С git
+# такие файлы в покрытии в excluded с причиной «dependencies».
+DEPENDENCY_DIRS = frozenset({
+    "node_modules", "vendor", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".idea",
+    ".vscode", "coverage",
 })
+# Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore). dist,
+# build и target с git читаются: закоммиченные, они источник (build/ Kubernetes).
+SKIP_DIRS = DEPENDENCY_DIRS | {".git", "dist", "build", "target"}
 
 # Исключение по соглашению: сегменты пути (сравнение без учёта регистра).
 CONVENTION_DIRS = frozenset({
@@ -251,6 +257,16 @@ def convention_rule(rel_in_scope: str) -> tuple[str, bool] | None:
     return None
 
 
+def dependency_rule(rel_in_scope: str) -> str | None:
+    """Каталог зависимостей из DEPENDENCY_DIRS в пути (сегмент целиком, с учётом регистра,
+    как у обхода без git): путь каталога с «/» для отчёта или None."""
+    parts = rel_in_scope.split("/")
+    for i, seg in enumerate(parts[:-1]):
+        if seg in DEPENDENCY_DIRS:
+            return "/".join(parts[: i + 1]) + "/"
+    return None
+
+
 def ci_rule(rel_in_scope: str) -> str | None:
     """Путь CI или служебного инструмента для отчёта (каталог с «/» или файл) или None."""
     parts = rel_in_scope.split("/")
@@ -353,7 +369,7 @@ class Excluded:
 
     path: str
     files: int
-    reason: str  # convention | ci | archmapignore | option
+    reason: str  # convention | ci | dependencies | archmapignore | option
 
 
 @dataclass(frozen=True)
@@ -434,6 +450,10 @@ def list_files(
         ci = ci_rule(rel[len(prefix):])
         if ci is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + ci, "ci")] += 1
+            continue
+        dep = dependency_rule(rel[len(prefix):])
+        if dep is not None and not any(p.hits(rel) for p in inc):
+            counts[(prefix + dep, "dependencies")] += 1
             continue
         rule = convention_rule(rel[len(prefix):])
         if rule is not None and not any(p.hits(rel) for p in inc):

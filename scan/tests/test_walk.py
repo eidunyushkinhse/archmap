@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import shutil
 import time
 from pathlib import Path
 
 import pytest
 
+from archmap_scan import registry
+from archmap_scan.assemble import assemble
 from archmap_scan.context import make_context
 from archmap_scan.walk import (
     MAX_BYTES,
@@ -15,6 +18,7 @@ from archmap_scan.walk import (
     Pattern,
     ci_rule,
     convention_rule,
+    dependency_rule,
     list_files,
     segment_match,
 )
@@ -218,3 +222,26 @@ def test_ci_files_are_excluded() -> None:
     assert ci_rule("bitbucket-pipelines.yml") == "bitbucket-pipelines.yml"
     assert ci_rule(".buildkite/pipeline.yml") == ".buildkite/"
     assert ci_rule("src/github/client.py") is None and ci_rule(".github") is None
+
+
+def test_dependency_dirs_skipped_with_git(tmp_path: Path) -> None:
+    """Каталоги зависимостей с git тоже не читаются (ТЗ §15 п. 12 С1): Loki и Kubernetes
+    держат в закоммиченном vendor/ чужие Dockerfile (vendor/github.com/buger/jsonparser/
+    Dockerfile давал объект jsonparser, vendor/go.opentelemetry.io/otel/dependencies.Dockerfile
+    объект dependencies). Ловушка: закоммиченный build/ читается, это источник
+    (build/pause/Dockerfile Kubernetes)."""
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "vendor-git", repo)
+    _git(repo, "init", "-q")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "init")
+    ctx = make_context(repo, use_git=True)
+    listing = list_files(ctx)
+    assert listing.files == ("app/Dockerfile", "build/pause/Dockerfile", "docker-compose.yml")
+    assert listing.excluded == (Excluded("vendor/", 2, "dependencies"),)
+    files = Files(ctx.root, listing.files)
+    findings, errors = registry.collect(files, ctx)
+    assert errors == {}
+    assert sorted(o.name for o in assemble(findings, ctx).objects) == ["app", "pause"]
+    assert dependency_rule("staging/vendor/x/Dockerfile") == "staging/vendor/"
+    assert dependency_rule("vendor") is None and dependency_rule("Vendor/a") is None

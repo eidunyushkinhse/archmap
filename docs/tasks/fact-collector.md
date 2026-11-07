@@ -741,3 +741,13 @@ unread: {too_large: 3, binary: 0}
      immich-prometheus, gitops-agent Argo CD (отдельный продукт в gitops-engine/). Ложные
      связи PostHog 12 → 2: asyncmigrationscheck → plugins (адрес из унаследованного
      окружения) и temporal-ui → db (depends_on только порядок запуска).
+12. **Решения исполнителя части 1б по дымовому прогону 2026-11-07** (ветка feat/scan-3c, сборщик
+   0.3.0 без выпуска; 15 неглубоких клонов: Java, .NET, PHP, Elixir, полиглот, Terraform, Ansible,
+   Bazel, большие монорепо; пункты С1–С13 судьи; владелец может отменить, числа перемера в
+   отчёте исполнителя).
+   - С1: каталоги зависимостей и инструментов (`node_modules`, `vendor`, `.venv`, `venv`,
+     `__pycache__`, `.tox`, `.mypy_cache`, `.idea`, `.vscode`, `coverage`) не читаются и при
+     обходе через git (`walk.DEPENDENCY_DIRS`), в покрытии причина `dependencies`; сегмент
+     сравнивается целиком с учётом регистра, как у обхода без git. `dist`, `build`, `target` с
+     git читаются (закоммиченный `build/` Kubernetes источник). Каталог CI проверяется раньше:
+     `.github/vendor/` остаётся в причине `ci`.
