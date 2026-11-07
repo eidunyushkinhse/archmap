@@ -1099,3 +1099,19 @@ unread: {too_large: 3, binary: 0}
      окружение длинного переходят к нему (`_absorb`). Mastodon: `mastodon-web → web` и
      `mastodon-streaming → streaming` в `hints.merged`, «осталось (duplicate)» 2 → 0, ok-объекты
      3 и ok-связи 6 сохранены; на остальных шести репозиториях и 15 дымовых склеек нет.
+   - Остаток после части 2 (перемер 2026-11-07 на fdd3e96e против выводов судьи части 1б):
+     лишних объектов шести вердиктов 15 → 4 (PostHog `posthog-metrics-agent`, immich
+     `immich-grafana` и `immich-prometheus`, Argo CD `gitops-agent`); ok-объекты сохранены,
+     кроме прежней базы Lemmy под именем postgres; ok-связи сохранены, кроме связей объектов
+     разработки (Lemmy 5, PostHog 16: к прежним семи добавились девять `clickhouse-* → kafka`
+     с объектами стенда multinode, Д8). Кандидаты `[channels] KAFKA_EVENTS_PLUGIN_INGESTION`
+     PostHog и `QueueName` immich в проверке судьи «нет», потому что она ищет имя реестра в
+     тексте вывода, а в вывод идут сами каналы: Kafka PostHog 0 → 56, очереди Redis immich 19.
+     Sentry: core 5 узлов и 52 канала прежние, «rule-candidate, но у сборщика есть» 19 узлов и
+     30 связей, неучтённые объекты сверх них только `devserver` и `taskworker-sentry`, связь
+     `devserver → postgresql` вместо `self-hosted → postgresql`; два процесса только из
+     реестра консьюмеров в подсказках. Дым: Envoy 7 → 1, Supabase 18 → 16, Forem 8 → 7 (и
+     связи `rails → db`, `sidekiq → db` из версий разработки в `container-compose.yml`, Д1),
+     Nomad система `nomad` и 2 → 1 (объект корневого Dockerfile назывался `nomad-ui` по
+     системе, теперь `nomad` и совпал с юнитом systemd), остальные 11 без изменений объектов
+     и связей.
