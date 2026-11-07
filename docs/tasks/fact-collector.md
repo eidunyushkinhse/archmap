@@ -764,7 +764,8 @@ unread: {too_large: 3, binary: 0}
      обходе через git (`walk.DEPENDENCY_DIRS`), в покрытии причина `dependencies`; сегмент
      сравнивается целиком с учётом регистра, как у обхода без git. `dist`, `build`, `target` с
      git читаются (закоммиченный `build/` Kubernetes источник). Каталог CI проверяется раньше:
-     `.github/vendor/` остаётся в причине `ci`.
+     `.github/vendor/` остаётся в причине `ci`. С части 2 (п. 13 Д5) `coverage` с git
+     читается.
    - С2: шаблон Dockerfile (имя Dockerfile в любой из четырёх форм с расширением `j2`, `tpl`,
      `template`, `in`, `jinja`, `jinja2`) не читается вовсе (`walk.template_rule`), в покрытии
      причина `template`: `Dockerfile.j2` AWX объектом «j2» не становится, `.devcontainer/Dockerfile.in`
@@ -1043,3 +1044,10 @@ unread: {too_large: 3, binary: 0}
      параметров конфигурации их окружения (переменные матрицы сборки) и пометка «объекты
      собраны из манифестов разработки»: объект `envoy` из `distribution/docker/Dockerfile-envoy`
      боевой. Проверка стека С12 (матрица ci/ на Bazel) перенесена на compose в корне.
+   - Д5 (решение исполнителя): кроме перечня, `coverage` убран и из пропусков яруса кода
+     (`codebase.is_code_file`, `crontab`; `walk.CODE_SKIP_DIRS`), иначе файлы
+     `pkg/util/coverage/` Kubernetes попадали бы в прочитанные, но код их не читал бы. Без git
+     такие файлы в перечень не попадают, поэтому для обхода без git ничего не изменилось.
+     Kubernetes: параметры `KUBE_COVERAGE_FILE` и `KUBE_COVERAGE_FLUSH_INTERVAL` из
+     `pkg/util/coverage/coverage.go` в подсказках «общий код» (без владельца 32 → 34), объекты
+     и связи те же; у Envoy `bazel/coverage/` и `tools/coverage/` ушли из исключённых.

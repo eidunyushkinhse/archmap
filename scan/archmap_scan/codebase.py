@@ -19,7 +19,7 @@ from archmap_scan.context import Context
 from archmap_scan.model import Package
 from archmap_scan.parsers import manifests
 from archmap_scan.walk import (
-    SKIP_DIRS,
+    CODE_SKIP_DIRS,
     TEST_HELPER,
     TOOL_CONFIG,
     TOOLING_DIR,
@@ -101,7 +101,7 @@ def is_code_file(rel: str, language: str) -> bool:
     low = rel.lower()
     if not low.endswith(LANG_EXTS[language]) or low.endswith(_GENERATED_SUFFIXES):
         return False
-    return not any(seg in SKIP_DIRS for seg in rel.split("/")[:-1])
+    return not any(seg in CODE_SKIP_DIRS for seg in rel.split("/")[:-1])
 
 
 def code_files(

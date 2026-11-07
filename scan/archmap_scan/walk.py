@@ -30,9 +30,16 @@ DEPENDENCY_DIRS = frozenset({
     "node_modules", "vendor", ".venv", "venv", "__pycache__", ".tox", ".mypy_cache", ".idea",
     ".vscode", "coverage",
 })
+# Каталоги зависимостей, которые с git читаются (ТЗ §15 п. 13 Д5): вывод покрытия тестов
+# обычно в .gitignore и в перечень git не попадает, а закоммиченный coverage/ — код
+# (pkg/util/coverage/ Kubernetes). Без git обход в них по-прежнему не заходит.
+GIT_READ_DIRS = frozenset({"coverage"})
 # Без git: каталоги, в которые обход не заходит (то, что обычно лежит в .gitignore). dist,
 # build и target с git читаются: закоммиченные, они источник (build/ Kubernetes).
 SKIP_DIRS = DEPENDENCY_DIRS | {".git", "dist", "build", "target"}
+# Каталоги, код в которых ярус кода не читает: без git в перечень не попадает ничего из
+# SKIP_DIRS, с git — ни из чего, кроме GIT_READ_DIRS, их код читается.
+CODE_SKIP_DIRS = SKIP_DIRS - GIT_READ_DIRS
 
 # Исключение по соглашению: сегменты пути (сравнение без учёта регистра).
 CONVENTION_DIRS = frozenset({
@@ -354,12 +361,14 @@ def template_rule(rel_in_scope: str) -> str | None:
     return None
 
 
-def dependency_rule(rel_in_scope: str) -> str | None:
+def dependency_rule(rel_in_scope: str, git: bool = False) -> str | None:
     """Каталог зависимостей из DEPENDENCY_DIRS в пути (сегмент целиком, с учётом регистра,
-    как у обхода без git): путь каталога с «/» для отчёта или None."""
+    как у обхода без git): путь каталога с «/» для отчёта или None. Перечень git (git=True)
+    каталоги GIT_READ_DIRS не исключает."""
+    dirs = DEPENDENCY_DIRS - GIT_READ_DIRS if git else DEPENDENCY_DIRS
     parts = rel_in_scope.split("/")
     for i, seg in enumerate(parts[:-1]):
-        if seg in DEPENDENCY_DIRS:
+        if seg in dirs:
             return "/".join(parts[: i + 1]) + "/"
     return None
 
@@ -531,6 +540,7 @@ def list_files(
 ) -> Listing:
     """Перечень файлов области с исключениями. Пути от корня, отсортированы."""
     raw = git_files(ctx) if ctx.git else None
+    from_git = raw is not None
     if raw is None:
         raw = _walk(ctx.scope_dir, ctx.root, skip)
     else:
@@ -568,7 +578,7 @@ def list_files(
         if ci is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + ci, "ci")] += 1
             continue
-        dep = dependency_rule(rel[len(prefix):])
+        dep = dependency_rule(rel[len(prefix):], from_git)
         if dep is not None and not any(p.hits(rel) for p in inc):
             counts[(prefix + dep, "dependencies")] += 1
             continue
