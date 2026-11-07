@@ -2,8 +2,9 @@
 .env.example, .env.sample, .env.template, .env.dist, env.example, .env.production.sample,
 example.env, sample.env, template.env. Имена и значения строк «ИМЯ=значение» (с «export» и
 кавычками); значение держится только ради адреса зависимости и дефолта по инварианту 6.
-Настоящие файлы окружения без суффикса примера (.env, .env.local, .env.production) не
-открываются никогда."""
+Настоящие файлы окружения без суффикса примера (.env, .env.local, .env.production) этот
+разборщик не открывает никогда; закоммиченный в git .env рядом с файлом compose читает только
+compose.py и только для подстановки переменных в поля compose (ТЗ §15 п. 12 С13)."""
 
 from __future__ import annotations
 
@@ -26,7 +27,7 @@ _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 
 def is_example(name: str) -> bool:
     """Файл окружения с суффиксом примера: его можно открыть. Без суффикса это настоящий
-    файл окружения, его сборщик не открывает никогда."""
+    файл окружения: параметров из него нет (подстановка в compose — compose._dotenvs)."""
     return _EXAMPLE.fullmatch(name) is not None
 
 

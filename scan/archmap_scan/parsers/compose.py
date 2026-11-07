@@ -9,7 +9,9 @@ profiles и сервисы, которые есть только в файлах
 раскрываются. Подстановки с
 дефолтом (${VAR:-x}, ${VAR-x}) в image, environment и command раскрываются в дефолт,
 остальные (${VAR}, $VAR) известны только при запуске: адрес из такого значения не берётся,
-образ с ними технологию не даёт, а место уходит в подсказки.
+образ с ними технологию не даёт, а место уходит в подсказки. Закоммиченный в git .env рядом
+с файлом (ТЗ §15 п. 12 С13) раскрывает ${VAR} и ${VAR:-x} в image, build (context,
+dockerfile), environment и depends_on; без git он не читается.
 Один сервис в нескольких файлах (основной и override) — один кандидат: поля поздних файлов
 перекрывают ранние, как у самого compose.
 
@@ -25,10 +27,11 @@ compose (расширения x-*, dependencies) — сервисы других
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from archmap_scan import paths, texts, vocab
-from archmap_scan.context import Context
+from archmap_scan.context import Context, tracked_files
 from archmap_scan.model import (
     EnvVar,
     Findings,
@@ -92,10 +95,12 @@ def _closing(value: str, start: int) -> int:
     return -1
 
 
-def expand(value: str, depth: int = 0) -> str:
+def expand(value: str, depth: int = 0, env: Mapping[str, str] | None = None) -> str:
     """Раскрыть подстановки compose с дефолтом: ${VAR:-x} и ${VAR-x} дают x. Остальные
     (${VAR}, $VAR, ${VAR:?ошибка}, ${VAR:+x}) известны только при запуске и остаются как
-    есть; экранированное $$ не трогается."""
+    есть; экранированное $$ не трогается. env — переменные закоммиченного .env рядом с
+    файлом (ТЗ §15 п. 12 С13): ими раскрываются ${VAR}, ${VAR:-x} и ${VAR-x}, когда VAR
+    задана (у «:-» непустой); $VAR без скобок и прочие формы остаются как есть."""
     out: list[str] = []
     i = 0
     n = len(value)
@@ -124,20 +129,27 @@ def expand(value: str, depth: int = 0) -> str:
             default = rest[2:]
         elif j and rest.startswith("-"):
             default = rest[1:]
+        known = env.get(body[:j]) if env is not None and j else None
+        if known is not None and (rest == "" or rest.startswith("-") or (
+            rest.startswith(":-") and known != ""
+        )):
+            default = known
         if default is None or depth >= _MAX_NESTING:
             out.append(value[i:end + 1])
         else:
-            out.append(expand(default, depth + 1))
+            out.append(expand(default, depth + 1, env))
         i = end + 1
     return "".join(out)
 
 
-def _env(svc: LineDict, rel: str, out: list[EnvVar]) -> None:
+def _env(
+    svc: LineDict, rel: str, out: list[EnvVar], dotenv: Mapping[str, str] | None = None,
+) -> None:
     env = svc.get("environment")
     if isinstance(env, LineDict):
         for key, value in env.items():
             loc = Loc(rel, env.line_of(key))
-            text = None if value is None else expand(_scalar(value))
+            text = None if value is None else expand(_scalar(value), env=dotenv)
             out.append(EnvVar(str(key), loc, text, text is not None and is_dynamic(text)))
     elif isinstance(env, LineList):
         for i, item in enumerate(env):
@@ -145,7 +157,7 @@ def _env(svc: LineDict, rel: str, out: list[EnvVar]) -> None:
                 continue
             key, eq, value = item.partition("=")
             loc = Loc(rel, env.line_at(i))
-            text = expand(value) if eq else None
+            text = expand(value, env=dotenv) if eq else None
             out.append(EnvVar(key.strip(), loc, text, text is not None and is_dynamic(text)))
 
 
@@ -165,22 +177,28 @@ def _command(svc: LineDict) -> tuple[str | None, int | None]:
     return None, None
 
 
-def _depends(svc: LineDict, rel: str) -> list[tuple[str, Loc]]:
+def _depends(
+    svc: LineDict, rel: str, dotenv: Mapping[str, str] | None = None,
+) -> list[tuple[str, Loc]]:
     dep = svc.get("depends_on")
     out: list[tuple[str, Loc]] = []
     if isinstance(dep, LineList):
         out = [(str(d), Loc(rel, dep.line_at(i))) for i, d in enumerate(dep) if d]
     elif isinstance(dep, LineDict):
         out = [(str(d), Loc(rel, dep.line_of(d))) for d in dep]
+    if dotenv is not None:
+        out = [(expand(name, env=dotenv), loc) for name, loc in out]
     return out
 
 
 def _build(
     svc: LineDict, rel: str, name: str, found: Findings, files: Files, quiet: bool = False,
+    dotenv: Mapping[str, str] | None = None,
 ) -> tuple[str | None, str | None]:
     """Каталог кода и путь Dockerfile из build. Каталог, которого нет в обходе (контекст
     относительно другого корня, удалённый каталог), каталогом кода не считается (ТЗ §5.1).
-    quiet — без подсказок о негодном контексте (сервис файла для разработки)."""
+    quiet — без подсказок о негодном контексте (сервис файла для разработки). Подстановки в
+    context и dockerfile раскрываются только переменными закоммиченного .env (dotenv, С13)."""
     build = svc.get("build")
     if build is None:
         return None, None
@@ -191,6 +209,9 @@ def _build(
     elif isinstance(build, LineDict):
         context = build.get("context", ".")
         dockerfile = build.get("dockerfile", "Dockerfile")
+    if dotenv is not None:
+        context = expand(context, env=dotenv) if isinstance(context, str) else context
+        dockerfile = expand(dockerfile, env=dotenv) if isinstance(dockerfile, str) else dockerfile
     if not isinstance(context, str) or "://" in context or context.startswith("git@"):
         return None, None
     folder = paths.join(paths.parent(rel), context)
@@ -226,10 +247,11 @@ def _services(doc: LineDict) -> LineDict | None:
 
 def _unit(
     name: str, svc: LineDict, rel: str, line: int, found: Findings, files: Files,
+    dotenv: Mapping[str, str] | None = None,
 ) -> Unit:
     raw_image = svc.get("image")
-    image = expand(raw_image) if isinstance(raw_image, str) else None
-    folder, docker = _build(svc, rel, name, found, files)
+    image = expand(raw_image, env=dotenv) if isinstance(raw_image, str) else None
+    folder, docker = _build(svc, rel, name, found, files, dotenv=dotenv)
     if image is not None and is_dynamic(image):
         # Имя образа известно только при запуске: технологию по нему не угадываем.
         if folder is None:
@@ -259,8 +281,8 @@ def _unit(
         entrypoint=expand(" ".join(entry.split())) if isinstance(entry, str) and entry.strip()
         else None,
     )
-    _env(svc, rel, unit.env)
-    unit.depends_on = _depends(svc, rel)
+    _env(svc, rel, unit.env, dotenv)
+    unit.depends_on = _depends(svc, rel, dotenv)
     for key, reason in (("extends", texts.REASON_EXTENDS), ("env_file", texts.REASON_ENV_FILE)):
         if key in svc:
             found.hints.append(Hint("unassigned", {
@@ -388,6 +410,7 @@ def parse(files: Files, ctx: Context) -> Findings:
     docs = {r: docs[r] for r in [*(r for r in docs if r not in dev_files),
                                  *(r for r in docs if r in dev_files)]}
     bases = _dev_bases(docs, dev_files)
+    dotenvs = _dotenvs(files, ctx, list(docs))
     for rel, services in docs.items():
         dev = signs[rel]
         # Пометка о compose по содержимому у файла разработки нужна, только если он даст
@@ -422,7 +445,9 @@ def parse(files: Files, ctx: Context) -> Findings:
                     # Сборка сервиса в файле для разработки называет Dockerfile его образа: у
                     # сервиса основных файлов это Dockerfile его же контейнера (ТЗ §15 п. 10
                     # А6).
-                    folder, docker = _build(svc, rel, name, found, files, quiet=True)
+                    folder, docker = _build(
+                        svc, rel, name, found, files, quiet=True, dotenv=dotenvs.get(rel),
+                    )
                     if folder is not None and docker is not None:
                         found.image_builds.append(ImageBuild(
                             dockerfile=docker, loc=Loc(rel, svc.line_of("build")),
@@ -432,7 +457,7 @@ def parse(files: Files, ctx: Context) -> Findings:
                     # Подсказки разбора сервиса разработки идут в вывод, только если он
                     # станет объектом (Unit.dev_hints).
                     own = Findings()
-                    unit = _unit(name, svc, rel, line, own, files)
+                    unit = _unit(name, svc, rel, line, own, files, dotenvs.get(rel))
                     unit.dev, unit.dev_hints = sign, own.hints
                     unit.dev_notes = [note] if note is not None else []
                     if name in dev_units:
@@ -442,7 +467,7 @@ def parse(files: Files, ctx: Context) -> Findings:
                     else:
                         dev_units[name] = unit
                 continue
-            unit = _unit(name, svc, rel, line, found, files)
+            unit = _unit(name, svc, rel, line, found, files, dotenvs.get(rel))
             if name in units:
                 _merge(units[name], unit)
             else:
@@ -458,6 +483,34 @@ def parse(files: Files, ctx: Context) -> Findings:
                     "reason": texts.REASON_DYNAMIC_VALUE, "source": str(var.loc),
                 }))
     return found
+
+
+_DOTENV = ".env"
+
+
+def _dotenvs(files: Files, ctx: Context, rels: list[str]) -> dict[str, dict[str, str]]:
+    """Переменные .env из каталога каждого файла compose (ТЗ §15 п. 12 С13): только
+    закоммиченный в git файл (закоммиченный файл не секрет), только для подстановки в поля
+    compose. Без git .env не читается никогда, его значения не параметры и не факты."""
+    near = {rel: paths.join(paths.parent(rel), _DOTENV) or _DOTENV for rel in rels}
+    present = set(files.paths)
+    wanted = {env for env in near.values() if env in present}
+    if not wanted or not ctx.git:
+        return {}
+    tracked = tracked_files(ctx)
+    # Разбор строк — тот же, что у примеров окружения (envexample.parse_text); импорт
+    # внутри функции: envexample сам берёт is_dynamic у этого модуля.
+    from archmap_scan.parsers import envexample
+
+    values: dict[str, dict[str, str]] = {}
+    for env in sorted(wanted & tracked):
+        text = files.read(env)
+        if text is not None:
+            values[env] = {
+                v.name: v.value for v in envexample.parse_text(env, text).vars
+                if v.value is not None
+            }
+    return {rel: values[env] for rel, env in near.items() if env in values}
 
 
 _SAIL_CONTEXT = "vendor/laravel/sail"

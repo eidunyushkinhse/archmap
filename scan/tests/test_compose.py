@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
-from archmap_scan import texts
+from archmap_scan import registry, texts
+from archmap_scan.assemble import assemble
+from archmap_scan.context import make_context
 from archmap_scan.model import Findings, Unit
+from archmap_scan.objects import Model
 from archmap_scan.parsers import compose
-from archmap_scan.walk import Files
+from archmap_scan.walk import Files, list_files
 from archmap_scan.yamlload import MAX_YAML_BYTES
-from tests.helpers import FIXTURES, files_of, tree
+from tests.helpers import FIXTURES, files_of, git, tree
 
 
 def _parse(root: Path) -> Findings:
@@ -213,3 +217,70 @@ def test_expand_hostile_in_time() -> None:
         started = time.perf_counter()
         compose.expand(value)
         assert time.perf_counter() - started < 1.0
+
+
+_DOTENV = (
+    "# Переменные compose\n"
+    "IMAGE_NAME=ghcr.io/example/demo\n"
+    "DEMO_VERSION=2.0.0\n"
+    "AD_DOCKERFILE=services/advert/Dockerfile\n"
+    "AD_PORT=9555\n"
+    "AD_ADDR=ad:${AD_PORT}\n"
+    "EXTERNAL_URL=https://shop.example.com\n"
+    "SECRET_TOKEN=not-a-param\n"
+    "KAFKA_DOCKERFILE=src/kafka/Dockerfile\n"
+    "CHECKOUT_DOCKERFILE=src/checkout/Dockerfile\n"
+)
+
+
+def _dotenv_model(root: Path, use_git: bool) -> Model:
+    ctx = make_context(root, use_git=use_git)
+    files = Files(ctx.root, list_files(ctx).files)
+    findings, errors = registry.collect(files, ctx)
+    assert errors == {}
+    return assemble(findings, ctx)
+
+
+def test_dotenv_substitution_only_when_committed(tmp_path: Path) -> None:
+    """Переменные compose из закоммиченного .env (ТЗ §15 п. 12 С13). OpenTelemetry Demo
+    (docker-compose.yml): dockerfile: ${AD_DOCKERFILE}, image: ${IMAGE_NAME} и адреса
+    ${AD_ADDR} живут в закоммиченном .env, 46 подсказок «значение с подстановкой
+    переменной». С git .env раскрывает подстановки в dockerfile, image и environment: у ad
+    свой Dockerfile на Java, у web связь к ad по адресу ad:9555 (хост равен имени сервиса,
+    §6). Попутно: src/kafka/Dockerfile на apache/kafka без манифестов сборки даёт брокер, а
+    genproto/ в каталоге Dockerfile checkout остаётся вариантом, как без .env. Ловушки: адрес
+    чужого хоста (EXTERNAL_URL) связи не даёт; SECRET_TOKEN из .env параметром не становится;
+    .env в .gitignore (не закоммичен) и без git не читается."""
+    repo = tmp_path / "repo"
+    shutil.copytree(FIXTURES / "compose-dotenv", repo)
+    (repo / ".env").write_text(_DOTENV, encoding="utf-8")
+    git(repo, "init", "-q")
+    git(repo, "add", "-A")
+    git(repo, "add", "-f", ".env")
+    git(repo, "commit", "-qm", "init")
+    model = _dotenv_model(repo, use_git=True)
+    objs = {o.name: o for o in model.objects}
+    assert set(objs) == {"ad", "web", "kafka", "checkout"}
+    # Брокер по образу своего Dockerfile без манифестов сборки, как у Dockerfile без
+    # манифеста; genproto/ в каталоге Dockerfile checkout — его вариант (С8).
+    assert (objs["kafka"].shape, objs["kafka"].technology) == ("broker", "Kafka")
+    assert [h["name"] for h in model.hints["merged"]] == ["src/checkout/genproto/Dockerfile"]
+    ad = objs["ad"]
+    assert ad.dockerfile is not None and ad.dockerfile.path == "services/advert/Dockerfile"
+    assert ad.technology == "Java"
+    assert {(lk.src.name, lk.dst.name) for lk in model.links} == {("web", "ad")}
+    assert "SECRET_TOKEN" not in {n for table in model.params.values() for n in table}
+    dynamic = [h for h in model.hints.get("dynamic_names", []) if h["kind"] == "env"]
+    assert dynamic == []
+    # Не закоммиченный .env (в .gitignore) и обход без git: подстановок нет.
+    other = tmp_path / "ignored"
+    shutil.copytree(FIXTURES / "compose-dotenv", other)
+    (other / ".env").write_text(_DOTENV, encoding="utf-8")
+    (other / ".gitignore").write_text(".env\n", encoding="utf-8")
+    git(other, "init", "-q")
+    git(other, "add", "-A")
+    git(other, "commit", "-qm", "init")
+    for model in (_dotenv_model(other, use_git=True), _dotenv_model(repo, use_git=False)):
+        names = {o.name for o in model.objects}
+        assert names == {"ad", "advert", "web", "kafka", "checkout"}
+        assert model.links == []

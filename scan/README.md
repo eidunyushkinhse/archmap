@@ -214,3 +214,6 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     «C++ (Bazel)», `CMakeLists.txt` — «C/C++ (CMake)», `buildfiles.root_stack`): `Cargo.toml` и
     `go.mod` тогда SDK и утилиты (ни неявного контейнера, ни процессов `cmd/`, ни языка
     корневым контейнерам), стек первым в `stacks` и в `unsupported` (С12);
+  - закоммиченный в git `.env` из каталога файла compose раскрывает `${VAR}` и `${VAR:-x}` в
+    `image`, `build`, `environment` и `depends_on` (`compose._dotenvs`); без git и
+    незакоммиченный не читается, параметрами его значения не становятся (С13).

@@ -442,10 +442,18 @@ def _dockerfile_units(
     # Кандидат разработки на ступени 1 объектом не станет и каталогом не владеет.
     homes: dict[str, list[str]] = {}
     for u in [*units, *out]:
-        if u.build_dir is None or u.build_dir == scope or (u.dev is not None and not stage2):
+        if u.dev is not None and not stage2:
             continue
-        if u.name not in homes.get(u.build_dir, []):
-            homes.setdefault(u.build_dir, []).append(u.name)
+        home = u.build_dir
+        if home in (None, scope) and u.dockerfile:
+            # Сборка из корня с Dockerfile в каталоге с именем сервиса (src/checkout/Dockerfile
+            # у checkout OpenTelemetry Demo): этот каталог и есть каталог кода (С5а).
+            folder = paths.parent(u.dockerfile)
+            home = folder if folder and _flat(paths.name(folder)) == _flat(u.name) else None
+        if home is None or home == scope:
+            continue
+        if u.name not in homes.get(home, []):
+            homes.setdefault(home, []).append(u.name)
 
     def place(u: Unit, d: Dockerfile) -> None:
         owner = _home_owner(d.dir, homes, scope)
@@ -582,9 +590,12 @@ def _classify(
             obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
         else:
             obj.shape, obj.technology = SERVICE, vocab.image_name(image) or None
-    elif shape_hint is not None and obj.dockerfile is not None:
+    elif obj.dockerfile is not None and (shape_hint is not None or not _code_packages(obj, packages)):
+        # Вид по образу итоговой стадии Dockerfile: у кандидата с видом и у контейнера без
+        # своих манифестов сборки (src/kafka/Dockerfile OpenTelemetry Demo на apache/kafka,
+        # путь из закоммиченного .env, ТЗ §15 п. 12 С13), как у Dockerfile без манифеста.
         kind = vocab.image_kind(obj.dockerfile.images[-1])
-        if kind is not None:
+        if kind is not None and (shape_hint is not None or kind.shape != SERVICE):
             obj.shape, obj.technology, obj.role = kind.shape, kind.technology, kind.role
     if obj.shape != SERVICE:
         return
