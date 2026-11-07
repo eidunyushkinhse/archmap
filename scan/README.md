@@ -257,3 +257,6 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - каталог `coverage` при обходе через git не каталог зависимостей (`walk.GIT_READ_DIRS`):
     закоммиченный `coverage/` читается и ярусом кода (`walk.CODE_SKIP_DIRS`), без git обход
     в него не заходит, `node_modules` и прочие с git исключены, как раньше (Д5);
+  - файлы `.kt` и `.kts` — язык Kotlin у владельцев (`owners._EXT_LANGUAGE`): контейнер на
+    Kotlin (Gradle с плагином Kotlin) владеет `.kt` и `.java` смешанного модуля, контейнер на
+    Java только `.java`; ярус кода Kotlin не читает, на факты это не влияет (Д6);

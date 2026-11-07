@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from archmap_scan import registry, stats, texts, vocab, walk
+from archmap_scan import owners, registry, stats, texts, vocab, walk
 from archmap_scan.assemble import assemble
 from archmap_scan.objects import Model, Obj
 from archmap_scan.walk import Files
@@ -288,6 +288,38 @@ def test_ci_candidates_on_stage_two() -> None:
     assert walk.ci_sign("ops/docker-compose.ci.yml") and walk.ci_sign(".github/compose.yml")
     assert not walk.ci_sign("services/circuit/compose.yaml")
     assert not walk.ci_sign("ci.yaml") and not walk.ci_sign("deploy/docker-compose.civic.yml")
+
+
+def test_kotlin_files_owned_by_kotlin_container() -> None:
+    """Владельцы файлов Kotlin (ТЗ §15 п. 13 Д6): `.kt` и `.kts` относились к Java, поэтому
+    контейнер ledger на Gradle с плагином Kotlin не владел ни своими `.kt`, ни `.java`
+    смешанного модуля, а контейнер billing на Java владел чужим ему `.kt`. Ловушка: Stray.kt
+    в каталоге billing (Gradle без плагина Kotlin) теперь «нет контейнера на этом языке»."""
+    model = model_of(FIXTURES / "kotlin-owners")
+    cs = model.objects
+    assert [(o.name, o.language) for o in cs] == [("billing", "Java"), ("ledger", "Kotlin")]
+    found = {
+        rel: [o.name for o in owners.file_owners(rel, cs)] for rel in (
+            "ledger/src/main/kotlin/Ledger.kt", "ledger/src/main/java/Legacy.java",
+            "ledger/build.gradle.kts", "billing/src/main/java/Billing.java",
+            "billing/src/main/kotlin/Stray.kt",
+        )
+    }
+    assert found == {
+        "ledger/src/main/kotlin/Ledger.kt": ["ledger"],
+        "ledger/src/main/java/Legacy.java": ["ledger"],
+        "ledger/build.gradle.kts": ["ledger"],
+        "billing/src/main/java/Billing.java": ["billing"],
+        "billing/src/main/kotlin/Stray.kt": [],
+    }
+    assert owners.missing_reason("billing/src/main/kotlin/Stray.kt", cs) == (
+        texts.REASON_OTHER_LANGUAGE
+    )
+    # Единственный контейнер на Kotlin забирает код Java вне каталогов (sole_owner).
+    assert owners.file_owners("shared/Util.java", [_obj(model, "ledger")]) == [
+        _obj(model, "ledger"),
+    ]
+    assert owners.file_owners("shared/Util.kt", [_obj(model, "billing")]) == []
 
 
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:

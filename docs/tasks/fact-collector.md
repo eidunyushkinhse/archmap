@@ -1051,3 +1051,10 @@ unread: {too_large: 3, binary: 0}
      Kubernetes: параметры `KUBE_COVERAGE_FILE` и `KUBE_COVERAGE_FLUSH_INTERVAL` из
      `pkg/util/coverage/coverage.go` в подсказках «общий код» (без владельца 32 → 34), объекты
      и связи те же; у Envoy `bazel/coverage/` и `tools/coverage/` ушли из исключённых.
+   - Д6 (решение исполнителя): «смешанный проект» определяется языком контейнера: Gradle с
+     плагином Kotlin собирает и Java того же модуля, поэтому контейнер на Kotlin владеет и
+     `.java`, если среди владельцев каталога нет контейнера на Java (точное совпадение языка
+     старше). Обратного нет: Gradle без плагина Kotlin и Maven файлы `.kt` не компилируют. Maven
+     с `kotlin-maven-plugin` по-прежнему даёт язык Java, и его `.kt` теперь «нет контейнера на
+     этом языке»; ярус кода JVM не читает, поэтому на выводе дымовых (OpenTelemetry Demo,
+     Keycloak, Petclinic) правило не видно, вывод байт в байт тот же.
