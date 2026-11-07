@@ -272,6 +272,24 @@ def test_dev_stage_one_keeps_prod_service() -> None:
     }
 
 
+def test_ci_candidates_on_stage_two() -> None:
+    """Ступень 2 (ТЗ §15 п. 13 Д4): боевых манифестов нет, но compose в каталоге ci/ (сборочная
+    матрица Envoy) объектов не даёт, его сервисы уходят в hints.profiles с причиной «манифест
+    CI». Ловушки: стенд разработки docker-compose.dev.yml остаётся объектом с пометкой;
+    сервис cache есть и в стенде, и в CI, поэтому подсказки CI о нём нет; Dockerfile в
+    distribution/ остаётся объектом relay, как Dockerfile-envoy у Envoy."""
+    model = model_of(FIXTURES / "ci-stage")
+    assert sorted(o.name for o in model.objects) == ["cache", "relay"]
+    assert [h["name"] for h in model.hints["dev_manifest_objects"]] == ["cache"]
+    profiles = {str(h["name"]): str(h["reason"]) for h in model.hints["profiles"]}
+    ci = texts.ci_manifest(texts.dev_sign_dir("ci"))
+    assert profiles == {"build": ci, "build-dind": ci}
+    assert walk.ci_sign("ci/matrix/docker-compose.yml") and walk.ci_sign(".ci/compose.yml")
+    assert walk.ci_sign("ops/docker-compose.ci.yml") and walk.ci_sign(".github/compose.yml")
+    assert not walk.ci_sign("services/circuit/compose.yaml")
+    assert not walk.ci_sign("ci.yaml") and not walk.ci_sign("deploy/docker-compose.civic.yml")
+
+
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:
     """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
     компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог

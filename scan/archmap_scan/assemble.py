@@ -35,7 +35,14 @@ from archmap_scan.objects import (
     Schedule,
     Worker,
 )
-from archmap_scan.walk import Pattern, dev_sign, manifest_sign, mobile_dir, service_sign
+from archmap_scan.walk import (
+    Pattern,
+    ci_sign,
+    dev_sign,
+    manifest_sign,
+    mobile_dir,
+    service_sign,
+)
 
 # Старшинство манифестов при слиянии кандидатов с одним именем.
 PRIORITY = {
@@ -765,7 +772,10 @@ def _dev_units(
 
     Ступень 2 (Б3): боевых манифестов нет (Sentry devservices). Кандидаты разработки
     становятся объектами вместе с подсказками своего разбора, а пометку «из манифеста
-    разработки» ставит _dev_objects."""
+    разработки» ставит _dev_objects. Кандидаты CI (walk.ci_sign, ТЗ §15 п. 13 Д4) и на
+    ступени 2 объектами не становятся: CI собирает и проверяет продукт, а не поднимает его
+    стенд (ci/ Envoy). Они уходят в hints.profiles, если кандидата с тем же именем нет в
+    стенде разработки."""
     for u in units:
         if u.dev is None and u.parser in _DEV_MANIFESTS:
             sign = dev_sign if u.parser in _NO_SERVICE_SIGN else manifest_sign
@@ -773,11 +783,20 @@ def _dev_units(
     _stands([u for u in units if u.dev is None], findings, root_names)
     kept = [u for u in units if u.dev is None]
     if not any(u.parser in _MANIFEST_PARSERS for u in kept):
+        stand = [u for u in units if u.dev is None or not ci_sign(u.loc.path)]
+        names = {u.name for u in stand}
         for u in units:
+            if u.dev is not None and u.name not in names:
+                model.hint("profiles", {
+                    "kind": "container", "name": u.name, "reason": texts.ci_manifest(u.dev),
+                    "source": str(u.loc), "profiles": [],
+                })
+                names.add(u.name)
+        for u in stand:
             for hint in u.dev_hints:
                 model.hint(hint.section, hint.data)
             model.dev_notes += [n for n in u.dev_notes if n not in model.dev_notes]
-        return units
+        return stand
     names = {u.name for u in kept}
     for u in units:
         if u.dev is not None and u.name not in names:

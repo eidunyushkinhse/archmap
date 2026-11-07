@@ -250,3 +250,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `go.mod` или `pyproject.toml` старше `package.json` без серверного фреймворка или с
     `workspaces`; `package.json` с серверным фреймворком (koa, express) первым, `--system`
     старше всего (Д3);
+  - кандидаты CI (`walk.ci_sign`: каталог с частью `ci` в пути, файлы CI, compose с частью
+    `ci` в имени) и на ступени 2 объектами не становятся, а уходят в `hints.profiles` с
+    причиной «манифест CI: …»; стенды разработки (devservices, Sail, `*.dev.yml`) на ступени 2
+    по-прежнему объекты (Д4);

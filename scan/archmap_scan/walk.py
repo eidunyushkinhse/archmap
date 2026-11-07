@@ -375,6 +375,22 @@ def ci_rule(rel_in_scope: str) -> str | None:
     return None
 
 
+# CI на ступени 2 (ТЗ §15 п. 13 Д4): ci/matrix/docker-compose.yml Envoy описывает сборочную
+# матрицу (gcc, llvm, none), а не стенд продукта, но без боевых манифестов давал объекты.
+_CI_TOKEN = "ci"
+
+
+def ci_sign(rel: str) -> bool:
+    """Манифест CI: каталог пути с частью «ci» (ci/, .ci/, ci-matrix/), файл или каталог CI
+    (ci_rule: .github/, .gitlab-ci.yml, .woodpecker.yml, .drone.yml, .circleci/) или compose
+    с частью «ci» в имени. Файлы CI и такой compose обход и так не читает (если их не вернул
+    --include), поэтому на деле признак даёт каталог."""
+    segments = rel.split("/")
+    if ci_rule(rel) is not None or any(_CI_TOKEN in name_tokens(s) for s in segments[:-1]):
+        return True
+    return is_compose_name(segments[-1]) and _CI_TOKEN in name_tokens(segments[-1])
+
+
 def _glob_match(
     pattern: Sequence[str], items: Sequence[str], star: str, eq: Callable[[str, str], bool]
 ) -> bool:

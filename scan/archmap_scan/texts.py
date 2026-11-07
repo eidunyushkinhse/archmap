@@ -327,6 +327,11 @@ def dev_manifest(sign: str) -> str:
     return f"манифест разработки: {sign}"
 
 
+def ci_manifest(sign: str) -> str:
+    """Причина подсказки о кандидате CI без боевых манифестов (ТЗ §15 п. 13 Д4)."""
+    return f"манифест CI: {sign}"
+
+
 def dev_sign_dir(path: str) -> str:
     """Признак разработки по месту: каталог пути (walk.dev_sign)."""
     return f"каталог {path}/"
