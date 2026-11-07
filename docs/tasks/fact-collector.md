@@ -875,3 +875,10 @@ unread: {too_large: 3, binary: 0}
      `django._sqlite_overridden`, `TableSet.dialect_default`). Тогда база по миграциям строится
      без вида («База данных», 60 таблиц AWX), подсказка та же. Ловушка: модуль рядом без
      `DATABASES` sqlite не отменяет, проект только на sqlite остаётся с SQLite.
+   - С10: файл Kubernetes, где у любого документа `metadata.name` или строка под ключом `image`
+     содержит `RELEASE-NAME` без учёта регистра, это вывод `helm template` (`k8s.rendered`):
+     документы файла не разбираются, в покрытии пометка семьи containers «отрендеренный
+     шаблон Helm (имена RELEASE-NAME) не разбирается», путь файла в `hints.unparsed`. Метки и
+     прочие поля признаком не считаются. У Airflow ушли объекты «RELEASE-NAME-kerberos-kdc» и
+     «RELEASE-NAME-keytab-bootstrap» (`chart/kustomize-overlays/kerberos/`), под признак
+     попадает и `chart/kustomize-overlays/keda/`.

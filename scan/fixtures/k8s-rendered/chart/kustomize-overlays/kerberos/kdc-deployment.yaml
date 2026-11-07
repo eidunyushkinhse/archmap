@@ -1,0 +1,11 @@
+# С10: вывод helm template (имя релиза по умолчанию RELEASE-NAME), не манифест выкладки.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: RELEASE-NAME-kerberos-kdc
+spec:
+  template:
+    spec:
+      containers:
+        - name: kdc
+          image: gcavalcante8808/krb5-server:latest

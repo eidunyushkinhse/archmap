@@ -204,3 +204,5 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
   - ENGINE sqlite3 настроек Django, когда другой модуль того же пакета настроек переопределяет
     `DATABASES` без sqlite (`TableSet.dialect_default`) или таблицы у базы другого вида из
     манифестов, вида базы не даёт: подсказка «sqlite как значение по умолчанию настроек» (С9);
+  - файл k8s с `RELEASE-NAME` в `metadata.name` или образе — вывод `helm template`, не
+    разбирается: пометка семьи containers и запись `hints.unparsed` (`k8s.rendered`, С10);

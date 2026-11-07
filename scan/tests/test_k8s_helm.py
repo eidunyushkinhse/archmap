@@ -87,3 +87,21 @@ def test_helm_mark_regex_on_hostile_text() -> None:
         started = time.perf_counter()
         assert k8s._HELM.search(text) is None
         assert time.perf_counter() - started < time_limit()
+
+
+def test_helm_rendered_output_not_read() -> None:
+    """Отрендеренный шаблон Helm не разбирается (ТЗ §15 п. 12 С10). Airflow:
+    chart/kustomize-overlays/kerberos/kdc-deployment.yaml и keytab-bootstrap-job.yaml с
+    именами RELEASE-NAME-* давали объекты «RELEASE-NAME-kerberos-kdc» и
+    «RELEASE-NAME-keytab-bootstrap». Признак — RELEASE-NAME в metadata.name или в образе.
+    Ловушка: обычный оверлей kustomize с настоящими именами читается, метка с тем же словом
+    признаком не считается."""
+    ctx, files = files_of(FIXTURES / "k8s-rendered")
+    found = k8s.parse(files, ctx)
+    assert [u.name for u in found.units] == ["worker"]
+    assert sorted(str(h.data["name"]) for h in found.hints if h.section == "unparsed") == [
+        "chart/kustomize-overlays/kerberos/kdc-deployment.yaml",
+        "chart/kustomize-overlays/kerberos/keytab-bootstrap-job.yaml",
+    ]
+    assert {h.data["reason"] for h in found.hints} == {texts.REASON_HELM_RENDERED}
+    assert found.notes == {"containers": [texts.NOTE_HELM_RENDERED]}
