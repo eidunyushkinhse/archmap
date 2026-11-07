@@ -1,7 +1,9 @@
 """Файлы OpenAPI (ТЗ §6.1): openapi*.y(a)ml|json и swagger*.y(a)ml|json с ключом openapi или
 swagger. Только путь и число операций для hints.openapi_files; содержимое не импортируется.
 Пути, заданные ссылками $ref на файлы репозитория, считаются по целевым файлам (один
-уровень, с пределом числа файлов); неразворачиваемая ссылка — операции не посчитаны."""
+уровень, с пределом числа файлов); неразворачиваемая ссылка — операции не посчитаны. Файлы в исключённых каталогах
+документации (docs/, api-docs/: Files.docs) тоже читаются ради подсказки с причиной
+«найден в каталоге документации» (ТЗ §15 п. 13 Д2); каталоги тестов и примеров — нет."""
 
 from __future__ import annotations
 
@@ -53,7 +55,7 @@ class _Refs:
         self.files = files
         self.rel = rel
         self.doc = doc
-        self.present = set(files.paths)
+        self.present = set(files.paths) | set(files.docs)
         self.loaded: dict[str, object] = {}
 
     def _load(self, target: str) -> object:
@@ -117,7 +119,8 @@ def _counted(files: Files, rel: str, doc: dict[object, object]) -> tuple[int | N
 
 def parse(files: Files, ctx: Context) -> Findings:
     found = Findings()
-    for rel in files.select(is_candidate):
+    docs = [rel for rel in files.docs if is_candidate(rel)]
+    for rel in [*files.select(is_candidate), *docs]:
         text = files.read(rel)
         if text is None:
             continue
@@ -134,5 +137,7 @@ def parse(files: Files, ctx: Context) -> Findings:
             continue
         if isinstance(doc, dict) and ("openapi" in doc or "swagger" in doc):
             count, reason = _counted(files, rel, doc)
-            found.openapi.append(OpenApi(path=rel, operations=count, reason=reason))
+            found.openapi.append(OpenApi(
+                path=rel, operations=count, reason=reason, in_docs=rel in docs,
+            ))
     return found

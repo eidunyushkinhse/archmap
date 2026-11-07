@@ -120,6 +120,7 @@ class OpenApi:
     path: str
     operations: int | None  # None — операции не посчитаны, причина в reason
     reason: str | None = None  # None при operations None — файл больше предела разбора
+    in_docs: bool = False  # файл в исключённом каталоге документации (ТЗ §15 п. 13 Д2)
 
 
 @dataclass

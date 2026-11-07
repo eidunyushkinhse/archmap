@@ -37,7 +37,7 @@ def run(opts: Options) -> Result:
     out = Path(opts.out).resolve()
     outdir.check(out)
     listing = list_files(ctx, excludes=opts.excludes, includes=opts.includes, skip=(out,))
-    files = Files(ctx.root, listing.files)
+    files = Files(ctx.root, listing.files, listing.docs)
     findings, errors = registry.collect(files, ctx)
     model = assemble(findings, ctx)
 

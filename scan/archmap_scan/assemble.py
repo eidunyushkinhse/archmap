@@ -1213,7 +1213,7 @@ def _openapi(model: Model, findings: Findings) -> None:
         if spec.operations is None:
             data["reason"] = spec.reason or texts.REASON_OPENAPI_TOO_LARGE
         else:
-            data["reason"] = texts.REASON_OPENAPI_FILE
+            data["reason"] = texts.REASON_OPENAPI_DOCS if spec.in_docs else texts.REASON_OPENAPI_FILE
         data["source"] = spec.path
         if spec.operations is not None:
             data["operations"] = spec.operations

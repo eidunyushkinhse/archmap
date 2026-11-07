@@ -121,3 +121,28 @@ def test_ref_file_limit(tmp_path: Path) -> None:
     [spec] = openapi.parse(files, ctx).openapi
     assert time.perf_counter() - started < 2.0
     assert spec.operations is None and spec.reason is not None
+
+
+def test_openapi_in_docs_dir(tmp_path: Path) -> None:
+    """Файл OpenAPI в каталоге документации (ТЗ §15 п. 13 Д2): Sentry api-docs/openapi.json с
+    путями ссылками на api-docs/paths/*.json исключён правилом С3а, но подсказка
+    openapi_files нужна. Каталог остаётся исключённым в покрытии, ссылки внутри него
+    разворачиваются, причина называет каталог документации. Ловушки: docs/examples и
+    tests/fixtures не читаются; Dockerfile в docs/ объектом не становится."""
+    ctx, files = files_of(FIXTURES / "openapi-docs")
+    found = openapi.parse(files, ctx)
+    assert [(s.path, s.operations, s.in_docs) for s in found.openapi] == [
+        ("openapi.yaml", 1, False), ("api-docs/openapi.json", 2, True),
+    ]
+    out = tmp_path / "out"
+    run(Options(path=str(FIXTURES / "openapi-docs"), out=str(out), system="Ярмарка",
+                use_git=False))
+    hints = yaml.safe_load((out / "agent" / "hints.yaml").read_text(encoding="utf-8"))
+    assert [(h["name"], h["reason"]) for h in hints["openapi_files"]] == [
+        ("api-docs/openapi.json", texts.REASON_OPENAPI_DOCS),
+        ("openapi.yaml", texts.REASON_OPENAPI_FILE),
+    ]
+    cov = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))
+    assert {"path": "api-docs/", "files": 2, "reason": "convention"} in cov["excluded"]
+    schema = yaml.safe_load((out / "schema.yaml").read_text(encoding="utf-8"))
+    assert not schema["nodes"][0].get("children")

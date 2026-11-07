@@ -51,6 +51,24 @@ def _convention_dir(segment: str) -> bool:
     low = segment.lower()
     return low in CONVENTION_DIRS or bool(_DOC_TOKENS & set(_SEGMENT_PARTS.split(low)))
 
+
+# Каталоги документации (ТЗ §15 п. 13 Д2): файлы OpenAPI в них (Sentry api-docs/openapi.json)
+# всё же видит разборщик openapi ради подсказки, хотя в покрытии каталог исключён. Каталоги
+# тестов, фикстур, примеров и образцов сюда не входят.
+_DOCS_ONLY = frozenset({"docs", "doc"})
+
+
+def docs_only(rel_in_scope: str) -> bool:
+    """Путь исключён по соглашению только каталогами документации (docs, doc, api-docs):
+    ни один каталог пути не тестовый, не фикстуры и не примеры."""
+    hits = [seg.lower() for seg in rel_in_scope.split("/")[:-1] if _convention_dir(seg)]
+    return bool(hits) and all(
+        set(_SEGMENT_PARTS.split(seg)) & _DOCS_ONLY
+        and not (set(_SEGMENT_PARTS.split(seg)) & (_DOC_TOKENS - _DOCS_ONLY))
+        and (seg not in CONVENTION_DIRS or seg in _DOCS_ONLY)
+        for seg in hits
+    )
+
 # Файлы и каталоги CI и служебных инструментов (ТЗ §15 п. 10 А9): верхний services: у
 # .woodpecker.yml Lemmy стал базой, примеры правил .semgrep PostHog дали расписания. Такие
 # файлы не читаются вовсе (ни compose по содержимому, ни ярус кода), в покрытии они в
@@ -456,6 +474,9 @@ class Listing:
     files: tuple[str, ...]
     excluded: tuple[Excluded, ...]
     ignore_file: str | None  # путь .archmapignore, если он был
+    # Файлы, исключённые только каталогами документации (docs_only): их видит лишь
+    # разборщик openapi (ТЗ §15 п. 13 Д2), в покрытии они среди исключённых.
+    docs: tuple[str, ...] = ()
 
 
 def _walk(top: Path, root: Path, skip: Sequence[Path]) -> list[str]:
@@ -513,6 +534,7 @@ def list_files(
     inc = [Pattern(p) for p in includes if p.strip()]
 
     files: list[str] = []
+    docs: list[str] = []
     counts: Counter[tuple[str, str]] = Counter()
     prefix = ctx.scope + "/" if ctx.scope else ""
     for rel in raw:
@@ -539,6 +561,8 @@ def list_files(
             # Каталог и compose-файл отчитываются от корня, шаблон имени — как есть.
             shown, scoped = rule
             counts[(prefix + shown if scoped else shown, "convention")] += 1
+            if docs_only(rel[len(prefix):]):
+                docs.append(rel)
             continue
         template = template_rule(rel[len(prefix):])
         if template is not None:
@@ -549,7 +573,9 @@ def list_files(
         Excluded(path=path, files=n, reason=reason)
         for (path, reason), n in sorted(counts.items())
     )
-    return Listing(files=tuple(files), excluded=excluded, ignore_file=ignore_file)
+    return Listing(
+        files=tuple(files), excluded=excluded, ignore_file=ignore_file, docs=tuple(docs),
+    )
 
 
 def _drop_ours(root: Path, rels: Iterable[str], skip: Sequence[Path]) -> list[str]:
@@ -584,9 +610,11 @@ def _drop_ours(root: Path, rels: Iterable[str], skip: Sequence[Path]) -> list[st
 class Files:
     """Файлы области и их чтение по запросу разборщика (с кэшем и пределами)."""
 
-    def __init__(self, root: Path, paths: Iterable[str]) -> None:
+    def __init__(self, root: Path, paths: Iterable[str], docs: Iterable[str] = ()) -> None:
         self.root = root
         self.paths: tuple[str, ...] = tuple(sorted(paths))
+        # Исключённые каталоги документации (Listing.docs): только для разборщика openapi.
+        self.docs: tuple[str, ...] = tuple(sorted(docs))
         self._cache: dict[str, str | None] = {}
         self._dirs: frozenset[str] | None = None
         # Производное от перечня на время запуска (индекс манифестов, модулей Python):
