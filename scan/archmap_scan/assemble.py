@@ -1053,11 +1053,42 @@ def _absorb(kept: Obj, gone: Obj) -> None:
     kept.language = kept.language or gone.language
 
 
-def _merge_duplicates(model: Model) -> None:
+def _prefixed(
+    objs: list[Obj], prefixes: list[str],
+) -> tuple[Obj, Obj] | None:
+    """Пара по имени с префиксом системы (ТЗ §15 п. 13 Д9): контейнеры разных семей
+    манифестов, имя первого — «<система>-<имя второго>» или «<система>_<имя второго>» без
+    учёта регистра, язык или технология совпадают или у одного технология не задана.
+    Возвращает (короткий, длинный)."""
+    by_name = {o.name.lower(): o for o in objs if o.is_container}
+    for long in objs:
+        if not long.is_container:
+            continue
+        low = long.name.lower()
+        for prefix in prefixes:
+            if len(low) <= len(prefix) + 1 or not low.startswith(prefix) or (
+                low[len(prefix)] not in "-_"
+            ):
+                continue
+            short = by_name.get(low[len(prefix) + 1:])
+            if short is None or short is long or set(short.parsers) & set(long.parsers):
+                continue
+            if (
+                short.technology is None or long.technology is None
+                or short.technology == long.technology
+                or (short.language is not None and short.language == long.language)
+            ):
+                return short, long
+    return None
+
+
+def _merge_duplicates(model: Model, prefixes: list[str] | None = None) -> None:
     """Один процесс, описанный двумя манифестами, даёт один контейнер (ТЗ §13.5). Grafana:
     корневой Dockerfile даёт grafana, а systemd запускает /usr/share/grafana/bin/grafana
     под именем grafana-server. Остаётся контейнер из Dockerfile, иначе с более коротким
-    именем; склейка записана в hints.merged с источниками обоих."""
+    именем; склейка записана в hints.merged с источниками обоих. Затем пары по имени с
+    префиксом системы (_prefixed, Д9: dist/mastodon-web.service и web compose): имя
+    остаётся короткое, у сервиса compose."""
     programs = {id(o): _programs(o) for o in model.objects}
     while (pair := _duplicate(model.objects, programs)) is not None:
         runner, named, command = pair
@@ -1071,6 +1102,15 @@ def _merge_duplicates(model: Model) -> None:
             "kind": "container", "name": gone.name, "object": kept.name,
             "reason": texts.REASON_MERGED,
             "source": [str(loc) for loc in sorted({min(u.loc for u in named.units), command})],
+        })
+    while prefixes and (twin := _prefixed(model.objects, prefixes)) is not None:
+        kept, gone = twin
+        sources = sorted({min(u.loc for u in gone.units), min(u.loc for u in kept.units)})
+        _absorb(kept, gone)
+        model.objects.remove(gone)
+        model.hint("merged", {
+            "kind": "container", "name": gone.name, "object": kept.name,
+            "reason": texts.REASON_MERGED_PREFIX, "source": [str(loc) for loc in sources],
         })
 
 
@@ -1241,7 +1281,12 @@ def assemble(findings: Findings, ctx: Context) -> Model:
     model.objects = _objects(list(findings.units), findings, model, ctx)
     _init_tasks(model)
     _tasks(model)
-    _merge_duplicates(model)
+    # Префикс имени системы: последняя часть имени (@mastodon/mastodon → mastodon) и каталог
+    # корня, без учёта регистра.
+    prefixes = list(dict.fromkeys(
+        p.lower() for p in (model.system.rsplit("/", 1)[-1], ctx.root.name) if p
+    ))
+    _merge_duplicates(model, prefixes)
     _dev_objects(model)
     if not any(o.is_container for o in model.objects):
         # Манифестов нет: процессы по файлам сборки (ТЗ §13.4), иначе единственный неявный

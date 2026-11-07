@@ -1,0 +1,3 @@
+# Ловушка: язык другой (Python), склейки нет.
+[Service]
+ExecStart=/usr/bin/python3 -m shop.worker

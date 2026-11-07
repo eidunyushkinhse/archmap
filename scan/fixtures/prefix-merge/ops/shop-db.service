@@ -1,0 +1,3 @@
+# Ловушка: db — база, shop-db — сервис, виды разные.
+[Service]
+ExecStart=/opt/shop/bin/db-backup

@@ -339,6 +339,26 @@ def test_compose_stand_name_is_dev_sign() -> None:
     }
 
 
+def test_merge_by_system_prefix() -> None:
+    """Склейка по имени с префиксом продукта (ТЗ §15 п. 13 Д9): dist/mastodon-web.service и
+    dist/mastodon-streaming.service Mastodon оставались дублями compose web и streaming
+    (команды разной формы, склейка по команде §13.5 их не видит). Имя остаётся короткое, у
+    сервиса compose, источники обоих в evidence, запись в hints.merged. Ловушки: shop-db
+    (сервис) и db (база) разных видов; shop-worker на Python и worker на Ruby."""
+    model = model_of(FIXTURES / "prefix-merge", system="shop")
+    assert sorted(o.name for o in model.objects) == [
+        "db", "shop-db", "shop-worker", "streaming", "web", "worker",
+    ]
+    assert "ops/shop-web.service:2" in {str(loc) for loc in _obj(model, "web").locs}
+    assert _obj(model, "streaming").parsers == ["compose", "systemd"]
+    assert [(h["name"], h["object"], h["reason"], h["source"]) for h in model.hints["merged"]] == [
+        ("shop-streaming", "streaming", texts.REASON_MERGED_PREFIX,
+         ["docker-compose.yml:6", "ops/shop-streaming.service:1"]),
+        ("shop-web", "web", texts.REASON_MERGED_PREFIX,
+         ["docker-compose.yml:3", "ops/shop-web.service:1"]),
+    ]
+
+
 def test_compose_in_code_dir_of_other_container_is_stand() -> None:
     """Compose-файл в каталоге кода контейнера из другого боевого файла — стенд разработки
     компонента (livestream/ и rust/ PostHog): каталог сборки capture (rust/) и каталог
