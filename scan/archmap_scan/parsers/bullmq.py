@@ -43,6 +43,7 @@ _MEMBER_REF = re.compile(
 )
 _NAME_KEY = re.compile(rf"(?<![A-Za-z0-9_$])name[ \t]*:{SP}")
 _STR = re.compile(STR)
+_SEPARATORS = re.compile(r"[ \t\r\n,]{0,200}")
 # Слова, которыми кончается имя реестра очередей; «…QueueName(s)» тоже реестр.
 _QUEUE_WORDS = frozenset({"queue", "queues"})
 _QUEUE_SUFFIXES = ("QueueName", "QueueNames")
@@ -148,9 +149,10 @@ def _names_at(
         if why:
             return out, why, end
         out.extend(names)
-        pos = end + 1
-        while pos < len(mask) and mask[pos] in " \t\r\n,":
-            pos += 1
+        if end >= len(mask) or mask[end] != "}":
+            return out, None, end  # объект не закрыт в пределах: дальше не читать
+        gap = _SEPARATORS.match(mask, end + 1)
+        pos = gap.end() if gap is not None else end + 1
     return out, None, pos
 
 
