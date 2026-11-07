@@ -21,6 +21,7 @@ MANIFESTS: dict[str, str | bytes] = {
         '{"dependencies": {"express": "*", "@nestjs/core": "*", "kafkajs": "*", "amqplib": "*",'
         ' "nats": "*", "bullmq": "*"}}'
     ),
+    "rb/Gemfile": 'gem "sidekiq"\n',
     "go/go.mod": (
         "module x\n\nrequire (\n\tgithub.com/gin-gonic/gin v1.0.0\n"
         "\tgithub.com/segmentio/kafka-go v0.4.0\n\tgithub.com/nats-io/nats.go v1.0.0\n)\n"
@@ -61,6 +62,13 @@ STARTS: dict[str, tuple[str, ...]] = {
         BMQ + "new Worker('", BMQ + "new Queue(QueueName.", BMQ + "@Processor({ name: '",
         BMQ + "BullModule.registerQueue({ name: '", BMQ + "BullModule.registerQueue({",
         "enum QueueName {\n  A = '", "enum QueueName {\n  ",
+    ),
+    # Классы воркеров Sidekiq и их наследники (ТЗ §15 п. 13 В3).
+    "rb/app.rb": (
+        "class A\n  include Sidekiq::Worker\n  sidekiq_options queue: '",
+        "class A\n  include Sidekiq::Worker\n  sidekiq_options queue: ",
+        "class A\n  include Sidekiq::Worker\nend\nclass B < A", "class A < ",
+        "include Sidekiq::Worker\n", "class ",
     ),
     "go/main.go": (
         'r.GET("', 'http.HandleFunc("', 'v1 := r.Group("', 'r.Route("/x", func(r chi.Router) {',

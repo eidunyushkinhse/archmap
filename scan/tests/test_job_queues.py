@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
+from archmap_scan import texts
 from archmap_scan.model import Findings
-from archmap_scan.parsers import bullmq
-from tests.helpers import FIXTURES, files_of, model_of
+from archmap_scan.parsers import bullmq, sidekiq
+from tests.helpers import FIXTURES, files_of, model_of, tree
 
 Row = tuple[str, str | None, str]
 
@@ -62,3 +65,83 @@ def test_bullmq_queues() -> None:
     assert [c.channel for c in model.consumers["server"]] == [
         "metadataExtraction", "reports", "thumbnailGeneration",
     ]
+
+
+def test_sidekiq_queues_and_schedule() -> None:
+    """Sidekiq (В3): Mastodon config/sidekiq.yml:3–10 (:queues: списками [имя, вес] и
+    [имя], ERB во вставке :concurrency:), раздел :scheduler: :schedule: с every списком и
+    cron со вставкой ERB; классы app/workers/*.rb с include Sidekiq::Worker и
+    sidekiq_options queue: 'pull' (app/workers/unmerge_worker.rb:7). Владелец потребителей
+    и расписаний — контейнер, команда которого запускает sidekiq, а не web того же каталога.
+    Ловушки: sidekiq_options retry: 0 без queue — очередь default; mailers из :queues: без
+    воркеров — канал без связи; наследник класса воркера берёт его очередь, и одноимённые
+    классы разных модулей различаются (Mastodon: DistributionWorker и
+    ActivityPub::DistributionWorker < ActivityPub::RawDistributionWorker в app/workers/);
+    очередь выражением уходит в подсказки; закомментированный include и perform_async не
+    читаются."""
+    ctx, files = files_of(FIXTURES / "sidekiq-queues")
+    found = sidekiq.parse(files, ctx)
+    assert _rows(found) == [
+        ("ingress", "consume", "app/workers/application_worker.rb:2"),
+        ("ingress", "consume", "app/workers/application_worker.rb:6"),
+        ("default", "consume", "app/workers/distribution.rb:3"),
+        ("push", "consume", "app/workers/distribution.rb:7"),
+        ("push", "consume", "app/workers/distribution.rb:11"),
+        ("push", "consume", "app/workers/distribution.rb:14"),
+        ("push", "consume", "app/workers/push_update_worker.rb:2"),
+        ("default", "consume", "app/workers/scheduler/cleanup_scheduler.rb:3"),
+        ("pull", "consume", "app/workers/unmerge_worker.rb:2"),
+        ("default", None, "config/sidekiq.yml:4"),
+        ("push", None, "config/sidekiq.yml:5"),
+        ("mailers", None, "config/sidekiq.yml:6"),
+        ("pull", None, "config/sidekiq.yml:7"),
+    ]
+    assert [(h.data["name"], h.data["source"]) for h in found.hints] == [
+        ("QUEUE_NAME", "app/workers/application_worker.rb:10"),
+    ]
+    assert [(s.name, s.schedule, s.task, str(s.loc)) for s in found.schedules] == [
+        ("cleanup_scheduler", "5m", "Scheduler::CleanupScheduler", "config/sidekiq.yml:10"),
+        ("vacuum_scheduler", "<%= Random.rand(0..59) %> 3 * * *", "Scheduler::VacuumScheduler",
+         "config/sidekiq.yml:13"),
+    ]
+    model = model_of(FIXTURES / "sidekiq-queues")
+    assert sorted(model.channels["redis"]) == ["default", "ingress", "mailers", "pull", "push"]
+    links = {(lk.src.name, lk.dst.name, lk.label, lk.channel) for lk in model.links}
+    assert links == {
+        ("web", "redis", "использует", None), ("sidekiq", "redis", "использует", None),
+        ("redis", "sidekiq", "доставляет", "default"),
+        ("redis", "sidekiq", "доставляет", "ingress"),
+        ("redis", "sidekiq", "доставляет", "pull"),
+        ("redis", "sidekiq", "доставляет", "push"),
+    }
+    assert len(model.consumers["sidekiq"]) == 9 and "web" not in model.consumers
+    assert [s.name for s in model.schedules["sidekiq"]] == ["cleanup_scheduler", "vacuum_scheduler"]
+
+
+def test_sidekiq_without_runner(tmp_path: Path) -> None:
+    """Нет процесса, который запускает sidekiq: потребитель и расписание уходят в подсказки
+    с причиной, канал остаётся у брокера. YAML, который не разбирается, читается построчно."""
+    root = tree(tmp_path, {
+        "Gemfile": 'gem "sidekiq"\n',
+        "Dockerfile": "FROM ruby:3.3\n",
+        "docker-compose.yml": (
+            "services:\n  web:\n    build: .\n    command: bundle exec puma\n"
+            "    depends_on: [redis]\n  redis:\n    image: redis:7\n"
+        ),
+        "config/sidekiq.yml": ":queues:\n  - [default, 8]\n  - 'pull'\n:broken: [\n",
+        "app/workers/a_worker.rb": "class AWorker\n  include Sidekiq::Worker\nend\n",
+    })
+    ctx, files = files_of(root)
+    assert _rows(sidekiq.parse(files, ctx)) == [
+        ("default", "consume", "app/workers/a_worker.rb:2"),
+        ("default", None, "config/sidekiq.yml:2"),
+        ("pull", None, "config/sidekiq.yml:3"),
+    ]
+    model = model_of(root)
+    assert sorted(model.channels["redis"]) == ["default", "pull"]
+    hints = [h for h in model.hints["unassigned"] if h["kind"] == "edge"]
+    assert hints == [{
+        "kind": "edge", "name": "default", "object": "redis",
+        "reason": texts.REASON_NO_RUNNER.format(program="sidekiq"),
+        "source": "app/workers/a_worker.rb:2",
+    }]

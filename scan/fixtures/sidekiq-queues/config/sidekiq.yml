@@ -1,0 +1,15 @@
+---
+:concurrency: <%= ENV.fetch('SIDEKIQ_CONCURRENCY', 5) %>
+:queues:
+  - [default, 8]
+  - [push, 6]
+  - mailers
+  - [pull]
+:scheduler:
+  :schedule:
+    cleanup_scheduler:
+      every: ['5m', first_in: '4m']
+      class: Scheduler::CleanupScheduler
+    vacuum_scheduler:
+      cron: '<%= Random.rand(0..59) %> 3 * * *'
+      class: Scheduler::VacuumScheduler

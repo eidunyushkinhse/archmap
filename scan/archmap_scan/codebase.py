@@ -27,12 +27,13 @@ from archmap_scan.walk import (
     tooling_kind,
 )
 
-PYTHON, NODE, GO = "Python", "Node.js", "Go"
+PYTHON, NODE, GO, RUBY = "Python", "Node.js", "Go", "Ruby"
 
 LANG_EXTS: dict[str, tuple[str, ...]] = {
     PYTHON: (".py",),
     NODE: (".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".jsx", ".tsx"),
     GO: (".go",),
+    RUBY: (".rb",),  # только классы воркеров Sidekiq (ТЗ §15 п. 13 В3)
 }
 # Собранный и сжатый код, объявления типов: исполняемого кода продукта там нет.
 _GENERATED_SUFFIXES = (".min.js", ".bundle.js", ".d.ts", ".d.mts", ".d.cts")

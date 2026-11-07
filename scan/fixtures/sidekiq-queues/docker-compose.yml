@@ -1,0 +1,11 @@
+services:
+  web:
+    build: .
+    command: bundle exec puma -C config/puma.rb
+    depends_on: [redis]
+  sidekiq:
+    build: .
+    command: bundle exec sidekiq
+    depends_on: [redis]
+  redis:
+    image: redis:7

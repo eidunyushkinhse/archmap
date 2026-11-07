@@ -40,6 +40,7 @@ from archmap_scan.parsers import (
     procfile,
     pyenv,
     rabbitmq,
+    sidekiq,
     sql,
     supervisor,
     systemd,
@@ -97,6 +98,7 @@ PARSERS: tuple[ParserSpec, ...] = (
     ParserSpec(rabbitmq.NAME, _CHANNEL_FAMILIES, rabbitmq.parse, code=True),
     ParserSpec(nats.NAME, _CHANNEL_FAMILIES, nats.parse, code=True),
     ParserSpec(bullmq.NAME, _CHANNEL_FAMILIES, bullmq.parse, code=True),
+    ParserSpec(sidekiq.NAME, (*_CHANNEL_FAMILIES, "schedules"), sidekiq.parse, code=True),
     ParserSpec(celerybeat.NAME, ("schedules",), celerybeat.parse, code=True),
     ParserSpec(crontab.NAME, ("schedules",), crontab.parse),
 )

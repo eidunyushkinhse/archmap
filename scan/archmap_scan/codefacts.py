@@ -25,7 +25,10 @@ hints.unassigned, а канал при этом пишется.
 
 Расписание из кода Celery beat или файла crontab получает контейнер файла, среди
 нескольких — единственный с ролью «планировщик»; иначе оно уходит в hints.unassigned.
-Воркеров из кода сборщик не заводит: только из манифестов.
+Воркеров из кода сборщик не заводит: только из манифестов. Запись с программой-исполнителем
+(runner: классы воркеров и расписание Sidekiq) получает среди контейнеров файла тот, чья
+команда запускает эту программу (bundle exec sidekiq), а не контейнер по роли (ТЗ §15 п. 13
+В3: у Mastodon web и sidekiq собраны из одного каталога).
 
 Записи разборщиков кода из служебных каталогов и конфигов инструментов
 (codebase.tooling_reason) и переменные операционной системы или CI (vocab.is_os_variable)
@@ -60,7 +63,7 @@ EnvOf = dict[str, list[tuple[EnvVar, str]]]
 _CLIENT_TECH = {
     "Kafka": frozenset({"Kafka", "Redpanda"}), "RabbitMQ": frozenset({"RabbitMQ"}),
     "NATS": frozenset({"NATS"}), "Celery": frozenset({"Redis", "RabbitMQ"}),
-    "BullMQ": frozenset({"Redis"}),
+    "BullMQ": frozenset({"Redis"}), "Sidekiq": frozenset({"Redis"}),
 }
 # Клиент → технология брокера по клиенту в порядке создания: Celery последним, его брокер
 # бывает тот же RabbitMQ.
@@ -76,6 +79,26 @@ _WORDS = re.compile(r"[a-z][a-z-]*")
 # Разборщики яруса кода: только их записи бывают из служебных каталогов (файл crontab и
 # команды воркеров из манифестов — не код).
 _CODE_PARSERS = frozenset(p.name for p in registry.PARSERS if p.code)
+
+
+def _runs(obj: Obj, program: str) -> bool:
+    """Команда одного из манифестов объекта запускает программу (bundle exec sidekiq)."""
+    return any(vocab.command_program(u.command) == program for u in obj.units)
+
+
+def _runner(
+    rel: str, program: str, file_owners: Sequence[Obj], containers: Sequence[Obj],
+) -> tuple[Obj | None, str]:
+    """Владелец записи процесса program среди контейнеров файла (ТЗ §15 п. 13 В3) или
+    причина, почему его нет."""
+    runners = [o for o in file_owners if _runs(o, program)]
+    if len(runners) == 1:
+        return runners[0], ""
+    if runners:
+        return None, texts.REASON_MANY_OWNERS
+    if file_owners:
+        return None, texts.REASON_NO_RUNNER.format(program=program)
+    return None, owners.missing_reason(rel, containers)
 
 
 def _serves_http(obj: Obj) -> bool:
@@ -337,14 +360,18 @@ def _channels(model: Model, findings: Findings, containers: Sequence[Obj], env_o
         if use.direction is None:
             continue
         prefer = vocab.ROLE_WORKER if use.direction == "consume" else vocab.ROLE_SERVICE
-        container = owners.primary(file_owners, prefer)
+        if use.runner:
+            container, reason = _runner(use.loc.path, use.runner, file_owners, containers)
+        else:
+            container = owners.primary(file_owners, prefer)
+            reason = texts.REASON_MANY_OWNERS if file_owners else owners.missing_reason(
+                use.loc.path, containers,
+            )
         if container is None:
             # Канал записан брокеру, а чья это публикация или подписка, не известно.
             model.code_parsers.setdefault("edges", set()).add(use.parser)
             model.hint("unassigned", {
-                "kind": "edge", "name": use.name, "object": broker.name,
-                "reason": texts.REASON_MANY_OWNERS if file_owners
-                else owners.missing_reason(use.loc.path, containers),
+                "kind": "edge", "name": use.name, "object": broker.name, "reason": reason,
                 "source": str(use.loc),
             })
             continue
@@ -368,11 +395,14 @@ def _schedules(model: Model, findings: Findings, containers: Sequence[Obj]) -> N
             _unassigned(model, "schedule", sch.name, aside, sch.loc)
             continue
         found = owners.file_owners(sch.loc.path, containers)
-        owner = owners.primary(found, vocab.ROLE_SCHEDULER)
-        if owner is None:
+        if sch.runner:
+            owner, why = _runner(sch.loc.path, sch.runner, found, containers)
+        else:
+            owner = owners.primary(found, vocab.ROLE_SCHEDULER)
             why = texts.REASON_MANY_OWNERS if found else owners.missing_reason(
                 sch.loc.path, containers,
             )
+        if owner is None:
             _unassigned(model, "schedule", sch.name, why, sch.loc)
             continue
         model.schedules.setdefault(owner.name, []).append(Schedule(

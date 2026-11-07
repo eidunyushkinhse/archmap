@@ -77,14 +77,13 @@ def test_code_unsupported_stacks() -> None:
     ]
     # Параметры в коде Python, Node.js и Go читает ярус кода; viper только транзитивный.
     assert stacks["config"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
-    # Каналы Celery, Kafka, RabbitMQ, NATS и BullMQ читает ярус кода; Sidekiq на Ruby — нет,
-    # как и любые каналы на языках без чтения кода. Воркеры BullMQ из кода не заводятся.
-    assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
+    # Каналы Celery, Kafka, RabbitMQ, NATS, BullMQ и Sidekiq читает ярус кода; прочий код на
+    # Ruby нет, и язык назван сам, как любые каналы на языках без чтения кода. Воркеры BullMQ и
+    # Sidekiq из кода не заводятся.
+    assert stacks["channels"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust"]
     assert stacks["workers"] == [".NET", "BullMQ", "Elixir", "Java", "PHP", "Ruby: Sidekiq", "Rust"]
-    # Расписания Celery beat читает разборщик celery-beat.
-    assert stacks["schedules"] == [
-        ".NET", "Elixir", "Java", "PHP", "Ruby: sidekiq-scheduler", "Rust: clokwerk",
-    ]
+    # Расписания Celery beat читает разборщик celery-beat, sidekiq-scheduler — sidekiq.
+    assert stacks["schedules"] == [".NET", "Elixir", "Java", "PHP", "Ruby", "Rust: clokwerk"]
     assert stacks["tables"] == ["Ecto", "Kysely"]
 
 
@@ -243,7 +242,9 @@ def test_known_language_family_is_empty_not_unknown(tmp_path: Path) -> None:
     run(Options(path=str(root), out=str(out), system="Ярмарка", use_git=False))
     families = yaml.safe_load((out / "coverage.yaml").read_text(encoding="utf-8"))["families"]
     assert families["channels"]["status"] == "empty"
-    assert families["channels"]["parsers"] == ["celery", "kafka", "rabbitmq", "nats", "bullmq"]
+    assert families["channels"]["parsers"] == [
+        "celery", "kafka", "rabbitmq", "nats", "bullmq", "sidekiq",
+    ]
     assert families["http_routes"]["status"] == "empty"
 
     images = tree(tmp_path / "img", {"docker-compose.yml": "services:\n  cache:\n    image: redis:7\n"})

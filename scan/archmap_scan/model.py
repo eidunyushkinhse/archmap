@@ -208,6 +208,9 @@ class ChannelUse:
     # Технология брокера по схеме адреса литералом в том же файле (Celery: redis:// →
     # Redis): нужна, когда брокера в манифестах нет (ТЗ §13.2).
     broker_tech: str | None = None
+    # Программа процесса-потребителя (sidekiq): владелец среди контейнеров файла тот, чья
+    # команда её запускает (ТЗ §15 п. 13 В3), а не любой контейнер того же каталога.
+    runner: str | None = None
 
 
 @dataclass
@@ -219,6 +222,7 @@ class CodeSchedule:
     task: str | None
     loc: Loc
     parser: str
+    runner: str | None = None  # программа, которая исполняет расписание (как у ChannelUse)
 
 
 @dataclass

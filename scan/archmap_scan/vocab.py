@@ -283,12 +283,11 @@ CLIENTS: tuple[tuple[str, str], ...] = (
 )
 
 # Клиенты брокеров, каналы которых ярус кода не читает (ТЗ §6.4: SQS, Pub/Sub). Каналы
-# Kafka, RabbitMQ, NATS, очереди Celery, BullMQ и Bull читаются разборщиками kafka,
-# rabbitmq, nats, celery, bullmq.
+# Kafka, RabbitMQ, NATS, очереди Celery, BullMQ, Bull и Sidekiq читаются разборщиками kafka,
+# rabbitmq, nats, celery, bullmq, sidekiq.
 UNSUPPORTED_CHANNEL_DEPS: tuple[tuple[str, str], ...] = (
     ("google-cloud-pubsub", "Pub/Sub"), ("@google-cloud/pubsub", "Pub/Sub"),
     ("cloud.google.com/go/pubsub", "Pub/Sub"), ("@aws-sdk/client-sqs", "SQS"),
-    ("sidekiq", "Sidekiq"),
 )
 
 # Библиотеки фоновых обработчиков в коде, которые ярус кода не читает (ТЗ §15 п. 10 А12:
@@ -298,13 +297,14 @@ UNSUPPORTED_WORKER_DEPS: tuple[tuple[str, str], ...] = (
 )
 
 # Планировщики в коде, расписания которых ярус кода не читает (ТЗ §6.2: литералы node-cron
-# и schedule не ищутся); Celery beat читает разборщик celery-beat.
+# и schedule не ищутся); Celery beat читает разборщик celery-beat, sidekiq-scheduler из
+# config/sidekiq.yml — разборщик sidekiq.
 UNSUPPORTED_SCHEDULE_DEPS: tuple[tuple[str, str], ...] = (
     ("node-cron", "node-cron"), ("cron", "cron"), ("node-schedule", "node-schedule"),
     ("agenda", "Agenda"), ("schedule", "schedule"), ("apscheduler", "APScheduler"),
     ("rq-scheduler", "rq-scheduler"), ("django-crontab", "django-crontab"),
     ("github.com/robfig/cron", "robfig/cron"), ("github.com/go-co-op/gocron", "gocron"),
-    ("clokwerk", "clokwerk"), ("sidekiq-scheduler", "sidekiq-scheduler"),
+    ("clokwerk", "clokwerk"),
 )
 
 # Переменные операционной системы и CI (ТЗ §13.1): параметрами контейнера не считаются, из

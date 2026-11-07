@@ -117,7 +117,7 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
 - `yamlload.py`, `tomlite.py`, `sqlddl.py`, `pyast.py` — чтение YAML, TOML, SQL DDL и Python
   с пределами против враждебного входа.
 - Ярус кода: маршруты `fastapi`, `flask`, `djangourls`, `express`, `nest`, `gohttp`, параметры
-  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, расписания `celerybeat`,
+  `pyenv`, `nodeenv`, `goenv`, каналы `celery`, `kafka`, `rabbitmq`, `nats`, `bullmq`, `sidekiq`, расписания `celerybeat`,
   `crontab`; файлы по стеку пакета — `codebase.py`, владельцы записей — `codefacts.py`.
   Записи из служебных каталогов и конфигов инструментов (`walk.TOOLING_TOKENS`) и переменные
   ОС (`vocab.is_os_variable`) уходят в подсказки, а не в факты (ТЗ §13.1). Реестры каналов
@@ -227,3 +227,8 @@ git diff scan/fixtures/yarmarka.expected/   # это ревью правки; к
     `new Worker('x')` и `@Processor('x')` потребляют, `BullModule.registerQueue({ name })`
     объявляет; enum с последним словом `queue(s)` или концом `QueueName(s)` и строковыми
     членами даёт очереди Redis и раскрывает `QueueName.X`, переменная уходит в подсказки (В2);
+  - Sidekiq (`parsers/sidekiq.py`): `:queues:` из `config/sidekiq*.yml` объявляют очереди Redis,
+    `:scheduler: :schedule:` даёт расписания (ERB как написано), класс с `include
+    Sidekiq::Worker` или `Sidekiq::Job` и его наследники потребляют очередь `sidekiq_options
+    queue:` (иначе `default`); владелец среди контейнеров файла тот, чья команда запускает
+    sidekiq (`ChannelUse.runner`, В3);
